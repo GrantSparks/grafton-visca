@@ -11,7 +11,7 @@
 
 // Workspace / local-crate imports
 use crate::{
-    command::{encode_visca::EncodeVisca, ResponseType},
+    command::{const_encoding::builder::CommandBuilder, encode_visca::EncodeVisca, ResponseType},
     error::Error,
     timeout::CommandCategory,
 };
@@ -60,36 +60,27 @@ impl PresetCommand {
 impl EncodeVisca for PresetCommand {
     type Response = ();
     const MAX_SIZE: usize = 7;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Preset;
 
     fn encode_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
+        use crate::command::const_encoding::constants::preset;
 
-        buffer[0] = camera_id.to_address_byte();
-        buffer[1] = 0x01;
-        buffer[2] = 0x04;
-        buffer[3] = 0x3F;
-        buffer[4] = self.action as u8;
-        buffer[5] = self.preset_number.value();
-        buffer[6] = 0xFF;
+        let command = CommandBuilder::<7>::from_prefix(preset::CONTROL_PREFIX)
+            .with_camera_id(camera_id)
+            .push(self.action as u8)
+            .push(self.preset_number.value())
+            .build();
 
-        Ok(Self::MAX_SIZE)
+        buffer[..7].copy_from_slice(&command);
+        Ok(7)
     }
 
     fn response_type(&self) -> Option<ResponseType> {
         None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Preset
     }
 }
 
@@ -97,6 +88,7 @@ impl EncodeVisca for PresetCommand {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
+    use crate::macros::test_utils::visca_test;
 
     #[test]
     fn test_preset_number_new() {
@@ -134,47 +126,38 @@ mod tests {
         assert_eq!(PresetAction::Recall as u8, 0x02);
     }
 
-    #[test]
-    fn test_preset_command_reset() {
-        let cmd = PresetCommand {
+    visca_test!(
+        PresetCommand,
+        test_preset_command_reset,
+        PresetCommand {
             action: PresetAction::Reset,
             preset_number: PresetNumber::new(10)
                 .unwrap_or_else(|e| panic!("Valid preset number: {e:?}")),
-        };
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Valid command: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x3F, 0x00, 0x0A, 0xFF]
-        );
-    }
+        },
+        &[0x81, 0x01, 0x04, 0x3F, 0x00, 0x0A, 0xFF]
+    );
 
-    #[test]
-    fn test_preset_command_set() {
-        let cmd = PresetCommand {
+    visca_test!(
+        PresetCommand,
+        test_preset_command_set,
+        PresetCommand {
             action: PresetAction::Set,
             preset_number: PresetNumber::new(45)
                 .unwrap_or_else(|e| panic!("Valid preset number: {e:?}")),
-        };
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Valid command: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x3F, 0x01, 0x2D, 0xFF]
-        );
-    }
+        },
+        &[0x81, 0x01, 0x04, 0x3F, 0x01, 0x2D, 0xFF]
+    );
 
-    #[test]
-    fn test_preset_command_recall() {
-        let cmd = PresetCommand {
+    visca_test!(
+        PresetCommand,
+        test_preset_command_recall,
+        PresetCommand {
             action: PresetAction::Recall,
             preset_number: PresetNumber::new(89)
                 .unwrap_or_else(|e| panic!("Valid preset number: {e:?}")),
-        };
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Valid command: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x3F, 0x02, 0x59, 0xFF]
-        );
-    }
+        },
+        &[0x81, 0x01, 0x04, 0x3F, 0x02, 0x59, 0xFF]
+    );
 
     #[test]
     fn test_preset_timeout_kind() {

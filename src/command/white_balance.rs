@@ -11,17 +11,19 @@
 //! - `AWBSensitivity` - PTZOptics specific
 
 // Standard library imports
-use std::borrow::Cow;
-use std::convert::TryFrom;
+// (none)
 
 // Crate imports
-use crate::{error::Error, visca_param_command};
+use crate::macros::internal::*;
+
+use crate::command::const_encoding::constants;
+use grafton_visca_macros::ViscaEnum;
 
 /// White balance modes.
 ///
 /// Controls how the camera adjusts color temperature to ensure
 /// white objects appear white under different lighting conditions.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
 pub enum WhiteBalanceMode {
     /// Automatic white balance adjustment.
     Auto = 0x00,
@@ -75,17 +77,17 @@ visca_param_command! {
     pub(crate) struct WhiteBalanceCommand {
         mode: WhiteBalanceMode,
     }
-    prefix = [0x81, 0x01, 0x04, 0x35];
+    prefix = constants::white_balance::MODE_PREFIX;
     param_byte = *mode as u8;
     timeout = Quick;
 }
 
-crate::visca_param_command! {
+visca_param_command! {
     /// Command to set AWB sensitivity.
     pub(crate) struct AWBSensitivityCommand {
         sensitivity: AutoWhiteBalanceSensitivity,
     }
-    prefix = [0x81, 0x01, 0x04, 0xA9];
+    prefix = constants::white_balance::AWB_SENSITIVITY_PREFIX;
     param_byte = sensitivity.to_command_byte();
     timeout = Quick;
 }
@@ -98,33 +100,13 @@ impl AWBSensitivityCommand {
     }
 }
 
-impl TryFrom<u8> for WhiteBalanceMode {
-    type Error = Error;
-
-    fn try_from(v: u8) -> Result<Self, Self::Error> {
-        match v {
-            0x00 => Ok(Self::Auto),
-            0x01 => Ok(Self::Indoor),
-            0x02 => Ok(Self::Outdoor),
-            0x03 => Ok(Self::OnePush),
-            0x04 => Ok(Self::ATW),
-            0x05 => Ok(Self::Manual),
-            0x20 => Ok(Self::ColorTemperature),
-            _ => Err(Error::InvalidResponse {
-                expected: Cow::Borrowed("0x00 (Auto), 0x01 (Indoor), 0x02 (Outdoor), 0x03 (OnePush), 0x04 (ATW), 0x05 (Manual), or 0x20 (ColorTemperature)"),
-                actual: vec![v],
-            }),
-        }
-    }
-}
-
 #[cfg(test)]
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
     use crate::command::encode_visca::EncodeVisca;
+    use crate::macros::test_utils::visca_test;
     use crate::timeout::CommandCategory;
-    use crate::visca_test;
 
     #[test]
     fn test_white_balance_mode_values() {

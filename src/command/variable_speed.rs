@@ -4,7 +4,7 @@
 //! When in 50-step mode, pan/tilt speed values can range from 1-50 for finer control.
 
 use crate::{
-    command::{encode_visca::EncodeVisca, ResponseType},
+    command::{const_encoding::builder::CommandBuilder, encode_visca::EncodeVisca, ResponseType},
     error::Error,
     timeout::CommandCategory,
 };
@@ -40,70 +40,50 @@ impl VariableSpeedModeCommand {
 impl EncodeVisca for VariableSpeedModeCommand {
     type Response = ();
     const MAX_SIZE: usize = 7;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn encode_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        if buffer.len() < 7 {
-            return Err(Error::BufferTooSmall {
-                required: 7,
-                actual: buffer.len(),
-            });
-        }
+        use crate::command::const_encoding::constants;
 
         let mode_byte = match self.mode {
             VariableSpeedMode::Standard24 => 0x01,
             VariableSpeedMode::Fine50 => 0x02,
         };
 
-        buffer[0] = camera_id.to_address_byte();
-        buffer[1] = 0x01;
-        buffer[2] = 0x7E;
-        buffer[3] = 0x04;
-        buffer[4] = 0x1B;
-        buffer[5] = mode_byte;
-        buffer[6] = 0xFF;
+        let command = CommandBuilder::<7>::from_prefix(constants::variable_speed::CONTROL_PREFIX)
+            .with_camera_id(camera_id)
+            .push(mode_byte)
+            .build();
 
+        buffer[..7].copy_from_slice(&command);
         Ok(7)
     }
 
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
-    }
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
+    use crate::macros::test_utils::visca_test;
 
-    #[test]
-    fn test_variable_speed_mode_standard24() {
-        let cmd = VariableSpeedModeCommand::new(VariableSpeedMode::Standard24);
-        let mut buffer = [0u8; 10];
-        let camera_id = crate::camera_id::CameraId::default();
-        let len = cmd
-            .encode_into(camera_id, &mut buffer)
-            .expect("Failed to encode VariableSpeedModeCommand");
-        assert_eq!(len, 7);
-        assert_eq!(&buffer[..7], &[0x81, 0x01, 0x7E, 0x04, 0x1B, 0x01, 0xFF]);
-    }
+    visca_test!(
+        VariableSpeedModeCommand,
+        test_variable_speed_mode_standard24,
+        VariableSpeedModeCommand::new(VariableSpeedMode::Standard24),
+        &[0x81, 0x01, 0x7E, 0x04, 0x1B, 0x01, 0xFF]
+    );
 
-    #[test]
-    fn test_variable_speed_mode_fine50() {
-        let cmd = VariableSpeedModeCommand::new(VariableSpeedMode::Fine50);
-        let mut buffer = [0u8; 10];
-        let camera_id = crate::camera_id::CameraId::default();
-        let len = cmd
-            .encode_into(camera_id, &mut buffer)
-            .expect("Failed to encode VariableSpeedModeCommand");
-        assert_eq!(len, 7);
-        assert_eq!(&buffer[..7], &[0x81, 0x01, 0x7E, 0x04, 0x1B, 0x02, 0xFF]);
-    }
+    visca_test!(
+        VariableSpeedModeCommand,
+        test_variable_speed_mode_fine50,
+        VariableSpeedModeCommand::new(VariableSpeedMode::Fine50),
+        &[0x81, 0x01, 0x7E, 0x04, 0x1B, 0x02, 0xFF]
+    );
 }

@@ -11,15 +11,18 @@
 //!   These features coordinate pan, tilt, and zoom movements for smoother preset recalls.
 
 // Standard library imports
-use std::borrow::Cow;
+// (none)
 
 // Third-party crate imports
 // (none)
 
 // Workspace / local-crate imports
-use crate::{error::Error, visca_param_command};
+use crate::macros::internal::*;
 
-crate::visca_const_command! {
+use crate::command::const_encoding::constants;
+use grafton_visca_macros::ViscaEnum;
+
+visca_const_command! {
     /// Command to set camera address (broadcast, serial only).
     ///
     /// This is used during initial setup of VISCA cameras on a serial bus.
@@ -31,7 +34,7 @@ crate::visca_const_command! {
     response = None;
 }
 
-crate::visca_const_command! {
+visca_const_command! {
     /// Command to clear the interface (broadcast, serial only).
     ///
     /// This resets the command buffer and clears any pending commands.
@@ -44,54 +47,23 @@ crate::visca_const_command! {
 }
 
 /// Motion sync modes for coordinated camera movement.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
 pub enum MotionSyncMode {
     /// Motion sync disabled.
-    Off,
+    Off = 0x02,
     /// Motion sync enabled.
-    On,
-}
-
-impl TryFrom<u8> for MotionSyncMode {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0x02 => Ok(MotionSyncMode::Off),
-            0x03 => Ok(MotionSyncMode::On),
-            _ => Err(Error::InvalidResponse {
-                expected: Cow::Borrowed("0x02 (Off) or 0x03 (On)"),
-                actual: vec![value],
-            }),
-        }
-    }
+    On = 0x03,
 }
 
 /// Motion sync speed settings for camera movement.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
 pub enum MotionSyncSpeed {
     /// Slow motion sync speed.
-    Slow,
+    Slow = 0x00,
     /// Normal motion sync speed.
-    Normal,
+    Normal = 0x01,
     /// Fast motion sync speed.
-    Fast,
-}
-
-impl TryFrom<u8> for MotionSyncSpeed {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0x00 => Ok(MotionSyncSpeed::Slow),
-            0x01 => Ok(MotionSyncSpeed::Normal),
-            0x02 => Ok(MotionSyncSpeed::Fast),
-            _ => Err(Error::InvalidResponse {
-                expected: Cow::Borrowed("0x00 (Slow), 0x01 (Normal), or 0x02 (Fast)"),
-                actual: vec![value],
-            }),
-        }
-    }
+    Fast = 0x02,
 }
 
 /// Socket to cancel commands on.
@@ -119,7 +91,7 @@ visca_param_command! {
     pub(crate) struct CommandCancelCommand {
         socket: Socket,
     }
-    prefix = [0x81];
+    prefix = constants::system_cmd::CANCEL_PREFIX;
     param_byte = u8::from(*socket);
     timeout = Quick;
 }
@@ -135,52 +107,48 @@ impl CommandCancelCommand {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use crate::macros::test_utils::visca_test;
     use crate::{command::encode_visca::EncodeVisca, timeout::CommandCategory};
 
+    visca_test!(
+        AddressSetCommand,
+        test_address_set_command,
+        AddressSetCommand::new(),
+        &[0x88, 0x30, 0x01, 0xFF]
+    );
+
+    visca_test!(
+        InterfaceClearCommand,
+        test_interface_clear_command,
+        InterfaceClearCommand::new(),
+        &[0x88, 0x01, 0x00, 0x01, 0xFF]
+    );
+
+    visca_test!(
+        CommandCancelCommand,
+        test_command_cancel_socket1,
+        CommandCancelCommand::new(Socket::Socket1),
+        &[0x81, 0x21, 0xFF]
+    );
+
+    visca_test!(
+        CommandCancelCommand,
+        test_command_cancel_socket2,
+        CommandCancelCommand::new(Socket::Socket2),
+        &[0x81, 0x22, 0xFF]
+    );
+
     #[test]
-    fn test_address_set_command() {
+    fn test_response_type_and_timeout() {
         let cmd = AddressSetCommand::new();
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap(),
-            vec![0x88, 0x30, 0x01, 0xFF]
-        );
         assert!(cmd.response_type().is_none());
         assert_eq!(cmd.timeout_kind(), CommandCategory::Quick);
-    }
 
-    #[test]
-    fn test_interface_clear_command() {
         let cmd = InterfaceClearCommand::new();
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap(),
-            vec![0x88, 0x01, 0x00, 0x01, 0xFF]
-        );
         assert!(cmd.response_type().is_none());
         assert_eq!(cmd.timeout_kind(), CommandCategory::Quick);
-    }
 
-    #[test]
-    fn test_command_cancel_socket1() {
         let cmd = CommandCancelCommand::new(Socket::Socket1);
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap(),
-            vec![0x81, 0x21, 0xFF]
-        );
-        assert!(cmd.response_type().is_none());
-        assert_eq!(cmd.timeout_kind(), CommandCategory::Quick);
-    }
-
-    #[test]
-    fn test_command_cancel_socket2() {
-        let cmd = CommandCancelCommand::new(Socket::Socket2);
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap(),
-            vec![0x81, 0x22, 0xFF]
-        );
         assert!(cmd.response_type().is_none());
         assert_eq!(cmd.timeout_kind(), CommandCategory::Quick);
     }

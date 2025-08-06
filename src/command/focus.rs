@@ -11,78 +11,46 @@
 //! - `PushAF` - Sony FR7 specific
 
 // Standard library imports
-use std::borrow::Cow;
+// (none)
 
 // Third-party crate imports
 // (none)
 
 // Workspace / local-crate imports
+use crate::macros::internal::*;
+
 use crate::{
     command::{encode_visca::EncodeVisca, ResponseType},
     error::Error,
     timeout::CommandCategory,
     types::{FocusPosition, SpeedLevel},
-    visca_command,
 };
+use grafton_visca_macros::ViscaEnum;
 
 /// Focus mode setting.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
 pub enum FocusMode {
     /// Automatic focus mode.
-    Auto,
+    Auto = 0x02,
     /// Manual focus mode.
-    Manual,
-}
-
-impl TryFrom<u8> for FocusMode {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0x02 => Ok(FocusMode::Auto),
-            0x03 => Ok(FocusMode::Manual),
-            _ => Err(Error::InvalidResponse {
-                expected: Cow::Borrowed("0x02 (Auto) or 0x03 (Manual)"),
-                actual: vec![value],
-            }),
-        }
-    }
+    Manual = 0x03,
 }
 
 /// Focus range setting.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
 pub enum FocusRange {
     /// Normal focus range.
-    Normal,
+    Normal = 0x00,
     /// 10x focus range.
-    Range10x,
+    Range10x = 0x01,
     /// 4.3x focus range.
-    Range4_3x,
+    Range4_3x = 0x02,
     /// 2.1x focus range.
-    Range2_1x,
+    Range2_1x = 0x03,
     /// 1x focus range.
-    Range1x,
+    Range1x = 0x04,
     /// 0.35x focus range.
-    Range0_35x,
-}
-
-impl TryFrom<u8> for FocusRange {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0x00 => Ok(FocusRange::Normal),
-            0x01 => Ok(FocusRange::Range10x),
-            0x02 => Ok(FocusRange::Range4_3x),
-            0x03 => Ok(FocusRange::Range2_1x),
-            0x04 => Ok(FocusRange::Range1x),
-            0x05 => Ok(FocusRange::Range0_35x),
-            _ => Err(Error::InvalidResponse {
-                expected: Cow::Borrowed("0x00-0x05 (focus range)"),
-                actual: vec![value],
-            }),
-        }
-    }
+    Range0_35x = 0x05,
 }
 
 crate::visca_bounded_param! {
@@ -138,113 +106,77 @@ impl Focus {
 impl EncodeVisca for Focus {
     type Response = ();
     const MAX_SIZE: usize = 9;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
 
     fn encode_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
+        use crate::command::const_encoding::{constants, CommandBuilder};
+
         match self {
             Self::Stop | Self::Far | Self::Near => {
-                if buffer.len() < 6 {
-                    return Err(Error::BufferTooSmall {
-                        required: 6,
-                        actual: buffer.len(),
-                    });
-                }
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x08;
-                buffer[4] = match self {
-                    Self::Stop => 0x00,
-                    Self::Far => 0x02,
-                    Self::Near => 0x03,
-                    _ => unreachable!(),
-                };
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder = CommandBuilder::<6>::new();
+                builder
+                    .append(constants::focus::MOVEMENT_PREFIX)
+                    .push(match self {
+                        Self::Stop => 0x00,
+                        Self::Far => 0x02,
+                        Self::Near => 0x03,
+                        _ => unreachable!(),
+                    })
+                    .with_camera_id(camera_id)
+                    .finalize();
+                builder.copy_to(buffer)
             }
             Self::FarWithSpeed(_) | Self::NearWithSpeed(_) => {
-                if buffer.len() < 6 {
-                    return Err(Error::BufferTooSmall {
-                        required: 6,
-                        actual: buffer.len(),
-                    });
-                }
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x08;
-                buffer[4] = match self {
-                    Self::FarWithSpeed(s) => 0x20 | s.value(),
-                    Self::NearWithSpeed(s) => 0x30 | s.value(),
-                    _ => unreachable!(),
-                };
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder = CommandBuilder::<6>::new();
+                builder
+                    .append(constants::focus::MOVEMENT_PREFIX)
+                    .push(match self {
+                        Self::FarWithSpeed(s) => 0x20 | s.value(),
+                        Self::NearWithSpeed(s) => 0x30 | s.value(),
+                        _ => unreachable!(),
+                    })
+                    .with_camera_id(camera_id)
+                    .finalize();
+                builder.copy_to(buffer)
             }
             Self::Position(position) => {
-                if buffer.len() < Self::MAX_SIZE {
-                    return Err(Error::BufferTooSmall {
-                        required: Self::MAX_SIZE,
-                        actual: buffer.len(),
-                    });
-                }
-                let pos_val = position.value();
-                let p0 = ((pos_val >> 12) & 0x0F) as u8;
-                let p1 = ((pos_val >> 8) & 0x0F) as u8;
-                let p2 = ((pos_val >> 4) & 0x0F) as u8;
-                let p3 = (pos_val & 0x0F) as u8;
-
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x48;
-                buffer[4] = p0;
-                buffer[5] = p1;
-                buffer[6] = p2;
-                buffer[7] = p3;
-                buffer[8] = 0xFF;
-                Ok(Self::MAX_SIZE)
+                let mut builder = CommandBuilder::<9>::new();
+                builder
+                    .append(constants::focus::POSITION_PREFIX)
+                    .push_visca_u16(position.value())
+                    .with_camera_id(camera_id)
+                    .finalize();
+                builder.copy_to(buffer)
             }
             Self::Auto | Self::Manual => {
-                if buffer.len() < 6 {
-                    return Err(Error::BufferTooSmall {
-                        required: 6,
-                        actual: buffer.len(),
-                    });
-                }
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x38;
-                buffer[4] = match self {
-                    Self::Auto => 0x02,
-                    Self::Manual => 0x03,
-                    _ => unreachable!(),
-                };
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder = CommandBuilder::<6>::new();
+                builder
+                    .append(constants::focus::MODE_PREFIX)
+                    .push(match self {
+                        Self::Auto => 0x02,
+                        Self::Manual => 0x03,
+                        _ => unreachable!(),
+                    })
+                    .with_camera_id(camera_id)
+                    .finalize();
+                builder.copy_to(buffer)
             }
             Self::OnePushTrigger | Self::Infinity => {
-                if buffer.len() < 6 {
-                    return Err(Error::BufferTooSmall {
-                        required: 6,
-                        actual: buffer.len(),
-                    });
-                }
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x18;
-                buffer[4] = match self {
-                    Self::OnePushTrigger => 0x01,
-                    Self::Infinity => 0x02,
-                    _ => unreachable!(),
-                };
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder = CommandBuilder::<6>::new();
+                builder
+                    .append(constants::focus::ONE_PUSH_PREFIX)
+                    .push(match self {
+                        Self::OnePushTrigger => 0x01,
+                        Self::Infinity => 0x02,
+                        _ => unreachable!(),
+                    })
+                    .with_camera_id(camera_id)
+                    .finalize();
+                builder.copy_to(buffer)
             }
         }
     }
@@ -252,42 +184,22 @@ impl EncodeVisca for Focus {
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Movement
-    }
 }
 
 /// Focus Zone selection (baseline VISCA).
 ///
 /// Determines which area of the image the camera uses for auto focus.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
 pub enum FocusZone {
     /// Focus on the top area of the image.
-    Top,
+    Top = 0x00,
     /// Focus on the center area of the image (default).
-    Center,
+    Center = 0x01,
     /// Focus on the bottom area of the image.
-    Bottom,
+    Bottom = 0x02,
 }
 
-impl TryFrom<u8> for FocusZone {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0x00 => Ok(FocusZone::Top),
-            0x01 => Ok(FocusZone::Center),
-            0x02 => Ok(FocusZone::Bottom),
-            _ => Err(Error::InvalidResponse {
-                expected: Cow::Borrowed("0x00 (Top), 0x01 (Center), or 0x02 (Bottom)"),
-                actual: vec![value],
-            }),
-        }
-    }
-}
-
-crate::visca_builder! {
+visca_builder! {
     /// Command to set the focus zone.
     pub(crate) struct FocusZoneCommand {
         /// The focus zone to select.
@@ -299,7 +211,7 @@ crate::visca_builder! {
             FocusZone::Center => 0x01,
             FocusZone::Bottom => 0x02,
         };
-        let _ = builder.append(&[0x81, 0x01, 0x04, 0xAA]);
+        let _ = builder.append(crate::command::const_encoding::constants::focus::ZONE_PREFIX);
         let _ = builder.push(zone_byte);
         let _ = builder.push(0xFF);
     }
@@ -309,33 +221,17 @@ crate::visca_builder! {
 /// Auto Focus Sensitivity levels.
 ///
 /// Controls how responsive the auto focus system is to changes in the scene.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
 pub enum AutoFocusSensitivity {
-    /// High sensitivity - quick focus response to scene changes.
-    High,
-    /// Normal sensitivity - balanced focus response (default).
-    Normal,
     /// Low sensitivity - slower focus response, more stable in changing scenes.
-    Low,
+    Low = 0x00,
+    /// Normal sensitivity - balanced focus response (default).
+    Normal = 0x01,
+    /// High sensitivity - quick focus response to scene changes.
+    High = 0x02,
 }
 
-impl TryFrom<u8> for AutoFocusSensitivity {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0x02 => Ok(AutoFocusSensitivity::High),
-            0x01 => Ok(AutoFocusSensitivity::Normal),
-            0x00 => Ok(AutoFocusSensitivity::Low),
-            _ => Err(Error::InvalidResponse {
-                expected: Cow::Borrowed("0x00 (Low), 0x01 (Normal), or 0x02 (High)"),
-                actual: vec![value],
-            }),
-        }
-    }
-}
-
-crate::visca_builder! {
+visca_builder! {
     /// Command to set auto focus sensitivity.
     pub(crate) struct AutoFocusSensitivityCommand {
         /// The sensitivity level to set.
@@ -347,14 +243,14 @@ crate::visca_builder! {
             AutoFocusSensitivity::Normal => 0x01,
             AutoFocusSensitivity::Low => 0x00,
         };
-        let _ = builder.append(&[0x81, 0x01, 0x04, 0x58]);
+        let _ = builder.append(crate::command::const_encoding::constants::focus::AF_SENSITIVITY_PREFIX);
         let _ = builder.push(sens_byte);
         let _ = builder.push(0xFF);
     }
     timeout = Quick;
 }
 
-crate::visca_builder! {
+visca_builder! {
     /// Command to set the focus near limit.
     ///
     /// Sets the minimum focus distance to prevent the camera from
@@ -370,7 +266,7 @@ crate::visca_builder! {
         let p2 = ((pos_val >> 4) & 0x0F) as u8;
         let p3 = (pos_val & 0x0F) as u8;
 
-        let _ = builder.append(&[0x81, 0x01, 0x04, 0x28]);
+        let _ = builder.append(crate::command::const_encoding::constants::focus::NEAR_LIMIT_PREFIX);
         let _ = builder.push(p0);
         let _ = builder.push(p1);
         let _ = builder.push(p2);
@@ -424,40 +320,29 @@ pub enum PushAF {
 impl EncodeVisca for PushAF {
     type Response = ();
     const MAX_SIZE: usize = 8;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn encode_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
+        use crate::command::const_encoding::{constants, CommandBuilder};
 
-        buffer[0] = camera_id.to_address_byte();
-        buffer[1] = 0x01;
-        buffer[2] = 0x7E;
-        buffer[3] = 0x01;
-        buffer[4] = 0x0A;
-        buffer[5] = 0x00;
-        buffer[6] = match self {
-            Self::Press => 0x01,
-            Self::Release => 0x00,
-        };
-        buffer[7] = 0xFF;
-
-        Ok(Self::MAX_SIZE)
+        let mut builder = CommandBuilder::<8>::new();
+        builder
+            .append(constants::focus::PUSH_AF_PREFIX)
+            .push(match self {
+                Self::Press => 0x01,
+                Self::Release => 0x00,
+            })
+            .with_camera_id(camera_id)
+            .finalize();
+        builder.copy_to(buffer)
     }
 
     fn response_type(&self) -> Option<ResponseType> {
         None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
     }
 }
 
@@ -466,7 +351,7 @@ impl EncodeVisca for PushAF {
 mod tests {
     use super::*;
     use crate::command::encode_visca::EncodeVisca;
-    use crate::visca_test;
+    use crate::macros::test_utils::visca_test;
 
     visca_test!(
         Focus,
