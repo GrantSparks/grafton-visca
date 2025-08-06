@@ -35,11 +35,7 @@
 
 // Workspace / local-crate imports
 use crate::{
-    command::{
-        const_encoding::{CommandBuilder, DEFAULT_ADDRESS},
-        encode_visca::EncodeVisca,
-        ResponseType,
-    },
+    command::{const_encoding::CommandBuilder, encode_visca::EncodeVisca, ResponseType},
     error::Error,
     timeout::CommandCategory,
     types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed},
@@ -123,7 +119,7 @@ impl PanTiltDirection {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::visca_test;
+    use crate::macros::test_utils::visca_test;
 
     visca_test!(
         PanTilt,
@@ -254,6 +250,7 @@ impl PanTilt {
 impl EncodeVisca for PanTilt {
     type Response = ();
     const MAX_SIZE: usize = 15;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
 
     fn encode_into(
         &self,
@@ -280,8 +277,7 @@ impl EncodeVisca for PanTilt {
             } => {
                 // Move command: 81 01 06 01 VV WW XX YY FF
                 // Where VV = pan speed, WW = tilt speed, XX YY = direction
-                let mut builder =
-                    CommandBuilder::<9>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x06, 0x01]);
+                let mut builder = CommandBuilder::<9>::from_prefix(pan_tilt::MOVE_PREFIX);
                 builder.with_camera_id(camera_id);
 
                 let (pan_dir, tilt_dir) = direction.to_bytes();
@@ -301,8 +297,7 @@ impl EncodeVisca for PanTilt {
                 tilt_speed,
             } => {
                 // Absolute position: 81 01 06 02 VV WW PP PP PP PP TT TT TT TT FF
-                let mut builder =
-                    CommandBuilder::<15>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x06, 0x02]);
+                let mut builder = CommandBuilder::<15>::from_prefix(pan_tilt::ABSOLUTE_PREFIX);
                 builder.with_camera_id(camera_id);
 
                 builder
@@ -321,8 +316,7 @@ impl EncodeVisca for PanTilt {
                 tilt_speed,
             } => {
                 // Relative position: 81 01 06 03 VV WW PP PP PP PP TT TT TT TT FF
-                let mut builder =
-                    CommandBuilder::<15>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x06, 0x03]);
+                let mut builder = CommandBuilder::<15>::from_prefix(pan_tilt::RELATIVE_PREFIX);
                 builder.with_camera_id(camera_id);
 
                 builder
@@ -337,12 +331,10 @@ impl EncodeVisca for PanTilt {
             Self::LimitSet { corner, pan, tilt } => {
                 // PT Limit Set: 81 01 06 07 00 0W PPPP TTTT FF
                 // Where W = corner (0-3), PPPP = pan position, TTTT = tilt position
-                let mut builder =
-                    CommandBuilder::<15>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x06, 0x07]);
+                let mut builder = CommandBuilder::<15>::from_prefix(pan_tilt::LIMIT_SET_PREFIX);
                 builder.with_camera_id(camera_id);
 
                 builder
-                    .push(0x00)
                     .push(corner.to_byte())
                     .push_visca_u16(pan.value() as u16)
                     .push_visca_u16(tilt.value() as u16)
@@ -353,12 +345,10 @@ impl EncodeVisca for PanTilt {
             Self::LimitClear { corner } => {
                 // PT Limit Clear: 81 01 06 07 01 0W 07 0F 0F 0F 07 0F 0F 0F FF
                 // Where W = corner (0-3), the rest are fixed values per PTZOptics spec
-                let mut builder =
-                    CommandBuilder::<15>::from_prefix(&[DEFAULT_ADDRESS, 0x01, 0x06, 0x07]);
+                let mut builder = CommandBuilder::<15>::from_prefix(pan_tilt::LIMIT_CLEAR_PREFIX);
                 builder.with_camera_id(camera_id);
 
                 builder
-                    .push(0x01)
                     .push(corner.to_byte())
                     .push(0x07)
                     .push(0x0F)
@@ -377,9 +367,5 @@ impl EncodeVisca for PanTilt {
 
     fn response_type(&self) -> Option<ResponseType> {
         None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Movement
     }
 }

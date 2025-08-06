@@ -8,14 +8,30 @@
 use crate::error::Error;
 
 /// Default network ports for different VISCA camera types
+#[deprecated(
+    since = "0.7.0",
+    note = "Port constants have been moved to camera profiles. Use ProfileMetadata::DEFAULT_TCP_PORT and ProfileMetadata::DEFAULT_UDP_PORT instead."
+)]
 pub mod ports {
     /// Default UDP port for PTZOptics and generic VISCA cameras (raw protocol)
+    #[deprecated(
+        since = "0.7.0",
+        note = "Use ProfileMetadata::DEFAULT_UDP_PORT instead"
+    )]
     pub const PTZOPTICS_UDP_PORT: u16 = 1259;
 
     /// Default TCP port for PTZOptics and generic VISCA cameras (raw protocol)
+    #[deprecated(
+        since = "0.7.0",
+        note = "Use ProfileMetadata::DEFAULT_TCP_PORT instead"
+    )]
     pub const PTZOPTICS_TCP_PORT: u16 = 5678;
 
     /// Default port for Sony VISCA cameras (encapsulated protocol)
+    #[deprecated(
+        since = "0.7.0",
+        note = "Use ProfileMetadata::DEFAULT_TCP_PORT/DEFAULT_UDP_PORT instead"
+    )]
     pub const SONY_VISCA_PORT: u16 = 52381;
 }
 

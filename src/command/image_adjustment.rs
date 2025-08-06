@@ -7,110 +7,52 @@
 use std::borrow::Cow;
 
 // Crate imports
+use crate::macros::internal::*;
+
 use crate::{
     command::{encode_visca::EncodeVisca, ResponseType},
     error::Error,
     timeout::CommandCategory,
     types::{ContrastLevel, LuminanceLevel},
 };
+use grafton_visca_macros::ViscaEnum;
 
 /// Sharpness control modes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
 pub enum SharpnessMode {
     /// Automatic sharpness adjustment based on scene content.
-    Auto,
+    Auto = 0x02,
     /// Manual sharpness control.
-    Manual,
-}
-
-impl TryFrom<u8> for SharpnessMode {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0x02 => Ok(SharpnessMode::Auto),
-            0x03 => Ok(SharpnessMode::Manual),
-            _ => Err(Error::InvalidResponse {
-                expected: Cow::Borrowed("0x02 (Auto) or 0x03 (Manual)"),
-                actual: vec![value],
-            }),
-        }
-    }
+    Manual = 0x03,
 }
 
 /// Noise reduction modes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
 pub enum NrMode {
     /// Noise reduction disabled.
-    Off,
+    Off = 0x02,
     /// Noise reduction enabled.
-    On,
-}
-
-impl TryFrom<u8> for NrMode {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0x02 => Ok(NrMode::Off),
-            0x03 => Ok(NrMode::On),
-            _ => Err(Error::InvalidResponse {
-                expected: Cow::Borrowed("0x02 (Off) or 0x03 (On)"),
-                actual: vec![value],
-            }),
-        }
-    }
+    On = 0x03,
 }
 
 /// Noise reduction speed settings.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
 pub enum NrSpeed {
     /// Slow noise reduction processing.
-    Slow,
+    Slow = 0x00,
     /// Normal noise reduction processing.
-    Normal,
+    Normal = 0x01,
     /// Fast noise reduction processing.
-    Fast,
-}
-
-impl TryFrom<u8> for NrSpeed {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0x00 => Ok(NrSpeed::Slow),
-            0x01 => Ok(NrSpeed::Normal),
-            0x02 => Ok(NrSpeed::Fast),
-            _ => Err(Error::InvalidResponse {
-                expected: Cow::Borrowed("0x00 (Slow), 0x01 (Normal), or 0x02 (Fast)"),
-                actual: vec![value],
-            }),
-        }
-    }
+    Fast = 0x02,
 }
 
 /// Black and white mode settings.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
 pub enum BlackWhiteMode {
     /// Color mode (normal operation).
-    Color,
+    Color = 0x02,
     /// Black and white mode.
-    BlackWhite,
-}
-
-impl TryFrom<u8> for BlackWhiteMode {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0x02 => Ok(BlackWhiteMode::Color),
-            0x03 => Ok(BlackWhiteMode::BlackWhite),
-            _ => Err(Error::InvalidResponse {
-                expected: Cow::Borrowed("0x02 (Color) or 0x03 (BlackWhite)"),
-                actual: vec![value],
-            }),
-        }
-    }
+    BlackWhite = 0x03,
 }
 
 /// Sharpness control commands.
@@ -137,18 +79,14 @@ pub enum Sharpness {
 impl EncodeVisca for Sharpness {
     type Response = ();
     const MAX_SIZE: usize = 9;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Custom;
 
     fn encode_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
+        use crate::command::const_encoding::{constants, CommandBuilder};
 
         match self {
             Self::Mode(mode) => {
@@ -156,40 +94,40 @@ impl EncodeVisca for Sharpness {
                     SharpnessMode::Auto => 0x02,
                     SharpnessMode::Manual => 0x03,
                 };
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x05;
-                buffer[4] = mode_byte;
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder = CommandBuilder::<6>::new();
+                builder
+                    .append(constants::image::SHARPNESS_MODE_PREFIX)
+                    .push(mode_byte)
+                    .with_camera_id(camera_id)
+                    .finalize();
+                builder.copy_to(buffer)
             }
             Self::Reset => {
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x02;
-                buffer[4] = 0x00;
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder = CommandBuilder::<6>::new();
+                builder
+                    .append(constants::image::SHARPNESS_CONTROL_PREFIX)
+                    .push(0x00)
+                    .with_camera_id(camera_id)
+                    .finalize();
+                builder.copy_to(buffer)
             }
             Self::Up => {
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x02;
-                buffer[4] = 0x02;
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder = CommandBuilder::<6>::new();
+                builder
+                    .append(constants::image::SHARPNESS_CONTROL_PREFIX)
+                    .push(0x02)
+                    .with_camera_id(camera_id)
+                    .finalize();
+                builder.copy_to(buffer)
             }
             Self::Down => {
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x02;
-                buffer[4] = 0x03;
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder = CommandBuilder::<6>::new();
+                builder
+                    .append(constants::image::SHARPNESS_CONTROL_PREFIX)
+                    .push(0x03)
+                    .with_camera_id(camera_id)
+                    .finalize();
+                builder.copy_to(buffer)
             }
             Self::SetLevel { value } => {
                 if *value > 11 {
@@ -199,26 +137,13 @@ impl EncodeVisca for Sharpness {
                         reason: Cow::Borrowed("Sharpness value must be in the range 0..=11"),
                     });
                 }
-                let high = (*value >> 4) & 0x0F;
-                let low = *value & 0x0F;
-
-                if buffer.len() < 9 {
-                    return Err(Error::BufferTooSmall {
-                        required: 9,
-                        actual: buffer.len(),
-                    });
-                }
-
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x42;
-                buffer[4] = 0x00;
-                buffer[5] = 0x00;
-                buffer[6] = high;
-                buffer[7] = low;
-                buffer[8] = 0xFF;
-                Ok(9)
+                let mut builder = CommandBuilder::<9>::new();
+                builder
+                    .append(constants::image::SHARPNESS_LEVEL_PREFIX)
+                    .push_nibble_pair(*value as u16)
+                    .with_camera_id(camera_id)
+                    .finalize();
+                builder.copy_to(buffer)
             }
         }
     }
@@ -226,15 +151,11 @@ impl EncodeVisca for Sharpness {
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Custom
-    }
 }
 
-crate::visca_builder! {
+visca_builder! {
     /// Command to set the luminance (brightness) level.
-    pub(crate) struct LuminanceCommand {
+    pub struct LuminanceCommand {
         /// The luminance level to set.
         value: LuminanceLevel,
     }
@@ -252,9 +173,9 @@ impl LuminanceCommand {
     }
 }
 
-crate::visca_builder! {
+visca_builder! {
     /// Command to set the contrast level.
-    pub(crate) struct ContrastCommand {
+    pub struct ContrastCommand {
         /// The contrast level to set.
         value: ContrastLevel,
     }
@@ -273,84 +194,83 @@ impl ContrastCommand {
 }
 
 #[cfg(test)]
-#[allow(clippy::panic)]
+#[allow(clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::command::encode_visca::EncodeVisca;
     use crate::constants::CameraVariant;
+    use crate::macros::test_utils::visca_test;
     use crate::types::SharpnessLevel;
 
+    // Test Auto mode
+    visca_test!(
+        Sharpness,
+        test_sharpness_mode_auto,
+        Sharpness::Mode(SharpnessMode::Auto),
+        &[0x81, 0x01, 0x04, 0x05, 0x02, 0xFF]
+    );
+
+    // Test Manual mode
+    visca_test!(
+        Sharpness,
+        test_sharpness_mode_manual,
+        Sharpness::Mode(SharpnessMode::Manual),
+        &[0x81, 0x01, 0x04, 0x05, 0x03, 0xFF]
+    );
+
     #[test]
-    fn test_sharpness_mode() {
-        // Test Auto mode
+    fn test_sharpness_properties() {
         let cmd = Sharpness::Mode(SharpnessMode::Auto);
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x05, 0x02, 0xFF]
-        );
-        assert!(cmd.response_type().is_none());
-        assert!(matches!(cmd.timeout_kind(), CommandCategory::Custom));
-
-        // Test Manual mode
-        let cmd = Sharpness::Mode(SharpnessMode::Manual);
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x05, 0x03, 0xFF]
-        );
-    }
-
-    #[test]
-    fn test_sharpness_reset() {
-        let cmd = Sharpness::Reset;
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x02, 0x00, 0xFF]
-        );
         assert!(cmd.response_type().is_none());
         assert!(matches!(cmd.timeout_kind(), CommandCategory::Custom));
     }
 
-    #[test]
-    fn test_sharpness_up_down() {
-        // Test Up
-        let cmd = Sharpness::Up;
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x02, 0x02, 0xFF]
-        );
+    visca_test!(
+        Sharpness,
+        test_sharpness_reset,
+        Sharpness::Reset,
+        &[0x81, 0x01, 0x04, 0x02, 0x00, 0xFF]
+    );
 
-        // Test Down
-        let cmd = Sharpness::Down;
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x02, 0x03, 0xFF]
-        );
-    }
+    // Test Up
+    visca_test!(
+        Sharpness,
+        test_sharpness_up,
+        Sharpness::Up,
+        &[0x81, 0x01, 0x04, 0x02, 0x02, 0xFF]
+    );
 
-    #[test]
-    fn test_sharpness_set_level() {
-        // Test valid values 0-11
-        for value in 0..=11 {
-            let cmd = Sharpness::SetLevel { value };
-            let bytes = cmd
-                .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            assert_eq!(bytes.len(), 9);
-            assert_eq!(bytes[0..6], [0x81, 0x01, 0x04, 0x42, 0x00, 0x00]);
-            assert_eq!(bytes[6], (value >> 4) & 0x0F);
-            assert_eq!(bytes[7], value & 0x0F);
-            assert_eq!(bytes[8], 0xFF);
-        }
+    // Test Down
+    visca_test!(
+        Sharpness,
+        test_sharpness_down,
+        Sharpness::Down,
+        &[0x81, 0x01, 0x04, 0x02, 0x03, 0xFF]
+    );
 
-        // Test invalid value
-        // SharpnessLevel enforces valid range, so we can't create an invalid value
-        // The validation is done at the type level
-    }
+    // Test sharpness level 0
+    visca_test!(
+        Sharpness,
+        test_sharpness_level_0,
+        Sharpness::SetLevel { value: 0 },
+        &[0x81, 0x01, 0x04, 0x42, 0x00, 0x00, 0x00, 0x00, 0xFF]
+    );
+
+    // Test sharpness level 5
+    visca_test!(
+        Sharpness,
+        test_sharpness_level_5,
+        Sharpness::SetLevel { value: 5 },
+        &[0x81, 0x01, 0x04, 0x42, 0x00, 0x00, 0x00, 0x05, 0xFF]
+    );
+
+    // Test sharpness level 11
+    visca_test!(
+        Sharpness,
+        test_sharpness_level_11,
+        Sharpness::SetLevel { value: 11 },
+        &[0x81, 0x01, 0x04, 0x42, 0x00, 0x00, 0x00, 0x0B, 0xFF]
+    );
 
     #[test]
     fn test_sharpness_g2_validation() {
@@ -374,23 +294,35 @@ mod tests {
         assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
     }
 
+    // Test luminance level 0
+    visca_test!(
+        LuminanceCommand,
+        test_luminance_level_0,
+        LuminanceCommand::new(LuminanceLevel::new(0).unwrap()),
+        &[0x81, 0x01, 0x04, 0xA1, 0x00, 0x00, 0x00, 0x00, 0xFF]
+    );
+
+    // Test luminance level 7
+    visca_test!(
+        LuminanceCommand,
+        test_luminance_level_7,
+        LuminanceCommand::new(LuminanceLevel::new(7).unwrap()),
+        &[0x81, 0x01, 0x04, 0xA1, 0x00, 0x00, 0x00, 0x07, 0xFF]
+    );
+
+    // Test luminance level 14
+    visca_test!(
+        LuminanceCommand,
+        test_luminance_level_14,
+        LuminanceCommand::new(LuminanceLevel::new(14).unwrap()),
+        &[0x81, 0x01, 0x04, 0xA1, 0x00, 0x00, 0x00, 0x0E, 0xFF]
+    );
+
     #[test]
-    fn test_luminance_command() {
-        // Test valid values
-        for value in 0..=14 {
-            let level = LuminanceLevel::new(value)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = LuminanceCommand::new(level);
-            let bytes = cmd
-                .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            assert_eq!(
-                bytes,
-                vec![0x81, 0x01, 0x04, 0xA1, 0x00, 0x00, 0x00, value, 0xFF]
-            );
-            assert!(cmd.response_type().is_none());
-            assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
-        }
+    fn test_luminance_properties() {
+        let cmd = LuminanceCommand::new(LuminanceLevel::new(7).unwrap());
+        assert!(cmd.response_type().is_none());
+        assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
     }
 
     #[test]
@@ -407,23 +339,35 @@ mod tests {
         // The LuminanceLevel type itself enforces the valid range
     }
 
+    // Test contrast level 0
+    visca_test!(
+        ContrastCommand,
+        test_contrast_level_0,
+        ContrastCommand::new(ContrastLevel::new(0).unwrap()),
+        &[0x81, 0x01, 0x04, 0xA2, 0x00, 0x00, 0x00, 0x00, 0xFF]
+    );
+
+    // Test contrast level 7
+    visca_test!(
+        ContrastCommand,
+        test_contrast_level_7,
+        ContrastCommand::new(ContrastLevel::new(7).unwrap()),
+        &[0x81, 0x01, 0x04, 0xA2, 0x00, 0x00, 0x00, 0x07, 0xFF]
+    );
+
+    // Test contrast level 14
+    visca_test!(
+        ContrastCommand,
+        test_contrast_level_14,
+        ContrastCommand::new(ContrastLevel::new(14).unwrap()),
+        &[0x81, 0x01, 0x04, 0xA2, 0x00, 0x00, 0x00, 0x0E, 0xFF]
+    );
+
     #[test]
-    fn test_contrast_command() {
-        // Test valid values
-        for value in 0..=14 {
-            let level = ContrastLevel::new(value)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = ContrastCommand::new(level);
-            let bytes = cmd
-                .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            assert_eq!(
-                bytes,
-                vec![0x81, 0x01, 0x04, 0xA2, 0x00, 0x00, 0x00, value, 0xFF]
-            );
-            assert!(cmd.response_type().is_none());
-            assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
-        }
+    fn test_contrast_properties() {
+        let cmd = ContrastCommand::new(ContrastLevel::new(7).unwrap());
+        assert!(cmd.response_type().is_none());
+        assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
     }
 
     #[test]

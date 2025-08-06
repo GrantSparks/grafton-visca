@@ -36,6 +36,12 @@ pub trait ProfileMetadata {
     /// send completion messages when pan/tilt/zoom/focus operations finish.
     /// When true, movement detection can use event-driven completion instead of polling.
     const SUPPORTS_OPERATION_COMPLETE: bool = false;
+
+    /// Default TCP port for this camera profile.
+    const DEFAULT_TCP_PORT: u16;
+
+    /// Default UDP port for this camera profile.
+    const DEFAULT_UDP_PORT: u16;
 }
 
 /// Protocol style determines how VISCA commands are framed.
@@ -282,6 +288,8 @@ mod tests {
         const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::RawVisca;
         const ACK_TIMEOUT: Duration = Duration::from_millis(100);
         const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
+        const DEFAULT_TCP_PORT: u16 = 5678;
+        const DEFAULT_UDP_PORT: u16 = 1259;
     }
 
     #[test]

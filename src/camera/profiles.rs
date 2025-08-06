@@ -101,6 +101,8 @@ impl ProfileMetadata for PTZOpticsG2 {
     const ACK_TIMEOUT: Duration = Duration::from_millis(100);
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
     const SUPPORTS_OPERATION_COMPLETE: bool = true; // PTZOptics cameras support 0x51 completion messages
+    const DEFAULT_TCP_PORT: u16 = 5678;
+    const DEFAULT_UDP_PORT: u16 = 1259;
 }
 
 impl PanTilt for PTZOpticsG2 {
@@ -190,6 +192,8 @@ impl ProfileMetadata for GenericVisca {
     const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::RawVisca;
     const ACK_TIMEOUT: Duration = Duration::from_millis(200);
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(10000);
+    const DEFAULT_TCP_PORT: u16 = 5678;
+    const DEFAULT_UDP_PORT: u16 = 1259;
 }
 
 impl PanTilt for GenericVisca {
@@ -281,6 +285,8 @@ impl ProfileMetadata for SonyFR7 {
     const ACK_TIMEOUT: Duration = Duration::from_millis(200);
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(8000);
     const BUSY_TIMEOUT: Duration = Duration::from_millis(240);
+    const DEFAULT_TCP_PORT: u16 = 52381;
+    const DEFAULT_UDP_PORT: u16 = 52381;
 }
 
 impl PanTilt for SonyFR7 {
@@ -391,6 +397,8 @@ impl ProfileMetadata for SonyBRCH900 {
     };
     const ACK_TIMEOUT: Duration = Duration::from_millis(150);
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(6000);
+    const DEFAULT_TCP_PORT: u16 = 52381;
+    const DEFAULT_UDP_PORT: u16 = 52381;
 }
 
 impl PanTilt for SonyBRCH900 {
@@ -468,6 +476,8 @@ impl ProfileMetadata for SonyEVIH100 {
     const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::RawVisca;
     const ACK_TIMEOUT: Duration = Duration::from_millis(100);
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
+    const DEFAULT_TCP_PORT: u16 = 5678;
+    const DEFAULT_UDP_PORT: u16 = 1259;
 }
 
 impl PanTilt for SonyEVIH100 {
@@ -546,6 +556,8 @@ impl ProfileMetadata for SonyBRC300 {
     const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::RawVisca;
     const ACK_TIMEOUT: Duration = Duration::from_millis(100);
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
+    const DEFAULT_TCP_PORT: u16 = 5678;
+    const DEFAULT_UDP_PORT: u16 = 1259;
 }
 
 impl PanTilt for SonyBRC300 {
@@ -625,6 +637,8 @@ impl ProfileMetadata for NearusBRC300 {
     const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::RawVisca;
     const ACK_TIMEOUT: Duration = Duration::from_millis(100);
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
+    const DEFAULT_TCP_PORT: u16 = 5678;
+    const DEFAULT_UDP_PORT: u16 = 1259;
 }
 
 impl PanTilt for NearusBRC300 {
@@ -702,6 +716,8 @@ impl ProfileMetadata for PTZOpticsG3 {
     const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::RawVisca;
     const ACK_TIMEOUT: Duration = Duration::from_millis(100);
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
+    const DEFAULT_TCP_PORT: u16 = 5678;
+    const DEFAULT_UDP_PORT: u16 = 1259;
 }
 
 impl PanTilt for PTZOpticsG3 {
@@ -784,6 +800,8 @@ impl ProfileMetadata for PTZOptics30X {
     const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::RawVisca;
     const ACK_TIMEOUT: Duration = Duration::from_millis(100);
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
+    const DEFAULT_TCP_PORT: u16 = 5678;
+    const DEFAULT_UDP_PORT: u16 = 1259;
 }
 
 impl PanTilt for PTZOptics30X {

@@ -9,7 +9,9 @@
 // (none)
 
 // Workspace / local-crate imports
-use crate::{command::const_encoding::CommandBuilder, error::Error, visca_command};
+use crate::macros::internal::*;
+
+use crate::{command::const_encoding::CommandBuilder, error::Error};
 
 /// Image flip state.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -151,31 +153,22 @@ impl ImageFreezeCommand {
 )]
 mod tests {
     use super::*;
+    use crate::macros::test_utils::visca_test;
     use crate::{command::encode_visca::EncodeVisca, timeout::CommandCategory};
 
-    #[test]
-    fn test_flip_on_command() {
-        let cmd = ImageFlipCommand::new(Flip::On);
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap(),
-            vec![0x81, 0x01, 0x04, 0x66, 0x02, 0xFF]
-        );
-        assert!(cmd.response_type().is_none());
-        assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
-    }
+    visca_test!(
+        ImageFlipCommand,
+        test_flip_on_command,
+        ImageFlipCommand::new(Flip::On),
+        &[0x81, 0x01, 0x04, 0x66, 0x02, 0xFF]
+    );
 
-    #[test]
-    fn test_flip_off_command() {
-        let cmd = ImageFlipCommand::new(Flip::Off);
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap(),
-            vec![0x81, 0x01, 0x04, 0x66, 0x03, 0xFF]
-        );
-        assert!(cmd.response_type().is_none());
-        assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
-    }
+    visca_test!(
+        ImageFlipCommand,
+        test_flip_off_command,
+        ImageFlipCommand::new(Flip::Off),
+        &[0x81, 0x01, 0x04, 0x66, 0x03, 0xFF]
+    );
 
     #[test]
     fn test_flip_enum_values() {

@@ -10,7 +10,9 @@
 //! - All ND filter commands - Sony FR7 specific
 //! - The FR7 supports variable ND filter (2 to 7 stops, continuously variable)
 
-use crate::{error::Error, visca_bool_command, visca_builder, visca_param_command};
+use crate::macros::internal::*;
+
+use crate::{command::const_encoding::constants, error::Error};
 
 /// ND filter mode for Sony FR7.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,7 +42,7 @@ visca_param_command! {
     pub struct NDFilterModeCommand {
         mode: NDFilterMode,
     }
-    prefix = [0x81, 0x01, 0x7E, 0x04, 0x52];
+    prefix = constants::nd_filter::CONTROL_PREFIX;
     param_byte = u8::from(*mode);
     timeout = Quick;
 }
@@ -64,7 +66,7 @@ visca_builder! {
         value: u16,
     }
     builder<9> => |builder, value| {
-        let _ = builder.append(&[0x81, 0x01, 0x7E, 0x04, 0x42, 0x00]);
+        let _ = builder.append(constants::nd_filter::DIRECT_PREFIX);
         let _ = builder.push_nibble_pair(*value);
     }
     timeout = Quick;
@@ -133,7 +135,7 @@ visca_param_command! {
     pub struct NDFilterStepCommand {
         direction: NDFilterStep,
     }
-    prefix = [0x81, 0x01, 0x7E, 0x04, 0x12];
+    prefix = constants::nd_filter::MODE_PREFIX;
     param_byte = u8::from(*direction);
     timeout = Quick;
 }
@@ -165,47 +167,40 @@ visca_bool_command! {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::command::encode_visca::EncodeVisca;
+    use crate::macros::test_utils::visca_test;
+
+    visca_test!(
+        NDFilterModeCommand,
+        test_nd_filter_mode_preset,
+        NDFilterModeCommand::new(NDFilterMode::Preset),
+        &[0x81, 0x01, 0x7E, 0x04, 0x52, 0x00, 0xFF]
+    );
+
+    visca_test!(
+        NDFilterModeCommand,
+        test_nd_filter_mode_variable,
+        NDFilterModeCommand::new(NDFilterMode::Variable),
+        &[0x81, 0x01, 0x7E, 0x04, 0x52, 0x01, 0xFF]
+    );
+
+    visca_test!(
+        NDFilterValueCommand,
+        test_nd_filter_value_min,
+        NDFilterValueCommand::new(0x0000)
+            .expect("Failed to create NDFilterValueCommand with valid value"),
+        &[0x81, 0x01, 0x7E, 0x04, 0x42, 0x00, 0x00, 0x00, 0xFF]
+    );
+
+    visca_test!(
+        NDFilterValueCommand,
+        test_nd_filter_value_max,
+        NDFilterValueCommand::new(0x0014)
+            .expect("Failed to create NDFilterValueCommand with valid value"),
+        &[0x81, 0x01, 0x7E, 0x04, 0x42, 0x00, 0x01, 0x04, 0xFF]
+    );
 
     #[test]
-    fn test_nd_filter_mode_command() {
-        let cmd = NDFilterModeCommand::new(NDFilterMode::Preset);
-        let mut buffer = [0u8; 10];
-        let len = cmd
-            .encode_into(crate::camera_id::CameraId::default(), &mut buffer)
-            .expect("Failed to encode NDFilterModeCommand");
-        assert_eq!(&buffer[..len], &[0x81, 0x01, 0x7E, 0x04, 0x52, 0x00, 0xFF]);
-
-        let cmd = NDFilterModeCommand::new(NDFilterMode::Variable);
-        let len = cmd
-            .encode_into(crate::camera_id::CameraId::default(), &mut buffer)
-            .expect("Failed to encode NDFilterModeCommand");
-        assert_eq!(&buffer[..len], &[0x81, 0x01, 0x7E, 0x04, 0x52, 0x01, 0xFF]);
-    }
-
-    #[test]
-    fn test_nd_filter_value_command() {
-        let cmd = NDFilterValueCommand::new(0x0000)
-            .expect("Failed to create NDFilterValueCommand with valid value");
-        let mut buffer = [0u8; 10];
-        let len = cmd
-            .encode_into(crate::camera_id::CameraId::default(), &mut buffer)
-            .expect("Failed to encode NDFilterValueCommand");
-        assert_eq!(
-            &buffer[..len],
-            &[0x81, 0x01, 0x7E, 0x04, 0x42, 0x00, 0x00, 0x00, 0xFF]
-        );
-
-        let cmd = NDFilterValueCommand::new(0x0014)
-            .expect("Failed to create NDFilterValueCommand with valid value");
-        let len = cmd
-            .encode_into(crate::camera_id::CameraId::default(), &mut buffer)
-            .expect("Failed to encode NDFilterValueCommand");
-        assert_eq!(
-            &buffer[..len],
-            &[0x81, 0x01, 0x7E, 0x04, 0x42, 0x00, 0x01, 0x04, 0xFF]
-        );
-
+    fn test_nd_filter_value_out_of_range() {
         // Test out of range
         assert!(NDFilterValueCommand::new(0x0015).is_err());
     }
@@ -229,35 +224,31 @@ mod tests {
         assert!(NDFilterValueCommand::from_stops(8.0).is_err());
     }
 
-    #[test]
-    fn test_nd_filter_step_command() {
-        let cmd = NDFilterStepCommand::new(NDFilterStep::Up);
-        let mut buffer = [0u8; 10];
-        let len = cmd
-            .encode_into(crate::camera_id::CameraId::default(), &mut buffer)
-            .expect("Failed to encode NDFilterStepCommand");
-        assert_eq!(&buffer[..len], &[0x81, 0x01, 0x7E, 0x04, 0x12, 0x02, 0xFF]);
+    visca_test!(
+        NDFilterStepCommand,
+        test_nd_filter_step_up,
+        NDFilterStepCommand::new(NDFilterStep::Up),
+        &[0x81, 0x01, 0x7E, 0x04, 0x12, 0x02, 0xFF]
+    );
 
-        let cmd = NDFilterStepCommand::new(NDFilterStep::Down);
-        let len = cmd
-            .encode_into(crate::camera_id::CameraId::default(), &mut buffer)
-            .expect("Failed to encode NDFilterStepCommand");
-        assert_eq!(&buffer[..len], &[0x81, 0x01, 0x7E, 0x04, 0x12, 0x03, 0xFF]);
-    }
+    visca_test!(
+        NDFilterStepCommand,
+        test_nd_filter_step_down,
+        NDFilterStepCommand::new(NDFilterStep::Down),
+        &[0x81, 0x01, 0x7E, 0x04, 0x12, 0x03, 0xFF]
+    );
 
-    #[test]
-    fn test_auto_nd_command() {
-        let cmd = AutoNDCommand::new(true);
-        let mut buffer = [0u8; 10];
-        let len = cmd
-            .encode_into(crate::camera_id::CameraId::default(), &mut buffer)
-            .expect("Failed to encode AutoNDCommand");
-        assert_eq!(&buffer[..len], &[0x81, 0x01, 0x7E, 0x04, 0x53, 0x02, 0xFF]);
+    visca_test!(
+        AutoNDCommand,
+        test_auto_nd_on,
+        AutoNDCommand::new(true),
+        &[0x81, 0x01, 0x7E, 0x04, 0x53, 0x02, 0xFF]
+    );
 
-        let cmd = AutoNDCommand::new(false);
-        let len = cmd
-            .encode_into(crate::camera_id::CameraId::default(), &mut buffer)
-            .expect("Failed to encode AutoNDCommand");
-        assert_eq!(&buffer[..len], &[0x81, 0x01, 0x7E, 0x04, 0x53, 0x03, 0xFF]);
-    }
+    visca_test!(
+        AutoNDCommand,
+        test_auto_nd_off,
+        AutoNDCommand::new(false),
+        &[0x81, 0x01, 0x7E, 0x04, 0x53, 0x03, 0xFF]
+    );
 }

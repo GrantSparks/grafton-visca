@@ -4,11 +4,12 @@
 //! including brightness, contrast, sharpness, saturation, and hue adjustments.
 
 // Crate imports
+use crate::macros::internal::*;
+
 use crate::{
-    command::const_encoding::CommandBuilder,
+    command::const_encoding::{constants, CommandBuilder},
     error::Error,
     types::{NoiseReduction2DLevel, NoiseReduction3DLevel},
-    visca_bool_command, visca_command, visca_param_command,
 };
 
 visca_bool_command! {
@@ -34,7 +35,7 @@ visca_command! {
         /// Disable 2D noise reduction.
         Off => {
             let cmd = CommandBuilder::<6>::new()
-                .append(crate::command::const_encoding::constants::image::NOISE_REDUCTION_2D_PREFIX)
+                .append(constants::image::NOISE_REDUCTION_2D_PREFIX)
                 .push(0x00)
                 .build();
             Ok::<Vec<u8>, Error>(cmd.to_vec())
@@ -42,7 +43,7 @@ visca_command! {
         /// Set 2D noise reduction level.
         Level(level: NoiseReduction2DLevel) => {
             let cmd = CommandBuilder::<6>::new()
-                .append(crate::command::const_encoding::constants::image::NOISE_REDUCTION_2D_PREFIX)
+                .append(constants::image::NOISE_REDUCTION_2D_PREFIX)
                 .push(level.value())
                 .build();
             Ok::<Vec<u8>, Error>(cmd.to_vec())
@@ -61,7 +62,7 @@ visca_command! {
         /// Disable 3D noise reduction.
         Off => {
             let cmd = CommandBuilder::<6>::new()
-                .append(crate::command::const_encoding::constants::image::NOISE_REDUCTION_3D_PREFIX)
+                .append(constants::image::NOISE_REDUCTION_3D_PREFIX)
                 .push(0x00)
                 .build();
             Ok::<Vec<u8>, Error>(cmd.to_vec())
@@ -69,7 +70,7 @@ visca_command! {
         /// Set 3D noise reduction level.
         Level(level: NoiseReduction3DLevel) => {
             let cmd = CommandBuilder::<6>::new()
-                .append(crate::command::const_encoding::constants::image::NOISE_REDUCTION_3D_PREFIX)
+                .append(constants::image::NOISE_REDUCTION_3D_PREFIX)
                 .push(level.value())
                 .build();
             Ok::<Vec<u8>, Error>(cmd.to_vec())
@@ -109,7 +110,7 @@ visca_param_command! {
     pub(crate) struct ImageFlipCombinedCommand {
         mode: ImageFlipMode,
     }
-    prefix = [0x81, 0x01, 0x04, 0x61];
+    prefix = constants::image::FLIP_COMBINED_PREFIX;
     param_byte = match mode {
         ImageFlipMode::Off => 0x00,
         ImageFlipMode::Horizontal => 0x01,
@@ -137,7 +138,7 @@ visca_param_command! {
     pub(crate) struct PictureEffectCommand {
         mode: PictureEffectMode,
     }
-    prefix = [0x81, 0x01, 0x04, 0x63];
+    prefix = constants::image::PICTURE_EFFECT_PREFIX;
     param_byte = mode.to_byte();
     timeout = Quick;
 }
@@ -152,141 +153,170 @@ visca_param_command! {
 mod tests {
     use super::*;
     use crate::command::encode_visca::EncodeVisca;
+    use crate::macros::test_utils::visca_test;
     use crate::timeout::CommandCategory;
 
+    // Test backlight on
+    visca_test!(
+        BacklightCommand,
+        test_backlight_on,
+        BacklightCommand::new(true),
+        &[0x81, 0x01, 0x04, 0x33, 0x02, 0xFF]
+    );
+
+    // Test backlight off
+    visca_test!(
+        BacklightCommand,
+        test_backlight_off,
+        BacklightCommand::new(false),
+        &[0x81, 0x01, 0x04, 0x33, 0x03, 0xFF]
+    );
+
     #[test]
-    fn test_backlight_command() {
-        // Test backlight on
+    fn test_backlight_command_properties() {
         let cmd = BacklightCommand::new(true);
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap(),
-            vec![0x81, 0x01, 0x04, 0x33, 0x02, 0xFF]
-        );
-        assert!(cmd.response_type().is_none());
-        assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
-
-        // Test backlight off
-        let cmd = BacklightCommand::new(false);
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap(),
-            vec![0x81, 0x01, 0x04, 0x33, 0x03, 0xFF]
-        );
         assert!(cmd.response_type().is_none());
         assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
     }
 
+    // Test off
+    visca_test!(
+        NoiseReduction2D,
+        test_noise_reduction_2d_off,
+        NoiseReduction2D::Off,
+        &[0x81, 0x01, 0x04, 0x53, 0x00, 0xFF]
+    );
+
+    // Test level 1
+    visca_test!(
+        NoiseReduction2D,
+        test_noise_reduction_2d_level_1,
+        NoiseReduction2D::Level(NoiseReduction2DLevel::new(1).unwrap()),
+        &[0x81, 0x01, 0x04, 0x53, 0x01, 0xFF]
+    );
+
+    // Test level 3
+    visca_test!(
+        NoiseReduction2D,
+        test_noise_reduction_2d_level_3,
+        NoiseReduction2D::Level(NoiseReduction2DLevel::new(3).unwrap()),
+        &[0x81, 0x01, 0x04, 0x53, 0x03, 0xFF]
+    );
+
+    // Test level 5
+    visca_test!(
+        NoiseReduction2D,
+        test_noise_reduction_2d_level_5,
+        NoiseReduction2D::Level(NoiseReduction2DLevel::new(5).unwrap()),
+        &[0x81, 0x01, 0x04, 0x53, 0x05, 0xFF]
+    );
+
     #[test]
-    fn test_noise_reduction_2d_command() {
-        // Test off
+    fn test_noise_reduction_2d_properties() {
         let cmd = NoiseReduction2D::Off;
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap(),
-            vec![0x81, 0x01, 0x04, 0x53, 0x00, 0xFF]
-        );
         assert!(cmd.response_type().is_none());
         assert!(matches!(cmd.timeout_kind(), CommandCategory::Custom));
-
-        // Test valid levels (1-5)
-        for level in 1..=5 {
-            let nr_level = NoiseReduction2DLevel::new(level).unwrap();
-            let cmd = NoiseReduction2D::Level(nr_level);
-            assert_eq!(
-                cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                    .unwrap(),
-                vec![0x81, 0x01, 0x04, 0x53, level, 0xFF]
-            );
-            assert!(cmd.response_type().is_none());
-            assert!(matches!(cmd.timeout_kind(), CommandCategory::Custom));
-        }
     }
 
+    // Test off
+    visca_test!(
+        NoiseReduction3D,
+        test_noise_reduction_3d_off,
+        NoiseReduction3D::Off,
+        &[0x81, 0x01, 0x04, 0x54, 0x00, 0xFF]
+    );
+
+    // Test level 1
+    visca_test!(
+        NoiseReduction3D,
+        test_noise_reduction_3d_level_1,
+        NoiseReduction3D::Level(NoiseReduction3DLevel::new(1).unwrap()),
+        &[0x81, 0x01, 0x04, 0x54, 0x01, 0xFF]
+    );
+
+    // Test level 4
+    visca_test!(
+        NoiseReduction3D,
+        test_noise_reduction_3d_level_4,
+        NoiseReduction3D::Level(NoiseReduction3DLevel::new(4).unwrap()),
+        &[0x81, 0x01, 0x04, 0x54, 0x04, 0xFF]
+    );
+
+    // Test level 8
+    visca_test!(
+        NoiseReduction3D,
+        test_noise_reduction_3d_level_8,
+        NoiseReduction3D::Level(NoiseReduction3DLevel::new(8).unwrap()),
+        &[0x81, 0x01, 0x04, 0x54, 0x08, 0xFF]
+    );
+
     #[test]
-    fn test_noise_reduction_3d_command() {
-        // Test off
+    fn test_noise_reduction_3d_properties() {
         let cmd = NoiseReduction3D::Off;
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap(),
-            vec![0x81, 0x01, 0x04, 0x54, 0x00, 0xFF]
-        );
         assert!(cmd.response_type().is_none());
         assert!(matches!(cmd.timeout_kind(), CommandCategory::Custom));
-
-        // Test valid levels (1-8)
-        for level in 1..=8 {
-            let nr_level = NoiseReduction3DLevel::new(level).unwrap();
-            let cmd = NoiseReduction3D::Level(nr_level);
-            assert_eq!(
-                cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                    .unwrap(),
-                vec![0x81, 0x01, 0x04, 0x54, level, 0xFF]
-            );
-            assert!(cmd.response_type().is_none());
-            assert!(matches!(cmd.timeout_kind(), CommandCategory::Custom));
-        }
     }
 
+    // Test black and white on
+    visca_test!(
+        BlackWhiteCommand,
+        test_black_white_on,
+        BlackWhiteCommand::new(true),
+        &[0x81, 0x01, 0x04, 0x01, 0x04, 0xFF]
+    );
+
+    // Test black and white off (color mode)
+    visca_test!(
+        BlackWhiteCommand,
+        test_black_white_off,
+        BlackWhiteCommand::new(false),
+        &[0x81, 0x01, 0x04, 0x01, 0x00, 0xFF]
+    );
+
     #[test]
-    fn test_black_white_command() {
-        // Test black and white on
+    fn test_black_white_properties() {
         let cmd = BlackWhiteCommand::new(true);
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap(),
-            vec![0x81, 0x01, 0x04, 0x01, 0x04, 0xFF]
-        );
-        assert!(cmd.response_type().is_none());
-        assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
-
-        // Test black and white off (color mode)
-        let cmd = BlackWhiteCommand::new(false);
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap(),
-            vec![0x81, 0x01, 0x04, 0x01, 0x00, 0xFF]
-        );
         assert!(cmd.response_type().is_none());
         assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
     }
 
+    // Test Off
+    visca_test!(
+        ImageFlipCombinedCommand,
+        test_image_flip_off,
+        ImageFlipCombinedCommand::new(ImageFlipMode::Off),
+        &[0x81, 0x01, 0x04, 0x61, 0x00, 0xFF]
+    );
+
+    // Test Horizontal
+    visca_test!(
+        ImageFlipCombinedCommand,
+        test_image_flip_horizontal,
+        ImageFlipCombinedCommand::new(ImageFlipMode::Horizontal),
+        &[0x81, 0x01, 0x04, 0x61, 0x01, 0xFF]
+    );
+
+    // Test Vertical
+    visca_test!(
+        ImageFlipCombinedCommand,
+        test_image_flip_vertical,
+        ImageFlipCombinedCommand::new(ImageFlipMode::Vertical),
+        &[0x81, 0x01, 0x04, 0x61, 0x02, 0xFF]
+    );
+
+    // Test Both
+    visca_test!(
+        ImageFlipCombinedCommand,
+        test_image_flip_both,
+        ImageFlipCombinedCommand::new(ImageFlipMode::Both),
+        &[0x81, 0x01, 0x04, 0x61, 0x03, 0xFF]
+    );
+
     #[test]
-    fn test_image_flip_combined_command() {
-        // Test Off
+    fn test_image_flip_properties() {
         let cmd = ImageFlipCombinedCommand::new(ImageFlipMode::Off);
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap(),
-            vec![0x81, 0x01, 0x04, 0x61, 0x00, 0xFF]
-        );
         assert!(cmd.response_type().is_none());
         assert!(matches!(cmd.timeout_kind(), CommandCategory::Custom));
-
-        // Test Horizontal
-        let cmd = ImageFlipCombinedCommand::new(ImageFlipMode::Horizontal);
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap(),
-            vec![0x81, 0x01, 0x04, 0x61, 0x01, 0xFF]
-        );
-
-        // Test Vertical
-        let cmd = ImageFlipCombinedCommand::new(ImageFlipMode::Vertical);
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap(),
-            vec![0x81, 0x01, 0x04, 0x61, 0x02, 0xFF]
-        );
-
-        // Test Both
-        let cmd = ImageFlipCombinedCommand::new(ImageFlipMode::Both);
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap(),
-            vec![0x81, 0x01, 0x04, 0x61, 0x03, 0xFF]
-        );
     }
 
     #[test]
@@ -463,58 +493,82 @@ mod tests {
         assert!(debug_str.contains("BlackWhiteCommand"));
     }
 
+    // Test Off (normal) mode
+    visca_test!(
+        PictureEffectCommand,
+        test_picture_effect_off,
+        PictureEffectCommand {
+            mode: PictureEffectMode::Off
+        },
+        &[0x81, 0x01, 0x04, 0x63, 0x00, 0xFF]
+    );
+
+    // Test Negative effect
+    visca_test!(
+        PictureEffectCommand,
+        test_picture_effect_negative,
+        PictureEffectCommand {
+            mode: PictureEffectMode::Negative
+        },
+        &[0x81, 0x01, 0x04, 0x63, 0x01, 0xFF]
+    );
+
+    // Test Black and White effect
+    visca_test!(
+        PictureEffectCommand,
+        test_picture_effect_black_white,
+        PictureEffectCommand {
+            mode: PictureEffectMode::BlackAndWhite
+        },
+        &[0x81, 0x01, 0x04, 0x63, 0x02, 0xFF]
+    );
+
+    // Test Sepia effect
+    visca_test!(
+        PictureEffectCommand,
+        test_picture_effect_sepia,
+        PictureEffectCommand {
+            mode: PictureEffectMode::Sepia
+        },
+        &[0x81, 0x01, 0x04, 0x63, 0x03, 0xFF]
+    );
+
+    // Test Sketch effect
+    visca_test!(
+        PictureEffectCommand,
+        test_picture_effect_sketch,
+        PictureEffectCommand {
+            mode: PictureEffectMode::Sketch
+        },
+        &[0x81, 0x01, 0x04, 0x63, 0x04, 0xFF]
+    );
+
+    // Test Emboss effect
+    visca_test!(
+        PictureEffectCommand,
+        test_picture_effect_emboss,
+        PictureEffectCommand {
+            mode: PictureEffectMode::Emboss
+        },
+        &[0x81, 0x01, 0x04, 0x63, 0x05, 0xFF]
+    );
+
+    // Test Mosaic effect
+    visca_test!(
+        PictureEffectCommand,
+        test_picture_effect_mosaic,
+        PictureEffectCommand {
+            mode: PictureEffectMode::Mosaic
+        },
+        &[0x81, 0x01, 0x04, 0x63, 0x06, 0xFF]
+    );
+
     #[test]
-    fn test_picture_effect_command() {
-        // Test Off (normal) mode
+    fn test_picture_effect_properties() {
         let cmd = PictureEffectCommand {
             mode: PictureEffectMode::Off,
         };
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap(),
-            vec![0x81, 0x01, 0x04, 0x63, 0x00, 0xFF]
-        );
         assert!(cmd.response_type().is_none());
         assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
-
-        // Test Black and White effect
-        let cmd = PictureEffectCommand {
-            mode: PictureEffectMode::BlackAndWhite,
-        };
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap(),
-            vec![0x81, 0x01, 0x04, 0x63, 0x02, 0xFF]
-        );
-
-        // Test Sepia effect
-        let cmd = PictureEffectCommand {
-            mode: PictureEffectMode::Sepia,
-        };
-        assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                .unwrap(),
-            vec![0x81, 0x01, 0x04, 0x63, 0x03, 0xFF]
-        );
-
-        // Test all defined picture effects
-        let test_cases = vec![
-            (PictureEffectMode::Off, 0x00),
-            (PictureEffectMode::Negative, 0x01),
-            (PictureEffectMode::BlackAndWhite, 0x02),
-            (PictureEffectMode::Sepia, 0x03),
-            (PictureEffectMode::Sketch, 0x04),
-            (PictureEffectMode::Emboss, 0x05),
-            (PictureEffectMode::Mosaic, 0x06),
-        ];
-
-        for (mode, expected_byte) in test_cases {
-            let cmd = PictureEffectCommand { mode };
-            assert_eq!(
-                cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
-                    .unwrap(),
-                vec![0x81, 0x01, 0x04, 0x63, expected_byte, 0xFF]
-            );
-        }
     }
 }

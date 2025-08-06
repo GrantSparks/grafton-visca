@@ -17,6 +17,7 @@ use syn::{parse_macro_input, DeriveInput};
 mod inquiry_command;
 mod parser_templates;
 mod value_macros;
+mod visca_enum;
 
 /// Derive macro for implementing ViscaValue trait for command value types
 ///
@@ -106,4 +107,81 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
 pub fn derive_inquiry_command(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     TokenStream::from(inquiry_command::derive_inquiry_command_impl(input))
+}
+
+/// Derive macro for automatic enum/u8 conversions in VISCA protocol
+///
+/// This macro automatically generates `TryFrom<u8>` and `From<Enum> for u8`
+/// implementations for enums with explicit discriminants, eliminating boilerplate
+/// code for VISCA protocol value conversions.
+///
+/// # Requirements
+///
+/// - The enum must have unit variants only (no fields)
+/// - All variants must have explicit discriminant values
+/// - Discriminant values must be unique
+/// - Discriminant values must be valid u8 values (0-255)
+///
+/// # Generated Implementations
+///
+/// The macro generates:
+/// - `TryFrom<u8>` - Converts u8 values to enum variants, returning an error for invalid values
+/// - `From<Enum> for u8` - Converts enum variants to their u8 discriminant values
+/// - `is_valid_discriminant(u8) -> bool` - Const function to check if a value is valid
+///
+/// # Basic Example
+///
+/// ```rust,ignore
+/// use grafton_visca_macros::ViscaEnum;
+///
+/// #[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
+/// pub enum ExposureMode {
+///     Auto = 0x00,
+///     Manual = 0x03,
+///     Shutter = 0x0A,
+///     Iris = 0x0B,
+///     Bright = 0x0D,
+/// }
+///
+/// // The macro generates:
+/// // - impl TryFrom<u8> for ExposureMode { ... }
+/// // - impl From<ExposureMode> for u8 { ... }
+/// // - impl ExposureMode { pub const fn is_valid_discriminant(u8) -> bool { ... } }
+/// ```
+///
+/// # Advanced Attributes
+///
+/// The macro supports optional attributes for customization:
+///
+/// ```rust,ignore
+/// #[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
+/// #[visca_enum(error_type = MyError, exhaustive = false)]
+/// pub enum Mode {
+///     #[visca_enum(name = "Automatic Mode")]
+///     Auto = 0x00,
+///     
+///     #[visca_enum(name = "Manual Control")]
+///     Manual = 0x03,
+///     
+///     #[visca_enum(skip)]
+///     _Reserved = 0xFF,  // Not included in TryFrom<u8>
+/// }
+/// ```
+///
+/// ## Enum-level attributes:
+/// - `error_type` - Custom error type for TryFrom (default: `crate::error::Error`)
+/// - `exhaustive` - Whether to generate exhaustive match (default: true)
+///
+/// ## Variant-level attributes:
+/// - `name` - Custom name to use in error messages
+/// - `skip` - Skip this variant in TryFrom<u8> (but include in From<Enum>)
+///
+/// # Error Handling
+///
+/// The generated `TryFrom<u8>` implementation returns an error with a descriptive
+/// message listing all valid values when an invalid u8 is provided.
+#[proc_macro_derive(ViscaEnum, attributes(visca_enum))]
+pub fn derive_visca_enum(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    TokenStream::from(visca_enum::derive_visca_enum_impl(input))
 }

@@ -580,205 +580,206 @@ pub struct TallyAutoAdjustInquiry;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::visca_test;
+    use crate::command::const_encoding::constants;
+    use crate::macros::test_utils::visca_test;
 
     visca_test!(
         ZoomPositionInquiry,
         test_zoom_position_inquiry,
         ZoomPositionInquiry,
-        &[0x81, 0x09, 0x04, 0x47, 0xFF]
+        constants::inquiry::ZOOM_POSITION
     );
     visca_test!(
         FocusPositionInquiry,
         test_focus_position_inquiry,
         FocusPositionInquiry,
-        &[0x81, 0x09, 0x04, 0x48, 0xFF]
+        constants::inquiry::FOCUS_POSITION
     );
     visca_test!(
         PowerInquiry,
         test_power_inquiry,
         PowerInquiry,
-        &[0x81, 0x09, 0x04, 0x00, 0xFF]
+        constants::inquiry::POWER
     );
     visca_test!(
         FocusModeInquiry,
         test_focus_mode_inquiry,
         FocusModeInquiry,
-        &[0x81, 0x09, 0x04, 0x38, 0xFF]
+        constants::inquiry::FOCUS_MODE
     );
     visca_test!(
         MenuOpenCloseInquiry,
         test_menu_open_close_inquiry,
         MenuOpenCloseInquiry,
-        &[0x81, 0x09, 0x04, 0x06, 0xFF]
+        constants::inquiry::MENU_OPEN_CLOSE
     );
     visca_test!(
         AutoFocusInquiry,
         test_auto_focus_inquiry,
         AutoFocusInquiry,
-        &[0x81, 0x09, 0x04, 0x18, 0xFF]
+        constants::inquiry::AUTO_FOCUS
     );
     visca_test!(
         TallyStatusInquiry,
         test_tally_status_inquiry,
         TallyStatusInquiry,
-        &[0x81, 0x09, 0x04, 0xA8, 0xFF]
+        constants::inquiry::TALLY_STATUS
     );
     visca_test!(
         TallyGreenInquiry,
         test_tally_green_inquiry,
         TallyGreenInquiry,
-        &[0x81, 0x09, 0x7E, 0x04, 0x1A, 0x00, 0xFF]
+        constants::inquiry::TALLY_GREEN
     );
     visca_test!(
         ResolutionInquiry,
         test_resolution_inquiry,
         ResolutionInquiry,
-        &[0x81, 0x09, 0x04, 0x63, 0xFF]
+        constants::inquiry::RESOLUTION
     );
     visca_test!(
         NightDayModeInquiry,
         test_night_day_mode_inquiry,
         NightDayModeInquiry,
-        &[0x81, 0x09, 0x04, 0x60, 0xFF]
+        constants::inquiry::NIGHT_DAY_MODE
     );
     visca_test!(
         NdFilterInquiry,
         test_nd_filter_inquiry,
         NdFilterInquiry,
-        &[0x81, 0x09, 0x04, 0x64, 0xFF]
+        constants::inquiry::ND_FILTER
     );
     visca_test!(
         PictureEffectInquiry,
         test_picture_effect_inquiry,
         PictureEffectInquiry,
-        &[0x81, 0x09, 0x04, 0x32, 0xFF]
+        constants::inquiry::PICTURE_EFFECT
     );
     visca_test!(
         FlipModeInquiry,
         test_flip_mode_inquiry,
         FlipModeInquiry,
-        &[0x81, 0x09, 0x04, 0x65, 0xFF]
+        constants::inquiry::FLIP_MODE
     );
     visca_test!(
         StandbyInquiry,
         test_standby_inquiry,
         StandbyInquiry,
-        &[0x81, 0x09, 0x04, 0x70, 0xFF]
+        constants::inquiry::STANDBY
     );
     visca_test!(
         FocusRangeInquiry,
         test_focus_range_inquiry,
         FocusRangeInquiry,
-        &[0x81, 0x09, 0x04, 0x2A, 0xFF]
+        constants::inquiry::FOCUS_RANGE
     );
     visca_test!(
         IrisControlInquiry,
         test_iris_control_inquiry,
         IrisControlInquiry,
-        &[0x81, 0x09, 0x04, 0x2B, 0xFF]
+        constants::inquiry::IRIS_CONTROL
     );
     visca_test!(
         DefogModeInquiry,
         test_defog_mode_inquiry,
         DefogModeInquiry,
-        &[0x81, 0x09, 0x04, 0x37, 0xFF]
+        constants::inquiry::DEFOG_MODE
     );
     visca_test!(
         DefogLevelInquiry,
         test_defog_level_inquiry,
         DefogLevelInquiry,
-        &[0x81, 0x09, 0x04, 0xA0, 0xFF]
+        constants::inquiry::DEFOG_LEVEL
     );
     visca_test!(
         DigitalPtzInquiry,
         test_digital_ptz_inquiry,
         DigitalPtzInquiry,
-        &[0x81, 0x09, 0x04, 0x6B, 0xFF]
+        constants::inquiry::DIGITAL_PTZ
     );
     visca_test!(
         AutoWhiteBalanceSensitivityInquiry,
         test_auto_wb_sensitivity_inquiry,
         AutoWhiteBalanceSensitivityInquiry,
-        &[0x81, 0x09, 0x04, 0x59, 0xFF]
+        constants::inquiry::AUTO_WB_SENSITIVITY
     );
     visca_test!(
         ExposureCompensationPositionInquiry,
         test_exposure_compensation_position_inquiry,
         ExposureCompensationPositionInquiry,
-        &[0x81, 0x09, 0x04, 0x4E, 0xFF]
+        constants::inquiry::EXPOSURE_COMPENSATION_POSITION
     );
     visca_test!(
         RedTuningInquiry,
         test_red_tuning_inquiry,
         RedTuningInquiry,
-        &[0x81, 0x09, 0x04, 0x43, 0xFF]
+        constants::inquiry::RED_TUNING
     );
     visca_test!(
         BlueTuningInquiry,
         test_blue_tuning_inquiry,
         BlueTuningInquiry,
-        &[0x81, 0x09, 0x04, 0x44, 0xFF]
+        constants::inquiry::BLUE_TUNING
     );
     visca_test!(
         AutoTraceInquiry,
         test_auto_trace_inquiry,
         AutoTraceInquiry,
-        &[0x81, 0x09, 0x50, 0x09, 0xFF]
+        constants::inquiry::AUTO_TRACE
     );
     visca_test!(
         FocusUnlockInquiry,
         test_focus_unlock_inquiry,
         FocusUnlockInquiry,
-        &[0x81, 0x09, 0x54, 0x08, 0xFF]
+        constants::inquiry::FOCUS_UNLOCK
     );
     visca_test!(
         SharpnessPositionInquiry,
         test_sharpness_position_inquiry,
         SharpnessPositionInquiry,
-        &[0x81, 0x09, 0x04, 0x42, 0xFF]
+        constants::inquiry::SHARPNESS_POSITION
     );
     visca_test!(
         NrLevelInquiry,
         test_nr_level_inquiry,
         NrLevelInquiry,
-        &[0x81, 0x09, 0x04, 0x52, 0xFF]
+        constants::inquiry::NR_LEVEL
     );
     visca_test!(
         BroadcastDomainInquiry,
         test_broadcast_domain_inquiry,
         BroadcastDomainInquiry,
-        &[0x81, 0x09, 0x04, 0x75, 0xFF]
+        constants::inquiry::BROADCAST_DOMAIN
     );
     visca_test!(
         MotionSyncModeInquiry,
         test_motion_sync_mode_inquiry,
         MotionSyncModeInquiry,
-        &[0x81, 0x09, 0x04, 0x56, 0xFF]
+        constants::inquiry::MOTION_SYNC_MODE
     );
     visca_test!(
         MotionSyncSpeedInquiry,
         test_motion_sync_speed_inquiry,
         MotionSyncSpeedInquiry,
-        &[0x81, 0x09, 0x04, 0x57, 0xFF]
+        constants::inquiry::MOTION_SYNC_SPEED
     );
     visca_test!(
         NrModeInquiry,
         test_nr_mode_inquiry,
         NrModeInquiry,
-        &[0x81, 0x09, 0x04, 0x53, 0xFF]
+        constants::inquiry::NR_MODE
     );
     visca_test!(
         NrSpeedInquiry,
         test_nr_speed_inquiry,
         NrSpeedInquiry,
-        &[0x81, 0x09, 0x04, 0x54, 0xFF]
+        constants::inquiry::NR_SPEED
     );
     visca_test!(
         BlackWhiteModeInquiry,
         test_black_white_mode_inquiry,
         BlackWhiteModeInquiry,
-        &[0x81, 0x09, 0x04, 0x73, 0xFF]
+        constants::inquiry::BLACK_WHITE_MODE
     );
 }
 
@@ -795,36 +796,26 @@ pub struct TallyGreenInquiry;
 impl crate::command::encode_visca::EncodeVisca for TallyGreenInquiry {
     type Response = crate::command::InquiryResponse;
     const MAX_SIZE: usize = 7;
+    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
+        crate::timeout::CommandCategory::Quick;
 
     fn encode_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, crate::error::Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(crate::error::Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
+        use crate::command::const_encoding::CommandBuilder;
 
         // Special format for green tally inquiry
-        buffer[0] = camera_id.to_address_byte();
-        buffer[1] = 0x09;
-        buffer[2] = 0x7E;
-        buffer[3] = 0x04;
-        buffer[4] = 0x1A;
-        buffer[5] = 0x00;
-        buffer[6] = 0xFF;
-
-        Ok(Self::MAX_SIZE)
+        let mut builder = CommandBuilder::<7>::new();
+        builder
+            .append(crate::command::const_encoding::constants::inquiry::TALLY_GREEN)
+            .with_camera_id(camera_id)
+            .finalize();
+        builder.copy_to(buffer)
     }
 
     fn response_type(&self) -> Option<crate::command::response::ResponseType> {
         None
-    }
-
-    fn timeout_kind(&self) -> crate::timeout::CommandCategory {
-        crate::timeout::CommandCategory::Quick
     }
 }

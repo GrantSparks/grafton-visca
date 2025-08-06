@@ -4,12 +4,13 @@
 //! including white balance tuning, saturation, and hue adjustments.
 
 // Crate imports
+use crate::macros::internal::*;
+
 use crate::{
-    command::{encode_visca::EncodeVisca, response::ResponseType},
+    command::{const_encoding::CommandBuilder, encode_visca::EncodeVisca, response::ResponseType},
     error::Error,
     timeout::CommandCategory,
     types::{BlueTuning, HueLevel, RedTuning, SaturationLevel},
-    visca_const_command,
 };
 
 visca_const_command! {
@@ -23,7 +24,7 @@ visca_const_command! {
     timeout = Quick;
 }
 
-crate::visca_builder! {
+visca_builder! {
     /// Red Channel Tuning command.
     ///
     /// Fine-tunes the red channel gain for white balance adjustment.
@@ -33,7 +34,7 @@ crate::visca_builder! {
         level: RedTuning,
     }
     builder<9> => |builder, level| {
-        let _ = builder.append(&[0x81, 0x01, 0x04, 0x43, 0x00, 0x00]);
+        let _ = builder.append(crate::command::const_encoding::constants::color::RED_GAIN_DIRECT_PREFIX);
         // Convert -10..+10 to 0x00..0x14 (0x00 = -10, 0x0A = 0, 0x14 = +10)
         let level_value = level.value();
         let level_offset = level_value + 10;
@@ -54,7 +55,7 @@ impl RedTuningCommand {
     }
 }
 
-crate::visca_builder! {
+visca_builder! {
     /// Blue Channel Tuning command.
     ///
     /// Fine-tunes the blue channel gain for white balance adjustment.
@@ -64,7 +65,7 @@ crate::visca_builder! {
         level: BlueTuning,
     }
     builder<9> => |builder, level| {
-        let _ = builder.append(&[0x81, 0x01, 0x04, 0x44, 0x00, 0x00]);
+        let _ = builder.append(crate::command::const_encoding::constants::color::BLUE_GAIN_DIRECT_PREFIX);
         // Convert -10..+10 to 0x00..0x14 (0x00 = -10, 0x0A = 0, 0x14 = +10)
         let level_value = level.value();
         let level_offset = level_value + 10;
@@ -85,7 +86,7 @@ impl BlueTuningCommand {
     }
 }
 
-crate::visca_builder! {
+visca_builder! {
     /// Saturation control command.
     ///
     /// Adjusts the color saturation level of the image.
@@ -109,7 +110,7 @@ impl SaturationCommand {
     }
 }
 
-crate::visca_builder! {
+visca_builder! {
     /// Hue adjustment command.
     ///
     /// Adjusts the hue (color phase) of the image, shifting all colors
@@ -155,67 +156,51 @@ pub enum ColorTemperature {
 impl EncodeVisca for ColorTemperature {
     type Response = ();
     const MAX_SIZE: usize = 8;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn encode_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
-
         match self {
             ColorTemperature::Reset => {
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x20;
-                buffer[4] = 0x00;
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder = CommandBuilder::<6>::from_prefix(
+                    crate::command::const_encoding::constants::color::TEMPERATURE_PREFIX,
+                );
+                builder.with_camera_id(camera_id);
+                builder.push(0x00).finalize();
+                builder.copy_to(buffer)
             }
             ColorTemperature::Up => {
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x20;
-                buffer[4] = 0x02;
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder = CommandBuilder::<6>::from_prefix(
+                    crate::command::const_encoding::constants::color::TEMPERATURE_PREFIX,
+                );
+                builder.with_camera_id(camera_id);
+                builder.push(0x02).finalize();
+                builder.copy_to(buffer)
             }
             ColorTemperature::Down => {
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x20;
-                buffer[4] = 0x03;
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder = CommandBuilder::<6>::from_prefix(
+                    crate::command::const_encoding::constants::color::TEMPERATURE_PREFIX,
+                );
+                builder.with_camera_id(camera_id);
+                builder.push(0x03).finalize();
+                builder.copy_to(buffer)
             }
             ColorTemperature::SetTemperature(temp) => {
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x20;
-                let value = temp.value();
-                buffer[4] = ((value >> 4) & 0x0F) as u8; // High nibble (0p)
-                buffer[5] = (value & 0x0F) as u8; // Low nibble (0q)
-                buffer[6] = 0xFF;
-                Ok(7)
+                let mut builder = CommandBuilder::<7>::from_prefix(
+                    crate::command::const_encoding::constants::color::TEMPERATURE_PREFIX,
+                );
+                builder.with_camera_id(camera_id);
+                builder.push_nibble_pair(temp.value()).finalize();
+                builder.copy_to(buffer)
             }
         }
     }
 
     fn response_type(&self) -> Option<ResponseType> {
         None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
     }
 }
 
@@ -240,69 +225,54 @@ pub enum RedGain {
 impl EncodeVisca for RedGain {
     type Response = ();
     const MAX_SIZE: usize = 9;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn encode_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
-
         match self {
             RedGain::Reset => {
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x03;
-                buffer[4] = 0x00;
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder = CommandBuilder::<6>::from_prefix(
+                    crate::command::const_encoding::constants::color::RED_GAIN_CONTROL_PREFIX,
+                );
+                builder.with_camera_id(camera_id);
+                builder.push(0x00).finalize();
+                builder.copy_to(buffer)
             }
             RedGain::Up => {
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x03;
-                buffer[4] = 0x02;
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder = CommandBuilder::<6>::from_prefix(
+                    crate::command::const_encoding::constants::color::RED_GAIN_CONTROL_PREFIX,
+                );
+                builder.with_camera_id(camera_id);
+                builder.push(0x02).finalize();
+                builder.copy_to(buffer)
             }
             RedGain::Down => {
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x03;
-                buffer[4] = 0x03;
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder = CommandBuilder::<6>::from_prefix(
+                    crate::command::const_encoding::constants::color::RED_GAIN_CONTROL_PREFIX,
+                );
+                builder.with_camera_id(camera_id);
+                builder.push(0x03).finalize();
+                builder.copy_to(buffer)
             }
             RedGain::SetValue(value) => {
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x43; // Note: different command byte for direct setting
-                buffer[4] = 0x00;
-                buffer[5] = 0x00;
-                let val = value.value();
-                buffer[6] = (val >> 4) & 0x0F; // High nibble
-                buffer[7] = val & 0x0F; // Low nibble
-                buffer[8] = 0xFF;
-                Ok(9)
+                // Note: different command byte 0x43 for direct setting
+                let mut builder = CommandBuilder::<9>::from_prefix(
+                    crate::command::const_encoding::constants::color::RED_GAIN_DIRECT_PREFIX,
+                );
+                builder.with_camera_id(camera_id);
+                builder
+                    .push_nibble_pair(u16::from(value.value()))
+                    .finalize();
+                builder.copy_to(buffer)
             }
         }
     }
 
     fn response_type(&self) -> Option<ResponseType> {
         None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
     }
 }
 
@@ -327,69 +297,54 @@ pub enum BlueGain {
 impl EncodeVisca for BlueGain {
     type Response = ();
     const MAX_SIZE: usize = 9;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn encode_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
-        }
-
         match self {
             BlueGain::Reset => {
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x04;
-                buffer[4] = 0x00;
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder = CommandBuilder::<6>::from_prefix(
+                    crate::command::const_encoding::constants::color::BLUE_GAIN_CONTROL_PREFIX,
+                );
+                builder.with_camera_id(camera_id);
+                builder.push(0x00).finalize();
+                builder.copy_to(buffer)
             }
             BlueGain::Up => {
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x04;
-                buffer[4] = 0x02;
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder = CommandBuilder::<6>::from_prefix(
+                    crate::command::const_encoding::constants::color::BLUE_GAIN_CONTROL_PREFIX,
+                );
+                builder.with_camera_id(camera_id);
+                builder.push(0x02).finalize();
+                builder.copy_to(buffer)
             }
             BlueGain::Down => {
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x04;
-                buffer[4] = 0x03;
-                buffer[5] = 0xFF;
-                Ok(6)
+                let mut builder = CommandBuilder::<6>::from_prefix(
+                    crate::command::const_encoding::constants::color::BLUE_GAIN_CONTROL_PREFIX,
+                );
+                builder.with_camera_id(camera_id);
+                builder.push(0x03).finalize();
+                builder.copy_to(buffer)
             }
             BlueGain::SetValue(value) => {
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x01;
-                buffer[2] = 0x04;
-                buffer[3] = 0x44; // Note: different command byte for direct setting
-                buffer[4] = 0x00;
-                buffer[5] = 0x00;
-                let val = value.value();
-                buffer[6] = (val >> 4) & 0x0F; // High nibble
-                buffer[7] = val & 0x0F; // Low nibble
-                buffer[8] = 0xFF;
-                Ok(9)
+                // Note: different command byte 0x44 for direct setting
+                let mut builder = CommandBuilder::<9>::from_prefix(
+                    crate::command::const_encoding::constants::color::BLUE_GAIN_DIRECT_PREFIX,
+                );
+                builder.with_camera_id(camera_id);
+                builder
+                    .push_nibble_pair(u16::from(value.value()))
+                    .finalize();
+                builder.copy_to(buffer)
             }
         }
     }
 
     fn response_type(&self) -> Option<ResponseType> {
         None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
     }
 }
 
@@ -402,7 +357,8 @@ impl EncodeVisca for BlueGain {
 mod tests {
     use super::*;
     use crate::command::encode_visca::EncodeVisca;
-    use crate::{constants::CameraVariant, visca_test};
+    use crate::constants::CameraVariant;
+    use crate::macros::test_utils::visca_test;
 
     visca_test!(
         OnePushTriggerCommand,

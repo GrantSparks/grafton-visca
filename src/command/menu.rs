@@ -4,7 +4,9 @@
 //! allowing remote navigation and configuration. These commands are particularly useful
 //! for Sony FR7 and other cameras with comprehensive on-screen menus.
 
-use crate::{visca_bool_command, visca_builder, visca_param_command};
+use crate::macros::internal::*;
+
+use crate::command::const_encoding::constants;
 
 visca_bool_command! {
     /// Menu display control command.
@@ -45,7 +47,7 @@ visca_builder! {
         direction: MenuDirection,
     }
     builder<9> => |builder, direction| {
-        let _ = builder.append(&[0x81, 0x01, 0x06, 0x01, 0x0E, 0x0E]);
+        let _ = builder.append(constants::menu::NAVIGATE_PREFIX);
         match *direction {
             MenuDirection::Up => {
                 let _ = builder.push(0x03);
@@ -102,7 +104,7 @@ visca_param_command! {
     pub struct MenuActionCommand {
         action: MenuAction,
     }
-    prefix = [0x81, 0x01, 0x06, 0x06];
+    prefix = constants::menu::TOGGLE_PREFIX;
     param_byte = u8::from(*action);
     timeout = Quick;
 }
@@ -128,7 +130,7 @@ visca_builder! {
         control2: u8,
     }
     builder<8> => |builder, control1, control2| {
-        let _ = builder.append(&[0x81, 0x01, 0x7E, 0x04, 0x72]);
+        let _ = builder.append(constants::menu::SETTINGS_PREFIX);
         let _ = builder.push(*control1);
         let _ = builder.push(*control2);
     }
@@ -151,123 +153,75 @@ impl DirectMenuControlCommand {
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use crate::command::encode_visca::EncodeVisca;
+    use crate::macros::test_utils::visca_test;
 
-    #[test]
-    fn test_menu_display_on() {
-        let cmd = MenuDisplayCommand::new(true);
-        let mut buffer = [0u8; 10];
-        let size = cmd
-            .encode_into(crate::camera_id::CameraId::CAMERA_1, &mut buffer)
-            .unwrap();
-        assert_eq!(&buffer[..size], &[0x81, 0x01, 0x06, 0x06, 0x02, 0xFF]);
-    }
+    visca_test!(
+        MenuDisplayCommand,
+        test_menu_display_on,
+        MenuDisplayCommand::new(true),
+        &[0x81, 0x01, 0x06, 0x06, 0x02, 0xFF]
+    );
 
-    #[test]
-    fn test_menu_display_off() {
-        let cmd = MenuDisplayCommand::new(false);
-        let mut buffer = [0u8; 10];
-        let size = cmd
-            .encode_into(crate::camera_id::CameraId::CAMERA_1, &mut buffer)
-            .unwrap();
-        assert_eq!(&buffer[..size], &[0x81, 0x01, 0x06, 0x06, 0x03, 0xFF]);
-    }
+    visca_test!(
+        MenuDisplayCommand,
+        test_menu_display_off,
+        MenuDisplayCommand::new(false),
+        &[0x81, 0x01, 0x06, 0x06, 0x03, 0xFF]
+    );
 
-    #[test]
-    fn test_menu_navigate_up() {
-        let cmd = MenuNavigateCommand::new(MenuDirection::Up);
-        let mut buffer = [0u8; 10];
-        let size = cmd
-            .encode_into(crate::camera_id::CameraId::CAMERA_1, &mut buffer)
-            .unwrap();
-        assert_eq!(
-            &buffer[..size],
-            &[0x81, 0x01, 0x06, 0x01, 0x0E, 0x0E, 0x03, 0x01, 0xFF]
-        );
-    }
+    visca_test!(
+        MenuNavigateCommand,
+        test_menu_navigate_up,
+        MenuNavigateCommand::new(MenuDirection::Up),
+        &[0x81, 0x01, 0x06, 0x01, 0x0E, 0x0E, 0x03, 0x01, 0xFF]
+    );
 
-    #[test]
-    fn test_menu_navigate_down() {
-        let cmd = MenuNavigateCommand::new(MenuDirection::Down);
-        let mut buffer = [0u8; 10];
-        let size = cmd
-            .encode_into(crate::camera_id::CameraId::CAMERA_1, &mut buffer)
-            .unwrap();
-        assert_eq!(
-            &buffer[..size],
-            &[0x81, 0x01, 0x06, 0x01, 0x0E, 0x0E, 0x03, 0x02, 0xFF]
-        );
-    }
+    visca_test!(
+        MenuNavigateCommand,
+        test_menu_navigate_down,
+        MenuNavigateCommand::new(MenuDirection::Down),
+        &[0x81, 0x01, 0x06, 0x01, 0x0E, 0x0E, 0x03, 0x02, 0xFF]
+    );
 
-    #[test]
-    fn test_menu_navigate_left() {
-        let cmd = MenuNavigateCommand::new(MenuDirection::Left);
-        let mut buffer = [0u8; 10];
-        let size = cmd
-            .encode_into(crate::camera_id::CameraId::CAMERA_1, &mut buffer)
-            .unwrap();
-        assert_eq!(
-            &buffer[..size],
-            &[0x81, 0x01, 0x06, 0x01, 0x0E, 0x0E, 0x01, 0x03, 0xFF]
-        );
-    }
+    visca_test!(
+        MenuNavigateCommand,
+        test_menu_navigate_left,
+        MenuNavigateCommand::new(MenuDirection::Left),
+        &[0x81, 0x01, 0x06, 0x01, 0x0E, 0x0E, 0x01, 0x03, 0xFF]
+    );
 
-    #[test]
-    fn test_menu_navigate_right() {
-        let cmd = MenuNavigateCommand::new(MenuDirection::Right);
-        let mut buffer = [0u8; 10];
-        let size = cmd
-            .encode_into(crate::camera_id::CameraId::CAMERA_1, &mut buffer)
-            .unwrap();
-        assert_eq!(
-            &buffer[..size],
-            &[0x81, 0x01, 0x06, 0x01, 0x0E, 0x0E, 0x02, 0x03, 0xFF]
-        );
-    }
+    visca_test!(
+        MenuNavigateCommand,
+        test_menu_navigate_right,
+        MenuNavigateCommand::new(MenuDirection::Right),
+        &[0x81, 0x01, 0x06, 0x01, 0x0E, 0x0E, 0x02, 0x03, 0xFF]
+    );
 
-    #[test]
-    fn test_menu_select() {
-        let cmd = MenuActionCommand::new(MenuAction::Select);
-        let mut buffer = [0u8; 10];
-        let size = cmd
-            .encode_into(crate::camera_id::CameraId::CAMERA_1, &mut buffer)
-            .unwrap();
-        assert_eq!(&buffer[..size], &[0x81, 0x01, 0x06, 0x06, 0x05, 0xFF]);
-    }
+    visca_test!(
+        MenuActionCommand,
+        test_menu_select,
+        MenuActionCommand::new(MenuAction::Select),
+        &[0x81, 0x01, 0x06, 0x06, 0x05, 0xFF]
+    );
 
-    #[test]
-    fn test_menu_cancel() {
-        let cmd = MenuActionCommand::new(MenuAction::Cancel);
-        let mut buffer = [0u8; 10];
-        let size = cmd
-            .encode_into(crate::camera_id::CameraId::CAMERA_1, &mut buffer)
-            .unwrap();
-        assert_eq!(&buffer[..size], &[0x81, 0x01, 0x06, 0x06, 0x04, 0xFF]);
-    }
+    visca_test!(
+        MenuActionCommand,
+        test_menu_cancel,
+        MenuActionCommand::new(MenuAction::Cancel),
+        &[0x81, 0x01, 0x06, 0x06, 0x04, 0xFF]
+    );
 
-    #[test]
-    fn test_direct_menu_control() {
-        let cmd = DirectMenuControlCommand::new(0x00, 0x01);
-        let mut buffer = [0u8; 10];
-        let size = cmd
-            .encode_into(crate::camera_id::CameraId::CAMERA_1, &mut buffer)
-            .unwrap();
-        assert_eq!(
-            &buffer[..size],
-            &[0x81, 0x01, 0x7E, 0x04, 0x72, 0x00, 0x01, 0xFF]
-        );
-    }
+    visca_test!(
+        DirectMenuControlCommand,
+        test_direct_menu_control,
+        DirectMenuControlCommand::new(0x00, 0x01),
+        &[0x81, 0x01, 0x7E, 0x04, 0x72, 0x00, 0x01, 0xFF]
+    );
 
-    #[test]
-    fn test_direct_menu_open_close() {
-        let cmd = DirectMenuControlCommand::open_close();
-        let mut buffer = [0u8; 10];
-        let size = cmd
-            .encode_into(crate::camera_id::CameraId::CAMERA_1, &mut buffer)
-            .unwrap();
-        assert_eq!(
-            &buffer[..size],
-            &[0x81, 0x01, 0x7E, 0x04, 0x72, 0x00, 0x01, 0xFF]
-        );
-    }
+    visca_test!(
+        DirectMenuControlCommand,
+        test_direct_menu_open_close,
+        DirectMenuControlCommand::open_close(),
+        &[0x81, 0x01, 0x7E, 0x04, 0x72, 0x00, 0x01, 0xFF]
+    );
 }

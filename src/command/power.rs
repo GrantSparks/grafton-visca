@@ -2,7 +2,9 @@
 //!
 //! This module provides commands for controlling camera power state.
 
-use crate::{command::const_encoding::constants, visca_command};
+use crate::macros::internal::*;
+
+use crate::command::const_encoding::constants;
 
 visca_command! {
     /// Command to control camera power state.
@@ -28,7 +30,7 @@ visca_command! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::visca_test;
+    use crate::macros::test_utils::visca_test;
 
     visca_test!(
         PowerCommand,
