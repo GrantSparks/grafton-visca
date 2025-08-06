@@ -358,8 +358,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 // This might include both optical and digital zoom info
                 // For now, use the first 4 bytes as the zoom position
                 log::warn!(
-                    "ZoomPosition: Received extended format (8 bytes). Payload: {:02X?}. Using first 4 bytes.",
-                    payload
+                    "ZoomPosition: Received extended format (8 bytes). Payload: {payload:02X?}. Using first 4 bytes."
                 );
                 let position = combine_nibbles_u16(&payload[0..4]);
                 Ok(Response::Inquiry(InquiryResponse::ZoomPosition {
@@ -389,8 +388,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 // Compact format: Some cameras return PP PP TT TT
                 // or all zeros when at home position
                 log::warn!(
-                    "PanTiltPosition: Received compact format (4 bytes). Payload: {:02X?}. Treating as home position.",
-                    payload
+                    "PanTiltPosition: Received compact format (4 bytes). Payload: {payload:02X?}. Treating as home position."
                 );
                 // For now, treat 4-byte response as home position (0, 0)
                 // This may need adjustment based on specific camera models

@@ -587,25 +587,22 @@ mod validation_tests {
 
         for (idx, &inq) in inquiries.iter().enumerate() {
             // Check format
-            assert_eq!(inq[0], 0x81, "Inquiry {} should start with 0x81", idx);
+            assert_eq!(inq[0], 0x81, "Inquiry {idx} should start with 0x81");
             assert_eq!(
                 inq[1], 0x09,
-                "Inquiry {} should have 0x09 as second byte",
-                idx
+                "Inquiry {idx} should have 0x09 as second byte"
             );
             assert_eq!(
                 inq[inq.len() - 1],
                 0xFF,
-                "Inquiry {} should end with 0xFF",
-                idx
+                "Inquiry {idx} should end with 0xFF"
             );
 
             // Check uniqueness
             let key = Vec::from(inq);
             assert!(
                 seen.insert(key),
-                "Duplicate inquiry constant found at index {}",
-                idx
+                "Duplicate inquiry constant found at index {idx}"
             );
         }
     }
@@ -655,8 +652,7 @@ mod validation_tests {
             assert_ne!(
                 prefix[prefix.len() - 1],
                 0xFF,
-                "Prefix {} should not end with terminator 0xFF",
-                idx
+                "Prefix {idx} should not end with terminator 0xFF"
             );
         }
     }
