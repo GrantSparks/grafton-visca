@@ -70,7 +70,7 @@ impl Parse for EnumAttributes {
                 _ => {
                     return Err(Error::new_spanned(
                         meta.name,
-                        format!("Unknown attribute: {}", name_str),
+                        format!("Unknown attribute: {name_str}"),
                     ));
                 }
             }
@@ -309,7 +309,7 @@ fn generate_error_message_with_attrs(variants: &[(Variant, u8, VariantAttributes
                 .as_ref()
                 .cloned()
                 .unwrap_or_else(|| variant.ident.to_string());
-            format!("{:#04X} ({})", value, name)
+            format!("{value:#04X} ({name})")
         })
         .collect();
 
