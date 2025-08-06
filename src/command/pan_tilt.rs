@@ -250,6 +250,7 @@ impl PanTilt {
 impl EncodeVisca for PanTilt {
     type Response = ();
     const MAX_SIZE: usize = 15;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
 
     fn encode_into(
         &self,
@@ -366,9 +367,5 @@ impl EncodeVisca for PanTilt {
 
     fn response_type(&self) -> Option<ResponseType> {
         None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Movement
     }
 }

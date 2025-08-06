@@ -79,6 +79,7 @@ pub enum Sharpness {
 impl EncodeVisca for Sharpness {
     type Response = ();
     const MAX_SIZE: usize = 9;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Custom;
 
     fn encode_into(
         &self,
@@ -149,10 +150,6 @@ impl EncodeVisca for Sharpness {
 
     fn response_type(&self) -> Option<ResponseType> {
         None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Custom
     }
 }
 

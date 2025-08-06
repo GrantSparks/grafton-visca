@@ -32,6 +32,7 @@ impl MotionSyncModeCommand {
 impl EncodeVisca for MotionSyncModeCommand {
     type Response = ();
     const MAX_SIZE: usize = 6;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn encode_into(
         &self,
@@ -56,10 +57,6 @@ impl EncodeVisca for MotionSyncModeCommand {
 
     fn response_type(&self) -> Option<ResponseType> {
         None // Command response, not inquiry
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
     }
 }
 
@@ -107,6 +104,7 @@ impl MotionSyncSpeedCommand {
 impl EncodeVisca for MotionSyncSpeedCommand {
     type Response = ();
     const MAX_SIZE: usize = 6;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn encode_into(
         &self,
@@ -127,10 +125,6 @@ impl EncodeVisca for MotionSyncSpeedCommand {
 
     fn response_type(&self) -> Option<ResponseType> {
         None // Command response, not inquiry
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
     }
 }
 

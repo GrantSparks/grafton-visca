@@ -114,6 +114,7 @@ pub enum TallyInquiry {
 impl EncodeVisca for TallyInquiry {
     type Response = ();
     const MAX_SIZE: usize = 7;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn encode_into(
         &self,
@@ -135,9 +136,5 @@ impl EncodeVisca for TallyInquiry {
             Self::Red => ResponseType::TallyRed,
             Self::Green => ResponseType::TallyGreen,
         })
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
     }
 }

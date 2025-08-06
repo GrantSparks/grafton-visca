@@ -796,6 +796,7 @@ pub struct TallyGreenInquiry;
 impl crate::command::encode_visca::EncodeVisca for TallyGreenInquiry {
     type Response = crate::command::InquiryResponse;
     const MAX_SIZE: usize = 7;
+    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory = crate::timeout::CommandCategory::Quick;
 
     fn encode_into(
         &self,
@@ -815,9 +816,5 @@ impl crate::command::encode_visca::EncodeVisca for TallyGreenInquiry {
 
     fn response_type(&self) -> Option<crate::command::response::ResponseType> {
         None
-    }
-
-    fn timeout_kind(&self) -> crate::timeout::CommandCategory {
-        crate::timeout::CommandCategory::Quick
     }
 }

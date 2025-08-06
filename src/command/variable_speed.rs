@@ -40,6 +40,7 @@ impl VariableSpeedModeCommand {
 impl EncodeVisca for VariableSpeedModeCommand {
     type Response = ();
     const MAX_SIZE: usize = 7;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn encode_into(
         &self,
@@ -64,10 +65,6 @@ impl EncodeVisca for VariableSpeedModeCommand {
 
     fn response_type(&self) -> Option<ResponseType> {
         None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
     }
 }
 

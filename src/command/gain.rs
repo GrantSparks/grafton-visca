@@ -44,6 +44,7 @@ impl Gain {
 impl EncodeVisca for Gain {
     type Response = ();
     const MAX_SIZE: usize = 9;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn encode_into(
         &self,
@@ -90,10 +91,6 @@ impl EncodeVisca for Gain {
 
     fn response_type(&self) -> Option<ResponseType> {
         None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
     }
 }
 

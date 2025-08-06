@@ -87,6 +87,7 @@ impl Zoom {
 impl EncodeVisca for Zoom {
     type Response = ();
     const MAX_SIZE: usize = 10;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
 
     fn encode_into(
         &self,
@@ -141,10 +142,6 @@ impl EncodeVisca for Zoom {
         // Only dedicated inquiry commands should return specific response types.
         None
     }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Movement
-    }
 }
 
 /// Command to control digital zoom.
@@ -166,6 +163,7 @@ impl DigitalZoomCommand {
 impl EncodeVisca for DigitalZoomCommand {
     type Response = ();
     const MAX_SIZE: usize = 6;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn encode_into(
         &self,
@@ -184,9 +182,5 @@ impl EncodeVisca for DigitalZoomCommand {
 
     fn response_type(&self) -> Option<ResponseType> {
         None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
     }
 }

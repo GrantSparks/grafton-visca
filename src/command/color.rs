@@ -156,6 +156,7 @@ pub enum ColorTemperature {
 impl EncodeVisca for ColorTemperature {
     type Response = ();
     const MAX_SIZE: usize = 8;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn encode_into(
         &self,
@@ -201,10 +202,6 @@ impl EncodeVisca for ColorTemperature {
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
-    }
 }
 
 /// Red Channel Direct command (different from tuning).
@@ -228,6 +225,7 @@ pub enum RedGain {
 impl EncodeVisca for RedGain {
     type Response = ();
     const MAX_SIZE: usize = 9;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn encode_into(
         &self,
@@ -276,10 +274,6 @@ impl EncodeVisca for RedGain {
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
-    }
 }
 
 /// Blue Channel Direct command (different from tuning).
@@ -303,6 +297,7 @@ pub enum BlueGain {
 impl EncodeVisca for BlueGain {
     type Response = ();
     const MAX_SIZE: usize = 9;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn encode_into(
         &self,
@@ -350,10 +345,6 @@ impl EncodeVisca for BlueGain {
 
     fn response_type(&self) -> Option<ResponseType> {
         None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
     }
 }
 

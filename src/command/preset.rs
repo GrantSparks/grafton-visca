@@ -60,6 +60,7 @@ impl PresetCommand {
 impl EncodeVisca for PresetCommand {
     type Response = ();
     const MAX_SIZE: usize = 7;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Preset;
 
     fn encode_into(
         &self,
@@ -80,10 +81,6 @@ impl EncodeVisca for PresetCommand {
 
     fn response_type(&self) -> Option<ResponseType> {
         None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Preset
     }
 }
 

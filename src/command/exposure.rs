@@ -77,6 +77,7 @@ pub enum ExposureCompensation {
 impl EncodeVisca for ExposureCompensation {
     type Response = ();
     const MAX_SIZE: usize = 9;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn encode_into(
         &self,
@@ -128,10 +129,6 @@ impl EncodeVisca for ExposureCompensation {
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
-    }
 }
 
 visca_builder! {
@@ -181,6 +178,7 @@ pub enum Iris {
 impl EncodeVisca for Iris {
     type Response = ();
     const MAX_SIZE: usize = 9;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn encode_into(
         &self,
@@ -219,10 +217,6 @@ impl EncodeVisca for Iris {
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
-    }
 }
 
 /// Commands for controlling shutter speed values.
@@ -247,6 +241,7 @@ pub enum Shutter {
 impl EncodeVisca for Shutter {
     type Response = ();
     const MAX_SIZE: usize = 9;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn encode_into(
         &self,
@@ -285,10 +280,6 @@ impl EncodeVisca for Shutter {
     fn response_type(&self) -> Option<ResponseType> {
         None
     }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
-    }
 }
 
 /// Brightness control command.
@@ -310,6 +301,7 @@ pub enum Bright {
 impl EncodeVisca for Bright {
     type Response = ();
     const MAX_SIZE: usize = 9;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn encode_into(
         &self,
@@ -356,10 +348,6 @@ impl EncodeVisca for Bright {
 
     fn response_type(&self) -> Option<ResponseType> {
         None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
     }
 }
 

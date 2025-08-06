@@ -26,6 +26,7 @@ use super::response::ResponseType;
 /// impl EncodeVisca for MyCommand {
 ///     type Response = ();
 ///     const MAX_SIZE: usize = 6;
+///     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 ///
 ///     fn encode_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
 ///         // Check buffer size
@@ -47,11 +48,6 @@ use super::response::ResponseType;
 ///         // Return None for action commands, Some(...) for inquiries
 ///         None
 ///     }
-///     
-///     fn timeout_kind(&self) -> CommandCategory {
-///         // Return appropriate category for timeout configuration
-///         CommandCategory::Quick
-///     }
 /// }
 /// ```
 pub trait EncodeVisca: Send + Sync {
@@ -60,6 +56,13 @@ pub trait EncodeVisca: Send + Sync {
 
     /// Maximum size in bytes that this command can encode to.
     const MAX_SIZE: usize;
+
+    /// The timeout category for this command.
+    ///
+    /// This constant determines the appropriate timeout duration for the command
+    /// based on its expected execution time. Defaults to `CommandCategory::Custom`
+    /// which uses the default timeout duration.
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Custom;
 
     /// Encodes the command into the provided buffer.
     ///
@@ -133,10 +136,10 @@ pub trait EncodeVisca: Send + Sync {
     /// Returns the command category for timeout configuration.
     ///
     /// This is used to determine the appropriate timeout duration for the command.
-    /// The default implementation returns `CommandCategory::Custom` which uses
-    /// the default timeout.
+    /// The default implementation returns the value of the `TIMEOUT_CATEGORY`
+    /// associated constant.
     fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Custom
+        Self::TIMEOUT_CATEGORY
     }
 
     /// Validate this command for a specific camera model.

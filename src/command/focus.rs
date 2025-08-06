@@ -106,6 +106,7 @@ impl Focus {
 impl EncodeVisca for Focus {
     type Response = ();
     const MAX_SIZE: usize = 9;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
 
     fn encode_into(
         &self,
@@ -182,10 +183,6 @@ impl EncodeVisca for Focus {
 
     fn response_type(&self) -> Option<ResponseType> {
         None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Movement
     }
 }
 
@@ -323,6 +320,7 @@ pub enum PushAF {
 impl EncodeVisca for PushAF {
     type Response = ();
     const MAX_SIZE: usize = 8;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn encode_into(
         &self,
@@ -345,10 +343,6 @@ impl EncodeVisca for PushAF {
 
     fn response_type(&self) -> Option<ResponseType> {
         None
-    }
-
-    fn timeout_kind(&self) -> CommandCategory {
-        CommandCategory::Quick
     }
 }
 
