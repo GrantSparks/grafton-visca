@@ -370,7 +370,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     payload.len(),
                     payload
                 );
-                return Err(Error::InvalidResponseLength);
+                return Err(Error::InvalidResponseLength)
             }
         }
         ResponseType::PanTiltPosition => {
@@ -412,7 +412,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     payload.len(),
                     payload
                 );
-                return Err(Error::InvalidResponseLength);
+                return Err(Error::InvalidResponseLength)
             }
         }
         ResponseType::FocusPosition => {
