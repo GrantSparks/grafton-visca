@@ -15,8 +15,7 @@
 
 #[cfg(not(feature = "tokio"))]
 fn main() -> grafton_visca::Result<()> {
-    use grafton_visca::prelude::blocking::*;
-    use grafton_visca::{camera::profiles::PTZOpticsG2, CameraBuilder};
+    use grafton_visca::{camera::profiles::PTZOpticsG2, prelude::blocking::*, CameraBuilder};
 
     env_logger::init();
 
@@ -50,8 +49,7 @@ fn main() -> grafton_visca::Result<()> {
             println!("Tilt: {tilt} units");
 
             // Convert to degrees if profile supports it
-            // PTZOpticsG2 has known pan/tilt ranges
-            let pan_deg = pan as f32 * 0.0146484375; // Conversion factor for PTZOptics
+            let pan_deg = pan as f32 * 0.0146484375;
             let tilt_deg = tilt as f32 * 0.0146484375;
             println!("Pan: {pan_deg:.2}°");
             println!("Tilt: {tilt_deg:.2}°");
@@ -163,8 +161,7 @@ fn main() -> grafton_visca::Result<()> {
 #[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> grafton_visca::Result<()> {
-    use grafton_visca::prelude::r#async::*;
-    use grafton_visca::{camera::profiles::PTZOpticsG2, CameraBuilder};
+    use grafton_visca::{camera::profiles::PTZOpticsG2, prelude::r#async::*, CameraBuilder};
 
     env_logger::init();
 
@@ -181,7 +178,6 @@ async fn main() -> grafton_visca::Result<()> {
         .build()
         .await?;
 
-    // Query all states concurrently for efficiency
     println!("\n--- Querying All States Concurrently ---");
 
     use tokio::join;
@@ -195,7 +191,6 @@ async fn main() -> grafton_visca::Result<()> {
         camera.get_white_balance_mode()
     );
 
-    // Display results
     println!("\n--- Power State ---");
     match power {
         Ok(is_on) => println!("Power: {}", if is_on { "ON" } else { "OFF" }),
@@ -243,7 +238,6 @@ async fn main() -> grafton_visca::Result<()> {
         Err(e) => println!("Failed: {e}"),
     }
 
-    // Query detailed settings sequentially
     println!("\n--- Detailed Image Settings ---");
 
     if let Ok(brightness) = camera.get_brightness().await {

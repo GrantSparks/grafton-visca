@@ -20,7 +20,11 @@ use grafton_visca::{
     camera::profiles::PTZOpticsG2, prelude::r#async::*, types::SpeedLevel, CameraBuilder,
     PanTiltDirection, PresetNumber, Result,
 };
+
+#[cfg(feature = "tokio")]
 use std::sync::Arc;
+
+#[cfg(feature = "tokio")]
 use tokio::time::{sleep, Duration};
 
 #[cfg(feature = "tokio")]
@@ -103,7 +107,6 @@ async fn multi_camera_control() -> Result<()> {
                 SpeedLevel::Slowest.into(),
             )
             .await?;
-            // Brief delay to ensure movement starts
             sleep(Duration::from_millis(100)).await;
             cam.pan_tilt_stop().await?;
             cam.await_pan_tilt_idle(Duration::from_secs(5)).await?;
@@ -186,8 +189,6 @@ async fn parallel_single_camera() -> Result<()> {
     // Save initial state
     let initial_state = camera.save_state_async().await.ok();
 
-    // Note: Some operations can be done in parallel, others must be sequential
-    // Query operations can be parallel
     println!("Querying multiple states in parallel...");
 
     let (power, position, zoom, focus) = tokio::join!(
@@ -202,10 +203,8 @@ async fn parallel_single_camera() -> Result<()> {
     println!("Zoom: {zoom:?}");
     println!("Focus: {focus:?}");
 
-    // Control operations should be coordinated
     println!("\nExecuting coordinated movements...");
 
-    // Start zoom and pan/tilt simultaneously (if camera supports it)
     let zoom_task = {
         let cam = camera.clone();
         tokio::spawn(async move { cam.zoom_in().await })
@@ -223,14 +222,10 @@ async fn parallel_single_camera() -> Result<()> {
         })
     };
 
-    // Brief delay to ensure movements start
     sleep(Duration::from_millis(100)).await;
 
-    // Stop both operations and wait for them to complete
     camera.zoom_stop().await?;
     camera.pan_tilt_stop().await?;
-
-    // Wait for both movements to actually stop
     let _ = tokio::join!(
         camera.await_zoom_idle(Duration::from_secs(5)),
         camera.await_pan_tilt_idle(Duration::from_secs(5))
@@ -266,8 +261,6 @@ async fn producer_consumer_pattern() -> Result<()> {
 
     // Save initial state
     let initial_state = camera.save_state_async().await.ok();
-
-    // Create command channel
     let (tx, mut rx) = mpsc::channel(10);
 
     // Consumer task - executes commands
@@ -279,21 +272,18 @@ async fn producer_consumer_pattern() -> Result<()> {
                     Command::Home => {
                         println!("Executing: Home");
                         let _ = cam.pan_tilt_home().await;
-                        // Wait for home movement to complete
                         let _ = cam.await_pan_tilt_idle(Duration::from_secs(5)).await;
                     }
                     Command::Preset(n) => {
                         println!("Executing: Preset {n}");
                         if let Ok(preset) = PresetNumber::new(n) {
                             let _ = cam.preset_recall(preset).await;
-                            // Wait for preset movement to complete
                             let _ = cam.await_idle(Duration::from_secs(5)).await;
                         }
                     }
                     Command::Zoom(level) => {
                         println!("Executing: Zoom to {level}");
                         let _ = cam.zoom_absolute(Normalized::new(level)).await;
-                        // Wait for zoom to complete
                         let _ = cam.await_zoom_idle(Duration::from_secs(5)).await;
                     }
                 }
@@ -387,21 +377,14 @@ async fn synchronized_movement() -> Result<()> {
         let handle = tokio::spawn(async move {
             println!("Camera {}: Ready", i + 1);
 
-            // Wait for all cameras to be ready
             barrier.wait().await;
-
-            // All cameras move simultaneously
             println!("Camera {}: Moving to home", i + 1);
             camera.pan_tilt_home().await?;
 
-            // Wait for the movement to actually complete
             camera.await_pan_tilt_idle(Duration::from_secs(10)).await?;
             println!("Camera {}: Home position reached", i + 1);
 
-            // Wait for all cameras to complete home movement
             barrier.wait().await;
-
-            // All cameras recall preset 1 simultaneously
             println!("Camera {}: Recalling preset 1", i + 1);
             if let Ok(preset) = PresetNumber::new(1) {
                 camera.preset_recall(preset).await?;

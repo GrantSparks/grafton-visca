@@ -3,16 +3,12 @@
 //! This example demonstrates error handling patterns with the Camera API,
 //! including retry logic and error classification.
 
-#[cfg(not(feature = "async"))]
-use grafton_visca::transport::blocking::Tcp;
-#[cfg(feature = "tokio")]
-use grafton_visca::transport::tokio::Tcp;
-
 use grafton_visca::Error;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::profiles::G2PresetId,
     prelude::blocking::*,
+    transport::blocking::Tcp,
     types::{PanSpeed, TiltSpeed},
     PanTiltDirection, PresetNumber,
 };
@@ -20,9 +16,11 @@ use grafton_visca::{
 use grafton_visca::{
     camera::profiles::G2PresetId,
     prelude::r#async::*,
+    transport::tokio::Tcp,
     types::{PanSpeed, TiltSpeed},
     PanTiltDirection, PresetNumber,
 };
+
 use std::borrow::Cow;
 use std::time::Duration;
 #[cfg(any(not(feature = "async"), feature = "tokio"))]
@@ -226,7 +224,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
 
                 println!("   ⏱️  Waiting {backoff:?} before retry...");
                 std::thread::sleep(backoff);
-                backoff *= 2; // Exponential backoff
+                backoff *= 2;
             }
         }
     };
@@ -234,7 +232,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     if result.is_err() {
         println!("\n   💡 Camera may not be connected or powered off");
         println!("   💡 The retry pattern still demonstrates proper error handling");
-        return Ok(()); // Don't fail the demo
+        return Ok(());
     }
 
     // Wait for camera initialization
@@ -321,7 +319,6 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
 
 #[cfg(feature = "tokio")]
 async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
-    use std::time::Duration;
     println!("   Attempting to connect to camera at {camera_addr}...");
 
     // Try to create transport
@@ -382,7 +379,7 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
 
                 println!("   ⏳ Waiting {backoff:?} before retry...");
                 tokio::time::sleep(backoff).await;
-                backoff *= 2; // Exponential backoff
+                backoff *= 2;
             }
         }
     };

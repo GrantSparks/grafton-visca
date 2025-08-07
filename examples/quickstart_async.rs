@@ -17,15 +17,15 @@
 //! ```
 
 #[cfg(feature = "tokio")]
-// The async prelude provides all commonly-used types including async operation traits.
-// All speed types, units, and common enums are included - clean imports in one line!
 use grafton_visca::{
     camera::profiles::PTZOpticsG2, prelude::r#async::*, CameraBuilder, Error, PanTiltDirection,
 };
-#[cfg(feature = "tokio")]
-use std::env;
+
 #[cfg(feature = "tokio")]
 use tokio::time::{sleep, Duration};
+
+#[cfg(feature = "tokio")]
+use std::env;
 
 #[cfg(feature = "tokio")]
 #[tokio::main]
@@ -75,10 +75,8 @@ async fn main() -> Result<(), Error> {
     // === BASIC MOVEMENT ===
     println!("═══ Basic Movement Operations ═══");
 
-    // Home position with new concise API
     println!("Moving to home position...");
     camera.pan_tilt_home().await?;
-    // Using the new concise method name (was wait_for_pan_tilt_completion)
     camera.await_pan_tilt_idle(Duration::from_secs(30)).await?;
     println!("✓ At home position");
 
@@ -86,14 +84,12 @@ async fn main() -> Result<(), Error> {
     println!("Testing zoom...");
     println!("  Zooming in briefly...");
     camera.zoom_in().await?;
-    // Brief delay to let zoom start moving
     sleep(Duration::from_millis(100)).await;
     camera.zoom_stop().await?;
     camera.await_zoom_idle(Duration::from_secs(5)).await?;
 
     println!("  Zooming out briefly...");
     camera.zoom_out().await?;
-    // Brief delay to let zoom start moving
     sleep(Duration::from_millis(100)).await;
     camera.zoom_stop().await?;
     camera.await_zoom_idle(Duration::from_secs(5)).await?;
@@ -109,7 +105,6 @@ async fn main() -> Result<(), Error> {
             TiltSpeed::new(0)?,
         )
         .await?;
-    // Brief delay to let movement start
     sleep(Duration::from_millis(100)).await;
     camera.pan_tilt_stop().await?;
     camera.await_pan_tilt_idle(Duration::from_secs(5)).await?;
@@ -118,7 +113,6 @@ async fn main() -> Result<(), Error> {
     camera
         .pan_tilt_move(PanTiltDirection::Up, PanSpeed::new(0)?, TiltSpeed::new(10)?)
         .await?;
-    // Brief delay to let movement start
     sleep(Duration::from_millis(100)).await;
     camera.pan_tilt_stop().await?;
     camera.await_pan_tilt_idle(Duration::from_secs(5)).await?;
@@ -134,10 +128,9 @@ async fn main() -> Result<(), Error> {
         .pan_tilt_absolute(Degrees(45.0), Degrees(15.0), SpeedLevel::Fast)
         .await?;
 
-    // Demonstrate custom movement detection configuration
     let custom_config = MovementConfig {
         timeout: Duration::from_secs(30),
-        debug: true, // Enable debug logging for this movement
+        debug: true,
     };
     camera.wait_for_movement_async(&custom_config).await?;
     println!("✓ Moved to position with high precision");
@@ -150,7 +143,6 @@ async fn main() -> Result<(), Error> {
     camera.await_pan_tilt_idle(Duration::from_secs(30)).await?;
     println!("✓ Relative movement complete");
 
-    // Absolute zoom positioning with new API
     println!("Setting zoom to 50%...");
     camera.zoom_absolute(Normalized(0.5)).await?;
     camera.await_zoom_idle(Duration::from_secs(10)).await?;
@@ -160,14 +152,12 @@ async fn main() -> Result<(), Error> {
     // === DEMONSTRATE NEW MOVEMENT DETECTION ===
     println!("═══ Advanced Movement Detection ═══");
 
-    // Move to position and wait - new concise API
     println!("Using move_to helper (combines movement + wait)...");
     camera
         .move_to(Degrees(-30.0), Degrees(10.0), Duration::from_secs(30))
         .await?;
     println!("✓ move_to completed");
 
-    // Wait for all movements to complete (pan/tilt/zoom/focus)
     println!("Initiating multiple movements...");
     camera
         .pan_tilt_absolute(Degrees(0.0), Degrees(0.0), SpeedLevel::Fast)
@@ -175,10 +165,9 @@ async fn main() -> Result<(), Error> {
     camera.zoom_absolute(Normalized(0.3)).await?;
 
     println!("Waiting for all movements to complete...");
-    camera.await_idle(Duration::from_secs(30)).await?; // Waits for pan/tilt/zoom/focus simultaneously
+    camera.await_idle(Duration::from_secs(30)).await?;
     println!("✓ All movements completed");
 
-    // Demonstrate async advantage: concurrent operations
     println!("\nDemonstrating async concurrent operations...");
     use tokio::join;
 
@@ -199,29 +188,23 @@ async fn main() -> Result<(), Error> {
     // === FOCUS CONTROL ===
     println!("═══ Focus Control ═══");
 
-    // Auto focus
     println!("Setting auto focus...");
     camera.focus_auto().await?;
-    // Auto focus is a mode change, not a movement - no wait needed
     println!("✓ Auto focus enabled");
 
-    // Manual focus demonstration
     println!("Testing manual focus...");
     camera.focus_manual().await?;
     camera.focus_near(SpeedLevel::Medium).await?;
-    // Brief delay to let focus start moving
     sleep(Duration::from_millis(100)).await;
     camera.focus_stop().await?;
     camera.await_focus_idle(Duration::from_secs(5)).await?;
 
     camera.focus_far(SpeedLevel::Medium).await?;
-    // Brief delay to let focus start moving
     sleep(Duration::from_millis(100)).await;
     camera.focus_stop().await?;
     camera.await_focus_idle(Duration::from_secs(5)).await?;
     println!("✓ Manual focus complete");
 
-    // One-push auto focus with new API
     println!("Triggering one-push auto focus...");
     camera.focus_one_push().await?;
     camera.await_focus_idle(Duration::from_secs(10)).await?;
@@ -269,7 +252,6 @@ async fn main() -> Result<(), Error> {
     if original_flip.vertical {
         camera.disable_flip().await?;
         println!("  ✓ Flip disabled");
-        // Flip is an instant operation, but verify the state change
         let mut retries = 0;
         while camera.get_image_flip().await?.vertical && retries < 10 {
             sleep(Duration::from_millis(50)).await;
@@ -280,7 +262,6 @@ async fn main() -> Result<(), Error> {
     } else {
         camera.enable_flip().await?;
         println!("  ✓ Flip enabled");
-        // Flip is an instant operation, but verify the state change
         let mut retries = 0;
         while !camera.get_image_flip().await?.vertical && retries < 10 {
             sleep(Duration::from_millis(50)).await;
@@ -382,14 +363,11 @@ async fn main() -> Result<(), Error> {
 
     match (&initial_position, &initial_zoom) {
         (Ok((pan, tilt)), Ok(zoom)) => {
-            // Move back to initial position and zoom concurrently
             let pan_tilt_future = camera.pan_tilt_absolute(*pan, *tilt, SpeedLevel::Fast);
             let zoom_future = camera.zoom_absolute(Normalized((*zoom as f32) / 16384.0));
 
-            // Execute both movements concurrently
             tokio::try_join!(pan_tilt_future, zoom_future)?;
 
-            // Wait for both to complete
             let _ = tokio::join!(
                 camera.await_pan_tilt_idle(Duration::from_secs(30)),
                 camera.await_zoom_idle(Duration::from_secs(10))
@@ -398,7 +376,6 @@ async fn main() -> Result<(), Error> {
             println!("✓ Camera restored to initial state");
         }
         _ => {
-            // Fallback to home position
             camera.pan_tilt_home().await?;
             camera.await_pan_tilt_idle(Duration::from_secs(30)).await?;
             camera.zoom_absolute(Normalized(0.0)).await?;

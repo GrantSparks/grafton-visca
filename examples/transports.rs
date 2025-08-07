@@ -13,11 +13,14 @@
 //! cargo run --example transports [camera_ip[:port]]
 //! ```
 
+use std::{
+    env, thread,
+    time::{Duration, Instant},
+};
+
 use grafton_visca::{prelude::blocking::*, CameraBuilder, Error};
-use std::{env, time::Duration};
 
 fn main() -> Result<(), Error> {
-    // Initialize logging (set RUST_LOG=debug for verbose output)
     env_logger::init();
 
     // Get camera address from command line or use default
@@ -121,7 +124,7 @@ fn main() -> Result<(), Error> {
 
     // Try to connect to a non-existent address with timeout
     println!("Attempting to connect to non-existent camera (192.168.255.255)...");
-    let start = std::time::Instant::now();
+    let start = Instant::now();
 
     let timeout_result = CameraBuilder::tcp("192.168.255.255")
         .profile::<PTZOpticsG2>()
@@ -165,10 +168,10 @@ fn main() -> Result<(), Error> {
     println!("═══ Performance Comparison ═══");
     println!("Sending 10 commands via TCP...");
 
-    let tcp_start = std::time::Instant::now();
+    let tcp_start = Instant::now();
     for i in 0..10 {
         tcp_camera.zoom_absolute(Normalized((i as f32) * 0.1))?;
-        std::thread::sleep(Duration::from_millis(100));
+        thread::sleep(Duration::from_millis(100));
     }
     let tcp_elapsed = tcp_start.elapsed();
     println!("✓ TCP: 10 commands in {:.2}s", tcp_elapsed.as_secs_f32());
@@ -183,10 +186,10 @@ fn main() -> Result<(), Error> {
     {
         println!("Sending 10 commands via UDP...");
 
-        let udp_start = std::time::Instant::now();
+        let udp_start = Instant::now();
         for i in 0..10 {
             udp_camera.zoom_absolute(Normalized((i as f32) * 0.1))?;
-            std::thread::sleep(Duration::from_millis(100));
+            thread::sleep(Duration::from_millis(100));
         }
         let udp_elapsed = udp_start.elapsed();
         println!("✓ UDP: 10 commands in {:.2}s", udp_elapsed.as_secs_f32());
