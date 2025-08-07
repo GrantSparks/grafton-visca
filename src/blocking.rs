@@ -12,10 +12,12 @@
 //! let transport = Tcp::connect("192.168.0.110:52381")?;
 //! let camera = grafton_visca::Camera::new(transport).blocking();
 //!
-//! // Use clean API without _blocking suffix
 //! camera.power_on()?;
 //! camera.zoom_in()?;
 //! ```
+
+use crate::camera::methods::{ColorOpsBlocking, ExposureOpsBlocking, SystemOpsBlocking};
+use crate::forward_facade;
 
 /// A newtype wrapper around the root Camera that exposes only blocking methods.
 #[derive(Debug)]
@@ -56,7 +58,6 @@ pub mod prelude {
     };
 }
 
-// Re-export blocking traits with unsuffixed names
 pub use crate::camera::methods::{
     ColorOpsBlocking as ColorOps, ExposureCompensationOpsBlocking as ExposureCompensationOps,
     ExposureOpsBlocking as ExposureOps, FocusOpsBlocking as FocusOps,
@@ -69,12 +70,6 @@ pub use crate::camera::methods::{
     VariableSpeedOpsBlocking as VariableSpeedOps, WhiteBalanceOpsBlocking as WhiteBalanceOps,
     ZoomOpsBlocking as ZoomOps,
 };
-
-// Import traits needed for disambiguation in macros
-use crate::camera::methods::{ColorOpsBlocking, ExposureOpsBlocking, SystemOpsBlocking};
-
-// Implement all blocking traits for the wrapper type using the forward_facade! macro
-use crate::forward_facade;
 
 forward_facade!(Camera, blocking,
     ZoomOps:
@@ -308,7 +303,6 @@ forward_facade!(Camera, blocking,
         set_ndi_quality(quality: crate::types::NDIQuality) -> crate::Result<()>;
 );
 
-// Manual implementation of VariableSpeedOps with marker trait bounds
 impl<P, T> VariableSpeedOps for Camera<P, T>
 where
     P: crate::capabilities::Profile
@@ -325,7 +319,6 @@ where
     }
 }
 
-// Manual implementation of ExposureCompensationOps with marker trait bounds
 impl<P, T> ExposureCompensationOps for Camera<P, T>
 where
     P: crate::capabilities::Profile

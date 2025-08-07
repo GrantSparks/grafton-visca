@@ -62,41 +62,23 @@
 /// ```
 #[cfg(feature = "async")]
 pub mod r#async {
-    // Re-export all async operation traits with clean names
     pub use crate::camera::helpers::MovementOpsAsync;
     pub use crate::camera::methods::{
         ColorOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps, MenuControlOps,
         MotionSyncControl, NDFilterOps, PanTiltInquiryOps, PanTiltOps, PowerOps, PresetsOps,
         StreamingOps, SystemOps, TallyOps, VariableSpeedOps, WhiteBalanceOps, ZoomOps,
     };
-    pub use crate::camera::MovementConfig;
-
-    // Re-export commonly used types
-    pub use crate::Error;
-
-    // Re-export speed and parameter types
-    pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
-
-    // Re-export units that are commonly used
-    pub use crate::units::{Degrees, Normalized, Percentage, Raw};
-
-    // Re-export command enums that users need
-    pub use crate::{
-        AutoWhiteBalanceSensitivity, ExposureMode, MotionSyncMode, NDFilterMode, PanTiltDirection,
-        PanTiltLimitCorner, PresetNumber, ResolutionMode, WhiteBalanceMode,
-    };
-
-    // Re-export camera profiles
     pub use crate::camera::profiles::{
         GenericVisca, NearusBRC300, PTZOptics30X, PTZOpticsG2, PTZOpticsG3, SonyBRC300,
         SonyBRCH900, SonyEVIH100, SonyFR7,
     };
-
-    // Re-export the generic camera
-    pub use crate::camera::Camera;
-
-    // Re-export state management types
-    pub use crate::camera::CameraState;
+    pub use crate::camera::{Camera, CameraState, MovementConfig};
+    pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
+    pub use crate::units::{Degrees, Normalized, Percentage, Raw};
+    pub use crate::{
+        AutoWhiteBalanceSensitivity, Error, ExposureMode, MotionSyncMode, NDFilterMode,
+        PanTiltDirection, PanTiltLimitCorner, PresetNumber, ResolutionMode, WhiteBalanceMode,
+    };
 
     // Ergonomic type aliases for specific camera models
     /// PTZOptics G2 camera type alias.
@@ -139,7 +121,6 @@ pub mod r#async {
 /// use grafton_visca::prelude::blocking::*;
 /// ```
 pub mod blocking {
-    // Re-export all blocking operation traits with clean names
     pub use crate::camera::helpers::MovementOps;
     pub use crate::camera::methods::{
         ColorOpsBlocking as ColorOps, ExposureOpsBlocking as ExposureOps,
@@ -152,34 +133,17 @@ pub mod blocking {
         TallyOpsBlocking as TallyOps, VariableSpeedOpsBlocking as VariableSpeedOps,
         WhiteBalanceOpsBlocking as WhiteBalanceOps, ZoomOpsBlocking as ZoomOps,
     };
-    pub use crate::camera::MovementConfig;
-
-    // Re-export commonly used types
-    pub use crate::Error;
-
-    // Re-export speed and parameter types
-    pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
-
-    // Re-export units that are commonly used
-    pub use crate::units::{Degrees, Normalized, Percentage, Raw};
-
-    // Re-export command enums that users need
-    pub use crate::{
-        AutoWhiteBalanceSensitivity, ExposureMode, MotionSyncMode, NDFilterMode, PanTiltDirection,
-        PanTiltLimitCorner, PresetNumber, ResolutionMode, WhiteBalanceMode,
-    };
-
-    // Re-export camera profiles
     pub use crate::camera::profiles::{
         GenericVisca, NearusBRC300, PTZOptics30X, PTZOpticsG2, PTZOpticsG3, SonyBRC300,
         SonyBRCH900, SonyEVIH100, SonyFR7,
     };
-
-    // Re-export the generic camera
-    pub use crate::camera::Camera;
-
-    // Re-export state management types
-    pub use crate::camera::CameraState;
+    pub use crate::camera::{Camera, CameraState, MovementConfig};
+    pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
+    pub use crate::units::{Degrees, Normalized, Percentage, Raw};
+    pub use crate::{
+        AutoWhiteBalanceSensitivity, Error, ExposureMode, MotionSyncMode, NDFilterMode,
+        PanTiltDirection, PanTiltLimitCorner, PresetNumber, ResolutionMode, WhiteBalanceMode,
+    };
 
     // Ergonomic type aliases for specific camera models
     /// PTZOptics G2 camera type alias.

@@ -1,4 +1,5 @@
 use log::{debug, error, trace, warn};
+
 use std::{borrow::Cow, collections::VecDeque, sync::Arc, time::Instant};
 
 use crate::{
@@ -619,13 +620,8 @@ impl SocketManagerActor {
 
             #[cfg(not(feature = "tokio"))]
             {
-                // For non-tokio, we need to handle both command and response channels
-                // with non-blocking operations to ensure proper event handling
-
-                // Check for timeouts first
                 self.check_timeouts().await;
 
-                // Try to receive commands without blocking
                 let mut activity = false;
                 if let Some(cmd) = self.command_receiver.try_recv() {
                     activity = true;
@@ -656,7 +652,6 @@ impl SocketManagerActor {
                     }
                 }
 
-                // Try to receive response
                 if let Ok(bytes) = self.transport.recv().await {
                     activity = true;
                     empty_iterations = 0;

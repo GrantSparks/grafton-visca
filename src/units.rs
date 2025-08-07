@@ -3,12 +3,11 @@
 //! This module provides strongly-typed units for camera parameters,
 //! enabling intuitive and type-safe API usage.
 
-use std::borrow::Cow;
-use std::convert::TryFrom;
+use std::{borrow::Cow, convert::TryFrom};
 
-use crate::error::Error;
-use crate::types::{
-    ColorTemp, FocusPosition, IrisLevel, PanSpeed, ShutterSpeed, TiltSpeed, ZoomPosition,
+use crate::{
+    error::Error,
+    types::{ColorTemp, FocusPosition, IrisLevel, PanSpeed, ShutterSpeed, TiltSpeed, ZoomPosition},
 };
 
 /// Position in degrees.
