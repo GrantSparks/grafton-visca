@@ -11,7 +11,7 @@ homepage.workspace = true
 categories = ["multimedia"]
 keywords = ["ptz", "camera", "visca", "video", "macros"]
 exclude = ["target/", ".gitignore", ".github/", ".vscode/"]
-readme = "../README.md"
+readme = "README.md"
 
 [lib]
 proc-macro = true
