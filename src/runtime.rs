@@ -100,8 +100,9 @@ where
     R: Runtime + ?Sized,
     F: Future<Output = T>,
 {
-    use futures::future::{select, Either};
     use std::pin::pin;
+
+    use futures::future::{select, Either};
 
     let sleep_fut = runtime.sleep(duration);
     let work_fut = pin!(fut);

@@ -14,7 +14,6 @@
 //!     let transport = Tcp::connect("192.168.0.110:52381").await?;
 //!     let camera = grafton_visca::r#async::Camera::new(grafton_visca::Camera::new(transport));
 //!
-//!     // Use async API
 //!     camera.power_on().await?;
 //!     camera.zoom_in().await?;
 //!     Ok(())

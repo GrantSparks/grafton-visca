@@ -300,9 +300,12 @@ pub mod transport;
 
 #[cfg(feature = "async")]
 mod channels;
+
 /// Constants for VISCA protocol including default ports
 pub mod constants;
+
 mod macros;
+
 /// Type definitions and abstractions
 pub mod types;
 
@@ -323,6 +326,7 @@ pub mod blocking;
 pub mod r#async;
 
 pub mod prelude;
+
 // Core exports - only the essentials at root level
 pub use camera::{Camera, CameraBuilder};
 pub use camera_id::CameraId;
