@@ -42,7 +42,6 @@ All command encoders/decoders compile and have unit / property tests, but **the 
 ```rust
 use grafton_visca::{
     prelude::blocking::*,
-    camera::profiles::PTZOpticsG2,
     CameraBuilder,
 };
 
@@ -66,7 +65,6 @@ fn main() -> grafton_visca::Result<()> {
 ```rust
 use grafton_visca::{
     prelude::r#async::*,
-    camera::profiles::PTZOpticsG2,
     CameraBuilder,
 };
 
@@ -163,6 +161,8 @@ Each profile implements capability traits (`HasZoom`, `HasNDFilter`, …).
 If a capability is absent the corresponding extension trait is **not** in scope, so unsupported calls fail at compile time. Example:
 
 ```rust,ignore
+use grafton_visca::{prelude::blocking::*, CameraBuilder};
+
 let cam = CameraBuilder::tcp("192.168.0.110:52381")
     .profile::<SonyFR7>()
     .build()?;
@@ -179,7 +179,9 @@ let b = CameraBuilder::tcp("192.168.1.101:52381")
 
 `Error` indicates whether an issue is retryable:
 
-```rust
+```rust,ignore
+use grafton_visca::prelude::blocking::*;
+
 loop {
     match cam.zoom_absolute(0.6.into()) {
         Ok(_) => break,
