@@ -28,15 +28,9 @@ fn main() -> grafton_visca::Result<()> {
         .unwrap_or_else(|| "192.168.0.110".to_string());
 
     println!("Connecting to camera at {camera_addr}...");
-    let camera = match CameraBuilder::tcp(&camera_addr)
+    let camera = CameraBuilder::tcp(&camera_addr)
         .profile::<PTZOpticsG2>()
-        .build()?
-    {
-        grafton_visca::camera::BlockingCamera::Tcp(cam) => cam,
-        grafton_visca::camera::BlockingCamera::Udp(_) => {
-            unreachable!("TCP builder should return TCP camera")
-        }
-    };
+        .build()?;
 
     // Query power state
     println!("\n--- Power State ---");
@@ -182,16 +176,10 @@ async fn main() -> grafton_visca::Result<()> {
         .unwrap_or_else(|| "192.168.0.110".to_string());
 
     println!("Connecting to camera at {camera_addr}...");
-    let camera = match CameraBuilder::tokio_tcp(&camera_addr)
+    let camera = CameraBuilder::tokio_tcp(&camera_addr)
         .profile::<PTZOpticsG2>()
-        .build_async()
-        .await?
-    {
-        grafton_visca::camera::AsyncCamera::Tcp(cam) => cam,
-        grafton_visca::camera::AsyncCamera::Udp(_) => {
-            unreachable!("TCP builder should return TCP camera")
-        }
-    };
+        .build()
+        .await?;
 
     // Query all states concurrently for efficiency
     println!("\n--- Querying All States Concurrently ---");

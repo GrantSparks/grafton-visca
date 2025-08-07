@@ -25,15 +25,9 @@ fn main() -> Result<(), Error> {
     println!("========================");
     println!("Connecting to camera at {camera_addr}\n");
 
-    let camera = match CameraBuilder::tcp(&camera_addr)
+    let camera = CameraBuilder::tcp(&camera_addr)
         .profile::<PTZOpticsG2>()
-        .build()?
-    {
-        grafton_visca::camera::BlockingCamera::Tcp(cam) => cam,
-        grafton_visca::camera::BlockingCamera::Udp(_) => {
-            unreachable!("TCP builder should return TCP camera")
-        }
-    };
+        .build()?;
 
     println!("✅ Connected successfully!\n");
 
