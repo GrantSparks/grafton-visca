@@ -1,5 +1,7 @@
 //! State management implementation for Camera
 
+use std::time::Duration;
+
 use crate::{
     camera::generic::Camera,
     capabilities::Profile,
@@ -7,7 +9,6 @@ use crate::{
     units::{Degrees, Normalized},
     Result,
 };
-use std::time::Duration;
 
 /// Camera state for saving and restoring position
 #[derive(Debug, Clone, Copy)]
@@ -27,7 +28,6 @@ impl CameraState {
     }
 }
 
-// Blocking implementation
 impl<P, T> Camera<P, T>
 where
     P: Profile,
@@ -71,11 +71,9 @@ where
         use crate::camera::helpers::MovementOps;
         use crate::camera::methods::{PanTiltOpsBlocking, ZoomOpsBlocking};
 
-        // Restore pan/tilt position
         self.pan_tilt_absolute(Degrees(state.pan), Degrees(state.tilt), speed)?;
         MovementOps::await_idle(self, Duration::from_secs(30))?;
 
-        // Restore zoom
         let normalized_zoom = state.zoom_normalized();
         self.zoom_absolute(Normalized(normalized_zoom))?;
         MovementOps::await_idle(self, Duration::from_secs(10))?;
@@ -84,7 +82,6 @@ where
     }
 }
 
-// Async implementation
 #[cfg(feature = "async")]
 impl<P: Profile, T: crate::transport::UnifiedTransport> Camera<P, T> {
     /// Save the current camera state (async)
@@ -95,12 +92,10 @@ impl<P: Profile, T: crate::transport::UnifiedTransport> Camera<P, T> {
     {
         use crate::camera::methods::{InquiryOps, PanTiltInquiryOps};
 
-        // Give camera time to stabilize
         tokio::time::sleep(Duration::from_millis(500)).await;
 
         let (pan, tilt) = self.get_pan_tilt_degrees().await?;
 
-        // Try to get zoom, retry if 0
         let mut zoom = self.get_zoom_position().await?;
         if zoom == 0 {
             tokio::time::sleep(Duration::from_millis(500)).await;
@@ -157,12 +152,10 @@ impl<P: Profile, T: crate::transport::UnifiedTransport> Camera<P, T> {
         use crate::camera::helpers::MovementOpsAsync;
         use crate::camera::methods::{PanTiltOps, ZoomOps};
 
-        // Restore pan/tilt position
         self.pan_tilt_absolute(Degrees(state.pan), Degrees(state.tilt), speed)
             .await?;
         MovementOpsAsync::await_idle(self, Duration::from_secs(30)).await?;
 
-        // Restore zoom
         let normalized_zoom = state.zoom_normalized();
         self.zoom_absolute(Normalized(normalized_zoom)).await?;
         MovementOpsAsync::await_idle(self, Duration::from_secs(10)).await?;

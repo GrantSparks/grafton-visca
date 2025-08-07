@@ -4,8 +4,9 @@
 
 use std::marker::PhantomData;
 
-use super::Camera;
 use crate::{capabilities::Profile, error::Error};
+
+use super::Camera;
 
 /// Builder for creating camera instances with runtime parameters first.
 ///

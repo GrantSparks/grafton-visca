@@ -100,7 +100,7 @@ impl ProfileMetadata for PTZOpticsG2 {
     const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::RawVisca;
     const ACK_TIMEOUT: Duration = Duration::from_millis(100);
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
-    const SUPPORTS_OPERATION_COMPLETE: bool = true; // PTZOptics cameras support 0x51 completion messages
+    const SUPPORTS_OPERATION_COMPLETE: bool = true;
     const DEFAULT_TCP_PORT: u16 = 5678;
     const DEFAULT_UDP_PORT: u16 = 1259;
 }
@@ -110,15 +110,15 @@ impl PanTilt for PTZOpticsG2 {
     const TILT_RANGE: std::ops::Range<i16> = -432..1297;
     const MAX_PAN_SPEED: u8 = 24;
     const MAX_TILT_SPEED: u8 = 20;
-    const PAN_DEGREES_TO_UNITS: f32 = 14.4; // 2448/170
-    const TILT_DEGREES_TO_UNITS: f32 = 14.4; // (1296+432)/120
+    const PAN_DEGREES_TO_UNITS: f32 = 14.4;
+    const TILT_DEGREES_TO_UNITS: f32 = 14.4;
 }
 
 impl Zoom for PTZOpticsG2 {
-    const OPTICAL_ZOOM_MAX: u16 = 0x4000; // 20x optical
+    const OPTICAL_ZOOM_MAX: u16 = 0x4000;
     const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7000);
     const ZOOM_SPEED_RANGE: std::ops::Range<u8> = 0..8;
-    const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 862.3; // 0x4000 / (20-1)
+    const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 862.3;
 }
 
 impl Focus for PTZOpticsG2 {
@@ -197,8 +197,8 @@ impl ProfileMetadata for GenericVisca {
 }
 
 impl PanTilt for GenericVisca {
-    const PAN_RANGE: std::ops::Range<i16> = -2880..2881; // ±180°
-    const TILT_RANGE: std::ops::Range<i16> = -1440..1441; // ±90°
+    const PAN_RANGE: std::ops::Range<i16> = -2880..2881;
+    const TILT_RANGE: std::ops::Range<i16> = -1440..1441;
     const MAX_PAN_SPEED: u8 = 24;
     const MAX_TILT_SPEED: u8 = 24;
     const PAN_DEGREES_TO_UNITS: f32 = 16.0;
@@ -290,8 +290,8 @@ impl ProfileMetadata for SonyFR7 {
 }
 
 impl PanTilt for SonyFR7 {
-    const PAN_RANGE: std::ops::Range<i16> = -2700..2701; // ±170°
-    const TILT_RANGE: std::ops::Range<i16> = -300..1201; // -20° to +80°
+    const PAN_RANGE: std::ops::Range<i16> = -2700..2701;
+    const TILT_RANGE: std::ops::Range<i16> = -300..1201;
     const MAX_PAN_SPEED: u8 = 24;
     const MAX_TILT_SPEED: u8 = 24;
     const PAN_DEGREES_TO_UNITS: f32 = 15.88;
@@ -402,8 +402,8 @@ impl ProfileMetadata for SonyBRCH900 {
 }
 
 impl PanTilt for SonyBRCH900 {
-    const PAN_RANGE: std::ops::Range<i16> = -2700..2701; // ±170°
-    const TILT_RANGE: std::ops::Range<i16> = -300..1201; // -20° to +80°
+    const PAN_RANGE: std::ops::Range<i16> = -2700..2701;
+    const TILT_RANGE: std::ops::Range<i16> = -300..1201;
     const MAX_PAN_SPEED: u8 = 24;
     const MAX_TILT_SPEED: u8 = 24;
     const PAN_DEGREES_TO_UNITS: f32 = 15.88;
@@ -411,7 +411,7 @@ impl PanTilt for SonyBRCH900 {
 }
 
 impl Zoom for SonyBRCH900 {
-    const OPTICAL_ZOOM_MAX: u16 = 0x4000; // 20x optical
+    const OPTICAL_ZOOM_MAX: u16 = 0x4000;
     const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7000);
     const ZOOM_SPEED_RANGE: std::ops::Range<u8> = 0..8;
     const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 862.3;
@@ -481,8 +481,8 @@ impl ProfileMetadata for SonyEVIH100 {
 }
 
 impl PanTilt for SonyEVIH100 {
-    const PAN_RANGE: std::ops::Range<i16> = -1440..1441; // ±90°
-    const TILT_RANGE: std::ops::Range<i16> = -480..481; // ±30°
+    const PAN_RANGE: std::ops::Range<i16> = -1440..1441;
+    const TILT_RANGE: std::ops::Range<i16> = -480..481;
     const MAX_PAN_SPEED: u8 = 18;
     const MAX_TILT_SPEED: u8 = 18;
     const PAN_DEGREES_TO_UNITS: f32 = 16.0;
@@ -490,7 +490,7 @@ impl PanTilt for SonyEVIH100 {
 }
 
 impl Zoom for SonyEVIH100 {
-    const OPTICAL_ZOOM_MAX: u16 = 0x4000; // 20x optical
+    const OPTICAL_ZOOM_MAX: u16 = 0x4000;
     const DIGITAL_ZOOM_MAX: Option<u16> = None;
     const ZOOM_SPEED_RANGE: std::ops::Range<u8> = 0..8;
     const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 862.3;
@@ -561,8 +561,8 @@ impl ProfileMetadata for SonyBRC300 {
 }
 
 impl PanTilt for SonyBRC300 {
-    const PAN_RANGE: std::ops::Range<i16> = -1170..1171; // ±90°
-    const TILT_RANGE: std::ops::Range<i16> = -390..391; // ±30°
+    const PAN_RANGE: std::ops::Range<i16> = -1170..1171;
+    const TILT_RANGE: std::ops::Range<i16> = -390..391;
     const MAX_PAN_SPEED: u8 = 18;
     const MAX_TILT_SPEED: u8 = 17;
     const PAN_DEGREES_TO_UNITS: f32 = 13.0;
@@ -571,10 +571,10 @@ impl PanTilt for SonyBRC300 {
 }
 
 impl Zoom for SonyBRC300 {
-    const OPTICAL_ZOOM_MAX: u16 = 0x1068; // 10x optical
+    const OPTICAL_ZOOM_MAX: u16 = 0x1068;
     const DIGITAL_ZOOM_MAX: Option<u16> = None;
     const ZOOM_SPEED_RANGE: std::ops::Range<u8> = 0..8;
-    const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 455.1; // 0x1068 / (10-1)
+    const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 455.1;
 }
 
 impl Focus for SonyBRC300 {
@@ -730,7 +730,7 @@ impl PanTilt for PTZOpticsG3 {
 }
 
 impl Zoom for PTZOpticsG3 {
-    const OPTICAL_ZOOM_MAX: u16 = 0x4000; // 20x optical
+    const OPTICAL_ZOOM_MAX: u16 = 0x4000;
     const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7000);
     const ZOOM_SPEED_RANGE: std::ops::Range<u8> = 0..8;
     const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 862.3;
@@ -814,10 +814,10 @@ impl PanTilt for PTZOptics30X {
 }
 
 impl Zoom for PTZOptics30X {
-    const OPTICAL_ZOOM_MAX: u16 = 0x7AC0; // 30x optical
+    const OPTICAL_ZOOM_MAX: u16 = 0x7AC0;
     const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7FFF);
     const ZOOM_SPEED_RANGE: std::ops::Range<u8> = 0..8;
-    const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 1043.0; // 0x7AC0 / (30-1)
+    const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 1043.0;
 }
 
 impl Focus for PTZOptics30X {
