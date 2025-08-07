@@ -157,9 +157,9 @@ pub enum AsyncCamera<P: Profile> {
     Udp(Camera<P, crate::transport::tokio::Udp>),
 }
 
-impl<'a, P: Profile> TypedGenericBuilder<'a, P> {
+impl<P: Profile> TypedGenericBuilder<'_, P> {
     /// Build the camera with the appropriate blocking transport.
-    /// 
+    ///
     /// This method handles both TCP and UDP for blocking runtime.
     pub fn build(self) -> Result<BlockingCamera<P>, Error> {
         // Check runtime
@@ -170,7 +170,7 @@ impl<'a, P: Profile> TypedGenericBuilder<'a, P> {
         }
 
         let addr = ensure_port::<P>(self.addr, self.protocol);
-        
+
         match self.protocol {
             Protocol::Tcp => {
                 let transport = crate::transport::blocking::Tcp::connect(&addr)?;
@@ -208,7 +208,7 @@ impl<'a, P: Profile> TypedGenericBuilder<'a, P> {
 }
 
 /// Ensure the address has a port, adding the default if not specified.
-/// 
+///
 /// Note: This cannot be const fn in stable Rust due to String operations.
 pub fn ensure_port<P: Profile>(addr: &str, protocol: Protocol) -> String {
     if addr.contains(':') {

@@ -12,7 +12,7 @@ pub fn derive_visca_encode_impl(input: DeriveInput) -> TokenStream {
 
     // Parse attributes
     let attrs = parse_attributes(&input.attrs);
-    
+
     // Generate implementation based on data type
     let implementation = match input.data {
         Data::Struct(data_struct) => generate_struct_impl(&name, data_struct, &attrs),
@@ -43,12 +43,12 @@ struct ViscaAttributes {
 /// Parse attributes from the type
 fn parse_attributes(attrs: &[syn::Attribute]) -> ViscaAttributes {
     let mut result = ViscaAttributes::default();
-    
+
     for attr in attrs {
         if !attr.path().is_ident("visca_encode") {
             continue;
         }
-        
+
         // Parse the attribute arguments
         let _ = attr.parse_nested_meta(|meta| {
             if meta.path.is_ident("response") {
@@ -71,7 +71,7 @@ fn parse_attributes(attrs: &[syn::Attribute]) -> ViscaAttributes {
             Ok(())
         });
     }
-    
+
     result
 }
 
@@ -89,7 +89,7 @@ fn generate_struct_impl(
         }
         None => quote! { crate::timeout::CommandCategory::Custom },
     };
-    
+
     let response_type = match &attrs.response_type {
         Some(resp) => {
             let resp_ident = syn::Ident::new(resp, proc_macro2::Span::call_site());
@@ -105,10 +105,10 @@ fn generate_struct_impl(
         quote! {
             let mut builder = crate::command::const_encoding::CommandBuilder::<#max_size>::new();
             #(builder = builder.push(#prefix_bytes);)*
-            
+
             // Add any dynamic fields here
             // This is a simplified version - you'd need to handle struct fields
-            
+
             let terminated = builder.with_camera_id(camera_id).terminate();
             terminated.copy_to(buffer)
         }
@@ -178,7 +178,7 @@ fn generate_enum_impl(_name: &Ident, data_enum: DataEnum, attrs: &ViscaAttribute
         }
         None => quote! { crate::timeout::CommandCategory::Custom },
     };
-    
+
     let response_type = match &attrs.response_type {
         Some(resp) => {
             let resp_ident = syn::Ident::new(resp, proc_macro2::Span::call_site());
@@ -190,10 +190,9 @@ fn generate_enum_impl(_name: &Ident, data_enum: DataEnum, attrs: &ViscaAttribute
     // Generate match arms for each variant
     let match_arms = data_enum.variants.iter().map(|variant| {
         let variant_name = &variant.ident;
-        
+
         // Parse variant attributes for custom bytes
         let variant_bytes = parse_variant_bytes(&variant.attrs);
-        
         match &variant.fields {
             Fields::Unit => {
                 // Unit variant - use the bytes from attributes
@@ -274,7 +273,7 @@ fn parse_variant_bytes(attrs: &[syn::Attribute]) -> Option<Vec<u8>> {
                 }
                 Ok(())
             });
-            
+
             if result.is_ok() && !bytes.is_empty() {
                 return Some(bytes);
             }

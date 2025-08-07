@@ -9,7 +9,7 @@ const VISCA_TERMINATOR: u8 = 0xFF;
 /// Power command patterns
 pub mod power {
     use super::VISCA_TERMINATOR;
-    
+
     /// Power on command
     pub const ON: &[u8] = &[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
 
@@ -23,7 +23,7 @@ pub mod power {
 /// Zoom command patterns
 pub mod zoom {
     use super::VISCA_TERMINATOR;
-    
+
     /// Zoom stop
     pub const STOP: &[u8] = &[0x81, 0x01, 0x04, 0x07, 0x00, VISCA_TERMINATOR];
 
@@ -47,19 +47,69 @@ pub mod pan_tilt {
     pub const RESET: &[u8] = &[0x81, 0x01, 0x06, 0x05, VISCA_TERMINATOR];
 
     /// Pan/tilt stop
-    pub const STOP: &[u8] = &[0x81, 0x01, 0x06, 0x01, 0x00, 0x00, 0x03, 0x03, VISCA_TERMINATOR];
+    pub const STOP: &[u8] = &[
+        0x81,
+        0x01,
+        0x06,
+        0x01,
+        0x00,
+        0x00,
+        0x03,
+        0x03,
+        VISCA_TERMINATOR,
+    ];
 
     /// Pan/tilt up
-    pub const UP: &[u8] = &[0x81, 0x01, 0x06, 0x01, 0x18, 0x14, 0x03, 0x01, VISCA_TERMINATOR];
+    pub const UP: &[u8] = &[
+        0x81,
+        0x01,
+        0x06,
+        0x01,
+        0x18,
+        0x14,
+        0x03,
+        0x01,
+        VISCA_TERMINATOR,
+    ];
 
     /// Pan/tilt down
-    pub const DOWN: &[u8] = &[0x81, 0x01, 0x06, 0x01, 0x18, 0x18, 0x03, 0x02, VISCA_TERMINATOR];
+    pub const DOWN: &[u8] = &[
+        0x81,
+        0x01,
+        0x06,
+        0x01,
+        0x18,
+        0x18,
+        0x03,
+        0x02,
+        VISCA_TERMINATOR,
+    ];
 
     /// Pan/tilt left
-    pub const LEFT: &[u8] = &[0x81, 0x01, 0x06, 0x01, 0x18, 0x18, 0x01, 0x03, VISCA_TERMINATOR];
+    pub const LEFT: &[u8] = &[
+        0x81,
+        0x01,
+        0x06,
+        0x01,
+        0x18,
+        0x18,
+        0x01,
+        0x03,
+        VISCA_TERMINATOR,
+    ];
 
     /// Pan/tilt right
-    pub const RIGHT: &[u8] = &[0x81, 0x01, 0x06, 0x01, 0x18, 0x18, 0x02, 0x03, VISCA_TERMINATOR];
+    pub const RIGHT: &[u8] = &[
+        0x81,
+        0x01,
+        0x06,
+        0x01,
+        0x18,
+        0x18,
+        0x02,
+        0x03,
+        VISCA_TERMINATOR,
+    ];
 
     /// Pan/tilt position inquiry
     pub const POSITION_INQ: &[u8] = &[0x81, 0x09, 0x06, 0x12, VISCA_TERMINATOR];

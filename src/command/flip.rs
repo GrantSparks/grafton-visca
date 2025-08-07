@@ -161,14 +161,14 @@ mod tests {
         ImageFlipCommand,
         test_flip_on_command,
         ImageFlipCommand::new(Flip::On),
-        &[0x81, 0x01, 0x04, 0x66, 0x02,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x04, 0x66, 0x02, VISCA_TERMINATOR]
     );
 
     visca_test!(
         ImageFlipCommand,
         test_flip_off_command,
         ImageFlipCommand::new(Flip::Off),
-        &[0x81, 0x01, 0x04, 0x66, 0x03,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x04, 0x66, 0x03, VISCA_TERMINATOR]
     );
 
     #[test]
@@ -233,7 +233,7 @@ mod tests {
         assert_eq!(
             cmd2.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap(),
-            vec![0x81, 0x01, 0x04, 0x66, 0x03,  VISCA_TERMINATOR]
+            vec![0x81, 0x01, 0x04, 0x66, 0x03, VISCA_TERMINATOR]
         );
     }
 

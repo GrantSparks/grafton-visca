@@ -149,69 +149,109 @@ mod tests {
         MenuDisplayCommand,
         test_menu_display_on,
         MenuDisplayCommand::new(true),
-        &[0x81, 0x01, 0x06, 0x06, 0x02,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x06, 0x06, 0x02, VISCA_TERMINATOR]
     );
 
     visca_test!(
         MenuDisplayCommand,
         test_menu_display_off,
         MenuDisplayCommand::new(false),
-        &[0x81, 0x01, 0x06, 0x06, 0x03,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x06, 0x06, 0x03, VISCA_TERMINATOR]
     );
 
     visca_test!(
         MenuNavigateCommand,
         test_menu_navigate_up,
         MenuNavigateCommand::new(MenuDirection::Up),
-        &[0x81, 0x01, 0x06, 0x01, 0x0E, 0x0E, 0x03, 0x01,  VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x06,
+            0x01,
+            0x0E,
+            0x0E,
+            0x03,
+            0x01,
+            VISCA_TERMINATOR
+        ]
     );
 
     visca_test!(
         MenuNavigateCommand,
         test_menu_navigate_down,
         MenuNavigateCommand::new(MenuDirection::Down),
-        &[0x81, 0x01, 0x06, 0x01, 0x0E, 0x0E, 0x03, 0x02,  VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x06,
+            0x01,
+            0x0E,
+            0x0E,
+            0x03,
+            0x02,
+            VISCA_TERMINATOR
+        ]
     );
 
     visca_test!(
         MenuNavigateCommand,
         test_menu_navigate_left,
         MenuNavigateCommand::new(MenuDirection::Left),
-        &[0x81, 0x01, 0x06, 0x01, 0x0E, 0x0E, 0x01, 0x03,  VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x06,
+            0x01,
+            0x0E,
+            0x0E,
+            0x01,
+            0x03,
+            VISCA_TERMINATOR
+        ]
     );
 
     visca_test!(
         MenuNavigateCommand,
         test_menu_navigate_right,
         MenuNavigateCommand::new(MenuDirection::Right),
-        &[0x81, 0x01, 0x06, 0x01, 0x0E, 0x0E, 0x02, 0x03,  VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x06,
+            0x01,
+            0x0E,
+            0x0E,
+            0x02,
+            0x03,
+            VISCA_TERMINATOR
+        ]
     );
 
     visca_test!(
         MenuActionCommand,
         test_menu_select,
         MenuActionCommand::new(MenuAction::Select),
-        &[0x81, 0x01, 0x06, 0x06, 0x05,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x06, 0x06, 0x05, VISCA_TERMINATOR]
     );
 
     visca_test!(
         MenuActionCommand,
         test_menu_cancel,
         MenuActionCommand::new(MenuAction::Cancel),
-        &[0x81, 0x01, 0x06, 0x06, 0x04,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x06, 0x06, 0x04, VISCA_TERMINATOR]
     );
 
     visca_test!(
         DirectMenuControlCommand,
         test_direct_menu_control,
         DirectMenuControlCommand::new(0x00, 0x01),
-        &[0x81, 0x01, 0x7E, 0x04, 0x72, 0x00, 0x01,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x7E, 0x04, 0x72, 0x00, 0x01, VISCA_TERMINATOR]
     );
 
     visca_test!(
         DirectMenuControlCommand,
         test_direct_menu_open_close,
         DirectMenuControlCommand::open_close(),
-        &[0x81, 0x01, 0x7E, 0x04, 0x72, 0x00, 0x01,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x7E, 0x04, 0x72, 0x00, 0x01, VISCA_TERMINATOR]
     );
 }

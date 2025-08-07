@@ -44,42 +44,46 @@ const ALLOWED_FILES: &[&str] = &[
 fn check_file_for_hardcoded_terminator(path: &Path) -> Vec<(usize, String)> {
     let content = fs::read_to_string(path).unwrap_or_default();
     let mut violations = Vec::new();
-    
+
     // Skip allowed files
     let path_str = path.to_str().unwrap_or("");
-    if ALLOWED_FILES.iter().any(|&allowed| path_str.ends_with(allowed)) {
+    if ALLOWED_FILES
+        .iter()
+        .any(|&allowed| path_str.ends_with(allowed))
+    {
         return violations;
     }
-    
+
     for (line_num, line) in content.lines().enumerate() {
         if line.contains("0xFF") {
             // Check if this is an allowed pattern
-            let is_allowed = ALLOWED_PATTERNS.iter().any(|pattern| {
-                line.contains(pattern)
-            });
-            
+            let is_allowed = ALLOWED_PATTERNS
+                .iter()
+                .any(|pattern| line.contains(pattern));
+
             if !is_allowed {
                 // Check for specific patterns that indicate hardcoded terminators
-                if line.contains(", 0xFF]") || 
-                   line.contains(", 0xFF,") ||
-                   line.contains("[0xFF") ||
-                   (line.contains("0xFF") && line.contains("termin")) {
+                if line.contains(", 0xFF]")
+                    || line.contains(", 0xFF,")
+                    || line.contains("[0xFF")
+                    || (line.contains("0xFF") && line.contains("termin"))
+                {
                     violations.push((line_num + 1, line.to_string()));
                 }
             }
         }
     }
-    
+
     violations
 }
 
 fn check_directory_recursively(dir: &Path) -> Vec<(String, Vec<(usize, String)>)> {
     let mut all_violations = Vec::new();
-    
+
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            
+
             if path.is_dir() {
                 // Skip target and .git directories
                 if let Some(name) = path.file_name() {
@@ -91,15 +95,12 @@ fn check_directory_recursively(dir: &Path) -> Vec<(String, Vec<(usize, String)>)
             } else if path.extension().and_then(|s| s.to_str()) == Some("rs") {
                 let violations = check_file_for_hardcoded_terminator(&path);
                 if !violations.is_empty() {
-                    all_violations.push((
-                        path.to_string_lossy().to_string(),
-                        violations
-                    ));
+                    all_violations.push((path.to_string_lossy().to_string(), violations));
                 }
             }
         }
     }
-    
+
     all_violations
 }
 
@@ -107,14 +108,14 @@ fn check_directory_recursively(dir: &Path) -> Vec<(String, Vec<(usize, String)>)
 fn test_no_hardcoded_terminators_in_source() {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let src_dir = workspace_root.join("src");
-    
+
     let violations = check_directory_recursively(&src_dir);
-    
+
     if !violations.is_empty() {
         let mut error_message = String::from(
-            "\n\nFound hardcoded 0xFF values that should use VISCA_TERMINATOR constant:\n\n"
+            "\n\nFound hardcoded 0xFF values that should use VISCA_TERMINATOR constant:\n\n",
         );
-        
+
         for (file, lines) in violations {
             error_message.push_str(&format!("File: {}\n", file));
             for (line_num, line) in lines {
@@ -122,12 +123,12 @@ fn test_no_hardcoded_terminators_in_source() {
             }
             error_message.push('\n');
         }
-        
+
         error_message.push_str(
             "Please replace hardcoded 0xFF with VISCA_TERMINATOR constant.\n\
-             Add 'use crate::command::const_encoding::VISCA_TERMINATOR;' if needed.\n"
+             Add 'use crate::command::const_encoding::VISCA_TERMINATOR;' if needed.\n",
         );
-        
+
         panic!("{}", error_message);
     }
 }
@@ -136,9 +137,9 @@ fn test_no_hardcoded_terminators_in_source() {
 fn test_no_hardcoded_terminators_in_tests() {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let tests_dir = workspace_root.join("tests");
-    
+
     let violations = check_directory_recursively(&tests_dir);
-    
+
     // Tests are more lenient but should still use constants where possible
     if !violations.is_empty() {
         println!("\nWarning: Found hardcoded 0xFF in test files:");
@@ -149,7 +150,7 @@ fn test_no_hardcoded_terminators_in_tests() {
             }
         }
         println!("\nConsider using VISCA_TERMINATOR constant in tests for consistency.\n");
-        
+
         // Don't fail the test for test files, just warn
         // But we could make this stricter in the future
     }
@@ -160,16 +161,15 @@ fn test_no_hardcoded_terminators_in_tests() {
 fn test_visca_terminator_value() {
     // This is a sanity check to ensure the constant hasn't been changed
     const EXPECTED_TERMINATOR: u8 = 0xFF;
-    
+
     // We'll test this using the Camera API with a mock transport
     // Since all commands must end with the terminator, we can verify
     // through any command sent
-    
+
     // For now, we just verify the constant value directly
     // The actual validation is done through unit tests in src/command/mod.rs
     assert_eq!(
-        EXPECTED_TERMINATOR, 
-        0xFF,
+        EXPECTED_TERMINATOR, 0xFF,
         "VISCA protocol requires terminator to be 0xFF"
     );
 }

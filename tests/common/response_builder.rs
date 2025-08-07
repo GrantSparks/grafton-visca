@@ -160,17 +160,26 @@ mod tests {
         assert_eq!(ResponseBuilder::ack(1), vec![0x90, 0x41, VISCA_TERMINATOR]);
 
         // Test completion
-        assert_eq!(ResponseBuilder::completion(0), vec![0x90, 0x50, VISCA_TERMINATOR]);
+        assert_eq!(
+            ResponseBuilder::completion(0),
+            vec![0x90, 0x50, VISCA_TERMINATOR]
+        );
 
         // Test error
-        assert_eq!(ResponseBuilder::error(0x02), vec![0x90, 0x60, 0x02, VISCA_TERMINATOR]);
+        assert_eq!(
+            ResponseBuilder::error(0x02),
+            vec![0x90, 0x60, 0x02, VISCA_TERMINATOR]
+        );
     }
 
     #[test]
     fn test_inquiry_builder() {
         // Test u16 nibbles
         let response = ResponseBuilder::inquiry().add_u16_nibbles(0x1234).build();
-        assert_eq!(response, vec![0x90, 0x50, 0x01, 0x02, 0x03, 0x04, VISCA_TERMINATOR]);
+        assert_eq!(
+            response,
+            vec![0x90, 0x50, 0x01, 0x02, 0x03, 0x04, VISCA_TERMINATOR]
+        );
 
         // Test mixed content
         let response = ResponseBuilder::inquiry()
@@ -180,7 +189,17 @@ mod tests {
             .build();
         assert_eq!(
             response,
-            vec![0x90, 0x50, 0x05, 0x02, 0x0A, 0x0B, 0x0C, 0x0D, VISCA_TERMINATOR]
+            vec![
+                0x90,
+                0x50,
+                0x05,
+                0x02,
+                0x0A,
+                0x0B,
+                0x0C,
+                0x0D,
+                VISCA_TERMINATOR
+            ]
         );
     }
 
@@ -190,7 +209,19 @@ mod tests {
         let response = patterns::pan_tilt_position_response(0x1234, 0x5678);
         assert_eq!(
             response,
-            vec![0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, VISCA_TERMINATOR]
+            vec![
+                0x90,
+                0x50,
+                0x01,
+                0x02,
+                0x03,
+                0x04,
+                0x05,
+                0x06,
+                0x07,
+                0x08,
+                VISCA_TERMINATOR
+            ]
         );
 
         // Test power status

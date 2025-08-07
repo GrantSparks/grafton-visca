@@ -52,7 +52,9 @@ async fn main() -> Result<(), Error> {
         .await?
     {
         grafton_visca::camera::AsyncCamera::Tcp(cam) => cam,
-        grafton_visca::camera::AsyncCamera::Udp(_) => unreachable!("TCP builder should return TCP camera"),
+        grafton_visca::camera::AsyncCamera::Udp(_) => {
+            unreachable!("TCP builder should return TCP camera")
+        }
     };
 
     println!("✅ Connected successfully!");

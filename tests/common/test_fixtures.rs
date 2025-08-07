@@ -14,19 +14,40 @@ impl CommandFixtures {
     /// Get all power command fixtures
     pub fn power_commands() -> HashMap<&'static str, Vec<u8>> {
         let mut commands = HashMap::new();
-        commands.insert("power_on", vec![0x81, 0x01, 0x04, 0x00, 0x02,  VISCA_TERMINATOR]);
-        commands.insert("power_off", vec![0x81, 0x01, 0x04, 0x00, 0x03,  VISCA_TERMINATOR]);
+        commands.insert(
+            "power_on",
+            vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
+        );
+        commands.insert(
+            "power_off",
+            vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR],
+        );
         commands
     }
 
     /// Get all zoom command fixtures
     pub fn zoom_commands() -> HashMap<&'static str, Vec<u8>> {
         let mut commands = HashMap::new();
-        commands.insert("zoom_stop", vec![0x81, 0x01, 0x04, 0x07, 0x00,  VISCA_TERMINATOR]);
-        commands.insert("zoom_tele_std", vec![0x81, 0x01, 0x04, 0x07, 0x02,  VISCA_TERMINATOR]);
-        commands.insert("zoom_wide_std", vec![0x81, 0x01, 0x04, 0x07, 0x03,  VISCA_TERMINATOR]);
-        commands.insert("zoom_tele_var_5", vec![0x81, 0x01, 0x04, 0x07, 0x25,  VISCA_TERMINATOR]);
-        commands.insert("zoom_wide_var_5", vec![0x81, 0x01, 0x04, 0x07, 0x35,  VISCA_TERMINATOR]);
+        commands.insert(
+            "zoom_stop",
+            vec![0x81, 0x01, 0x04, 0x07, 0x00, VISCA_TERMINATOR],
+        );
+        commands.insert(
+            "zoom_tele_std",
+            vec![0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR],
+        );
+        commands.insert(
+            "zoom_wide_std",
+            vec![0x81, 0x01, 0x04, 0x07, 0x03, VISCA_TERMINATOR],
+        );
+        commands.insert(
+            "zoom_tele_var_5",
+            vec![0x81, 0x01, 0x04, 0x07, 0x25, VISCA_TERMINATOR],
+        );
+        commands.insert(
+            "zoom_wide_var_5",
+            vec![0x81, 0x01, 0x04, 0x07, 0x35, VISCA_TERMINATOR],
+        );
         commands
     }
 
@@ -35,19 +56,19 @@ impl CommandFixtures {
         let mut commands = HashMap::new();
         commands.insert(
             "preset_set_1",
-            vec![0x81, 0x01, 0x04, 0x3F, 0x01, 0x01,  VISCA_TERMINATOR],
+            vec![0x81, 0x01, 0x04, 0x3F, 0x01, 0x01, VISCA_TERMINATOR],
         );
         commands.insert(
             "preset_recall_1",
-            vec![0x81, 0x01, 0x04, 0x3F, 0x02, 0x01,  VISCA_TERMINATOR],
+            vec![0x81, 0x01, 0x04, 0x3F, 0x02, 0x01, VISCA_TERMINATOR],
         );
         commands.insert(
             "preset_set_2",
-            vec![0x81, 0x01, 0x04, 0x3F, 0x01, 0x02,  VISCA_TERMINATOR],
+            vec![0x81, 0x01, 0x04, 0x3F, 0x01, 0x02, VISCA_TERMINATOR],
         );
         commands.insert(
             "preset_recall_2",
-            vec![0x81, 0x01, 0x04, 0x3F, 0x02, 0x02,  VISCA_TERMINATOR],
+            vec![0x81, 0x01, 0x04, 0x3F, 0x02, 0x02, VISCA_TERMINATOR],
         );
         commands
     }
@@ -55,20 +76,38 @@ impl CommandFixtures {
     /// Get all focus command fixtures
     pub fn focus_commands() -> Vec<(&'static str, Vec<u8>)> {
         vec![
-            ("focus_auto", vec![0x81, 0x01, 0x04, 0x38, 0x02,  VISCA_TERMINATOR]),
-            ("focus_manual", vec![0x81, 0x01, 0x04, 0x38, 0x03,  VISCA_TERMINATOR]),
-            ("focus_stop", vec![0x81, 0x01, 0x04, 0x08, 0x00,  VISCA_TERMINATOR]),
-            ("focus_far", vec![0x81, 0x01, 0x04, 0x08, 0x02,  VISCA_TERMINATOR]),
-            ("focus_near", vec![0x81, 0x01, 0x04, 0x08, 0x03,  VISCA_TERMINATOR]),
+            (
+                "focus_auto",
+                vec![0x81, 0x01, 0x04, 0x38, 0x02, VISCA_TERMINATOR],
+            ),
+            (
+                "focus_manual",
+                vec![0x81, 0x01, 0x04, 0x38, 0x03, VISCA_TERMINATOR],
+            ),
+            (
+                "focus_stop",
+                vec![0x81, 0x01, 0x04, 0x08, 0x00, VISCA_TERMINATOR],
+            ),
+            (
+                "focus_far",
+                vec![0x81, 0x01, 0x04, 0x08, 0x02, VISCA_TERMINATOR],
+            ),
+            (
+                "focus_near",
+                vec![0x81, 0x01, 0x04, 0x08, 0x03, VISCA_TERMINATOR],
+            ),
         ]
     }
 
     /// Get edge case commands for testing error handling
     pub fn edge_case_commands() -> Vec<(&'static str, Vec<u8>)> {
         vec![
-            ("empty_command", vec![0x81,  VISCA_TERMINATOR]), // Too short
+            ("empty_command", vec![0x81, VISCA_TERMINATOR]), // Too short
             ("missing_terminator", vec![0x81, 0x01, 0x04, 0x00, 0x02]), // No FF
-            ("invalid_header", vec![0x71, 0x01, 0x04, 0x00, 0x02,  VISCA_TERMINATOR]), // Wrong header
+            (
+                "invalid_header",
+                vec![0x71, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
+            ), // Wrong header
             (
                 "maximum_length",
                 vec![

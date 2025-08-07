@@ -331,10 +331,14 @@ mod tests {
         let mut validator = ProtocolValidator::new(ValidationMode::Strict);
 
         // Too short
-        assert!(validator.validate_command(&[0x81, VISCA_TERMINATOR]).is_err());
+        assert!(validator
+            .validate_command(&[0x81, VISCA_TERMINATOR])
+            .is_err());
 
         // Invalid header
-        assert!(validator.validate_command(&[0x71, 0x01, VISCA_TERMINATOR]).is_err());
+        assert!(validator
+            .validate_command(&[0x71, 0x01, VISCA_TERMINATOR])
+            .is_err());
 
         // Missing terminator
         assert!(validator.validate_command(&[0x81, 0x01, 0x04]).is_err());
@@ -348,12 +352,16 @@ mod tests {
         assert!(validator.all_sockets_free());
 
         // ACK response marks socket as in use
-        validator.validate_response(&[0x90, 0x41, VISCA_TERMINATOR]).unwrap();
+        validator
+            .validate_response(&[0x90, 0x41, VISCA_TERMINATOR])
+            .unwrap();
         assert!(!validator.is_socket_available(1));
         assert!(validator.is_socket_available(0));
 
         // Completion response frees the socket
-        validator.validate_response(&[0x90, 0x51, VISCA_TERMINATOR]).unwrap();
+        validator
+            .validate_response(&[0x90, 0x51, VISCA_TERMINATOR])
+            .unwrap();
         assert!(validator.is_socket_available(1));
         assert!(validator.all_sockets_free());
     }

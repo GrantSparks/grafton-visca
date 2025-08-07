@@ -25,9 +25,11 @@ pub use generic::Camera;
 pub use generic_state::CameraState;
 
 // Re-export builder types
-pub use builder::{CameraBuilder, GenericBuilder, TypedGenericBuilder, Protocol, Runtime, BlockingCamera};
 #[cfg(feature = "tokio")]
 pub use builder::AsyncCamera;
+pub use builder::{
+    BlockingCamera, CameraBuilder, GenericBuilder, Protocol, Runtime, TypedGenericBuilder,
+};
 
 // Re-export movement detection types
 pub use movement_probe::{MovementConfig, PanTiltPosition};

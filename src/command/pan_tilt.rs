@@ -126,13 +126,13 @@ mod tests {
         PanTilt,
         test_pan_tilt_home,
         PanTilt::Home,
-        &[0x81, 0x01, 0x06, 0x04,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x06, 0x04, VISCA_TERMINATOR]
     );
     visca_test!(
         PanTilt,
         test_pan_tilt_reset,
         PanTilt::Reset,
-        &[0x81, 0x01, 0x06, 0x05,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x06, 0x05, VISCA_TERMINATOR]
     );
     visca_test!(
         PanTilt,

@@ -227,7 +227,7 @@ pub fn derive_visca_encode(input: TokenStream) -> TokenStream {
 ///
 /// ## Variant-level attributes:
 /// - `name` - Custom name to use in error messages
-/// - `skip` - Skip this variant in TryFrom<u8> (but include in From<Enum>)
+/// - `skip` - Skip this variant in `TryFrom<u8>` (but include in `From<Enum>`)
 ///
 /// # Error Handling
 ///

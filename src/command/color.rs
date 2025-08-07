@@ -4,8 +4,8 @@
 //! including white balance tuning, saturation, and hue adjustments.
 
 // Crate imports
-use crate::macros::internal::*;
 use crate::command::const_encoding::VISCA_TERMINATOR;
+use crate::macros::internal::*;
 
 use crate::{
     command::{const_encoding::CommandBuilder, encode_visca::EncodeVisca, response::ResponseType},
@@ -42,7 +42,7 @@ visca_builder! {
         // Safe cast: level_offset is guaranteed to be 0..=20 after validation
         #[allow(clippy::cast_sign_loss)]
         let encoded = level_offset as u8;
-        
+
         builder
             .append(crate::command::const_encoding::constants::color::RED_GAIN_DIRECT_PREFIX)
             .push(0x00) // High nibble always 0 for range 0x00-0x14
@@ -75,7 +75,7 @@ visca_builder! {
         // Safe cast: level_offset is guaranteed to be 0..=20 after validation
         #[allow(clippy::cast_sign_loss)]
         let encoded = level_offset as u8;
-        
+
         builder
             .append(crate::command::const_encoding::constants::color::BLUE_GAIN_DIRECT_PREFIX)
             .push(0x00) // High nibble always 0 for range 0x00-0x14
@@ -376,7 +376,7 @@ mod tests {
         OnePushTriggerCommand,
         test_one_push_trigger_command,
         OnePushTriggerCommand::new(),
-        &[0x81, 0x01, 0x04, 0x10, 0x05,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x04, 0x10, 0x05, VISCA_TERMINATOR]
     );
 
     #[test]
@@ -460,7 +460,17 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 bytes,
-                vec![0x81, 0x01, 0x04, 0x49, 0x00, 0x00, 0x00, level,  VISCA_TERMINATOR]
+                vec![
+                    0x81,
+                    0x01,
+                    0x04,
+                    0x49,
+                    0x00,
+                    0x00,
+                    0x00,
+                    level,
+                    VISCA_TERMINATOR
+                ]
             );
             assert!(cmd.response_type().is_none());
             assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
@@ -493,7 +503,17 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 bytes,
-                vec![0x81, 0x01, 0x04, 0x4F, 0x00, 0x00, 0x00, level,  VISCA_TERMINATOR]
+                vec![
+                    0x81,
+                    0x01,
+                    0x04,
+                    0x4F,
+                    0x00,
+                    0x00,
+                    0x00,
+                    level,
+                    VISCA_TERMINATOR
+                ]
             );
             assert!(cmd.response_type().is_none());
             assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
@@ -522,7 +542,7 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap(),
-            vec![0x81, 0x01, 0x04, 0x20, 0x00,  VISCA_TERMINATOR]
+            vec![0x81, 0x01, 0x04, 0x20, 0x00, VISCA_TERMINATOR]
         );
 
         // Test Up
@@ -530,7 +550,7 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap(),
-            vec![0x81, 0x01, 0x04, 0x20, 0x02,  VISCA_TERMINATOR]
+            vec![0x81, 0x01, 0x04, 0x20, 0x02, VISCA_TERMINATOR]
         );
 
         // Test Down
@@ -538,7 +558,7 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap(),
-            vec![0x81, 0x01, 0x04, 0x20, 0x03,  VISCA_TERMINATOR]
+            vec![0x81, 0x01, 0x04, 0x20, 0x03, VISCA_TERMINATOR]
         );
 
         // Test Direct with valid values
@@ -567,7 +587,7 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap(),
-            vec![0x81, 0x01, 0x04, 0x03, 0x00,  VISCA_TERMINATOR]
+            vec![0x81, 0x01, 0x04, 0x03, 0x00, VISCA_TERMINATOR]
         );
 
         // Test Up
@@ -575,7 +595,7 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap(),
-            vec![0x81, 0x01, 0x04, 0x03, 0x02,  VISCA_TERMINATOR]
+            vec![0x81, 0x01, 0x04, 0x03, 0x02, VISCA_TERMINATOR]
         );
 
         // Test Down
@@ -583,11 +603,11 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap(),
-            vec![0x81, 0x01, 0x04, 0x03, 0x03,  VISCA_TERMINATOR]
+            vec![0x81, 0x01, 0x04, 0x03, 0x03, VISCA_TERMINATOR]
         );
 
         // Test Direct with various values
-        let test_values = vec![0x00, 0x55, 0xAA,  VISCA_TERMINATOR];
+        let test_values = vec![0x00, 0x55, 0xAA, VISCA_TERMINATOR];
         for gain in test_values {
             let red_gain = crate::types::RedChannel::new(gain).unwrap();
             let cmd = RedGain::SetValue(red_gain);
@@ -610,7 +630,7 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap(),
-            vec![0x81, 0x01, 0x04, 0x04, 0x00,  VISCA_TERMINATOR]
+            vec![0x81, 0x01, 0x04, 0x04, 0x00, VISCA_TERMINATOR]
         );
 
         // Test Up
@@ -618,7 +638,7 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap(),
-            vec![0x81, 0x01, 0x04, 0x04, 0x02,  VISCA_TERMINATOR]
+            vec![0x81, 0x01, 0x04, 0x04, 0x02, VISCA_TERMINATOR]
         );
 
         // Test Down
@@ -626,11 +646,11 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap(),
-            vec![0x81, 0x01, 0x04, 0x04, 0x03,  VISCA_TERMINATOR]
+            vec![0x81, 0x01, 0x04, 0x04, 0x03, VISCA_TERMINATOR]
         );
 
         // Test Direct with various values
-        let test_values = vec![0x00, 0x55, 0xAA,  VISCA_TERMINATOR];
+        let test_values = vec![0x00, 0x55, 0xAA, VISCA_TERMINATOR];
         for gain in test_values {
             let blue_gain = crate::types::BlueChannel::new(gain).unwrap();
             let cmd = BlueGain::SetValue(blue_gain);

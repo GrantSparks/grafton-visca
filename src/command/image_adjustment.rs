@@ -205,7 +205,7 @@ mod tests {
         Sharpness,
         test_sharpness_mode_auto,
         Sharpness::Mode(SharpnessMode::Auto),
-        &[0x81, 0x01, 0x04, 0x05, 0x02,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x04, 0x05, 0x02, VISCA_TERMINATOR]
     );
 
     // Test Manual mode
@@ -213,7 +213,7 @@ mod tests {
         Sharpness,
         test_sharpness_mode_manual,
         Sharpness::Mode(SharpnessMode::Manual),
-        &[0x81, 0x01, 0x04, 0x05, 0x03,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x04, 0x05, 0x03, VISCA_TERMINATOR]
     );
 
     #[test]
@@ -227,7 +227,7 @@ mod tests {
         Sharpness,
         test_sharpness_reset,
         Sharpness::Reset,
-        &[0x81, 0x01, 0x04, 0x02, 0x00,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x04, 0x02, 0x00, VISCA_TERMINATOR]
     );
 
     // Test Up
@@ -235,7 +235,7 @@ mod tests {
         Sharpness,
         test_sharpness_up,
         Sharpness::Up,
-        &[0x81, 0x01, 0x04, 0x02, 0x02,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x04, 0x02, 0x02, VISCA_TERMINATOR]
     );
 
     // Test Down
@@ -243,7 +243,7 @@ mod tests {
         Sharpness,
         test_sharpness_down,
         Sharpness::Down,
-        &[0x81, 0x01, 0x04, 0x02, 0x03,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x04, 0x02, 0x03, VISCA_TERMINATOR]
     );
 
     // Test sharpness level 0
@@ -251,7 +251,17 @@ mod tests {
         Sharpness,
         test_sharpness_level_0,
         Sharpness::SetLevel { value: 0 },
-        &[0x81, 0x01, 0x04, 0x42, 0x00, 0x00, 0x00, 0x00,  VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0x42,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            VISCA_TERMINATOR
+        ]
     );
 
     // Test sharpness level 5
@@ -259,7 +269,17 @@ mod tests {
         Sharpness,
         test_sharpness_level_5,
         Sharpness::SetLevel { value: 5 },
-        &[0x81, 0x01, 0x04, 0x42, 0x00, 0x00, 0x00, 0x05,  VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0x42,
+            0x00,
+            0x00,
+            0x00,
+            0x05,
+            VISCA_TERMINATOR
+        ]
     );
 
     // Test sharpness level 11
@@ -267,7 +287,17 @@ mod tests {
         Sharpness,
         test_sharpness_level_11,
         Sharpness::SetLevel { value: 11 },
-        &[0x81, 0x01, 0x04, 0x42, 0x00, 0x00, 0x00, 0x0B,  VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0x42,
+            0x00,
+            0x00,
+            0x00,
+            0x0B,
+            VISCA_TERMINATOR
+        ]
     );
 
     #[test]
@@ -297,7 +327,17 @@ mod tests {
         LuminanceCommand,
         test_luminance_level_0,
         LuminanceCommand::new(LuminanceLevel::new(0).unwrap()),
-        &[0x81, 0x01, 0x04, 0xA1, 0x00, 0x00, 0x00, 0x00,  VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0xA1,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            VISCA_TERMINATOR
+        ]
     );
 
     // Test luminance level 7
@@ -305,7 +345,17 @@ mod tests {
         LuminanceCommand,
         test_luminance_level_7,
         LuminanceCommand::new(LuminanceLevel::new(7).unwrap()),
-        &[0x81, 0x01, 0x04, 0xA1, 0x00, 0x00, 0x00, 0x07,  VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0xA1,
+            0x00,
+            0x00,
+            0x00,
+            0x07,
+            VISCA_TERMINATOR
+        ]
     );
 
     // Test luminance level 14
@@ -313,7 +363,17 @@ mod tests {
         LuminanceCommand,
         test_luminance_level_14,
         LuminanceCommand::new(LuminanceLevel::new(14).unwrap()),
-        &[0x81, 0x01, 0x04, 0xA1, 0x00, 0x00, 0x00, 0x0E,  VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0xA1,
+            0x00,
+            0x00,
+            0x00,
+            0x0E,
+            VISCA_TERMINATOR
+        ]
     );
 
     #[test]
@@ -342,7 +402,17 @@ mod tests {
         ContrastCommand,
         test_contrast_level_0,
         ContrastCommand::new(ContrastLevel::new(0).unwrap()),
-        &[0x81, 0x01, 0x04, 0xA2, 0x00, 0x00, 0x00, 0x00,  VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0xA2,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            VISCA_TERMINATOR
+        ]
     );
 
     // Test contrast level 7
@@ -350,7 +420,17 @@ mod tests {
         ContrastCommand,
         test_contrast_level_7,
         ContrastCommand::new(ContrastLevel::new(7).unwrap()),
-        &[0x81, 0x01, 0x04, 0xA2, 0x00, 0x00, 0x00, 0x07,  VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0xA2,
+            0x00,
+            0x00,
+            0x00,
+            0x07,
+            VISCA_TERMINATOR
+        ]
     );
 
     // Test contrast level 14
@@ -358,7 +438,17 @@ mod tests {
         ContrastCommand,
         test_contrast_level_14,
         ContrastCommand::new(ContrastLevel::new(14).unwrap()),
-        &[0x81, 0x01, 0x04, 0xA2, 0x00, 0x00, 0x00, 0x0E,  VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0xA2,
+            0x00,
+            0x00,
+            0x00,
+            0x0E,
+            VISCA_TERMINATOR
+        ]
     );
 
     #[test]

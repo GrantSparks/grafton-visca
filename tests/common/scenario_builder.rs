@@ -104,7 +104,7 @@ impl ScenarioBuilder {
     /// Expect a preset recall with settling time
     pub fn expect_preset_recall(mut self, preset: u8) -> Self {
         self.steps.push(ScenarioStep::ExpectCommand {
-            command: vec![0x81, 0x01, 0x04, 0x3F, 0x02, preset,  VISCA_TERMINATOR],
+            command: vec![0x81, 0x01, 0x04, 0x3F, 0x02, preset, VISCA_TERMINATOR],
             responses: vec![
                 MockResponse::Immediate(ResponseBuilder::ack(1)),
                 MockResponse::Delayed(ResponseBuilder::completion(1), Duration::from_millis(2000)),

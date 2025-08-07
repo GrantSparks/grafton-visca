@@ -21,7 +21,7 @@ pub struct Terminated;
 /// must be explicitly terminated to move to the `Terminated` state.
 ///
 /// # Type States
-/// 
+///
 /// - `Incomplete`: The default state. Commands can be built but not sent.
 /// - `Terminated`: The command has been properly terminated and is ready to send.
 ///
@@ -137,7 +137,7 @@ impl<const N: usize> CommandBuilder<N, Incomplete> {
         }
         self
     }
-    
+
     /// Mutable append bytes from a slice (for backward compatibility).
     pub fn append_mut(&mut self, bytes: &[u8]) -> &mut Self {
         for &b in bytes {
@@ -181,7 +181,7 @@ impl<const N: usize> CommandBuilder<N, Incomplete> {
     }
 
     /// Mutable VISCA-encoded 14-bit value (for backward compatibility).
-    /// 
+    ///
     /// This method is part of the complete API but not currently used.
     /// It's retained for API completeness and future use.
     #[allow(dead_code)]
@@ -206,17 +206,17 @@ impl<const N: usize> CommandBuilder<N, Incomplete> {
             self.buffer[self.position] = VISCA_TERMINATOR;
             self.position += 1;
         }
-        
+
         // Validate terminator in debug builds
         crate::command::encode_visca::validate_terminator(&self.buffer, self.position);
-        
+
         CommandBuilder {
             buffer: self.buffer,
             position: self.position,
             _state: PhantomData,
         }
     }
-    
+
     /// Legacy method - finalize with terminator and return the complete array.
     /// Prefer using `terminate()` for new code to ensure compile-time safety.
     pub const fn build(mut self) -> [u8; N] {
@@ -233,10 +233,10 @@ impl<const N: usize> CommandBuilder<N, Incomplete> {
             self.buffer[self.position] = VISCA_TERMINATOR;
             self.position += 1;
         }
-        
+
         // Validate terminator in debug builds
         crate::command::encode_visca::validate_terminator(&self.buffer, self.position);
-        
+
         self.position
     }
 
@@ -259,7 +259,7 @@ impl<const N: usize> CommandBuilder<N, Incomplete> {
 impl<const N: usize> CommandBuilder<N, Terminated> {
     /// Get the command bytes as a slice.
     /// This is only available after the command has been terminated.
-    /// 
+    ///
     /// This method is part of the type-state API but not currently used.
     /// It's retained for API completeness and will be used when migrating
     /// commands to the type-safe pattern.
@@ -270,7 +270,7 @@ impl<const N: usize> CommandBuilder<N, Terminated> {
 
     /// Get the complete buffer as an array.
     /// This is only available after the command has been terminated.
-    /// 
+    ///
     /// This method is part of the type-state API but not currently used.
     /// It's retained for API completeness and will be used when migrating
     /// commands to the type-safe pattern.
@@ -280,7 +280,7 @@ impl<const N: usize> CommandBuilder<N, Terminated> {
     }
 
     /// Get the number of bytes in the terminated command.
-    /// 
+    ///
     /// This method is part of the type-state API but not currently used.
     /// It's retained for API completeness and will be used when migrating
     /// commands to the type-safe pattern.
@@ -290,7 +290,7 @@ impl<const N: usize> CommandBuilder<N, Terminated> {
     }
 
     /// Check if the terminated command is empty.
-    /// 
+    ///
     /// This method is part of the type-state API but not currently used.
     /// It's retained for API completeness and will be used when migrating
     /// commands to the type-safe pattern.
@@ -328,30 +328,33 @@ mod tests {
     fn test_type_state_enforces_termination() {
         // Create an incomplete builder
         let builder = CommandBuilder::<10>::new()
-            .push(0x81).push(0x01).push(0x04).push(0x47);
-        
+            .push(0x81)
+            .push(0x01)
+            .push(0x04)
+            .push(0x47);
+
         // Can't get bytes without terminating (this won't compile if uncommented)
         // let bytes = builder.as_bytes(); // ERROR: method not found
-        
+
         // Must terminate first
         let terminated = builder.terminate();
-        
+
         // Now we can get the bytes
         let bytes = terminated.as_bytes();
         assert_eq!(bytes[bytes.len() - 1], VISCA_TERMINATOR);
     }
 
-    #[test] 
+    #[test]
     fn test_terminated_builder_provides_access() {
         let builder = CommandBuilder::<10>::from_prefix(&[0x81, 0x01, 0x04, 0x47]);
         let terminated = builder.terminate();
-        
+
         // Can access bytes
         let bytes = terminated.as_bytes();
         assert_eq!(bytes[0..4], [0x81, 0x01, 0x04, 0x47]);
         assert_eq!(bytes[4], VISCA_TERMINATOR);
         assert_eq!(terminated.len(), 5);
-        
+
         // Can get full array
         let array = terminated.as_array();
         assert_eq!(array[0..4], [0x81, 0x01, 0x04, 0x47]);
@@ -363,7 +366,7 @@ mod tests {
         let builder = CommandBuilder::<10>::from_prefix(&[0x81, 0x01, 0x04, 0x47]);
         let array = builder.build();
         assert_eq!(array[4], VISCA_TERMINATOR);
-        
+
         // Test finalize() method
         let mut builder = CommandBuilder::<10>::new();
         builder.push_mut(0x81);

@@ -45,7 +45,9 @@ fn main() -> Result<(), Error> {
         .build()?
     {
         grafton_visca::camera::BlockingCamera::Tcp(cam) => cam,
-        grafton_visca::camera::BlockingCamera::Udp(_) => unreachable!("TCP builder should return TCP camera"),
+        grafton_visca::camera::BlockingCamera::Udp(_) => {
+            unreachable!("TCP builder should return TCP camera")
+        }
     };
 
     println!("✓ TCP connection established");
@@ -75,7 +77,9 @@ fn main() -> Result<(), Error> {
         Ok(camera_result) => {
             let camera = match camera_result {
                 grafton_visca::camera::BlockingCamera::Tcp(cam) => cam,
-                grafton_visca::camera::BlockingCamera::Udp(_) => unreachable!("TCP builder should return TCP camera"),
+                grafton_visca::camera::BlockingCamera::Udp(_) => {
+                    unreachable!("TCP builder should return TCP camera")
+                }
             };
             println!("✓ TCP connection established on port 1259");
 
@@ -108,7 +112,9 @@ fn main() -> Result<(), Error> {
     match udp_camera {
         Ok(camera_result) => {
             let camera = match camera_result {
-                grafton_visca::camera::BlockingCamera::Tcp(_) => unreachable!("UDP builder should return UDP camera"),
+                grafton_visca::camera::BlockingCamera::Tcp(_) => {
+                    unreachable!("UDP builder should return UDP camera")
+                }
                 grafton_visca::camera::BlockingCamera::Udp(cam) => cam,
             };
             println!("✓ UDP transport initialized");
@@ -197,7 +203,9 @@ fn main() -> Result<(), Error> {
         .build()
     {
         let udp_camera = match camera_result {
-            grafton_visca::camera::BlockingCamera::Tcp(_) => unreachable!("UDP builder should return UDP camera"),
+            grafton_visca::camera::BlockingCamera::Tcp(_) => {
+                unreachable!("UDP builder should return UDP camera")
+            }
             grafton_visca::camera::BlockingCamera::Udp(cam) => cam,
         };
         println!("Sending 10 commands via UDP...");

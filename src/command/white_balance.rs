@@ -126,7 +126,7 @@ mod tests {
         WhiteBalanceCommand {
             mode: WhiteBalanceMode::Auto
         },
-        &[0x81, 0x01, 0x04, 0x35, 0x00,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x04, 0x35, 0x00, VISCA_TERMINATOR]
     );
 
     visca_test!(
@@ -135,7 +135,7 @@ mod tests {
         WhiteBalanceCommand {
             mode: WhiteBalanceMode::Indoor
         },
-        &[0x81, 0x01, 0x04, 0x35, 0x01,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x04, 0x35, 0x01, VISCA_TERMINATOR]
     );
 
     visca_test!(
@@ -144,7 +144,7 @@ mod tests {
         WhiteBalanceCommand {
             mode: WhiteBalanceMode::Outdoor
         },
-        &[0x81, 0x01, 0x04, 0x35, 0x02,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x04, 0x35, 0x02, VISCA_TERMINATOR]
     );
 
     visca_test!(
@@ -153,7 +153,7 @@ mod tests {
         WhiteBalanceCommand {
             mode: WhiteBalanceMode::OnePush
         },
-        &[0x81, 0x01, 0x04, 0x35, 0x03,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x04, 0x35, 0x03, VISCA_TERMINATOR]
     );
 
     visca_test!(
@@ -162,7 +162,7 @@ mod tests {
         WhiteBalanceCommand {
             mode: WhiteBalanceMode::ATW
         },
-        &[0x81, 0x01, 0x04, 0x35, 0x04,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x04, 0x35, 0x04, VISCA_TERMINATOR]
     );
 
     visca_test!(
@@ -171,7 +171,7 @@ mod tests {
         WhiteBalanceCommand {
             mode: WhiteBalanceMode::Manual
         },
-        &[0x81, 0x01, 0x04, 0x35, 0x05,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x04, 0x35, 0x05, VISCA_TERMINATOR]
     );
 
     visca_test!(
@@ -180,7 +180,7 @@ mod tests {
         WhiteBalanceCommand {
             mode: WhiteBalanceMode::ColorTemperature
         },
-        &[0x81, 0x01, 0x04, 0x35, 0x20,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x04, 0x35, 0x20, VISCA_TERMINATOR]
     );
 
     #[test]
@@ -324,7 +324,7 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0xA9, 0x00,  VISCA_TERMINATOR]
+            vec![0x81, 0x01, 0x04, 0xA9, 0x00, VISCA_TERMINATOR]
         );
 
         // Test Normal sensitivity
@@ -332,7 +332,7 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0xA9, 0x01,  VISCA_TERMINATOR]
+            vec![0x81, 0x01, 0x04, 0xA9, 0x01, VISCA_TERMINATOR]
         );
 
         // Test Low sensitivity
@@ -340,7 +340,7 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0xA9, 0x02,  VISCA_TERMINATOR]
+            vec![0x81, 0x01, 0x04, 0xA9, 0x02, VISCA_TERMINATOR]
         );
     }
 }

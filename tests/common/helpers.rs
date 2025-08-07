@@ -146,8 +146,17 @@ mod tests {
     fn test_create_responses() {
         assert_eq!(create_ack_response(0), vec![0x90, 0x40, VISCA_TERMINATOR]);
         assert_eq!(create_ack_response(1), vec![0x90, 0x41, VISCA_TERMINATOR]);
-        assert_eq!(create_completion_response(0), vec![0x90, 0x50, VISCA_TERMINATOR]);
-        assert_eq!(create_completion_response(1), vec![0x90, 0x51, VISCA_TERMINATOR]);
-        assert_eq!(create_error_response(0x01), vec![0x90, 0x60, 0x01, VISCA_TERMINATOR]);
+        assert_eq!(
+            create_completion_response(0),
+            vec![0x90, 0x50, VISCA_TERMINATOR]
+        );
+        assert_eq!(
+            create_completion_response(1),
+            vec![0x90, 0x51, VISCA_TERMINATOR]
+        );
+        assert_eq!(
+            create_error_response(0x01),
+            vec![0x90, 0x60, 0x01, VISCA_TERMINATOR]
+        );
     }
 }
