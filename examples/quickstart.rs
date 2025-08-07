@@ -16,12 +16,11 @@
 //! cargo run --example quickstart [camera_ip[:port]]
 //! ```
 
+// The prelude provides all commonly-used types in one import.
+// This includes operation traits, speed types, units, and common enums.
+// No need to hunt for individual imports across multiple modules!
 use grafton_visca::{
-    camera::{helpers::MovementHelpers, profiles::PTZOpticsG2, MovementConfig},
-    prelude::blocking::*,
-    types::{PanSpeed, SpeedLevel, TiltSpeed},
-    units::*,
-    CameraBuilder, Error, PanTiltDirection,
+    camera::profiles::PTZOpticsG2, prelude::blocking::*, CameraBuilder, Error, PanTiltDirection,
 };
 use std::time::Duration;
 use std::{env, thread::sleep};

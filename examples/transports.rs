@@ -13,10 +13,7 @@
 //! cargo run --example transports [camera_ip[:port]]
 //! ```
 
-use grafton_visca::{
-    camera::helpers::MovementHelpers, prelude::blocking::*, types::SpeedLevel, units::*,
-    CameraBuilder, Error,
-};
+use grafton_visca::{prelude::blocking::*, CameraBuilder, Error};
 use std::{env, time::Duration};
 
 fn main() -> Result<(), Error> {

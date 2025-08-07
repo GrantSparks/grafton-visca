@@ -56,7 +56,7 @@ where
     where
         Self: crate::camera::methods::PanTiltOpsBlocking
             + crate::camera::methods::ZoomOpsBlocking
-            + crate::camera::helpers::MovementHelpers,
+            + crate::camera::helpers::MovementOps,
     {
         self.restore_state_with_speed(state, SpeedLevel::Fast)
     }
@@ -66,19 +66,19 @@ where
     where
         Self: crate::camera::methods::PanTiltOpsBlocking
             + crate::camera::methods::ZoomOpsBlocking
-            + crate::camera::helpers::MovementHelpers,
+            + crate::camera::helpers::MovementOps,
     {
-        use crate::camera::helpers::MovementHelpers;
+        use crate::camera::helpers::MovementOps;
         use crate::camera::methods::{PanTiltOpsBlocking, ZoomOpsBlocking};
 
         // Restore pan/tilt position
         self.pan_tilt_absolute(Degrees(state.pan), Degrees(state.tilt), speed)?;
-        MovementHelpers::await_idle(self, Duration::from_secs(30))?;
+        MovementOps::await_idle(self, Duration::from_secs(30))?;
 
         // Restore zoom
         let normalized_zoom = state.zoom_normalized();
         self.zoom_absolute(Normalized(normalized_zoom))?;
-        MovementHelpers::await_idle(self, Duration::from_secs(10))?;
+        MovementOps::await_idle(self, Duration::from_secs(10))?;
 
         Ok(())
     }
@@ -137,7 +137,7 @@ impl<P: Profile, T: crate::transport::UnifiedTransport> Camera<P, T> {
     where
         Self: crate::camera::methods::PanTiltOps
             + crate::camera::methods::ZoomOps
-            + crate::camera::helpers::MovementHelpersAsync,
+            + crate::camera::helpers::MovementOpsAsync,
     {
         self.restore_state_with_speed_async(state, SpeedLevel::Fast)
             .await
@@ -152,20 +152,20 @@ impl<P: Profile, T: crate::transport::UnifiedTransport> Camera<P, T> {
     where
         Self: crate::camera::methods::PanTiltOps
             + crate::camera::methods::ZoomOps
-            + crate::camera::helpers::MovementHelpersAsync,
+            + crate::camera::helpers::MovementOpsAsync,
     {
-        use crate::camera::helpers::MovementHelpersAsync;
+        use crate::camera::helpers::MovementOpsAsync;
         use crate::camera::methods::{PanTiltOps, ZoomOps};
 
         // Restore pan/tilt position
         self.pan_tilt_absolute(Degrees(state.pan), Degrees(state.tilt), speed)
             .await?;
-        MovementHelpersAsync::await_idle(self, Duration::from_secs(30)).await?;
+        MovementOpsAsync::await_idle(self, Duration::from_secs(30)).await?;
 
         // Restore zoom
         let normalized_zoom = state.zoom_normalized();
         self.zoom_absolute(Normalized(normalized_zoom)).await?;
-        MovementHelpersAsync::await_idle(self, Duration::from_secs(10)).await?;
+        MovementOpsAsync::await_idle(self, Duration::from_secs(10)).await?;
 
         Ok(())
     }
