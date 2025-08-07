@@ -42,7 +42,7 @@
 //!
 //! ### Camera - No Generics Required!
 //! ```ignore
-//! use grafton_visca::{CameraBuilder, Error, prelude::*};
+//! use grafton_visca::{CameraBuilder, Error, prelude::blocking::*};
 //!
 //! fn main() -> Result<(), Error> {
 //!     // Create camera using the builder pattern
@@ -63,7 +63,7 @@
 //!
 //! ### Async Example
 //! ```ignore
-//! use grafton_visca::{CameraBuilder, Error, r#async::prelude::*};
+//! use grafton_visca::{CameraBuilder, Error, prelude::r#async::*};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Error> {
@@ -93,7 +93,7 @@
 //! The generic API ensures type safety at compile time:
 //!
 //! ```ignore
-//! use grafton_visca::prelude::*;
+//! use grafton_visca::prelude::blocking::*;
 //!
 //! // This function only accepts cameras with ND filter support
 //! fn adjust_nd_filter<P, T>(camera: &Camera<P, T>) -> Result<(), Error>

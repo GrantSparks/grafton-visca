@@ -516,32 +516,32 @@ where
     pub(crate) fn wait_for_completion_blocking(&self, timeout: Duration) -> Result<(), Error> {
         // Check if socket manager is available
         if let Some(socket_manager) = &self.socket_manager {
-                log::debug!("wait_for_completion_blocking: using socket manager to wait for completion message");
+            log::debug!(
+                "wait_for_completion_blocking: using socket manager to wait for completion message"
+            );
 
-                // Send the wait request to the socket manager and get the receiver
-                let response_receiver = socket_manager.send_wait_for_completion()?;
+            // Send the wait request to the socket manager and get the receiver
+            let response_receiver = socket_manager.send_wait_for_completion()?;
 
-                // Wait for the completion with timeout
-                match response_receiver.recv_timeout(timeout) {
-                    Ok(Ok(())) => {
-                        log::debug!("wait_for_completion_blocking: received completion message");
-                        Ok(())
-                    }
-                    Ok(Err(e)) => {
-                        log::debug!(
-                            "wait_for_completion_blocking: error from socket manager: {e:?}"
-                        );
-                        Err(e)
-                    }
-                    Err(Error::Timeout) => {
-                        log::debug!("wait_for_completion_blocking: timeout waiting for completion");
-                        Err(Error::Timeout)
-                    }
-                    Err(e) => {
-                        log::debug!("wait_for_completion_blocking: channel error: {e:?}");
-                        Err(e)
-                    }
+            // Wait for the completion with timeout
+            match response_receiver.recv_timeout(timeout) {
+                Ok(Ok(())) => {
+                    log::debug!("wait_for_completion_blocking: received completion message");
+                    Ok(())
                 }
+                Ok(Err(e)) => {
+                    log::debug!("wait_for_completion_blocking: error from socket manager: {e:?}");
+                    Err(e)
+                }
+                Err(Error::Timeout) => {
+                    log::debug!("wait_for_completion_blocking: timeout waiting for completion");
+                    Err(Error::Timeout)
+                }
+                Err(e) => {
+                    log::debug!("wait_for_completion_blocking: channel error: {e:?}");
+                    Err(e)
+                }
+            }
         } else {
             // No socket manager, can't wait for completion
             log::debug!("wait_for_completion_blocking: no socket manager available");
