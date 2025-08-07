@@ -6,20 +6,20 @@ This directory contains comprehensive examples demonstrating how to use the graf
 
 If you're new to the library, start with these examples in order:
 
-1. **[quickstart.rs](quickstart.rs)** - Minimal example showing basic connection and control
-2. **[camera_control.rs](camera_control.rs)** - Comprehensive tour of all camera features
+1. **[quickstart.rs](quickstart.rs)** - Comprehensive blocking example with all camera features
+2. **[quickstart_async.rs](quickstart_async.rs)** - Comprehensive async example with concurrent operations
 3. **[error_handling.rs](error_handling.rs)** - Learn proper error handling patterns
 
 ## Examples by Category
 
 ### Basic Usage
-- **[quickstart.rs](quickstart.rs)** - Minimal blocking example with basic camera control
-- **[quickstart_async.rs](quickstart_async.rs)** - Minimal async example using Tokio
+- **[quickstart.rs](quickstart.rs)** - Comprehensive blocking example covering movement, presets, and imaging
+- **[quickstart_async.rs](quickstart_async.rs)** - Async version with concurrent operations and state management
 
 ### Camera Control
-- **[camera_control.rs](camera_control.rs)** - Comprehensive blocking example covering all camera operations
-- **[camera_control_async.rs](camera_control_async.rs)** - Async version with concurrent operations
 - **[camera_inquiry.rs](camera_inquiry.rs)** - Query and read camera state, positions, and settings
+- **[preset_demo.rs](preset_demo.rs)** - Working with preset positions
+- **[type_safe_commands.rs](type_safe_commands.rs)** - Demonstrates compile-time type safety with profiles
 
 ### Connection & Transport
 - **[transports.rs](transports.rs)** - Compare TCP vs UDP transports, configuration options
@@ -35,20 +35,25 @@ If you're new to the library, start with these examples in order:
 
 1. Ensure you have a VISCA-compatible camera connected to your network
 2. Update the IP address in the examples to match your camera (default: `192.168.0.110`)
-3. Verify the port number (default: `52381` for TCP, `52381` for UDP)
+3. Verify the port number - defaults vary by camera model:
+   - PTZOptics cameras: TCP port `5678`, UDP port `1259`
+   - Sony cameras: TCP port `52381`, UDP port `52381`
+   - The CameraBuilder will use appropriate defaults based on the profile you select
 
 ### Basic Execution
 
 Run blocking examples:
 ```bash
 cargo run --example quickstart
-cargo run --example camera_control
+cargo run --example preset_demo
+cargo run --example error_handling
 ```
 
 Run async examples (requires tokio feature):
 ```bash
 cargo run --example quickstart_async --features tokio
-cargo run --example camera_control_async --features tokio
+cargo run --example camera_inquiry --features tokio
+cargo run --example concurrent_control --features tokio
 ```
 
 ### With Logging

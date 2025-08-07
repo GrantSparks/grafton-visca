@@ -4,11 +4,11 @@ use crate::command::const_encoding::VISCA_TERMINATOR;
 use core::marker::PhantomData;
 
 /// Type state for an incomplete (unterminated) command
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Incomplete;
 
 /// Type state for a terminated command
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Terminated;
 
 /// Stack-allocated command builder for creating VISCA commands.

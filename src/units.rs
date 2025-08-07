@@ -548,7 +548,7 @@ impl From<Raw<u8>> for crate::types::HueLevel {
 
 #[cfg(test)]
 mod tests {
-    use crate::FStop;
+    use crate::types::FStop;
 
     use super::*;
 

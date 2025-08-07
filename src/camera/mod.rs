@@ -35,6 +35,6 @@ pub use builder::{
 pub use movement_probe::{MovementConfig, PanTiltPosition};
 
 // Re-export helper traits
-pub use helpers::MovementHelpers;
+pub use helpers::MovementOps;
 #[cfg(feature = "async")]
-pub use helpers::MovementHelpersAsync;
+pub use helpers::MovementOpsAsync;

@@ -63,7 +63,7 @@
 #[cfg(feature = "async")]
 pub mod r#async {
     // Re-export all async operation traits with clean names
-    pub use crate::camera::helpers::MovementHelpersAsync;
+    pub use crate::camera::helpers::MovementOpsAsync;
     pub use crate::camera::methods::{
         ColorOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps, MenuControlOps,
         MotionSyncControl, NDFilterOps, PanTiltInquiryOps, PanTiltOps, PowerOps, PresetsOps,
@@ -73,6 +73,12 @@ pub mod r#async {
 
     // Re-export commonly used types
     pub use crate::Error;
+
+    // Re-export speed and parameter types
+    pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
+
+    // Re-export units that are commonly used
+    pub use crate::units::{Degrees, Normalized, Percentage, Raw};
 
     // Re-export command enums that users need
     pub use crate::{
@@ -134,7 +140,7 @@ pub mod r#async {
 /// ```
 pub mod blocking {
     // Re-export all blocking operation traits with clean names
-    pub use crate::camera::helpers::MovementHelpers;
+    pub use crate::camera::helpers::MovementOps;
     pub use crate::camera::methods::{
         ColorOpsBlocking as ColorOps, ExposureOpsBlocking as ExposureOps,
         FocusOpsBlocking as FocusOps, ImageProcessingOpsBlocking as ImageProcessingOps,
@@ -150,6 +156,12 @@ pub mod blocking {
 
     // Re-export commonly used types
     pub use crate::Error;
+
+    // Re-export speed and parameter types
+    pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
+
+    // Re-export units that are commonly used
+    pub use crate::units::{Degrees, Normalized, Percentage, Raw};
 
     // Re-export command enums that users need
     pub use crate::{

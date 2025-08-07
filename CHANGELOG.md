@@ -5,7 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.5.0] - Unreleased
+## [0.6.0] - 2025-01-07
+
+### Added
+
+#### 🛡️ Type-Safe VISCA Terminator Pattern (#203)
+- Implemented type-state pattern for VISCA terminator safety
+- Added `CommandBuilder` for safe command construction with automatic terminator handling
+- Consolidated all command constants to use `VISCA_TERMINATOR` constant
+- Prevents protocol violations at compile time
+
+#### ⏱️ Timeout System Enhancements (#202, #204)
+- Moved timeout categories to type system constants
+- Profile-specific timeout configurations for different camera models
+- Compile-time timeout validation
+
+#### 🎯 Event-Driven Movement Detection
+- New event-driven system for camera movement detection
+- Eliminates polling delays in movement completion detection
+- More responsive and efficient movement tracking
+
+#### 🔧 Code Quality Improvements (#193)
+- Resolved all Clippy warnings including uninlined format args
+- Fixed async feature compilation without tokio
+- Eliminated sleep anti-patterns in examples (#191)
+- Improved code formatting and documentation
+
+### Fixed
+- Corrected README path for crates.io publishing
+- Fixed Clippy warnings for async feature without tokio dependency
+- Resolved all CI workflow quality check failures
+
+### Internal
+- Applied comprehensive code formatting improvements
+- Enhanced test coverage for new type-safe patterns
+- Improved example code quality and best practices
+
+## [0.5.0] - 2025-01-06
 
 ### Breaking Changes
 

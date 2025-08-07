@@ -286,11 +286,14 @@ pub mod camera_id;
 /// Capability traits for camera feature composition
 pub mod capabilities;
 
-pub(crate) mod command;
+/// Command definitions for VISCA protocol
+///
+/// This module is public for extensibility, allowing users to create custom commands.
+/// Most users should use the high-level camera API instead.
+pub mod command;
 
 /// Error types
 mod error;
-pub use error::{Error, Result};
 
 /// Transport layer (most users won't need direct access)
 pub mod transport;
@@ -320,38 +323,26 @@ pub mod blocking;
 pub mod r#async;
 
 pub mod prelude;
+// Core exports - only the essentials at root level
 pub use camera::{Camera, CameraBuilder};
 pub use camera_id::CameraId;
+pub use error::{Error, Result};
 
-pub use types::{ExposureCompensationLevel, FStop, IntoIrisLevel, NDIQuality};
-pub use units::{
-    Degrees, Fraction, Kelvin, Magnification, Normalized, Percentage, Raw, ViscaUnits,
-};
-
+// Re-export commonly used enums that users need directly
+// These are used in method arguments and are part of the primary API
 pub use command::{
     exposure::ExposureMode,
-    focus::{AutoFocusSensitivity, FocusMode, FocusRange, FocusZone},
-    image_adjustment::{BlackWhiteMode, NrMode, NrSpeed, SharpnessMode},
+    focus::{AutoFocusSensitivity, FocusMode},
     nd_filter::NDFilterMode,
     pan_tilt::{PanTiltDirection, PanTiltLimitCorner},
     preset::PresetNumber,
-    resolution::{NDFilterPosition, PictureEffectMode, ResolutionMode},
+    resolution::{PictureEffectMode, ResolutionMode},
     system::{MotionSyncMode, MotionSyncSpeed},
     white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode},
 };
 
+// Derive macros for extending the library
 pub use grafton_visca_macros::{InquiryCommand, ViscaEncode, ViscaEnum, ViscaValue};
-
-pub use capabilities::ProfileMetadata;
-
-pub use capabilities::CameraFeature;
-
-pub use capabilities::{
-    HasAutoExposure, HasAutoFocus, HasBacklightCompensation, HasColorTemperature, HasExposure,
-    HasExposureCompensation, HasFocus, HasHue, HasImageProcessing, HasLuminance, HasMenuControl,
-    HasMotionSync, HasNDFilter, HasOnePushFocus, HasOnePushWhiteBalance, HasPanTilt, HasPower,
-    HasPresets, HasRGBGain, HasVariableSpeed, HasWDR, HasWhiteBalance, HasZoom,
-};
 
 /// Camera profiles with compositional capabilities
 pub mod profiles {

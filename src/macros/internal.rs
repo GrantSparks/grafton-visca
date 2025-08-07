@@ -260,6 +260,7 @@ macro_rules! visca_builder {
         $vis struct $name {
             $(
                 $(#[$field_meta])*
+                #[doc = concat!("The ", stringify!($field), " parameter.")]
                 pub $field: $ftype,
             )+
         }

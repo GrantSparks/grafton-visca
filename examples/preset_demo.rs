@@ -10,7 +10,9 @@
 //! cargo run --example preset_demo [camera_ip[:port]]
 //! ```
 
-use grafton_visca::{prelude::blocking::*, types::SpeedLevel, units::*, CameraBuilder, Error};
+// Single prelude import provides all needed types: PTZOpticsG2, PresetNumber, Degrees, etc.
+// Much cleaner than importing from multiple modules!
+use grafton_visca::{prelude::blocking::*, CameraBuilder, Error};
 use std::time::Duration;
 use std::{env, thread::sleep};
 

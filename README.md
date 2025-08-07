@@ -4,7 +4,15 @@
 [![Documentation](https://docs.rs/grafton-visca/badge.svg)](https://docs.rs/grafton-visca)
 [![License](https://img.shields.io/crates/l/grafton-visca.svg)](LICENSE)
 
-`grafton‑visca` aims to offer a **pure‑Rust, profile‑centric** implementation of the VISCA protocol.
+`grafton‑visca` aims to offer a **pure‑Rust, profile‑centric** implementation of the VISCA protocol with both blocking and async APIs.
+
+## Key Features
+
+- **Dual API Design** - Native blocking and async implementations, not wrappers
+- **Runtime Agnostic** - Async support works with ANY runtime (tokio, async-std, smol, etc.)
+- **Zero Overhead** - Blocking API has no async dependencies when async features are disabled
+- **Type-Safe Profiles** - Camera capabilities validated at compile time
+
 All command encoders/decoders compile and have unit / property tests, but **the crate still needs extensive validation on physical camera fleets**. Please treat each release as *experimental* until we publish real‑world compatibility reports.
 
 ---
@@ -33,7 +41,7 @@ All command encoders/decoders compile and have unit / property tests, but **the 
 
 ```rust
 use grafton_visca::{
-    blocking::prelude::*,
+    prelude::blocking::*,
     camera::profiles::PTZOpticsG2,
     CameraBuilder,
 };
@@ -57,7 +65,7 @@ fn main() -> grafton_visca::Result<()> {
 
 ```rust
 use grafton_visca::{
-    r#async::prelude::*,
+    prelude::r#async::*,
     camera::profiles::PTZOpticsG2,
     CameraBuilder,
 };
@@ -83,8 +91,9 @@ async fn main() -> grafton_visca::Result<()> {
 | -------------------------------------------------- | -------------------------------------------------------- |
 | **Core encoding / decoding**                       | Complete and test‑covered                                |
 | **`Camera<P, T>` generic API**                     | Stable                                                   |
-| **Blocking TCP/UDP**                               | Implemented                                              |
-| **Tokio TCP/UDP**                                  | Implemented behind the `tokio` feature                   |
+| **Native blocking API**                            | Fully implemented (TCP/UDP)                              |
+| **Runtime-agnostic async API**                     | Fully implemented with `async` feature                   |
+| **Tokio integration**                              | Convenience helpers with `tokio` feature                 |
 | **Socket manager (ACK/Completion, 2‑socket rule)** | Implemented & unit‑tested                                |
 | **Extensive field testing**                        | **Still needed** – only PTZOptics units exercised so far |
 
@@ -98,16 +107,26 @@ If you run the crate against different hardware, please open an issue with:
 
 ## Installation
 
+The library provides native implementations for both blocking and async APIs:
+
 ```toml
-# Blocking‑only
-grafton-visca = "0.5"
+# Blocking API (no features needed - always available)
+grafton-visca = "0.6"
 
-# Runtime‑agnostic async
-grafton-visca = { version = "0.5", features = ["async"] }
+# Runtime‑agnostic async (works with ANY async runtime)
+grafton-visca = { version = "0.6", features = ["async"] }
 
-# Tokio helpers
-grafton-visca = { version = "0.5", features = ["tokio"] }
+# Tokio convenience helpers (includes async)
+grafton-visca = { version = "0.6", features = ["tokio"] }
 ```
+
+### Feature Flags
+
+- **No features** - Blocking API only, zero async dependencies
+- **`async`** - Enables async traits and methods, runtime-agnostic (bring your own runtime)
+- **`tokio`** - Adds Tokio-specific transport implementations and timeout support (implies `async`)
+
+The async implementation is truly runtime-agnostic - you can use it with tokio, async-std, smol, or any other async runtime by implementing the `Transport` trait for your runtime's networking types.
 
 ---
 
@@ -117,15 +136,15 @@ We provide a comprehensive set of examples demonstrating different aspects of th
 
 | Example | Description | Features Demonstrated |
 | ------- | ----------- | --------------------- |
-| [`quickstart`](examples/quickstart.rs) | Minimal blocking example | Basic connection and camera control |
-| [`quickstart_async`](examples/quickstart_async.rs) | Minimal async example | Async/await patterns with Tokio |
-| [`camera_control`](examples/camera_control.rs) | Comprehensive blocking operations | All camera movements, presets, imaging |
-| [`camera_control_async`](examples/camera_control_async.rs) | Comprehensive async operations | Concurrent operations, async patterns |
+| [`quickstart`](examples/quickstart.rs) | Comprehensive blocking example | All camera movements, presets, imaging |
+| [`quickstart_async`](examples/quickstart_async.rs) | Comprehensive async example | Concurrent operations, async patterns |
 | [`transports`](examples/transports.rs) | TCP vs UDP comparison | Transport configuration, performance |
 | [`builder_api`](examples/builder_api.rs) | Builder pattern usage | All builder options and configurations |
 | [`camera_inquiry`](examples/camera_inquiry.rs) | Query camera state | Reading positions, settings, status |
 | [`concurrent_control`](examples/concurrent_control.rs) | Thread-safe operations | Multiple threads controlling camera |
 | [`error_handling`](examples/error_handling.rs) | Error recovery patterns | Retryable errors, timeouts, recovery |
+| [`preset_demo`](examples/preset_demo.rs) | Preset management | Saving, recalling, and managing presets |
+| [`type_safe_commands`](examples/type_safe_commands.rs) | Type safety demonstration | Profile-specific features and compile-time checks |
 
 Run any example with:
 ```bash

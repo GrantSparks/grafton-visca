@@ -13,7 +13,7 @@ use crate::{
 use super::MovementConfig;
 
 /// Helper methods for camera movement operations (blocking).
-pub trait MovementHelpers: Sized {
+pub trait MovementOps: Sized {
     /// Wait for all movements to complete.
     ///
     /// This waits for pan/tilt, zoom, and focus movements to finish.
@@ -61,7 +61,7 @@ pub trait MovementHelpers: Sized {
 
 /// Async helper methods for camera movement operations.
 #[cfg(feature = "async")]
-pub trait MovementHelpersAsync: Sized {
+pub trait MovementOpsAsync: Sized {
     /// Wait for all movements to complete.
     ///
     /// This waits for pan/tilt, zoom, and focus movements to finish.
@@ -108,7 +108,7 @@ pub trait MovementHelpersAsync: Sized {
 }
 
 // Blocking implementation
-impl<P: Profile, T: UnifiedTransport> MovementHelpers for Camera<P, T> {
+impl<P: Profile, T: UnifiedTransport> MovementOps for Camera<P, T> {
     fn await_idle(&self, timeout: impl Into<Duration>) -> Result<(), Error> {
         let config = MovementConfig::with_timeout(timeout.into());
         self.wait_for_movement(&config)
@@ -127,7 +127,7 @@ impl<P: Profile, T: UnifiedTransport> MovementHelpers for Camera<P, T> {
         self.pan_tilt_absolute(pan, tilt, SpeedLevel::Fast)?;
 
         // Wait for it to complete
-        MovementHelpers::await_idle(self, timeout)
+        MovementOps::await_idle(self, timeout)
     }
 
     fn is_moving(&self) -> Result<bool, Error> {
@@ -138,7 +138,7 @@ impl<P: Profile, T: UnifiedTransport> MovementHelpers for Camera<P, T> {
 
 // Async implementation with tokio
 #[cfg(feature = "tokio")]
-impl<P: Profile, T: UnifiedTransport> MovementHelpersAsync for Camera<P, T> {
+impl<P: Profile, T: UnifiedTransport> MovementOpsAsync for Camera<P, T> {
     async fn await_idle(&self, timeout: impl Into<Duration>) -> Result<(), Error> {
         let config = MovementConfig::with_timeout(timeout.into());
         self.wait_for_movement_async(&config).await
@@ -157,7 +157,7 @@ impl<P: Profile, T: UnifiedTransport> MovementHelpersAsync for Camera<P, T> {
         self.pan_tilt_absolute(pan, tilt, SpeedLevel::Fast).await?;
 
         // Wait for it to complete
-        MovementHelpersAsync::await_idle(self, timeout).await
+        MovementOpsAsync::await_idle(self, timeout).await
     }
 
     async fn is_moving(&self) -> Result<bool, Error> {
@@ -168,7 +168,7 @@ impl<P: Profile, T: UnifiedTransport> MovementHelpersAsync for Camera<P, T> {
 
 // Generic async implementation for non-tokio async runtimes
 #[cfg(all(feature = "async", not(feature = "tokio")))]
-impl<P: Profile, T: UnifiedTransport> MovementHelpersAsync for Camera<P, T> {
+impl<P: Profile, T: UnifiedTransport> MovementOpsAsync for Camera<P, T> {
     async fn await_idle(&self, _timeout: impl Into<Duration>) -> Result<(), Error> {
         Err(Error::InvalidState(
             "Async movement helpers require tokio feature".into(),

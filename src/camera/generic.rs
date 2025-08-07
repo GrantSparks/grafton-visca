@@ -475,7 +475,7 @@ where
     /// * `Err(Error::Timeout)` if no completion message was received within the timeout
     #[cfg(feature = "async")]
     #[cfg_attr(not(feature = "tokio"), allow(unused_variables))]
-    pub async fn wait_for_completion(&self, timeout: Duration) -> Result<(), Error> {
+    pub(crate) async fn wait_for_completion(&self, timeout: Duration) -> Result<(), Error> {
         // Check if socket manager is available
         if let Some(socket_manager) = &self.socket_manager {
             log::debug!("wait_for_completion: using socket manager to wait for completion message");
@@ -513,7 +513,7 @@ where
     /// * `Err(Error::Timeout)` if no completion message was received within the timeout
     /// * `Err(Error::Unsupported)` if no socket manager is available
     #[cfg_attr(not(feature = "async"), allow(unused_variables))]
-    pub fn wait_for_completion_blocking(&self, timeout: Duration) -> Result<(), Error> {
+    pub(crate) fn wait_for_completion_blocking(&self, timeout: Duration) -> Result<(), Error> {
         #[cfg(feature = "async")]
         {
             // Check if socket manager is available

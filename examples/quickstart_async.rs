@@ -17,12 +17,10 @@
 //! ```
 
 #[cfg(feature = "tokio")]
+// The async prelude provides all commonly-used types including async operation traits.
+// All speed types, units, and common enums are included - clean imports in one line!
 use grafton_visca::{
-    camera::{helpers::MovementHelpersAsync, profiles::PTZOpticsG2, MovementConfig},
-    prelude::r#async::*,
-    types::{PanSpeed, SpeedLevel, TiltSpeed},
-    units::*,
-    CameraBuilder, Error, PanTiltDirection,
+    camera::profiles::PTZOpticsG2, prelude::r#async::*, CameraBuilder, Error, PanTiltDirection,
 };
 #[cfg(feature = "tokio")]
 use std::env;
