@@ -175,14 +175,14 @@ mod tests {
         NDFilterModeCommand,
         test_nd_filter_mode_preset,
         NDFilterModeCommand::new(NDFilterMode::Preset),
-        &[0x81, 0x01, 0x7E, 0x04, 0x52, 0x00,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x7E, 0x04, 0x52, 0x00, VISCA_TERMINATOR]
     );
 
     visca_test!(
         NDFilterModeCommand,
         test_nd_filter_mode_variable,
         NDFilterModeCommand::new(NDFilterMode::Variable),
-        &[0x81, 0x01, 0x7E, 0x04, 0x52, 0x01,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x7E, 0x04, 0x52, 0x01, VISCA_TERMINATOR]
     );
 
     visca_test!(
@@ -190,7 +190,17 @@ mod tests {
         test_nd_filter_value_min,
         NDFilterValueCommand::new(0x0000)
             .expect("Failed to create NDFilterValueCommand with valid value"),
-        &[0x81, 0x01, 0x7E, 0x04, 0x42, 0x00, 0x00, 0x00,  VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x7E,
+            0x04,
+            0x42,
+            0x00,
+            0x00,
+            0x00,
+            VISCA_TERMINATOR
+        ]
     );
 
     visca_test!(
@@ -198,7 +208,17 @@ mod tests {
         test_nd_filter_value_max,
         NDFilterValueCommand::new(0x0014)
             .expect("Failed to create NDFilterValueCommand with valid value"),
-        &[0x81, 0x01, 0x7E, 0x04, 0x42, 0x00, 0x01, 0x04,  VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x7E,
+            0x04,
+            0x42,
+            0x00,
+            0x01,
+            0x04,
+            VISCA_TERMINATOR
+        ]
     );
 
     #[test]
@@ -230,27 +250,27 @@ mod tests {
         NDFilterStepCommand,
         test_nd_filter_step_up,
         NDFilterStepCommand::new(NDFilterStep::Up),
-        &[0x81, 0x01, 0x7E, 0x04, 0x12, 0x02,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x7E, 0x04, 0x12, 0x02, VISCA_TERMINATOR]
     );
 
     visca_test!(
         NDFilterStepCommand,
         test_nd_filter_step_down,
         NDFilterStepCommand::new(NDFilterStep::Down),
-        &[0x81, 0x01, 0x7E, 0x04, 0x12, 0x03,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x7E, 0x04, 0x12, 0x03, VISCA_TERMINATOR]
     );
 
     visca_test!(
         AutoNDCommand,
         test_auto_nd_on,
         AutoNDCommand::new(true),
-        &[0x81, 0x01, 0x7E, 0x04, 0x53, 0x02,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x7E, 0x04, 0x53, 0x02, VISCA_TERMINATOR]
     );
 
     visca_test!(
         AutoNDCommand,
         test_auto_nd_off,
         AutoNDCommand::new(false),
-        &[0x81, 0x01, 0x7E, 0x04, 0x53, 0x03,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x7E, 0x04, 0x53, 0x03, VISCA_TERMINATOR]
     );
 }

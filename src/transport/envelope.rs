@@ -187,7 +187,7 @@ mod tests {
     #[test]
     fn test_raw_visca_passthrough() {
         let envelope = TransportEnvelope::new(ProtocolStyle::RawVisca);
-        let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02,  VISCA_TERMINATOR]; // Power On
+        let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]; // Power On
 
         let framed = envelope.frame_command(&visca_cmd, false);
         assert_eq!(framed, visca_cmd);
@@ -203,7 +203,7 @@ mod tests {
         let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated {
             use_sequence: false,
         });
-        let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02,  VISCA_TERMINATOR]; // Power On
+        let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]; // Power On
 
         let framed = envelope.frame_command(&visca_cmd, false);
 
@@ -223,7 +223,7 @@ mod tests {
     fn test_sony_encapsulation_inquiry() {
         let envelope =
             TransportEnvelope::new(ProtocolStyle::SonyEncapsulated { use_sequence: true });
-        let visca_inquiry = vec![0x81, 0x09, 0x04, 0x00,  VISCA_TERMINATOR]; // Power Status Inquiry
+        let visca_inquiry = vec![0x81, 0x09, 0x04, 0x00, VISCA_TERMINATOR]; // Power Status Inquiry
 
         let framed = envelope.frame_command(&visca_inquiry, true);
 
@@ -246,7 +246,7 @@ mod tests {
         });
 
         // Create a mock Sony response: 8-byte header + VISCA ACK
-        let visca_ack = vec![0x90, 0x41,  VISCA_TERMINATOR]; // ACK for socket 1
+        let visca_ack = vec![0x90, 0x41, VISCA_TERMINATOR]; // ACK for socket 1
         let mut response = Vec::new();
         response.extend_from_slice(&[0x01, 0x11]); // Reply payload type
         response.extend_from_slice(&(3u16).to_be_bytes()); // Length = 3
@@ -263,7 +263,7 @@ mod tests {
     fn test_sony_sequence_increment() {
         let envelope =
             TransportEnvelope::new(ProtocolStyle::SonyEncapsulated { use_sequence: true });
-        let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02,  VISCA_TERMINATOR];
+        let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
 
         let framed1 = envelope.frame_command(&visca_cmd, false);
         let framed2 = envelope.frame_command(&visca_cmd, false);
@@ -287,10 +287,10 @@ mod tests {
         assert!(envelope.extract_response(&short_response).is_err());
 
         // Invalid payload type
-        let mut invalid_response = vec![0xFF,  VISCA_TERMINATOR]; // Invalid payload type
+        let mut invalid_response = vec![0xFF, VISCA_TERMINATOR]; // Invalid payload type
         invalid_response.extend_from_slice(&(3u16).to_be_bytes());
         invalid_response.extend_from_slice(&0u32.to_be_bytes());
-        invalid_response.extend_from_slice(&[0x90, 0x41,  VISCA_TERMINATOR]);
+        invalid_response.extend_from_slice(&[0x90, 0x41, VISCA_TERMINATOR]);
         assert!(envelope.extract_response(&invalid_response).is_err());
     }
 }

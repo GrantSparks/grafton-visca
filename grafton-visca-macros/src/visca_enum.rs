@@ -5,7 +5,7 @@
 //! Derive macro implementation for ViscaEnum
 //!
 //! This module implements the ViscaEnum derive macro that automatically generates
-//! TryFrom<u8> and From<Enum> for u8 implementations for enums with explicit discriminants.
+//! `TryFrom<u8>` and `From<Enum>` for u8 implementations for enums with explicit discriminants.
 
 use proc_macro2::TokenStream;
 use quote::quote;

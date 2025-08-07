@@ -128,21 +128,21 @@ mod tests {
         Gain,
         test_gain_command_reset,
         Gain::Reset,
-        &[0x81, 0x01, 0x04, 0x0C, 0x00,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x04, 0x0C, 0x00, VISCA_TERMINATOR]
     );
 
     visca_test!(
         Gain,
         test_gain_command_up,
         Gain::Up,
-        &[0x81, 0x01, 0x04, 0x0C, 0x02,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x04, 0x0C, 0x02, VISCA_TERMINATOR]
     );
 
     visca_test!(
         Gain,
         test_gain_command_down,
         Gain::Down,
-        &[0x81, 0x01, 0x04, 0x0C, 0x03,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x04, 0x0C, 0x03, VISCA_TERMINATOR]
     );
 
     #[test]
@@ -158,7 +158,17 @@ mod tests {
             assert_eq!(
                 cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-                vec![0x81, 0x01, 0x04, 0x4C, 0x00, 0x00, high, low,  VISCA_TERMINATOR]
+                vec![
+                    0x81,
+                    0x01,
+                    0x04,
+                    0x4C,
+                    0x00,
+                    0x00,
+                    high,
+                    low,
+                    VISCA_TERMINATOR
+                ]
             );
         }
     }
@@ -199,7 +209,7 @@ mod tests {
             assert_eq!(
                 cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-                vec![0x81, 0x01, 0x04, 0x2C, value,  VISCA_TERMINATOR]
+                vec![0x81, 0x01, 0x04, 0x2C, value, VISCA_TERMINATOR]
             );
         }
     }

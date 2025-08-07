@@ -474,8 +474,8 @@ pub enum InquiryResponse {
 
 #[cfg(test)]
 mod tests {
-    use crate::command::const_encoding::VISCA_TERMINATOR;
     use crate::camera_id::CameraId;
+    use crate::command::const_encoding::VISCA_TERMINATOR;
     use crate::command::encode_visca::EncodeVisca;
 
     /// Helper to encode a command and verify it has a terminator
@@ -483,21 +483,26 @@ mod tests {
     fn assert_command_has_terminator<C: EncodeVisca>(command: C, name: &str) {
         let mut buffer = [0u8; 256];
         let result = command.encode_into(CameraId::CAMERA_1, &mut buffer);
-        
-        assert!(result.is_ok(), "Command {} failed to encode: {:?}", name, result);
-        
+
+        assert!(
+            result.is_ok(),
+            "Command {} failed to encode: {:?}",
+            name,
+            result
+        );
+
         let len = result.unwrap();
         assert!(len > 0, "Command {} encoded to empty buffer", name);
-        
+
         // Check that the command ends with VISCA_TERMINATOR
         assert_eq!(
-            buffer[len - 1], 
+            buffer[len - 1],
             VISCA_TERMINATOR,
             "Command {} does not end with VISCA_TERMINATOR (0xFF). Last byte: 0x{:02X}",
             name,
             buffer[len - 1]
         );
-        
+
         // Validate no double terminators
         if len > 1 {
             let mut terminator_count = 0;
@@ -507,11 +512,9 @@ mod tests {
                 }
             }
             assert_eq!(
-                terminator_count, 
-                1,
+                terminator_count, 1,
                 "Command {} has {} terminators, expected exactly 1",
-                name,
-                terminator_count
+                name, terminator_count
             );
         }
     }
@@ -551,12 +554,12 @@ mod tests {
         use crate::types::{PanSpeed, TiltSpeed};
         use crate::PanTiltDirection;
         assert_command_has_terminator(
-            PanTilt::Move { 
-                direction: PanTiltDirection::Stop, 
-                pan_speed: PanSpeed::new(0).unwrap(), 
-                tilt_speed: TiltSpeed::new(0).unwrap() 
-            }, 
-            "PanTilt::Stop"
+            PanTilt::Move {
+                direction: PanTiltDirection::Stop,
+                pan_speed: PanSpeed::new(0).unwrap(),
+                tilt_speed: TiltSpeed::new(0).unwrap(),
+            },
+            "PanTilt::Stop",
         );
     }
 
@@ -572,12 +575,16 @@ mod tests {
     fn test_exposure_commands_have_terminator() {
         use crate::command::exposure::{ExposureCommand, ExposureMode};
         assert_command_has_terminator(
-            ExposureCommand { mode: ExposureMode::Auto },
-            "Exposure::Auto"
+            ExposureCommand {
+                mode: ExposureMode::Auto,
+            },
+            "Exposure::Auto",
         );
         assert_command_has_terminator(
-            ExposureCommand { mode: ExposureMode::Manual },
-            "Exposure::Manual"
+            ExposureCommand {
+                mode: ExposureMode::Manual,
+            },
+            "Exposure::Manual",
         );
     }
 
@@ -585,15 +592,21 @@ mod tests {
     fn test_preset_commands_have_terminator() {
         use crate::command::preset::PresetCommand;
         use crate::command::preset::PresetNumber;
-        
+
         if let Ok(preset) = PresetNumber::new(1) {
             assert_command_has_terminator(
-                PresetCommand { action: crate::command::preset::PresetAction::Recall, preset_number: preset },
-                "Preset::Recall(1)"
+                PresetCommand {
+                    action: crate::command::preset::PresetAction::Recall,
+                    preset_number: preset,
+                },
+                "Preset::Recall(1)",
             );
             assert_command_has_terminator(
-                PresetCommand { action: crate::command::preset::PresetAction::Set, preset_number: preset },
-                "Preset::Set(1)"
+                PresetCommand {
+                    action: crate::command::preset::PresetAction::Set,
+                    preset_number: preset,
+                },
+                "Preset::Set(1)",
             );
         }
     }
@@ -602,21 +615,25 @@ mod tests {
     #[allow(clippy::expect_used, clippy::unwrap_used)]
     fn test_white_balance_commands_have_terminator() {
         use crate::command::white_balance::{WhiteBalanceCommand, WhiteBalanceMode};
-        
+
         assert_command_has_terminator(
-            WhiteBalanceCommand { mode: WhiteBalanceMode::Auto },
-            "WhiteBalance::Auto"
+            WhiteBalanceCommand {
+                mode: WhiteBalanceMode::Auto,
+            },
+            "WhiteBalance::Auto",
         );
         assert_command_has_terminator(
-            WhiteBalanceCommand { mode: WhiteBalanceMode::Manual },
-            "WhiteBalance::Manual"
+            WhiteBalanceCommand {
+                mode: WhiteBalanceMode::Manual,
+            },
+            "WhiteBalance::Manual",
         );
     }
 
     #[test]
     fn test_type_state_prevents_unterminated_commands() {
         use crate::command::const_encoding::CommandBuilder;
-        
+
         // Create a builder and terminate it
         let builder = CommandBuilder::<8>::new()
             .push(0x81)
@@ -625,11 +642,11 @@ mod tests {
             .push(0x00)
             .push(0x02)
             .terminate();
-        
+
         // Verify the terminated command has the terminator
         let bytes = builder.as_bytes();
         assert_eq!(bytes[bytes.len() - 1], VISCA_TERMINATOR);
-        
+
         // Verify we can't access bytes without terminating (compile-time check)
         // The following would not compile:
         // let unterminated = CommandBuilder::<8>::new().push(0x81);
@@ -639,21 +656,21 @@ mod tests {
     #[test]
     #[allow(clippy::expect_used, clippy::unwrap_used)]
     fn test_all_command_categories_terminate() {
-        use crate::command::power::PowerCommand;
-        use crate::command::pan_tilt::PanTilt;
-        use crate::command::zoom::Zoom;
         use crate::command::focus::Focus;
-        
+        use crate::command::pan_tilt::PanTilt;
+        use crate::command::power::PowerCommand;
+        use crate::command::zoom::Zoom;
+
         // Test commands from different categories to ensure
         // the macros are correctly applying termination
-        
+
         type EncodeFunction = Box<dyn Fn(&mut [u8]) -> Result<usize, crate::Error>>;
-        
+
         struct TestCase {
             name: &'static str,
             encode: EncodeFunction,
         }
-        
+
         let test_cases = vec![
             TestCase {
                 name: "Quick command (Power)",
@@ -672,14 +689,14 @@ mod tests {
                 encode: Box::new(|buf| Focus::Near.encode_into(CameraId::CAMERA_1, buf)),
             },
         ];
-        
+
         for test_case in test_cases {
             let mut buffer = [0u8; 256];
             let result = (test_case.encode)(&mut buffer);
-            
+
             assert!(result.is_ok(), "{} failed: {:?}", test_case.name, result);
             let len = result.unwrap();
-            
+
             assert_eq!(
                 buffer[len - 1],
                 VISCA_TERMINATOR,

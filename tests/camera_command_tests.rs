@@ -74,8 +74,8 @@ mod blocking_tests {
         // Use MockTransportBuilder for multiple command expectations
         // Note: blocking mode uses variable speed commands, not standard speed
         // For PTZOpticsG2, zoom_speed_range().end is 8, so medium speed is 4
-        let zoom_in_cmd = vec![0x81, 0x01, 0x04, 0x07, 0x24,  VISCA_TERMINATOR]; // TeleVariable with speed 4
-        let zoom_out_cmd = vec![0x81, 0x01, 0x04, 0x07, 0x34,  VISCA_TERMINATOR]; // WideVariable with speed 4
+        let zoom_in_cmd = vec![0x81, 0x01, 0x04, 0x07, 0x24, VISCA_TERMINATOR]; // TeleVariable with speed 4
+        let zoom_out_cmd = vec![0x81, 0x01, 0x04, 0x07, 0x34, VISCA_TERMINATOR]; // WideVariable with speed 4
 
         let mock = MockTransportBuilder::new()
             .connected(true)
@@ -127,7 +127,7 @@ mod blocking_tests {
     #[test]
     fn test_simple_zoom_in() {
         // Simple test with just zoom_in to isolate the issue
-        let zoom_in_cmd = vec![0x81, 0x01, 0x04, 0x07, 0x24,  VISCA_TERMINATOR]; // Speed 4
+        let zoom_in_cmd = vec![0x81, 0x01, 0x04, 0x07, 0x24, VISCA_TERMINATOR]; // Speed 4
 
         let mock = MockTransportBuilder::new()
             .connected(true)
@@ -152,14 +152,14 @@ mod blocking_tests {
         let mock = MockTransportBuilder::new()
             .connected(true)
             .expect(
-                &[0x81, 0x01, 0x04, 0x3F, 0x01, 0x05,  VISCA_TERMINATOR],
+                &[0x81, 0x01, 0x04, 0x3F, 0x01, 0x05, VISCA_TERMINATOR],
                 vec![
                     MockResponse::Immediate(patterns::responses::ACK_1.to_vec()),
                     MockResponse::Immediate(patterns::responses::COMPLETE_1.to_vec()),
                 ],
             )
             .expect(
-                &[0x81, 0x01, 0x04, 0x3F, 0x02, 0x05,  VISCA_TERMINATOR],
+                &[0x81, 0x01, 0x04, 0x3F, 0x02, 0x05, VISCA_TERMINATOR],
                 vec![
                     MockResponse::Immediate(patterns::responses::ACK_2.to_vec()),
                     MockResponse::Immediate(patterns::responses::COMPLETE_2.to_vec()),

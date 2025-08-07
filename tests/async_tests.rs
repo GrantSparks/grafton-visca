@@ -44,7 +44,7 @@ mod async_tests {
     #[tokio::test]
     async fn test_async_send_receive_basic() {
         let mock = MockAsyncTransport::new();
-        mock.add_response(vec![0x90, 0x50,  VISCA_TERMINATOR]).await;
+        mock.add_response(vec![0x90, 0x50, VISCA_TERMINATOR]).await;
 
         let sent_commands = mock.sent_commands.clone();
         let transport = ViscaProtocol::new(mock);
@@ -56,7 +56,10 @@ mod async_tests {
 
         let sent = sent_commands.lock().await;
         assert_eq!(sent.len(), 1);
-        assert_eq!(sent[0], vec![0x81, 0x01, 0x04, 0x00, 0x02,  VISCA_TERMINATOR]);
+        assert_eq!(
+            sent[0],
+            vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]
+        );
     }
 
     #[tokio::test]
@@ -115,7 +118,7 @@ mod async_tests {
 
                 // Create a new Transport for this task
                 let mock = MockAsyncTransport::new().with_delay(50);
-                mock.add_response(vec![0x90, 0x50,  VISCA_TERMINATOR]).await;
+                mock.add_response(vec![0x90, 0x50, VISCA_TERMINATOR]).await;
                 let visca_transport = ViscaProtocol::new(mock);
 
                 let _response = visca_transport
@@ -171,8 +174,8 @@ mod async_tests {
         let mock = MockAsyncTransport::new().fail_after_n_commands(2);
 
         // Add responses for first two commands
-        mock.add_response(vec![0x90, 0x50,  VISCA_TERMINATOR]).await;
-        mock.add_response(vec![0x90, 0x50,  VISCA_TERMINATOR]).await;
+        mock.add_response(vec![0x90, 0x50, VISCA_TERMINATOR]).await;
+        mock.add_response(vec![0x90, 0x50, VISCA_TERMINATOR]).await;
 
         let transport = ViscaProtocol::new(mock);
 
@@ -230,7 +233,7 @@ mod async_tests {
         let mock = MockAsyncTransport::new();
 
         // Add response only for first command
-        mock.add_response(vec![0x90, 0x50,  VISCA_TERMINATOR]).await;
+        mock.add_response(vec![0x90, 0x50, VISCA_TERMINATOR]).await;
 
         let transport = ViscaProtocol::new(mock);
 
@@ -298,7 +301,8 @@ mod async_tests {
         let mock = MockAsyncTransport::new().with_delay(5); // Use the with_delay builder method
 
         // Use add_response to queue a custom response
-        mock.add_response(vec![0x90, 0x60, 0x02,  VISCA_TERMINATOR]).await; // Syntax error
+        mock.add_response(vec![0x90, 0x60, 0x02, VISCA_TERMINATOR])
+            .await; // Syntax error
 
         let command_counter = mock.command_counter.clone();
         let transport = ViscaProtocol::new(mock);

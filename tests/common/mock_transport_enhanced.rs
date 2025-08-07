@@ -201,15 +201,21 @@ impl MockTransport {
 impl ExpectationBuilder {
     /// Expect an ACK response with the given socket number
     pub fn will_ack(mut self, socket: u8) -> Self {
-        self.responses
-            .push(MockResponse::Immediate(vec![0x90, 0x40 | socket, VISCA_TERMINATOR]));
+        self.responses.push(MockResponse::Immediate(vec![
+            0x90,
+            0x40 | socket,
+            VISCA_TERMINATOR,
+        ]));
         self
     }
 
     /// Expect a completion response after ACK
     pub fn then_complete(mut self, socket: u8) -> Self {
-        self.responses
-            .push(MockResponse::Immediate(vec![0x90, 0x50 | socket, VISCA_TERMINATOR]));
+        self.responses.push(MockResponse::Immediate(vec![
+            0x90,
+            0x50 | socket,
+            VISCA_TERMINATOR,
+        ]));
         self
     }
 

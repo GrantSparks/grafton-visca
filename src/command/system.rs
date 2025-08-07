@@ -17,8 +17,8 @@
 // (none)
 
 // Workspace / local-crate imports
-use crate::macros::internal::*;
 use crate::command::const_encoding::VISCA_TERMINATOR;
+use crate::macros::internal::*;
 
 use crate::command::const_encoding::constants;
 use grafton_visca_macros::ViscaEnum;
@@ -115,28 +115,28 @@ mod tests {
         AddressSetCommand,
         test_address_set_command,
         AddressSetCommand::new(),
-        &[0x88, 0x30, 0x01,  VISCA_TERMINATOR]
+        &[0x88, 0x30, 0x01, VISCA_TERMINATOR]
     );
 
     visca_test!(
         InterfaceClearCommand,
         test_interface_clear_command,
         InterfaceClearCommand::new(),
-        &[0x88, 0x01, 0x00, 0x01,  VISCA_TERMINATOR]
+        &[0x88, 0x01, 0x00, 0x01, VISCA_TERMINATOR]
     );
 
     visca_test!(
         CommandCancelCommand,
         test_command_cancel_socket1,
         CommandCancelCommand::new(Socket::Socket1),
-        &[0x81, 0x21,  VISCA_TERMINATOR]
+        &[0x81, 0x21, VISCA_TERMINATOR]
     );
 
     visca_test!(
         CommandCancelCommand,
         test_command_cancel_socket2,
         CommandCancelCommand::new(Socket::Socket2),
-        &[0x81, 0x22,  VISCA_TERMINATOR]
+        &[0x81, 0x22, VISCA_TERMINATOR]
     );
 
     #[test]

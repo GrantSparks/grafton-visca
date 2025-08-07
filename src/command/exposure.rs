@@ -398,10 +398,10 @@ visca_command! {
 #[allow(clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use crate::command::const_encoding::VISCA_TERMINATOR;
     use crate::command::encode_visca::EncodeVisca;
     use crate::constants::CameraVariant;
     use crate::macros::test_utils::visca_test;
-    use crate::command::const_encoding::VISCA_TERMINATOR;
 
     // Test Auto mode
     visca_test!(
@@ -540,7 +540,17 @@ mod tests {
         ExposureCompensation,
         test_exposure_compensation_level_minus_7,
         ExposureCompensation::SetLevel(ExposureCompensationLevel::new(-7).unwrap()),
-        &[0x81, 0x01, 0x04, 0x4E, 0x00, 0x00, 0x00, 0x00, VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0x4E,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            VISCA_TERMINATOR
+        ]
     );
 
     // Test SetLevel command with value 0
@@ -548,7 +558,17 @@ mod tests {
         ExposureCompensation,
         test_exposure_compensation_level_0,
         ExposureCompensation::SetLevel(ExposureCompensationLevel::new(0).unwrap()),
-        &[0x81, 0x01, 0x04, 0x4E, 0x00, 0x00, 0x00, 0x07, VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0x4E,
+            0x00,
+            0x00,
+            0x00,
+            0x07,
+            VISCA_TERMINATOR
+        ]
     );
 
     // Test SetLevel command with value 7
@@ -556,7 +576,17 @@ mod tests {
         ExposureCompensation,
         test_exposure_compensation_level_plus_7,
         ExposureCompensation::SetLevel(ExposureCompensationLevel::new(7).unwrap()),
-        &[0x81, 0x01, 0x04, 0x4E, 0x00, 0x00, 0x00, 0x0E, VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0x4E,
+            0x00,
+            0x00,
+            0x00,
+            0x0E,
+            VISCA_TERMINATOR
+        ]
     );
 
     #[test]
@@ -583,7 +613,17 @@ mod tests {
         DynamicRange,
         test_dynamic_range_level_0,
         DynamicRange::new(DynamicRangeLevel::new(0).unwrap()),
-        &[0x81, 0x01, 0x04, 0x25, 0x00, 0x00, 0x00, 0x00, VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0x25,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            VISCA_TERMINATOR
+        ]
     );
 
     // Test dynamic range level 4
@@ -591,7 +631,17 @@ mod tests {
         DynamicRange,
         test_dynamic_range_level_4,
         DynamicRange::new(DynamicRangeLevel::new(4).unwrap()),
-        &[0x81, 0x01, 0x04, 0x25, 0x00, 0x00, 0x00, 0x04, VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0x25,
+            0x00,
+            0x00,
+            0x00,
+            0x04,
+            VISCA_TERMINATOR
+        ]
     );
 
     // Test dynamic range level 8
@@ -599,7 +649,17 @@ mod tests {
         DynamicRange,
         test_dynamic_range_level_8,
         DynamicRange::new(DynamicRangeLevel::new(8).unwrap()),
-        &[0x81, 0x01, 0x04, 0x25, 0x00, 0x00, 0x00, 0x08, VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0x25,
+            0x00,
+            0x00,
+            0x00,
+            0x08,
+            VISCA_TERMINATOR
+        ]
     );
 
     #[test]
@@ -642,7 +702,17 @@ mod tests {
         Iris,
         test_iris_set_aperture_00,
         Iris::SetAperture(IrisLevel::new(0x00).unwrap()),
-        &[0x81, 0x01, 0x04, 0x4B, 0x00, 0x00, 0x00, 0x00, VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0x4B,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            VISCA_TERMINATOR
+        ]
     );
 
     // Test SetAperture command with value 0x05
@@ -650,7 +720,17 @@ mod tests {
         Iris,
         test_iris_set_aperture_05,
         Iris::SetAperture(IrisLevel::new(0x05).unwrap()),
-        &[0x81, 0x01, 0x04, 0x4B, 0x00, 0x00, 0x00, 0x05, VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0x4B,
+            0x00,
+            0x00,
+            0x00,
+            0x05,
+            VISCA_TERMINATOR
+        ]
     );
 
     // Test SetAperture command with value 0x0A
@@ -658,7 +738,17 @@ mod tests {
         Iris,
         test_iris_set_aperture_0a,
         Iris::SetAperture(IrisLevel::new(0x0A).unwrap()),
-        &[0x81, 0x01, 0x04, 0x4B, 0x00, 0x00, 0x00, 0x0A, VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0x4B,
+            0x00,
+            0x00,
+            0x00,
+            0x0A,
+            VISCA_TERMINATOR
+        ]
     );
 
     // Test SetAperture command with value 0x0C
@@ -666,7 +756,17 @@ mod tests {
         Iris,
         test_iris_set_aperture_0c,
         Iris::SetAperture(IrisLevel::new(0x0C).unwrap()),
-        &[0x81, 0x01, 0x04, 0x4B, 0x00, 0x00, 0x00, 0x0C, VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0x4B,
+            0x00,
+            0x00,
+            0x00,
+            0x0C,
+            VISCA_TERMINATOR
+        ]
     );
 
     #[test]
@@ -717,7 +817,17 @@ mod tests {
         Shutter,
         test_shutter_set_speed_01,
         Shutter::SetSpeed(ShutterSpeed::new(0x01).unwrap()),
-        &[0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, 0x00, 0x01, VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0x4A,
+            0x00,
+            0x00,
+            0x00,
+            0x01,
+            VISCA_TERMINATOR
+        ]
     );
 
     // Test SetSpeed command with value 0x05
@@ -725,7 +835,17 @@ mod tests {
         Shutter,
         test_shutter_set_speed_05,
         Shutter::SetSpeed(ShutterSpeed::new(0x05).unwrap()),
-        &[0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, 0x00, 0x05, VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0x4A,
+            0x00,
+            0x00,
+            0x00,
+            0x05,
+            VISCA_TERMINATOR
+        ]
     );
 
     // Test SetSpeed command with value 0x10
@@ -733,7 +853,17 @@ mod tests {
         Shutter,
         test_shutter_set_speed_10,
         Shutter::SetSpeed(ShutterSpeed::new(0x10).unwrap()),
-        &[0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, 0x01, 0x00, VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0x4A,
+            0x00,
+            0x00,
+            0x01,
+            0x00,
+            VISCA_TERMINATOR
+        ]
     );
 
     // Test SetSpeed command with value 0x11
@@ -741,7 +871,17 @@ mod tests {
         Shutter,
         test_shutter_set_speed_11,
         Shutter::SetSpeed(ShutterSpeed::new(0x11).unwrap()),
-        &[0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, 0x01, 0x01, VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0x4A,
+            0x00,
+            0x00,
+            0x01,
+            0x01,
+            VISCA_TERMINATOR
+        ]
     );
 
     #[test]
@@ -792,7 +932,17 @@ mod tests {
         Bright,
         test_bright_set_level_00,
         Bright::SetLevel(BrightnessLevel::new(0x00).unwrap()),
-        &[0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, 0x00, 0x00, VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0x4D,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            VISCA_TERMINATOR
+        ]
     );
 
     // Test SetLevel command with value 0x08
@@ -800,7 +950,17 @@ mod tests {
         Bright,
         test_bright_set_level_08,
         Bright::SetLevel(BrightnessLevel::new(0x08).unwrap()),
-        &[0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, 0x00, 0x08, VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0x4D,
+            0x00,
+            0x00,
+            0x00,
+            0x08,
+            VISCA_TERMINATOR
+        ]
     );
 
     // Test SetLevel command with value 0x10
@@ -808,7 +968,17 @@ mod tests {
         Bright,
         test_bright_set_level_10,
         Bright::SetLevel(BrightnessLevel::new(0x10).unwrap()),
-        &[0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, 0x01, 0x00, VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0x4D,
+            0x00,
+            0x00,
+            0x01,
+            0x00,
+            VISCA_TERMINATOR
+        ]
     );
 
     // Test SetLevel command with value 0x11
@@ -816,7 +986,17 @@ mod tests {
         Bright,
         test_bright_set_level_11,
         Bright::SetLevel(BrightnessLevel::new(0x11).unwrap()),
-        &[0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, 0x01, 0x01, VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0x4D,
+            0x00,
+            0x00,
+            0x01,
+            0x01,
+            VISCA_TERMINATOR
+        ]
     );
 
     // Test Direct command with value 0x00
@@ -824,7 +1004,17 @@ mod tests {
         Bright,
         test_bright_direct_00,
         Bright::Direct(BrightnessLevel::new(0x00).unwrap()),
-        &[0x81, 0x01, 0x04, 0x0D, 0x00, 0x00, 0x00, 0x00, VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0x0D,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            VISCA_TERMINATOR
+        ]
     );
 
     // Test Direct command with value 0x08
@@ -832,7 +1022,17 @@ mod tests {
         Bright,
         test_bright_direct_08,
         Bright::Direct(BrightnessLevel::new(0x08).unwrap()),
-        &[0x81, 0x01, 0x04, 0x0D, 0x00, 0x00, 0x00, 0x08, VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0x0D,
+            0x00,
+            0x00,
+            0x00,
+            0x08,
+            VISCA_TERMINATOR
+        ]
     );
 
     // Test Direct command with value 0x10
@@ -840,7 +1040,17 @@ mod tests {
         Bright,
         test_bright_direct_10,
         Bright::Direct(BrightnessLevel::new(0x10).unwrap()),
-        &[0x81, 0x01, 0x04, 0x0D, 0x00, 0x00, 0x01, 0x00, VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0x0D,
+            0x00,
+            0x00,
+            0x01,
+            0x00,
+            VISCA_TERMINATOR
+        ]
     );
 
     // Test Direct command with value 0x11
@@ -848,7 +1058,17 @@ mod tests {
         Bright,
         test_bright_direct_11,
         Bright::Direct(BrightnessLevel::new(0x11).unwrap()),
-        &[0x81, 0x01, 0x04, 0x0D, 0x00, 0x00, 0x01, 0x01, VISCA_TERMINATOR]
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0x0D,
+            0x00,
+            0x00,
+            0x01,
+            0x01,
+            VISCA_TERMINATOR
+        ]
     );
 
     #[test]

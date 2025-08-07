@@ -57,7 +57,9 @@ async fn multi_camera_control() -> Result<()> {
             .await?
         {
             grafton_visca::camera::AsyncCamera::Tcp(cam) => cam,
-            grafton_visca::camera::AsyncCamera::Udp(_) => unreachable!("TCP builder should return TCP camera"),
+            grafton_visca::camera::AsyncCamera::Udp(_) => {
+                unreachable!("TCP builder should return TCP camera")
+            }
         },
     );
 
@@ -68,7 +70,9 @@ async fn multi_camera_control() -> Result<()> {
             .await?
         {
             grafton_visca::camera::AsyncCamera::Tcp(cam) => cam,
-            grafton_visca::camera::AsyncCamera::Udp(_) => unreachable!("TCP builder should return TCP camera"),
+            grafton_visca::camera::AsyncCamera::Udp(_) => {
+                unreachable!("TCP builder should return TCP camera")
+            }
         },
     );
 
@@ -79,7 +83,9 @@ async fn multi_camera_control() -> Result<()> {
             .await?
         {
             grafton_visca::camera::AsyncCamera::Tcp(cam) => cam,
-            grafton_visca::camera::AsyncCamera::Udp(_) => unreachable!("TCP builder should return TCP camera"),
+            grafton_visca::camera::AsyncCamera::Udp(_) => {
+                unreachable!("TCP builder should return TCP camera")
+            }
         },
     );
 
@@ -195,7 +201,9 @@ async fn parallel_single_camera() -> Result<()> {
             .await?
         {
             grafton_visca::camera::AsyncCamera::Tcp(cam) => cam,
-            grafton_visca::camera::AsyncCamera::Udp(_) => unreachable!("TCP builder should return TCP camera"),
+            grafton_visca::camera::AsyncCamera::Udp(_) => {
+                unreachable!("TCP builder should return TCP camera")
+            }
         },
     );
 
@@ -280,7 +288,9 @@ async fn producer_consumer_pattern() -> Result<()> {
             .await?
         {
             grafton_visca::camera::AsyncCamera::Tcp(cam) => cam,
-            grafton_visca::camera::AsyncCamera::Udp(_) => unreachable!("TCP builder should return TCP camera"),
+            grafton_visca::camera::AsyncCamera::Udp(_) => {
+                unreachable!("TCP builder should return TCP camera")
+            }
         },
     );
 
@@ -376,7 +386,9 @@ async fn synchronized_movement() -> Result<()> {
                 .await?
             {
                 grafton_visca::camera::AsyncCamera::Tcp(cam) => cam,
-                grafton_visca::camera::AsyncCamera::Udp(_) => unreachable!("TCP builder should return TCP camera"),
+                grafton_visca::camera::AsyncCamera::Udp(_) => {
+                    unreachable!("TCP builder should return TCP camera")
+                }
             },
         ),
         Arc::new(
@@ -386,7 +398,9 @@ async fn synchronized_movement() -> Result<()> {
                 .await?
             {
                 grafton_visca::camera::AsyncCamera::Tcp(cam) => cam,
-                grafton_visca::camera::AsyncCamera::Udp(_) => unreachable!("TCP builder should return TCP camera"),
+                grafton_visca::camera::AsyncCamera::Udp(_) => {
+                    unreachable!("TCP builder should return TCP camera")
+                }
             },
         ),
         Arc::new(
@@ -396,7 +410,9 @@ async fn synchronized_movement() -> Result<()> {
                 .await?
             {
                 grafton_visca::camera::AsyncCamera::Tcp(cam) => cam,
-                grafton_visca::camera::AsyncCamera::Udp(_) => unreachable!("TCP builder should return TCP camera"),
+                grafton_visca::camera::AsyncCamera::Udp(_) => {
+                    unreachable!("TCP builder should return TCP camera")
+                }
             },
         ),
     ];

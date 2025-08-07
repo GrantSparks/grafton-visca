@@ -125,7 +125,7 @@ impl EncodeVisca for Focus {
                         .push(0x00)
                         .with_camera_id(camera_id)
                         .terminate();
-                    
+
                     // Now we can access bytes only after termination
                     builder.copy_to(buffer)
                 } else {
@@ -359,21 +359,21 @@ mod tests {
         Focus,
         test_focus_command_stop,
         Focus::Stop,
-        &[0x81, 0x01, 0x04, 0x08, 0x00,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x04, 0x08, 0x00, VISCA_TERMINATOR]
     );
 
     visca_test!(
         Focus,
         test_focus_command_far_standard,
         Focus::Far,
-        &[0x81, 0x01, 0x04, 0x08, 0x02,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x04, 0x08, 0x02, VISCA_TERMINATOR]
     );
 
     visca_test!(
         Focus,
         test_focus_command_near_standard,
         Focus::Near,
-        &[0x81, 0x01, 0x04, 0x08, 0x03,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x04, 0x08, 0x03, VISCA_TERMINATOR]
     );
 
     #[test]
@@ -386,7 +386,7 @@ mod tests {
             assert_eq!(
                 cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-                vec![0x81, 0x01, 0x04, 0x08, 0x20 | speed_val,  VISCA_TERMINATOR]
+                vec![0x81, 0x01, 0x04, 0x08, 0x20 | speed_val, VISCA_TERMINATOR]
             );
         }
     }
@@ -401,7 +401,7 @@ mod tests {
             assert_eq!(
                 cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-                vec![0x81, 0x01, 0x04, 0x08, 0x30 | speed_val,  VISCA_TERMINATOR]
+                vec![0x81, 0x01, 0x04, 0x08, 0x30 | speed_val, VISCA_TERMINATOR]
             );
         }
     }
@@ -427,7 +427,17 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x48, 0x01, 0x02, 0x03, 0x04,  VISCA_TERMINATOR]
+            vec![
+                0x81,
+                0x01,
+                0x04,
+                0x48,
+                0x01,
+                0x02,
+                0x03,
+                0x04,
+                VISCA_TERMINATOR
+            ]
         );
 
         let cmd = Focus::Position(
@@ -436,7 +446,17 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x48, 0x0F, 0x00, 0x00, 0x00,  VISCA_TERMINATOR]
+            vec![
+                0x81,
+                0x01,
+                0x04,
+                0x48,
+                0x0F,
+                0x00,
+                0x00,
+                0x00,
+                VISCA_TERMINATOR
+            ]
         );
     }
 
@@ -444,28 +464,28 @@ mod tests {
         Focus,
         test_focus_command_auto,
         Focus::Auto,
-        &[0x81, 0x01, 0x04, 0x38, 0x02,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x04, 0x38, 0x02, VISCA_TERMINATOR]
     );
 
     visca_test!(
         Focus,
         test_focus_command_manual,
         Focus::Manual,
-        &[0x81, 0x01, 0x04, 0x38, 0x03,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x04, 0x38, 0x03, VISCA_TERMINATOR]
     );
 
     visca_test!(
         Focus,
         test_focus_command_one_push_trigger,
         Focus::OnePushTrigger,
-        &[0x81, 0x01, 0x04, 0x18, 0x01,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x04, 0x18, 0x01, VISCA_TERMINATOR]
     );
 
     visca_test!(
         Focus,
         test_focus_command_infinity,
         Focus::Infinity,
-        &[0x81, 0x01, 0x04, 0x18, 0x02,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x04, 0x18, 0x02, VISCA_TERMINATOR]
     );
 
     #[test]
@@ -476,7 +496,7 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0xAA, 0x00,  VISCA_TERMINATOR]
+            vec![0x81, 0x01, 0x04, 0xAA, 0x00, VISCA_TERMINATOR]
         );
 
         let cmd = FocusZoneCommand {
@@ -485,7 +505,7 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0xAA, 0x01,  VISCA_TERMINATOR]
+            vec![0x81, 0x01, 0x04, 0xAA, 0x01, VISCA_TERMINATOR]
         );
 
         let cmd = FocusZoneCommand {
@@ -494,7 +514,7 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0xAA, 0x02,  VISCA_TERMINATOR]
+            vec![0x81, 0x01, 0x04, 0xAA, 0x02, VISCA_TERMINATOR]
         );
     }
 
@@ -506,7 +526,7 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x58, 0x02,  VISCA_TERMINATOR]
+            vec![0x81, 0x01, 0x04, 0x58, 0x02, VISCA_TERMINATOR]
         );
 
         let cmd = AutoFocusSensitivityCommand {
@@ -515,7 +535,7 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x58, 0x01,  VISCA_TERMINATOR]
+            vec![0x81, 0x01, 0x04, 0x58, 0x01, VISCA_TERMINATOR]
         );
 
         let cmd = AutoFocusSensitivityCommand {
@@ -524,7 +544,7 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x58, 0x00,  VISCA_TERMINATOR]
+            vec![0x81, 0x01, 0x04, 0x58, 0x00, VISCA_TERMINATOR]
         );
     }
 
@@ -537,7 +557,17 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x28, 0x01, 0x02, 0x03, 0x04,  VISCA_TERMINATOR]
+            vec![
+                0x81,
+                0x01,
+                0x04,
+                0x28,
+                0x01,
+                0x02,
+                0x03,
+                0x04,
+                VISCA_TERMINATOR
+            ]
         );
 
         let cmd = FocusNearLimitCommand {
@@ -547,7 +577,17 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x28, 0x01, 0x00, 0x00, 0x00,  VISCA_TERMINATOR]
+            vec![
+                0x81,
+                0x01,
+                0x04,
+                0x28,
+                0x01,
+                0x00,
+                0x00,
+                0x00,
+                VISCA_TERMINATOR
+            ]
         );
     }
 

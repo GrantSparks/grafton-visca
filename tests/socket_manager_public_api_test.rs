@@ -11,7 +11,7 @@ mod tokio_tests {
     use std::collections::VecDeque;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
-    
+
     // VISCA terminator constant
     const VISCA_TERMINATOR: u8 = 0xFF;
 

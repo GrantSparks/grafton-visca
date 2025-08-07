@@ -127,41 +127,41 @@ mod tests {
         MulticastStreaming,
         test_multicast_on_encoding,
         MulticastStreaming::On,
-        &[0x81, 0x0B, 0x01, 0x23, 0x01,  VISCA_TERMINATOR]
+        &[0x81, 0x0B, 0x01, 0x23, 0x01, VISCA_TERMINATOR]
     );
 
     visca_test!(
         MulticastStreaming,
         test_multicast_off_encoding,
         MulticastStreaming::Off,
-        &[0x81, 0x0B, 0x01, 0x23, 0x02,  VISCA_TERMINATOR]
+        &[0x81, 0x0B, 0x01, 0x23, 0x02, VISCA_TERMINATOR]
     );
 
     visca_test!(
         NDIQualityCommand,
         test_ndi_quality_high_encoding,
         NDIQualityCommand::new(NDIQuality::High),
-        &[0x81, 0x0B, 0x01, 0x01, 0x01,  VISCA_TERMINATOR]
+        &[0x81, 0x0B, 0x01, 0x01, 0x01, VISCA_TERMINATOR]
     );
 
     visca_test!(
         NDIQualityCommand,
         test_ndi_quality_medium_encoding,
         NDIQualityCommand::new(NDIQuality::Medium),
-        &[0x81, 0x0B, 0x01, 0x01, 0x02,  VISCA_TERMINATOR]
+        &[0x81, 0x0B, 0x01, 0x01, 0x02, VISCA_TERMINATOR]
     );
 
     visca_test!(
         NDIQualityCommand,
         test_ndi_quality_low_encoding,
         NDIQualityCommand::new(NDIQuality::Low),
-        &[0x81, 0x0B, 0x01, 0x01, 0x03,  VISCA_TERMINATOR]
+        &[0x81, 0x0B, 0x01, 0x01, 0x03, VISCA_TERMINATOR]
     );
 
     visca_test!(
         NDIQualityCommand,
         test_ndi_quality_off_encoding,
         NDIQualityCommand::new(NDIQuality::Off),
-        &[0x81, 0x0B, 0x01, 0x01, 0x04,  VISCA_TERMINATOR]
+        &[0x81, 0x0B, 0x01, 0x01, 0x04, VISCA_TERMINATOR]
     );
 }

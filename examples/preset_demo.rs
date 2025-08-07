@@ -30,7 +30,9 @@ fn main() -> Result<(), Error> {
         .build()?
     {
         grafton_visca::camera::BlockingCamera::Tcp(cam) => cam,
-        grafton_visca::camera::BlockingCamera::Udp(_) => unreachable!("TCP builder should return TCP camera"),
+        grafton_visca::camera::BlockingCamera::Udp(_) => {
+            unreachable!("TCP builder should return TCP camera")
+        }
     };
 
     println!("✅ Connected successfully!\n");

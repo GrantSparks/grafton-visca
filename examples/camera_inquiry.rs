@@ -33,7 +33,9 @@ fn main() -> grafton_visca::Result<()> {
         .build()?
     {
         grafton_visca::camera::BlockingCamera::Tcp(cam) => cam,
-        grafton_visca::camera::BlockingCamera::Udp(_) => unreachable!("TCP builder should return TCP camera"),
+        grafton_visca::camera::BlockingCamera::Udp(_) => {
+            unreachable!("TCP builder should return TCP camera")
+        }
     };
 
     // Query power state
@@ -186,7 +188,9 @@ async fn main() -> grafton_visca::Result<()> {
         .await?
     {
         grafton_visca::camera::AsyncCamera::Tcp(cam) => cam,
-        grafton_visca::camera::AsyncCamera::Udp(_) => unreachable!("TCP builder should return TCP camera"),
+        grafton_visca::camera::AsyncCamera::Udp(_) => {
+            unreachable!("TCP builder should return TCP camera")
+        }
     };
 
     // Query all states concurrently for efficiency

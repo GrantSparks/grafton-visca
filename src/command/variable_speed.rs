@@ -78,13 +78,13 @@ mod tests {
         VariableSpeedModeCommand,
         test_variable_speed_mode_standard24,
         VariableSpeedModeCommand::new(VariableSpeedMode::Standard24),
-        &[0x81, 0x01, 0x7E, 0x04, 0x1B, 0x01,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x7E, 0x04, 0x1B, 0x01, VISCA_TERMINATOR]
     );
 
     visca_test!(
         VariableSpeedModeCommand,
         test_variable_speed_mode_fine50,
         VariableSpeedModeCommand::new(VariableSpeedMode::Fine50),
-        &[0x81, 0x01, 0x7E, 0x04, 0x1B, 0x02,  VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x7E, 0x04, 0x1B, 0x02, VISCA_TERMINATOR]
     );
 }

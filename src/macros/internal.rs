@@ -75,7 +75,7 @@ macro_rules! visca_command {
                 // Build command using CommandBuilder with type-state pattern
                 // Use a conservative size for the builder
                 let builder = $crate::command::const_encoding::CommandBuilder::<16>::new();
-                
+
                 // Append all bytes except potentially the terminator
                 let has_terminator = bytes.last() == Some(&$crate::command::const_encoding::VISCA_TERMINATOR);
                 let bytes_to_add = if has_terminator {
@@ -83,13 +83,13 @@ macro_rules! visca_command {
                 } else {
                     &bytes[..]
                 };
-                
+
                 // Build command using type-state pattern
                 let mut builder = builder;
                 for byte in bytes_to_add {
                     builder = builder.push(*byte);
                 }
-                
+
                 let terminated = builder.with_camera_id(camera_id).terminate();
                 terminated.copy_to(buffer)
             }
@@ -125,7 +125,7 @@ macro_rules! visca_bool_command {
             }
         }
     };
-    
+
     // Form with constant reference and optional parameters
     (
         $(#[$meta:meta])*
@@ -170,7 +170,7 @@ macro_rules! visca_bool_command {
             }
         }
     };
-    
+
     // Original form without optional parameters (for backwards compatibility)
     (
         $(#[$meta:meta])*
@@ -347,7 +347,7 @@ macro_rules! visca_param_command {
             response = None;
         }
     };
-    
+
     // Extended form with constant reference and optional parameters
     (
         $(#[$meta:meta])*
@@ -536,7 +536,7 @@ macro_rules! visca_const_command {
                 buffer: &mut [u8],
             ) -> Result<usize, $crate::error::Error> {
                 const BYTES: &[u8] = $name::BYTES;
-                
+
                 // Use type-state pattern - handle pre-terminated commands
                 if BYTES.last() == Some(&$crate::command::const_encoding::VISCA_TERMINATOR) {
                     // Command already has terminator, just substitute camera ID
