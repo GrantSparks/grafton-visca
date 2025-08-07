@@ -4,6 +4,9 @@
 //! These macros help reduce boilerplate in tests and provide better error messages
 //! than simple unwrap() calls.
 
+/// VISCA command terminator byte.
+const VISCA_TERMINATOR: u8 = 0xFF;
+
 /// Assert that command bytes match the expected bytes.
 ///
 /// Provides better error output with hex formatting for debugging.
@@ -12,7 +15,7 @@
 /// ```no_run
 /// # use grafton_visca::command::EncodeVisca;
 /// # let command = unimplemented!();
-/// assert_command_bytes!(command, [0x81, 0x01, 0x06, 0x04, 0xFF]);
+/// assert_command_bytes!(command, [0x81, 0x01, 0x06, 0x04, VISCA_TERMINATOR]);
 /// ```
 #[macro_export]
 macro_rules! assert_command_bytes {
@@ -211,7 +214,7 @@ mod tests {
             const MAX_SIZE: usize = 5;
 
             fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-                let bytes = [0x81, 0x01, 0x06, 0x04, 0xFF];
+                let bytes = [0x81, 0x01, 0x06, 0x04, VISCA_TERMINATOR];
                 buffer[..5].copy_from_slice(&bytes);
                 Ok(5)
             }
@@ -222,7 +225,7 @@ mod tests {
         }
 
         let cmd = TestCommand;
-        assert_command_bytes!(cmd, [0x81, 0x01, 0x06, 0x04, 0xFF]);
+        assert_command_bytes!(cmd, [0x81, 0x01, 0x06, 0x04, VISCA_TERMINATOR]);
     }
     */
 
@@ -237,7 +240,7 @@ mod tests {
             const MAX_SIZE: usize = 5;
 
             fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-                let bytes = [0x81, 0x01, 0x06, 0x05, 0xFF];
+                let bytes = [0x81, 0x01, 0x06, 0x05, VISCA_TERMINATOR];
                 buffer[..5].copy_from_slice(&bytes);
                 Ok(5)
             }
@@ -248,7 +251,7 @@ mod tests {
         }
 
         let cmd = TestCommand;
-        assert_command_bytes!(cmd, [0x81, 0x01, 0x06, 0x04, 0xFF]);
+        assert_command_bytes!(cmd, [0x81, 0x01, 0x06, 0x04, VISCA_TERMINATOR]);
     }
     */
 }

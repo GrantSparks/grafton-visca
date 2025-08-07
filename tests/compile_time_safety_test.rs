@@ -2,6 +2,9 @@
 
 #![allow(clippy::expect_used)]
 
+/// VISCA command terminator byte.
+const VISCA_TERMINATOR: u8 = 0xFF;
+
 use grafton_visca::camera::methods::{
     FocusOpsBlocking, PanTiltOpsBlocking, PowerOpsBlocking, PresetsOpsBlocking, ZoomOpsBlocking,
 };
@@ -60,16 +63,16 @@ impl MockTransport {
             // Default sequence: ACK followed by Completion for each command
             // Provide enough responses for multiple commands
             response_sequence: Mutex::new(vec![
-                vec![0x90, 0x41, 0xFF], // ACK (socket 1) for power_on
-                vec![0x90, 0x51, 0xFF], // Completion (socket 1) for power_on
-                vec![0x90, 0x41, 0xFF], // ACK (socket 1) for pan_tilt_home
-                vec![0x90, 0x51, 0xFF], // Completion (socket 1) for pan_tilt_home
-                vec![0x90, 0x41, 0xFF], // ACK (socket 1) for zoom_stop
-                vec![0x90, 0x51, 0xFF], // Completion (socket 1) for zoom_stop
-                vec![0x90, 0x41, 0xFF], // ACK (socket 1) for focus_auto
-                vec![0x90, 0x51, 0xFF], // Completion (socket 1) for focus_auto
-                vec![0x90, 0x41, 0xFF], // ACK (socket 1) for preset_recall
-                vec![0x90, 0x51, 0xFF], // Completion (socket 1) for preset_recall
+                vec![0x90, 0x41, VISCA_TERMINATOR], // ACK (socket 1) for power_on
+                vec![0x90, 0x51, VISCA_TERMINATOR], // Completion (socket 1) for power_on
+                vec![0x90, 0x41, VISCA_TERMINATOR], // ACK (socket 1) for pan_tilt_home
+                vec![0x90, 0x51, VISCA_TERMINATOR], // Completion (socket 1) for pan_tilt_home
+                vec![0x90, 0x41, VISCA_TERMINATOR], // ACK (socket 1) for zoom_stop
+                vec![0x90, 0x51, VISCA_TERMINATOR], // Completion (socket 1) for zoom_stop
+                vec![0x90, 0x41, VISCA_TERMINATOR], // ACK (socket 1) for focus_auto
+                vec![0x90, 0x51, VISCA_TERMINATOR], // Completion (socket 1) for focus_auto
+                vec![0x90, 0x41, VISCA_TERMINATOR], // ACK (socket 1) for preset_recall
+                vec![0x90, 0x51, VISCA_TERMINATOR], // Completion (socket 1) for preset_recall
             ]),
             response_index: Mutex::new(0),
         }

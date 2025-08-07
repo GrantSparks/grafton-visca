@@ -5,6 +5,9 @@
 
 use std::collections::HashMap;
 
+/// VISCA command terminator byte.
+const VISCA_TERMINATOR: u8 = 0xFF;
+
 /// Validation mode for protocol checking
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ValidationMode {
@@ -81,7 +84,7 @@ impl ProtocolValidator {
             return Err(ProtocolValidationError {
                 message: "Command too short".to_string(),
                 byte_index: None,
-                expected: Some(vec![0x81, 0x01, 0xFF]),
+                expected: Some(vec![0x81, 0x01, VISCA_TERMINATOR]),
                 actual: Some(command.to_vec()),
             });
         }
@@ -99,12 +102,12 @@ impl ProtocolValidator {
         }
 
         // Check terminator
-        if command[command.len() - 1] != 0xFF {
+        if command[command.len() - 1] != VISCA_TERMINATOR {
             self.errors_detected += 1;
             return Err(ProtocolValidationError {
                 message: "Missing terminator".to_string(),
                 byte_index: Some(command.len() - 1),
-                expected: Some(vec![0xFF]),
+                expected: Some(vec![VISCA_TERMINATOR]),
                 actual: Some(vec![command[command.len() - 1]]),
             });
         }
@@ -160,12 +163,12 @@ impl ProtocolValidator {
         }
 
         // Check terminator
-        if response[response.len() - 1] != 0xFF {
+        if response[response.len() - 1] != VISCA_TERMINATOR {
             self.errors_detected += 1;
             return Err(ProtocolValidationError {
                 message: "Missing terminator in response".to_string(),
                 byte_index: Some(response.len() - 1),
-                expected: Some(vec![0xFF]),
+                expected: Some(vec![VISCA_TERMINATOR]),
                 actual: Some(vec![response[response.len() - 1]]),
             });
         }
@@ -195,7 +198,7 @@ impl ProtocolValidator {
                         return Err(ProtocolValidationError {
                             message: "Invalid error response length".to_string(),
                             byte_index: None,
-                            expected: Some(vec![0x90, 0x60, 0x00, 0xFF]),
+                            expected: Some(vec![0x90, 0x60, 0x00, VISCA_TERMINATOR]),
                             actual: Some(response.to_vec()),
                         });
                     }
@@ -315,11 +318,11 @@ mod tests {
         let mut validator = ProtocolValidator::new(ValidationMode::Strict);
 
         // Valid power on command
-        let command = vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF];
+        let command = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
         assert!(validator.validate_command(&command).is_ok());
 
         // Valid inquiry command
-        let inquiry = vec![0x81, 0x09, 0x04, 0x00, 0xFF];
+        let inquiry = vec![0x81, 0x09, 0x04, 0x00, VISCA_TERMINATOR];
         assert!(validator.validate_command(&inquiry).is_ok());
     }
 
@@ -328,10 +331,10 @@ mod tests {
         let mut validator = ProtocolValidator::new(ValidationMode::Strict);
 
         // Too short
-        assert!(validator.validate_command(&[0x81, 0xFF]).is_err());
+        assert!(validator.validate_command(&[0x81, VISCA_TERMINATOR]).is_err());
 
         // Invalid header
-        assert!(validator.validate_command(&[0x71, 0x01, 0xFF]).is_err());
+        assert!(validator.validate_command(&[0x71, 0x01, VISCA_TERMINATOR]).is_err());
 
         // Missing terminator
         assert!(validator.validate_command(&[0x81, 0x01, 0x04]).is_err());
@@ -345,12 +348,12 @@ mod tests {
         assert!(validator.all_sockets_free());
 
         // ACK response marks socket as in use
-        validator.validate_response(&[0x90, 0x41, 0xFF]).unwrap();
+        validator.validate_response(&[0x90, 0x41, VISCA_TERMINATOR]).unwrap();
         assert!(!validator.is_socket_available(1));
         assert!(validator.is_socket_available(0));
 
         // Completion response frees the socket
-        validator.validate_response(&[0x90, 0x51, 0xFF]).unwrap();
+        validator.validate_response(&[0x90, 0x51, VISCA_TERMINATOR]).unwrap();
         assert!(validator.is_socket_available(1));
         assert!(validator.all_sockets_free());
     }

@@ -89,38 +89,35 @@ impl EncodeVisca for ExposureCompensation {
         match self {
             Self::On | Self::Off => {
                 let mut builder = CommandBuilder::<6>::new();
-                builder
-                    .append(constants::exposure::COMPENSATION_ON_OFF_PREFIX)
-                    .push(match self {
-                        Self::On => 0x02,
-                        Self::Off => 0x03,
-                        _ => unreachable!(),
-                    })
-                    .with_camera_id(camera_id)
-                    .finalize();
+                builder.append_mut(constants::exposure::COMPENSATION_ON_OFF_PREFIX);
+                builder.push_mut(match self {
+                    Self::On => 0x02,
+                    Self::Off => 0x03,
+                    _ => unreachable!(),
+                });
+                builder.with_camera_id_mut(camera_id);
+                builder.finalize();
                 builder.copy_to(buffer)
             }
             Self::Reset | Self::Up | Self::Down => {
                 let mut builder = CommandBuilder::<6>::new();
-                builder
-                    .append(constants::exposure::COMPENSATION_CONTROL_PREFIX)
-                    .push(match self {
-                        Self::Reset => 0x00,
-                        Self::Up => 0x02,
-                        Self::Down => 0x03,
-                        _ => unreachable!(),
-                    })
-                    .with_camera_id(camera_id)
-                    .finalize();
+                builder.append_mut(constants::exposure::COMPENSATION_CONTROL_PREFIX);
+                builder.push_mut(match self {
+                    Self::Reset => 0x00,
+                    Self::Up => 0x02,
+                    Self::Down => 0x03,
+                    _ => unreachable!(),
+                });
+                builder.with_camera_id_mut(camera_id);
+                builder.finalize();
                 builder.copy_to(buffer)
             }
             Self::SetLevel(level) => {
                 let mut builder = CommandBuilder::<9>::new();
-                builder
-                    .append(constants::exposure::COMPENSATION_LEVEL_PREFIX)
-                    .push(level.to_protocol_value())
-                    .with_camera_id(camera_id)
-                    .finalize();
+                builder.append_mut(constants::exposure::COMPENSATION_LEVEL_PREFIX);
+                builder.push_mut(level.to_protocol_value());
+                builder.with_camera_id_mut(camera_id);
+                builder.finalize();
                 builder.copy_to(buffer)
             }
         }
@@ -143,8 +140,9 @@ visca_builder! {
         level: DynamicRangeLevel,
     }
     builder<9> => |builder, level| {
-        let _ = builder.append(constants::exposure::DYNAMIC_RANGE_PREFIX);
-        let _ = builder.push(level.value());
+        builder
+            .append(constants::exposure::DYNAMIC_RANGE_PREFIX)
+            .push(level.value())
     }
     timeout = Quick;
 }
@@ -190,25 +188,23 @@ impl EncodeVisca for Iris {
         match self {
             Self::Reset | Self::Up | Self::Down => {
                 let mut builder = CommandBuilder::<6>::new();
-                builder
-                    .append(constants::exposure::IRIS_CONTROL_PREFIX)
-                    .push(match self {
-                        Self::Reset => 0x00,
-                        Self::Up => 0x02,
-                        Self::Down => 0x03,
-                        _ => unreachable!(),
-                    })
-                    .with_camera_id(camera_id)
-                    .finalize();
+                builder.append_mut(constants::exposure::IRIS_CONTROL_PREFIX);
+                builder.push_mut(match self {
+                    Self::Reset => 0x00,
+                    Self::Up => 0x02,
+                    Self::Down => 0x03,
+                    _ => unreachable!(),
+                });
+                builder.with_camera_id_mut(camera_id);
+                builder.finalize();
                 builder.copy_to(buffer)
             }
             Self::SetAperture(level) => {
                 let mut builder = CommandBuilder::<9>::new();
-                builder
-                    .append(constants::exposure::IRIS_DIRECT_PREFIX)
-                    .push_nibble_pair(level.value() as u16)
-                    .with_camera_id(camera_id)
-                    .finalize();
+                builder.append_mut(constants::exposure::IRIS_DIRECT_PREFIX);
+                builder.push_nibble_pair_mut(level.value() as u16);
+                builder.with_camera_id_mut(camera_id);
+                builder.finalize();
                 builder.copy_to(buffer)
             }
         }
@@ -253,25 +249,23 @@ impl EncodeVisca for Shutter {
         match self {
             Self::Reset | Self::Up | Self::Down => {
                 let mut builder = CommandBuilder::<6>::new();
-                builder
-                    .append(constants::exposure::SHUTTER_CONTROL_PREFIX)
-                    .push(match self {
-                        Self::Reset => 0x00,
-                        Self::Up => 0x02,
-                        Self::Down => 0x03,
-                        _ => unreachable!(),
-                    })
-                    .with_camera_id(camera_id)
-                    .finalize();
+                builder.append_mut(constants::exposure::SHUTTER_CONTROL_PREFIX);
+                builder.push_mut(match self {
+                    Self::Reset => 0x00,
+                    Self::Up => 0x02,
+                    Self::Down => 0x03,
+                    _ => unreachable!(),
+                });
+                builder.with_camera_id_mut(camera_id);
+                builder.finalize();
                 builder.copy_to(buffer)
             }
             Self::SetSpeed(speed) => {
                 let mut builder = CommandBuilder::<9>::new();
-                builder
-                    .append(constants::exposure::SHUTTER_DIRECT_PREFIX)
-                    .push_nibble_pair(speed.value())
-                    .with_camera_id(camera_id)
-                    .finalize();
+                builder.append_mut(constants::exposure::SHUTTER_DIRECT_PREFIX);
+                builder.push_nibble_pair_mut(speed.value());
+                builder.with_camera_id_mut(camera_id);
+                builder.finalize();
                 builder.copy_to(buffer)
             }
         }
@@ -313,34 +307,31 @@ impl EncodeVisca for Bright {
         match self {
             Self::Reset | Self::Up | Self::Down => {
                 let mut builder = CommandBuilder::<6>::new();
-                builder
-                    .append(constants::exposure::BRIGHTNESS_CONTROL_PREFIX)
-                    .push(match self {
-                        Self::Reset => 0x00,
-                        Self::Up => 0x02,
-                        Self::Down => 0x03,
-                        _ => unreachable!(),
-                    })
-                    .with_camera_id(camera_id)
-                    .finalize();
+                builder.append_mut(constants::exposure::BRIGHTNESS_CONTROL_PREFIX);
+                builder.push_mut(match self {
+                    Self::Reset => 0x00,
+                    Self::Up => 0x02,
+                    Self::Down => 0x03,
+                    _ => unreachable!(),
+                });
+                builder.with_camera_id_mut(camera_id);
+                builder.finalize();
                 builder.copy_to(buffer)
             }
             Self::SetLevel(level) => {
                 let mut builder = CommandBuilder::<9>::new();
-                builder
-                    .append(constants::exposure::BRIGHTNESS_DIRECT_PREFIX)
-                    .push_nibble_pair(level.value())
-                    .with_camera_id(camera_id)
-                    .finalize();
+                builder.append_mut(constants::exposure::BRIGHTNESS_DIRECT_PREFIX);
+                builder.push_nibble_pair_mut(level.value());
+                builder.with_camera_id_mut(camera_id);
+                builder.finalize();
                 builder.copy_to(buffer)
             }
             Self::Direct(level) => {
                 let mut builder = CommandBuilder::<9>::new();
-                builder
-                    .append(constants::exposure::BRIGHTNESS_VALUE_PREFIX)
-                    .push_nibble_pair(level.value())
-                    .with_camera_id(camera_id)
-                    .finalize();
+                builder.append_mut(constants::exposure::BRIGHTNESS_VALUE_PREFIX);
+                builder.push_nibble_pair_mut(level.value());
+                builder.with_camera_id_mut(camera_id);
+                builder.finalize();
                 builder.copy_to(buffer)
             }
         }
@@ -410,6 +401,7 @@ mod tests {
     use crate::command::encode_visca::EncodeVisca;
     use crate::constants::CameraVariant;
     use crate::macros::test_utils::visca_test;
+    use crate::command::const_encoding::VISCA_TERMINATOR;
 
     // Test Auto mode
     visca_test!(
@@ -418,7 +410,7 @@ mod tests {
         ExposureCommand {
             mode: ExposureMode::Auto
         },
-        &[0x81, 0x01, 0x04, 0x39, 0x00, 0xFF]
+        &[0x81, 0x01, 0x04, 0x39, 0x00, VISCA_TERMINATOR]
     );
 
     // Test Manual mode
@@ -428,7 +420,7 @@ mod tests {
         ExposureCommand {
             mode: ExposureMode::Manual
         },
-        &[0x81, 0x01, 0x04, 0x39, 0x03, 0xFF]
+        &[0x81, 0x01, 0x04, 0x39, 0x03, VISCA_TERMINATOR]
     );
 
     // Test Shutter Priority mode
@@ -438,7 +430,7 @@ mod tests {
         ExposureCommand {
             mode: ExposureMode::Shutter
         },
-        &[0x81, 0x01, 0x04, 0x39, 0x0A, 0xFF]
+        &[0x81, 0x01, 0x04, 0x39, 0x0A, VISCA_TERMINATOR]
     );
 
     // Test Iris Priority mode
@@ -448,7 +440,7 @@ mod tests {
         ExposureCommand {
             mode: ExposureMode::Iris
         },
-        &[0x81, 0x01, 0x04, 0x39, 0x0B, 0xFF]
+        &[0x81, 0x01, 0x04, 0x39, 0x0B, VISCA_TERMINATOR]
     );
 
     // Test Brightness Priority mode
@@ -458,7 +450,7 @@ mod tests {
         ExposureCommand {
             mode: ExposureMode::Bright
         },
-        &[0x81, 0x01, 0x04, 0x39, 0x0D, 0xFF]
+        &[0x81, 0x01, 0x04, 0x39, 0x0D, VISCA_TERMINATOR]
     );
 
     #[test]
@@ -508,7 +500,7 @@ mod tests {
         ExposureCompensation,
         test_exposure_compensation_on,
         ExposureCompensation::On,
-        &[0x81, 0x01, 0x04, 0x3E, 0x02, 0xFF]
+        &[0x81, 0x01, 0x04, 0x3E, 0x02, VISCA_TERMINATOR]
     );
 
     // Test Off command
@@ -516,7 +508,7 @@ mod tests {
         ExposureCompensation,
         test_exposure_compensation_off,
         ExposureCompensation::Off,
-        &[0x81, 0x01, 0x04, 0x3E, 0x03, 0xFF]
+        &[0x81, 0x01, 0x04, 0x3E, 0x03, VISCA_TERMINATOR]
     );
 
     // Test Reset command
@@ -524,7 +516,7 @@ mod tests {
         ExposureCompensation,
         test_exposure_compensation_reset,
         ExposureCompensation::Reset,
-        &[0x81, 0x01, 0x04, 0x0E, 0x00, 0xFF]
+        &[0x81, 0x01, 0x04, 0x0E, 0x00, VISCA_TERMINATOR]
     );
 
     // Test Up command
@@ -532,7 +524,7 @@ mod tests {
         ExposureCompensation,
         test_exposure_compensation_up,
         ExposureCompensation::Up,
-        &[0x81, 0x01, 0x04, 0x0E, 0x02, 0xFF]
+        &[0x81, 0x01, 0x04, 0x0E, 0x02, VISCA_TERMINATOR]
     );
 
     // Test Down command
@@ -540,7 +532,7 @@ mod tests {
         ExposureCompensation,
         test_exposure_compensation_down,
         ExposureCompensation::Down,
-        &[0x81, 0x01, 0x04, 0x0E, 0x03, 0xFF]
+        &[0x81, 0x01, 0x04, 0x0E, 0x03, VISCA_TERMINATOR]
     );
 
     // Test SetLevel command with value -7
@@ -548,7 +540,7 @@ mod tests {
         ExposureCompensation,
         test_exposure_compensation_level_minus_7,
         ExposureCompensation::SetLevel(ExposureCompensationLevel::new(-7).unwrap()),
-        &[0x81, 0x01, 0x04, 0x4E, 0x00, 0x00, 0x00, 0x00, 0xFF]
+        &[0x81, 0x01, 0x04, 0x4E, 0x00, 0x00, 0x00, 0x00, VISCA_TERMINATOR]
     );
 
     // Test SetLevel command with value 0
@@ -556,7 +548,7 @@ mod tests {
         ExposureCompensation,
         test_exposure_compensation_level_0,
         ExposureCompensation::SetLevel(ExposureCompensationLevel::new(0).unwrap()),
-        &[0x81, 0x01, 0x04, 0x4E, 0x00, 0x00, 0x00, 0x07, 0xFF]
+        &[0x81, 0x01, 0x04, 0x4E, 0x00, 0x00, 0x00, 0x07, VISCA_TERMINATOR]
     );
 
     // Test SetLevel command with value 7
@@ -564,7 +556,7 @@ mod tests {
         ExposureCompensation,
         test_exposure_compensation_level_plus_7,
         ExposureCompensation::SetLevel(ExposureCompensationLevel::new(7).unwrap()),
-        &[0x81, 0x01, 0x04, 0x4E, 0x00, 0x00, 0x00, 0x0E, 0xFF]
+        &[0x81, 0x01, 0x04, 0x4E, 0x00, 0x00, 0x00, 0x0E, VISCA_TERMINATOR]
     );
 
     #[test]
@@ -591,7 +583,7 @@ mod tests {
         DynamicRange,
         test_dynamic_range_level_0,
         DynamicRange::new(DynamicRangeLevel::new(0).unwrap()),
-        &[0x81, 0x01, 0x04, 0x25, 0x00, 0x00, 0x00, 0x00, 0xFF]
+        &[0x81, 0x01, 0x04, 0x25, 0x00, 0x00, 0x00, 0x00, VISCA_TERMINATOR]
     );
 
     // Test dynamic range level 4
@@ -599,7 +591,7 @@ mod tests {
         DynamicRange,
         test_dynamic_range_level_4,
         DynamicRange::new(DynamicRangeLevel::new(4).unwrap()),
-        &[0x81, 0x01, 0x04, 0x25, 0x00, 0x00, 0x00, 0x04, 0xFF]
+        &[0x81, 0x01, 0x04, 0x25, 0x00, 0x00, 0x00, 0x04, VISCA_TERMINATOR]
     );
 
     // Test dynamic range level 8
@@ -607,7 +599,7 @@ mod tests {
         DynamicRange,
         test_dynamic_range_level_8,
         DynamicRange::new(DynamicRangeLevel::new(8).unwrap()),
-        &[0x81, 0x01, 0x04, 0x25, 0x00, 0x00, 0x00, 0x08, 0xFF]
+        &[0x81, 0x01, 0x04, 0x25, 0x00, 0x00, 0x00, 0x08, VISCA_TERMINATOR]
     );
 
     #[test]
@@ -626,7 +618,7 @@ mod tests {
         Iris,
         test_iris_reset,
         Iris::Reset,
-        &[0x81, 0x01, 0x04, 0x0B, 0x00, 0xFF]
+        &[0x81, 0x01, 0x04, 0x0B, 0x00, VISCA_TERMINATOR]
     );
 
     // Test Up command
@@ -634,7 +626,7 @@ mod tests {
         Iris,
         test_iris_up,
         Iris::Up,
-        &[0x81, 0x01, 0x04, 0x0B, 0x02, 0xFF]
+        &[0x81, 0x01, 0x04, 0x0B, 0x02, VISCA_TERMINATOR]
     );
 
     // Test Down command
@@ -642,7 +634,7 @@ mod tests {
         Iris,
         test_iris_down,
         Iris::Down,
-        &[0x81, 0x01, 0x04, 0x0B, 0x03, 0xFF]
+        &[0x81, 0x01, 0x04, 0x0B, 0x03, VISCA_TERMINATOR]
     );
 
     // Test SetAperture command with value 0x00
@@ -650,7 +642,7 @@ mod tests {
         Iris,
         test_iris_set_aperture_00,
         Iris::SetAperture(IrisLevel::new(0x00).unwrap()),
-        &[0x81, 0x01, 0x04, 0x4B, 0x00, 0x00, 0x00, 0x00, 0xFF]
+        &[0x81, 0x01, 0x04, 0x4B, 0x00, 0x00, 0x00, 0x00, VISCA_TERMINATOR]
     );
 
     // Test SetAperture command with value 0x05
@@ -658,7 +650,7 @@ mod tests {
         Iris,
         test_iris_set_aperture_05,
         Iris::SetAperture(IrisLevel::new(0x05).unwrap()),
-        &[0x81, 0x01, 0x04, 0x4B, 0x00, 0x00, 0x00, 0x05, 0xFF]
+        &[0x81, 0x01, 0x04, 0x4B, 0x00, 0x00, 0x00, 0x05, VISCA_TERMINATOR]
     );
 
     // Test SetAperture command with value 0x0A
@@ -666,7 +658,7 @@ mod tests {
         Iris,
         test_iris_set_aperture_0a,
         Iris::SetAperture(IrisLevel::new(0x0A).unwrap()),
-        &[0x81, 0x01, 0x04, 0x4B, 0x00, 0x00, 0x00, 0x0A, 0xFF]
+        &[0x81, 0x01, 0x04, 0x4B, 0x00, 0x00, 0x00, 0x0A, VISCA_TERMINATOR]
     );
 
     // Test SetAperture command with value 0x0C
@@ -674,7 +666,7 @@ mod tests {
         Iris,
         test_iris_set_aperture_0c,
         Iris::SetAperture(IrisLevel::new(0x0C).unwrap()),
-        &[0x81, 0x01, 0x04, 0x4B, 0x00, 0x00, 0x00, 0x0C, 0xFF]
+        &[0x81, 0x01, 0x04, 0x4B, 0x00, 0x00, 0x00, 0x0C, VISCA_TERMINATOR]
     );
 
     #[test]
@@ -701,7 +693,7 @@ mod tests {
         Shutter,
         test_shutter_reset,
         Shutter::Reset,
-        &[0x81, 0x01, 0x04, 0x0A, 0x00, 0xFF]
+        &[0x81, 0x01, 0x04, 0x0A, 0x00, VISCA_TERMINATOR]
     );
 
     // Test Up command
@@ -709,7 +701,7 @@ mod tests {
         Shutter,
         test_shutter_up,
         Shutter::Up,
-        &[0x81, 0x01, 0x04, 0x0A, 0x02, 0xFF]
+        &[0x81, 0x01, 0x04, 0x0A, 0x02, VISCA_TERMINATOR]
     );
 
     // Test Down command
@@ -717,7 +709,7 @@ mod tests {
         Shutter,
         test_shutter_down,
         Shutter::Down,
-        &[0x81, 0x01, 0x04, 0x0A, 0x03, 0xFF]
+        &[0x81, 0x01, 0x04, 0x0A, 0x03, VISCA_TERMINATOR]
     );
 
     // Test SetSpeed command with value 0x01
@@ -725,7 +717,7 @@ mod tests {
         Shutter,
         test_shutter_set_speed_01,
         Shutter::SetSpeed(ShutterSpeed::new(0x01).unwrap()),
-        &[0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, 0x00, 0x01, 0xFF]
+        &[0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, 0x00, 0x01, VISCA_TERMINATOR]
     );
 
     // Test SetSpeed command with value 0x05
@@ -733,7 +725,7 @@ mod tests {
         Shutter,
         test_shutter_set_speed_05,
         Shutter::SetSpeed(ShutterSpeed::new(0x05).unwrap()),
-        &[0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, 0x00, 0x05, 0xFF]
+        &[0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, 0x00, 0x05, VISCA_TERMINATOR]
     );
 
     // Test SetSpeed command with value 0x10
@@ -741,7 +733,7 @@ mod tests {
         Shutter,
         test_shutter_set_speed_10,
         Shutter::SetSpeed(ShutterSpeed::new(0x10).unwrap()),
-        &[0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, 0x01, 0x00, 0xFF]
+        &[0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, 0x01, 0x00, VISCA_TERMINATOR]
     );
 
     // Test SetSpeed command with value 0x11
@@ -749,7 +741,7 @@ mod tests {
         Shutter,
         test_shutter_set_speed_11,
         Shutter::SetSpeed(ShutterSpeed::new(0x11).unwrap()),
-        &[0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, 0x01, 0x01, 0xFF]
+        &[0x81, 0x01, 0x04, 0x4A, 0x00, 0x00, 0x01, 0x01, VISCA_TERMINATOR]
     );
 
     #[test]
@@ -776,7 +768,7 @@ mod tests {
         Bright,
         test_bright_reset,
         Bright::Reset,
-        &[0x81, 0x01, 0x04, 0x0D, 0x00, 0xFF]
+        &[0x81, 0x01, 0x04, 0x0D, 0x00, VISCA_TERMINATOR]
     );
 
     // Test Up command
@@ -784,7 +776,7 @@ mod tests {
         Bright,
         test_bright_up,
         Bright::Up,
-        &[0x81, 0x01, 0x04, 0x0D, 0x02, 0xFF]
+        &[0x81, 0x01, 0x04, 0x0D, 0x02, VISCA_TERMINATOR]
     );
 
     // Test Down command
@@ -792,7 +784,7 @@ mod tests {
         Bright,
         test_bright_down,
         Bright::Down,
-        &[0x81, 0x01, 0x04, 0x0D, 0x03, 0xFF]
+        &[0x81, 0x01, 0x04, 0x0D, 0x03, VISCA_TERMINATOR]
     );
 
     // Test SetLevel command with value 0x00
@@ -800,7 +792,7 @@ mod tests {
         Bright,
         test_bright_set_level_00,
         Bright::SetLevel(BrightnessLevel::new(0x00).unwrap()),
-        &[0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, 0x00, 0x00, 0xFF]
+        &[0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, 0x00, 0x00, VISCA_TERMINATOR]
     );
 
     // Test SetLevel command with value 0x08
@@ -808,7 +800,7 @@ mod tests {
         Bright,
         test_bright_set_level_08,
         Bright::SetLevel(BrightnessLevel::new(0x08).unwrap()),
-        &[0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, 0x00, 0x08, 0xFF]
+        &[0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, 0x00, 0x08, VISCA_TERMINATOR]
     );
 
     // Test SetLevel command with value 0x10
@@ -816,7 +808,7 @@ mod tests {
         Bright,
         test_bright_set_level_10,
         Bright::SetLevel(BrightnessLevel::new(0x10).unwrap()),
-        &[0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, 0x01, 0x00, 0xFF]
+        &[0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, 0x01, 0x00, VISCA_TERMINATOR]
     );
 
     // Test SetLevel command with value 0x11
@@ -824,7 +816,7 @@ mod tests {
         Bright,
         test_bright_set_level_11,
         Bright::SetLevel(BrightnessLevel::new(0x11).unwrap()),
-        &[0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, 0x01, 0x01, 0xFF]
+        &[0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, 0x01, 0x01, VISCA_TERMINATOR]
     );
 
     // Test Direct command with value 0x00
@@ -832,7 +824,7 @@ mod tests {
         Bright,
         test_bright_direct_00,
         Bright::Direct(BrightnessLevel::new(0x00).unwrap()),
-        &[0x81, 0x01, 0x04, 0x0D, 0x00, 0x00, 0x00, 0x00, 0xFF]
+        &[0x81, 0x01, 0x04, 0x0D, 0x00, 0x00, 0x00, 0x00, VISCA_TERMINATOR]
     );
 
     // Test Direct command with value 0x08
@@ -840,7 +832,7 @@ mod tests {
         Bright,
         test_bright_direct_08,
         Bright::Direct(BrightnessLevel::new(0x08).unwrap()),
-        &[0x81, 0x01, 0x04, 0x0D, 0x00, 0x00, 0x00, 0x08, 0xFF]
+        &[0x81, 0x01, 0x04, 0x0D, 0x00, 0x00, 0x00, 0x08, VISCA_TERMINATOR]
     );
 
     // Test Direct command with value 0x10
@@ -848,7 +840,7 @@ mod tests {
         Bright,
         test_bright_direct_10,
         Bright::Direct(BrightnessLevel::new(0x10).unwrap()),
-        &[0x81, 0x01, 0x04, 0x0D, 0x00, 0x00, 0x01, 0x00, 0xFF]
+        &[0x81, 0x01, 0x04, 0x0D, 0x00, 0x00, 0x01, 0x00, VISCA_TERMINATOR]
     );
 
     // Test Direct command with value 0x11
@@ -856,7 +848,7 @@ mod tests {
         Bright,
         test_bright_direct_11,
         Bright::Direct(BrightnessLevel::new(0x11).unwrap()),
-        &[0x81, 0x01, 0x04, 0x0D, 0x00, 0x00, 0x01, 0x01, 0xFF]
+        &[0x81, 0x01, 0x04, 0x0D, 0x00, 0x00, 0x01, 0x01, VISCA_TERMINATOR]
     );
 
     #[test]
@@ -929,7 +921,7 @@ mod tests {
         AutoSlowShutter,
         test_auto_slow_shutter_on,
         AutoSlowShutter::On,
-        &[0x81, 0x01, 0x04, 0x5A, 0x02, 0xFF]
+        &[0x81, 0x01, 0x04, 0x5A, 0x02, VISCA_TERMINATOR]
     );
 
     // Test Off command
@@ -937,6 +929,6 @@ mod tests {
         AutoSlowShutter,
         test_auto_slow_shutter_off,
         AutoSlowShutter::Off,
-        &[0x81, 0x01, 0x04, 0x5A, 0x03, 0xFF]
+        &[0x81, 0x01, 0x04, 0x5A, 0x03, VISCA_TERMINATOR]
     );
 }

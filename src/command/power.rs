@@ -30,18 +30,19 @@ visca_command! {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::command::const_encoding::VISCA_TERMINATOR;
     use crate::macros::test_utils::visca_test;
 
     visca_test!(
         PowerCommand,
         test_power_on,
         PowerCommand::On,
-        &[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]
+        &[0x81, 0x01, 0x04, 0x00, 0x02,  VISCA_TERMINATOR]
     );
     visca_test!(
         PowerCommand,
         test_power_standby,
         PowerCommand::Standby,
-        &[0x81, 0x01, 0x04, 0x00, 0x03, 0xFF]
+        &[0x81, 0x01, 0x04, 0x00, 0x03,  VISCA_TERMINATOR]
     );
 }

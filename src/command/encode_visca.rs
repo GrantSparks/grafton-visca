@@ -10,6 +10,24 @@ use crate::{
 
 use super::response::ResponseType;
 
+/// Validates that a VISCA command buffer has the proper terminator.
+///
+/// This function performs a debug assertion in debug builds to ensure
+/// that commands are properly terminated with 0xFF.
+///
+/// # Panics
+///
+/// In debug builds, panics if the buffer doesn't end with VISCA_TERMINATOR (0xFF).
+#[inline]
+pub fn validate_terminator(buffer: &[u8], len: usize) {
+    debug_assert!(
+        len == 0 || buffer[len - 1] == crate::command::const_encoding::VISCA_TERMINATOR,
+        "VISCA command missing 0xFF terminator at position {}. Command bytes: {:02X?}",
+        len - 1,
+        &buffer[..len]
+    );
+}
+
 /// Unified trait for all VISCA commands.
 ///
 /// This trait combines the functionality of the previous `Command` and `ViscaCommand`

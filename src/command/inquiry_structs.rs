@@ -807,11 +807,10 @@ impl crate::command::encode_visca::EncodeVisca for TallyGreenInquiry {
         use crate::command::const_encoding::CommandBuilder;
 
         // Special format for green tally inquiry
-        let mut builder = CommandBuilder::<7>::new();
-        builder
+        let builder = CommandBuilder::<7>::new()
             .append(crate::command::const_encoding::constants::inquiry::TALLY_GREEN)
             .with_camera_id(camera_id)
-            .finalize();
+            .terminate();
         builder.copy_to(buffer)
     }
 

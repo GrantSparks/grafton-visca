@@ -66,25 +66,32 @@ macro_rules! visca_command {
                     }
                 )+
 
-                let mut bytes = match self {
+                let bytes = match self {
                     $(
                         Self::$variant$( ($($param),*) )? => $variant($($($param),*)?)?,
                     )+
                 };
 
-                if !bytes.is_empty() && bytes[0] == 0x81 {
-                    bytes[0] = camera_id.to_address_byte();
+                // Build command using CommandBuilder with type-state pattern
+                // Use a conservative size for the builder
+                let builder = $crate::command::const_encoding::CommandBuilder::<16>::new();
+                
+                // Append all bytes except potentially the terminator
+                let has_terminator = bytes.last() == Some(&$crate::command::const_encoding::VISCA_TERMINATOR);
+                let bytes_to_add = if has_terminator {
+                    &bytes[..bytes.len() - 1]
+                } else {
+                    &bytes[..]
+                };
+                
+                // Build command using type-state pattern
+                let mut builder = builder;
+                for byte in bytes_to_add {
+                    builder = builder.push(*byte);
                 }
-
-                if buffer.len() < bytes.len() {
-                    return Err($crate::Error::BufferTooSmall {
-                        required: bytes.len(),
-                        actual: buffer.len(),
-                    });
-                }
-
-                buffer[..bytes.len()].copy_from_slice(&bytes);
-                Ok(bytes.len())
+                
+                let terminated = builder.with_camera_id(camera_id).terminate();
+                terminated.copy_to(buffer)
             }
 
             fn response_type(&self) -> Option<$crate::command::ResponseType> {
@@ -149,23 +156,13 @@ macro_rules! visca_bool_command {
             const TIMEOUT_CATEGORY: $crate::timeout::CommandCategory = $crate::timeout::CommandCategory::Quick;
 
             fn encode_into(&self, camera_id: $crate::camera_id::CameraId, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
-                if buffer.len() < Self::MAX_SIZE {
-                    return Err($crate::Error::BufferTooSmall {
-                        required: Self::MAX_SIZE,
-                        actual: buffer.len(),
-                    });
-                }
-
-                let mut prefix = [$($prefix),+];
-                if !prefix.is_empty() && prefix[0] == $address {
-                    prefix[0] = ($address & 0xF0) | camera_id.id();
-                }
-
-                buffer[..prefix.len()].copy_from_slice(&prefix);
-                buffer[prefix.len()] = if self.enabled { $on } else { $off };
-                buffer[prefix.len() + 1] = 0xFF;
-
-                Ok(Self::MAX_SIZE)
+                // Use type-state pattern for compile-time safety
+                let terminated = $crate::command::const_encoding::CommandBuilder::<{Self::MAX_SIZE}>::new()
+                    .append(&[$($prefix),+])
+                    .push(if self.enabled { $on } else { $off })
+                    .with_camera_id(camera_id)
+                    .terminate();
+                terminated.copy_to(buffer)
             }
 
             fn response_type(&self) -> Option<$crate::command::ResponseType> {
@@ -189,9 +186,7 @@ macro_rules! visca_builder {
                 $field:ident: $ftype:ty
             ),+ $(,)?
         }
-        builder<$size:literal> => |$builder:ident, $($param:ident),+| {
-            $($stmt:stmt);+ $(;)?
-        }
+        builder<$size:literal> => |$builder:ident, $($param:ident),+| $body:block
         timeout = $category:ident;
     ) => {
         $(#[$meta])*
@@ -216,19 +211,17 @@ macro_rules! visca_builder {
                     });
                 }
 
-                let mut $builder = $crate::command::const_encoding::CommandBuilder::<$size>::new();
+                // Use ownership-based type-state pattern
+                // The body must return the builder after chaining operations
+                let $builder = $crate::command::const_encoding::CommandBuilder::<$size>::new();
 
-                {
+                let $builder = {
                     $(let $param = &self.$field;)+
-                    $($stmt)*
-                }
+                    $body
+                };
 
-                let bytes = $builder.build();
-                buffer[..Self::MAX_SIZE].copy_from_slice(&bytes);
-                if buffer[0] == 0x81 {
-                    buffer[0] = camera_id.to_address_byte();
-                }
-                Ok(Self::MAX_SIZE)
+                let terminated = $builder.with_camera_id(camera_id).terminate();
+                terminated.copy_to(buffer)
             }
 
             fn response_type(&self) -> Option<$crate::command::ResponseType> {
@@ -314,24 +307,14 @@ macro_rules! visca_param_command {
             const TIMEOUT_CATEGORY: $crate::timeout::CommandCategory = $crate::timeout::CommandCategory::$category;
 
             fn encode_into(&self, camera_id: $crate::camera_id::CameraId, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
-                if buffer.len() < Self::MAX_SIZE {
-                    return Err($crate::Error::BufferTooSmall {
-                        required: Self::MAX_SIZE,
-                        actual: buffer.len(),
-                    });
-                }
-
-                let mut prefix = [$($prefix),+];
-                if !prefix.is_empty() && prefix[0] == $address {
-                    prefix[0] = ($address & 0xF0) | camera_id.id();
-                }
-                buffer[..prefix.len()].copy_from_slice(&prefix);
-
+                // Use type-state pattern for compile-time terminator safety
                 let $field = &self.$field;
-                buffer[prefix.len()] = $param_expr;
-                buffer[prefix.len() + 1] = 0xFF;
-
-                Ok(Self::MAX_SIZE)
+                let terminated = $crate::command::const_encoding::CommandBuilder::<{Self::MAX_SIZE}>::new()
+                    .append(&[$($prefix),+])
+                    .push($param_expr)
+                    .with_camera_id(camera_id)
+                    .terminate();
+                terminated.copy_to(buffer)
             }
 
             fn response_type(&self) -> Option<$crate::command::ResponseType> {
@@ -366,27 +349,14 @@ macro_rules! visca_param_command {
             const TIMEOUT_CATEGORY: $crate::timeout::CommandCategory = $crate::timeout::CommandCategory::$category;
 
             fn encode_into(&self, camera_id: $crate::camera_id::CameraId, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
-                if buffer.len() < Self::MAX_SIZE {
-                    return Err($crate::Error::BufferTooSmall {
-                        required: Self::MAX_SIZE,
-                        actual: buffer.len(),
-                    });
-                }
-
-                let prefix_bytes = $prefix_const;
-                let mut prefix = [0u8; 16]; // Max reasonable prefix size
-                prefix[..prefix_bytes.len()].copy_from_slice(prefix_bytes);
-
-                if prefix_bytes.len() > 0 && prefix_bytes[0] == $address {
-                    prefix[0] = ($address & 0xF0) | camera_id.id();
-                }
-                buffer[..prefix_bytes.len()].copy_from_slice(&prefix[..prefix_bytes.len()]);
-
+                // Use type-state pattern for compile-time terminator safety
                 let $field = &self.$field;
-                buffer[prefix_bytes.len()] = $param_expr;
-                buffer[prefix_bytes.len() + 1] = 0xFF;
-
-                Ok(prefix_bytes.len() + 2)
+                let terminated = $crate::command::const_encoding::CommandBuilder::<{Self::MAX_SIZE}>::new()
+                    .append($prefix_const)
+                    .push($param_expr)
+                    .with_camera_id(camera_id)
+                    .terminate();
+                terminated.copy_to(buffer)
             }
 
             fn response_type(&self) -> Option<$crate::command::ResponseType> {
@@ -459,22 +429,22 @@ macro_rules! visca_const_command {
                 buffer: &mut [u8],
             ) -> Result<usize, $crate::error::Error> {
                 const BYTES: &[u8] = $name::BYTES;
-                const LEN: usize = BYTES.len();
-
-                if buffer.len() < LEN {
-                    return Err($crate::error::Error::BufferTooSmall {
-                        required: LEN,
-                        actual: buffer.len(),
-                    });
+                
+                // Use type-state pattern - handle pre-terminated commands
+                if BYTES.last() == Some(&$crate::command::const_encoding::VISCA_TERMINATOR) {
+                    // Command already has terminator, just substitute camera ID
+                    let mut builder = $crate::command::const_encoding::CommandBuilder::<16>::new();
+                    builder.append_mut(BYTES);
+                    builder.with_camera_id_mut(camera_id);
+                    builder.copy_to(buffer)
+                } else {
+                    // Use type-state pattern for proper termination
+                    let terminated = $crate::command::const_encoding::CommandBuilder::<16>::new()
+                        .append(BYTES)
+                        .with_camera_id(camera_id)
+                        .terminate();
+                    terminated.copy_to(buffer)
                 }
-
-                buffer[..LEN].copy_from_slice(BYTES);
-
-                if $address == 0x81 && BYTES[0] == 0x81 {
-                    buffer[0] = camera_id.to_address_byte();
-                }
-
-                Ok(LEN)
             }
 
             fn response_type(&self) -> Option<$crate::command::response::ResponseType> {
@@ -486,14 +456,14 @@ macro_rules! visca_const_command {
 }
 
 /// Macro for creating compile-time VISCA command arrays.
-/// Automatically adds 0xFF terminator.
+/// Automatically adds VISCA_TERMINATOR (0xFF).
 ///
 /// This is an internal utility macro used by the command implementation.
 macro_rules! visca_bytes {
     // Fixed bytes only
     ($($byte:expr),+ $(,)?) => {
         {
-            const BYTES: &[u8] = &[$($byte),+, 0xFF];
+            const BYTES: &[u8] = &[$($byte),+, $crate::command::const_encoding::VISCA_TERMINATOR];
             BYTES
         }
     };

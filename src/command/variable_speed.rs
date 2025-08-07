@@ -71,19 +71,20 @@ impl EncodeVisca for VariableSpeedModeCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::command::const_encoding::VISCA_TERMINATOR;
     use crate::macros::test_utils::visca_test;
 
     visca_test!(
         VariableSpeedModeCommand,
         test_variable_speed_mode_standard24,
         VariableSpeedModeCommand::new(VariableSpeedMode::Standard24),
-        &[0x81, 0x01, 0x7E, 0x04, 0x1B, 0x01, 0xFF]
+        &[0x81, 0x01, 0x7E, 0x04, 0x1B, 0x01,  VISCA_TERMINATOR]
     );
 
     visca_test!(
         VariableSpeedModeCommand,
         test_variable_speed_mode_fine50,
         VariableSpeedModeCommand::new(VariableSpeedMode::Fine50),
-        &[0x81, 0x01, 0x7E, 0x04, 0x1B, 0x02, 0xFF]
+        &[0x81, 0x01, 0x7E, 0x04, 0x1B, 0x02,  VISCA_TERMINATOR]
     );
 }

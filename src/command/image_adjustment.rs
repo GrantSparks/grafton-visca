@@ -95,38 +95,34 @@ impl EncodeVisca for Sharpness {
                     SharpnessMode::Manual => 0x03,
                 };
                 let mut builder = CommandBuilder::<6>::new();
-                builder
-                    .append(constants::image::SHARPNESS_MODE_PREFIX)
-                    .push(mode_byte)
-                    .with_camera_id(camera_id)
-                    .finalize();
+                builder.append_mut(constants::image::SHARPNESS_MODE_PREFIX);
+                builder.push_mut(mode_byte);
+                builder.with_camera_id_mut(camera_id);
+                builder.finalize();
                 builder.copy_to(buffer)
             }
             Self::Reset => {
                 let mut builder = CommandBuilder::<6>::new();
-                builder
-                    .append(constants::image::SHARPNESS_CONTROL_PREFIX)
-                    .push(0x00)
-                    .with_camera_id(camera_id)
-                    .finalize();
+                builder.append_mut(constants::image::SHARPNESS_CONTROL_PREFIX);
+                builder.push_mut(0x00);
+                builder.with_camera_id_mut(camera_id);
+                builder.finalize();
                 builder.copy_to(buffer)
             }
             Self::Up => {
                 let mut builder = CommandBuilder::<6>::new();
-                builder
-                    .append(constants::image::SHARPNESS_CONTROL_PREFIX)
-                    .push(0x02)
-                    .with_camera_id(camera_id)
-                    .finalize();
+                builder.append_mut(constants::image::SHARPNESS_CONTROL_PREFIX);
+                builder.push_mut(0x02);
+                builder.with_camera_id_mut(camera_id);
+                builder.finalize();
                 builder.copy_to(buffer)
             }
             Self::Down => {
                 let mut builder = CommandBuilder::<6>::new();
-                builder
-                    .append(constants::image::SHARPNESS_CONTROL_PREFIX)
-                    .push(0x03)
-                    .with_camera_id(camera_id)
-                    .finalize();
+                builder.append_mut(constants::image::SHARPNESS_CONTROL_PREFIX);
+                builder.push_mut(0x03);
+                builder.with_camera_id_mut(camera_id);
+                builder.finalize();
                 builder.copy_to(buffer)
             }
             Self::SetLevel { value } => {
@@ -138,11 +134,10 @@ impl EncodeVisca for Sharpness {
                     });
                 }
                 let mut builder = CommandBuilder::<9>::new();
-                builder
-                    .append(constants::image::SHARPNESS_LEVEL_PREFIX)
-                    .push_nibble_pair(*value as u16)
-                    .with_camera_id(camera_id)
-                    .finalize();
+                builder.append_mut(constants::image::SHARPNESS_LEVEL_PREFIX);
+                builder.push_nibble_pair_mut(*value as u16);
+                builder.with_camera_id_mut(camera_id);
+                builder.finalize();
                 builder.copy_to(buffer)
             }
         }
@@ -160,8 +155,9 @@ visca_builder! {
         value: LuminanceLevel,
     }
     builder<9> => |builder, value| {
-        let _ = builder.append(crate::command::const_encoding::constants::image::LUMINANCE_PREFIX);
-        let _ = builder.push(value.value());
+        builder
+            .append(crate::command::const_encoding::constants::image::LUMINANCE_PREFIX)
+            .push(value.value())
     }
     timeout = Quick;
 }
@@ -180,8 +176,9 @@ visca_builder! {
         value: ContrastLevel,
     }
     builder<9> => |builder, value| {
-        let _ = builder.append(crate::command::const_encoding::constants::image::CONTRAST_PREFIX);
-        let _ = builder.push(value.value());
+        builder
+            .append(crate::command::const_encoding::constants::image::CONTRAST_PREFIX)
+            .push(value.value())
     }
     timeout = Quick;
 }
@@ -197,6 +194,7 @@ impl ContrastCommand {
 #[allow(clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use crate::command::const_encoding::VISCA_TERMINATOR;
     use crate::command::encode_visca::EncodeVisca;
     use crate::constants::CameraVariant;
     use crate::macros::test_utils::visca_test;
@@ -207,7 +205,7 @@ mod tests {
         Sharpness,
         test_sharpness_mode_auto,
         Sharpness::Mode(SharpnessMode::Auto),
-        &[0x81, 0x01, 0x04, 0x05, 0x02, 0xFF]
+        &[0x81, 0x01, 0x04, 0x05, 0x02,  VISCA_TERMINATOR]
     );
 
     // Test Manual mode
@@ -215,7 +213,7 @@ mod tests {
         Sharpness,
         test_sharpness_mode_manual,
         Sharpness::Mode(SharpnessMode::Manual),
-        &[0x81, 0x01, 0x04, 0x05, 0x03, 0xFF]
+        &[0x81, 0x01, 0x04, 0x05, 0x03,  VISCA_TERMINATOR]
     );
 
     #[test]
@@ -229,7 +227,7 @@ mod tests {
         Sharpness,
         test_sharpness_reset,
         Sharpness::Reset,
-        &[0x81, 0x01, 0x04, 0x02, 0x00, 0xFF]
+        &[0x81, 0x01, 0x04, 0x02, 0x00,  VISCA_TERMINATOR]
     );
 
     // Test Up
@@ -237,7 +235,7 @@ mod tests {
         Sharpness,
         test_sharpness_up,
         Sharpness::Up,
-        &[0x81, 0x01, 0x04, 0x02, 0x02, 0xFF]
+        &[0x81, 0x01, 0x04, 0x02, 0x02,  VISCA_TERMINATOR]
     );
 
     // Test Down
@@ -245,7 +243,7 @@ mod tests {
         Sharpness,
         test_sharpness_down,
         Sharpness::Down,
-        &[0x81, 0x01, 0x04, 0x02, 0x03, 0xFF]
+        &[0x81, 0x01, 0x04, 0x02, 0x03,  VISCA_TERMINATOR]
     );
 
     // Test sharpness level 0
@@ -253,7 +251,7 @@ mod tests {
         Sharpness,
         test_sharpness_level_0,
         Sharpness::SetLevel { value: 0 },
-        &[0x81, 0x01, 0x04, 0x42, 0x00, 0x00, 0x00, 0x00, 0xFF]
+        &[0x81, 0x01, 0x04, 0x42, 0x00, 0x00, 0x00, 0x00,  VISCA_TERMINATOR]
     );
 
     // Test sharpness level 5
@@ -261,7 +259,7 @@ mod tests {
         Sharpness,
         test_sharpness_level_5,
         Sharpness::SetLevel { value: 5 },
-        &[0x81, 0x01, 0x04, 0x42, 0x00, 0x00, 0x00, 0x05, 0xFF]
+        &[0x81, 0x01, 0x04, 0x42, 0x00, 0x00, 0x00, 0x05,  VISCA_TERMINATOR]
     );
 
     // Test sharpness level 11
@@ -269,7 +267,7 @@ mod tests {
         Sharpness,
         test_sharpness_level_11,
         Sharpness::SetLevel { value: 11 },
-        &[0x81, 0x01, 0x04, 0x42, 0x00, 0x00, 0x00, 0x0B, 0xFF]
+        &[0x81, 0x01, 0x04, 0x42, 0x00, 0x00, 0x00, 0x0B,  VISCA_TERMINATOR]
     );
 
     #[test]
@@ -299,7 +297,7 @@ mod tests {
         LuminanceCommand,
         test_luminance_level_0,
         LuminanceCommand::new(LuminanceLevel::new(0).unwrap()),
-        &[0x81, 0x01, 0x04, 0xA1, 0x00, 0x00, 0x00, 0x00, 0xFF]
+        &[0x81, 0x01, 0x04, 0xA1, 0x00, 0x00, 0x00, 0x00,  VISCA_TERMINATOR]
     );
 
     // Test luminance level 7
@@ -307,7 +305,7 @@ mod tests {
         LuminanceCommand,
         test_luminance_level_7,
         LuminanceCommand::new(LuminanceLevel::new(7).unwrap()),
-        &[0x81, 0x01, 0x04, 0xA1, 0x00, 0x00, 0x00, 0x07, 0xFF]
+        &[0x81, 0x01, 0x04, 0xA1, 0x00, 0x00, 0x00, 0x07,  VISCA_TERMINATOR]
     );
 
     // Test luminance level 14
@@ -315,7 +313,7 @@ mod tests {
         LuminanceCommand,
         test_luminance_level_14,
         LuminanceCommand::new(LuminanceLevel::new(14).unwrap()),
-        &[0x81, 0x01, 0x04, 0xA1, 0x00, 0x00, 0x00, 0x0E, 0xFF]
+        &[0x81, 0x01, 0x04, 0xA1, 0x00, 0x00, 0x00, 0x0E,  VISCA_TERMINATOR]
     );
 
     #[test]
@@ -344,7 +342,7 @@ mod tests {
         ContrastCommand,
         test_contrast_level_0,
         ContrastCommand::new(ContrastLevel::new(0).unwrap()),
-        &[0x81, 0x01, 0x04, 0xA2, 0x00, 0x00, 0x00, 0x00, 0xFF]
+        &[0x81, 0x01, 0x04, 0xA2, 0x00, 0x00, 0x00, 0x00,  VISCA_TERMINATOR]
     );
 
     // Test contrast level 7
@@ -352,7 +350,7 @@ mod tests {
         ContrastCommand,
         test_contrast_level_7,
         ContrastCommand::new(ContrastLevel::new(7).unwrap()),
-        &[0x81, 0x01, 0x04, 0xA2, 0x00, 0x00, 0x00, 0x07, 0xFF]
+        &[0x81, 0x01, 0x04, 0xA2, 0x00, 0x00, 0x00, 0x07,  VISCA_TERMINATOR]
     );
 
     // Test contrast level 14
@@ -360,7 +358,7 @@ mod tests {
         ContrastCommand,
         test_contrast_level_14,
         ContrastCommand::new(ContrastLevel::new(14).unwrap()),
-        &[0x81, 0x01, 0x04, 0xA2, 0x00, 0x00, 0x00, 0x0E, 0xFF]
+        &[0x81, 0x01, 0x04, 0xA2, 0x00, 0x00, 0x00, 0x0E,  VISCA_TERMINATOR]
     );
 
     #[test]

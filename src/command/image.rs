@@ -152,6 +152,7 @@ visca_param_command! {
 )]
 mod tests {
     use super::*;
+    use crate::command::const_encoding::VISCA_TERMINATOR;
     use crate::command::encode_visca::EncodeVisca;
     use crate::macros::test_utils::visca_test;
     use crate::timeout::CommandCategory;
@@ -161,7 +162,7 @@ mod tests {
         BacklightCommand,
         test_backlight_on,
         BacklightCommand::new(true),
-        &[0x81, 0x01, 0x04, 0x33, 0x02, 0xFF]
+        &[0x81, 0x01, 0x04, 0x33, 0x02,  VISCA_TERMINATOR]
     );
 
     // Test backlight off
@@ -169,7 +170,7 @@ mod tests {
         BacklightCommand,
         test_backlight_off,
         BacklightCommand::new(false),
-        &[0x81, 0x01, 0x04, 0x33, 0x03, 0xFF]
+        &[0x81, 0x01, 0x04, 0x33, 0x03,  VISCA_TERMINATOR]
     );
 
     #[test]
@@ -184,7 +185,7 @@ mod tests {
         NoiseReduction2D,
         test_noise_reduction_2d_off,
         NoiseReduction2D::Off,
-        &[0x81, 0x01, 0x04, 0x53, 0x00, 0xFF]
+        &[0x81, 0x01, 0x04, 0x53, 0x00,  VISCA_TERMINATOR]
     );
 
     // Test level 1
@@ -192,7 +193,7 @@ mod tests {
         NoiseReduction2D,
         test_noise_reduction_2d_level_1,
         NoiseReduction2D::Level(NoiseReduction2DLevel::new(1).unwrap()),
-        &[0x81, 0x01, 0x04, 0x53, 0x01, 0xFF]
+        &[0x81, 0x01, 0x04, 0x53, 0x01,  VISCA_TERMINATOR]
     );
 
     // Test level 3
@@ -200,7 +201,7 @@ mod tests {
         NoiseReduction2D,
         test_noise_reduction_2d_level_3,
         NoiseReduction2D::Level(NoiseReduction2DLevel::new(3).unwrap()),
-        &[0x81, 0x01, 0x04, 0x53, 0x03, 0xFF]
+        &[0x81, 0x01, 0x04, 0x53, 0x03,  VISCA_TERMINATOR]
     );
 
     // Test level 5
@@ -208,7 +209,7 @@ mod tests {
         NoiseReduction2D,
         test_noise_reduction_2d_level_5,
         NoiseReduction2D::Level(NoiseReduction2DLevel::new(5).unwrap()),
-        &[0x81, 0x01, 0x04, 0x53, 0x05, 0xFF]
+        &[0x81, 0x01, 0x04, 0x53, 0x05,  VISCA_TERMINATOR]
     );
 
     #[test]
@@ -223,7 +224,7 @@ mod tests {
         NoiseReduction3D,
         test_noise_reduction_3d_off,
         NoiseReduction3D::Off,
-        &[0x81, 0x01, 0x04, 0x54, 0x00, 0xFF]
+        &[0x81, 0x01, 0x04, 0x54, 0x00,  VISCA_TERMINATOR]
     );
 
     // Test level 1
@@ -231,7 +232,7 @@ mod tests {
         NoiseReduction3D,
         test_noise_reduction_3d_level_1,
         NoiseReduction3D::Level(NoiseReduction3DLevel::new(1).unwrap()),
-        &[0x81, 0x01, 0x04, 0x54, 0x01, 0xFF]
+        &[0x81, 0x01, 0x04, 0x54, 0x01,  VISCA_TERMINATOR]
     );
 
     // Test level 4
@@ -239,7 +240,7 @@ mod tests {
         NoiseReduction3D,
         test_noise_reduction_3d_level_4,
         NoiseReduction3D::Level(NoiseReduction3DLevel::new(4).unwrap()),
-        &[0x81, 0x01, 0x04, 0x54, 0x04, 0xFF]
+        &[0x81, 0x01, 0x04, 0x54, 0x04,  VISCA_TERMINATOR]
     );
 
     // Test level 8
@@ -247,7 +248,7 @@ mod tests {
         NoiseReduction3D,
         test_noise_reduction_3d_level_8,
         NoiseReduction3D::Level(NoiseReduction3DLevel::new(8).unwrap()),
-        &[0x81, 0x01, 0x04, 0x54, 0x08, 0xFF]
+        &[0x81, 0x01, 0x04, 0x54, 0x08,  VISCA_TERMINATOR]
     );
 
     #[test]
@@ -262,7 +263,7 @@ mod tests {
         BlackWhiteCommand,
         test_black_white_on,
         BlackWhiteCommand::new(true),
-        &[0x81, 0x01, 0x04, 0x01, 0x04, 0xFF]
+        &[0x81, 0x01, 0x04, 0x01, 0x04,  VISCA_TERMINATOR]
     );
 
     // Test black and white off (color mode)
@@ -270,7 +271,7 @@ mod tests {
         BlackWhiteCommand,
         test_black_white_off,
         BlackWhiteCommand::new(false),
-        &[0x81, 0x01, 0x04, 0x01, 0x00, 0xFF]
+        &[0x81, 0x01, 0x04, 0x01, 0x00,  VISCA_TERMINATOR]
     );
 
     #[test]
@@ -285,7 +286,7 @@ mod tests {
         ImageFlipCombinedCommand,
         test_image_flip_off,
         ImageFlipCombinedCommand::new(ImageFlipMode::Off),
-        &[0x81, 0x01, 0x04, 0x61, 0x00, 0xFF]
+        &[0x81, 0x01, 0x04, 0x61, 0x00,  VISCA_TERMINATOR]
     );
 
     // Test Horizontal
@@ -293,7 +294,7 @@ mod tests {
         ImageFlipCombinedCommand,
         test_image_flip_horizontal,
         ImageFlipCombinedCommand::new(ImageFlipMode::Horizontal),
-        &[0x81, 0x01, 0x04, 0x61, 0x01, 0xFF]
+        &[0x81, 0x01, 0x04, 0x61, 0x01,  VISCA_TERMINATOR]
     );
 
     // Test Vertical
@@ -301,7 +302,7 @@ mod tests {
         ImageFlipCombinedCommand,
         test_image_flip_vertical,
         ImageFlipCombinedCommand::new(ImageFlipMode::Vertical),
-        &[0x81, 0x01, 0x04, 0x61, 0x02, 0xFF]
+        &[0x81, 0x01, 0x04, 0x61, 0x02,  VISCA_TERMINATOR]
     );
 
     // Test Both
@@ -309,7 +310,7 @@ mod tests {
         ImageFlipCombinedCommand,
         test_image_flip_both,
         ImageFlipCombinedCommand::new(ImageFlipMode::Both),
-        &[0x81, 0x01, 0x04, 0x61, 0x03, 0xFF]
+        &[0x81, 0x01, 0x04, 0x61, 0x03,  VISCA_TERMINATOR]
     );
 
     #[test]
@@ -354,7 +355,7 @@ mod tests {
             flip_cmd2
                 .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap(),
-            vec![0x81, 0x01, 0x04, 0x61, 0x01, 0xFF]
+            vec![0x81, 0x01, 0x04, 0x61, 0x01,  VISCA_TERMINATOR]
         );
     }
 
@@ -500,7 +501,7 @@ mod tests {
         PictureEffectCommand {
             mode: PictureEffectMode::Off
         },
-        &[0x81, 0x01, 0x04, 0x63, 0x00, 0xFF]
+        &[0x81, 0x01, 0x04, 0x63, 0x00,  VISCA_TERMINATOR]
     );
 
     // Test Negative effect
@@ -510,7 +511,7 @@ mod tests {
         PictureEffectCommand {
             mode: PictureEffectMode::Negative
         },
-        &[0x81, 0x01, 0x04, 0x63, 0x01, 0xFF]
+        &[0x81, 0x01, 0x04, 0x63, 0x01,  VISCA_TERMINATOR]
     );
 
     // Test Black and White effect
@@ -520,7 +521,7 @@ mod tests {
         PictureEffectCommand {
             mode: PictureEffectMode::BlackAndWhite
         },
-        &[0x81, 0x01, 0x04, 0x63, 0x02, 0xFF]
+        &[0x81, 0x01, 0x04, 0x63, 0x02,  VISCA_TERMINATOR]
     );
 
     // Test Sepia effect
@@ -530,7 +531,7 @@ mod tests {
         PictureEffectCommand {
             mode: PictureEffectMode::Sepia
         },
-        &[0x81, 0x01, 0x04, 0x63, 0x03, 0xFF]
+        &[0x81, 0x01, 0x04, 0x63, 0x03,  VISCA_TERMINATOR]
     );
 
     // Test Sketch effect
@@ -540,7 +541,7 @@ mod tests {
         PictureEffectCommand {
             mode: PictureEffectMode::Sketch
         },
-        &[0x81, 0x01, 0x04, 0x63, 0x04, 0xFF]
+        &[0x81, 0x01, 0x04, 0x63, 0x04,  VISCA_TERMINATOR]
     );
 
     // Test Emboss effect
@@ -550,7 +551,7 @@ mod tests {
         PictureEffectCommand {
             mode: PictureEffectMode::Emboss
         },
-        &[0x81, 0x01, 0x04, 0x63, 0x05, 0xFF]
+        &[0x81, 0x01, 0x04, 0x63, 0x05,  VISCA_TERMINATOR]
     );
 
     // Test Mosaic effect
@@ -560,7 +561,7 @@ mod tests {
         PictureEffectCommand {
             mode: PictureEffectMode::Mosaic
         },
-        &[0x81, 0x01, 0x04, 0x63, 0x06, 0xFF]
+        &[0x81, 0x01, 0x04, 0x63, 0x06,  VISCA_TERMINATOR]
     );
 
     #[test]

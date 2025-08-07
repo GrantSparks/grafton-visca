@@ -88,6 +88,7 @@ impl EncodeVisca for PresetCommand {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
+    use crate::command::const_encoding::VISCA_TERMINATOR;
     use crate::macros::test_utils::visca_test;
 
     #[test]
@@ -134,7 +135,7 @@ mod tests {
             preset_number: PresetNumber::new(10)
                 .unwrap_or_else(|e| panic!("Valid preset number: {e:?}")),
         },
-        &[0x81, 0x01, 0x04, 0x3F, 0x00, 0x0A, 0xFF]
+        &[0x81, 0x01, 0x04, 0x3F, 0x00, 0x0A,  VISCA_TERMINATOR]
     );
 
     visca_test!(
@@ -145,7 +146,7 @@ mod tests {
             preset_number: PresetNumber::new(45)
                 .unwrap_or_else(|e| panic!("Valid preset number: {e:?}")),
         },
-        &[0x81, 0x01, 0x04, 0x3F, 0x01, 0x2D, 0xFF]
+        &[0x81, 0x01, 0x04, 0x3F, 0x01, 0x2D,  VISCA_TERMINATOR]
     );
 
     visca_test!(
@@ -156,7 +157,7 @@ mod tests {
             preset_number: PresetNumber::new(89)
                 .unwrap_or_else(|e| panic!("Valid preset number: {e:?}")),
         },
-        &[0x81, 0x01, 0x04, 0x3F, 0x02, 0x59, 0xFF]
+        &[0x81, 0x01, 0x04, 0x3F, 0x02, 0x59,  VISCA_TERMINATOR]
     );
 
     #[test]

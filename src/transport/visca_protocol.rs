@@ -76,6 +76,13 @@ impl<T: Transport> ViscaProtocol<T> {
         let size = command.encode_into(crate::camera_id::CameraId::CAMERA_1, &mut buffer)?;
         let cmd_bytes = &buffer[..size];
 
+        // Debug assertion to ensure commands have proper terminator
+        debug_assert!(
+            size == 0 || cmd_bytes[size - 1] == crate::command::const_encoding::VISCA_TERMINATOR,
+            "VISCA command missing 0xFF terminator. Command bytes: {:02X?}",
+            cmd_bytes
+        );
+
         log::debug!("Sending VISCA command: {cmd_bytes:02X?}");
 
         // Send command

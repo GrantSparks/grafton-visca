@@ -3,6 +3,9 @@
 //! Provides a fluent API for constructing VISCA response messages,
 //! making tests more readable and maintainable.
 
+/// VISCA command terminator byte.
+const VISCA_TERMINATOR: u8 = 0xFF;
+
 /// Builder for creating VISCA response messages
 #[derive(Debug, Clone)]
 pub struct ResponseBuilder {
@@ -17,17 +20,17 @@ impl ResponseBuilder {
 
     /// Create an ACK response for the given socket
     pub fn ack(socket: u8) -> Vec<u8> {
-        vec![0x90, 0x40 | (socket & 0x0F), 0xFF]
+        vec![0x90, 0x40 | (socket & 0x0F), VISCA_TERMINATOR]
     }
 
     /// Create a completion response for the given socket
     pub fn completion(socket: u8) -> Vec<u8> {
-        vec![0x90, 0x50 | (socket & 0x0F), 0xFF]
+        vec![0x90, 0x50 | (socket & 0x0F), VISCA_TERMINATOR]
     }
 
     /// Create an error response with the given error code
     pub fn error(error_code: u8) -> Vec<u8> {
-        vec![0x90, 0x60, error_code, 0xFF]
+        vec![0x90, 0x60, error_code, VISCA_TERMINATOR]
     }
 
     /// Start building an inquiry response
@@ -154,20 +157,20 @@ mod tests {
     #[test]
     fn test_basic_responses() {
         // Test ACK
-        assert_eq!(ResponseBuilder::ack(1), vec![0x90, 0x41, 0xFF]);
+        assert_eq!(ResponseBuilder::ack(1), vec![0x90, 0x41, VISCA_TERMINATOR]);
 
         // Test completion
-        assert_eq!(ResponseBuilder::completion(0), vec![0x90, 0x50, 0xFF]);
+        assert_eq!(ResponseBuilder::completion(0), vec![0x90, 0x50, VISCA_TERMINATOR]);
 
         // Test error
-        assert_eq!(ResponseBuilder::error(0x02), vec![0x90, 0x60, 0x02, 0xFF]);
+        assert_eq!(ResponseBuilder::error(0x02), vec![0x90, 0x60, 0x02, VISCA_TERMINATOR]);
     }
 
     #[test]
     fn test_inquiry_builder() {
         // Test u16 nibbles
         let response = ResponseBuilder::inquiry().add_u16_nibbles(0x1234).build();
-        assert_eq!(response, vec![0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0xFF]);
+        assert_eq!(response, vec![0x90, 0x50, 0x01, 0x02, 0x03, 0x04, VISCA_TERMINATOR]);
 
         // Test mixed content
         let response = ResponseBuilder::inquiry()
@@ -177,7 +180,7 @@ mod tests {
             .build();
         assert_eq!(
             response,
-            vec![0x90, 0x50, 0x05, 0x02, 0x0A, 0x0B, 0x0C, 0x0D, 0xFF]
+            vec![0x90, 0x50, 0x05, 0x02, 0x0A, 0x0B, 0x0C, 0x0D, VISCA_TERMINATOR]
         );
     }
 
@@ -187,11 +190,11 @@ mod tests {
         let response = patterns::pan_tilt_position_response(0x1234, 0x5678);
         assert_eq!(
             response,
-            vec![0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0xFF]
+            vec![0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, VISCA_TERMINATOR]
         );
 
         // Test power status
         let response = patterns::power_status_response(false);
-        assert_eq!(response, vec![0x90, 0x50, 0x03, 0xFF]);
+        assert_eq!(response, vec![0x90, 0x50, 0x03, VISCA_TERMINATOR]);
     }
 }

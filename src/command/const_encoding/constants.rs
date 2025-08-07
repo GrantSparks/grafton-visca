@@ -476,6 +476,7 @@ pub mod system_cmd {
 #[allow(clippy::unwrap_used)]
 mod validation_tests {
     use super::*;
+    use crate::command::const_encoding::VISCA_TERMINATOR;
 
     /// This test validates that all constants are correctly formed at compile time.
     /// The visca_bytes! and visca_prefix! macros already perform compile-time validation,
@@ -704,22 +705,22 @@ mod validation_tests {
         // as our constants. This test ensures they stay in sync.
 
         // Power commands
-        assert_eq!(power::ON, &[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]);
-        assert_eq!(power::OFF, &[0x81, 0x01, 0x04, 0x00, 0x03, 0xFF]);
+        assert_eq!(power::ON, &[0x81, 0x01, 0x04, 0x00, 0x02,  VISCA_TERMINATOR]);
+        assert_eq!(power::OFF, &[0x81, 0x01, 0x04, 0x00, 0x03,  VISCA_TERMINATOR]);
 
         // Pan/Tilt commands
-        assert_eq!(pan_tilt::HOME, &[0x81, 0x01, 0x06, 0x04, 0xFF]);
-        assert_eq!(pan_tilt::RESET, &[0x81, 0x01, 0x06, 0x05, 0xFF]);
+        assert_eq!(pan_tilt::HOME, &[0x81, 0x01, 0x06, 0x04,  VISCA_TERMINATOR]);
+        assert_eq!(pan_tilt::RESET, &[0x81, 0x01, 0x06, 0x05,  VISCA_TERMINATOR]);
 
         // Zoom commands
-        assert_eq!(zoom::STOP, &[0x81, 0x01, 0x04, 0x07, 0x00, 0xFF]);
-        assert_eq!(zoom::TELE_STD, &[0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]);
-        assert_eq!(zoom::WIDE_STD, &[0x81, 0x01, 0x04, 0x07, 0x03, 0xFF]);
+        assert_eq!(zoom::STOP, &[0x81, 0x01, 0x04, 0x07, 0x00,  VISCA_TERMINATOR]);
+        assert_eq!(zoom::TELE_STD, &[0x81, 0x01, 0x04, 0x07, 0x02,  VISCA_TERMINATOR]);
+        assert_eq!(zoom::WIDE_STD, &[0x81, 0x01, 0x04, 0x07, 0x03,  VISCA_TERMINATOR]);
 
         // White balance one-push trigger (note: visca_bytes! adds terminator)
         assert_eq!(
             white_balance::ONE_PUSH_TRIGGER,
-            &[0x81, 0x01, 0x04, 0x10, 0x05, 0xFF]
+            &[0x81, 0x01, 0x04, 0x10, 0x05,  VISCA_TERMINATOR]
         );
     }
 }
