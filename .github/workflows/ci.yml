@@ -232,8 +232,8 @@ jobs:
       - name: Publish macro crate dry run
         run: cargo publish -p grafton-visca-macros --dry-run
       
-      - name: Publish main crate dry run
-        run: cargo publish --dry-run
+      # Skip main crate dry run as it depends on macro crate being published
+      # The actual publish will validate it
       
       # Publish macro crate first (dependency)
       - name: Publish grafton-visca-macros to crates.io
