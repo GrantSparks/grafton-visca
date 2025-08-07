@@ -5,12 +5,11 @@
 
 use std::time::Duration;
 
+use super::MovementConfig;
 use crate::{
     camera::Camera, capabilities::Profile, error::Error, transport::UnifiedTransport,
     units::Degrees,
 };
-
-use super::MovementConfig;
 
 /// Helper methods for camera movement operations (blocking).
 pub trait MovementOps: Sized {
@@ -107,7 +106,6 @@ pub trait MovementOpsAsync: Sized {
     async fn is_moving(&self) -> Result<bool, Error>;
 }
 
-// Blocking implementation
 impl<P: Profile, T: UnifiedTransport> MovementOps for Camera<P, T> {
     fn await_idle(&self, timeout: impl Into<Duration>) -> Result<(), Error> {
         let config = MovementConfig::with_timeout(timeout.into());
@@ -123,20 +121,15 @@ impl<P: Profile, T: UnifiedTransport> MovementOps for Camera<P, T> {
         use crate::camera::methods::pan_tilt::PanTiltOpsBlocking;
         use crate::types::SpeedLevel;
 
-        // Send the movement command
         self.pan_tilt_absolute(pan, tilt, SpeedLevel::Fast)?;
-
-        // Wait for it to complete
         MovementOps::await_idle(self, timeout)
     }
 
     fn is_moving(&self) -> Result<bool, Error> {
-        // Delegate to the camera's is_moving method
         Camera::is_moving(self)
     }
 }
 
-// Async implementation with tokio
 #[cfg(feature = "tokio")]
 impl<P: Profile, T: UnifiedTransport> MovementOpsAsync for Camera<P, T> {
     async fn await_idle(&self, timeout: impl Into<Duration>) -> Result<(), Error> {
@@ -153,20 +146,15 @@ impl<P: Profile, T: UnifiedTransport> MovementOpsAsync for Camera<P, T> {
         use crate::camera::methods::pan_tilt::PanTiltOps;
         use crate::types::SpeedLevel;
 
-        // Send the movement command
         self.pan_tilt_absolute(pan, tilt, SpeedLevel::Fast).await?;
-
-        // Wait for it to complete
         MovementOpsAsync::await_idle(self, timeout).await
     }
 
     async fn is_moving(&self) -> Result<bool, Error> {
-        // Delegate to the camera's is_moving_async method
         self.is_moving_async().await
     }
 }
 
-// Generic async implementation for non-tokio async runtimes
 #[cfg(all(feature = "async", not(feature = "tokio")))]
 impl<P: Profile, T: UnifiedTransport> MovementOpsAsync for Camera<P, T> {
     async fn await_idle(&self, _timeout: impl Into<Duration>) -> Result<(), Error> {

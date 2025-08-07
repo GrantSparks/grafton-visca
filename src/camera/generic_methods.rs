@@ -16,7 +16,6 @@ use crate::{
     MotionSyncMode,
 };
 
-// ND Filter methods - only available when P implements NDFilter
 impl<P, T> Camera<P, T>
 where
     P: Profile + NDFilter,
@@ -53,7 +52,6 @@ where
     }
 }
 
-// Motion Sync methods - only available when P implements MotionSync
 impl<P, T> Camera<P, T>
 where
     P: Profile + MotionSync,
@@ -87,11 +85,8 @@ where
     }
 }
 
-// Variable Speed methods moved to methods/variable_speed.rs to use marker traits
-
 #[cfg(test)]
 mod tests {
-
     #[test]
     fn test_nd_filter_compilation() {
         // This test verifies that ND filter methods are only available for cameras

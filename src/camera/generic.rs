@@ -5,6 +5,9 @@
 
 use std::{borrow::Cow, marker::PhantomData, sync::Arc, time::Duration};
 
+#[cfg(feature = "async")]
+use crate::{executor::Spawner, runtime::RuntimeSpawner, socket_manager::SocketManagerHandle};
+
 use crate::{
     camera_id::CameraId,
     capabilities::Profile,
@@ -12,9 +15,6 @@ use crate::{
     error::Error,
     transport::{TransportEnvelope, UnifiedTransport},
 };
-
-#[cfg(feature = "async")]
-use crate::{executor::Spawner, runtime::RuntimeSpawner, socket_manager::SocketManagerHandle};
 
 /// Generic camera client with compile-time profile selection.
 ///
@@ -512,12 +512,10 @@ where
     /// * `Ok(())` if a completion message was received
     /// * `Err(Error::Timeout)` if no completion message was received within the timeout
     /// * `Err(Error::Unsupported)` if no socket manager is available
-    #[cfg_attr(not(feature = "async"), allow(unused_variables))]
+    #[cfg(feature = "async")]
     pub(crate) fn wait_for_completion_blocking(&self, timeout: Duration) -> Result<(), Error> {
-        #[cfg(feature = "async")]
-        {
-            // Check if socket manager is available
-            if let Some(socket_manager) = &self.socket_manager {
+        // Check if socket manager is available
+        if let Some(socket_manager) = &self.socket_manager {
                 log::debug!("wait_for_completion_blocking: using socket manager to wait for completion message");
 
                 // Send the wait request to the socket manager and get the receiver
@@ -544,17 +542,9 @@ where
                         Err(e)
                     }
                 }
-            } else {
-                // No socket manager, can't wait for completion
-                log::debug!("wait_for_completion_blocking: no socket manager available");
-                Err(Error::Unsupported)
-            }
-        }
-
-        #[cfg(not(feature = "async"))]
-        {
-            // Without async features, we can't wait for completion messages
-            log::debug!("wait_for_completion_blocking: async features not enabled");
+        } else {
+            // No socket manager, can't wait for completion
+            log::debug!("wait_for_completion_blocking: no socket manager available");
             Err(Error::Unsupported)
         }
     }
@@ -699,7 +689,6 @@ where
     }
 }
 
-// Generic constructor for custom transports
 impl<P, T> Camera<P, T>
 where
     P: Profile,
