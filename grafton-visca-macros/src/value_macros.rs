@@ -250,15 +250,17 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
             .collect::<Vec<_>>();
 
         // Generate the G2_VALID_VALUES constant for backwards compatibility
-        let g2_constant = if models.contains(&"PTZOpticsG2") && valid_values.is_some() {
-            let values_tokens: proc_macro2::TokenStream = valid_values
-                .as_ref()
-                .unwrap()
-                .parse()
-                .unwrap_or_else(|_| quote! { &[] });
-            quote! {
-                /// Valid values for PTZOptics G2 cameras.
-                pub const G2_VALID_VALUES: &'static [#inner_type] = &#values_tokens;
+        let g2_constant = if models.contains(&"PTZOpticsG2") {
+            if let Some(ref values) = valid_values {
+                let values_tokens: proc_macro2::TokenStream = values
+                    .parse()
+                    .unwrap_or_else(|_| quote! { &[] });
+                quote! {
+                    /// Valid values for PTZOptics G2 cameras.
+                    pub const G2_VALID_VALUES: &'static [#inner_type] = &#values_tokens;
+                }
+            } else {
+                quote! {}
             }
         } else {
             quote! {}
