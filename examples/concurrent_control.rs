@@ -18,7 +18,7 @@ fn main() {
 #[cfg(feature = "tokio")]
 use grafton_visca::{
     camera::profiles::PTZOpticsG2, prelude::r#async::*, types::SpeedLevel, CameraBuilder,
-    Normalized, PanTiltDirection, PresetNumber, Result,
+    PanTiltDirection, PresetNumber, Result,
 };
 use std::sync::Arc;
 use tokio::time::{sleep, Duration};
