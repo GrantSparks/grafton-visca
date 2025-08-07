@@ -40,15 +40,9 @@ fn main() -> Result<(), Error> {
     println!();
 
     println!("Connecting via TCP (default port 5678)...");
-    let tcp_camera = match CameraBuilder::tcp(&camera_addr)
+    let tcp_camera = CameraBuilder::tcp(&camera_addr)
         .profile::<PTZOpticsG2>()
-        .build()?
-    {
-        grafton_visca::camera::BlockingCamera::Tcp(cam) => cam,
-        grafton_visca::camera::BlockingCamera::Udp(_) => {
-            unreachable!("TCP builder should return TCP camera")
-        }
-    };
+        .build()?;
 
     println!("✓ TCP connection established");
 
@@ -74,13 +68,7 @@ fn main() -> Result<(), Error> {
         .build();
 
     match tcp_custom {
-        Ok(camera_result) => {
-            let camera = match camera_result {
-                grafton_visca::camera::BlockingCamera::Tcp(cam) => cam,
-                grafton_visca::camera::BlockingCamera::Udp(_) => {
-                    unreachable!("TCP builder should return TCP camera")
-                }
-            };
+        Ok(camera) => {
             println!("✓ TCP connection established on port 1259");
 
             // Test connection
@@ -110,13 +98,7 @@ fn main() -> Result<(), Error> {
         .build();
 
     match udp_camera {
-        Ok(camera_result) => {
-            let camera = match camera_result {
-                grafton_visca::camera::BlockingCamera::Tcp(_) => {
-                    unreachable!("UDP builder should return UDP camera")
-                }
-                grafton_visca::camera::BlockingCamera::Udp(cam) => cam,
-            };
+        Ok(camera) => {
             println!("✓ UDP transport initialized");
 
             // Test UDP connection
@@ -198,16 +180,10 @@ fn main() -> Result<(), Error> {
     tcp_camera.zoom_absolute(Normalized(0.0))?;
 
     // If UDP is available, compare performance
-    if let Ok(camera_result) = CameraBuilder::udp(&format!("{camera_addr}:52381"))
+    if let Ok(udp_camera) = CameraBuilder::udp(&format!("{camera_addr}:52381"))
         .profile::<PTZOpticsG2>()
         .build()
     {
-        let udp_camera = match camera_result {
-            grafton_visca::camera::BlockingCamera::Tcp(_) => {
-                unreachable!("UDP builder should return UDP camera")
-            }
-            grafton_visca::camera::BlockingCamera::Udp(cam) => cam,
-        };
         println!("Sending 10 commands via UDP...");
 
         let udp_start = std::time::Instant::now();

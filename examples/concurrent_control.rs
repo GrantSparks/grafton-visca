@@ -51,42 +51,24 @@ async fn multi_camera_control() -> Result<()> {
 
     // Create multiple cameras
     let cam1 = Arc::new(
-        match CameraBuilder::tokio_tcp("192.168.0.109")
+        CameraBuilder::tokio_tcp("192.168.0.109")
             .profile::<PTZOpticsG2>()
-            .build_async()
-            .await?
-        {
-            grafton_visca::camera::AsyncCamera::Tcp(cam) => cam,
-            grafton_visca::camera::AsyncCamera::Udp(_) => {
-                unreachable!("TCP builder should return TCP camera")
-            }
-        },
+            .build()
+            .await?,
     );
 
     let cam2 = Arc::new(
-        match CameraBuilder::tokio_tcp("192.168.0.110")
+        CameraBuilder::tokio_tcp("192.168.0.110")
             .profile::<PTZOpticsG2>()
-            .build_async()
-            .await?
-        {
-            grafton_visca::camera::AsyncCamera::Tcp(cam) => cam,
-            grafton_visca::camera::AsyncCamera::Udp(_) => {
-                unreachable!("TCP builder should return TCP camera")
-            }
-        },
+            .build()
+            .await?,
     );
 
     let cam3 = Arc::new(
-        match CameraBuilder::tokio_tcp("192.168.0.111")
+        CameraBuilder::tokio_tcp("192.168.0.111")
             .profile::<PTZOpticsG2>()
-            .build_async()
-            .await?
-        {
-            grafton_visca::camera::AsyncCamera::Tcp(cam) => cam,
-            grafton_visca::camera::AsyncCamera::Udp(_) => {
-                unreachable!("TCP builder should return TCP camera")
-            }
-        },
+            .build()
+            .await?,
     );
 
     // Save initial states for all cameras
@@ -195,16 +177,10 @@ async fn parallel_single_camera() -> Result<()> {
     println!("--- Example 2: Parallel Operations on Single Camera ---");
 
     let camera = Arc::new(
-        match CameraBuilder::tokio_tcp("192.168.0.110")
+        CameraBuilder::tokio_tcp("192.168.0.110")
             .profile::<PTZOpticsG2>()
-            .build_async()
-            .await?
-        {
-            grafton_visca::camera::AsyncCamera::Tcp(cam) => cam,
-            grafton_visca::camera::AsyncCamera::Udp(_) => {
-                unreachable!("TCP builder should return TCP camera")
-            }
-        },
+            .build()
+            .await?,
     );
 
     // Save initial state
@@ -282,16 +258,10 @@ async fn producer_consumer_pattern() -> Result<()> {
     use tokio::sync::mpsc;
 
     let camera = Arc::new(
-        match CameraBuilder::tokio_tcp("192.168.0.110")
+        CameraBuilder::tokio_tcp("192.168.0.110")
             .profile::<PTZOpticsG2>()
-            .build_async()
-            .await?
-        {
-            grafton_visca::camera::AsyncCamera::Tcp(cam) => cam,
-            grafton_visca::camera::AsyncCamera::Udp(_) => {
-                unreachable!("TCP builder should return TCP camera")
-            }
-        },
+            .build()
+            .await?,
     );
 
     // Save initial state
@@ -380,40 +350,22 @@ async fn synchronized_movement() -> Result<()> {
     // Create cameras
     let cameras = vec![
         Arc::new(
-            match CameraBuilder::tokio_tcp("192.168.0.109")
+            CameraBuilder::tokio_tcp("192.168.0.109")
                 .profile::<PTZOpticsG2>()
-                .build_async()
-                .await?
-            {
-                grafton_visca::camera::AsyncCamera::Tcp(cam) => cam,
-                grafton_visca::camera::AsyncCamera::Udp(_) => {
-                    unreachable!("TCP builder should return TCP camera")
-                }
-            },
+                .build()
+                .await?,
         ),
         Arc::new(
-            match CameraBuilder::tokio_tcp("192.168.0.110")
+            CameraBuilder::tokio_tcp("192.168.0.110")
                 .profile::<PTZOpticsG2>()
-                .build_async()
-                .await?
-            {
-                grafton_visca::camera::AsyncCamera::Tcp(cam) => cam,
-                grafton_visca::camera::AsyncCamera::Udp(_) => {
-                    unreachable!("TCP builder should return TCP camera")
-                }
-            },
+                .build()
+                .await?,
         ),
         Arc::new(
-            match CameraBuilder::tokio_tcp("192.168.0.111")
+            CameraBuilder::tokio_tcp("192.168.0.111")
                 .profile::<PTZOpticsG2>()
-                .build_async()
-                .await?
-            {
-                grafton_visca::camera::AsyncCamera::Tcp(cam) => cam,
-                grafton_visca::camera::AsyncCamera::Udp(_) => {
-                    unreachable!("TCP builder should return TCP camera")
-                }
-            },
+                .build()
+                .await?,
         ),
     ];
 

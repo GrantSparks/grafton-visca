@@ -7,25 +7,6 @@ use std::marker::PhantomData;
 use super::Camera;
 use crate::{capabilities::Profile, error::Error};
 
-/// Runtime selection for transport builders
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Runtime {
-    /// Blocking runtime (default)
-    Blocking,
-    /// Tokio async runtime
-    #[cfg(feature = "tokio")]
-    Tokio,
-}
-
-/// Protocol selection for transport builders
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Protocol {
-    /// TCP protocol
-    Tcp,
-    /// UDP protocol
-    Udp,
-}
-
 /// Builder for creating camera instances with runtime parameters first.
 ///
 /// This builder allows you to specify the transport type and address first,
@@ -65,145 +46,182 @@ pub struct CameraBuilder<'a> {
 
 impl<'a> CameraBuilder<'a> {
     /// Create a builder for a blocking TCP transport.
-    pub fn tcp(addr: &'a str) -> GenericBuilder<'a> {
-        GenericBuilder {
-            addr,
-            protocol: Protocol::Tcp,
-            runtime: Runtime::Blocking,
-        }
+    pub fn tcp(addr: &'a str) -> TcpBuilder<'a> {
+        TcpBuilder { addr }
     }
 
     /// Create a builder for a blocking UDP transport.
-    pub fn udp(addr: &'a str) -> GenericBuilder<'a> {
-        GenericBuilder {
-            addr,
-            protocol: Protocol::Udp,
-            runtime: Runtime::Blocking,
-        }
+    pub fn udp(addr: &'a str) -> UdpBuilder<'a> {
+        UdpBuilder { addr }
     }
 
     /// Create a builder for an async TCP transport (tokio).
     #[cfg(feature = "tokio")]
-    pub fn tokio_tcp(addr: &'a str) -> GenericBuilder<'a> {
-        GenericBuilder {
-            addr,
-            protocol: Protocol::Tcp,
-            runtime: Runtime::Tokio,
-        }
+    pub fn tokio_tcp(addr: &'a str) -> AsyncTcpBuilder<'a> {
+        AsyncTcpBuilder { addr }
     }
 
     /// Create a builder for an async UDP transport (tokio).
     #[cfg(feature = "tokio")]
-    pub fn tokio_udp(addr: &'a str) -> GenericBuilder<'a> {
-        GenericBuilder {
-            addr,
-            protocol: Protocol::Udp,
-            runtime: Runtime::Tokio,
-        }
+    pub fn tokio_udp(addr: &'a str) -> AsyncUdpBuilder<'a> {
+        AsyncUdpBuilder { addr }
     }
 }
 
-/// Generic builder for all transport configurations.
+/// Builder for blocking TCP transport.
 #[derive(Debug)]
-pub struct GenericBuilder<'a> {
+pub struct TcpBuilder<'a> {
     addr: &'a str,
-    protocol: Protocol,
-    runtime: Runtime,
 }
 
-impl<'a> GenericBuilder<'a> {
+impl<'a> TcpBuilder<'a> {
     /// Lock in the compile-time profile and return a typed builder.
-    pub fn profile<P>(self) -> TypedGenericBuilder<'a, P>
+    pub fn profile<P>(self) -> TypedTcpBuilder<'a, P>
     where
         P: Profile,
     {
-        TypedGenericBuilder {
+        TypedTcpBuilder {
             addr: self.addr,
-            protocol: self.protocol,
-            runtime: self.runtime,
             _profile: PhantomData,
         }
     }
 }
 
-/// Unified typed builder for all transport configurations.
-///
-/// This is the single generic builder that replaces the old 4 separate builder types.
-/// It dynamically chooses the transport type based on runtime and protocol parameters.
+/// Builder for blocking UDP transport.
 #[derive(Debug)]
-pub struct TypedGenericBuilder<'a, P> {
+pub struct UdpBuilder<'a> {
     addr: &'a str,
-    protocol: Protocol,
-    runtime: Runtime,
+}
+
+impl<'a> UdpBuilder<'a> {
+    /// Lock in the compile-time profile and return a typed builder.
+    pub fn profile<P>(self) -> TypedUdpBuilder<'a, P>
+    where
+        P: Profile,
+    {
+        TypedUdpBuilder {
+            addr: self.addr,
+            _profile: PhantomData,
+        }
+    }
+}
+
+/// Builder for async TCP transport.
+#[cfg(feature = "tokio")]
+#[derive(Debug)]
+pub struct AsyncTcpBuilder<'a> {
+    addr: &'a str,
+}
+
+#[cfg(feature = "tokio")]
+impl<'a> AsyncTcpBuilder<'a> {
+    /// Lock in the compile-time profile and return a typed builder.
+    pub fn profile<P>(self) -> TypedAsyncTcpBuilder<'a, P>
+    where
+        P: Profile,
+    {
+        TypedAsyncTcpBuilder {
+            addr: self.addr,
+            _profile: PhantomData,
+        }
+    }
+}
+
+/// Builder for async UDP transport.
+#[cfg(feature = "tokio")]
+#[derive(Debug)]
+pub struct AsyncUdpBuilder<'a> {
+    addr: &'a str,
+}
+
+#[cfg(feature = "tokio")]
+impl<'a> AsyncUdpBuilder<'a> {
+    /// Lock in the compile-time profile and return a typed builder.
+    pub fn profile<P>(self) -> TypedAsyncUdpBuilder<'a, P>
+    where
+        P: Profile,
+    {
+        TypedAsyncUdpBuilder {
+            addr: self.addr,
+            _profile: PhantomData,
+        }
+    }
+}
+
+/// Typed builder for blocking TCP transport.
+#[derive(Debug)]
+pub struct TypedTcpBuilder<'a, P> {
+    addr: &'a str,
     _profile: PhantomData<P>,
 }
 
-/// Result type for blocking builds.
+/// Typed builder for blocking UDP transport.
 #[derive(Debug)]
-pub enum BlockingCamera<P: Profile> {
-    /// TCP transport camera.
-    Tcp(Camera<P, crate::transport::blocking::Tcp>),
-    /// UDP transport camera.
-    Udp(Camera<P, crate::transport::blocking::Udp>),
+pub struct TypedUdpBuilder<'a, P> {
+    addr: &'a str,
+    _profile: PhantomData<P>,
 }
 
-/// Result type for async builds.
+/// Typed builder for async TCP transport.
 #[cfg(feature = "tokio")]
 #[derive(Debug)]
-pub enum AsyncCamera<P: Profile> {
-    /// TCP transport camera.
-    Tcp(Camera<P, crate::transport::tokio::Tcp>),
-    /// UDP transport camera.
-    Udp(Camera<P, crate::transport::tokio::Udp>),
+pub struct TypedAsyncTcpBuilder<'a, P> {
+    addr: &'a str,
+    _profile: PhantomData<P>,
 }
 
-impl<P: Profile> TypedGenericBuilder<'_, P> {
-    /// Build the camera with the appropriate blocking transport.
-    ///
-    /// This method handles both TCP and UDP for blocking runtime.
-    pub fn build(self) -> Result<BlockingCamera<P>, Error> {
-        // Check runtime
-        if self.runtime != Runtime::Blocking {
-            return Err(Error::InvalidRequest(
-                "Use build_async() for async runtime".into(),
-            ));
-        }
+/// Typed builder for async UDP transport.
+#[cfg(feature = "tokio")]
+#[derive(Debug)]
+pub struct TypedAsyncUdpBuilder<'a, P> {
+    addr: &'a str,
+    _profile: PhantomData<P>,
+}
 
-        let addr = ensure_port::<P>(self.addr, self.protocol);
+/// Protocol selection for transport builders
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Protocol {
+    /// TCP protocol
+    Tcp,
+    /// UDP protocol
+    Udp,
+}
 
-        match self.protocol {
-            Protocol::Tcp => {
-                let transport = crate::transport::blocking::Tcp::connect(&addr)?;
-                Ok(BlockingCamera::Tcp(Camera::from_transport(transport)))
-            }
-            Protocol::Udp => {
-                let transport = crate::transport::blocking::Udp::connect(&addr)?;
-                Ok(BlockingCamera::Udp(Camera::from_transport(transport)))
-            }
-        }
+impl<P: Profile> TypedTcpBuilder<'_, P> {
+    /// Build the camera with blocking TCP transport.
+    pub fn build(self) -> Result<Camera<P, crate::transport::blocking::Tcp>, Error> {
+        let addr = ensure_port::<P>(self.addr, Protocol::Tcp);
+        let transport = crate::transport::blocking::Tcp::connect(&addr)?;
+        Ok(Camera::from_transport(transport))
     }
+}
 
-    /// Build the camera with async transport (requires tokio feature).
-    #[cfg(feature = "tokio")]
-    pub async fn build_async(self) -> Result<AsyncCamera<P>, Error> {
-        if self.runtime != Runtime::Tokio {
-            return Err(Error::InvalidRequest(
-                "Use build() for blocking runtime".into(),
-            ));
-        }
+impl<P: Profile> TypedUdpBuilder<'_, P> {
+    /// Build the camera with blocking UDP transport.
+    pub fn build(self) -> Result<Camera<P, crate::transport::blocking::Udp>, Error> {
+        let addr = ensure_port::<P>(self.addr, Protocol::Udp);
+        let transport = crate::transport::blocking::Udp::connect(&addr)?;
+        Ok(Camera::from_transport(transport))
+    }
+}
 
-        let addr = ensure_port::<P>(self.addr, self.protocol);
+#[cfg(feature = "tokio")]
+impl<P: Profile> TypedAsyncTcpBuilder<'_, P> {
+    /// Build the camera with async TCP transport.
+    pub async fn build(self) -> Result<Camera<P, crate::transport::tokio::Tcp>, Error> {
+        let addr = ensure_port::<P>(self.addr, Protocol::Tcp);
+        let transport = crate::transport::tokio::Tcp::connect(&addr).await?;
+        Ok(Camera::from_transport(transport))
+    }
+}
 
-        match self.protocol {
-            Protocol::Tcp => {
-                let transport = crate::transport::tokio::Tcp::connect(&addr).await?;
-                Ok(AsyncCamera::Tcp(Camera::from_transport(transport)))
-            }
-            Protocol::Udp => {
-                let transport = crate::transport::tokio::Udp::connect(&addr).await?;
-                Ok(AsyncCamera::Udp(Camera::from_transport(transport)))
-            }
-        }
+#[cfg(feature = "tokio")]
+impl<P: Profile> TypedAsyncUdpBuilder<'_, P> {
+    /// Build the camera with async UDP transport.
+    pub async fn build(self) -> Result<Camera<P, crate::transport::tokio::Udp>, Error> {
+        let addr = ensure_port::<P>(self.addr, Protocol::Udp);
+        let transport = crate::transport::tokio::Udp::connect(&addr).await?;
+        Ok(Camera::from_transport(transport))
     }
 }
 
@@ -366,9 +384,19 @@ mod tests {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<CameraBuilder>();
-        assert_send_sync::<GenericBuilder>();
-        assert_send_sync::<TypedGenericBuilder<GenericVisca>>();
-        assert_send_sync::<TypedGenericBuilder<PTZOpticsG2>>();
+        assert_send_sync::<TcpBuilder>();
+        assert_send_sync::<UdpBuilder>();
+        assert_send_sync::<TypedTcpBuilder<GenericVisca>>();
+        assert_send_sync::<TypedTcpBuilder<PTZOpticsG2>>();
+        assert_send_sync::<TypedUdpBuilder<GenericVisca>>();
+        assert_send_sync::<TypedUdpBuilder<PTZOpticsG2>>();
+        #[cfg(feature = "tokio")]
+        {
+            assert_send_sync::<AsyncTcpBuilder>();
+            assert_send_sync::<AsyncUdpBuilder>();
+            assert_send_sync::<TypedAsyncTcpBuilder<GenericVisca>>();
+            assert_send_sync::<TypedAsyncUdpBuilder<PTZOpticsG2>>();
+        }
     }
 
     #[test]

@@ -97,7 +97,7 @@ async fn main() -> Result<()> {
     println!("--- Example 1: Tokio TCP ---");
     let _camera = CameraBuilder::tokio_tcp("192.168.0.110")
         .profile::<PTZOpticsG2>()
-        .build_async()
+        .build()
         .await?;
     println!("✓ Created async TCP camera with tokio");
 
@@ -105,7 +105,7 @@ async fn main() -> Result<()> {
     println!("\n--- Example 2: Tokio UDP ---");
     let _camera = CameraBuilder::tokio_udp("192.168.0.110")
         .profile::<PTZOpticsG2>()
-        .build_async()
+        .build()
         .await?;
     println!("✓ Created async UDP camera with tokio");
 
@@ -116,13 +116,13 @@ async fn main() -> Result<()> {
     let (cam1, cam2, cam3) = join!(
         CameraBuilder::tokio_tcp("192.168.0.110")
             .profile::<PTZOpticsG2>()
-            .build_async(),
+            .build(),
         CameraBuilder::tokio_tcp("192.168.1.101")
             .profile::<SonyBRC300>()
-            .build_async(),
+            .build(),
         CameraBuilder::tokio_tcp("192.168.1.102")
             .profile::<SonyFR7>()
-            .build_async()
+            .build()
     );
 
     let mut created = 0;
@@ -141,7 +141,7 @@ async fn main() -> Result<()> {
     println!("\n--- Example 4: Connection Error Handling ---");
     match CameraBuilder::tokio_tcp("invalid.host:5678")
         .profile::<PTZOpticsG2>()
-        .build_async()
+        .build()
         .await
     {
         Ok(_) => println!("Unexpected success"),
