@@ -174,6 +174,12 @@ pub mod flip {
 pub mod image {
     use super::*;
 
+    /// Backlight compensation prefix.
+    pub const BACKLIGHT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x33];
+
+    /// Black and white mode prefix.
+    pub const BLACK_WHITE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x01];
+
     /// Image flip combined mode prefix.
     pub const FLIP_COMBINED_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x61];
 
@@ -420,15 +426,22 @@ pub mod menu {
 }
 
 /// Streaming command constants.
+/// 
+/// Note: These constants document the byte sequences used by streaming commands.
+/// They cannot be directly used in macro-based commands due to macro limitations
+/// requiring literal arrays, but serve as documentation and validation references.
 pub mod streaming {
     use super::*;
 
-    /// Streaming control prefix.
+    /// Multicast streaming control prefix.
     /// **Vendor-Specific**: PTZOptics streaming commands.
-    /// Note: This constant is currently unused because streaming.rs uses
-    /// hardcoded prefixes due to non-standard address requirements (0x80).
-    #[allow(dead_code)]
-    pub const CONTROL_PREFIX: &[u8] = visca_prefix![0x80, 0x0B, 0x01, 0x01];
+    /// Used by: MulticastStreamingInternal in streaming.rs
+    pub const MULTICAST_PREFIX: &[u8] = visca_prefix![0x81, 0x0B, 0x01, 0x23];
+
+    /// NDI quality control prefix.
+    /// **Vendor-Specific**: PTZOptics NDI streaming commands.
+    /// Used by: NDIQualityCommandInternal in streaming.rs
+    pub const NDI_QUALITY_PREFIX: &[u8] = visca_prefix![0x81, 0x0B, 0x01, 0x01];
 }
 
 /// ND filter command constants.
@@ -437,6 +450,9 @@ pub mod nd_filter {
 
     /// ND filter control prefix.
     pub const CONTROL_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x7E, 0x04, 0x52];
+
+    /// ND filter level control prefix.
+    pub const LEVEL_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x7E, 0x04, 0x53];
 
     /// ND filter mode prefix.
     pub const MODE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x7E, 0x04, 0x12];
@@ -532,7 +548,7 @@ mod validation_tests {
         );
 
         // Vendor-specific constants
-        assert_eq!(streaming::CONTROL_PREFIX[0], 0x80); // Different camera ID
+        assert_eq!(streaming::MULTICAST_PREFIX[0], 0x81);
         assert_eq!(tally::TALLY_PTZO_PREFIX[0], 0x81);
         assert_eq!(tally::TALLY_PTZO_PREFIX[1], 0x0A); // Different command type
     }

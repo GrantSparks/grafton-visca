@@ -3,7 +3,7 @@
 //! This module contains camera profiles composed from capability traits,
 //! enabling compile-time feature detection and type-safe operations.
 
-use std::{borrow::Cow, fmt, time::Duration};
+use std::{fmt, time::Duration};
 
 use crate::{
     capabilities::{
@@ -921,7 +921,7 @@ impl TryFrom<u8> for G2PresetId {
 }
 
 /// Gain values for PTZOptics G2 cameras.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, crate::ViscaEnum)]
 pub enum G2Gain {
     /// 0dB gain
     Gain0dB = 0,
@@ -957,35 +957,6 @@ impl fmt::Display for G2Gain {
             G2Gain::Gain24dB => "24dB",
         };
         write!(f, "{db}")
-    }
-}
-
-impl From<G2Gain> for u8 {
-    fn from(gain: G2Gain) -> Self {
-        gain as u8
-    }
-}
-
-impl TryFrom<u8> for G2Gain {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(G2Gain::Gain0dB),
-            1 => Ok(G2Gain::Gain3dB),
-            2 => Ok(G2Gain::Gain6dB),
-            3 => Ok(G2Gain::Gain9dB),
-            4 => Ok(G2Gain::Gain12dB),
-            5 => Ok(G2Gain::Gain15dB),
-            6 => Ok(G2Gain::Gain18dB),
-            7 => Ok(G2Gain::Gain21dB),
-            8 => Ok(G2Gain::Gain24dB),
-            _ => Err(Error::InvalidParameter {
-                parameter: "gain",
-                value: Cow::Owned(value.to_string()),
-                reason: Cow::Borrowed("Invalid G2 gain value"),
-            }),
-        }
     }
 }
 

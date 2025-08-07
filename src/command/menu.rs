@@ -15,7 +15,7 @@ visca_bool_command! {
     ///
     /// VISCA format: `81 01 06 06 0p FF` where p = 2 (On) or 3 (Off)
     struct MenuDisplayCommand {
-        prefix: [0x81, 0x01, 0x06, 0x06],
+        prefix: constants::menu::TOGGLE_PREFIX,
         on: 0x02,
         off: 0x03,
     }

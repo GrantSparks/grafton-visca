@@ -18,7 +18,7 @@ visca_bool_command! {
     /// Enables or disables backlight compensation, which helps properly expose
     /// subjects that are backlit (have a bright light source behind them).
     struct BacklightCommand {
-        prefix: [0x81, 0x01, 0x04, 0x33],
+        prefix: constants::image::BACKLIGHT_PREFIX,
         on: 0x02,
         off: 0x03,
     }
@@ -83,7 +83,7 @@ visca_bool_command! {
     ///
     /// Switches the camera output between color and monochrome (black and white) modes.
     struct BlackWhiteCommand {
-        prefix: [0x81, 0x01, 0x04, 0x01],
+        prefix: constants::image::BLACK_WHITE_PREFIX,
         on: 0x04,
         off: 0x00,
     }
