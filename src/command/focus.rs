@@ -117,65 +117,73 @@ impl EncodeVisca for Focus {
 
         match self {
             Self::Stop | Self::Far | Self::Near => {
-                let mut builder = CommandBuilder::<6>::new();
-                builder
-                    .append(constants::focus::MOVEMENT_PREFIX)
-                    .push(match self {
-                        Self::Stop => 0x00,
+                // Demonstrate type-state pattern usage for Stop command
+                if matches!(self, Self::Stop) {
+                    // Use the new type-state API
+                    let builder = CommandBuilder::<6>::new()
+                        .append(constants::focus::MOVEMENT_PREFIX)
+                        .push(0x00)
+                        .with_camera_id(camera_id)
+                        .terminate();
+                    
+                    // Now we can access bytes only after termination
+                    builder.copy_to(buffer)
+                } else {
+                    // Use legacy API for other commands
+                    let mut builder = CommandBuilder::<6>::new();
+                    builder.append_mut(constants::focus::MOVEMENT_PREFIX);
+                    builder.push_mut(match self {
                         Self::Far => 0x02,
                         Self::Near => 0x03,
                         _ => unreachable!(),
-                    })
-                    .with_camera_id(camera_id)
-                    .finalize();
-                builder.copy_to(buffer)
+                    });
+                    builder.with_camera_id_mut(camera_id);
+                    builder.finalize();
+                    builder.copy_to(buffer)
+                }
             }
             Self::FarWithSpeed(_) | Self::NearWithSpeed(_) => {
                 let mut builder = CommandBuilder::<6>::new();
-                builder
-                    .append(constants::focus::MOVEMENT_PREFIX)
-                    .push(match self {
-                        Self::FarWithSpeed(s) => 0x20 | s.value(),
-                        Self::NearWithSpeed(s) => 0x30 | s.value(),
-                        _ => unreachable!(),
-                    })
-                    .with_camera_id(camera_id)
-                    .finalize();
+                builder.append_mut(constants::focus::MOVEMENT_PREFIX);
+                builder.push_mut(match self {
+                    Self::FarWithSpeed(s) => 0x20 | s.value(),
+                    Self::NearWithSpeed(s) => 0x30 | s.value(),
+                    _ => unreachable!(),
+                });
+                builder.with_camera_id_mut(camera_id);
+                builder.finalize();
                 builder.copy_to(buffer)
             }
             Self::Position(position) => {
-                let mut builder = CommandBuilder::<9>::new();
-                builder
+                let builder = CommandBuilder::<9>::new()
                     .append(constants::focus::POSITION_PREFIX)
                     .push_visca_u16(position.value())
                     .with_camera_id(camera_id)
-                    .finalize();
+                    .terminate();
                 builder.copy_to(buffer)
             }
             Self::Auto | Self::Manual => {
                 let mut builder = CommandBuilder::<6>::new();
-                builder
-                    .append(constants::focus::MODE_PREFIX)
-                    .push(match self {
-                        Self::Auto => 0x02,
-                        Self::Manual => 0x03,
-                        _ => unreachable!(),
-                    })
-                    .with_camera_id(camera_id)
-                    .finalize();
+                builder.append_mut(constants::focus::MODE_PREFIX);
+                builder.push_mut(match self {
+                    Self::Auto => 0x02,
+                    Self::Manual => 0x03,
+                    _ => unreachable!(),
+                });
+                builder.with_camera_id_mut(camera_id);
+                builder.finalize();
                 builder.copy_to(buffer)
             }
             Self::OnePushTrigger | Self::Infinity => {
                 let mut builder = CommandBuilder::<6>::new();
-                builder
-                    .append(constants::focus::ONE_PUSH_PREFIX)
-                    .push(match self {
-                        Self::OnePushTrigger => 0x01,
-                        Self::Infinity => 0x02,
-                        _ => unreachable!(),
-                    })
-                    .with_camera_id(camera_id)
-                    .finalize();
+                builder.append_mut(constants::focus::ONE_PUSH_PREFIX);
+                builder.push_mut(match self {
+                    Self::OnePushTrigger => 0x01,
+                    Self::Infinity => 0x02,
+                    _ => unreachable!(),
+                });
+                builder.with_camera_id_mut(camera_id);
+                builder.finalize();
                 builder.copy_to(buffer)
             }
         }
@@ -211,9 +219,10 @@ visca_builder! {
             FocusZone::Center => 0x01,
             FocusZone::Bottom => 0x02,
         };
-        let _ = builder.append(crate::command::const_encoding::constants::focus::ZONE_PREFIX);
-        let _ = builder.push(zone_byte);
-        let _ = builder.push(0xFF);
+        builder
+            .append(crate::command::const_encoding::constants::focus::ZONE_PREFIX)
+            .push(zone_byte)
+        // Terminator is added automatically by the macro
     }
     timeout = Quick;
 }
@@ -243,9 +252,10 @@ visca_builder! {
             AutoFocusSensitivity::Normal => 0x01,
             AutoFocusSensitivity::Low => 0x00,
         };
-        let _ = builder.append(crate::command::const_encoding::constants::focus::AF_SENSITIVITY_PREFIX);
-        let _ = builder.push(sens_byte);
-        let _ = builder.push(0xFF);
+        builder
+            .append(crate::command::const_encoding::constants::focus::AF_SENSITIVITY_PREFIX)
+            .push(sens_byte)
+        // Terminator is added automatically by the macro
     }
     timeout = Quick;
 }
@@ -260,18 +270,10 @@ visca_builder! {
         position: FocusPosition,
     }
     builder<9> => |builder, position| {
-        let pos_val = position.value();
-        let p0 = ((pos_val >> 12) & 0x0F) as u8;
-        let p1 = ((pos_val >> 8) & 0x0F) as u8;
-        let p2 = ((pos_val >> 4) & 0x0F) as u8;
-        let p3 = (pos_val & 0x0F) as u8;
-
-        let _ = builder.append(crate::command::const_encoding::constants::focus::NEAR_LIMIT_PREFIX);
-        let _ = builder.push(p0);
-        let _ = builder.push(p1);
-        let _ = builder.push(p2);
-        let _ = builder.push(p3);
-        let _ = builder.push(0xFF);
+        builder
+            .append(crate::command::const_encoding::constants::focus::NEAR_LIMIT_PREFIX)
+            .push_visca_u16(position.value())
+        // Terminator is added automatically by the macro
     }
     timeout = Quick;
 }
@@ -330,14 +332,13 @@ impl EncodeVisca for PushAF {
         use crate::command::const_encoding::{constants, CommandBuilder};
 
         let mut builder = CommandBuilder::<8>::new();
-        builder
-            .append(constants::focus::PUSH_AF_PREFIX)
-            .push(match self {
-                Self::Press => 0x01,
-                Self::Release => 0x00,
-            })
-            .with_camera_id(camera_id)
-            .finalize();
+        builder.append_mut(constants::focus::PUSH_AF_PREFIX);
+        builder.push_mut(match self {
+            Self::Press => 0x01,
+            Self::Release => 0x00,
+        });
+        builder.with_camera_id_mut(camera_id);
+        builder.finalize();
         builder.copy_to(buffer)
     }
 
@@ -350,6 +351,7 @@ impl EncodeVisca for PushAF {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
+    use crate::command::const_encoding::VISCA_TERMINATOR;
     use crate::command::encode_visca::EncodeVisca;
     use crate::macros::test_utils::visca_test;
 
@@ -357,21 +359,21 @@ mod tests {
         Focus,
         test_focus_command_stop,
         Focus::Stop,
-        &[0x81, 0x01, 0x04, 0x08, 0x00, 0xFF]
+        &[0x81, 0x01, 0x04, 0x08, 0x00,  VISCA_TERMINATOR]
     );
 
     visca_test!(
         Focus,
         test_focus_command_far_standard,
         Focus::Far,
-        &[0x81, 0x01, 0x04, 0x08, 0x02, 0xFF]
+        &[0x81, 0x01, 0x04, 0x08, 0x02,  VISCA_TERMINATOR]
     );
 
     visca_test!(
         Focus,
         test_focus_command_near_standard,
         Focus::Near,
-        &[0x81, 0x01, 0x04, 0x08, 0x03, 0xFF]
+        &[0x81, 0x01, 0x04, 0x08, 0x03,  VISCA_TERMINATOR]
     );
 
     #[test]
@@ -384,7 +386,7 @@ mod tests {
             assert_eq!(
                 cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-                vec![0x81, 0x01, 0x04, 0x08, 0x20 | speed_val, 0xFF]
+                vec![0x81, 0x01, 0x04, 0x08, 0x20 | speed_val,  VISCA_TERMINATOR]
             );
         }
     }
@@ -399,7 +401,7 @@ mod tests {
             assert_eq!(
                 cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-                vec![0x81, 0x01, 0x04, 0x08, 0x30 | speed_val, 0xFF]
+                vec![0x81, 0x01, 0x04, 0x08, 0x30 | speed_val,  VISCA_TERMINATOR]
             );
         }
     }
@@ -425,7 +427,7 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x48, 0x01, 0x02, 0x03, 0x04, 0xFF]
+            vec![0x81, 0x01, 0x04, 0x48, 0x01, 0x02, 0x03, 0x04,  VISCA_TERMINATOR]
         );
 
         let cmd = Focus::Position(
@@ -434,7 +436,7 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x48, 0x0F, 0x00, 0x00, 0x00, 0xFF]
+            vec![0x81, 0x01, 0x04, 0x48, 0x0F, 0x00, 0x00, 0x00,  VISCA_TERMINATOR]
         );
     }
 
@@ -442,28 +444,28 @@ mod tests {
         Focus,
         test_focus_command_auto,
         Focus::Auto,
-        &[0x81, 0x01, 0x04, 0x38, 0x02, 0xFF]
+        &[0x81, 0x01, 0x04, 0x38, 0x02,  VISCA_TERMINATOR]
     );
 
     visca_test!(
         Focus,
         test_focus_command_manual,
         Focus::Manual,
-        &[0x81, 0x01, 0x04, 0x38, 0x03, 0xFF]
+        &[0x81, 0x01, 0x04, 0x38, 0x03,  VISCA_TERMINATOR]
     );
 
     visca_test!(
         Focus,
         test_focus_command_one_push_trigger,
         Focus::OnePushTrigger,
-        &[0x81, 0x01, 0x04, 0x18, 0x01, 0xFF]
+        &[0x81, 0x01, 0x04, 0x18, 0x01,  VISCA_TERMINATOR]
     );
 
     visca_test!(
         Focus,
         test_focus_command_infinity,
         Focus::Infinity,
-        &[0x81, 0x01, 0x04, 0x18, 0x02, 0xFF]
+        &[0x81, 0x01, 0x04, 0x18, 0x02,  VISCA_TERMINATOR]
     );
 
     #[test]
@@ -474,7 +476,7 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0xAA, 0x00, 0xFF]
+            vec![0x81, 0x01, 0x04, 0xAA, 0x00,  VISCA_TERMINATOR]
         );
 
         let cmd = FocusZoneCommand {
@@ -483,7 +485,7 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0xAA, 0x01, 0xFF]
+            vec![0x81, 0x01, 0x04, 0xAA, 0x01,  VISCA_TERMINATOR]
         );
 
         let cmd = FocusZoneCommand {
@@ -492,7 +494,7 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0xAA, 0x02, 0xFF]
+            vec![0x81, 0x01, 0x04, 0xAA, 0x02,  VISCA_TERMINATOR]
         );
     }
 
@@ -504,7 +506,7 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x58, 0x02, 0xFF]
+            vec![0x81, 0x01, 0x04, 0x58, 0x02,  VISCA_TERMINATOR]
         );
 
         let cmd = AutoFocusSensitivityCommand {
@@ -513,7 +515,7 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x58, 0x01, 0xFF]
+            vec![0x81, 0x01, 0x04, 0x58, 0x01,  VISCA_TERMINATOR]
         );
 
         let cmd = AutoFocusSensitivityCommand {
@@ -522,7 +524,7 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x58, 0x00, 0xFF]
+            vec![0x81, 0x01, 0x04, 0x58, 0x00,  VISCA_TERMINATOR]
         );
     }
 
@@ -535,7 +537,7 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x28, 0x01, 0x02, 0x03, 0x04, 0xFF]
+            vec![0x81, 0x01, 0x04, 0x28, 0x01, 0x02, 0x03, 0x04,  VISCA_TERMINATOR]
         );
 
         let cmd = FocusNearLimitCommand {
@@ -545,7 +547,7 @@ mod tests {
         assert_eq!(
             cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x28, 0x01, 0x00, 0x00, 0x00, 0xFF]
+            vec![0x81, 0x01, 0x04, 0x28, 0x01, 0x00, 0x00, 0x00,  VISCA_TERMINATOR]
         );
     }
 

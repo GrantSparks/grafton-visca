@@ -1124,6 +1124,7 @@ impl SocketManagerActor {
 mod tests {
     use super::*;
     use crate::command::system::Socket;
+    use crate::command::const_encoding::VISCA_TERMINATOR;
     use crate::timeout::CommandCategory;
     use std::time::Duration;
 
@@ -1219,7 +1220,7 @@ mod tests {
     #[test]
     fn test_pending_cmd_creation() {
         let (tx, _rx) = channels::oneshot();
-        let bytes = vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF];
+        let bytes = vec![0x81, 0x01, 0x04, 0x00, 0x02,  VISCA_TERMINATOR];
         let cmd = PendingCmd::new(1, bytes.clone(), CommandCategory::Movement, tx, false);
 
         assert_eq!(cmd.id, 1);
@@ -1310,7 +1311,7 @@ mod tests {
             let (tx, _rx) = channels::oneshot();
             let mut cmd = PendingCmd::new(
                 1,
-                vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF],
+                vec![0x81, 0x01, 0x04, 0x00, 0x02,  VISCA_TERMINATOR],
                 CommandCategory::Movement,
                 tx,
                 false,

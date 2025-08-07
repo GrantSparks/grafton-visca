@@ -132,34 +132,35 @@ impl EncodeVisca for MotionSyncSpeedCommand {
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use crate::command::const_encoding::VISCA_TERMINATOR;
     use crate::macros::test_utils::visca_test;
 
     visca_test!(
         MotionSyncModeCommand,
         test_motion_sync_mode_on,
         MotionSyncModeCommand::new(MotionSyncMode::On),
-        &[0x81, 0x0A, 0x11, 0x13, 0x02, 0xFF]
+        &[0x81, 0x0A, 0x11, 0x13, 0x02,  VISCA_TERMINATOR]
     );
 
     visca_test!(
         MotionSyncModeCommand,
         test_motion_sync_mode_off,
         MotionSyncModeCommand::new(MotionSyncMode::Off),
-        &[0x81, 0x0A, 0x11, 0x13, 0x03, 0xFF]
+        &[0x81, 0x0A, 0x11, 0x13, 0x03,  VISCA_TERMINATOR]
     );
 
     visca_test!(
         MotionSyncSpeedCommand,
         test_motion_sync_speed_min,
         MotionSyncSpeedCommand::new(1).unwrap(),
-        &[0x81, 0x0A, 0x11, 0x14, 0x01, 0xFF]
+        &[0x81, 0x0A, 0x11, 0x14, 0x01,  VISCA_TERMINATOR]
     );
 
     visca_test!(
         MotionSyncSpeedCommand,
         test_motion_sync_speed_max,
         MotionSyncSpeedCommand::new(24).unwrap(),
-        &[0x81, 0x0A, 0x11, 0x14, 0x18, 0xFF]
+        &[0x81, 0x0A, 0x11, 0x14, 0x18,  VISCA_TERMINATOR]
     );
 
     #[test]
@@ -172,20 +173,20 @@ mod tests {
         MotionSyncSpeedCommand,
         test_motion_sync_speed_slow,
         MotionSyncSpeedCommand::from_preset(MotionSyncSpeed::Slow),
-        &[0x81, 0x0A, 0x11, 0x14, 0x08, 0xFF]
+        &[0x81, 0x0A, 0x11, 0x14, 0x08,  VISCA_TERMINATOR]
     );
 
     visca_test!(
         MotionSyncSpeedCommand,
         test_motion_sync_speed_normal,
         MotionSyncSpeedCommand::from_preset(MotionSyncSpeed::Normal),
-        &[0x81, 0x0A, 0x11, 0x14, 0x10, 0xFF]
+        &[0x81, 0x0A, 0x11, 0x14, 0x10,  VISCA_TERMINATOR]
     );
 
     visca_test!(
         MotionSyncSpeedCommand,
         test_motion_sync_speed_fast,
         MotionSyncSpeedCommand::from_preset(MotionSyncSpeed::Fast),
-        &[0x81, 0x0A, 0x11, 0x14, 0x18, 0xFF]
+        &[0x81, 0x0A, 0x11, 0x14, 0x18,  VISCA_TERMINATOR]
     );
 }

@@ -11,6 +11,9 @@ mod tokio_tests {
     use std::collections::VecDeque;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
+    
+    // VISCA terminator constant
+    const VISCA_TERMINATOR: u8 = 0xFF;
 
     #[derive(Debug, Clone, Copy, PartialEq)]
     enum SocketStatus {
@@ -89,9 +92,9 @@ mod tokio_tests {
             let socket_byte = 0x90;
 
             // Generate ACK response
-            let ack = Bytes::from(vec![socket_byte, 0x41, 0xFF]);
+            let ack = Bytes::from(vec![socket_byte, 0x41, VISCA_TERMINATOR]);
             // Generate Completion response
-            let completion = Bytes::from(vec![socket_byte, 0x51, 0xFF]);
+            let completion = Bytes::from(vec![socket_byte, 0x51, VISCA_TERMINATOR]);
             (ack, completion)
         }
 
@@ -120,14 +123,14 @@ mod tokio_tests {
                 let socket_num = socket_idx + 1; // Socket1 = 1, Socket2 = 2
 
                 // Generate ACK
-                let ack = Bytes::from(vec![0x90, 0x40 | socket_num as u8, 0xFF]);
+                let ack = Bytes::from(vec![0x90, 0x40 | socket_num as u8, VISCA_TERMINATOR]);
                 self.pending_responses
                     .lock()
                     .unwrap()
                     .push_back((command_index, ack));
 
                 // Generate Completion (will be sent later)
-                let completion = Bytes::from(vec![0x90, 0x50 | socket_num as u8, 0xFF]);
+                let completion = Bytes::from(vec![0x90, 0x50 | socket_num as u8, VISCA_TERMINATOR]);
                 self.pending_responses
                     .lock()
                     .unwrap()
@@ -205,7 +208,7 @@ mod tokio_tests {
                     self.generate_concurrent_responses(command_index);
                 } else if bytes.len() >= 3 && bytes[1] == 0x09 {
                     // For inquiries, generate immediate response
-                    let response = Bytes::from(vec![0x90, 0x50, 0x02, 0xFF]); // Simple inquiry response
+                    let response = Bytes::from(vec![0x90, 0x50, 0x02, VISCA_TERMINATOR]); // Simple inquiry response
                     self.responses.lock().unwrap().push_back(Ok(response));
                 } else {
                     // For other commands, use simple ACK/Completion on Socket1
@@ -368,8 +371,8 @@ mod tokio_tests {
     #[tokio::test]
     async fn test_command_without_socket_manager() {
         let transport = MockTransport::new();
-        transport.add_response(Ok(Bytes::from(vec![0x90, 0x41, 0xFF]))); // ACK
-        transport.add_response(Ok(Bytes::from(vec![0x90, 0x51, 0xFF]))); // Completion
+        transport.add_response(Ok(Bytes::from(vec![0x90, 0x41, VISCA_TERMINATOR]))); // ACK
+        transport.add_response(Ok(Bytes::from(vec![0x90, 0x51, VISCA_TERMINATOR]))); // Completion
 
         let handle = tokio::runtime::Handle::current();
         let inner_camera = Camera::<PTZOpticsG2, _>::new(transport.clone()).with_spawner(handle);

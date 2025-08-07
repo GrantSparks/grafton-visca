@@ -101,8 +101,9 @@ visca_builder! {
         limit: GainLimit,
     }
     builder<6> => |builder, limit| {
-        let _ = builder.append(crate::command::const_encoding::constants::gain::GAIN_LIMIT_PREFIX);
-        let _ = builder.push(limit.value());
+        builder
+            .append(crate::command::const_encoding::constants::gain::GAIN_LIMIT_PREFIX)
+            .push(limit.value())
     }
     timeout = Quick;
 }
@@ -118,6 +119,7 @@ impl GainLimitCommand {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
+    use crate::command::const_encoding::VISCA_TERMINATOR;
     use crate::command::encode_visca::EncodeVisca;
     use crate::constants::CameraVariant;
     use crate::macros::test_utils::visca_test;
@@ -126,21 +128,21 @@ mod tests {
         Gain,
         test_gain_command_reset,
         Gain::Reset,
-        &[0x81, 0x01, 0x04, 0x0C, 0x00, 0xFF]
+        &[0x81, 0x01, 0x04, 0x0C, 0x00,  VISCA_TERMINATOR]
     );
 
     visca_test!(
         Gain,
         test_gain_command_up,
         Gain::Up,
-        &[0x81, 0x01, 0x04, 0x0C, 0x02, 0xFF]
+        &[0x81, 0x01, 0x04, 0x0C, 0x02,  VISCA_TERMINATOR]
     );
 
     visca_test!(
         Gain,
         test_gain_command_down,
         Gain::Down,
-        &[0x81, 0x01, 0x04, 0x0C, 0x03, 0xFF]
+        &[0x81, 0x01, 0x04, 0x0C, 0x03,  VISCA_TERMINATOR]
     );
 
     #[test]
@@ -156,7 +158,7 @@ mod tests {
             assert_eq!(
                 cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-                vec![0x81, 0x01, 0x04, 0x4C, 0x00, 0x00, high, low, 0xFF]
+                vec![0x81, 0x01, 0x04, 0x4C, 0x00, 0x00, high, low,  VISCA_TERMINATOR]
             );
         }
     }
@@ -197,7 +199,7 @@ mod tests {
             assert_eq!(
                 cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-                vec![0x81, 0x01, 0x04, 0x2C, value, 0xFF]
+                vec![0x81, 0x01, 0x04, 0x2C, value,  VISCA_TERMINATOR]
             );
         }
     }

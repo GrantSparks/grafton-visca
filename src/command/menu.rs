@@ -47,24 +47,12 @@ visca_builder! {
         direction: MenuDirection,
     }
     builder<9> => |builder, direction| {
-        let _ = builder.append(constants::menu::NAVIGATE_PREFIX);
+        let builder = builder.append(constants::menu::NAVIGATE_PREFIX);
         match *direction {
-            MenuDirection::Up => {
-                let _ = builder.push(0x03);
-                let _ = builder.push(0x01);
-            }
-            MenuDirection::Down => {
-                let _ = builder.push(0x03);
-                let _ = builder.push(0x02);
-            }
-            MenuDirection::Left => {
-                let _ = builder.push(0x01);
-                let _ = builder.push(0x03);
-            }
-            MenuDirection::Right => {
-                let _ = builder.push(0x02);
-                let _ = builder.push(0x03);
-            }
+            MenuDirection::Up => builder.push(0x03).push(0x01),
+            MenuDirection::Down => builder.push(0x03).push(0x02),
+            MenuDirection::Left => builder.push(0x01).push(0x03),
+            MenuDirection::Right => builder.push(0x02).push(0x03),
         }
     }
     timeout = Quick;
@@ -130,9 +118,10 @@ visca_builder! {
         control2: u8,
     }
     builder<8> => |builder, control1, control2| {
-        let _ = builder.append(constants::menu::SETTINGS_PREFIX);
-        let _ = builder.push(*control1);
-        let _ = builder.push(*control2);
+        builder
+            .append(constants::menu::SETTINGS_PREFIX)
+            .push(*control1)
+            .push(*control2)
     }
     timeout = Quick;
 }
@@ -153,75 +142,76 @@ impl DirectMenuControlCommand {
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use crate::command::const_encoding::VISCA_TERMINATOR;
     use crate::macros::test_utils::visca_test;
 
     visca_test!(
         MenuDisplayCommand,
         test_menu_display_on,
         MenuDisplayCommand::new(true),
-        &[0x81, 0x01, 0x06, 0x06, 0x02, 0xFF]
+        &[0x81, 0x01, 0x06, 0x06, 0x02,  VISCA_TERMINATOR]
     );
 
     visca_test!(
         MenuDisplayCommand,
         test_menu_display_off,
         MenuDisplayCommand::new(false),
-        &[0x81, 0x01, 0x06, 0x06, 0x03, 0xFF]
+        &[0x81, 0x01, 0x06, 0x06, 0x03,  VISCA_TERMINATOR]
     );
 
     visca_test!(
         MenuNavigateCommand,
         test_menu_navigate_up,
         MenuNavigateCommand::new(MenuDirection::Up),
-        &[0x81, 0x01, 0x06, 0x01, 0x0E, 0x0E, 0x03, 0x01, 0xFF]
+        &[0x81, 0x01, 0x06, 0x01, 0x0E, 0x0E, 0x03, 0x01,  VISCA_TERMINATOR]
     );
 
     visca_test!(
         MenuNavigateCommand,
         test_menu_navigate_down,
         MenuNavigateCommand::new(MenuDirection::Down),
-        &[0x81, 0x01, 0x06, 0x01, 0x0E, 0x0E, 0x03, 0x02, 0xFF]
+        &[0x81, 0x01, 0x06, 0x01, 0x0E, 0x0E, 0x03, 0x02,  VISCA_TERMINATOR]
     );
 
     visca_test!(
         MenuNavigateCommand,
         test_menu_navigate_left,
         MenuNavigateCommand::new(MenuDirection::Left),
-        &[0x81, 0x01, 0x06, 0x01, 0x0E, 0x0E, 0x01, 0x03, 0xFF]
+        &[0x81, 0x01, 0x06, 0x01, 0x0E, 0x0E, 0x01, 0x03,  VISCA_TERMINATOR]
     );
 
     visca_test!(
         MenuNavigateCommand,
         test_menu_navigate_right,
         MenuNavigateCommand::new(MenuDirection::Right),
-        &[0x81, 0x01, 0x06, 0x01, 0x0E, 0x0E, 0x02, 0x03, 0xFF]
+        &[0x81, 0x01, 0x06, 0x01, 0x0E, 0x0E, 0x02, 0x03,  VISCA_TERMINATOR]
     );
 
     visca_test!(
         MenuActionCommand,
         test_menu_select,
         MenuActionCommand::new(MenuAction::Select),
-        &[0x81, 0x01, 0x06, 0x06, 0x05, 0xFF]
+        &[0x81, 0x01, 0x06, 0x06, 0x05,  VISCA_TERMINATOR]
     );
 
     visca_test!(
         MenuActionCommand,
         test_menu_cancel,
         MenuActionCommand::new(MenuAction::Cancel),
-        &[0x81, 0x01, 0x06, 0x06, 0x04, 0xFF]
+        &[0x81, 0x01, 0x06, 0x06, 0x04,  VISCA_TERMINATOR]
     );
 
     visca_test!(
         DirectMenuControlCommand,
         test_direct_menu_control,
         DirectMenuControlCommand::new(0x00, 0x01),
-        &[0x81, 0x01, 0x7E, 0x04, 0x72, 0x00, 0x01, 0xFF]
+        &[0x81, 0x01, 0x7E, 0x04, 0x72, 0x00, 0x01,  VISCA_TERMINATOR]
     );
 
     visca_test!(
         DirectMenuControlCommand,
         test_direct_menu_open_close,
         DirectMenuControlCommand::open_close(),
-        &[0x81, 0x01, 0x7E, 0x04, 0x72, 0x00, 0x01, 0xFF]
+        &[0x81, 0x01, 0x7E, 0x04, 0x72, 0x00, 0x01,  VISCA_TERMINATOR]
     );
 }

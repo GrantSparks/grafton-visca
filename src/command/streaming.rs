@@ -10,10 +10,10 @@ use crate::types::NDIQuality;
 visca_bool_command! {
     /// Internal multicast streaming command
     struct MulticastStreamingInternal {
-        prefix: [0x80, 0x0B, 0x01, 0x23],
+        prefix: [0x81, 0x0B, 0x01, 0x23],
         on: 0x01,
         off: 0x02,
-        address: 0x80,
+        address: 0x81,
         response: None,
     }
 }
@@ -63,7 +63,7 @@ visca_param_command! {
     struct NDIQualityCommandInternal {
         quality: NDIQuality,
     }
-    prefix = [0x80, 0x0B, 0x01, 0x01];
+    prefix = [0x81, 0x0B, 0x01, 0x01];
     param_byte = match quality {
         NDIQuality::High => 0x01,
         NDIQuality::Medium => 0x02,
@@ -71,7 +71,7 @@ visca_param_command! {
         NDIQuality::Off => 0x04,
     };
     timeout = Network;
-    address = 0x80;
+    address = 0x81;
     response = None;
 }
 
@@ -120,47 +120,48 @@ impl NDIQualityCommand {
 mod tests {
     #![allow(clippy::expect_used, clippy::panic)]
     use super::*;
+    use crate::command::const_encoding::VISCA_TERMINATOR;
     use crate::macros::test_utils::visca_test;
 
     visca_test!(
         MulticastStreaming,
         test_multicast_on_encoding,
         MulticastStreaming::On,
-        &[0x81, 0x0B, 0x01, 0x23, 0x01, 0xFF]
+        &[0x81, 0x0B, 0x01, 0x23, 0x01,  VISCA_TERMINATOR]
     );
 
     visca_test!(
         MulticastStreaming,
         test_multicast_off_encoding,
         MulticastStreaming::Off,
-        &[0x81, 0x0B, 0x01, 0x23, 0x02, 0xFF]
+        &[0x81, 0x0B, 0x01, 0x23, 0x02,  VISCA_TERMINATOR]
     );
 
     visca_test!(
         NDIQualityCommand,
         test_ndi_quality_high_encoding,
         NDIQualityCommand::new(NDIQuality::High),
-        &[0x81, 0x0B, 0x01, 0x01, 0x01, 0xFF]
+        &[0x81, 0x0B, 0x01, 0x01, 0x01,  VISCA_TERMINATOR]
     );
 
     visca_test!(
         NDIQualityCommand,
         test_ndi_quality_medium_encoding,
         NDIQualityCommand::new(NDIQuality::Medium),
-        &[0x81, 0x0B, 0x01, 0x01, 0x02, 0xFF]
+        &[0x81, 0x0B, 0x01, 0x01, 0x02,  VISCA_TERMINATOR]
     );
 
     visca_test!(
         NDIQualityCommand,
         test_ndi_quality_low_encoding,
         NDIQualityCommand::new(NDIQuality::Low),
-        &[0x81, 0x0B, 0x01, 0x01, 0x03, 0xFF]
+        &[0x81, 0x0B, 0x01, 0x01, 0x03,  VISCA_TERMINATOR]
     );
 
     visca_test!(
         NDIQualityCommand,
         test_ndi_quality_off_encoding,
         NDIQualityCommand::new(NDIQuality::Off),
-        &[0x81, 0x0B, 0x01, 0x01, 0x04, 0xFF]
+        &[0x81, 0x0B, 0x01, 0x01, 0x04,  VISCA_TERMINATOR]
     );
 }

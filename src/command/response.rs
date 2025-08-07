@@ -1892,6 +1892,7 @@ pub fn parse_focus_range(data: &[u8]) -> Result<InquiryResponse, Error> {
 #[allow(clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;
+    use crate::command::const_encoding::VISCA_TERMINATOR;
 
     #[test]
     fn test_response_debug() {
@@ -1910,21 +1911,21 @@ mod tests {
 
     #[test]
     fn test_basic_ack_parsing() {
-        let response = vec![0x90, 0x41, 0xFF];
+        let response = vec![0x90, 0x41,  VISCA_TERMINATOR];
         let result = parse_response(&response, &ResponseType::Power).unwrap();
         assert!(matches!(result, Response::CmdAck));
     }
 
     #[test]
     fn test_basic_completion_parsing() {
-        let response = vec![0x90, 0x51, 0xFF];
+        let response = vec![0x90, 0x51,  VISCA_TERMINATOR];
         let result = parse_response(&response, &ResponseType::Power).unwrap();
         assert!(matches!(result, Response::Completion));
     }
 
     #[test]
     fn test_basic_error_parsing() {
-        let response = vec![0x90, 0x60, 0x02, 0xFF];
+        let response = vec![0x90, 0x60, 0x02,  VISCA_TERMINATOR];
         let result = parse_response(&response, &ResponseType::Power);
         assert!(result.is_err());
     }
@@ -1937,7 +1938,7 @@ mod tests {
         assert!(matches!(result, Err(Error::InvalidResponseFormat)));
 
         // Too short
-        let response = vec![0x90, 0xFF];
+        let response = vec![0x90,  VISCA_TERMINATOR];
         let result = parse_response(&response, &ResponseType::Power);
         assert!(matches!(result, Err(Error::InvalidResponseFormat)));
     }
@@ -1945,7 +1946,7 @@ mod tests {
     #[test]
     fn test_simple_power_response() {
         // Power On
-        let response = vec![0x90, 0x50, 0x02, 0xFF];
+        let response = vec![0x90, 0x50, 0x02,  VISCA_TERMINATOR];
         let result = parse_response(&response, &ResponseType::Power).unwrap();
         match result {
             Response::Inquiry(InquiryResponse::Power { on }) => assert!(on),
@@ -1953,7 +1954,7 @@ mod tests {
         }
 
         // Power Off
-        let response = vec![0x90, 0x50, 0x03, 0xFF];
+        let response = vec![0x90, 0x50, 0x03,  VISCA_TERMINATOR];
         let result = parse_response(&response, &ResponseType::Power).unwrap();
         match result {
             Response::Inquiry(InquiryResponse::Power { on }) => assert!(!on),
@@ -1975,12 +1976,12 @@ mod tests {
     #[test]
     fn test_parse_ack_response() {
         // ACK for socket 0
-        let ack_bytes = &[0x90, 0x40, 0xFF];
+        let ack_bytes = &[0x90, 0x40,  VISCA_TERMINATOR];
         let response = parse_response(ack_bytes, &ResponseType::PanTiltPosition);
         assert!(matches!(response, Ok(Response::CmdAck)));
 
         // ACK for socket 1
-        let ack_bytes = &[0x90, 0x41, 0xFF];
+        let ack_bytes = &[0x90, 0x41,  VISCA_TERMINATOR];
         let response = parse_response(ack_bytes, &ResponseType::ZoomPosition);
         assert!(matches!(response, Ok(Response::CmdAck)));
     }
@@ -1988,12 +1989,12 @@ mod tests {
     #[test]
     fn test_parse_completion_response() {
         // Completion for socket 0
-        let completion_bytes = &[0x90, 0x50, 0xFF];
+        let completion_bytes = &[0x90, 0x50,  VISCA_TERMINATOR];
         let response = parse_response(completion_bytes, &ResponseType::PanTiltPosition);
         assert!(matches!(response, Ok(Response::Completion)));
 
         // Completion for socket 1
-        let completion_bytes = &[0x90, 0x51, 0xFF];
+        let completion_bytes = &[0x90, 0x51,  VISCA_TERMINATOR];
         let response = parse_response(completion_bytes, &ResponseType::ZoomPosition);
         assert!(matches!(response, Ok(Response::Completion)));
     }
@@ -2001,17 +2002,17 @@ mod tests {
     #[test]
     fn test_parse_error_responses() {
         // Test Syntax Error
-        let error_bytes = &[0x90, 0x60, 0x02, 0xFF];
+        let error_bytes = &[0x90, 0x60, 0x02,  VISCA_TERMINATOR];
         let response = parse_response(error_bytes, &ResponseType::PanTiltPosition);
         assert!(matches!(response, Err(Error::SyntaxError)));
 
         // Test Command Buffer Full
-        let error_bytes = &[0x90, 0x60, 0x03, 0xFF];
+        let error_bytes = &[0x90, 0x60, 0x03,  VISCA_TERMINATOR];
         let response = parse_response(error_bytes, &ResponseType::PanTiltPosition);
         assert!(matches!(response, Err(Error::CommandBufferFull)));
 
         // Test Command Not Executable
-        let error_bytes = &[0x90, 0x61, 0x41, 0xFF];
+        let error_bytes = &[0x90, 0x61, 0x41,  VISCA_TERMINATOR];
         let response = parse_response(error_bytes, &ResponseType::PanTiltPosition);
         assert!(matches!(response, Err(Error::CommandNotExecutable)));
     }
@@ -2033,7 +2034,7 @@ mod tests {
 
     #[test]
     fn test_parse_zoom_position_response() {
-        let zoom_response_bytes = &[0x90, 0x50, 0x0A, 0x0B, 0x0C, 0x0D, 0xFF];
+        let zoom_response_bytes = &[0x90, 0x50, 0x0A, 0x0B, 0x0C, 0x0D,  VISCA_TERMINATOR];
         let response = parse_response(zoom_response_bytes, &ResponseType::ZoomPosition);
         match response {
             Ok(Response::Inquiry(InquiryResponse::ZoomPosition { position })) => {
@@ -2045,7 +2046,7 @@ mod tests {
 
     #[test]
     fn test_parse_focus_position_response() {
-        let focus_response_bytes = &[0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0xFF];
+        let focus_response_bytes = &[0x90, 0x50, 0x01, 0x02, 0x03, 0x04,  VISCA_TERMINATOR];
         let response = parse_response(focus_response_bytes, &ResponseType::FocusPosition);
         match response {
             Ok(Response::Inquiry(InquiryResponse::FocusPosition { position })) => {
@@ -2058,7 +2059,7 @@ mod tests {
     #[test]
     fn test_parse_exposure_mode_response() {
         // Auto exposure mode
-        let exposure_response_bytes = &[0x90, 0x50, 0x00, 0xFF];
+        let exposure_response_bytes = &[0x90, 0x50, 0x00,  VISCA_TERMINATOR];
         let response = parse_response(exposure_response_bytes, &ResponseType::ExposureMode);
         match response {
             Ok(Response::Inquiry(InquiryResponse::ExposureMode { mode })) => {
@@ -2068,7 +2069,7 @@ mod tests {
         }
 
         // Manual exposure mode
-        let exposure_response_bytes = &[0x90, 0x50, 0x03, 0xFF];
+        let exposure_response_bytes = &[0x90, 0x50, 0x03,  VISCA_TERMINATOR];
         let response = parse_response(exposure_response_bytes, &ResponseType::ExposureMode);
         match response {
             Ok(Response::Inquiry(InquiryResponse::ExposureMode { mode })) => {
@@ -2081,7 +2082,7 @@ mod tests {
     #[test]
     fn test_parse_luminance_response() {
         // Test minimum luminance value (0)
-        let luminance_response_bytes = &[0x90, 0x50, 0x00, 0xFF];
+        let luminance_response_bytes = &[0x90, 0x50, 0x00,  VISCA_TERMINATOR];
         let response = parse_response(luminance_response_bytes, &ResponseType::Luminance);
         match response {
             Ok(Response::Inquiry(InquiryResponse::Luminance(value))) => {
@@ -2091,7 +2092,7 @@ mod tests {
         }
 
         // Test middle luminance value (7)
-        let luminance_response_bytes = &[0x90, 0x50, 0x07, 0xFF];
+        let luminance_response_bytes = &[0x90, 0x50, 0x07,  VISCA_TERMINATOR];
         let response = parse_response(luminance_response_bytes, &ResponseType::Luminance);
         match response {
             Ok(Response::Inquiry(InquiryResponse::Luminance(value))) => {
@@ -2101,7 +2102,7 @@ mod tests {
         }
 
         // Test maximum luminance value (14)
-        let luminance_response_bytes = &[0x90, 0x50, 0x0E, 0xFF];
+        let luminance_response_bytes = &[0x90, 0x50, 0x0E,  VISCA_TERMINATOR];
         let response = parse_response(luminance_response_bytes, &ResponseType::Luminance);
         match response {
             Ok(Response::Inquiry(InquiryResponse::Luminance(value))) => {
@@ -2114,7 +2115,7 @@ mod tests {
     #[test]
     fn test_parse_contrast_response() {
         // Test minimum contrast value (0)
-        let contrast_response_bytes = &[0x90, 0x50, 0x00, 0xFF];
+        let contrast_response_bytes = &[0x90, 0x50, 0x00,  VISCA_TERMINATOR];
         let response = parse_response(contrast_response_bytes, &ResponseType::Contrast);
         match response {
             Ok(Response::Inquiry(InquiryResponse::Contrast(value))) => {
@@ -2124,7 +2125,7 @@ mod tests {
         }
 
         // Test middle contrast value (7)
-        let contrast_response_bytes = &[0x90, 0x50, 0x07, 0xFF];
+        let contrast_response_bytes = &[0x90, 0x50, 0x07,  VISCA_TERMINATOR];
         let response = parse_response(contrast_response_bytes, &ResponseType::Contrast);
         match response {
             Ok(Response::Inquiry(InquiryResponse::Contrast(value))) => {
@@ -2134,7 +2135,7 @@ mod tests {
         }
 
         // Test maximum contrast value (14)
-        let contrast_response_bytes = &[0x90, 0x50, 0x0E, 0xFF];
+        let contrast_response_bytes = &[0x90, 0x50, 0x0E,  VISCA_TERMINATOR];
         let response = parse_response(contrast_response_bytes, &ResponseType::Contrast);
         match response {
             Ok(Response::Inquiry(InquiryResponse::Contrast(value))) => {
@@ -2147,7 +2148,7 @@ mod tests {
     #[test]
     fn test_parse_invalid_response() {
         // Test response that doesn't start with 0x90
-        let invalid_bytes = &[0x80, 0x50, 0xFF];
+        let invalid_bytes = &[0x80, 0x50,  VISCA_TERMINATOR];
         let response = parse_response(invalid_bytes, &ResponseType::PanTiltPosition);
         assert!(response.is_err());
 
@@ -2165,7 +2166,7 @@ mod tests {
     #[test]
     fn test_parse_response_with_wrong_type() {
         // Try to parse an ACK as a data response
-        let ack_bytes = &[0x90, 0x40, 0xFF];
+        let ack_bytes = &[0x90, 0x40,  VISCA_TERMINATOR];
         let response = parse_response(ack_bytes, &ResponseType::PanTiltPosition);
         // ACK is still recognized regardless of expected response type
         assert!(matches!(response, Ok(Response::CmdAck)));
@@ -2174,7 +2175,7 @@ mod tests {
     #[test]
     fn test_parse_sharpness_response() {
         // Test Sharpness response
-        let sharpness_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x0B, 0xFF];
+        let sharpness_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x0B,  VISCA_TERMINATOR];
         let response = parse_response(sharpness_bytes, &ResponseType::Sharpness);
         match response {
             Ok(Response::Inquiry(InquiryResponse::Sharpness { value })) => {
@@ -2187,7 +2188,7 @@ mod tests {
     #[test]
     fn test_parse_exposure_compensation_responses() {
         // Test Exposure Compensation value -7
-        let exp_comp_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x00, 0xFF];
+        let exp_comp_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x00,  VISCA_TERMINATOR];
         let response = parse_response(exp_comp_bytes, &ResponseType::ExposureCompensation);
         match response {
             Ok(Response::Inquiry(InquiryResponse::ExposureCompensation { value })) => {
@@ -2197,7 +2198,7 @@ mod tests {
         }
 
         // Test Exposure Compensation value 0
-        let exp_comp_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x07, 0xFF];
+        let exp_comp_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x07,  VISCA_TERMINATOR];
         let response = parse_response(exp_comp_bytes, &ResponseType::ExposureCompensation);
         match response {
             Ok(Response::Inquiry(InquiryResponse::ExposureCompensation { value })) => {
@@ -2207,7 +2208,7 @@ mod tests {
         }
 
         // Test Exposure Compensation value +7
-        let exp_comp_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x0E, 0xFF];
+        let exp_comp_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x0E,  VISCA_TERMINATOR];
         let response = parse_response(exp_comp_bytes, &ResponseType::ExposureCompensation);
         match response {
             Ok(Response::Inquiry(InquiryResponse::ExposureCompensation { value })) => {
@@ -2217,7 +2218,7 @@ mod tests {
         }
 
         // Test Exposure Compensation Mode On
-        let exp_comp_mode_bytes = &[0x90, 0x50, 0x02, 0xFF];
+        let exp_comp_mode_bytes = &[0x90, 0x50, 0x02,  VISCA_TERMINATOR];
         let response = parse_response(exp_comp_mode_bytes, &ResponseType::ExposureCompensationMode);
         match response {
             Ok(Response::Inquiry(InquiryResponse::ExposureCompensationMode { on })) => {
@@ -2227,7 +2228,7 @@ mod tests {
         }
 
         // Test Exposure Compensation Mode Off
-        let exp_comp_mode_bytes = &[0x90, 0x50, 0x03, 0xFF];
+        let exp_comp_mode_bytes = &[0x90, 0x50, 0x03,  VISCA_TERMINATOR];
         let response = parse_response(exp_comp_mode_bytes, &ResponseType::ExposureCompensationMode);
         match response {
             Ok(Response::Inquiry(InquiryResponse::ExposureCompensationMode { on })) => {
@@ -2240,7 +2241,7 @@ mod tests {
     #[test]
     fn test_parse_iris_responses() {
         // Test Iris Close (0x00)
-        let iris_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x00, 0xFF];
+        let iris_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x00,  VISCA_TERMINATOR];
         let response = parse_response(iris_bytes, &ResponseType::Iris);
         match response {
             Ok(Response::Inquiry(InquiryResponse::Iris { position })) => {
@@ -2250,7 +2251,7 @@ mod tests {
         }
 
         // Test Iris F1.8 (0x0C)
-        let iris_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x0C, 0xFF];
+        let iris_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x0C,  VISCA_TERMINATOR];
         let response = parse_response(iris_bytes, &ResponseType::Iris);
         match response {
             Ok(Response::Inquiry(InquiryResponse::Iris { position })) => {
@@ -2263,7 +2264,7 @@ mod tests {
     #[test]
     fn test_parse_shutter_responses() {
         // Test Shutter 1/30 (0x01)
-        let shutter_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x01, 0xFF];
+        let shutter_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x01,  VISCA_TERMINATOR];
         let response = parse_response(shutter_bytes, &ResponseType::Shutter);
         match response {
             Ok(Response::Inquiry(InquiryResponse::Shutter { position })) => {
@@ -2273,7 +2274,7 @@ mod tests {
         }
 
         // Test Shutter 1/10000 (0x11)
-        let shutter_bytes = &[0x90, 0x50, 0x00, 0x00, 0x01, 0x01, 0xFF];
+        let shutter_bytes = &[0x90, 0x50, 0x00, 0x00, 0x01, 0x01,  VISCA_TERMINATOR];
         let response = parse_response(shutter_bytes, &ResponseType::Shutter);
         match response {
             Ok(Response::Inquiry(InquiryResponse::Shutter { position })) => {
@@ -2286,7 +2287,7 @@ mod tests {
     #[test]
     fn test_parse_gain_responses() {
         // Test Gain response
-        let gain_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x07, 0xFF];
+        let gain_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x07,  VISCA_TERMINATOR];
         let response = parse_response(gain_bytes, &ResponseType::Gain);
         match response {
             Ok(Response::Inquiry(InquiryResponse::GainLevel { gain })) => {
@@ -2296,7 +2297,7 @@ mod tests {
         }
 
         // Test GainLimit response
-        let gain_limit_bytes = &[0x90, 0x50, 0x0F, 0xFF];
+        let gain_limit_bytes = &[0x90, 0x50, 0x0F,  VISCA_TERMINATOR];
         let response = parse_response(gain_limit_bytes, &ResponseType::GainLimit);
         match response {
             Ok(Response::Inquiry(InquiryResponse::GainLimit { limit })) => {
@@ -2309,7 +2310,7 @@ mod tests {
     #[test]
     fn test_parse_image_flip_responses() {
         // Test ImageFlip Off (0x00)
-        let flip_bytes = &[0x90, 0x50, 0x00, 0xFF];
+        let flip_bytes = &[0x90, 0x50, 0x00,  VISCA_TERMINATOR];
         let response = parse_response(flip_bytes, &ResponseType::ImageFlip);
         match response {
             Ok(Response::Inquiry(InquiryResponse::ImageFlip {
@@ -2323,7 +2324,7 @@ mod tests {
         }
 
         // Test ImageFlip Horizontal only (0x01)
-        let flip_bytes = &[0x90, 0x50, 0x01, 0xFF];
+        let flip_bytes = &[0x90, 0x50, 0x01,  VISCA_TERMINATOR];
         let response = parse_response(flip_bytes, &ResponseType::ImageFlip);
         match response {
             Ok(Response::Inquiry(InquiryResponse::ImageFlip {
@@ -2337,7 +2338,7 @@ mod tests {
         }
 
         // Test ImageFlip Vertical only (0x02)
-        let flip_bytes = &[0x90, 0x50, 0x02, 0xFF];
+        let flip_bytes = &[0x90, 0x50, 0x02,  VISCA_TERMINATOR];
         let response = parse_response(flip_bytes, &ResponseType::ImageFlip);
         match response {
             Ok(Response::Inquiry(InquiryResponse::ImageFlip {
@@ -2351,7 +2352,7 @@ mod tests {
         }
 
         // Test ImageFlip Both (0x03)
-        let flip_bytes = &[0x90, 0x50, 0x03, 0xFF];
+        let flip_bytes = &[0x90, 0x50, 0x03,  VISCA_TERMINATOR];
         let response = parse_response(flip_bytes, &ResponseType::ImageFlip);
         match response {
             Ok(Response::Inquiry(InquiryResponse::ImageFlip {
@@ -2370,12 +2371,12 @@ mod tests {
         // Test various response types with incorrect lengths
 
         // Sharpness with wrong length (should be 7 bytes)
-        let invalid_sharpness = &[0x90, 0x50, 0x0B, 0xFF];
+        let invalid_sharpness = &[0x90, 0x50, 0x0B,  VISCA_TERMINATOR];
         let response = parse_response(invalid_sharpness, &ResponseType::Sharpness);
         assert!(matches!(response, Err(Error::InvalidResponseLength)));
 
         // Exposure compensation with wrong length (should be 7 bytes)
-        let invalid_exp_comp = &[0x90, 0x50, 0x07, 0xFF];
+        let invalid_exp_comp = &[0x90, 0x50, 0x07,  VISCA_TERMINATOR];
         let response = parse_response(invalid_exp_comp, &ResponseType::ExposureCompensation);
         assert!(matches!(response, Err(Error::InvalidResponseLength)));
     }

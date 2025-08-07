@@ -7,6 +7,9 @@
 
 use std::fmt::Debug;
 
+/// VISCA command terminator byte.
+const VISCA_TERMINATOR: u8 = 0xFF;
+
 // Note: ViscaProtocol creation helpers have been removed since concrete
 // transport implementations (TCP/UDP) are now provided as examples
 // rather than being part of the core library. Tests should either:
@@ -76,17 +79,17 @@ pub fn assert_bytes_start_with(actual: &[u8], prefix: &[u8], context: &str) {
 
 /// Creates a valid VISCA ACK response for testing.
 pub fn create_ack_response(socket: u8) -> Vec<u8> {
-    vec![0x90, 0x40 | (socket & 0x01), 0xFF]
+    vec![0x90, 0x40 | (socket & 0x01), VISCA_TERMINATOR]
 }
 
 /// Creates a valid VISCA completion response for testing.
 pub fn create_completion_response(socket: u8) -> Vec<u8> {
-    vec![0x90, 0x50 | (socket & 0x01), 0xFF]
+    vec![0x90, 0x50 | (socket & 0x01), VISCA_TERMINATOR]
 }
 
 /// Creates a valid VISCA error response for testing.
 pub fn create_error_response(error_code: u8) -> Vec<u8> {
-    vec![0x90, 0x60, error_code, 0xFF]
+    vec![0x90, 0x60, error_code, VISCA_TERMINATOR]
 }
 
 /// Creates a standard ACK + Completion sequence for a socket.
@@ -124,8 +127,8 @@ mod tests {
 
     #[test]
     fn test_assert_bytes_eq_success() {
-        let actual = vec![0x81, 0x01, 0x06, 0x04, 0xFF];
-        let expected = vec![0x81, 0x01, 0x06, 0x04, 0xFF];
+        let actual = vec![0x81, 0x01, 0x06, 0x04, VISCA_TERMINATOR];
+        let expected = vec![0x81, 0x01, 0x06, 0x04, VISCA_TERMINATOR];
         assert_bytes_eq(&actual, &expected, "Bytes should match");
     }
 
@@ -134,17 +137,17 @@ mod tests {
         expected = "Bytes mismatch\nExpected: [81, 01, 06, 04, FF]\nActual:   [81, 01, 06, 05, FF]"
     )]
     fn test_assert_bytes_eq_failure() {
-        let actual = vec![0x81, 0x01, 0x06, 0x05, 0xFF];
-        let expected = vec![0x81, 0x01, 0x06, 0x04, 0xFF];
+        let actual = vec![0x81, 0x01, 0x06, 0x05, VISCA_TERMINATOR];
+        let expected = vec![0x81, 0x01, 0x06, 0x04, VISCA_TERMINATOR];
         assert_bytes_eq(&actual, &expected, "Bytes mismatch");
     }
 
     #[test]
     fn test_create_responses() {
-        assert_eq!(create_ack_response(0), vec![0x90, 0x40, 0xFF]);
-        assert_eq!(create_ack_response(1), vec![0x90, 0x41, 0xFF]);
-        assert_eq!(create_completion_response(0), vec![0x90, 0x50, 0xFF]);
-        assert_eq!(create_completion_response(1), vec![0x90, 0x51, 0xFF]);
-        assert_eq!(create_error_response(0x01), vec![0x90, 0x60, 0x01, 0xFF]);
+        assert_eq!(create_ack_response(0), vec![0x90, 0x40, VISCA_TERMINATOR]);
+        assert_eq!(create_ack_response(1), vec![0x90, 0x41, VISCA_TERMINATOR]);
+        assert_eq!(create_completion_response(0), vec![0x90, 0x50, VISCA_TERMINATOR]);
+        assert_eq!(create_completion_response(1), vec![0x90, 0x51, VISCA_TERMINATOR]);
+        assert_eq!(create_error_response(0x01), vec![0x90, 0x60, 0x01, VISCA_TERMINATOR]);
     }
 }

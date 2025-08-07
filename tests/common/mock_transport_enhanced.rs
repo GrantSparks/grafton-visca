@@ -3,6 +3,9 @@
 //! Provides a highly configurable mock transport that can simulate various
 //! camera behaviors and network conditions for comprehensive testing.
 
+/// VISCA command terminator byte.
+const VISCA_TERMINATOR: u8 = 0xFF;
+
 use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::fmt;
@@ -199,14 +202,14 @@ impl ExpectationBuilder {
     /// Expect an ACK response with the given socket number
     pub fn will_ack(mut self, socket: u8) -> Self {
         self.responses
-            .push(MockResponse::Immediate(vec![0x90, 0x40 | socket, 0xFF]));
+            .push(MockResponse::Immediate(vec![0x90, 0x40 | socket, VISCA_TERMINATOR]));
         self
     }
 
     /// Expect a completion response after ACK
     pub fn then_complete(mut self, socket: u8) -> Self {
         self.responses
-            .push(MockResponse::Immediate(vec![0x90, 0x50 | socket, 0xFF]));
+            .push(MockResponse::Immediate(vec![0x90, 0x50 | socket, VISCA_TERMINATOR]));
         self
     }
 
@@ -338,7 +341,7 @@ impl Transport for MockTransport {
                     Ok(Bytes::from(data))
                 }
                 MockResponse::ErrorCode(code) => {
-                    let error_response = vec![0x90, 0x60, code, 0xFF];
+                    let error_response = vec![0x90, 0x60, code, VISCA_TERMINATOR];
                     inner.response_history.push(error_response.clone());
                     Ok(Bytes::from(error_response))
                 }
@@ -459,23 +462,23 @@ mod tests {
         let mut mock = MockTransport::new();
 
         // Set up expectation
-        mock.expect_command(&[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF])
+        mock.expect_command(&[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR])
             .will_ack(1)
             .then_complete(1);
 
         // Send the expected command
         futures::executor::block_on(Transport::send(
             &mock,
-            &[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF],
+            &[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
         ))
         .unwrap();
 
         // Receive the responses
         let ack = mock.receive(Duration::from_millis(100)).unwrap();
-        assert_eq!(ack, vec![0x90, 0x41, 0xFF]);
+        assert_eq!(ack, vec![0x90, 0x41, VISCA_TERMINATOR]);
 
         let complete = mock.receive(Duration::from_millis(100)).unwrap();
-        assert_eq!(complete, vec![0x90, 0x51, 0xFF]);
+        assert_eq!(complete, vec![0x90, 0x51, VISCA_TERMINATOR]);
 
         // Verify expectations met
         mock.verify().unwrap();
@@ -485,7 +488,7 @@ mod tests {
     fn test_unmet_expectation() {
         let mut mock = MockTransport::new();
 
-        mock.expect_command(&[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF])
+        mock.expect_command(&[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR])
             .described_as("power on command");
 
         // Don't send the command

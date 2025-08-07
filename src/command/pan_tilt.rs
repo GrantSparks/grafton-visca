@@ -119,19 +119,20 @@ impl PanTiltDirection {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
+    use crate::command::const_encoding::VISCA_TERMINATOR;
     use crate::macros::test_utils::visca_test;
 
     visca_test!(
         PanTilt,
         test_pan_tilt_home,
         PanTilt::Home,
-        &[0x81, 0x01, 0x06, 0x04, 0xFF]
+        &[0x81, 0x01, 0x06, 0x04,  VISCA_TERMINATOR]
     );
     visca_test!(
         PanTilt,
         test_pan_tilt_reset,
         PanTilt::Reset,
-        &[0x81, 0x01, 0x06, 0x05, 0xFF]
+        &[0x81, 0x01, 0x06, 0x05,  VISCA_TERMINATOR]
     );
     visca_test!(
         PanTilt,
@@ -262,12 +263,12 @@ impl EncodeVisca for PanTilt {
         match self {
             Self::Home => {
                 let mut builder = CommandBuilder::<6>::from_prefix(pan_tilt::HOME);
-                builder.with_camera_id(camera_id);
+                builder = builder.with_camera_id(camera_id);
                 builder.copy_to(buffer)
             }
             Self::Reset => {
                 let mut builder = CommandBuilder::<6>::from_prefix(pan_tilt::RESET);
-                builder.with_camera_id(camera_id);
+                builder = builder.with_camera_id(camera_id);
                 builder.copy_to(buffer)
             }
             Self::Move {
@@ -278,15 +279,14 @@ impl EncodeVisca for PanTilt {
                 // Move command: 81 01 06 01 VV WW XX YY FF
                 // Where VV = pan speed, WW = tilt speed, XX YY = direction
                 let mut builder = CommandBuilder::<9>::from_prefix(pan_tilt::MOVE_PREFIX);
-                builder.with_camera_id(camera_id);
+                builder.with_camera_id_mut(camera_id);
 
                 let (pan_dir, tilt_dir) = direction.to_bytes();
-                builder
-                    .push(pan_speed.value())
-                    .push(tilt_speed.value())
-                    .push(pan_dir)
-                    .push(tilt_dir)
-                    .finalize();
+                builder.push_mut(pan_speed.value());
+                builder.push_mut(tilt_speed.value());
+                builder.push_mut(pan_dir);
+                builder.push_mut(tilt_dir);
+                builder.finalize();
 
                 builder.copy_to(buffer)
             }
@@ -298,14 +298,13 @@ impl EncodeVisca for PanTilt {
             } => {
                 // Absolute position: 81 01 06 02 VV WW PP PP PP PP TT TT TT TT FF
                 let mut builder = CommandBuilder::<15>::from_prefix(pan_tilt::ABSOLUTE_PREFIX);
-                builder.with_camera_id(camera_id);
+                builder.with_camera_id_mut(camera_id);
 
-                builder
-                    .push(pan_speed.value())
-                    .push(tilt_speed.value())
-                    .push_visca_u16(pan.value() as u16)
-                    .push_visca_u16(tilt.value() as u16)
-                    .finalize();
+                builder.push_mut(pan_speed.value());
+                builder.push_mut(tilt_speed.value());
+                builder.push_visca_u16_mut(pan.value() as u16);
+                builder.push_visca_u16_mut(tilt.value() as u16);
+                builder.finalize();
 
                 builder.copy_to(buffer)
             }
@@ -317,38 +316,33 @@ impl EncodeVisca for PanTilt {
             } => {
                 // Relative position: 81 01 06 03 VV WW PP PP PP PP TT TT TT TT FF
                 let mut builder = CommandBuilder::<15>::from_prefix(pan_tilt::RELATIVE_PREFIX);
-                builder.with_camera_id(camera_id);
+                builder.with_camera_id_mut(camera_id);
 
-                builder
-                    .push(pan_speed.value())
-                    .push(tilt_speed.value())
-                    .push_visca_u16(pan.value() as u16)
-                    .push_visca_u16(tilt.value() as u16)
-                    .finalize();
+                builder.push_mut(pan_speed.value());
+                builder.push_mut(tilt_speed.value());
+                builder.push_visca_u16_mut(pan.value() as u16);
+                builder.push_visca_u16_mut(tilt.value() as u16);
+                builder.finalize();
 
                 builder.copy_to(buffer)
             }
             Self::LimitSet { corner, pan, tilt } => {
                 // PT Limit Set: 81 01 06 07 00 0W PPPP TTTT FF
                 // Where W = corner (0-3), PPPP = pan position, TTTT = tilt position
-                let mut builder = CommandBuilder::<15>::from_prefix(pan_tilt::LIMIT_SET_PREFIX);
-                builder.with_camera_id(camera_id);
-
-                builder
+                let builder = CommandBuilder::<15>::from_prefix(pan_tilt::LIMIT_SET_PREFIX)
+                    .with_camera_id(camera_id)
                     .push(corner.to_byte())
                     .push_visca_u16(pan.value() as u16)
                     .push_visca_u16(tilt.value() as u16)
-                    .finalize();
+                    .terminate();
 
                 builder.copy_to(buffer)
             }
             Self::LimitClear { corner } => {
                 // PT Limit Clear: 81 01 06 07 01 0W 07 0F 0F 0F 07 0F 0F 0F FF
                 // Where W = corner (0-3), the rest are fixed values per PTZOptics spec
-                let mut builder = CommandBuilder::<15>::from_prefix(pan_tilt::LIMIT_CLEAR_PREFIX);
-                builder.with_camera_id(camera_id);
-
-                builder
+                let builder = CommandBuilder::<15>::from_prefix(pan_tilt::LIMIT_CLEAR_PREFIX)
+                    .with_camera_id(camera_id)
                     .push(corner.to_byte())
                     .push(0x07)
                     .push(0x0F)
@@ -358,7 +352,7 @@ impl EncodeVisca for PanTilt {
                     .push(0x0F)
                     .push(0x0F)
                     .push(0x0F)
-                    .finalize();
+                    .terminate();
 
                 builder.copy_to(buffer)
             }

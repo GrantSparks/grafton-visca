@@ -86,3 +86,11 @@ required-features = ["tokio"]
 [[example]]
 name = "error_handling"
 # Error handling patterns - no features required
+
+[[example]]
+name = "preset_demo"
+# Preset management - no features required
+
+[[example]]
+name = "type_safe_commands"
+# Type-safe command builder demonstration - no features required
