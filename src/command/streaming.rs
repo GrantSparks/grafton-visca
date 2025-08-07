@@ -10,7 +10,7 @@ use crate::types::NDIQuality;
 visca_bool_command! {
     /// Internal multicast streaming command
     struct MulticastStreamingInternal {
-        prefix: [0x81, 0x0B, 0x01, 0x23],
+        prefix: crate::command::const_encoding::constants::streaming::MULTICAST_PREFIX,
         on: 0x01,
         off: 0x02,
         address: 0x81,
@@ -63,7 +63,7 @@ visca_param_command! {
     struct NDIQualityCommandInternal {
         quality: NDIQuality,
     }
-    prefix = [0x81, 0x0B, 0x01, 0x01];
+    prefix = crate::command::const_encoding::constants::streaming::NDI_QUALITY_PREFIX;
     param_byte = match quality {
         NDIQuality::High => 0x01,
         NDIQuality::Medium => 0x02,

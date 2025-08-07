@@ -105,7 +105,73 @@ macro_rules! visca_command {
 ///
 /// This macro simplifies creating commands that toggle features.
 macro_rules! visca_bool_command {
-    // Original form without optional parameters
+    // Form with constant reference for prefix
+    (
+        $(#[$meta:meta])*
+        struct $name:ident {
+            prefix: $prefix_const:expr,
+            on: $on:expr,
+            off: $off:expr,
+        }
+    ) => {
+        visca_bool_command! {
+            $(#[$meta])*
+            struct $name {
+                prefix: $prefix_const,
+                on: $on,
+                off: $off,
+                address: 0x81,
+                response: None,
+            }
+        }
+    };
+    
+    // Form with constant reference and optional parameters
+    (
+        $(#[$meta:meta])*
+        struct $name:ident {
+            prefix: $prefix_const:expr,
+            on: $on:expr,
+            off: $off:expr,
+            address: $address:expr,
+            response: $response:expr,
+        }
+    ) => {
+        $(#[$meta])*
+        #[derive(Debug, Copy, Clone)]
+        pub struct $name {
+            enabled: bool,
+        }
+
+        impl $name {
+            /// Creates a new instance with the specified enabled state.
+            pub(crate) fn new(enabled: bool) -> Self {
+                Self { enabled }
+            }
+        }
+
+        impl $crate::command::encode_visca::EncodeVisca for $name {
+            type Response = ();
+            const MAX_SIZE: usize = $prefix_const.len() + 2; // prefix + state + 0xFF
+            const TIMEOUT_CATEGORY: $crate::timeout::CommandCategory = $crate::timeout::CommandCategory::Quick;
+
+            fn encode_into(&self, camera_id: $crate::camera_id::CameraId, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
+                // Use type-state pattern for compile-time safety
+                let terminated = $crate::command::const_encoding::CommandBuilder::<{Self::MAX_SIZE}>::new()
+                    .append($prefix_const)
+                    .push(if self.enabled { $on } else { $off })
+                    .with_camera_id(camera_id)
+                    .terminate();
+                terminated.copy_to(buffer)
+            }
+
+            fn response_type(&self) -> Option<$crate::command::ResponseType> {
+                $response
+            }
+        }
+    };
+    
+    // Original form without optional parameters (for backwards compatibility)
     (
         $(#[$meta:meta])*
         struct $name:ident {
@@ -126,7 +192,7 @@ macro_rules! visca_bool_command {
         }
     };
 
-    // Extended form with optional parameters
+    // Extended form with optional parameters (for backwards compatibility)
     (
         $(#[$meta:meta])*
         struct $name:ident {
@@ -259,7 +325,7 @@ macro_rules! visca_param_command {
         }
     };
 
-    // New form without optional parameters - constant reference
+    // Form with constant reference for prefix
     (
         $(#[$meta:meta])*
         $vis:vis struct $name:ident {
@@ -274,11 +340,52 @@ macro_rules! visca_param_command {
             $vis struct $name {
                 $field: $ftype,
             }
-            prefix_const = $prefix_const;
+            prefix = $prefix_const;
             param_byte = $param_expr;
             timeout = $category;
             address = 0x81;
             response = None;
+        }
+    };
+    
+    // Extended form with constant reference and optional parameters
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident {
+            $field:ident: $ftype:ty,
+        }
+        prefix = $prefix_const:expr;
+        param_byte = $param_expr:expr;
+        timeout = $category:ident;
+        address = $address:expr;
+        response = $response:expr;
+    ) => {
+        $(#[$meta])*
+        #[derive(Debug, Copy, Clone)]
+        $vis struct $name {
+            /// The parameter value.
+            pub $field: $ftype,
+        }
+
+        impl $crate::command::encode_visca::EncodeVisca for $name {
+            type Response = ();
+            const MAX_SIZE: usize = $prefix_const.len() + 2; // prefix + param + 0xFF
+            const TIMEOUT_CATEGORY: $crate::timeout::CommandCategory = $crate::timeout::CommandCategory::$category;
+
+            fn encode_into(&self, camera_id: $crate::camera_id::CameraId, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
+                // Use type-state pattern for compile-time terminator safety
+                let $field = &self.$field;
+                let terminated = $crate::command::const_encoding::CommandBuilder::<{Self::MAX_SIZE}>::new()
+                    .append($prefix_const)
+                    .push($param_expr)
+                    .with_camera_id(camera_id)
+                    .terminate();
+                terminated.copy_to(buffer)
+            }
+
+            fn response_type(&self) -> Option<$crate::command::ResponseType> {
+                $response
+            }
         }
     };
 

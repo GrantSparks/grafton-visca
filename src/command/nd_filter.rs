@@ -158,7 +158,7 @@ visca_bool_command! {
     ///   When Auto ND is On, the camera automatically engages the ND filter
     ///   to maintain exposure (like auto-iris, but using ND).
     struct AutoNDCommand {
-        prefix: [0x81, 0x01, 0x7E, 0x04, 0x53],
+        prefix: constants::nd_filter::LEVEL_PREFIX,
         on: 0x02,
         off: 0x03,
     }

@@ -46,10 +46,14 @@ async fn main() -> Result<(), Error> {
     println!();
 
     // Create camera using the async builder pattern
-    let camera = CameraBuilder::tokio_tcp(&camera_addr)
+    let camera = match CameraBuilder::tokio_tcp(&camera_addr)
         .profile::<PTZOpticsG2>()
-        .build()
-        .await?;
+        .build_async()
+        .await?
+    {
+        grafton_visca::camera::AsyncCamera::Tcp(cam) => cam,
+        grafton_visca::camera::AsyncCamera::Udp(_) => unreachable!("TCP builder should return TCP camera"),
+    };
 
     println!("✅ Connected successfully!");
     println!();

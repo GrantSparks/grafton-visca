@@ -37,6 +37,9 @@ pub mod const_encoding;
 // New unified EncodeVisca trait
 pub mod encode_visca;
 
+#[cfg(test)]
+mod test_derive;
+
 // Re-export command types
 pub use self::{
     color::*,

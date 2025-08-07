@@ -4,8 +4,6 @@
 //! 1. No hardcoded 0xFF values exist in the codebase
 //! 2. The terminator safety mechanisms are in place
 
-/// VISCA terminator constant value for validation
-const VISCA_TERMINATOR: u8 = 0xFF;
 
 /// Test that the no-hardcoded-terminator test exists and works
 #[test]

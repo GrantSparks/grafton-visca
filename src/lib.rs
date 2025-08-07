@@ -340,7 +340,7 @@ pub use command::{
     white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode},
 };
 
-pub use grafton_visca_macros::{InquiryCommand, ViscaEnum, ViscaValue};
+pub use grafton_visca_macros::{InquiryCommand, ViscaEncode, ViscaEnum, ViscaValue};
 
 pub use capabilities::ProfileMetadata;
 
