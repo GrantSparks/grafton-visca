@@ -2,7 +2,7 @@
 //!
 //! This example shows all the ways to create cameras using the builder pattern:
 //! - Blocking vs async transports
-//! - TCP vs UDP protocols  
+//! - TCP vs UDP protocols
 //! - Different camera profiles
 //! - Automatic port selection
 //! - Custom configurations
@@ -26,19 +26,19 @@ fn main() -> Result<()> {
     let _camera = CameraBuilder::tcp("192.168.0.110")
         .profile::<PTZOpticsG2>()
         .build()?;
-    println!("✓ Created PTZOptics G2 camera on TCP port 5678 (returns BlockingCamera enum)");
+    println!("✓ Created PTZOptics G2 camera on TCP port 5678");
 
     println!("\n--- Example 2: Explicit Port ---");
     let _camera = CameraBuilder::tcp("192.168.0.110:5678")
         .profile::<PTZOpticsG2>()
         .build()?;
-    println!("✓ Created camera with explicit port 5678 (returns BlockingCamera enum)");
+    println!("✓ Created camera with explicit port 5678");
 
     println!("\n--- Example 3: UDP Transport ---");
     let _camera = CameraBuilder::udp("192.168.0.110")
         .profile::<PTZOpticsG2>()
         .build()?;
-    println!("✓ Created camera on UDP port 1259 (returns BlockingCamera enum)");
+    println!("✓ Created camera on UDP port 1259");
 
     println!("\n--- Example 4: Camera Profiles ---");
 

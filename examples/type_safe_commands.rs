@@ -33,7 +33,7 @@ fn main() {
     println!("   ✓ Let the library handle protocol details");
     println!("   ✓ Trust the automatic terminator handling");
     println!("   ✓ Use typed parameters for compile-time validation");
-    println!("   ✓ Check Results for proper error handling\n");
+    println!("   ✓ Check Result<T, Error> for proper error handling\n");
 
     println!("6. Migration Path:");
     println!("   - Phase 1: VISCA_TERMINATOR constant (✓ Complete)");

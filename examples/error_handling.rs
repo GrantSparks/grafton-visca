@@ -3,6 +3,11 @@
 //! This example demonstrates error handling patterns with the Camera API,
 //! including retry logic and error classification.
 
+use std::borrow::Cow;
+use std::time::Duration;
+#[cfg(any(not(feature = "async"), feature = "tokio"))]
+use std::time::Instant;
+
 use grafton_visca::Error;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
@@ -20,11 +25,6 @@ use grafton_visca::{
     types::{PanSpeed, TiltSpeed},
     PanTiltDirection, PresetNumber,
 };
-
-use std::borrow::Cow;
-use std::time::Duration;
-#[cfg(any(not(feature = "async"), feature = "tokio"))]
-use std::time::Instant;
 
 #[cfg(all(feature = "async", not(feature = "tokio")))]
 fn main() {
