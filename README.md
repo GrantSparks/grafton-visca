@@ -49,7 +49,8 @@ fn main() -> grafton_visca::Result<()> {
     env_logger::init();
 
     // Create camera using the builder pattern
-    let cam = CameraBuilder::tcp("192.168.0.110:52381")
+    // Port is optional - defaults to profile-specific port (5678 for PTZOptics)
+    let cam = CameraBuilder::tcp("192.168.0.110")
         .profile::<PTZOpticsG2>()
         .build()?;
 
@@ -70,7 +71,8 @@ use grafton_visca::{
 
 #[tokio::main]
 async fn main() -> grafton_visca::Result<()> {
-    let cam = CameraBuilder::tokio_tcp("192.168.0.110:52381")
+    // Port is optional - defaults to profile-specific port (5678 for PTZOptics)
+    let cam = CameraBuilder::tokio_tcp("192.168.0.110")
         .profile::<PTZOpticsG2>()
         .build()
         .await?;
@@ -163,11 +165,14 @@ If a capability is absent the corresponding extension trait is **not** in scope,
 ```rust,ignore
 use grafton_visca::{prelude::blocking::*, CameraBuilder};
 
+// Sony FR7 uses port 52381 (encapsulated VISCA)
 let cam = CameraBuilder::tcp("192.168.0.110:52381")
     .profile::<SonyFR7>()
     .build()?;
 // cam.set_nd_filter_mode(NDFilterMode::Variable)?;  // ✅ FR7 supports this
-let b = CameraBuilder::tcp("192.168.1.101:52381")
+
+// PTZOptics G2 uses port 5678 by default (raw VISCA)
+let b = CameraBuilder::tcp("192.168.1.101")
     .profile::<PTZOpticsG2>()
     .build()?;
 // b.set_nd_filter_mode(NDFilterMode::Variable)?;     // ❌ compile‑error

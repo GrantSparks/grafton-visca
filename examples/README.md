@@ -77,13 +77,13 @@ The examples use different camera profiles to demonstrate type safety:
 
 ### Connection Setup
 ```rust
-// Blocking TCP
-let cam = CameraBuilder::tcp("192.168.0.110:52381")
+// Blocking TCP (port defaults to profile-specific: 5678 for PTZOptics)
+let cam = CameraBuilder::tcp("192.168.0.110")
     .profile::<PTZOpticsG2>()
     .build()?;
 
 // Async TCP with Tokio
-let cam = CameraBuilder::tokio_tcp("192.168.0.110:52381")
+let cam = CameraBuilder::tokio_tcp("192.168.0.110")
     .profile::<PTZOpticsG2>()
     .build()
     .await?;
