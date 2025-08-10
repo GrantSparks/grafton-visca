@@ -74,8 +74,12 @@ pub trait MotionSyncControlBlocking {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> MotionSyncControl
-    for crate::camera::generic::Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
+    MotionSyncControl for crate::camera::generic::Camera<P, T>
+where
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     async fn set_motion_sync_mode(&self, mode: MotionSyncMode) -> Result<(), Error> {
         let cmd = MotionSyncModeCommand::new(mode);
@@ -119,8 +123,12 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Mot
 }
 
 // Blocking implementation
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport>
+impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
     MotionSyncControlBlocking for crate::camera::generic::Camera<P, T>
+where
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     fn set_motion_sync_mode(&self, mode: MotionSyncMode) -> Result<(), Error> {
         let cmd = MotionSyncModeCommand::new(mode);

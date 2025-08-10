@@ -93,8 +93,12 @@ pub trait ColorOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> ColorOps
-    for crate::camera::generic::Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
+    ColorOps for crate::camera::generic::Camera<P, T>
+where
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     async fn one_push_trigger(&self) -> Result<(), Error> {
         self.send_command(&OnePushTriggerCommand::new()).await?;
@@ -165,8 +169,12 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Col
 }
 
 // Blocking implementation
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> ColorOpsBlocking
-    for crate::camera::generic::Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
+    ColorOpsBlocking for crate::camera::generic::Camera<P, T>
+where
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     fn one_push_trigger(&self) -> Result<(), Error> {
         self.send_command_blocking(&OnePushTriggerCommand::new())?;

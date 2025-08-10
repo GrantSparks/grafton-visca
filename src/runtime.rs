@@ -19,7 +19,7 @@ use crate::{
 /// This trait combines spawning and timing operations into a single interface,
 /// making it easy to support different async runtimes.
 #[cfg(feature = "async")]
-pub trait Runtime: Send + Sync + 'static {
+pub trait Runtime: std::fmt::Debug + Send + Sync + 'static {
     /// Spawn a future as a background task.
     fn spawn(&self, task: SpawnableFuture);
 
@@ -63,7 +63,9 @@ impl<S: Sleep, P: Spawner> GenericRuntime<S, P> {
 }
 
 #[cfg(feature = "async")]
-impl<S: Sleep + 'static, P: Spawner + 'static> Runtime for GenericRuntime<S, P> {
+impl<S: Sleep + std::fmt::Debug + 'static, P: Spawner + std::fmt::Debug + 'static> Runtime
+    for GenericRuntime<S, P>
+{
     fn spawn(&self, task: SpawnableFuture) {
         self.spawner.spawn(task);
     }

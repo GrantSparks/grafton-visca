@@ -37,8 +37,12 @@ pub trait PresetsOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> PresetsOps
-    for crate::camera::generic::Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
+    PresetsOps for crate::camera::generic::Camera<P, T>
+where
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     async fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error> {
         // Validate preset number (0 is valid - it's the home position)
@@ -117,8 +121,12 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Pre
 }
 
 // Blocking implementation
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> PresetsOpsBlocking
-    for crate::camera::generic::Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
+    PresetsOpsBlocking for crate::camera::generic::Camera<P, T>
+where
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error> {
         // Validate preset number (0 is valid - it's the home position)

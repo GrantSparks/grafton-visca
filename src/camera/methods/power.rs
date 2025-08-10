@@ -26,8 +26,12 @@ pub trait PowerOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> PowerOps
-    for crate::camera::generic::Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
+    PowerOps for crate::camera::generic::Camera<P, T>
+where
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     async fn power_on(&self) -> Result<(), Error> {
         let command = PowerCommand::On;
@@ -61,8 +65,12 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Pow
 }
 
 // Blocking implementation
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> PowerOpsBlocking
-    for crate::camera::generic::Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
+    PowerOpsBlocking for crate::camera::generic::Camera<P, T>
+where
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     fn power_on(&self) -> Result<(), Error> {
         let command = PowerCommand::On;

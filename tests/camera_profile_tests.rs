@@ -1,6 +1,6 @@
 //! Tests for camera profile system and compile-time capabilities.
 
-use grafton_visca::{capabilities::*, transport::UnifiedTransport, Camera};
+use grafton_visca::{capabilities::*, transport::Transport, Camera};
 
 // Import type aliases from the blocking prelude
 use grafton_visca::prelude::blocking::{GenericViscaCam, PTZOpticsG2Cam, SonyFR7Cam};
@@ -12,21 +12,30 @@ fn test_profile_type_aliases() {
     // Verify that type aliases exist and compile
     fn _accepts_g2_camera<T>(_camera: PTZOpticsG2Cam<T>)
     where
-        T: UnifiedTransport,
+        T: Transport + Send + Sync + 'static,
+        T::Error: Into<grafton_visca::Error> + Send,
+        for<'a> T::SendFut<'a>: Send,
+        for<'a> T::RecvFut<'a>: Send,
     {
         // PTZOpticsG2Cam is a type alias for Camera<PTZOpticsG2, T>
     }
 
     fn _accepts_fr7_camera<T>(_camera: SonyFR7Cam<T>)
     where
-        T: UnifiedTransport,
+        T: Transport + Send + Sync + 'static,
+        T::Error: Into<grafton_visca::Error> + Send,
+        for<'a> T::SendFut<'a>: Send,
+        for<'a> T::RecvFut<'a>: Send,
     {
         // SonyFR7Cam is a type alias for Camera<SonyFR7, T>
     }
 
     fn _accepts_generic_camera<T>(_camera: GenericViscaCam<T>)
     where
-        T: UnifiedTransport,
+        T: Transport + Send + Sync + 'static,
+        T::Error: Into<grafton_visca::Error> + Send,
+        for<'a> T::SendFut<'a>: Send,
+        for<'a> T::RecvFut<'a>: Send,
     {
         // GenericViscaCam is a type alias for Camera<GenericVisca, T>
     }
@@ -40,7 +49,10 @@ fn test_profile_capabilities_are_compile_time() {
     fn _requires_nd_filter<P, T>(_camera: &Camera<P, T>) -> bool
     where
         P: Profile + NDFilter,
-        T: UnifiedTransport,
+        T: Transport + Send + Sync + 'static,
+        T::Error: Into<grafton_visca::Error> + Send,
+        for<'a> T::SendFut<'a>: Send,
+        for<'a> T::RecvFut<'a>: Send,
     {
         // At compile time, we know this camera supports ND filter
         true
@@ -50,7 +62,10 @@ fn test_profile_capabilities_are_compile_time() {
     fn _requires_only_basic<P, T>(_camera: &Camera<P, T>) -> bool
     where
         P: Profile,
-        T: UnifiedTransport,
+        T: Transport + Send + Sync + 'static,
+        T::Error: Into<grafton_visca::Error> + Send,
+        for<'a> T::SendFut<'a>: Send,
+        for<'a> T::RecvFut<'a>: Send,
     {
         // All cameras have basic capabilities
         true

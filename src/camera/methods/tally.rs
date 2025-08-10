@@ -89,8 +89,12 @@ pub trait TallyOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> TallyOps
-    for crate::camera::generic::Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
+    TallyOps for crate::camera::generic::Camera<P, T>
+where
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     async fn tally_red_on(&self) -> Result<(), Error> {
         let command = Tally::RedOn;
@@ -209,8 +213,12 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Tal
 }
 
 // Blocking implementation
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> TallyOpsBlocking
-    for crate::camera::generic::Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
+    TallyOpsBlocking for crate::camera::generic::Camera<P, T>
+where
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     fn tally_red_on(&self) -> Result<(), Error> {
         let command = Tally::RedOn;
@@ -332,12 +340,16 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Tal
 mod tests {
     #[test]
     fn test_tally_methods_compile() {
+        use crate::Error;
         // This test demonstrates that tally methods are available for all cameras
 
         fn _test_tally_methods<P, T>(_camera: &crate::Camera<P, T>)
         where
             P: crate::capabilities::Profile,
-            T: crate::transport::UnifiedTransport,
+            T: crate::transport::Transport + Send + Sync + 'static,
+            T::Error: Into<Error> + Send,
+            for<'a> T::SendFut<'a>: Send,
+            for<'a> T::RecvFut<'a>: Send,
         {
             // All cameras can use tally methods
         }

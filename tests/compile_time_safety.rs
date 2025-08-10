@@ -68,7 +68,10 @@ fn test_nd_filter_compile_error() {
     fn requires_nd_filter<P, T>(camera: &Camera<P, T>)
     where
         P: Profile + grafton_visca::capabilities::NDFilter,
-        T: UnifiedTransport,
+        T: grafton_visca::transport::Transport + Send + Sync + 'static,
+        T::Error: Into<grafton_visca::Error> + Send,
+        for<'a> T::SendFut<'a>: Send,
+        for<'a> T::RecvFut<'a>: Send,
     {
         // ND filter methods would be available here
     }
@@ -86,7 +89,10 @@ fn test_variable_speed_compile_error() {
     fn requires_variable_speed<P, T>(camera: &Camera<P, T>)
     where
         P: Profile + grafton_visca::capabilities::VariableSpeed,
-        T: UnifiedTransport,
+        T: grafton_visca::transport::Transport + Send + Sync + 'static,
+        T::Error: Into<grafton_visca::Error> + Send,
+        for<'a> T::SendFut<'a>: Send,
+        for<'a> T::RecvFut<'a>: Send,
     {
         // Variable speed methods would be available here
     }

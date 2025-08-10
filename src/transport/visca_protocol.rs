@@ -24,13 +24,13 @@ const COMPLETION_TIMEOUT: Duration = Duration::from_secs(30);
 /// - ACK/Completion response handling
 /// - Response parsing and validation
 /// - Timeout management
-pub struct ViscaProtocol<T: Transport> {
+pub struct ViscaProtocol<T: Transport + Send + Sync> {
     transport: T,
     #[cfg(feature = "async")]
     sleep_impl: Option<std::sync::Arc<dyn Sleep>>,
 }
 
-impl<T: Transport> std::fmt::Debug for ViscaProtocol<T> {
+impl<T: Transport + Send + Sync> std::fmt::Debug for ViscaProtocol<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut debug = f.debug_struct("ViscaProtocol");
         debug.field("transport", &"<Transport>");
@@ -40,7 +40,7 @@ impl<T: Transport> std::fmt::Debug for ViscaProtocol<T> {
     }
 }
 
-impl<T: Transport> ViscaProtocol<T> {
+impl<T: Transport + Send + Sync> ViscaProtocol<T> {
     /// Create a new VISCA protocol handler wrapping a transport.
     pub fn new(transport: T) -> Self {
         Self {

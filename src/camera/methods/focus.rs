@@ -122,8 +122,12 @@ pub trait FocusOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> FocusOps
-    for crate::camera::generic::Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
+    FocusOps for crate::camera::generic::Camera<P, T>
+where
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     async fn focus_auto(&self) -> Result<(), Error> {
         self.send_command(&FocusCommand::Auto).await?;
@@ -232,8 +236,12 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Foc
 }
 
 // Blocking implementation
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> FocusOpsBlocking
-    for crate::camera::generic::Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
+    FocusOpsBlocking for crate::camera::generic::Camera<P, T>
+where
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     fn focus_auto(&self) -> Result<(), Error> {
         self.send_command_blocking(&FocusCommand::Auto)?;

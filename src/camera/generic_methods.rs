@@ -12,14 +12,17 @@ use crate::{
         Response,
     },
     error::Error,
-    transport::UnifiedTransport,
+    transport::core::Transport,
     MotionSyncMode,
 };
 
 impl<P, T> Camera<P, T>
 where
     P: Profile + NDFilter,
-    T: UnifiedTransport,
+    T: Transport + Send + Sync + 'static,
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     /// Set the ND filter mode.
     ///
@@ -55,7 +58,10 @@ where
 impl<P, T> Camera<P, T>
 where
     P: Profile + MotionSync,
-    T: UnifiedTransport,
+    T: Transport + Send + Sync + 'static,
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     /// Set the motion sync mode.
     ///
