@@ -227,9 +227,10 @@ pub mod white_balance {
     pub const AWB_SENSITIVITY_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0xA9];
 
     /// One push white balance trigger.
-    /// Note: Currently unused because visca_const_command! macro doesn't support constant references.
+    /// One push white balance trigger command.
+    /// Note: Currently unused in production code because visca_const_command! macro doesn't support constant references.
     /// The command is defined with hardcoded bytes in color.rs.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub const ONE_PUSH_TRIGGER: &[u8] = visca_bytes![0x81, 0x01, 0x04, 0x10, 0x05];
 }
 

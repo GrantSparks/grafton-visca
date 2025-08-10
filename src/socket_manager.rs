@@ -261,16 +261,7 @@ pub(crate) enum SocketManagerCommand {
         /// Channel to send the response back to the caller.
         response_sender: OneshotSender<Result<Response>>,
     },
-    /// Cancel a command on a specific socket.
-    #[allow(dead_code)]
-    CancelCommand {
-        /// Socket to cancel the command on.
-        socket: Socket,
-        /// Channel to send the cancellation result.
-        response_sender: OneshotSender<Result<()>>,
-    },
     /// Wait for a completion message (0x51) on any socket.
-    #[allow(dead_code)]
     WaitForCompletion {
         /// Channel to send the result when a completion message is received.
         response_sender: OneshotSender<Result<()>>,
@@ -333,47 +324,10 @@ impl SocketManagerHandle {
         result
     }
 
-    /// Cancel a command on a specific socket.
-    ///
-    /// This sends a cancel command to the camera for the specified socket.
-    #[allow(dead_code)]
-    pub async fn cancel_command(&self, socket: Socket) -> Result<()> {
-        let (response_sender, response_receiver) = channels::oneshot();
-
-        #[cfg(feature = "tokio")]
-        let send_result = self
-            .command_sender
-            .send(SocketManagerCommand::CancelCommand {
-                socket,
-                response_sender,
-            })
-            .map_err(|_| Error::TransportError(Cow::Borrowed("Socket manager unavailable")));
-
-        #[cfg(not(feature = "tokio"))]
-        let send_result = self
-            .command_sender
-            .send(SocketManagerCommand::CancelCommand {
-                socket,
-                response_sender,
-            })
-            .map_err(|_| Error::TransportError(Cow::Borrowed("Socket manager unavailable")));
-
-        send_result?;
-
-        #[cfg(feature = "tokio")]
-        let result = response_receiver.recv().await?;
-
-        #[cfg(not(feature = "tokio"))]
-        let result = response_receiver.recv_async().await?;
-
-        result
-    }
-
     /// Wait for a completion message from any socket.
     ///
     /// This is used for event-driven movement detection to wait for
     /// operation complete (0x51) messages.
-    #[allow(dead_code)]
     pub async fn wait_for_completion(&self) -> Result<()> {
         let (response_sender, response_receiver) = channels::oneshot();
 
@@ -585,12 +539,6 @@ impl SocketManagerActor {
                             }) => {
                                 self.handle_send_command(bytes, category, is_inquiry, response_sender).await;
                             }
-                            Some(SocketManagerCommand::CancelCommand {
-                                socket,
-                                response_sender,
-                            }) => {
-                                self.handle_cancel_command(socket, response_sender).await;
-                            }
                             Some(SocketManagerCommand::WaitForCompletion {
                                 response_sender,
                             }) => {
@@ -636,12 +584,6 @@ impl SocketManagerActor {
                             self.handle_send_command(bytes, category, is_inquiry, response_sender)
                                 .await;
                         }
-                        SocketManagerCommand::CancelCommand {
-                            socket,
-                            response_sender,
-                        } => {
-                            self.handle_cancel_command(socket, response_sender).await;
-                        }
                         SocketManagerCommand::WaitForCompletion { response_sender } => {
                             self.inner.completion_waiters.push_back(response_sender);
                             debug!(
@@ -678,12 +620,6 @@ impl SocketManagerActor {
                                             response_sender,
                                         )
                                         .await;
-                                    }
-                                    SocketManagerCommand::CancelCommand {
-                                        socket,
-                                        response_sender,
-                                    } => {
-                                        self.handle_cancel_command(socket, response_sender).await;
                                     }
                                     SocketManagerCommand::WaitForCompletion { response_sender } => {
                                         self.inner.completion_waiters.push_back(response_sender);
@@ -781,43 +717,6 @@ impl SocketManagerActor {
                 let id = pending_cmd.id;
                 error!("Failed to send command {id} on {socket:?}: {e}");
                 pending_cmd.complete(Err(e));
-            }
-        }
-    }
-
-    async fn handle_cancel_command(
-        &mut self,
-        socket: Socket,
-        response_sender: OneshotSender<Result<()>>,
-    ) {
-        trace!("Handling cancel command for {socket:?}");
-
-        if self.inner.sockets[socket.as_index()].is_free() {
-            warn!("Attempted to cancel command on free socket {socket:?}");
-            let _ = response_sender.send(Err(Error::InvalidRequest(Cow::Borrowed(
-                "No command active on socket",
-            ))));
-            return;
-        }
-
-        let cancel_cmd = CommandCancelCommand::new(socket);
-        let mut bytes = Vec::new();
-        if let Err(e) = cancel_cmd.encode_into(self.inner.camera_id, &mut bytes) {
-            error!("Failed to encode cancel command for {socket:?}: {e}");
-            let _ = response_sender.send(Err(Error::InvalidRequest(Cow::Borrowed(
-                "Failed to encode cancel command",
-            ))));
-            return;
-        }
-
-        match self.transport.send(&bytes).await {
-            Ok(()) => {
-                trace!("Cancel command sent for {socket:?}");
-                let _ = response_sender.send(Ok(()));
-            }
-            Err(e) => {
-                error!("Failed to send cancel command for {socket:?}: {e}");
-                let _ = response_sender.send(Err(e));
             }
         }
     }
