@@ -7,7 +7,6 @@
 
 use crate::error::Error;
 
-
 /// Camera variants for validation and constants (more comprehensive than profiles)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CameraVariant {

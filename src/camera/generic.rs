@@ -423,7 +423,7 @@ where
                 }
             }
         }
-        
+
         #[cfg(not(feature = "tokio"))]
         {
             // For non-tokio async runtimes, we still need to implement timeout
@@ -460,49 +460,52 @@ where
             // Check if we're in a tokio runtime context
             if tokio::runtime::Handle::try_current().is_ok() {
                 tokio::time::timeout(timeout_duration, async {
-                loop {
-                    match self.transport.recv().await {
-                        Ok(bytes) => {
-                            // Extract VISCA payload from envelope if needed
-                            let visca_bytes = match self.envelope.extract_response(&bytes) {
-                                Ok(payload) => payload,
-                                Err(e) => return Err(e),
-                            };
-
-                            // First try to parse as a regular response
-                            match Response::parse(&visca_bytes) {
-                                Ok(Response::CmdAck) => {
-                                    // Skip ACK for inquiry commands and wait for the actual response
-                                    log::debug!("Skipping ACK response for inquiry command");
-                                    continue;
-                                }
-                                Ok(Response::Error(e)) => return Err(e),
-                                Ok(Response::Completion) => {
-                                    // Unexpected completion for inquiry
-                                    return Err(Error::UnexpectedResponseType);
-                                }
-                                Ok(other) => {
-                                    return Ok(other);
-                                }
-                                Err(_) => match Response::parse_with_type(&visca_bytes, &expected_type) {
-                                    Ok(response) => return Ok(response),
+                    loop {
+                        match self.transport.recv().await {
+                            Ok(bytes) => {
+                                // Extract VISCA payload from envelope if needed
+                                let visca_bytes = match self.envelope.extract_response(&bytes) {
+                                    Ok(payload) => payload,
                                     Err(e) => return Err(e),
-                                },
+                                };
+
+                                // First try to parse as a regular response
+                                match Response::parse(&visca_bytes) {
+                                    Ok(Response::CmdAck) => {
+                                        // Skip ACK for inquiry commands and wait for the actual response
+                                        log::debug!("Skipping ACK response for inquiry command");
+                                        continue;
+                                    }
+                                    Ok(Response::Error(e)) => return Err(e),
+                                    Ok(Response::Completion) => {
+                                        // Unexpected completion for inquiry
+                                        return Err(Error::UnexpectedResponseType);
+                                    }
+                                    Ok(other) => {
+                                        return Ok(other);
+                                    }
+                                    Err(_) => match Response::parse_with_type(
+                                        &visca_bytes,
+                                        &expected_type,
+                                    ) {
+                                        Ok(response) => return Ok(response),
+                                        Err(e) => return Err(e),
+                                    },
+                                }
                             }
-                        }
-                        Err(e) => {
-                            // Preserve the original error type
-                            if e.to_string().contains("Operation timed out") {
-                                return Err(Error::Timeout);
-                            } else {
-                                return Err(e);
+                            Err(e) => {
+                                // Preserve the original error type
+                                if e.to_string().contains("Operation timed out") {
+                                    return Err(Error::Timeout);
+                                } else {
+                                    return Err(e);
+                                }
                             }
                         }
                     }
-                }
-            })
-            .await
-            .map_err(|_| Error::Timeout)?
+                })
+                .await
+                .map_err(|_| Error::Timeout)?
             } else {
                 // Not in tokio runtime, fall back to no timeout
                 loop {
@@ -529,10 +532,12 @@ where
                                 Ok(other) => {
                                     return Ok(other);
                                 }
-                                Err(_) => match Response::parse_with_type(&visca_bytes, &expected_type) {
-                                    Ok(response) => return Ok(response),
-                                    Err(e) => return Err(e),
-                                },
+                                Err(_) => {
+                                    match Response::parse_with_type(&visca_bytes, &expected_type) {
+                                        Ok(response) => return Ok(response),
+                                        Err(e) => return Err(e),
+                                    }
+                                }
                             }
                         }
                         Err(e) => {
@@ -547,7 +552,7 @@ where
                 }
             }
         }
-        
+
         #[cfg(not(feature = "tokio"))]
         {
             // For non-tokio async runtimes, we still need to implement timeout
@@ -578,7 +583,8 @@ where
                             Ok(other) => {
                                 return Ok(other);
                             }
-                            Err(_) => match Response::parse_with_type(&visca_bytes, &expected_type) {
+                            Err(_) => match Response::parse_with_type(&visca_bytes, &expected_type)
+                            {
                                 Ok(response) => return Ok(response),
                                 Err(e) => return Err(e),
                             },
