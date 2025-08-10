@@ -37,8 +37,12 @@ pub trait SystemOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> SystemOps
-    for crate::camera::generic::Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
+    SystemOps for crate::camera::generic::Camera<P, T>
+where
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     async fn trigger_address_assignment(&self) -> Result<(), Error> {
         let cmd = AddressSetCommand::new();
@@ -72,8 +76,12 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Sys
 }
 
 // Blocking implementation
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> SystemOpsBlocking
-    for crate::camera::generic::Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
+    SystemOpsBlocking for crate::camera::generic::Camera<P, T>
+where
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     fn trigger_address_assignment(&self) -> Result<(), Error> {
         let cmd = AddressSetCommand::new();
@@ -110,12 +118,16 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Sys
 mod tests {
     #[test]
     fn test_system_methods_compile() {
+        use crate::Error;
         // This test demonstrates that system methods are available for all cameras
 
         fn _test_system_methods<P, T>(_camera: &crate::Camera<P, T>)
         where
             P: crate::capabilities::Profile,
-            T: crate::transport::UnifiedTransport,
+            T: crate::transport::Transport + Send + Sync + 'static,
+            T::Error: Into<Error> + Send,
+            for<'a> T::SendFut<'a>: Send,
+            for<'a> T::RecvFut<'a>: Send,
         {
             // All cameras can use system methods
         }

@@ -6,7 +6,7 @@
 use grafton_visca::{
     camera::generic::Camera,
     capabilities::{MotionSync, NDFilter, Profile, VariableSpeed},
-    transport::UnifiedTransport,
+    transport::Transport,
 };
 
 #[cfg(feature = "tokio")]
@@ -20,7 +20,10 @@ fn test_ptzoptics_g2_compile_time_features() {
     fn _use_basic_features<P, T>(_camera: &Camera<P, T>)
     where
         P: Profile,
-        T: UnifiedTransport,
+        T: Transport + Send + Sync + 'static,
+        T::Error: Into<grafton_visca::Error> + Send,
+        for<'a> T::SendFut<'a>: Send,
+        for<'a> T::RecvFut<'a>: Send,
     {
         // All cameras implementing Profile support:
         // - PanTilt
@@ -38,7 +41,10 @@ fn test_ptzoptics_g2_compile_time_features() {
     fn _use_motion_sync<P, T>(_camera: &Camera<P, T>)
     where
         P: Profile + MotionSync,
-        T: UnifiedTransport,
+        T: Transport + Send + Sync + 'static,
+        T::Error: Into<grafton_visca::Error> + Send,
+        for<'a> T::SendFut<'a>: Send,
+        for<'a> T::RecvFut<'a>: Send,
     {
         // Only cameras with MotionSync trait can call this
     }
@@ -47,7 +53,10 @@ fn test_ptzoptics_g2_compile_time_features() {
     fn _use_nd_filter<P, T>(_camera: &Camera<P, T>)
     where
         P: Profile + NDFilter,
-        T: UnifiedTransport,
+        T: Transport + Send + Sync + 'static,
+        T::Error: Into<grafton_visca::Error> + Send,
+        for<'a> T::SendFut<'a>: Send,
+        for<'a> T::RecvFut<'a>: Send,
     {
         // Only cameras with NDFilter trait can call this
     }
@@ -69,7 +78,10 @@ fn test_sony_fr7_compile_time_features() {
     fn _use_nd_filter<P, T>(_camera: &Camera<P, T>)
     where
         P: Profile + NDFilter,
-        T: UnifiedTransport,
+        T: Transport + Send + Sync + 'static,
+        T::Error: Into<grafton_visca::Error> + Send,
+        for<'a> T::SendFut<'a>: Send,
+        for<'a> T::RecvFut<'a>: Send,
     {
         // Sony FR7 can use this
     }
@@ -78,7 +90,10 @@ fn test_sony_fr7_compile_time_features() {
     fn _use_variable_speed<P, T>(_camera: &Camera<P, T>)
     where
         P: Profile + VariableSpeed,
-        T: UnifiedTransport,
+        T: Transport + Send + Sync + 'static,
+        T::Error: Into<grafton_visca::Error> + Send,
+        for<'a> T::SendFut<'a>: Send,
+        for<'a> T::RecvFut<'a>: Send,
     {
         // Sony FR7 can use this
     }
@@ -96,7 +111,10 @@ fn test_generic_visca_limited_features() {
     fn _requires_advanced_features<P, T>(_camera: &Camera<P, T>)
     where
         P: Profile + NDFilter + MotionSync + VariableSpeed,
-        T: UnifiedTransport,
+        T: Transport + Send + Sync + 'static,
+        T::Error: Into<grafton_visca::Error> + Send,
+        for<'a> T::SendFut<'a>: Send,
+        for<'a> T::RecvFut<'a>: Send,
     {
         // GenericVisca cannot be used here
     }
@@ -118,7 +136,10 @@ async fn test_compile_time_feature_detection() {
     async fn _control_nd_filter<P, T>(_camera: &Camera<P, T>) -> Result<(), Error>
     where
         P: Profile + NDFilter,
-        T: UnifiedTransport,
+        T: Transport + Send + Sync + 'static,
+        T::Error: Into<grafton_visca::Error> + Send,
+        for<'a> T::SendFut<'a>: Send,
+        for<'a> T::RecvFut<'a>: Send,
     {
         // camera.set_nd_filter_mode(NDFilterMode::Clear).await?;
         Ok(())

@@ -12,7 +12,7 @@ use crate::{
     },
     error::{Error, Result},
     timeout::CommandCategory,
-    transport::UnifiedTransport,
+    transport::{BoxedTransport, Transport},
 };
 
 impl Socket {
@@ -470,20 +470,23 @@ impl RetryHook for NoRetryHook {
 ///
 /// This actor manages the two-socket state machine, processes commands,
 /// handles responses, and manages timeouts and retries.
-pub(crate) struct SocketManagerActor {
+///
+/// The actor is generic over the transport type to allow both concrete
+/// types (for performance) and boxed types (for flexibility).
+pub(crate) struct SocketManagerActor<T = BoxedTransport> {
     inner: SocketManagerInner,
-    transport: Arc<dyn UnifiedTransport>,
+    transport: Arc<T>,
     command_receiver: UnboundedReceiver<SocketManagerCommand>,
     ack_timeout: std::time::Duration,
     completion_timeout: std::time::Duration,
     retry_hook: Box<dyn RetryHook + Send + Sync>,
 }
 
-impl std::fmt::Debug for SocketManagerActor {
+impl<T> std::fmt::Debug for SocketManagerActor<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SocketManagerActor")
             .field("inner", &self.inner)
-            .field("transport", &"Arc<dyn UnifiedTransport>")
+            .field("transport", &"Arc<T>")
             .field("ack_timeout", &self.ack_timeout)
             .field("completion_timeout", &self.completion_timeout)
             .field("retry_hook", &"Box<dyn RetryHook>")
@@ -491,10 +494,16 @@ impl std::fmt::Debug for SocketManagerActor {
     }
 }
 
-impl SocketManagerActor {
+impl<T> SocketManagerActor<T>
+where
+    T: Transport + Send + Sync + 'static,
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
+{
     /// Create a new socket manager actor.
     pub fn new(
-        transport: Arc<dyn UnifiedTransport>,
+        transport: Arc<T>,
         command_receiver: UnboundedReceiver<SocketManagerCommand>,
         ack_timeout: std::time::Duration,
         completion_timeout: std::time::Duration,
@@ -550,13 +559,14 @@ impl SocketManagerActor {
                             }
                         }
                     }
-                    response_result = self.transport.recv() => {
+                    response_result = Transport::recv(self.transport.as_ref()) => {
                         match response_result {
                             Ok(bytes) => {
                                 self.handle_raw_response(bytes).await;
                             }
                             Err(e) => {
-                                warn!("Failed to receive response from transport: {e}");
+                                let err: Error = e.into();
+                                warn!("Failed to receive response from transport: {err}");
                                 // Continue processing other commands
                             }
                         }
@@ -593,7 +603,10 @@ impl SocketManagerActor {
                     }
                 }
 
-                if let Ok(bytes) = self.transport.recv().await {
+                if let Ok(bytes) = Transport::recv(self.transport.as_ref())
+                    .await
+                    .map_err(Into::<Error>::into)
+                {
                     activity = true;
                     empty_iterations = 0;
                     self.handle_raw_response(bytes).await;
@@ -672,15 +685,16 @@ impl SocketManagerActor {
             return;
         }
 
-        match self.transport.send(&pending_cmd.bytes).await {
+        match Transport::send(self.transport.as_ref(), &pending_cmd.bytes).await {
             Ok(()) => {
                 trace!("Inquiry command {} sent successfully", pending_cmd.id);
                 self.inner.set_pending_inquiry(pending_cmd);
             }
             Err(e) => {
                 let id = pending_cmd.id;
-                error!("Failed to send inquiry command {id}: {e}");
-                pending_cmd.complete(Err(e));
+                let err: Error = e.into();
+                error!("Failed to send inquiry command {id}: {err}");
+                pending_cmd.complete(Err(err));
             }
         }
     }
@@ -701,7 +715,7 @@ impl SocketManagerActor {
     async fn send_command_on_socket(&mut self, pending_cmd: PendingCmd, socket: Socket) {
         trace!("Sending command {} on {socket:?}", pending_cmd.id);
 
-        match self.transport.send(&pending_cmd.bytes).await {
+        match Transport::send(self.transport.as_ref(), &pending_cmd.bytes).await {
             Ok(()) => {
                 trace!(
                     "Command {} sent successfully on {:?}",
@@ -714,8 +728,9 @@ impl SocketManagerActor {
             }
             Err(e) => {
                 let id = pending_cmd.id;
-                error!("Failed to send command {id} on {socket:?}: {e}");
-                pending_cmd.complete(Err(e));
+                let err: Error = e.into();
+                error!("Failed to send command {id} on {socket:?}: {err}");
+                pending_cmd.complete(Err(err));
             }
         }
     }
@@ -948,8 +963,9 @@ impl SocketManagerActor {
         match cancel_command.encode_into(self.inner.camera_id, &mut cancel_bytes) {
             Ok(size) => {
                 cancel_bytes.truncate(size);
-                if let Err(e) = self.transport.send(&cancel_bytes).await {
-                    error!("Failed to send cancel command: {e}");
+                if let Err(e) = Transport::send(self.transport.as_ref(), &cancel_bytes).await {
+                    let err: Error = e.into();
+                    error!("Failed to send cancel command: {err}");
                 }
             }
             Err(e) => {

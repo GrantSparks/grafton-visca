@@ -16,7 +16,7 @@ use crate::executor::Sleep;
 /// implementations use actual async futures.
 pub trait Transport {
     /// Error type for transport operations.
-    type Error: Into<Error>;
+    type Error: Into<Error> + core::fmt::Debug;
 
     /// Future produced by `send()` - completes when bytes are on the wire.
     type SendFut<'a>: Future<Output = Result<(), Self::Error>>
@@ -102,4 +102,4 @@ pub trait TransportExt: Transport {
     }
 }
 
-impl<T: Transport> TransportExt for T {}
+impl<T: Transport + Send + Sync> TransportExt for T {}

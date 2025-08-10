@@ -264,8 +264,12 @@ pub trait ExposureCompensationOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> ExposureOps
-    for crate::camera::generic::Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
+    ExposureOps for crate::camera::generic::Camera<P, T>
+where
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     async fn set_exposure_mode(
         &self,
@@ -496,8 +500,12 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Exp
 }
 
 // Blocking implementation
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> ExposureOpsBlocking
-    for crate::camera::generic::Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
+    ExposureOpsBlocking for crate::camera::generic::Camera<P, T>
+where
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     fn set_exposure_mode(&self, mode: crate::command::exposure::ExposureMode) -> Result<(), Error> {
         use crate::command::exposure::ExposureCommand;
@@ -728,7 +736,10 @@ where
     P: crate::capabilities::Profile
         + crate::capabilities::Exposure
         + crate::capabilities::HasExposureCompensation,
-    T: crate::transport::UnifiedTransport,
+    T: crate::transport::Transport + Send + Sync + 'static,
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     async fn enable_exposure_compensation(&self) -> Result<(), Error> {
         use crate::command::exposure::ExposureCompensation;
@@ -782,7 +793,10 @@ where
     P: crate::capabilities::Profile
         + crate::capabilities::Exposure
         + crate::capabilities::HasExposureCompensation,
-    T: crate::transport::UnifiedTransport,
+    T: crate::transport::Transport + Send + Sync + 'static,
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     fn enable_exposure_compensation(&self) -> Result<(), Error> {
         use crate::command::exposure::ExposureCompensation;

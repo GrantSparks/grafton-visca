@@ -9,7 +9,7 @@ use grafton_visca::camera::methods::{
     FocusOpsBlocking, PanTiltOpsBlocking, PowerOpsBlocking, PresetsOpsBlocking, ZoomOpsBlocking,
 };
 use grafton_visca::prelude::blocking::{GenericViscaCam, PTZOpticsG2Cam, SonyFR7Cam};
-use grafton_visca::transport::UnifiedTransport;
+use grafton_visca::transport::Transport;
 use grafton_visca::{capabilities::*, Camera, Error, PresetNumber};
 use std::sync::Mutex;
 
@@ -20,39 +20,25 @@ struct MockTransport {
     response_index: Mutex<usize>,
 }
 
-#[async_trait::async_trait]
-impl UnifiedTransport for MockTransport {
-    async fn send(&self, _bytes: &[u8]) -> Result<(), Error> {
-        Ok(())
+impl Transport for MockTransport {
+    type Error = Error;
+    type SendFut<'a> = std::future::Ready<Result<(), Error>>;
+    type RecvFut<'a> = std::future::Ready<Result<bytes::Bytes, Error>>;
+
+    fn send<'a>(&'a self, _bytes: &'a [u8]) -> Self::SendFut<'a> {
+        std::future::ready(Ok(()))
     }
 
-    async fn recv(&self) -> Result<bytes::Bytes, Error> {
+    fn recv(&self) -> Self::RecvFut<'_> {
         let mut index = self.response_index.lock().unwrap();
         let responses = self.response_sequence.lock().unwrap();
 
         if *index < responses.len() {
             let response = responses[*index].clone();
             *index += 1;
-            Ok(bytes::Bytes::from(response))
+            std::future::ready(Ok(bytes::Bytes::from(response)))
         } else {
-            Err(Error::Timeout)
-        }
-    }
-
-    fn send_blocking(&self, _bytes: &[u8]) -> Result<(), Error> {
-        Ok(())
-    }
-
-    fn recv_blocking_timeout(&self, _timeout: std::time::Duration) -> Result<bytes::Bytes, Error> {
-        let mut index = self.response_index.lock().unwrap();
-        let responses = self.response_sequence.lock().unwrap();
-
-        if *index < responses.len() {
-            let response = responses[*index].clone();
-            *index += 1;
-            Ok(bytes::Bytes::from(response))
-        } else {
-            Err(Error::Timeout)
+            std::future::ready(Err(Error::Timeout))
         }
     }
 }
@@ -112,44 +98,6 @@ impl MockTransport {
     }
 }
 
-impl grafton_visca::transport::Transport for MockTransport {
-    type Error = Error;
-    type SendFut<'a>
-        = std::future::Ready<Result<(), Self::Error>>
-    where
-        Self: 'a;
-    type RecvFut<'a>
-        = std::future::Ready<Result<bytes::Bytes, Self::Error>>
-    where
-        Self: 'a;
-
-    fn send<'a>(&'a self, _data: &'a [u8]) -> Self::SendFut<'a> {
-        std::future::ready(Ok(()))
-    }
-
-    fn recv(&self) -> Self::RecvFut<'_> {
-        let sequence = self
-            .response_sequence
-            .lock()
-            .expect("MockTransport mutex poisoned");
-        let mut index = self
-            .response_index
-            .lock()
-            .expect("MockTransport mutex poisoned");
-
-        let response = if *index < sequence.len() {
-            sequence[*index].clone()
-        } else {
-            // Reset to beginning for next command
-            *index = 0;
-            sequence[0].clone()
-        };
-
-        *index += 1;
-        std::future::ready(Ok(bytes::Bytes::from(response)))
-    }
-}
-
 // No need to implement BlockingTransport - it's a marker trait
 
 #[test]
@@ -187,7 +135,10 @@ fn test_compile_time_capability_checking() {
     fn adjust_nd_filter<P, T>(_camera: &Camera<P, T>) -> Result<(), Error>
     where
         P: Profile + NDFilter,
-        T: UnifiedTransport,
+        T: Transport + Send + Sync + 'static,
+        T::Error: Into<Error> + Send,
+        for<'a> T::SendFut<'a>: Send,
+        for<'a> T::RecvFut<'a>: Send,
     {
         // ND filter methods would be available here
         Ok(())

@@ -5,7 +5,7 @@
 use crate::{
     command::streaming::{MulticastStreaming, NDIQualityCommand},
     types::NDIQuality,
-    Result,
+    Error, Result,
 };
 
 /// Operations for controlling network and streaming features (async).
@@ -129,8 +129,12 @@ pub trait StreamingOpsBlocking: Sized {
 
 // Implementation for async Camera
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> StreamingOps
-    for crate::camera::generic::Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
+    StreamingOps for crate::camera::generic::Camera<P, T>
+where
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     async fn enable_multicast(&self) -> Result<()> {
         let command = MulticastStreaming::On;
@@ -138,7 +142,7 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Str
         match response {
             crate::command::Response::Completion => Ok(()),
             crate::command::Response::Error(e) => Err(e),
-            _ => Err(crate::error::Error::UnexpectedResponseType),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
@@ -148,7 +152,7 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Str
         match response {
             crate::command::Response::Completion => Ok(()),
             crate::command::Response::Error(e) => Err(e),
-            _ => Err(crate::error::Error::UnexpectedResponseType),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
@@ -158,14 +162,18 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Str
         match response {
             crate::command::Response::Completion => Ok(()),
             crate::command::Response::Error(e) => Err(e),
-            _ => Err(crate::error::Error::UnexpectedResponseType),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 }
 
 // Implementation for blocking Camera
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> StreamingOpsBlocking
-    for crate::camera::generic::Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
+    StreamingOpsBlocking for crate::camera::generic::Camera<P, T>
+where
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     fn enable_multicast(&self) -> Result<()> {
         let command = MulticastStreaming::On;
@@ -173,7 +181,7 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Str
         match response {
             crate::command::Response::Completion => Ok(()),
             crate::command::Response::Error(e) => Err(e),
-            _ => Err(crate::error::Error::UnexpectedResponseType),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
@@ -183,7 +191,7 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Str
         match response {
             crate::command::Response::Completion => Ok(()),
             crate::command::Response::Error(e) => Err(e),
-            _ => Err(crate::error::Error::UnexpectedResponseType),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 
@@ -193,7 +201,7 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Str
         match response {
             crate::command::Response::Completion => Ok(()),
             crate::command::Response::Error(e) => Err(e),
-            _ => Err(crate::error::Error::UnexpectedResponseType),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 }

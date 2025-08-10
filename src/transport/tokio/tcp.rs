@@ -1,7 +1,6 @@
 //! Tokio TCP transport implementation using GAT.
 
 use crate::transport::core::Transport;
-use crate::transport::UnifiedTransport;
 use crate::Error;
 use std::borrow::Cow;
 use std::time::Duration;
@@ -115,45 +114,5 @@ impl Transport for Tcp {
             Ok(bytes::Bytes::from(buf))
         });
         TcpRecvFut { fut }
-    }
-}
-
-#[async_trait::async_trait]
-impl UnifiedTransport for Tcp {
-    async fn send(&self, bytes: &[u8]) -> Result<(), Error> {
-        let mut writer = self.writer.lock().await;
-        writer.write_all(bytes).await?;
-        writer.flush().await?;
-        Ok(())
-    }
-
-    async fn recv(&self) -> Result<bytes::Bytes, Error> {
-        let mut reader = self.reader.lock().await;
-        let mut buf = Vec::with_capacity(64);
-
-        // Use buffered read_until to find VISCA terminator
-        let n = reader.read_until(0xFF, &mut buf).await?;
-
-        if n == 0 {
-            return Err(Error::ConnectionLost {
-                reason: Cow::Borrowed("peer closed connection"),
-            });
-        }
-
-        Ok(bytes::Bytes::from(buf))
-    }
-
-    fn send_blocking(&self, bytes: &[u8]) -> Result<(), Error> {
-        // Block on the async version
-        futures::executor::block_on(UnifiedTransport::send(self, bytes))
-    }
-
-    fn recv_blocking_timeout(&self, timeout: Duration) -> Result<bytes::Bytes, Error> {
-        // Use tokio's block_on with timeout
-        futures::executor::block_on(async {
-            tokio::time::timeout(timeout, UnifiedTransport::recv(self))
-                .await
-                .map_err(|_| Error::Timeout)?
-        })
     }
 }
