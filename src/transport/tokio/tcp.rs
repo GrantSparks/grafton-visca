@@ -50,7 +50,7 @@ pub struct TcpSendFut<'a> {
     fut: Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send + 'a>>,
 }
 
-impl<'a> std::future::Future for TcpSendFut<'a> {
+impl std::future::Future for TcpSendFut<'_> {
     type Output = Result<(), Error>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -58,7 +58,7 @@ impl<'a> std::future::Future for TcpSendFut<'a> {
     }
 }
 
-impl<'a> std::fmt::Debug for TcpSendFut<'a> {
+impl std::fmt::Debug for TcpSendFut<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TcpSendFut").finish()
     }
@@ -69,7 +69,7 @@ pub struct TcpRecvFut<'a> {
     fut: Pin<Box<dyn std::future::Future<Output = Result<bytes::Bytes, Error>> + Send + 'a>>,
 }
 
-impl<'a> std::future::Future for TcpRecvFut<'a> {
+impl std::future::Future for TcpRecvFut<'_> {
     type Output = Result<bytes::Bytes, Error>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -77,7 +77,7 @@ impl<'a> std::future::Future for TcpRecvFut<'a> {
     }
 }
 
-impl<'a> std::fmt::Debug for TcpRecvFut<'a> {
+impl std::fmt::Debug for TcpRecvFut<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TcpRecvFut").finish()
     }
@@ -102,16 +102,16 @@ impl Transport for Tcp {
         let fut = Box::pin(async move {
             let mut reader = self.reader.lock().await;
             let mut buf = Vec::with_capacity(64);
-            
+
             // Use buffered read_until to find VISCA terminator
             let n = reader.read_until(0xFF, &mut buf).await?;
-            
+
             if n == 0 {
                 return Err(Error::ConnectionLost {
                     reason: Cow::Borrowed("peer closed connection"),
                 });
             }
-            
+
             Ok(bytes::Bytes::from(buf))
         });
         TcpRecvFut { fut }
@@ -130,16 +130,16 @@ impl UnifiedTransport for Tcp {
     async fn recv(&self) -> Result<bytes::Bytes, Error> {
         let mut reader = self.reader.lock().await;
         let mut buf = Vec::with_capacity(64);
-        
+
         // Use buffered read_until to find VISCA terminator
         let n = reader.read_until(0xFF, &mut buf).await?;
-        
+
         if n == 0 {
             return Err(Error::ConnectionLost {
                 reason: Cow::Borrowed("peer closed connection"),
             });
         }
-        
+
         Ok(bytes::Bytes::from(buf))
     }
 
