@@ -7,8 +7,7 @@ use std::time::Duration;
 
 use super::MovementConfig;
 use crate::{
-    camera::Camera, capabilities::Profile, error::Error, transport::UnifiedTransport,
-    units::Degrees,
+    camera::Camera, capabilities::Profile, error::Error, transport::Transport, units::Degrees,
 };
 
 /// Helper methods for camera movement operations (blocking).
@@ -106,7 +105,12 @@ pub trait MovementOpsAsync: Sized {
     async fn is_moving(&self) -> Result<bool, Error>;
 }
 
-impl<P: Profile, T: UnifiedTransport> MovementOps for Camera<P, T> {
+impl<P: Profile, T: Transport + Send + Sync + 'static> MovementOps for Camera<P, T>
+where
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
+{
     fn await_idle(&self, timeout: impl Into<Duration>) -> Result<(), Error> {
         let config = MovementConfig::with_timeout(timeout.into());
         self.wait_for_movement(&config)
@@ -131,7 +135,12 @@ impl<P: Profile, T: UnifiedTransport> MovementOps for Camera<P, T> {
 }
 
 #[cfg(feature = "tokio")]
-impl<P: Profile, T: UnifiedTransport> MovementOpsAsync for Camera<P, T> {
+impl<P: Profile, T: Transport + Send + Sync + 'static> MovementOpsAsync for Camera<P, T>
+where
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
+{
     async fn await_idle(&self, timeout: impl Into<Duration>) -> Result<(), Error> {
         let config = MovementConfig::with_timeout(timeout.into());
         self.wait_for_movement_async(&config).await
@@ -156,7 +165,12 @@ impl<P: Profile, T: UnifiedTransport> MovementOpsAsync for Camera<P, T> {
 }
 
 #[cfg(all(feature = "async", not(feature = "tokio")))]
-impl<P: Profile, T: UnifiedTransport> MovementOpsAsync for Camera<P, T> {
+impl<P: Profile, T: Transport + Send + Sync + 'static> MovementOpsAsync for Camera<P, T>
+where
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
+{
     async fn await_idle(&self, _timeout: impl Into<Duration>) -> Result<(), Error> {
         Err(Error::InvalidState(
             "Async movement helpers require tokio feature".into(),

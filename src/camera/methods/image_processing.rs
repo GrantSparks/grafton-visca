@@ -177,8 +177,12 @@ pub trait ImageProcessingOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> ImageProcessingOps
-    for crate::camera::generic::Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
+    ImageProcessingOps for crate::camera::generic::Camera<P, T>
+where
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     async fn enable_flip(&self) -> Result<(), Error> {
         let cmd = ImageFlipCommand::new(Flip::On);
@@ -325,8 +329,12 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Ima
 }
 
 // Blocking implementation
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport>
+impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
     ImageProcessingOpsBlocking for crate::camera::generic::Camera<P, T>
+where
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     fn enable_flip(&self) -> Result<(), Error> {
         let cmd = ImageFlipCommand::new(Flip::On);

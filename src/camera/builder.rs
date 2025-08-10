@@ -115,6 +115,8 @@ pub struct CameraBuilder<P = ProfileUnset, K = UnknownTransport> {
     #[allow(dead_code)] // Used for type-state pattern
     profile: P,
     marker: K,
+    #[cfg(feature = "async")]
+    runtime: Option<std::sync::Arc<dyn crate::runtime::Runtime>>,
 }
 
 // ========================================================================================
@@ -128,6 +130,8 @@ impl CameraBuilder {
             config: TransportConfig::BlockingTcp { addr: addr.into() },
             profile: ProfileUnset,
             marker: BlockingTcpMarker,
+            #[cfg(feature = "async")]
+            runtime: None,
         }
     }
 
@@ -137,6 +141,8 @@ impl CameraBuilder {
             config: TransportConfig::BlockingUdp { addr: addr.into() },
             profile: ProfileUnset,
             marker: BlockingUdpMarker,
+            #[cfg(feature = "async")]
+            runtime: None,
         }
     }
 
@@ -147,6 +153,7 @@ impl CameraBuilder {
             config: TransportConfig::TokioTcp { addr: addr.into() },
             profile: ProfileUnset,
             marker: TokioTcpMarker,
+            runtime: Some(crate::runtime::default_runtime()),
         }
     }
 
@@ -157,6 +164,7 @@ impl CameraBuilder {
             config: TransportConfig::TokioUdp { addr: addr.into() },
             profile: ProfileUnset,
             marker: TokioUdpMarker,
+            runtime: Some(crate::runtime::default_runtime()),
         }
     }
 
@@ -167,6 +175,8 @@ impl CameraBuilder {
             config,
             profile: ProfileUnset,
             marker: UnknownTransport,
+            #[cfg(feature = "async")]
+            runtime: None,
         }
     }
 }
@@ -185,7 +195,24 @@ impl<K> CameraBuilder<ProfileUnset, K> {
             config: self.config,
             profile: P::default(),
             marker: self.marker,
+            #[cfg(feature = "async")]
+            runtime: self.runtime,
         }
+    }
+}
+
+impl<P, K> CameraBuilder<P, K> {
+    /// Set a custom runtime for async operations.
+    ///
+    /// This is useful when you want to use a runtime other than tokio,
+    /// or when you want to explicitly provide a runtime handle.
+    #[cfg(feature = "async")]
+    pub fn with_runtime<R>(mut self, runtime: std::sync::Arc<R>) -> Self
+    where
+        R: crate::runtime::Runtime,
+    {
+        self.runtime = Some(runtime);
+        self
     }
 }
 
@@ -259,7 +286,11 @@ impl<P: Profile> CameraBuilder<P, TokioTcpMarker> {
             TransportConfig::TokioTcp { addr } => {
                 let addr = ensure_port::<P>(&addr, Protocol::Tcp);
                 let transport = crate::transport::tokio::Tcp::connect(&addr).await?;
-                Ok(Camera::from_transport(transport))
+                let mut camera = Camera::from_transport(transport);
+                if let Some(runtime) = self.runtime {
+                    camera = camera.with_runtime(runtime);
+                }
+                Ok(camera)
             }
             _ => unreachable!("TokioTcpMarker guarantees TokioTcp config"),
         }
@@ -281,7 +312,11 @@ impl<P: Profile> CameraBuilder<P, TokioUdpMarker> {
             TransportConfig::TokioUdp { addr } => {
                 let addr = ensure_port::<P>(&addr, Protocol::Udp);
                 let transport = crate::transport::tokio::Udp::connect(&addr).await?;
-                Ok(Camera::from_transport(transport))
+                let mut camera = Camera::from_transport(transport);
+                if let Some(runtime) = self.runtime {
+                    camera = camera.with_runtime(runtime);
+                }
+                Ok(camera)
             }
             _ => unreachable!("TokioUdpMarker guarantees TokioUdp config"),
         }
@@ -311,51 +346,79 @@ pub enum DynTransport {
     TokioUdp(crate::transport::tokio::Udp),
 }
 
-// Implement UnifiedTransport trait for DynTransport
-#[async_trait::async_trait]
-impl crate::transport::UnifiedTransport for DynTransport {
-    async fn send(&self, bytes: &[u8]) -> Result<(), Error> {
-        match self {
-            DynTransport::BlockingTcp(t) => t.send(bytes).await,
-            DynTransport::BlockingUdp(t) => t.send(bytes).await,
-            #[cfg(feature = "tokio")]
-            DynTransport::TokioTcp(t) => t.send(bytes).await,
-            #[cfg(feature = "tokio")]
-            DynTransport::TokioUdp(t) => t.send(bytes).await,
-        }
+// Future types for DynTransport
+use std::pin::Pin;
+use std::task::{Context, Poll};
+
+/// Future for DynTransport send operations.
+pub struct DynSendFut<'a> {
+    fut: Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send + 'a>>,
+}
+
+impl std::fmt::Debug for DynSendFut<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DynSendFut").finish_non_exhaustive()
+    }
+}
+
+impl std::future::Future for DynSendFut<'_> {
+    type Output = Result<(), Error>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.fut.as_mut().poll(cx)
+    }
+}
+
+/// Future for DynTransport receive operations.
+pub struct DynRecvFut<'a> {
+    fut: Pin<Box<dyn std::future::Future<Output = Result<bytes::Bytes, Error>> + Send + 'a>>,
+}
+
+impl std::fmt::Debug for DynRecvFut<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DynRecvFut").finish_non_exhaustive()
+    }
+}
+
+impl std::future::Future for DynRecvFut<'_> {
+    type Output = Result<bytes::Bytes, Error>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.fut.as_mut().poll(cx)
+    }
+}
+
+// Implement Transport trait for DynTransport
+impl crate::transport::core::Transport for DynTransport {
+    type Error = Error;
+    type SendFut<'a> = DynSendFut<'a>;
+    type RecvFut<'a> = DynRecvFut<'a>;
+
+    fn send<'a>(&'a self, bytes: &'a [u8]) -> Self::SendFut<'a> {
+        let fut: Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send + 'a>> =
+            match self {
+                DynTransport::BlockingTcp(t) => Box::pin(async move { t.send(bytes).await }),
+                DynTransport::BlockingUdp(t) => Box::pin(async move { t.send(bytes).await }),
+                #[cfg(feature = "tokio")]
+                DynTransport::TokioTcp(t) => Box::pin(async move { t.send(bytes).await }),
+                #[cfg(feature = "tokio")]
+                DynTransport::TokioUdp(t) => Box::pin(async move { t.send(bytes).await }),
+            };
+        DynSendFut { fut }
     }
 
-    async fn recv(&self) -> Result<bytes::Bytes, Error> {
-        match self {
-            DynTransport::BlockingTcp(t) => t.recv().await,
-            DynTransport::BlockingUdp(t) => t.recv().await,
+    fn recv(&self) -> Self::RecvFut<'_> {
+        let fut: Pin<
+            Box<dyn std::future::Future<Output = Result<bytes::Bytes, Error>> + Send + '_>,
+        > = match self {
+            DynTransport::BlockingTcp(t) => Box::pin(async move { t.recv().await }),
+            DynTransport::BlockingUdp(t) => Box::pin(async move { t.recv().await }),
             #[cfg(feature = "tokio")]
-            DynTransport::TokioTcp(t) => t.recv().await,
+            DynTransport::TokioTcp(t) => Box::pin(async move { t.recv().await }),
             #[cfg(feature = "tokio")]
-            DynTransport::TokioUdp(t) => t.recv().await,
-        }
-    }
-
-    fn send_blocking(&self, bytes: &[u8]) -> Result<(), Error> {
-        match self {
-            DynTransport::BlockingTcp(t) => t.send_blocking(bytes),
-            DynTransport::BlockingUdp(t) => t.send_blocking(bytes),
-            #[cfg(feature = "tokio")]
-            DynTransport::TokioTcp(t) => t.send_blocking(bytes),
-            #[cfg(feature = "tokio")]
-            DynTransport::TokioUdp(t) => t.send_blocking(bytes),
-        }
-    }
-
-    fn recv_blocking_timeout(&self, timeout: std::time::Duration) -> Result<bytes::Bytes, Error> {
-        match self {
-            DynTransport::BlockingTcp(t) => t.recv_blocking_timeout(timeout),
-            DynTransport::BlockingUdp(t) => t.recv_blocking_timeout(timeout),
-            #[cfg(feature = "tokio")]
-            DynTransport::TokioTcp(t) => t.recv_blocking_timeout(timeout),
-            #[cfg(feature = "tokio")]
-            DynTransport::TokioUdp(t) => t.recv_blocking_timeout(timeout),
-        }
+            DynTransport::TokioUdp(t) => Box::pin(async move { t.recv().await }),
+        };
+        DynRecvFut { fut }
     }
 }
 

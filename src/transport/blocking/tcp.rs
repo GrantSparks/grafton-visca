@@ -1,7 +1,6 @@
 //! Blocking TCP transport implementation using GAT.
 
 use crate::transport::core::{blocking::ready, BlockingTransport, Transport};
-use crate::transport::UnifiedTransport;
 use crate::Error;
 use core::future::Ready;
 use std::borrow::Cow;
@@ -64,26 +63,6 @@ impl Transport for Tcp {
 }
 
 impl BlockingTransport for Tcp {}
-
-#[async_trait::async_trait]
-impl UnifiedTransport for Tcp {
-    async fn send(&self, bytes: &[u8]) -> Result<(), Error> {
-        send_impl(&self.writer, bytes)
-    }
-
-    async fn recv(&self) -> Result<bytes::Bytes, Error> {
-        recv_impl(&self.reader)
-    }
-
-    fn send_blocking(&self, bytes: &[u8]) -> Result<(), Error> {
-        send_impl(&self.writer, bytes)
-    }
-
-    fn recv_blocking_timeout(&self, _timeout: Duration) -> Result<bytes::Bytes, Error> {
-        // The timeout is already configured on the TcpStream itself
-        recv_impl(&self.reader)
-    }
-}
 
 fn send_impl(writer: &Mutex<TcpStream>, data: &[u8]) -> Result<(), Error> {
     let mut writer = writer.lock().map_err(|_| Error::LockPoisoned("writer"))?;

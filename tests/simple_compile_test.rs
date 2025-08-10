@@ -2,7 +2,7 @@
 
 use grafton_visca::{
     capabilities::{NDFilter, Profile},
-    transport::UnifiedTransport,
+    transport::Transport,
     Camera,
 };
 // Import type aliases from the blocking prelude
@@ -29,7 +29,10 @@ fn test_compile_time_safety() {
     fn _use_nd_filter<P, T>(_camera: &Camera<P, T>)
     where
         P: Profile + NDFilter,
-        T: UnifiedTransport,
+        T: Transport + Send + Sync + 'static,
+        T::Error: Into<grafton_visca::Error> + Send,
+        for<'a> T::SendFut<'a>: Send,
+        for<'a> T::RecvFut<'a>: Send,
     {
         // This would compile only for cameras with ND filter support
     }
@@ -38,7 +41,10 @@ fn test_compile_time_safety() {
     fn _use_basic_features<P, T>(_camera: &Camera<P, T>)
     where
         P: Profile,
-        T: UnifiedTransport,
+        T: Transport + Send + Sync + 'static,
+        T::Error: Into<grafton_visca::Error> + Send,
+        for<'a> T::SendFut<'a>: Send,
+        for<'a> T::RecvFut<'a>: Send,
     {
         // Basic features available on all cameras
     }

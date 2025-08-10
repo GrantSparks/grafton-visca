@@ -38,13 +38,13 @@
 //! ```
 
 // Transport trait and utilities
+pub mod boxed;
 pub mod core;
 pub mod envelope;
 pub mod transport_kind;
-pub mod unified;
 
+pub use boxed::BoxedTransport;
 pub use core::Transport;
-pub use unified::UnifiedTransport;
 // Internal: auxiliary transport traits (hidden from public API)
 // pub(crate) use core::{BlockingTransport, TransportExt};  // Commented out - unused
 // pub(crate) use transport_kind::TransportKind;  // Commented out - unused
