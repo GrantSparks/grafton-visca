@@ -94,7 +94,7 @@ visca_param_command! {
 
 impl AWBSensitivityCommand {
     /// Create a new AWB sensitivity command.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn new(sensitivity: AutoWhiteBalanceSensitivity) -> Self {
         Self { sensitivity }
     }

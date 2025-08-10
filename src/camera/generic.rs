@@ -380,19 +380,69 @@ where
 
     /// Wait for any response with timeout.
     #[cfg(feature = "async")]
-    async fn wait_for_response(&self, _timeout: Duration) -> Result<Response, Error> {
-        match self.transport.recv().await {
-            Ok(bytes) => {
-                // Extract VISCA payload from envelope if needed
-                let visca_bytes = self.envelope.extract_response(&bytes)?;
-                Response::parse(&visca_bytes)
+    async fn wait_for_response(&self, timeout_duration: Duration) -> Result<Response, Error> {
+        #[cfg(feature = "tokio")]
+        {
+            // Check if we're in a tokio runtime context
+            if tokio::runtime::Handle::try_current().is_ok() {
+                tokio::time::timeout(timeout_duration, async {
+                    match self.transport.recv().await {
+                        Ok(bytes) => {
+                            // Extract VISCA payload from envelope if needed
+                            let visca_bytes = self.envelope.extract_response(&bytes)?;
+                            Response::parse(&visca_bytes)
+                        }
+                        Err(e) => {
+                            // Preserve the original error type
+                            if e.to_string().contains("Operation timed out") {
+                                Err(Error::Timeout)
+                            } else {
+                                Err(e)
+                            }
+                        }
+                    }
+                })
+                .await
+                .map_err(|_| Error::Timeout)?
+            } else {
+                // Not in tokio runtime, fall back to no timeout
+                match self.transport.recv().await {
+                    Ok(bytes) => {
+                        // Extract VISCA payload from envelope if needed
+                        let visca_bytes = self.envelope.extract_response(&bytes)?;
+                        Response::parse(&visca_bytes)
+                    }
+                    Err(e) => {
+                        // Preserve the original error type
+                        if e.to_string().contains("Operation timed out") {
+                            Err(Error::Timeout)
+                        } else {
+                            Err(e)
+                        }
+                    }
+                }
             }
-            Err(e) => {
-                // Preserve the original error type
-                if e.to_string().contains("Operation timed out") {
-                    Err(Error::Timeout)
-                } else {
-                    Err(e)
+        }
+        
+        #[cfg(not(feature = "tokio"))]
+        {
+            // For non-tokio async runtimes, we still need to implement timeout
+            // but for now we'll just use the existing logic without timeout
+            // This should be fixed to use the runtime's timeout mechanism
+            let _ = timeout_duration; // Suppress unused warning
+            match self.transport.recv().await {
+                Ok(bytes) => {
+                    // Extract VISCA payload from envelope if needed
+                    let visca_bytes = self.envelope.extract_response(&bytes)?;
+                    Response::parse(&visca_bytes)
+                }
+                Err(e) => {
+                    // Preserve the original error type
+                    if e.to_string().contains("Operation timed out") {
+                        Err(Error::Timeout)
+                    } else {
+                        Err(e)
+                    }
                 }
             }
         }
@@ -403,44 +453,144 @@ where
     async fn wait_for_response_with_type(
         &self,
         expected_type: ResponseType,
-        #[allow(unused_variables)] timeout: Duration,
+        timeout_duration: Duration,
     ) -> Result<Response, Error> {
-        loop {
-            match self.transport.recv().await {
-                Ok(bytes) => {
-                    // Extract VISCA payload from envelope if needed
-                    let visca_bytes = match self.envelope.extract_response(&bytes) {
-                        Ok(payload) => payload,
-                        Err(e) => return Err(e),
-                    };
+        #[cfg(feature = "tokio")]
+        {
+            // Check if we're in a tokio runtime context
+            if tokio::runtime::Handle::try_current().is_ok() {
+                tokio::time::timeout(timeout_duration, async {
+                loop {
+                    match self.transport.recv().await {
+                        Ok(bytes) => {
+                            // Extract VISCA payload from envelope if needed
+                            let visca_bytes = match self.envelope.extract_response(&bytes) {
+                                Ok(payload) => payload,
+                                Err(e) => return Err(e),
+                            };
 
-                    // First try to parse as a regular response
-                    match Response::parse(&visca_bytes) {
-                        Ok(Response::CmdAck) => {
-                            // Skip ACK for inquiry commands and wait for the actual response
-                            log::debug!("Skipping ACK response for inquiry command");
-                            continue;
+                            // First try to parse as a regular response
+                            match Response::parse(&visca_bytes) {
+                                Ok(Response::CmdAck) => {
+                                    // Skip ACK for inquiry commands and wait for the actual response
+                                    log::debug!("Skipping ACK response for inquiry command");
+                                    continue;
+                                }
+                                Ok(Response::Error(e)) => return Err(e),
+                                Ok(Response::Completion) => {
+                                    // Unexpected completion for inquiry
+                                    return Err(Error::UnexpectedResponseType);
+                                }
+                                Ok(other) => {
+                                    return Ok(other);
+                                }
+                                Err(_) => match Response::parse_with_type(&visca_bytes, &expected_type) {
+                                    Ok(response) => return Ok(response),
+                                    Err(e) => return Err(e),
+                                },
+                            }
                         }
-                        Ok(Response::Error(e)) => return Err(e),
-                        Ok(Response::Completion) => {
-                            // Unexpected completion for inquiry
-                            return Err(Error::UnexpectedResponseType);
+                        Err(e) => {
+                            // Preserve the original error type
+                            if e.to_string().contains("Operation timed out") {
+                                return Err(Error::Timeout);
+                            } else {
+                                return Err(e);
+                            }
                         }
-                        Ok(other) => {
-                            return Ok(other);
-                        }
-                        Err(_) => match Response::parse_with_type(&visca_bytes, &expected_type) {
-                            Ok(response) => return Ok(response),
-                            Err(e) => return Err(e),
-                        },
                     }
                 }
-                Err(e) => {
-                    // Preserve the original error type
-                    if e.to_string().contains("Operation timed out") {
-                        return Err(Error::Timeout);
-                    } else {
-                        return Err(e);
+            })
+            .await
+            .map_err(|_| Error::Timeout)?
+            } else {
+                // Not in tokio runtime, fall back to no timeout
+                loop {
+                    match self.transport.recv().await {
+                        Ok(bytes) => {
+                            // Extract VISCA payload from envelope if needed
+                            let visca_bytes = match self.envelope.extract_response(&bytes) {
+                                Ok(payload) => payload,
+                                Err(e) => return Err(e),
+                            };
+
+                            // First try to parse as a regular response
+                            match Response::parse(&visca_bytes) {
+                                Ok(Response::CmdAck) => {
+                                    // Skip ACK for inquiry commands and wait for the actual response
+                                    log::debug!("Skipping ACK response for inquiry command");
+                                    continue;
+                                }
+                                Ok(Response::Error(e)) => return Err(e),
+                                Ok(Response::Completion) => {
+                                    // Unexpected completion for inquiry
+                                    return Err(Error::UnexpectedResponseType);
+                                }
+                                Ok(other) => {
+                                    return Ok(other);
+                                }
+                                Err(_) => match Response::parse_with_type(&visca_bytes, &expected_type) {
+                                    Ok(response) => return Ok(response),
+                                    Err(e) => return Err(e),
+                                },
+                            }
+                        }
+                        Err(e) => {
+                            // Preserve the original error type
+                            if e.to_string().contains("Operation timed out") {
+                                return Err(Error::Timeout);
+                            } else {
+                                return Err(e);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        #[cfg(not(feature = "tokio"))]
+        {
+            // For non-tokio async runtimes, we still need to implement timeout
+            // but for now we'll just use the existing logic without timeout
+            // This should be fixed to use the runtime's timeout mechanism
+            let _ = timeout_duration; // Suppress unused warning
+            loop {
+                match self.transport.recv().await {
+                    Ok(bytes) => {
+                        // Extract VISCA payload from envelope if needed
+                        let visca_bytes = match self.envelope.extract_response(&bytes) {
+                            Ok(payload) => payload,
+                            Err(e) => return Err(e),
+                        };
+
+                        // First try to parse as a regular response
+                        match Response::parse(&visca_bytes) {
+                            Ok(Response::CmdAck) => {
+                                // Skip ACK for inquiry commands and wait for the actual response
+                                log::debug!("Skipping ACK response for inquiry command");
+                                continue;
+                            }
+                            Ok(Response::Error(e)) => return Err(e),
+                            Ok(Response::Completion) => {
+                                // Unexpected completion for inquiry
+                                return Err(Error::UnexpectedResponseType);
+                            }
+                            Ok(other) => {
+                                return Ok(other);
+                            }
+                            Err(_) => match Response::parse_with_type(&visca_bytes, &expected_type) {
+                                Ok(response) => return Ok(response),
+                                Err(e) => return Err(e),
+                            },
+                        }
+                    }
+                    Err(e) => {
+                        // Preserve the original error type
+                        if e.to_string().contains("Operation timed out") {
+                            return Err(Error::Timeout);
+                        } else {
+                            return Err(e);
+                        }
                     }
                 }
             }

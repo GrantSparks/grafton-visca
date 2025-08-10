@@ -180,14 +180,6 @@ impl<const N: usize> CommandBuilder<N, Incomplete> {
         self
     }
 
-    /// Mutable VISCA-encoded 14-bit value (for backward compatibility).
-    ///
-    /// This method is part of the complete API but not currently used.
-    /// It's retained for API completeness and future use.
-    #[allow(dead_code)]
-    pub fn push_visca_u14_mut(&mut self, value: u16) -> &mut Self {
-        self.push_visca_u16_mut(value & 0x3FFF)
-    }
 
     /// Mutable nibble pair (for backward compatibility).
     pub fn push_nibble_pair_mut(&mut self, value: u16) -> &mut Self {
@@ -270,31 +262,16 @@ impl<const N: usize> CommandBuilder<N, Terminated> {
 
     /// Get the complete buffer as an array.
     /// This is only available after the command has been terminated.
-    ///
-    /// This method is part of the type-state API but not currently used.
-    /// It's retained for API completeness and will be used when migrating
-    /// commands to the type-safe pattern.
-    #[allow(dead_code)]
     pub fn as_array(&self) -> [u8; N] {
         self.buffer
     }
 
     /// Get the number of bytes in the terminated command.
-    ///
-    /// This method is part of the type-state API but not currently used.
-    /// It's retained for API completeness and will be used when migrating
-    /// commands to the type-safe pattern.
-    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.position
     }
 
     /// Check if the terminated command is empty.
-    ///
-    /// This method is part of the type-state API but not currently used.
-    /// It's retained for API completeness and will be used when migrating
-    /// commands to the type-safe pattern.
-    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.position == 0
     }
