@@ -12,7 +12,7 @@ use crate::{
     },
     error::{Error, Result},
     timeout::CommandCategory,
-    transport::{BoxedTransport, Transport},
+    transport::Transport,
 };
 
 impl Socket {
@@ -473,7 +473,7 @@ impl RetryHook for NoRetryHook {
 ///
 /// The actor is generic over the transport type to allow both concrete
 /// types (for performance) and boxed types (for flexibility).
-pub(crate) struct SocketManagerActor<T = BoxedTransport> {
+pub(crate) struct SocketManagerActor<T> {
     inner: SocketManagerInner,
     transport: Arc<T>,
     command_receiver: UnboundedReceiver<SocketManagerCommand>,

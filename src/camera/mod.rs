@@ -25,7 +25,7 @@ pub use generic::Camera;
 pub use generic_state::CameraState;
 
 // Re-export builder types
-pub use builder::{CameraBuilder, CameraDyn, DynTransport, Protocol, TransportConfig};
+pub use builder::{CameraBuilder, Protocol};
 
 // Re-export movement detection types
 pub use movement_probe::{MovementConfig, PanTiltPosition};
