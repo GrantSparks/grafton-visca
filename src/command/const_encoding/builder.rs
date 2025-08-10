@@ -180,7 +180,6 @@ impl<const N: usize> CommandBuilder<N, Incomplete> {
         self
     }
 
-
     /// Mutable nibble pair (for backward compatibility).
     pub fn push_nibble_pair_mut(&mut self, value: u16) -> &mut Self {
         if self.position + 2 <= N {
