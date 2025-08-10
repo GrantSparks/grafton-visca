@@ -32,41 +32,6 @@ pub struct TokioTcpMarker;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct TokioUdpMarker;
 
-/// Marker for unknown/dynamic transport (used with from_config).
-#[derive(Debug, Clone, Copy, Default)]
-pub struct UnknownTransport;
-
-// ========================================================================================
-// Transport configuration enum
-// ========================================================================================
-
-/// Transport configuration for the camera builder.
-#[derive(Debug, Clone)]
-pub enum TransportConfig {
-    /// Blocking TCP transport configuration.
-    BlockingTcp {
-        /// Address to connect to (host:port format).
-        addr: String,
-    },
-    /// Blocking UDP transport configuration.
-    BlockingUdp {
-        /// Address to connect to (host:port format).
-        addr: String,
-    },
-    /// Async TCP transport configuration (tokio).
-    #[cfg(feature = "tokio")]
-    TokioTcp {
-        /// Address to connect to (host:port format).
-        addr: String,
-    },
-    /// Async UDP transport configuration (tokio).
-    #[cfg(feature = "tokio")]
-    TokioUdp {
-        /// Address to connect to (host:port format).
-        addr: String,
-    },
-}
-
 // ========================================================================================
 // Main builder struct with type-state pattern
 // ========================================================================================
@@ -100,18 +65,12 @@ pub enum TransportConfig {
 /// let camera = CameraBuilder::udp("192.168.0.110")
 ///     .profile::<PTZOpticsG2>()
 ///     .build()?;  // Returns Camera<PTZOpticsG2, Udp>
-///
-/// // Dynamic path for runtime configuration
-/// let config = TransportConfig::BlockingTcp { addr: "192.168.0.110".into() };
-/// let camera = CameraBuilder::from_config(config)
-///     .profile::<PTZOpticsG2>()
-///     .build_dyn()?;  // Returns Camera<PTZOpticsG2, DynTransport>
 /// # Ok(())
 /// # }
 /// ```
 #[derive(Debug, Clone)]
-pub struct CameraBuilder<P = ProfileUnset, K = UnknownTransport> {
-    config: TransportConfig,
+pub struct CameraBuilder<K, P = ProfileUnset> {
+    addr: String,
     #[allow(dead_code)] // Used for type-state pattern
     profile: P,
     marker: K,
@@ -123,11 +82,11 @@ pub struct CameraBuilder<P = ProfileUnset, K = UnknownTransport> {
 // CameraBuilder constructors
 // ========================================================================================
 
-impl CameraBuilder {
+impl CameraBuilder<(), ProfileUnset> {
     /// Create a builder for a blocking TCP transport.
-    pub fn tcp(addr: impl Into<String>) -> CameraBuilder<ProfileUnset, BlockingTcpMarker> {
+    pub fn tcp(addr: impl Into<String>) -> CameraBuilder<BlockingTcpMarker, ProfileUnset> {
         CameraBuilder {
-            config: TransportConfig::BlockingTcp { addr: addr.into() },
+            addr: addr.into(),
             profile: ProfileUnset,
             marker: BlockingTcpMarker,
             #[cfg(feature = "async")]
@@ -136,9 +95,9 @@ impl CameraBuilder {
     }
 
     /// Create a builder for a blocking UDP transport.
-    pub fn udp(addr: impl Into<String>) -> CameraBuilder<ProfileUnset, BlockingUdpMarker> {
+    pub fn udp(addr: impl Into<String>) -> CameraBuilder<BlockingUdpMarker, ProfileUnset> {
         CameraBuilder {
-            config: TransportConfig::BlockingUdp { addr: addr.into() },
+            addr: addr.into(),
             profile: ProfileUnset,
             marker: BlockingUdpMarker,
             #[cfg(feature = "async")]
@@ -148,9 +107,9 @@ impl CameraBuilder {
 
     /// Create a builder for an async TCP transport (tokio).
     #[cfg(feature = "tokio")]
-    pub fn tokio_tcp(addr: impl Into<String>) -> CameraBuilder<ProfileUnset, TokioTcpMarker> {
+    pub fn tokio_tcp(addr: impl Into<String>) -> CameraBuilder<TokioTcpMarker, ProfileUnset> {
         CameraBuilder {
-            config: TransportConfig::TokioTcp { addr: addr.into() },
+            addr: addr.into(),
             profile: ProfileUnset,
             marker: TokioTcpMarker,
             runtime: Some(crate::runtime::default_runtime()),
@@ -159,24 +118,12 @@ impl CameraBuilder {
 
     /// Create a builder for an async UDP transport (tokio).
     #[cfg(feature = "tokio")]
-    pub fn tokio_udp(addr: impl Into<String>) -> CameraBuilder<ProfileUnset, TokioUdpMarker> {
+    pub fn tokio_udp(addr: impl Into<String>) -> CameraBuilder<TokioUdpMarker, ProfileUnset> {
         CameraBuilder {
-            config: TransportConfig::TokioUdp { addr: addr.into() },
+            addr: addr.into(),
             profile: ProfileUnset,
             marker: TokioUdpMarker,
             runtime: Some(crate::runtime::default_runtime()),
-        }
-    }
-
-    /// Create a builder from a runtime configuration.
-    /// This is the dynamic path for when transport type is not known at compile time.
-    pub fn from_config(config: TransportConfig) -> CameraBuilder<ProfileUnset, UnknownTransport> {
-        CameraBuilder {
-            config,
-            profile: ProfileUnset,
-            marker: UnknownTransport,
-            #[cfg(feature = "async")]
-            runtime: None,
         }
     }
 }
@@ -185,14 +132,14 @@ impl CameraBuilder {
 // Profile selection - available for all transport markers
 // ========================================================================================
 
-impl<K> CameraBuilder<ProfileUnset, K> {
+impl<K> CameraBuilder<K, ProfileUnset> {
     /// Lock in the compile-time profile and return a builder with that profile.
-    pub fn profile<P>(self) -> CameraBuilder<P, K>
+    pub fn profile<P>(self) -> CameraBuilder<K, P>
     where
         P: Profile + Default,
     {
         CameraBuilder {
-            config: self.config,
+            addr: self.addr,
             profile: P::default(),
             marker: self.marker,
             #[cfg(feature = "async")]
@@ -201,7 +148,7 @@ impl<K> CameraBuilder<ProfileUnset, K> {
     }
 }
 
-impl<P, K> CameraBuilder<P, K> {
+impl<K, P> CameraBuilder<K, P> {
     /// Set a custom runtime for async operations.
     ///
     /// This is useful when you want to use a runtime other than tokio,
@@ -230,7 +177,7 @@ pub enum Protocol {
 // ========================================================================================
 
 /// Build implementation for blocking TCP transport.
-impl<P: Profile> CameraBuilder<P, BlockingTcpMarker> {
+impl<P: Profile> CameraBuilder<BlockingTcpMarker, P> {
     /// Build the camera with blocking TCP transport.
     ///
     /// # Errors
@@ -239,19 +186,14 @@ impl<P: Profile> CameraBuilder<P, BlockingTcpMarker> {
     /// - The address is invalid
     /// - Connection to the camera fails
     pub fn build(self) -> Result<Camera<P, crate::transport::blocking::Tcp>, Error> {
-        match self.config {
-            TransportConfig::BlockingTcp { addr } => {
-                let addr = ensure_port::<P>(&addr, Protocol::Tcp);
-                let transport = crate::transport::blocking::Tcp::connect(&addr)?;
-                Ok(Camera::from_transport(transport))
-            }
-            _ => unreachable!("BlockingTcpMarker guarantees BlockingTcp config"),
-        }
+        let addr = ensure_port::<P>(&self.addr, Protocol::Tcp);
+        let transport = crate::transport::blocking::Tcp::connect(&addr)?;
+        Ok(Camera::from_transport(transport))
     }
 }
 
 /// Build implementation for blocking UDP transport.
-impl<P: Profile> CameraBuilder<P, BlockingUdpMarker> {
+impl<P: Profile> CameraBuilder<BlockingUdpMarker, P> {
     /// Build the camera with blocking UDP transport.
     ///
     /// # Errors
@@ -260,20 +202,15 @@ impl<P: Profile> CameraBuilder<P, BlockingUdpMarker> {
     /// - The address is invalid
     /// - Connection to the camera fails
     pub fn build(self) -> Result<Camera<P, crate::transport::blocking::Udp>, Error> {
-        match self.config {
-            TransportConfig::BlockingUdp { addr } => {
-                let addr = ensure_port::<P>(&addr, Protocol::Udp);
-                let transport = crate::transport::blocking::Udp::connect(&addr)?;
-                Ok(Camera::from_transport(transport))
-            }
-            _ => unreachable!("BlockingUdpMarker guarantees BlockingUdp config"),
-        }
+        let addr = ensure_port::<P>(&self.addr, Protocol::Udp);
+        let transport = crate::transport::blocking::Udp::connect(&addr)?;
+        Ok(Camera::from_transport(transport))
     }
 }
 
 /// Build implementation for tokio TCP transport.
 #[cfg(feature = "tokio")]
-impl<P: Profile> CameraBuilder<P, TokioTcpMarker> {
+impl<P: Profile> CameraBuilder<TokioTcpMarker, P> {
     /// Build the camera with async TCP transport.
     ///
     /// # Errors
@@ -282,24 +219,19 @@ impl<P: Profile> CameraBuilder<P, TokioTcpMarker> {
     /// - The address is invalid
     /// - Connection to the camera fails
     pub async fn build(self) -> Result<Camera<P, crate::transport::tokio::Tcp>, Error> {
-        match self.config {
-            TransportConfig::TokioTcp { addr } => {
-                let addr = ensure_port::<P>(&addr, Protocol::Tcp);
-                let transport = crate::transport::tokio::Tcp::connect(&addr).await?;
-                let mut camera = Camera::from_transport(transport);
-                if let Some(runtime) = self.runtime {
-                    camera = camera.with_runtime(runtime);
-                }
-                Ok(camera)
-            }
-            _ => unreachable!("TokioTcpMarker guarantees TokioTcp config"),
+        let addr = ensure_port::<P>(&self.addr, Protocol::Tcp);
+        let transport = crate::transport::tokio::Tcp::connect(&addr).await?;
+        let mut camera = Camera::from_transport(transport);
+        if let Some(runtime) = self.runtime {
+            camera = camera.with_runtime(runtime);
         }
+        Ok(camera)
     }
 }
 
 /// Build implementation for tokio UDP transport.
 #[cfg(feature = "tokio")]
-impl<P: Profile> CameraBuilder<P, TokioUdpMarker> {
+impl<P: Profile> CameraBuilder<TokioUdpMarker, P> {
     /// Build the camera with async UDP transport.
     ///
     /// # Errors
@@ -308,203 +240,13 @@ impl<P: Profile> CameraBuilder<P, TokioUdpMarker> {
     /// - The address is invalid
     /// - Connection to the camera fails
     pub async fn build(self) -> Result<Camera<P, crate::transport::tokio::Udp>, Error> {
-        match self.config {
-            TransportConfig::TokioUdp { addr } => {
-                let addr = ensure_port::<P>(&addr, Protocol::Udp);
-                let transport = crate::transport::tokio::Udp::connect(&addr).await?;
-                let mut camera = Camera::from_transport(transport);
-                if let Some(runtime) = self.runtime {
-                    camera = camera.with_runtime(runtime);
-                }
-                Ok(camera)
-            }
-            _ => unreachable!("TokioUdpMarker guarantees TokioUdp config"),
+        let addr = ensure_port::<P>(&self.addr, Protocol::Udp);
+        let transport = crate::transport::tokio::Udp::connect(&addr).await?;
+        let mut camera = Camera::from_transport(transport);
+        if let Some(runtime) = self.runtime {
+            camera = camera.with_runtime(runtime);
         }
-    }
-}
-
-// ========================================================================================
-// Dynamic transport enum for runtime-configured transports
-// ========================================================================================
-
-/// Dynamic transport enum that can hold any transport type at runtime.
-///
-/// This is used when the transport type is determined at runtime (e.g., from configuration
-/// files or CLI arguments). It has a small runtime overhead due to dynamic dispatch but
-/// provides flexibility when compile-time transport selection is not possible.
-#[derive(Debug)]
-pub enum DynTransport {
-    /// Blocking TCP transport.
-    BlockingTcp(crate::transport::blocking::Tcp),
-    /// Blocking UDP transport.
-    BlockingUdp(crate::transport::blocking::Udp),
-    /// Async TCP transport (tokio).
-    #[cfg(feature = "tokio")]
-    TokioTcp(crate::transport::tokio::Tcp),
-    /// Async UDP transport (tokio).
-    #[cfg(feature = "tokio")]
-    TokioUdp(crate::transport::tokio::Udp),
-}
-
-// Future types for DynTransport
-use std::pin::Pin;
-use std::task::{Context, Poll};
-
-/// Future for DynTransport send operations.
-pub struct DynSendFut<'a> {
-    fut: Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send + 'a>>,
-}
-
-impl std::fmt::Debug for DynSendFut<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DynSendFut").finish_non_exhaustive()
-    }
-}
-
-impl std::future::Future for DynSendFut<'_> {
-    type Output = Result<(), Error>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        self.fut.as_mut().poll(cx)
-    }
-}
-
-/// Future for DynTransport receive operations.
-pub struct DynRecvFut<'a> {
-    fut: Pin<Box<dyn std::future::Future<Output = Result<bytes::Bytes, Error>> + Send + 'a>>,
-}
-
-impl std::fmt::Debug for DynRecvFut<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DynRecvFut").finish_non_exhaustive()
-    }
-}
-
-impl std::future::Future for DynRecvFut<'_> {
-    type Output = Result<bytes::Bytes, Error>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        self.fut.as_mut().poll(cx)
-    }
-}
-
-// Implement Transport trait for DynTransport
-impl crate::transport::core::Transport for DynTransport {
-    type Error = Error;
-    type SendFut<'a> = DynSendFut<'a>;
-    type RecvFut<'a> = DynRecvFut<'a>;
-
-    fn send<'a>(&'a self, bytes: &'a [u8]) -> Self::SendFut<'a> {
-        let fut: Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send + 'a>> =
-            match self {
-                DynTransport::BlockingTcp(t) => Box::pin(async move { t.send(bytes).await }),
-                DynTransport::BlockingUdp(t) => Box::pin(async move { t.send(bytes).await }),
-                #[cfg(feature = "tokio")]
-                DynTransport::TokioTcp(t) => Box::pin(async move { t.send(bytes).await }),
-                #[cfg(feature = "tokio")]
-                DynTransport::TokioUdp(t) => Box::pin(async move { t.send(bytes).await }),
-            };
-        DynSendFut { fut }
-    }
-
-    fn recv(&self) -> Self::RecvFut<'_> {
-        let fut: Pin<
-            Box<dyn std::future::Future<Output = Result<bytes::Bytes, Error>> + Send + '_>,
-        > = match self {
-            DynTransport::BlockingTcp(t) => Box::pin(async move { t.recv().await }),
-            DynTransport::BlockingUdp(t) => Box::pin(async move { t.recv().await }),
-            #[cfg(feature = "tokio")]
-            DynTransport::TokioTcp(t) => Box::pin(async move { t.recv().await }),
-            #[cfg(feature = "tokio")]
-            DynTransport::TokioUdp(t) => Box::pin(async move { t.recv().await }),
-        };
-        DynRecvFut { fut }
-    }
-}
-
-/// Type alias for a Camera with dynamic transport.
-pub type CameraDyn<P> = Camera<P, DynTransport>;
-
-// ========================================================================================
-// Dynamic build method for unknown transport marker
-// ========================================================================================
-
-impl<P: Profile> CameraBuilder<P, UnknownTransport> {
-    /// Build the camera with a dynamic transport determined at runtime.
-    ///
-    /// This method creates a camera with `DynTransport`, which adds a small runtime
-    /// overhead but allows the transport type to be determined from runtime configuration.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The address is invalid
-    /// - Connection to the camera fails
-    pub fn build_dyn(self) -> Result<CameraDyn<P>, Error> {
-        match self.config {
-            TransportConfig::BlockingTcp { addr } => {
-                let addr = ensure_port::<P>(&addr, Protocol::Tcp);
-                let transport = crate::transport::blocking::Tcp::connect(&addr)?;
-                Ok(Camera::from_transport(DynTransport::BlockingTcp(transport)))
-            }
-            TransportConfig::BlockingUdp { addr } => {
-                let addr = ensure_port::<P>(&addr, Protocol::Udp);
-                let transport = crate::transport::blocking::Udp::connect(&addr)?;
-                Ok(Camera::from_transport(DynTransport::BlockingUdp(transport)))
-            }
-            #[cfg(feature = "tokio")]
-            TransportConfig::TokioTcp { addr: _ } => {
-                // For async transports in build_dyn, we need to handle them differently
-                // Since build_dyn is sync, we can't await here.
-                Err(Error::TransportMismatch {
-                    reason: "Async TCP transport requires async build. Use build_dyn_async().await or the typed path with .build().await",
-                })
-            }
-            #[cfg(feature = "tokio")]
-            TransportConfig::TokioUdp { addr: _ } => {
-                Err(Error::TransportMismatch {
-                    reason: "Async UDP transport requires async build. Use build_dyn_async().await or the typed path with .build().await",
-                })
-            }
-        }
-    }
-
-    /// Build the camera with a dynamic transport determined at runtime (async version).
-    ///
-    /// This method creates a camera with `DynTransport`, supporting all transport types
-    /// including async ones.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The address is invalid
-    /// - Connection to the camera fails
-    #[cfg(feature = "tokio")]
-    pub async fn build_dyn_async(self) -> Result<CameraDyn<P>, Error> {
-        match self.config {
-            TransportConfig::BlockingTcp { addr } => {
-                let addr = ensure_port::<P>(&addr, Protocol::Tcp);
-                let transport = crate::transport::blocking::Tcp::connect(&addr)?;
-                Ok(Camera::from_transport(DynTransport::BlockingTcp(transport)))
-            }
-            TransportConfig::BlockingUdp { addr } => {
-                let addr = ensure_port::<P>(&addr, Protocol::Udp);
-                let transport = crate::transport::blocking::Udp::connect(&addr)?;
-                Ok(Camera::from_transport(DynTransport::BlockingUdp(transport)))
-            }
-            #[cfg(feature = "tokio")]
-            TransportConfig::TokioTcp { addr } => {
-                let addr = ensure_port::<P>(&addr, Protocol::Tcp);
-                let transport = crate::transport::tokio::Tcp::connect(&addr).await?;
-                Ok(Camera::from_transport(DynTransport::TokioTcp(transport)))
-            }
-            #[cfg(feature = "tokio")]
-            TransportConfig::TokioUdp { addr } => {
-                let addr = ensure_port::<P>(&addr, Protocol::Udp);
-                let transport = crate::transport::tokio::Udp::connect(&addr).await?;
-                Ok(Camera::from_transport(DynTransport::TokioUdp(transport)))
-            }
-        }
+        Ok(camera)
     }
 }
 
@@ -538,20 +280,14 @@ mod tests {
     fn test_tcp_builder_creation() {
         let builder = CameraBuilder::tcp("192.168.0.110:52381");
         let typed = builder.profile::<PTZOpticsG2>();
-        assert!(
-            matches!(typed.config, TransportConfig::BlockingTcp { ref addr } if addr == "192.168.0.110:52381"),
-            "Expected BlockingTcp with correct address"
-        );
+        assert_eq!(typed.addr, "192.168.0.110:52381");
     }
 
     #[test]
     fn test_udp_builder_creation() {
         let builder = CameraBuilder::udp("239.0.0.1:52381");
         let typed = builder.profile::<GenericVisca>();
-        assert!(
-            matches!(typed.config, TransportConfig::BlockingUdp { ref addr } if addr == "239.0.0.1:52381"),
-            "Expected BlockingUdp with correct address"
-        );
+        assert_eq!(typed.addr, "239.0.0.1:52381");
     }
 
     #[cfg(feature = "tokio")]
@@ -559,10 +295,7 @@ mod tests {
     fn test_tokio_tcp_builder_creation() {
         let builder = CameraBuilder::tokio_tcp("192.168.0.110:52381");
         let typed = builder.profile::<PTZOpticsG2>();
-        assert!(
-            matches!(typed.config, TransportConfig::TokioTcp { ref addr } if addr == "192.168.0.110:52381"),
-            "Expected TokioTcp with correct address"
-        );
+        assert_eq!(typed.addr, "192.168.0.110:52381");
     }
 
     #[cfg(feature = "tokio")]
@@ -570,10 +303,7 @@ mod tests {
     fn test_tokio_udp_builder_creation() {
         let builder = CameraBuilder::tokio_udp("239.0.0.1:52381");
         let typed = builder.profile::<GenericVisca>();
-        assert!(
-            matches!(typed.config, TransportConfig::TokioUdp { ref addr } if addr == "239.0.0.1:52381"),
-            "Expected TokioUdp with correct address"
-        );
+        assert_eq!(typed.addr, "239.0.0.1:52381");
     }
 
     #[test]
@@ -701,34 +431,8 @@ mod tests {
     fn test_builder_is_send_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
 
-        assert_send_sync::<CameraBuilder>();
-        assert_send_sync::<CameraBuilder<GenericVisca, BlockingTcpMarker>>();
-        assert_send_sync::<CameraBuilder<PTZOpticsG2, BlockingUdpMarker>>();
-    }
-
-    #[test]
-    fn test_from_config() {
-        let config = TransportConfig::BlockingTcp {
-            addr: "192.168.0.110".into(),
-        };
-        let builder = CameraBuilder::from_config(config.clone());
-        let typed = builder.profile::<PTZOpticsG2>();
-        assert!(
-            matches!(typed.config, TransportConfig::BlockingTcp { ref addr } if addr == "192.168.0.110"),
-            "Expected BlockingTcp with correct address"
-        );
-    }
-
-    #[test]
-    fn test_dynamic_transport_config() {
-        // Test that from_config creates correct UnknownTransport marker
-        let config = TransportConfig::BlockingTcp {
-            addr: "192.168.0.110".into(),
-        };
-        let builder = CameraBuilder::from_config(config);
-        // This should compile - builder has UnknownTransport marker
-        let _typed = builder.profile::<PTZOpticsG2>();
-        // We can't call .build() on UnknownTransport, only .build_dyn()
+        assert_send_sync::<CameraBuilder<BlockingTcpMarker, GenericVisca>>();
+        assert_send_sync::<CameraBuilder<BlockingUdpMarker, PTZOpticsG2>>();
     }
 
     #[test]

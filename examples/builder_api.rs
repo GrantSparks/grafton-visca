@@ -12,10 +12,7 @@
 //! - Async: cargo run --example builder_api --features tokio
 
 use grafton_visca::{
-    camera::{
-        builder::TransportConfig,
-        profiles::{PTZOpticsG2, SonyBRC300, SonyFR7},
-    },
+    camera::profiles::{PTZOpticsG2, SonyBRC300, SonyFR7},
     CameraBuilder, Result,
 };
 
@@ -60,17 +57,7 @@ fn main() -> Result<()> {
         .build()?;
     println!("✓ Sony FR7 camera (ND filter support)");
 
-    println!("\n--- Example 5: Dynamic Transport (Runtime Configuration) ---");
-    // Useful when transport type comes from config file or CLI args
-    let config = TransportConfig::BlockingTcp {
-        addr: "192.168.0.110".into(),
-    };
-    let _camera = CameraBuilder::from_config(config)
-        .profile::<PTZOpticsG2>()
-        .build_dyn()?;
-    println!("✓ Created camera with runtime-determined transport");
-
-    println!("\n--- Example 6: Type Safety ---");
+    println!("\n--- Example 5: Type Safety ---");
     println!("The builder enforces correct usage at compile time:");
     println!("- Must call .profile() before .build()");
     println!("- Cannot call .profile() twice");
@@ -140,18 +127,7 @@ async fn main() -> Result<()> {
         Err(e) => println!("✓ Handled connection error: {e}"),
     }
 
-    println!("\n--- Example 5: Dynamic Transport (Async) ---");
-    // For async transports in dynamic configuration
-    let config = TransportConfig::TokioTcp {
-        addr: "192.168.0.110".into(),
-    };
-    let _camera = CameraBuilder::from_config(config)
-        .profile::<PTZOpticsG2>()
-        .build_dyn_async()
-        .await?;
-    println!("✓ Created async camera with runtime-determined transport");
-
-    println!("\n--- Example 6: Async Benefits ---");
+    println!("\n--- Example 5: Async Benefits ---");
     println!("Async builders enable:");
     println!("- Non-blocking I/O during connection");
     println!("- Concurrent camera initialization");
