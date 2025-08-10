@@ -293,7 +293,7 @@ impl<P: Profile> CameraBuilder<P, TokioUdpMarker> {
 // ========================================================================================
 
 /// Dynamic transport enum that can hold any transport type at runtime.
-/// 
+///
 /// This is used when the transport type is determined at runtime (e.g., from configuration
 /// files or CLI arguments). It has a small runtime overhead due to dynamic dispatch but
 /// provides flexibility when compile-time transport selection is not possible.
@@ -405,7 +405,7 @@ impl<P: Profile> CameraBuilder<P, UnknownTransport> {
             }
         }
     }
-    
+
     /// Build the camera with a dynamic transport determined at runtime (async version).
     ///
     /// This method creates a camera with `DynTransport`, supporting all transport types
@@ -517,11 +517,11 @@ mod tests {
     fn test_builder_accepts_string_types() {
         // Test with &str
         let _builder1 = CameraBuilder::tcp("192.168.0.110");
-        
+
         // Test with String
         let addr = String::from("192.168.0.110");
         let _builder2 = CameraBuilder::tcp(addr);
-        
+
         // Test with &String
         let addr = String::from("192.168.0.110");
         let _builder3 = CameraBuilder::tcp(&addr);
@@ -531,7 +531,7 @@ mod tests {
     fn test_builder_is_cloneable() {
         let builder = CameraBuilder::tcp("192.168.0.110");
         let _builder2 = builder.clone();
-        
+
         let typed = CameraBuilder::tcp("192.168.0.110").profile::<PTZOpticsG2>();
         let _typed2 = typed.clone();
     }
@@ -642,10 +642,12 @@ mod tests {
         assert_send_sync::<CameraBuilder<GenericVisca, BlockingTcpMarker>>();
         assert_send_sync::<CameraBuilder<PTZOpticsG2, BlockingUdpMarker>>();
     }
-    
+
     #[test]
     fn test_from_config() {
-        let config = TransportConfig::BlockingTcp { addr: "192.168.0.110".into() };
+        let config = TransportConfig::BlockingTcp {
+            addr: "192.168.0.110".into(),
+        };
         let builder = CameraBuilder::from_config(config.clone());
         let typed = builder.profile::<PTZOpticsG2>();
         assert!(
@@ -653,11 +655,13 @@ mod tests {
             "Expected BlockingTcp with correct address"
         );
     }
-    
+
     #[test]
     fn test_dynamic_transport_config() {
         // Test that from_config creates correct UnknownTransport marker
-        let config = TransportConfig::BlockingTcp { addr: "192.168.0.110".into() };
+        let config = TransportConfig::BlockingTcp {
+            addr: "192.168.0.110".into(),
+        };
         let builder = CameraBuilder::from_config(config);
         // This should compile - builder has UnknownTransport marker
         let _typed = builder.profile::<PTZOpticsG2>();

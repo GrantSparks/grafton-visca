@@ -341,8 +341,7 @@ impl SocketManagerHandle {
             .command_sender
             .send(SocketManagerCommand::WaitForCompletion { response_sender });
 
-        send_result
-            .map_err(|_| Error::SocketManagerChannelClosed)?;
+        send_result.map_err(|_| Error::SocketManagerChannelClosed)?;
 
         #[cfg(feature = "tokio")]
         let result = response_receiver.recv().await?;

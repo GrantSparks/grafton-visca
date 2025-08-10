@@ -67,18 +67,14 @@ impl UnifiedTransport for Udp {
 }
 
 fn send_impl(socket: &Mutex<UdpSocket>, data: &[u8]) -> Result<(), Error> {
-    let socket = socket
-        .lock()
-        .map_err(|_| Error::LockPoisoned("socket"))?;
+    let socket = socket.lock().map_err(|_| Error::LockPoisoned("socket"))?;
 
     socket.send(data)?;
     Ok(())
 }
 
 fn recv_impl(socket: &Mutex<UdpSocket>) -> Result<bytes::Bytes, Error> {
-    let socket = socket
-        .lock()
-        .map_err(|_| Error::LockPoisoned("socket"))?;
+    let socket = socket.lock().map_err(|_| Error::LockPoisoned("socket"))?;
 
     let mut buffer = vec![0u8; 1024];
 

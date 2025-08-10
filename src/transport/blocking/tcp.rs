@@ -41,7 +41,7 @@ impl Tcp {
 
         // Clone the stream for separate reader and writer
         let reader_stream = stream.try_clone()?;
-        
+
         Ok(Self {
             reader: Mutex::new(BufReader::new(reader_stream)),
             writer: Mutex::new(stream),
@@ -86,9 +86,7 @@ impl UnifiedTransport for Tcp {
 }
 
 fn send_impl(writer: &Mutex<TcpStream>, data: &[u8]) -> Result<(), Error> {
-    let mut writer = writer
-        .lock()
-        .map_err(|_| Error::LockPoisoned("writer"))?;
+    let mut writer = writer.lock().map_err(|_| Error::LockPoisoned("writer"))?;
 
     writer.write_all(data)?;
     writer.flush()?;
@@ -96,20 +94,18 @@ fn send_impl(writer: &Mutex<TcpStream>, data: &[u8]) -> Result<(), Error> {
 }
 
 fn recv_impl(reader: &Mutex<BufReader<TcpStream>>) -> Result<bytes::Bytes, Error> {
-    let mut reader = reader
-        .lock()
-        .map_err(|_| Error::LockPoisoned("reader"))?;
+    let mut reader = reader.lock().map_err(|_| Error::LockPoisoned("reader"))?;
 
     let mut buffer = Vec::with_capacity(64);
-    
+
     // Use buffered read_until to find VISCA terminator
     let n = reader.read_until(0xFF, &mut buffer)?;
-    
+
     if n == 0 {
         return Err(Error::ConnectionLost {
             reason: Cow::Borrowed("peer closed connection"),
         });
     }
-    
+
     Ok(bytes::Bytes::from(buffer))
 }

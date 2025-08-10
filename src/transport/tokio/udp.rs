@@ -33,7 +33,7 @@ pub struct UdpSendFut<'a> {
     fut: Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send + 'a>>,
 }
 
-impl<'a> std::future::Future for UdpSendFut<'a> {
+impl std::future::Future for UdpSendFut<'_> {
     type Output = Result<(), Error>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -41,7 +41,7 @@ impl<'a> std::future::Future for UdpSendFut<'a> {
     }
 }
 
-impl<'a> std::fmt::Debug for UdpSendFut<'a> {
+impl std::fmt::Debug for UdpSendFut<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("UdpSendFut").finish()
     }
@@ -52,7 +52,7 @@ pub struct UdpRecvFut<'a> {
     fut: Pin<Box<dyn std::future::Future<Output = Result<bytes::Bytes, Error>> + Send + 'a>>,
 }
 
-impl<'a> std::future::Future for UdpRecvFut<'a> {
+impl std::future::Future for UdpRecvFut<'_> {
     type Output = Result<bytes::Bytes, Error>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -60,7 +60,7 @@ impl<'a> std::future::Future for UdpRecvFut<'a> {
     }
 }
 
-impl<'a> std::fmt::Debug for UdpRecvFut<'a> {
+impl std::fmt::Debug for UdpRecvFut<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("UdpRecvFut").finish()
     }

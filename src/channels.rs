@@ -172,9 +172,7 @@ impl<T> OneshotReceiver<T> {
     #[cfg(feature = "tokio")]
     pub async fn recv(self) -> Result<T> {
         match self {
-            OneshotReceiver::Tokio(rx) => rx
-                .await
-                .map_err(|_| Error::ResponseChannelClosed),
+            OneshotReceiver::Tokio(rx) => rx.await.map_err(|_| Error::ResponseChannelClosed),
         }
     }
 
@@ -182,9 +180,7 @@ impl<T> OneshotReceiver<T> {
     #[cfg(not(feature = "tokio"))]
     pub fn recv(self) -> Result<T> {
         match self {
-            OneshotReceiver::Std(rx) => rx
-                .recv()
-                .map_err(|_| Error::ResponseChannelClosed),
+            OneshotReceiver::Std(rx) => rx.recv().map_err(|_| Error::ResponseChannelClosed),
         }
     }
 
@@ -217,9 +213,7 @@ impl<T> OneshotReceiver<T> {
             #[cfg(not(feature = "tokio"))]
             OneshotReceiver::Std(rx) => rx.recv_timeout(timeout).map_err(|e| match e {
                 std::sync::mpsc::RecvTimeoutError::Timeout => Error::Timeout,
-                std::sync::mpsc::RecvTimeoutError::Disconnected => {
-                    Error::ResponseChannelClosed
-                }
+                std::sync::mpsc::RecvTimeoutError::Disconnected => Error::ResponseChannelClosed,
             }),
         }
     }
