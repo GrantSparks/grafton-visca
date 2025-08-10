@@ -63,7 +63,7 @@ fn main() -> Result<(), Error> {
     println!("═══ TCP with Custom Port ═══");
     println!("Connecting via TCP on custom port 1259...");
 
-    let tcp_custom = CameraBuilder::tcp(&format!("{camera_addr}:1259"))
+    let tcp_custom = CameraBuilder::tcp(format!("{camera_addr}:1259"))
         .profile::<PTZOpticsG2>()
         .build();
 
@@ -180,7 +180,7 @@ fn main() -> Result<(), Error> {
     tcp_camera.zoom_absolute(Normalized(0.0))?;
 
     // If UDP is available, compare performance
-    if let Ok(udp_camera) = CameraBuilder::udp(&format!("{camera_addr}:52381"))
+    if let Ok(udp_camera) = CameraBuilder::udp(format!("{camera_addr}:52381"))
         .profile::<PTZOpticsG2>()
         .build()
     {

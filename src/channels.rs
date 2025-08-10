@@ -4,8 +4,6 @@
 //! tokio feature is enabled or not, addressing the semantic differences between
 //! tokio's unbounded channels and std's bounded channels.
 
-use std::borrow::Cow;
-
 use crate::error::{Error, Result};
 
 /// Creates an unbounded multi-producer, single-consumer channel.
@@ -174,9 +172,7 @@ impl<T> OneshotReceiver<T> {
     #[cfg(feature = "tokio")]
     pub async fn recv(self) -> Result<T> {
         match self {
-            OneshotReceiver::Tokio(rx) => rx
-                .await
-                .map_err(|_| Error::TransportError(Cow::Borrowed("Response channel closed"))),
+            OneshotReceiver::Tokio(rx) => rx.await.map_err(|_| Error::ResponseChannelClosed),
         }
     }
 
@@ -184,9 +180,7 @@ impl<T> OneshotReceiver<T> {
     #[cfg(not(feature = "tokio"))]
     pub fn recv(self) -> Result<T> {
         match self {
-            OneshotReceiver::Std(rx) => rx
-                .recv()
-                .map_err(|_| Error::TransportError(Cow::Borrowed("Response channel closed"))),
+            OneshotReceiver::Std(rx) => rx.recv().map_err(|_| Error::ResponseChannelClosed),
         }
     }
 
@@ -211,9 +205,7 @@ impl<T> OneshotReceiver<T> {
                             std::thread::sleep(std::time::Duration::from_millis(10));
                         }
                         Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
-                            return Err(Error::TransportError(Cow::Borrowed(
-                                "Response channel closed",
-                            )))
+                            return Err(Error::ResponseChannelClosed)
                         }
                     }
                 }
@@ -221,9 +213,7 @@ impl<T> OneshotReceiver<T> {
             #[cfg(not(feature = "tokio"))]
             OneshotReceiver::Std(rx) => rx.recv_timeout(timeout).map_err(|e| match e {
                 std::sync::mpsc::RecvTimeoutError::Timeout => Error::Timeout,
-                std::sync::mpsc::RecvTimeoutError::Disconnected => {
-                    Error::TransportError(Cow::Borrowed("Response channel closed"))
-                }
+                std::sync::mpsc::RecvTimeoutError::Disconnected => Error::ResponseChannelClosed,
             }),
         }
     }

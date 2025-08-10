@@ -238,6 +238,43 @@ pub enum Error {
         /// The invalid camera ID that was provided.
         id: u8,
     },
+
+    /// Lock was poisoned by a panic in another thread.
+    #[error("Lock poisoned for {0}")]
+    LockPoisoned(&'static str),
+
+    /// Response exceeds maximum allowed size.
+    #[error("Response too large: exceeds maximum of {max_size} bytes")]
+    ResponseTooLarge {
+        /// Maximum allowed size.
+        max_size: usize,
+    },
+
+    /// Socket manager is unavailable or has been shut down.
+    #[error("Socket manager unavailable")]
+    SocketManagerUnavailable,
+
+    /// Channel for socket manager communication has been closed.
+    #[error("Socket manager channel closed")]
+    SocketManagerChannelClosed,
+
+    /// Response channel has been closed unexpectedly.
+    #[error("Response channel closed")]
+    ResponseChannelClosed,
+
+    /// Invalid network address format.
+    #[error("Invalid address: {reason}")]
+    InvalidAddress {
+        /// Reason why the address is invalid.
+        reason: Cow<'static, str>,
+    },
+
+    /// Transport configuration mismatch.
+    #[error("Transport configuration mismatch: {reason}")]
+    TransportMismatch {
+        /// Reason for the mismatch.
+        reason: &'static str,
+    },
 }
 
 impl Error {
