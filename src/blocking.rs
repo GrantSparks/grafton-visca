@@ -24,12 +24,18 @@ use crate::forward_facade;
 pub struct Camera<P, T>(pub(super) crate::Camera<P, T>)
 where
     P: crate::capabilities::Profile,
-    T: crate::transport::UnifiedTransport;
+    T: crate::transport::Transport + Send + Sync + 'static,
+    T::Error: Into<crate::Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send;
 
 impl<P, T> Camera<P, T>
 where
     P: crate::capabilities::Profile,
-    T: crate::transport::UnifiedTransport,
+    T: crate::transport::Transport + Send + Sync + 'static,
+    T::Error: Into<crate::Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     /// Create a new blocking camera wrapper.
     #[must_use]
@@ -308,7 +314,10 @@ where
     P: crate::capabilities::Profile
         + crate::capabilities::VariableSpeed
         + crate::capabilities::HasVariableSpeed,
-    T: crate::transport::UnifiedTransport,
+    T: crate::transport::Transport + Send + Sync + 'static,
+    T::Error: Into<crate::Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     fn set_variable_speed_mode(
         &self,
@@ -324,7 +333,10 @@ where
     P: crate::capabilities::Profile
         + crate::capabilities::Exposure
         + crate::capabilities::HasExposureCompensation,
-    T: crate::transport::UnifiedTransport,
+    T: crate::transport::Transport + Send + Sync + 'static,
+    T::Error: Into<crate::Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     fn enable_exposure_compensation(&self) -> crate::Result<()> {
         use crate::camera::methods::exposure::ExposureCompensationOpsBlocking as InnerOps;

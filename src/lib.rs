@@ -99,7 +99,7 @@
 //! fn adjust_nd_filter<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
 //! where
 //!     P: Profile + NDFilter,
-//!     T: UnifiedTransport,
+//!     T: Transport + Send + Sync,
 //! {
 //!     camera.set_nd_filter_mode(NDFilterMode::Clear)
 //! }

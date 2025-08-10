@@ -5,7 +5,7 @@
 //! that allows users to provide their own async runtime integration.
 
 use core::future::Future;
-use core::task::{Context, Poll};
+use core::task::{Context, Poll, Waker};
 
 #[cfg(feature = "async")]
 use std::pin::Pin;
@@ -216,6 +216,34 @@ impl Spawner for BlockingSpawner {
     }
 }
 
+/// Create a waker for blocking operations.
+///
+/// This creates a waker that panics if used, which is fine for blocking
+/// transports since their futures are immediately ready and never wake.
+#[cfg(feature = "async")]
+fn noop_waker() -> Waker {
+    futures::task::noop_waker()
+}
+
+#[cfg(not(feature = "async"))]
+fn noop_waker() -> Waker {
+    // For blocking-only builds, we need to create a waker that will never be used.
+    // Since blocking transports return Ready futures that are immediately ready,
+    // the waker will never be invoked. We'll use a simple thread-based approach.
+    use std::sync::Arc;
+    use std::task::Wake;
+
+    struct PanicWaker;
+
+    impl Wake for PanicWaker {
+        fn wake(self: Arc<Self>) {
+            unreachable!("Waker should not be used for Ready futures");
+        }
+    }
+
+    Arc::new(PanicWaker).into()
+}
+
 /// Block on a future, returning its output.
 ///
 /// This is a minimal executor that simply polls the future once.
@@ -224,7 +252,8 @@ impl Spawner for BlockingSpawner {
 pub fn block_on<F: Future>(fut: F) -> F::Output {
     let mut fut = Box::pin(fut);
 
-    let waker = futures::task::noop_waker();
+    // Create a no-op waker without depending on futures crate
+    let waker = noop_waker();
     let mut cx = Context::from_waker(&waker);
 
     match fut.as_mut().poll(&mut cx) {
@@ -243,7 +272,7 @@ pub fn timeout<F: Future>(duration: core::time::Duration, fut: F) -> Result<F::O
 
     let deadline = Instant::now() + duration;
     let mut fut = Box::pin(fut);
-    let waker = futures::task::noop_waker();
+    let waker = noop_waker();
     let mut cx = Context::from_waker(&waker);
 
     loop {

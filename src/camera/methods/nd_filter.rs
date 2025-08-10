@@ -57,8 +57,12 @@ pub trait NDFilterOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> NDFilterOps
-    for crate::camera::generic::Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
+    NDFilterOps for crate::camera::generic::Camera<P, T>
+where
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     async fn set_nd_filter_mode(&self, mode: CommandNDFilterMode) -> Result<(), Error> {
         let command = NDFilterModeCommand::new(mode);
@@ -103,8 +107,12 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> NDF
 }
 
 // Blocking implementation
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> NDFilterOpsBlocking
-    for crate::camera::generic::Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
+    NDFilterOpsBlocking for crate::camera::generic::Camera<P, T>
+where
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     fn set_nd_filter_mode(&self, mode: CommandNDFilterMode) -> Result<(), Error> {
         let command = NDFilterModeCommand::new(mode);

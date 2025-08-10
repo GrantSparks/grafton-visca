@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
-use grafton_visca::transport::{Transport, UnifiedTransport};
+use grafton_visca::transport::Transport;
 use grafton_visca::{Error, Result};
 use std::future::Ready;
 
@@ -113,13 +113,13 @@ impl MockTransport {
     /// Convenience method for tests - send data synchronously
     pub fn send(&mut self, data: &[u8]) -> Result<()> {
         // Use futures::executor to block on the future
-        futures::executor::block_on(Transport::send(self, data))
+        grafton_visca::executor::block_on(Transport::send(self, data))
     }
 
     /// Convenience method for tests - receive data with timeout
     pub fn receive(&mut self, _timeout: Duration) -> Result<Vec<u8>> {
         // Just use the recv method which already handles everything
-        match futures::executor::block_on(Transport::recv(self)) {
+        match grafton_visca::executor::block_on(Transport::recv(self)) {
             Ok(bytes) => Ok(bytes.to_vec()),
             Err(e) => Err(e),
         }
@@ -362,32 +362,8 @@ impl Transport for MockTransport {
     }
 }
 
-// BlockingTransport is now private, so we can't implement it
-// impl BlockingTransport for MockTransport {}
-
-// Implement UnifiedTransport to support the new transport architecture
-#[async_trait::async_trait]
-impl grafton_visca::transport::UnifiedTransport for MockTransport {
-    async fn send(&self, bytes: &[u8]) -> Result<(), Error> {
-        // Use the existing Transport::send implementation
-        Transport::send(self, bytes).await
-    }
-
-    async fn recv(&self) -> Result<Bytes, Error> {
-        // Use the existing Transport::recv implementation
-        Transport::recv(self).await
-    }
-
-    fn send_blocking(&self, bytes: &[u8]) -> Result<(), Error> {
-        // Use futures::executor to block on the async version
-        futures::executor::block_on(UnifiedTransport::send(self, bytes))
-    }
-
-    fn recv_blocking_timeout(&self, _timeout: Duration) -> Result<Bytes, Error> {
-        // Use futures::executor to block on the async recv
-        futures::executor::block_on(UnifiedTransport::recv(self))
-    }
-}
+// MockTransport already implements Transport, so it can be used directly
+// No need for UnifiedTransport anymore
 
 impl Default for MockTransport {
     fn default() -> Self {
@@ -473,7 +449,7 @@ mod tests {
             .then_complete(1);
 
         // Send the expected command
-        futures::executor::block_on(Transport::send(
+        grafton_visca::executor::block_on(Transport::send(
             &mock,
             &[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
         ))

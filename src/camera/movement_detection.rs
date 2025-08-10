@@ -8,12 +8,17 @@ use std::time::Instant;
 use crate::{
     capabilities::{Profile, ProfileMetadata},
     error::Error,
-    transport::UnifiedTransport,
+    transport::Transport,
 };
 
 use super::{Camera, MovementConfig, PanTiltPosition};
 
-impl<P: Profile + ProfileMetadata, T: UnifiedTransport> Camera<P, T> {
+impl<P: Profile + ProfileMetadata, T: Transport + Send + Sync + 'static> Camera<P, T>
+where
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
+{
     /// Wait for any movement operation to complete.
     ///
     /// This method uses VISCA completion messages (0x51) when supported by the camera
@@ -137,7 +142,12 @@ impl<P: Profile + ProfileMetadata, T: UnifiedTransport> Camera<P, T> {
 }
 
 #[cfg(feature = "async")]
-impl<P: Profile + ProfileMetadata, T: UnifiedTransport> Camera<P, T> {
+impl<P: Profile + ProfileMetadata, T: Transport + Send + Sync + 'static> Camera<P, T>
+where
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
+{
     /// Wait for any movement operation to complete (async version).
     ///
     /// This method uses VISCA completion messages (0x51) when supported by the camera,

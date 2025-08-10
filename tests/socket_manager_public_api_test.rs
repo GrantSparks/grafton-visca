@@ -4,7 +4,7 @@
 mod tokio_tests {
     use bytes::Bytes;
     use grafton_visca::r#async::prelude::*;
-    use grafton_visca::transport::{Transport, UnifiedTransport};
+    use grafton_visca::transport::Transport;
     use grafton_visca::{
         camera::profiles::PTZOpticsG2, r#async, Camera, Error, PanTiltDirection, PresetNumber,
     };
@@ -254,24 +254,7 @@ mod tokio_tests {
         }
     }
 
-    #[async_trait::async_trait]
-    impl UnifiedTransport for MockTransport {
-        async fn send(&self, bytes: &[u8]) -> Result<(), Error> {
-            <Self as Transport>::send(self, bytes).await
-        }
-
-        async fn recv(&self) -> Result<bytes::Bytes, Error> {
-            <Self as Transport>::recv(self).await
-        }
-
-        fn send_blocking(&self, bytes: &[u8]) -> Result<(), Error> {
-            futures::executor::block_on(UnifiedTransport::send(self, bytes))
-        }
-
-        fn recv_blocking_timeout(&self, _timeout: Duration) -> Result<bytes::Bytes, Error> {
-            futures::executor::block_on(UnifiedTransport::recv(self))
-        }
-    }
+    // MockTransport already implements Transport, no need for UnifiedTransport
 
     #[tokio::test]
     async fn test_socket_manager_initialization() {

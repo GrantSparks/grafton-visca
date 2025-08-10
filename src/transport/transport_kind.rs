@@ -8,7 +8,6 @@ use bytes::Bytes;
 use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};
-use pin_project::pin_project;
 
 #[cfg(feature = "tokio")]
 use crate::transport::tokio::{tcp::Tcp as TokioTcp, udp::Udp as TokioUdp};
@@ -16,63 +15,89 @@ use crate::transport::tokio::{tcp::Tcp as TokioTcp, udp::Udp as TokioUdp};
 use crate::transport::blocking::{Tcp as BlockingTcp, Udp as BlockingUdp};
 
 /// Future type for TransportKind send operations.
-#[pin_project(project = TransportKindSendFutProj)]
-#[derive(Debug)]
 pub enum TransportKindSendFut<'a> {
     /// Blocking TCP send future
-    BlockingTcp(#[pin] <BlockingTcp as Transport>::SendFut<'a>),
+    BlockingTcp(<BlockingTcp as Transport>::SendFut<'a>),
     /// Blocking UDP send future
-    BlockingUdp(#[pin] <BlockingUdp as Transport>::SendFut<'a>),
+    BlockingUdp(<BlockingUdp as Transport>::SendFut<'a>),
     #[cfg(feature = "tokio")]
     /// Tokio TCP send future
-    TokioTcp(#[pin] <TokioTcp as Transport>::SendFut<'a>),
+    TokioTcp(Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'a>>),
     #[cfg(feature = "tokio")]
     /// Tokio UDP send future
-    TokioUdp(#[pin] <TokioUdp as Transport>::SendFut<'a>),
+    TokioUdp(Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'a>>),
+}
+
+impl core::fmt::Debug for TransportKindSendFut<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            TransportKindSendFut::BlockingTcp(_) => f.debug_tuple("BlockingTcp").finish(),
+            TransportKindSendFut::BlockingUdp(_) => f.debug_tuple("BlockingUdp").finish(),
+            #[cfg(feature = "tokio")]
+            TransportKindSendFut::TokioTcp(_) => f.debug_tuple("TokioTcp").finish(),
+            #[cfg(feature = "tokio")]
+            TransportKindSendFut::TokioUdp(_) => f.debug_tuple("TokioUdp").finish(),
+        }
+    }
 }
 
 impl Future for TransportKindSendFut<'_> {
     type Output = Result<(), Error>;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.project() {
-            TransportKindSendFutProj::BlockingTcp(f) => f.poll(cx),
-            TransportKindSendFutProj::BlockingUdp(f) => f.poll(cx),
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        // For blocking transports, the futures are Ready<T> which implements Unpin,
+        // so we can safely use Pin::new
+        match self.as_mut().get_mut() {
+            TransportKindSendFut::BlockingTcp(f) => Pin::new(f).poll(cx),
+            TransportKindSendFut::BlockingUdp(f) => Pin::new(f).poll(cx),
             #[cfg(feature = "tokio")]
-            TransportKindSendFutProj::TokioTcp(f) => f.poll(cx),
+            TransportKindSendFut::TokioTcp(f) => f.as_mut().poll(cx),
             #[cfg(feature = "tokio")]
-            TransportKindSendFutProj::TokioUdp(f) => f.poll(cx),
+            TransportKindSendFut::TokioUdp(f) => f.as_mut().poll(cx),
         }
     }
 }
 
 /// Future type for TransportKind receive operations.
-#[pin_project(project = TransportKindRecvFutProj)]
-#[derive(Debug)]
 pub enum TransportKindRecvFut<'a> {
     /// Blocking TCP receive future
-    BlockingTcp(#[pin] <BlockingTcp as Transport>::RecvFut<'a>),
+    BlockingTcp(<BlockingTcp as Transport>::RecvFut<'a>),
     /// Blocking UDP receive future
-    BlockingUdp(#[pin] <BlockingUdp as Transport>::RecvFut<'a>),
+    BlockingUdp(<BlockingUdp as Transport>::RecvFut<'a>),
     #[cfg(feature = "tokio")]
     /// Tokio TCP receive future
-    TokioTcp(#[pin] <TokioTcp as Transport>::RecvFut<'a>),
+    TokioTcp(Pin<Box<dyn Future<Output = Result<Bytes, Error>> + Send + 'a>>),
     #[cfg(feature = "tokio")]
     /// Tokio UDP receive future
-    TokioUdp(#[pin] <TokioUdp as Transport>::RecvFut<'a>),
+    TokioUdp(Pin<Box<dyn Future<Output = Result<Bytes, Error>> + Send + 'a>>),
+}
+
+impl core::fmt::Debug for TransportKindRecvFut<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            TransportKindRecvFut::BlockingTcp(_) => f.debug_tuple("BlockingTcp").finish(),
+            TransportKindRecvFut::BlockingUdp(_) => f.debug_tuple("BlockingUdp").finish(),
+            #[cfg(feature = "tokio")]
+            TransportKindRecvFut::TokioTcp(_) => f.debug_tuple("TokioTcp").finish(),
+            #[cfg(feature = "tokio")]
+            TransportKindRecvFut::TokioUdp(_) => f.debug_tuple("TokioUdp").finish(),
+        }
+    }
 }
 
 impl Future for TransportKindRecvFut<'_> {
     type Output = Result<Bytes, Error>;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.project() {
-            TransportKindRecvFutProj::BlockingTcp(f) => f.poll(cx),
-            TransportKindRecvFutProj::BlockingUdp(f) => f.poll(cx),
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        // For blocking transports, the futures are Ready<T> which implements Unpin,
+        // so we can safely use Pin::new
+        match self.as_mut().get_mut() {
+            TransportKindRecvFut::BlockingTcp(f) => Pin::new(f).poll(cx),
+            TransportKindRecvFut::BlockingUdp(f) => Pin::new(f).poll(cx),
             #[cfg(feature = "tokio")]
-            TransportKindRecvFutProj::TokioTcp(f) => f.poll(cx),
+            TransportKindRecvFut::TokioTcp(f) => f.as_mut().poll(cx),
             #[cfg(feature = "tokio")]
-            TransportKindRecvFutProj::TokioUdp(f) => f.poll(cx),
+            TransportKindRecvFut::TokioUdp(f) => f.as_mut().poll(cx),
         }
     }
 }
@@ -130,9 +155,13 @@ impl Transport for TransportKind {
             TransportKind::BlockingTcp(t) => TransportKindSendFut::BlockingTcp(t.send(bytes)),
             TransportKind::BlockingUdp(t) => TransportKindSendFut::BlockingUdp(t.send(bytes)),
             #[cfg(feature = "tokio")]
-            TransportKind::TokioTcp(t) => TransportKindSendFut::TokioTcp(t.send(bytes)),
+            TransportKind::TokioTcp(t) => {
+                TransportKindSendFut::TokioTcp(Box::pin(Transport::send(t, bytes)))
+            }
             #[cfg(feature = "tokio")]
-            TransportKind::TokioUdp(t) => TransportKindSendFut::TokioUdp(t.send(bytes)),
+            TransportKind::TokioUdp(t) => {
+                TransportKindSendFut::TokioUdp(Box::pin(Transport::send(t, bytes)))
+            }
         }
     }
 
@@ -141,9 +170,13 @@ impl Transport for TransportKind {
             TransportKind::BlockingTcp(t) => TransportKindRecvFut::BlockingTcp(t.recv()),
             TransportKind::BlockingUdp(t) => TransportKindRecvFut::BlockingUdp(t.recv()),
             #[cfg(feature = "tokio")]
-            TransportKind::TokioTcp(t) => TransportKindRecvFut::TokioTcp(t.recv()),
+            TransportKind::TokioTcp(t) => {
+                TransportKindRecvFut::TokioTcp(Box::pin(Transport::recv(t)))
+            }
             #[cfg(feature = "tokio")]
-            TransportKind::TokioUdp(t) => TransportKindRecvFut::TokioUdp(t.recv()),
+            TransportKind::TokioUdp(t) => {
+                TransportKindRecvFut::TokioUdp(Box::pin(Transport::recv(t)))
+            }
         }
     }
 }

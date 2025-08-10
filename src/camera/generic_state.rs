@@ -7,7 +7,7 @@ use crate::{
     capabilities::Profile,
     types::SpeedLevel,
     units::{Degrees, Normalized},
-    Result,
+    Error, Result,
 };
 
 /// Camera state for saving and restoring position
@@ -31,7 +31,10 @@ impl CameraState {
 impl<P, T> Camera<P, T>
 where
     P: Profile,
-    T: crate::transport::UnifiedTransport,
+    T: crate::transport::Transport + Send + Sync + 'static,
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     /// Save the current camera state
     pub fn save_state(&self) -> Result<CameraState>
@@ -83,7 +86,12 @@ where
 }
 
 #[cfg(feature = "async")]
-impl<P: Profile, T: crate::transport::UnifiedTransport> Camera<P, T> {
+impl<P: Profile, T: crate::transport::Transport + Send + Sync> Camera<P, T>
+where
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
+{
     /// Save the current camera state (async)
     #[cfg(feature = "tokio")]
     pub async fn save_state_async(&self) -> Result<CameraState>

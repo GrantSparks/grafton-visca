@@ -49,8 +49,12 @@ pub trait MenuControlOpsBlocking {
 /// Implementation for async cameras with menu control.
 #[cfg(feature = "async")]
 #[async_trait::async_trait]
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> MenuControlOps
-    for crate::camera::generic::Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
+    MenuControlOps for crate::camera::generic::Camera<P, T>
+where
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     async fn set_menu_display(&self, display: bool) -> Result<Response, Error> {
         let cmd = MenuDisplayCommand::new(display);
@@ -91,8 +95,12 @@ impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> Men
 }
 
 /// Implementation for blocking cameras with menu control.
-impl<P: crate::capabilities::Profile, T: crate::transport::UnifiedTransport> MenuControlOpsBlocking
-    for crate::camera::generic::Camera<P, T>
+impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
+    MenuControlOpsBlocking for crate::camera::generic::Camera<P, T>
+where
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     fn set_menu_display(&self, display: bool) -> Result<Response, Error> {
         let cmd = MenuDisplayCommand::new(display);

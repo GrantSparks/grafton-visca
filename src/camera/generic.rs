@@ -13,7 +13,7 @@ use crate::{
     capabilities::Profile,
     command::{encode_visca::EncodeVisca, Response, ResponseType},
     error::Error,
-    transport::{TransportEnvelope, UnifiedTransport},
+    transport::{core::Transport, TransportEnvelope},
 };
 
 /// Generic camera client with compile-time profile selection.
@@ -44,7 +44,10 @@ use crate::{
 pub struct Camera<P, T>
 where
     P: Profile,
-    T: UnifiedTransport,
+    T: Transport + Send + Sync + 'static,
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     transport: Arc<T>,
     camera_id: CameraId,
@@ -53,13 +56,18 @@ where
     envelope: TransportEnvelope,
     #[cfg(feature = "async")]
     spawner: Option<Arc<dyn Spawner>>,
+    #[cfg(feature = "async")]
+    runtime: Option<Arc<dyn crate::runtime::Runtime>>,
     _profile: PhantomData<P>,
 }
 
 impl<P, T> Clone for Camera<P, T>
 where
     P: Profile,
-    T: UnifiedTransport,
+    T: Transport + Send + Sync + 'static,
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     fn clone(&self) -> Self {
         Self {
@@ -70,6 +78,8 @@ where
             envelope: TransportEnvelope::new(P::PROTOCOL_STYLE),
             #[cfg(feature = "async")]
             spawner: self.spawner.clone(),
+            #[cfg(feature = "async")]
+            runtime: self.runtime.clone(),
             _profile: PhantomData,
         }
     }
@@ -78,16 +88,21 @@ where
 impl<P, T> std::fmt::Debug for Camera<P, T>
 where
     P: Profile,
-    T: UnifiedTransport,
+    T: Transport + Send + Sync + 'static,
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut debug = f.debug_struct("Camera");
         debug
             .field("profile", &P::MODEL_NAME)
             .field("camera_id", &self.camera_id)
-            .field("transport", &"<UnifiedTransport>");
+            .field("transport", &"<Transport>");
         #[cfg(feature = "async")]
         debug.field("socket_manager", &self.socket_manager.is_some());
+        #[cfg(feature = "async")]
+        debug.field("runtime", &self.runtime.is_some());
         debug.finish()
     }
 }
@@ -95,9 +110,12 @@ where
 impl<P, T> Camera<P, T>
 where
     P: Profile,
-    T: UnifiedTransport,
+    T: Transport + Send + Sync + 'static,
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
-    /// Create a new camera from a unified transport.
+    /// Create a new camera from a transport.
     pub fn from_transport(transport: T) -> Self {
         let camera_id = CameraId::new(P::DEFAULT_ADDRESS).unwrap_or(CameraId::CAMERA_1);
 
@@ -109,6 +127,8 @@ where
             socket_manager: None,
             #[cfg(feature = "async")]
             spawner: None,
+            #[cfg(feature = "async")]
+            runtime: None,
             _profile: PhantomData,
         }
     }
@@ -347,7 +367,10 @@ where
         log::debug!("Sending VISCA command: {framed_bytes:02X?}");
 
         // Send command
-        self.transport.send(&framed_bytes).await?;
+        self.transport
+            .send(&framed_bytes)
+            .await
+            .map_err(Into::into)?;
 
         // Handle response based on command type
         match command.response_type() {
@@ -381,56 +404,8 @@ where
     /// Wait for any response with timeout.
     #[cfg(feature = "async")]
     async fn wait_for_response(&self, timeout_duration: Duration) -> Result<Response, Error> {
-        #[cfg(feature = "tokio")]
-        {
-            // Check if we're in a tokio runtime context
-            if tokio::runtime::Handle::try_current().is_ok() {
-                tokio::time::timeout(timeout_duration, async {
-                    match self.transport.recv().await {
-                        Ok(bytes) => {
-                            // Extract VISCA payload from envelope if needed
-                            let visca_bytes = self.envelope.extract_response(&bytes)?;
-                            Response::parse(&visca_bytes)
-                        }
-                        Err(e) => {
-                            // Preserve the original error type
-                            if e.to_string().contains("Operation timed out") {
-                                Err(Error::Timeout)
-                            } else {
-                                Err(e)
-                            }
-                        }
-                    }
-                })
-                .await
-                .map_err(|_| Error::Timeout)?
-            } else {
-                // Not in tokio runtime, fall back to no timeout
-                match self.transport.recv().await {
-                    Ok(bytes) => {
-                        // Extract VISCA payload from envelope if needed
-                        let visca_bytes = self.envelope.extract_response(&bytes)?;
-                        Response::parse(&visca_bytes)
-                    }
-                    Err(e) => {
-                        // Preserve the original error type
-                        if e.to_string().contains("Operation timed out") {
-                            Err(Error::Timeout)
-                        } else {
-                            Err(e)
-                        }
-                    }
-                }
-            }
-        }
-
-        #[cfg(not(feature = "tokio"))]
-        {
-            // For non-tokio async runtimes, we still need to implement timeout
-            // but for now we'll just use the existing logic without timeout
-            // This should be fixed to use the runtime's timeout mechanism
-            let _ = timeout_duration; // Suppress unused warning
-            match self.transport.recv().await {
+        let recv_fut = async {
+            match self.transport.recv().await.map_err(Into::into) {
                 Ok(bytes) => {
                     // Extract VISCA payload from envelope if needed
                     let visca_bytes = self.envelope.extract_response(&bytes)?;
@@ -445,6 +420,37 @@ where
                     }
                 }
             }
+        };
+
+        // Use runtime for timeout if available
+        if let Some(runtime) = &self.runtime {
+            crate::runtime::timeout_with_runtime(runtime.as_ref(), timeout_duration, recv_fut)
+                .await?
+        } else {
+            // Fallback to tokio if available and no runtime provided
+            #[cfg(feature = "tokio")]
+            {
+                // Check if we're in a tokio runtime context
+                if tokio::runtime::Handle::try_current().is_ok() {
+                    tokio::time::timeout(timeout_duration, recv_fut)
+                        .await
+                        .map_err(|_| Error::Timeout)?
+                } else {
+                    // No runtime available, run without timeout
+                    log::warn!(
+                        "No runtime provided and not in tokio context, timeout not available"
+                    );
+                    recv_fut.await
+                }
+            }
+
+            #[cfg(not(feature = "tokio"))]
+            {
+                // No runtime available, run without timeout
+                log::warn!("No runtime provided for timeout");
+                let _ = timeout_duration; // Suppress unused warning
+                recv_fut.await
+            }
         }
     }
 
@@ -455,112 +461,9 @@ where
         expected_type: ResponseType,
         timeout_duration: Duration,
     ) -> Result<Response, Error> {
-        #[cfg(feature = "tokio")]
-        {
-            // Check if we're in a tokio runtime context
-            if tokio::runtime::Handle::try_current().is_ok() {
-                tokio::time::timeout(timeout_duration, async {
-                    loop {
-                        match self.transport.recv().await {
-                            Ok(bytes) => {
-                                // Extract VISCA payload from envelope if needed
-                                let visca_bytes = match self.envelope.extract_response(&bytes) {
-                                    Ok(payload) => payload,
-                                    Err(e) => return Err(e),
-                                };
-
-                                // First try to parse as a regular response
-                                match Response::parse(&visca_bytes) {
-                                    Ok(Response::CmdAck) => {
-                                        // Skip ACK for inquiry commands and wait for the actual response
-                                        log::debug!("Skipping ACK response for inquiry command");
-                                        continue;
-                                    }
-                                    Ok(Response::Error(e)) => return Err(e),
-                                    Ok(Response::Completion) => {
-                                        // Unexpected completion for inquiry
-                                        return Err(Error::UnexpectedResponseType);
-                                    }
-                                    Ok(other) => {
-                                        return Ok(other);
-                                    }
-                                    Err(_) => match Response::parse_with_type(
-                                        &visca_bytes,
-                                        &expected_type,
-                                    ) {
-                                        Ok(response) => return Ok(response),
-                                        Err(e) => return Err(e),
-                                    },
-                                }
-                            }
-                            Err(e) => {
-                                // Preserve the original error type
-                                if e.to_string().contains("Operation timed out") {
-                                    return Err(Error::Timeout);
-                                } else {
-                                    return Err(e);
-                                }
-                            }
-                        }
-                    }
-                })
-                .await
-                .map_err(|_| Error::Timeout)?
-            } else {
-                // Not in tokio runtime, fall back to no timeout
-                loop {
-                    match self.transport.recv().await {
-                        Ok(bytes) => {
-                            // Extract VISCA payload from envelope if needed
-                            let visca_bytes = match self.envelope.extract_response(&bytes) {
-                                Ok(payload) => payload,
-                                Err(e) => return Err(e),
-                            };
-
-                            // First try to parse as a regular response
-                            match Response::parse(&visca_bytes) {
-                                Ok(Response::CmdAck) => {
-                                    // Skip ACK for inquiry commands and wait for the actual response
-                                    log::debug!("Skipping ACK response for inquiry command");
-                                    continue;
-                                }
-                                Ok(Response::Error(e)) => return Err(e),
-                                Ok(Response::Completion) => {
-                                    // Unexpected completion for inquiry
-                                    return Err(Error::UnexpectedResponseType);
-                                }
-                                Ok(other) => {
-                                    return Ok(other);
-                                }
-                                Err(_) => {
-                                    match Response::parse_with_type(&visca_bytes, &expected_type) {
-                                        Ok(response) => return Ok(response),
-                                        Err(e) => return Err(e),
-                                    }
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            // Preserve the original error type
-                            if e.to_string().contains("Operation timed out") {
-                                return Err(Error::Timeout);
-                            } else {
-                                return Err(e);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        #[cfg(not(feature = "tokio"))]
-        {
-            // For non-tokio async runtimes, we still need to implement timeout
-            // but for now we'll just use the existing logic without timeout
-            // This should be fixed to use the runtime's timeout mechanism
-            let _ = timeout_duration; // Suppress unused warning
+        let recv_loop = async {
             loop {
-                match self.transport.recv().await {
+                match self.transport.recv().await.map_err(Into::into) {
                     Ok(bytes) => {
                         // Extract VISCA payload from envelope if needed
                         let visca_bytes = match self.envelope.extract_response(&bytes) {
@@ -600,6 +503,37 @@ where
                     }
                 }
             }
+        };
+
+        // Use runtime for timeout if available
+        if let Some(runtime) = &self.runtime {
+            crate::runtime::timeout_with_runtime(runtime.as_ref(), timeout_duration, recv_loop)
+                .await?
+        } else {
+            // Fallback to tokio if available and no runtime provided
+            #[cfg(feature = "tokio")]
+            {
+                // Check if we're in a tokio runtime context
+                if tokio::runtime::Handle::try_current().is_ok() {
+                    tokio::time::timeout(timeout_duration, recv_loop)
+                        .await
+                        .map_err(|_| Error::Timeout)?
+                } else {
+                    // No runtime available, run without timeout
+                    log::warn!(
+                        "No runtime provided and not in tokio context, timeout not available"
+                    );
+                    recv_loop.await
+                }
+            }
+
+            #[cfg(not(feature = "tokio"))]
+            {
+                // No runtime available, run without timeout
+                log::warn!("No runtime provided for timeout");
+                let _ = timeout_duration; // Suppress unused warning
+                recv_loop.await
+            }
         }
     }
 
@@ -636,21 +570,40 @@ where
         if let Some(socket_manager) = &self.socket_manager {
             log::debug!("wait_for_completion: using socket manager to wait for completion message");
 
-            // Use timeout wrapper for the wait
-            #[cfg(feature = "tokio")]
-            {
-                match tokio::time::timeout(timeout, socket_manager.wait_for_completion()).await {
+            let wait_fut = socket_manager.wait_for_completion();
+
+            // Use runtime for timeout if available
+            if let Some(runtime) = &self.runtime {
+                match crate::runtime::timeout_with_runtime(runtime.as_ref(), timeout, wait_fut)
+                    .await
+                {
                     Ok(Ok(())) => Ok(()),
                     Ok(Err(e)) => Err(e),
-                    Err(_) => Err(Error::Timeout),
+                    Err(e) => Err(e),
                 }
-            }
+            } else {
+                // Fallback to tokio if available
+                #[cfg(feature = "tokio")]
+                {
+                    if tokio::runtime::Handle::try_current().is_ok() {
+                        match tokio::time::timeout(timeout, wait_fut).await {
+                            Ok(Ok(())) => Ok(()),
+                            Ok(Err(e)) => Err(e),
+                            Err(_) => Err(Error::Timeout),
+                        }
+                    } else {
+                        // No runtime available
+                        log::warn!("No runtime provided and not in tokio context");
+                        wait_fut.await
+                    }
+                }
 
-            #[cfg(not(feature = "tokio"))]
-            {
-                // For non-tokio, we need a different timeout mechanism
-                // For now, just call the method without timeout wrapper
-                socket_manager.wait_for_completion().await
+                #[cfg(not(feature = "tokio"))]
+                {
+                    // For non-tokio, we need a different timeout mechanism
+                    // For now, just call the method without timeout wrapper
+                    wait_fut.await
+                }
             }
         } else {
             // No socket manager, can't wait for completion
@@ -728,7 +681,8 @@ where
         log::debug!("Sending VISCA command: {framed_bytes:02X?}");
 
         // Send command using blocking transport
-        self.transport.send_blocking(&framed_bytes)?;
+        use crate::executor::block_on;
+        block_on(self.transport.send(&framed_bytes)).map_err(Into::into)?;
 
         // Handle response based on command type
         match command.response_type() {
@@ -760,11 +714,15 @@ where
     /// Wait for a response with timeout (blocking version)
     #[cfg(not(feature = "async"))]
     fn wait_for_response_blocking(&self, timeout: Duration) -> Result<Response, Error> {
+        use crate::executor::timeout as exec_timeout;
         let start = std::time::Instant::now();
         loop {
-            // Try to receive a response
-            match self.transport.recv_blocking_timeout(timeout) {
-                Ok(bytes) => {
+            // Try to receive a response with timeout
+            match exec_timeout(
+                timeout.saturating_sub(start.elapsed()),
+                self.transport.recv(),
+            ) {
+                Ok(Ok(bytes)) => {
                     log::debug!("Received response: {bytes:02X?}");
 
                     // Deframe the response
@@ -778,7 +736,8 @@ where
                         }
                     }
                 }
-                Err(Error::CommandTimeout { .. }) => {
+                Ok(Err(e)) => return Err(e.into()),
+                Err(Error::Timeout) => {
                     if start.elapsed() >= timeout {
                         return Err(Error::CommandTimeout {
                             duration: timeout,
@@ -798,11 +757,15 @@ where
         expected_type: ResponseType,
         timeout: Duration,
     ) -> Result<Response, Error> {
+        use crate::executor::timeout as exec_timeout;
         let start = std::time::Instant::now();
         loop {
-            // Try to receive a response
-            match self.transport.recv_blocking_timeout(timeout) {
-                Ok(bytes) => {
+            // Try to receive a response with timeout
+            match exec_timeout(
+                timeout.saturating_sub(start.elapsed()),
+                self.transport.recv(),
+            ) {
+                Ok(Ok(bytes)) => {
                     log::debug!("Received response: {bytes:02X?}");
 
                     // Deframe the response
@@ -831,7 +794,8 @@ where
                         }
                     }
                 }
-                Err(Error::CommandTimeout { .. }) => {
+                Ok(Err(e)) => return Err(e.into()),
+                Err(Error::Timeout) => {
                     if start.elapsed() >= timeout {
                         return Err(Error::CommandTimeout {
                             duration: timeout,
@@ -848,7 +812,10 @@ where
 impl<P, T> Camera<P, T>
 where
     P: Profile,
-    T: UnifiedTransport + 'static,
+    T: Transport + Send + Sync + 'static,
+    T::Error: Into<Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
 {
     /// Create a new camera with a custom transport.
     ///
@@ -879,12 +846,9 @@ where
 
     /// Set a runtime for async operations.
     #[cfg(feature = "async")]
-    pub fn with_runtime<R>(mut self, runtime: Arc<R>) -> Self
-    where
-        R: crate::runtime::Runtime,
-    {
-        let runtime_dyn: crate::runtime::SharedRuntime = runtime;
-        self.spawner = Some(Arc::new(RuntimeSpawner::new(runtime_dyn)));
+    pub fn with_runtime(mut self, runtime: crate::runtime::SharedRuntime) -> Self {
+        self.runtime = Some(runtime.clone());
+        self.spawner = Some(Arc::new(RuntimeSpawner::new(runtime)));
 
         // Initialize socket manager automatically for better reliability
         if let Err(e) = self.initialize_socket_manager() {
