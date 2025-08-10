@@ -5,7 +5,7 @@ use crate::transport::UnifiedTransport;
 use crate::Error;
 use core::future::Ready;
 use std::borrow::Cow;
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -13,7 +13,8 @@ use std::time::Duration;
 /// TCP transport for blocking VISCA communication.
 #[derive(Debug)]
 pub struct Tcp {
-    stream: Mutex<TcpStream>,
+    reader: Mutex<BufReader<TcpStream>>,
+    writer: Mutex<TcpStream>,
 }
 
 impl Tcp {
@@ -26,8 +27,10 @@ impl Tcp {
     pub fn connect_timeout(address: &str, timeout: Duration) -> Result<Self, Error> {
         let stream = TcpStream::connect_timeout(
             &address
-                .parse()
-                .map_err(|e| Error::TransportError(Cow::Owned(format!("Invalid address: {e}"))))?,
+                .parse::<std::net::SocketAddr>()
+                .map_err(|e| Error::InvalidAddress {
+                    reason: Cow::Owned(e.to_string()),
+                })?,
             timeout,
         )?;
 
@@ -36,8 +39,12 @@ impl Tcp {
         stream.set_write_timeout(Some(Duration::from_secs(5)))?;
         stream.set_nodelay(true)?;
 
+        // Clone the stream for separate reader and writer
+        let reader_stream = stream.try_clone()?;
+
         Ok(Self {
-            stream: Mutex::new(stream),
+            reader: Mutex::new(BufReader::new(reader_stream)),
+            writer: Mutex::new(stream),
         })
     }
 }
@@ -48,11 +55,11 @@ impl Transport for Tcp {
     type RecvFut<'a> = Ready<Result<bytes::Bytes, Self::Error>>;
 
     fn send<'a>(&'a self, data: &'a [u8]) -> Self::SendFut<'a> {
-        ready(send_impl(&self.stream, data))
+        ready(send_impl(&self.writer, data))
     }
 
     fn recv(&self) -> Self::RecvFut<'_> {
-        ready(recv_impl(&self.stream))
+        ready(recv_impl(&self.reader))
     }
 }
 
@@ -61,62 +68,44 @@ impl BlockingTransport for Tcp {}
 #[async_trait::async_trait]
 impl UnifiedTransport for Tcp {
     async fn send(&self, bytes: &[u8]) -> Result<(), Error> {
-        send_impl(&self.stream, bytes)
+        send_impl(&self.writer, bytes)
     }
 
     async fn recv(&self) -> Result<bytes::Bytes, Error> {
-        recv_impl(&self.stream)
+        recv_impl(&self.reader)
     }
 
     fn send_blocking(&self, bytes: &[u8]) -> Result<(), Error> {
-        send_impl(&self.stream, bytes)
+        send_impl(&self.writer, bytes)
     }
 
     fn recv_blocking_timeout(&self, _timeout: Duration) -> Result<bytes::Bytes, Error> {
         // The timeout is already configured on the TcpStream itself
-        recv_impl(&self.stream)
+        recv_impl(&self.reader)
     }
 }
 
-fn send_impl(stream: &Mutex<TcpStream>, data: &[u8]) -> Result<(), Error> {
-    let mut stream = stream
-        .lock()
-        .map_err(|e| Error::TransportError(Cow::Owned(format!("Failed to lock stream: {e}"))))?;
+fn send_impl(writer: &Mutex<TcpStream>, data: &[u8]) -> Result<(), Error> {
+    let mut writer = writer.lock().map_err(|_| Error::LockPoisoned("writer"))?;
 
-    stream.write_all(data)?;
-    stream.flush()?;
+    writer.write_all(data)?;
+    writer.flush()?;
     Ok(())
 }
 
-fn recv_impl(stream: &Mutex<TcpStream>) -> Result<bytes::Bytes, Error> {
-    let mut stream = stream
-        .lock()
-        .map_err(|e| Error::TransportError(Cow::Owned(format!("Failed to lock stream: {e}"))))?;
+fn recv_impl(reader: &Mutex<BufReader<TcpStream>>) -> Result<bytes::Bytes, Error> {
+    let mut reader = reader.lock().map_err(|_| Error::LockPoisoned("reader"))?;
 
-    let mut buffer = vec![0u8; 1024];
-    let mut total_read = 0;
+    let mut buffer = Vec::with_capacity(64);
 
-    // Read until we find a VISCA terminator (0xFF)
-    loop {
-        if total_read >= buffer.len() {
-            return Err(Error::TransportError(Cow::Borrowed("Response too large")));
-        }
+    // Use buffered read_until to find VISCA terminator
+    let n = reader.read_until(0xFF, &mut buffer)?;
 
-        match stream.read(&mut buffer[total_read..total_read + 1]) {
-            Ok(0) => return Err(Error::TransportError(Cow::Borrowed("Connection closed"))),
-            Ok(1) => {
-                total_read += 1;
-                if buffer[total_read - 1] == 0xFF {
-                    // Found terminator
-                    buffer.truncate(total_read);
-                    return Ok(bytes::Bytes::from(buffer));
-                }
-            }
-            Ok(_) => unreachable!(),
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                return Err(Error::Timeout);
-            }
-            Err(e) => return Err(e.into()),
-        }
+    if n == 0 {
+        return Err(Error::ConnectionLost {
+            reason: Cow::Borrowed("peer closed connection"),
+        });
     }
+
+    Ok(bytes::Bytes::from(buffer))
 }
