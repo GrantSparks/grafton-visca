@@ -4,7 +4,6 @@ use crate::transport::core::{blocking::ready, BlockingTransport, Transport};
 use crate::transport::UnifiedTransport;
 use crate::Error;
 use core::future::Ready;
-use std::borrow::Cow;
 use std::net::UdpSocket;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -70,7 +69,7 @@ impl UnifiedTransport for Udp {
 fn send_impl(socket: &Mutex<UdpSocket>, data: &[u8]) -> Result<(), Error> {
     let socket = socket
         .lock()
-        .map_err(|e| Error::TransportError(Cow::Owned(format!("Failed to lock socket: {e}"))))?;
+        .map_err(|_| Error::LockPoisoned("socket"))?;
 
     socket.send(data)?;
     Ok(())
@@ -79,7 +78,7 @@ fn send_impl(socket: &Mutex<UdpSocket>, data: &[u8]) -> Result<(), Error> {
 fn recv_impl(socket: &Mutex<UdpSocket>) -> Result<bytes::Bytes, Error> {
     let socket = socket
         .lock()
-        .map_err(|e| Error::TransportError(Cow::Owned(format!("Failed to lock socket: {e}"))))?;
+        .map_err(|_| Error::LockPoisoned("socket"))?;
 
     let mut buffer = vec![0u8; 1024];
 
