@@ -311,7 +311,7 @@ impl SocketManagerHandle {
                 is_inquiry,
                 response_sender,
             })
-            .map_err(|_| Error::TransportError(Cow::Borrowed("Socket manager unavailable")));
+            .map_err(|_| Error::SocketManagerUnavailable);
 
         send_result?;
 
@@ -342,7 +342,7 @@ impl SocketManagerHandle {
             .send(SocketManagerCommand::WaitForCompletion { response_sender });
 
         send_result
-            .map_err(|_| Error::TransportError(Cow::Borrowed("Socket manager channel closed")))?;
+            .map_err(|_| Error::SocketManagerChannelClosed)?;
 
         #[cfg(feature = "tokio")]
         let result = response_receiver.recv().await?;
@@ -362,7 +362,7 @@ impl SocketManagerHandle {
 
         self.command_sender
             .send(SocketManagerCommand::WaitForCompletion { response_sender })
-            .map_err(|_| Error::TransportError(Cow::Borrowed("Socket manager channel closed")))?;
+            .map_err(|_| Error::SocketManagerChannelClosed)?;
 
         Ok(response_receiver)
     }
@@ -1159,7 +1159,7 @@ mod tests {
         assert!(!hook.should_retry(&Error::CommandNotExecutable, 3));
 
         assert!(!hook.should_retry(&Error::CameraBusy, 0));
-        assert!(!hook.should_retry(&Error::TransportError(Cow::Borrowed("test")), 0));
+        assert!(!hook.should_retry(&Error::SocketManagerUnavailable, 0));
 
         let delay0 = hook.retry_delay(&Error::CommandNotExecutable, 0);
         let delay1 = hook.retry_delay(&Error::CommandNotExecutable, 1);
