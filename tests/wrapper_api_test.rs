@@ -1,5 +1,6 @@
 //! Test the new wrapper API to ensure it compiles and works correctly.
 
+#[cfg(not(feature = "async"))]
 #[test]
 fn test_blocking_wrapper_api() {
     use grafton_visca::blocking::ZoomOps;
