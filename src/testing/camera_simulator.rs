@@ -454,7 +454,7 @@ mod tests {
 
         // Wait a bit for completion to be generated
         sleep(Duration::from_millis(100)).await;
-        
+
         // Should eventually receive completion
         let response = rx.recv().await.expect("should receive completion");
         assert_eq!(response[0], 0x90);
