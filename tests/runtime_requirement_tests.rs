@@ -39,6 +39,7 @@ struct MockTransportWithResponses {
 }
 
 impl MockTransportWithResponses {
+    #[allow(dead_code)]
     fn new() -> Self {
         Self {
             responses: std::sync::Mutex::new(vec![
