@@ -216,6 +216,7 @@ pub trait InquiryOps: Sized {
 }
 
 /// Inquiry operations (blocking).
+#[cfg(not(feature = "async"))]
 pub trait InquiryOpsBlocking: Sized {
     /// Get the current power state of the camera.
     /// Returns `true` if powered on, `false` if in standby.
@@ -1128,6 +1129,7 @@ where
 }
 
 // Blocking implementation
+#[cfg(not(feature = "async"))]
 impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
     InquiryOpsBlocking for crate::camera::generic::Camera<P, T>
 where
@@ -1845,6 +1847,7 @@ pub trait PanTiltInquiryOps: Sized {
 }
 
 /// Pan/Tilt-specific inquiry operations (blocking).
+#[cfg(not(feature = "async"))]
 pub trait PanTiltInquiryOpsBlocking: Sized {
     /// Get the current pan and tilt position.
     fn get_pan_tilt_position(&self) -> Result<(i16, i16), Error>;
@@ -1880,6 +1883,7 @@ where
 }
 
 // Blocking implementation
+#[cfg(not(feature = "async"))]
 impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
     PanTiltInquiryOpsBlocking for crate::camera::generic::Camera<P, T>
 where
@@ -1898,7 +1902,7 @@ where
     }
 
     fn get_pan_tilt_degrees(&self) -> Result<(Degrees, Degrees), Error> {
-        let (pan_units, tilt_units) = PanTiltInquiryOpsBlocking::get_pan_tilt_position(self)?;
+        let (pan_units, tilt_units) = Self::get_pan_tilt_position(self)?;
         let (pan_deg, tilt_deg) = self.units_to_degrees(pan_units, tilt_units);
         Ok((pan_deg, tilt_deg))
     }

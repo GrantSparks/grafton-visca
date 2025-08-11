@@ -113,6 +113,7 @@ pub trait ExposureOps: Sized {
 }
 
 /// Exposure operations (blocking).
+#[cfg(not(feature = "async"))]
 pub trait ExposureOpsBlocking: Sized {
     /// Set exposure mode to any supported mode.
     fn set_exposure_mode(&self, mode: crate::command::exposure::ExposureMode) -> Result<(), Error>;
@@ -242,6 +243,7 @@ pub trait ExposureCompensationOps: Sized {
 /// Exposure compensation operations (blocking).
 ///
 /// These methods are only available for cameras that support exposure compensation.
+#[cfg(not(feature = "async"))]
 pub trait ExposureCompensationOpsBlocking: Sized {
     /// Enable exposure compensation.
     fn enable_exposure_compensation(&self) -> Result<(), Error>;
@@ -500,6 +502,7 @@ where
 }
 
 // Blocking implementation
+#[cfg(not(feature = "async"))]
 impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
     ExposureOpsBlocking for crate::camera::generic::Camera<P, T>
 where
@@ -518,31 +521,31 @@ where
     fn exposure_auto(&self) -> Result<(), Error> {
         use crate::command::exposure::ExposureMode;
 
-        ExposureOpsBlocking::set_exposure_mode(self, ExposureMode::Auto)
+        Self::set_exposure_mode(self, ExposureMode::Auto)
     }
 
     fn exposure_manual(&self) -> Result<(), Error> {
         use crate::command::exposure::ExposureMode;
 
-        ExposureOpsBlocking::set_exposure_mode(self, ExposureMode::Manual)
+        Self::set_exposure_mode(self, ExposureMode::Manual)
     }
 
     fn exposure_shutter_priority(&self) -> Result<(), Error> {
         use crate::command::exposure::ExposureMode;
 
-        ExposureOpsBlocking::set_exposure_mode(self, ExposureMode::Shutter)
+        Self::set_exposure_mode(self, ExposureMode::Shutter)
     }
 
     fn exposure_iris_priority(&self) -> Result<(), Error> {
         use crate::command::exposure::ExposureMode;
 
-        ExposureOpsBlocking::set_exposure_mode(self, ExposureMode::Iris)
+        Self::set_exposure_mode(self, ExposureMode::Iris)
     }
 
     fn exposure_bright_mode(&self) -> Result<(), Error> {
         use crate::command::exposure::ExposureMode;
 
-        ExposureOpsBlocking::set_exposure_mode(self, ExposureMode::Bright)
+        Self::set_exposure_mode(self, ExposureMode::Bright)
     }
 
     fn set_iris(&self, level: crate::types::IrisLevel) -> Result<(), Error> {
@@ -788,6 +791,7 @@ where
 }
 
 // Blocking implementation for exposure compensation - requires HasExposureCompensation marker trait
+#[cfg(not(feature = "async"))]
 impl<P, T> ExposureCompensationOpsBlocking for crate::camera::generic::Camera<P, T>
 where
     P: crate::capabilities::Profile

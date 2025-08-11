@@ -11,6 +11,7 @@ use crate::{
 };
 
 /// Helper methods for camera movement operations (blocking).
+#[cfg(not(feature = "async"))]
 pub trait MovementOpsBlocking: Sized {
     /// Wait for all movements to complete.
     ///
@@ -105,6 +106,7 @@ pub trait MovementOps: Sized {
     async fn is_moving(&self) -> Result<bool, Error>;
 }
 
+#[cfg(not(feature = "async"))]
 impl<P: Profile, T: Transport + Send + Sync + 'static> MovementOpsBlocking for Camera<P, T>
 where
     T::Error: Into<Error> + Send,
@@ -134,7 +136,7 @@ where
     }
 }
 
-#[cfg(feature = "tokio")]
+#[cfg(feature = "rt-tokio")]
 impl<P: Profile, T: Transport + Send + Sync + 'static> MovementOps for Camera<P, T>
 where
     T::Error: Into<Error> + Send,
@@ -164,7 +166,7 @@ where
     }
 }
 
-#[cfg(all(feature = "async", not(feature = "tokio")))]
+#[cfg(all(feature = "async", not(feature = "rt-tokio")))]
 impl<P: Profile, T: Transport + Send + Sync + 'static> MovementOps for Camera<P, T>
 where
     T::Error: Into<Error> + Send,

@@ -27,10 +27,11 @@ readme = "README.md"
 
 [features]
 default = []
-async = ["dep:futures"]
-tokio = ["async", "dep:tokio"]
+async = ["dep:futures", "dep:async-channel"]
+rt-tokio = ["async", "dep:tokio"]
 
 [dependencies]
+async-channel = { version = "2.1", optional = true }
 bytes = "1.5"
 chrono = { version = "0.4", features = ["serde"] }
 futures = { version = "0.3", optional = true }
@@ -54,6 +55,10 @@ tokio = { version = "1.38", features = [
 [dev-dependencies]
 tokio = { version = "1.38", features = ["full", "test-util"] }
 trybuild = "1.0"
+async-io = "2.3"
+async-executor = "1.8"
+async-trait = "0.1"
+rand = "0.8"
 
 # Consolidated examples - clean, focused learning experience
 
@@ -63,7 +68,7 @@ name = "quickstart"
 
 [[example]]
 name = "quickstart_async"
-required-features = ["tokio"]
+required-features = ["rt-tokio"]
 
 [[example]]
 name = "transports"
@@ -75,11 +80,11 @@ name = "builder_api"
 
 [[example]]
 name = "camera_inquiry"
-required-features = ["tokio"]
+# Supports both blocking and async modes
 
 [[example]]
 name = "concurrent_control"
-required-features = ["tokio"]
+required-features = ["rt-tokio"]
 
 [[example]]
 name = "error_handling"
@@ -92,3 +97,7 @@ name = "preset_demo"
 [[example]]
 name = "type_safe_commands"
 # Type-safe command builder demonstration - no features required
+
+[[example]]
+name = "runtime_agnostic"
+required-features = ["rt-tokio"]

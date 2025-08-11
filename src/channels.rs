@@ -1,8 +1,8 @@
 //! Unified channel abstractions that provide consistent semantics across blocking and async modes.
 //!
 //! This module provides channel implementations that behave consistently whether the
-//! tokio feature is enabled or not, addressing the semantic differences between
-//! tokio's unbounded channels and std's bounded channels.
+//! async feature is enabled or not, using runtime-agnostic async-channel when async
+//! is enabled and std channels for blocking mode.
 
 use crate::error::{Error, Result};
 
@@ -10,13 +10,13 @@ use crate::error::{Error, Result};
 ///
 /// This provides consistent unbounded semantics across both async and blocking modes.
 pub fn unbounded<T>() -> (UnboundedSender<T>, UnboundedReceiver<T>) {
-    #[cfg(feature = "tokio")]
+    #[cfg(feature = "async")]
     {
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        (UnboundedSender::Tokio(tx), UnboundedReceiver::Tokio(rx))
+        let (tx, rx) = async_channel::unbounded();
+        (UnboundedSender::Async(tx), UnboundedReceiver::Async(rx))
     }
 
-    #[cfg(not(feature = "tokio"))]
+    #[cfg(not(feature = "async"))]
     {
         const UNBOUNDED_BUFFER: usize = 10_000;
         let (tx, rx) = std::sync::mpsc::sync_channel(UNBOUNDED_BUFFER);
@@ -28,13 +28,13 @@ pub fn unbounded<T>() -> (UnboundedSender<T>, UnboundedReceiver<T>) {
 ///
 /// This provides consistent oneshot semantics across both async and blocking modes.
 pub fn oneshot<T>() -> (OneshotSender<T>, OneshotReceiver<T>) {
-    #[cfg(feature = "tokio")]
+    #[cfg(feature = "async")]
     {
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        (OneshotSender::Tokio(tx), OneshotReceiver::Tokio(rx))
+        let (tx, rx) = futures::channel::oneshot::channel();
+        (OneshotSender::Async(tx), OneshotReceiver::Async(rx))
     }
 
-    #[cfg(not(feature = "tokio"))]
+    #[cfg(not(feature = "async"))]
     {
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         (OneshotSender::Std(Some(tx)), OneshotReceiver::Std(rx))
@@ -44,9 +44,9 @@ pub fn oneshot<T>() -> (OneshotSender<T>, OneshotReceiver<T>) {
 /// Sender half of an unbounded channel.
 #[derive(Debug)]
 pub enum UnboundedSender<T> {
-    #[cfg(feature = "tokio")]
-    Tokio(tokio::sync::mpsc::UnboundedSender<T>),
-    #[cfg(not(feature = "tokio"))]
+    #[cfg(feature = "async")]
+    Async(async_channel::Sender<T>),
+    #[cfg(not(feature = "async"))]
     Std(std::sync::mpsc::SyncSender<T>),
 }
 
@@ -55,18 +55,15 @@ impl<T> UnboundedSender<T> {
     ///
     /// This will always succeed unless the receiver has been dropped.
     pub fn send(&self, value: T) -> Result<()> {
-        #[cfg(feature = "tokio")]
-        {
-            match self {
-                UnboundedSender::Tokio(tx) => tx.send(value).map_err(|_| Error::ChannelClosed),
+        match self {
+            #[cfg(feature = "async")]
+            UnboundedSender::Async(tx) => {
+                // async_channel::Sender::send is a blocking operation but
+                // since the channel is unbounded, it should complete immediately
+                tx.send_blocking(value).map_err(|_| Error::ChannelClosed)
             }
-        }
-
-        #[cfg(not(feature = "tokio"))]
-        {
-            match self {
-                UnboundedSender::Std(tx) => tx.send(value).map_err(|_| Error::ChannelClosed),
-            }
+            #[cfg(not(feature = "async"))]
+            UnboundedSender::Std(tx) => tx.send(value).map_err(|_| Error::ChannelClosed),
         }
     }
 }
@@ -74,9 +71,9 @@ impl<T> UnboundedSender<T> {
 impl<T> Clone for UnboundedSender<T> {
     fn clone(&self) -> Self {
         match self {
-            #[cfg(feature = "tokio")]
-            UnboundedSender::Tokio(tx) => UnboundedSender::Tokio(tx.clone()),
-            #[cfg(not(feature = "tokio"))]
+            #[cfg(feature = "async")]
+            UnboundedSender::Async(tx) => UnboundedSender::Async(tx.clone()),
+            #[cfg(not(feature = "async"))]
             UnboundedSender::Std(tx) => UnboundedSender::Std(tx.clone()),
         }
     }
@@ -85,9 +82,9 @@ impl<T> Clone for UnboundedSender<T> {
 /// Receiver half of an unbounded channel.
 #[derive(Debug)]
 pub enum UnboundedReceiver<T> {
-    #[cfg(feature = "tokio")]
-    Tokio(tokio::sync::mpsc::UnboundedReceiver<T>),
-    #[cfg(not(feature = "tokio"))]
+    #[cfg(feature = "async")]
+    Async(async_channel::Receiver<T>),
+    #[cfg(not(feature = "async"))]
     Std(std::sync::mpsc::Receiver<T>),
 }
 
@@ -95,15 +92,15 @@ impl<T> UnboundedReceiver<T> {
     /// Receives a value from this channel.
     ///
     /// Returns `None` if all senders have been dropped.
-    #[cfg(feature = "tokio")]
+    #[cfg(feature = "async")]
     pub async fn recv(&mut self) -> Option<T> {
         match self {
-            UnboundedReceiver::Tokio(rx) => rx.recv().await,
+            UnboundedReceiver::Async(rx) => rx.recv().await.ok(),
         }
     }
 
     /// Receives a value from this channel (blocking version).
-    #[cfg(not(feature = "tokio"))]
+    #[cfg(not(feature = "async"))]
     pub fn recv(&mut self) -> Option<T> {
         match self {
             UnboundedReceiver::Std(rx) => rx.recv().ok(),
@@ -113,12 +110,12 @@ impl<T> UnboundedReceiver<T> {
     /// Try to receive a value without blocking.
     ///
     /// Returns `None` if no message is available or all senders have been dropped.
-    #[cfg(any(not(feature = "tokio"), test))]
+    #[allow(dead_code)]
     pub fn try_recv(&mut self) -> Option<T> {
         match self {
-            #[cfg(feature = "tokio")]
-            UnboundedReceiver::Tokio(rx) => rx.try_recv().ok(),
-            #[cfg(not(feature = "tokio"))]
+            #[cfg(feature = "async")]
+            UnboundedReceiver::Async(rx) => rx.try_recv().ok(),
+            #[cfg(not(feature = "async"))]
             UnboundedReceiver::Std(rx) => rx.try_recv().ok(),
         }
     }
@@ -127,9 +124,9 @@ impl<T> UnboundedReceiver<T> {
 /// Sender half of a oneshot channel.
 #[derive(Debug)]
 pub enum OneshotSender<T> {
-    #[cfg(feature = "tokio")]
-    Tokio(tokio::sync::oneshot::Sender<T>),
-    #[cfg(not(feature = "tokio"))]
+    #[cfg(feature = "async")]
+    Async(futures::channel::oneshot::Sender<T>),
+    #[cfg(not(feature = "async"))]
     Std(Option<std::sync::mpsc::SyncSender<T>>),
 }
 
@@ -140,9 +137,9 @@ impl<T> OneshotSender<T> {
     /// Returns an error containing the value if the receiver has been dropped.
     pub fn send(self, value: T) -> std::result::Result<(), T> {
         match self {
-            #[cfg(feature = "tokio")]
-            OneshotSender::Tokio(tx) => tx.send(value),
-            #[cfg(not(feature = "tokio"))]
+            #[cfg(feature = "async")]
+            OneshotSender::Async(tx) => tx.send(value),
+            #[cfg(not(feature = "async"))]
             OneshotSender::Std(tx_opt) => {
                 if let Some(tx) = tx_opt {
                     tx.send(value).map_err(|e| match e {
@@ -159,9 +156,9 @@ impl<T> OneshotSender<T> {
 /// Receiver half of a oneshot channel.
 #[derive(Debug)]
 pub enum OneshotReceiver<T> {
-    #[cfg(feature = "tokio")]
-    Tokio(tokio::sync::oneshot::Receiver<T>),
-    #[cfg(not(feature = "tokio"))]
+    #[cfg(feature = "async")]
+    Async(futures::channel::oneshot::Receiver<T>),
+    #[cfg(not(feature = "async"))]
     Std(std::sync::mpsc::Receiver<T>),
 }
 
@@ -169,15 +166,15 @@ impl<T> OneshotReceiver<T> {
     /// Receives a value from this channel.
     ///
     /// This consumes the receiver, ensuring only one value can be received.
-    #[cfg(feature = "tokio")]
+    #[cfg(feature = "async")]
     pub async fn recv(self) -> Result<T> {
         match self {
-            OneshotReceiver::Tokio(rx) => rx.await.map_err(|_| Error::ResponseChannelClosed),
+            OneshotReceiver::Async(rx) => rx.await.map_err(|_| Error::ResponseChannelClosed),
         }
     }
 
     /// Receives a value from this channel (blocking version).
-    #[cfg(not(feature = "tokio"))]
+    #[cfg(not(feature = "async"))]
     pub fn recv(self) -> Result<T> {
         match self {
             OneshotReceiver::Std(rx) => rx.recv().map_err(|_| Error::ResponseChannelClosed),
@@ -186,31 +183,11 @@ impl<T> OneshotReceiver<T> {
 
     /// Receives a value from this channel with a timeout (blocking version).
     ///
+    /// For async mode with runtime support, use timeout_with_runtime instead.
     /// Returns Error::Timeout if the timeout expires before a value is received.
+    #[cfg(not(feature = "async"))]
     pub fn recv_timeout(self, timeout: std::time::Duration) -> Result<T> {
         match self {
-            #[cfg(feature = "tokio")]
-            OneshotReceiver::Tokio(mut rx) => {
-                // For tokio in blocking context, we need to use blocking recv
-                // This is a sync method, so we use std::sync::mpsc for the timeout
-                // Since tokio oneshot doesn't have recv_timeout, we'll use try_recv in a loop
-                let start = std::time::Instant::now();
-                loop {
-                    match rx.try_recv() {
-                        Ok(val) => return Ok(val),
-                        Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
-                            if start.elapsed() >= timeout {
-                                return Err(Error::Timeout);
-                            }
-                            std::thread::sleep(std::time::Duration::from_millis(10));
-                        }
-                        Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
-                            return Err(Error::ResponseChannelClosed)
-                        }
-                    }
-                }
-            }
-            #[cfg(not(feature = "tokio"))]
             OneshotReceiver::Std(rx) => rx.recv_timeout(timeout).map_err(|e| match e {
                 std::sync::mpsc::RecvTimeoutError::Timeout => Error::Timeout,
                 std::sync::mpsc::RecvTimeoutError::Disconnected => Error::ResponseChannelClosed,
@@ -218,12 +195,23 @@ impl<T> OneshotReceiver<T> {
         }
     }
 
-    /// Async-compatible receive for blocking mode.
+    /// Receives a value from this channel with a timeout using runtime.
     ///
-    /// This simply calls the blocking recv() but provides an async interface.
-    #[cfg(not(feature = "tokio"))]
-    pub async fn recv_async(self) -> Result<T> {
-        self.recv()
+    /// This method requires a runtime to be configured for timeout support.
+    #[cfg(feature = "async")]
+    #[allow(dead_code)]
+    pub async fn recv_with_timeout(
+        self,
+        runtime: &dyn crate::runtime::Runtime,
+        timeout: std::time::Duration,
+    ) -> Result<T> {
+        match self {
+            OneshotReceiver::Async(rx) => {
+                crate::runtime::timeout_with_runtime(runtime, timeout, rx)
+                    .await?
+                    .map_err(|_| Error::ResponseChannelClosed)
+            }
+        }
     }
 }
 
@@ -250,10 +238,10 @@ mod tests {
 
         assert!(tx.send(42).is_ok());
 
-        #[cfg(not(feature = "tokio"))]
+        #[cfg(not(feature = "async"))]
         assert_eq!(rx.recv().expect("recv should succeed"), 42);
 
-        #[cfg(feature = "tokio")]
+        #[cfg(feature = "async")]
         drop(rx);
     }
 
@@ -271,5 +259,45 @@ mod tests {
         drop(rx);
 
         assert_eq!(tx.send(42), Err(42));
+    }
+
+    #[cfg(all(test, feature = "async"))]
+    mod async_tests {
+        use super::*;
+
+        #[tokio::test]
+        async fn test_async_unbounded_channel() {
+            let (tx, mut rx) = unbounded::<i32>();
+
+            assert!(tx.send(42).is_ok());
+            assert!(tx.send(43).is_ok());
+
+            assert_eq!(rx.recv().await, Some(42));
+            assert_eq!(rx.recv().await, Some(43));
+        }
+
+        #[tokio::test]
+        async fn test_async_oneshot_channel() {
+            let (tx, rx) = oneshot::<i32>();
+
+            assert!(tx.send(42).is_ok());
+            assert_eq!(rx.recv().await.expect("recv should succeed"), 42);
+        }
+
+        #[cfg(feature = "rt-tokio")]
+        #[tokio::test]
+        async fn test_async_oneshot_with_timeout() {
+            use crate::runtime::TokioRuntime;
+            use std::time::Duration;
+
+            let runtime = TokioRuntime;
+            let (_tx, rx) = oneshot::<i32>();
+
+            // Should timeout
+            let result = rx
+                .recv_with_timeout(&runtime, Duration::from_millis(100))
+                .await;
+            assert!(matches!(result, Err(Error::Timeout)));
+        }
     }
 }

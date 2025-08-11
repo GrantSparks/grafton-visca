@@ -67,6 +67,7 @@ pub trait StreamingOps: Sized {
 }
 
 /// Operations for controlling network and streaming features (blocking).
+#[cfg(not(feature = "async"))]
 pub trait StreamingOpsBlocking: Sized {
     /// Enable multicast streaming for NDI cameras.
     ///
@@ -168,6 +169,7 @@ where
 }
 
 // Implementation for blocking Camera
+#[cfg(not(feature = "async"))]
 impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
     StreamingOpsBlocking for crate::camera::generic::Camera<P, T>
 where

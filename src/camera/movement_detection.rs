@@ -13,6 +13,7 @@ use crate::{
 
 use super::{Camera, MovementConfig, PanTiltPosition};
 
+#[cfg(not(feature = "async"))]
 impl<P: Profile + ProfileMetadata, T: Transport + Send + Sync + 'static> Camera<P, T>
 where
     T::Error: Into<Error> + Send,
@@ -33,41 +34,8 @@ where
     /// * `Err(Error::Timeout)` - Movement did not complete within timeout
     /// * `Err(Error::*)` - Other communication or camera errors
     pub fn wait_for_movement(&self, config: &MovementConfig) -> Result<(), Error> {
-        // Event-driven detection only works with async features (needs socket manager)
-        #[cfg(feature = "async")]
-        if P::SUPPORTS_OPERATION_COMPLETE {
-            if config.debug {
-                log::debug!("Camera supports completion messages, trying event-driven detection");
-            }
-
-            // Try to wait for completion message
-            match self.wait_for_completion_blocking(config.timeout) {
-                Ok(()) => {
-                    if config.debug {
-                        log::debug!("Movement completed (received operation complete message)");
-                    }
-                    return Ok(());
-                }
-                Err(Error::Unsupported) => {
-                    // No socket manager or transport doesn't support it
-                    if config.debug {
-                        log::debug!(
-                            "Event-driven detection not available, falling back to state query"
-                        );
-                    }
-                }
-                Err(Error::Timeout) => {
-                    // No completion message within timeout
-                    if config.debug {
-                        log::debug!("No completion message received, falling back to state query");
-                    }
-                }
-                Err(e) => {
-                    // Other error, propagate it
-                    return Err(e);
-                }
-            }
-        }
+        // In blocking mode, we can't use event-driven detection with async channels
+        // Users should use the async wait_for_movement method for event-driven detection
 
         // Use state querying (works in both blocking and async modes)
         if config.debug {
@@ -217,25 +185,10 @@ where
                 return Ok(());
             }
 
-            // Yield to scheduler using runtime abstraction or small delay
-            if let Some(runtime) = self.runtime() {
-                // Use runtime's sleep for a very short delay (1ms)
-                runtime.sleep(std::time::Duration::from_millis(1)).await;
-            } else {
-                // Fallback to tokio if available
-                #[cfg(feature = "tokio")]
-                if tokio::runtime::Handle::try_current().is_ok() {
-                    tokio::task::yield_now().await;
-                } else {
-                    // No runtime available, use a tiny async delay
-                    futures::future::ready(()).await;
-                }
-                #[cfg(not(feature = "tokio"))]
-                {
-                    // No runtime available, use a tiny async delay
-                    futures::future::ready(()).await;
-                }
-            }
+            // Yield to scheduler using runtime abstraction
+            let runtime = self.require_runtime()?;
+            // Use runtime's sleep for a very short delay (1ms)
+            runtime.sleep(std::time::Duration::from_millis(1)).await;
         }
     }
 
@@ -248,25 +201,10 @@ where
         let pos1_zoom = self.get_zoom_position().await?;
         let pos1_focus = self.get_focus_position().await?;
 
-        // Yield to scheduler using runtime abstraction or small delay
-        if let Some(runtime) = self.runtime() {
-            // Use runtime's sleep for a very short delay (1ms)
-            runtime.sleep(std::time::Duration::from_millis(1)).await;
-        } else {
-            // Fallback to tokio if available
-            #[cfg(feature = "tokio")]
-            if tokio::runtime::Handle::try_current().is_ok() {
-                tokio::task::yield_now().await;
-            } else {
-                // No runtime available, use a tiny async delay
-                futures::future::ready(()).await;
-            }
-            #[cfg(not(feature = "tokio"))]
-            {
-                // No runtime available, use a tiny async delay
-                futures::future::ready(()).await;
-            }
-        }
+        // Yield to scheduler using runtime abstraction
+        let runtime = self.require_runtime()?;
+        // Use runtime's sleep for a very short delay (1ms)
+        runtime.sleep(std::time::Duration::from_millis(1)).await;
 
         // Get second reading
         let pos2_pt = self.get_pan_tilt_position().await?;

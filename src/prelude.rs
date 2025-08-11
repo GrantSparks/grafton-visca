@@ -11,7 +11,7 @@
 //!
 //! # #[tokio::main]
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! # #[cfg(feature = "tokio")]
+//! # #[cfg(feature = "rt-tokio")]
 //! # {
 //! use grafton_visca::transport::tokio::Tcp;
 //!
@@ -30,11 +30,10 @@
 //! # Blocking Usage
 //!
 //! ```no_run
-//! use grafton_visca::prelude::blocking::*;
-//!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # #[cfg(not(feature = "async"))]
 //! # {
+//! use grafton_visca::prelude::blocking::*;
 //! use grafton_visca::transport::blocking::Tcp;
 //!
 //! let transport = Tcp::connect("192.168.0.110:52381")?;
@@ -116,10 +115,14 @@ pub mod r#async {
 /// - Camera profiles and type aliases
 /// - Common types and error handling
 ///
+/// **Note:** This module is only available when the `async` feature is not enabled.
+/// You must choose either async or blocking API, not both.
+///
 /// # Example
 /// ```no_run
 /// use grafton_visca::prelude::blocking::*;
 /// ```
+#[cfg(not(feature = "async"))]
 pub mod blocking {
     pub use crate::camera::helpers::MovementOpsBlocking as MovementOps;
     pub use crate::camera::methods::{

@@ -35,6 +35,7 @@ pub trait NDFilterOps: Sized {
 }
 
 /// ND filter operations (blocking).
+#[cfg(not(feature = "async"))]
 pub trait NDFilterOpsBlocking: Sized {
     /// Set ND filter mode (preset or variable).
     fn set_nd_filter_mode(&self, mode: CommandNDFilterMode) -> Result<(), Error>;
@@ -107,6 +108,7 @@ where
 }
 
 // Blocking implementation
+#[cfg(not(feature = "async"))]
 impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
     NDFilterOpsBlocking for crate::camera::generic::Camera<P, T>
 where

@@ -49,6 +49,7 @@ pub trait TallyOps: Sized {
 }
 
 /// Tally light control operations (blocking).
+#[cfg(not(feature = "async"))]
 pub trait TallyOpsBlocking: Sized {
     /// Turn red tally light on.
     fn tally_red_on(&self) -> Result<(), Error>;
@@ -213,6 +214,7 @@ where
 }
 
 // Blocking implementation
+#[cfg(not(feature = "async"))]
 impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
     TallyOpsBlocking for crate::camera::generic::Camera<P, T>
 where
@@ -312,7 +314,7 @@ where
 
     fn get_tally_status(&self) -> Result<bool, Error> {
         // Default to red tally status for backward compatibility
-        TallyOpsBlocking::get_red_tally_status(self)
+        Self::get_red_tally_status(self)
     }
 
     fn get_red_tally_status(&self) -> Result<bool, Error> {

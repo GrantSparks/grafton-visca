@@ -16,18 +16,18 @@
 //! cargo run --example quickstart_async --features tokio [camera_ip[:port]]
 //! ```
 
-#[cfg(feature = "tokio")]
+#[cfg(feature = "rt-tokio")]
 use grafton_visca::{
     camera::profiles::PTZOpticsG2, prelude::r#async::*, CameraBuilder, Error, PanTiltDirection,
 };
 
-#[cfg(feature = "tokio")]
+#[cfg(feature = "rt-tokio")]
 use tokio::time::{sleep, Duration};
 
-#[cfg(feature = "tokio")]
+#[cfg(feature = "rt-tokio")]
 use std::env;
 
-#[cfg(feature = "tokio")]
+#[cfg(feature = "rt-tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     // Initialize logging (set RUST_LOG=debug for verbose output)
@@ -403,7 +403,7 @@ async fn main() -> Result<(), Error> {
     Ok(())
 }
 
-#[cfg(not(feature = "tokio"))]
+#[cfg(not(feature = "rt-tokio"))]
 fn main() {
     eprintln!("This example requires the 'tokio' feature to be enabled.");
     eprintln!("Run with: cargo run --example quickstart_async --features tokio");
