@@ -10,7 +10,6 @@ use crate::{
 
 /// Async menu control methods for cameras that support menu navigation.
 #[cfg(feature = "async")]
-#[async_trait::async_trait]
 pub trait MenuControlOps: Send + Sync {
     /// Show or hide the on-screen menu.
     async fn set_menu_display(&self, display: bool) -> Result<Response, Error>;
@@ -48,7 +47,6 @@ pub trait MenuControlOpsBlocking {
 
 /// Implementation for async cameras with menu control.
 #[cfg(feature = "async")]
-#[async_trait::async_trait]
 impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
     MenuControlOps for crate::camera::generic::Camera<P, T>
 where

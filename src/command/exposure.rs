@@ -95,9 +95,7 @@ impl EncodeVisca for ExposureCompensation {
                     Self::Off => 0x03,
                     _ => unreachable!(),
                 });
-                builder.with_camera_id_mut(camera_id);
-                builder.finalize();
-                builder.copy_to(buffer)
+                builder.with_camera_id(camera_id).build_into(buffer)
             }
             Self::Reset | Self::Up | Self::Down => {
                 let mut builder = CommandBuilder::<6>::new();
@@ -108,17 +106,13 @@ impl EncodeVisca for ExposureCompensation {
                     Self::Down => 0x03,
                     _ => unreachable!(),
                 });
-                builder.with_camera_id_mut(camera_id);
-                builder.finalize();
-                builder.copy_to(buffer)
+                builder.with_camera_id(camera_id).build_into(buffer)
             }
             Self::SetLevel(level) => {
                 let mut builder = CommandBuilder::<9>::new();
                 builder.append_mut(constants::exposure::COMPENSATION_LEVEL_PREFIX);
                 builder.push_mut(level.to_protocol_value());
-                builder.with_camera_id_mut(camera_id);
-                builder.finalize();
-                builder.copy_to(buffer)
+                builder.with_camera_id(camera_id).build_into(buffer)
             }
         }
     }
@@ -195,17 +189,13 @@ impl EncodeVisca for Iris {
                     Self::Down => 0x03,
                     _ => unreachable!(),
                 });
-                builder.with_camera_id_mut(camera_id);
-                builder.finalize();
-                builder.copy_to(buffer)
+                builder.with_camera_id(camera_id).build_into(buffer)
             }
             Self::SetAperture(level) => {
                 let mut builder = CommandBuilder::<9>::new();
                 builder.append_mut(constants::exposure::IRIS_DIRECT_PREFIX);
                 builder.push_nibble_pair_mut(level.value() as u16);
-                builder.with_camera_id_mut(camera_id);
-                builder.finalize();
-                builder.copy_to(buffer)
+                builder.with_camera_id(camera_id).build_into(buffer)
             }
         }
     }
@@ -256,17 +246,13 @@ impl EncodeVisca for Shutter {
                     Self::Down => 0x03,
                     _ => unreachable!(),
                 });
-                builder.with_camera_id_mut(camera_id);
-                builder.finalize();
-                builder.copy_to(buffer)
+                builder.with_camera_id(camera_id).build_into(buffer)
             }
             Self::SetSpeed(speed) => {
                 let mut builder = CommandBuilder::<9>::new();
                 builder.append_mut(constants::exposure::SHUTTER_DIRECT_PREFIX);
                 builder.push_nibble_pair_mut(speed.value());
-                builder.with_camera_id_mut(camera_id);
-                builder.finalize();
-                builder.copy_to(buffer)
+                builder.with_camera_id(camera_id).build_into(buffer)
             }
         }
     }
@@ -314,25 +300,19 @@ impl EncodeVisca for Bright {
                     Self::Down => 0x03,
                     _ => unreachable!(),
                 });
-                builder.with_camera_id_mut(camera_id);
-                builder.finalize();
-                builder.copy_to(buffer)
+                builder.with_camera_id(camera_id).build_into(buffer)
             }
             Self::SetLevel(level) => {
                 let mut builder = CommandBuilder::<9>::new();
                 builder.append_mut(constants::exposure::BRIGHTNESS_DIRECT_PREFIX);
                 builder.push_nibble_pair_mut(level.value());
-                builder.with_camera_id_mut(camera_id);
-                builder.finalize();
-                builder.copy_to(buffer)
+                builder.with_camera_id(camera_id).build_into(buffer)
             }
             Self::Direct(level) => {
                 let mut builder = CommandBuilder::<9>::new();
                 builder.append_mut(constants::exposure::BRIGHTNESS_VALUE_PREFIX);
                 builder.push_nibble_pair_mut(level.value());
-                builder.with_camera_id_mut(camera_id);
-                builder.finalize();
-                builder.copy_to(buffer)
+                builder.with_camera_id(camera_id).build_into(buffer)
             }
         }
     }
@@ -350,19 +330,15 @@ visca_command! {
     enum Spotlight {
         /// Turn spotlight on
         On => {
-            let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
+            Ok(CommandBuilder::<16>::new()
                 .append(constants::exposure::SPOTLIGHT_PREFIX)
-                .append(&[0x02])
-                .build();
-            Ok::<Vec<u8>, Error>(cmd.to_vec())
+                .append(&[0x02]))
         },
         /// Turn spotlight off
         Off => {
-            let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
+            Ok(CommandBuilder::<16>::new()
                 .append(constants::exposure::SPOTLIGHT_PREFIX)
-                .append(&[0x03])
-                .build();
-            Ok::<Vec<u8>, Error>(cmd.to_vec())
+                .append(&[0x03]))
         },
     }
 }
@@ -377,19 +353,15 @@ visca_command! {
     enum AutoSlowShutter {
         /// Turn auto slow shutter on
         On => {
-            let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
+            Ok(CommandBuilder::<16>::new()
                 .append(constants::exposure::SPOT_AE_PREFIX)
-                .append(&[0x02])
-                .build();
-            Ok::<Vec<u8>, Error>(cmd.to_vec())
+                .append(&[0x02]))
         },
         /// Turn auto slow shutter off
         Off => {
-            let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
+            Ok(CommandBuilder::<16>::new()
                 .append(constants::exposure::SPOT_AE_PREFIX)
-                .append(&[0x03])
-                .build();
-            Ok::<Vec<u8>, Error>(cmd.to_vec())
+                .append(&[0x03]))
         },
     }
 }

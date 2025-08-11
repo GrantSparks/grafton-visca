@@ -12,17 +12,13 @@ visca_command! {
     enum PowerCommand {
         /// Power on the camera.
         On => {
-            let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
-                .append(constants::power::ON)
-                .build();
-            Ok::<Vec<u8>, crate::Error>(cmd.to_vec())
+            Ok(CommandBuilder::<16>::new()
+                .append(constants::power::ON))
         },
         /// Put camera in standby mode.
         Standby => {
-            let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
-                .append(constants::power::OFF)
-                .build();
-            Ok::<Vec<u8>, crate::Error>(cmd.to_vec())
+            Ok(CommandBuilder::<16>::new()
+                .append(constants::power::OFF))
         },
     }
 }

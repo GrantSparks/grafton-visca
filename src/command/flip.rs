@@ -11,8 +11,6 @@
 // Workspace / local-crate imports
 use crate::macros::internal::*;
 
-use crate::{command::const_encoding::CommandBuilder, error::Error};
-
 /// Image flip state.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Flip {
@@ -30,19 +28,15 @@ visca_command! {
     enum ImageFlipCommand {
         /// Enable image flip.
         On => {
-            let cmd = CommandBuilder::<6>::new()
+            Ok(CommandBuilder::<16>::new()
                 .append(crate::command::const_encoding::constants::flip::PREFIX)
-                .push(0x02)
-                .build();
-            Ok::<Vec<u8>, Error>(cmd.to_vec())
+                .push(0x02))
         },
         /// Disable image flip.
         Off => {
-            let cmd = CommandBuilder::<6>::new()
+            Ok(CommandBuilder::<16>::new()
                 .append(crate::command::const_encoding::constants::flip::PREFIX)
-                .push(0x03)
-                .build();
-            Ok::<Vec<u8>, Error>(cmd.to_vec())
+                .push(0x03))
         },
     }
 }
@@ -74,19 +68,15 @@ visca_command! {
     enum HorizontalFlipCommand {
         /// Enable horizontal flip (mirror).
         On => {
-            let cmd = CommandBuilder::<6>::new()
+            Ok(CommandBuilder::<16>::new()
                 .append(crate::command::const_encoding::constants::flip::HFLIP_PREFIX)
-                .push(0x02)
-                .build();
-            Ok::<Vec<u8>, Error>(cmd.to_vec())
+                .push(0x02))
         },
         /// Disable horizontal flip (mirror).
         Off => {
-            let cmd = CommandBuilder::<6>::new()
+            Ok(CommandBuilder::<16>::new()
                 .append(crate::command::const_encoding::constants::flip::HFLIP_PREFIX)
-                .push(0x03)
-                .build();
-            Ok::<Vec<u8>, Error>(cmd.to_vec())
+                .push(0x03))
         },
     }
 }
@@ -118,19 +108,15 @@ visca_command! {
     enum ImageFreezeCommand {
         /// Enable image freeze.
         On => {
-            let cmd = CommandBuilder::<6>::new()
+            Ok(CommandBuilder::<16>::new()
                 .append(crate::command::const_encoding::constants::flip::FREEZE_PREFIX)
-                .push(0x02)
-                .build();
-            Ok::<Vec<u8>, Error>(cmd.to_vec())
+                .push(0x02))
         },
         /// Disable image freeze.
         Off => {
-            let cmd = CommandBuilder::<6>::new()
+            Ok(CommandBuilder::<16>::new()
                 .append(crate::command::const_encoding::constants::flip::FREEZE_PREFIX)
-                .push(0x03)
-                .build();
-            Ok::<Vec<u8>, Error>(cmd.to_vec())
+                .push(0x03))
         },
     }
 }

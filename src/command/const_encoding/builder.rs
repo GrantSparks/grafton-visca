@@ -208,32 +208,39 @@ impl<const N: usize> CommandBuilder<N, Incomplete> {
         }
     }
 
-    /// Legacy method - finalize with terminator and return the complete array.
-    /// Prefer using `terminate()` for new code to ensure compile-time safety.
-    pub const fn build(mut self) -> [u8; N] {
-        if self.position < N {
-            self.buffer[self.position] = VISCA_TERMINATOR;
-        }
-        self.buffer
-    }
-
-    /// Legacy method - finalize with terminator and return the number of bytes written.
-    /// Prefer using `terminate()` for new code to ensure compile-time safety.
-    pub fn finalize(&mut self) -> usize {
-        if self.position < N {
+    /// Build the command, automatically adding terminator if needed.
+    /// This is the standard builder pattern termination method.
+    pub fn build(mut self) -> [u8; N] {
+        // Automatically add terminator if not already present
+        if self.position < N
+            && (self.position == 0 || self.buffer[self.position - 1] != VISCA_TERMINATOR)
+        {
             self.buffer[self.position] = VISCA_TERMINATOR;
             self.position += 1;
         }
 
         // Validate terminator in debug builds
+        #[cfg(debug_assertions)]
         crate::command::encode_visca::validate_terminator(&self.buffer, self.position);
 
-        self.position
+        self.buffer
     }
 
-    /// Copy the built command into the provided buffer.
+    /// Build the command and copy it into the provided buffer.
     /// Returns the number of bytes written.
-    pub fn copy_to(&self, buffer: &mut [u8]) -> Result<usize, crate::Error> {
+    pub fn build_into(mut self, buffer: &mut [u8]) -> Result<usize, crate::Error> {
+        // Automatically add terminator if not already present
+        if self.position < N
+            && (self.position == 0 || self.buffer[self.position - 1] != VISCA_TERMINATOR)
+        {
+            self.buffer[self.position] = VISCA_TERMINATOR;
+            self.position += 1;
+        }
+
+        // Validate terminator in debug builds
+        #[cfg(debug_assertions)]
+        crate::command::encode_visca::validate_terminator(&self.buffer, self.position);
+
         let len = self.position;
         if buffer.len() < len {
             return Err(crate::Error::BufferTooSmall {
@@ -275,9 +282,9 @@ impl<const N: usize> CommandBuilder<N, Terminated> {
         self.position == 0
     }
 
-    /// Copy the terminated command into the provided buffer.
+    /// Build the terminated command into the provided buffer.
     /// Returns the number of bytes written.
-    pub fn copy_to(&self, buffer: &mut [u8]) -> Result<usize, crate::Error> {
+    pub fn build_into(&self, buffer: &mut [u8]) -> Result<usize, crate::Error> {
         let len = self.position;
         if buffer.len() < len {
             return Err(crate::Error::BufferTooSmall {
@@ -343,14 +350,13 @@ mod tests {
         let array = builder.build();
         assert_eq!(array[4], VISCA_TERMINATOR);
 
-        // Test finalize() method
-        let mut builder = CommandBuilder::<10>::new();
-        builder.push_mut(0x81);
-        builder.push_mut(0x01);
-        builder.push_mut(0x04);
-        builder.push_mut(0x47);
-        let len = builder.finalize();
-        assert_eq!(len, 5);
-        assert_eq!(builder.buffer[4], VISCA_TERMINATOR);
+        // Test build() method with auto-termination
+        let command = CommandBuilder::<10>::new()
+            .push(0x81)
+            .push(0x01)
+            .push(0x04)
+            .push(0x47)
+            .build();
+        assert_eq!(command[4], VISCA_TERMINATOR);
     }
 }
