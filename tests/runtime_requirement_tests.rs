@@ -12,6 +12,7 @@ use std::pin::Pin;
 
 /// Mock transport that always succeeds but never actually sends/receives
 #[derive(Debug)]
+#[allow(dead_code)]
 struct MockTransport;
 
 impl Transport for MockTransport {
@@ -33,6 +34,7 @@ impl Transport for MockTransport {
 
 /// Mock transport that returns proper VISCA response sequences
 #[derive(Debug)]
+#[allow(dead_code)]
 struct MockTransportWithResponses {
     responses: std::sync::Mutex<Vec<Vec<u8>>>,
     index: std::sync::Mutex<usize>,
