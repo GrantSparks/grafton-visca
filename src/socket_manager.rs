@@ -414,7 +414,10 @@ impl RetryHook for DefaultRetryHook {
         }
 
         // Check if this is a retryable error
-        matches!(error, Error::CommandNotExecutable)
+        matches!(
+            error,
+            Error::CommandNotExecutable | Error::CommandBufferFull
+        )
     }
 
     fn retry_delay(&self, _error: &Error, attempt: u32) -> std::time::Duration {
@@ -1218,6 +1221,11 @@ mod tests {
         assert!(hook.should_retry(&Error::CommandNotExecutable, 2));
         assert!(!hook.should_retry(&Error::CommandNotExecutable, 3));
 
+        // Should retry CommandBufferFull errors
+        assert!(hook.should_retry(&Error::CommandBufferFull, 0));
+        assert!(hook.should_retry(&Error::CommandBufferFull, 2));
+        assert!(!hook.should_retry(&Error::CommandBufferFull, 3));
+
         assert!(!hook.should_retry(&Error::CameraBusy, 0));
         assert!(!hook.should_retry(&Error::SocketManagerUnavailable, 0));
 
@@ -1355,5 +1363,308 @@ mod tests {
         manager.mark_socket_busy(socket2, cmd2_id, CommandCategory::Movement);
 
         assert_eq!(manager.get_free_socket(), None);
+    }
+
+    // ===== New Unit Tests for Socket Allocation Logic =====
+
+    #[test]
+    fn test_socket_allocation_prefers_socket1() {
+        let manager = SocketManagerInner::new();
+
+        // When both sockets are free, Socket1 should be preferred
+        assert_eq!(manager.get_free_socket(), Some(Socket::Socket1));
+    }
+
+    #[test]
+    fn test_socket_allocation_falls_back_to_socket2() {
+        let mut manager = SocketManagerInner::new();
+
+        // Mark Socket1 as busy
+        manager.mark_socket_busy(Socket::Socket1, 1, CommandCategory::Quick);
+
+        // Should allocate Socket2 when Socket1 is busy
+        assert_eq!(manager.get_free_socket(), Some(Socket::Socket2));
+    }
+
+    #[test]
+    fn test_socket_allocation_returns_none_when_all_busy() {
+        let mut manager = SocketManagerInner::new();
+
+        // Mark both sockets as busy
+        manager.mark_socket_busy(Socket::Socket1, 1, CommandCategory::Quick);
+        manager.mark_socket_busy(Socket::Socket2, 2, CommandCategory::Movement);
+
+        // Should return None when both sockets are busy
+        assert_eq!(manager.get_free_socket(), None);
+    }
+
+    #[test]
+    fn test_socket_allocation_reuses_freed_sockets() {
+        let mut manager = SocketManagerInner::new();
+
+        // Allocate both sockets
+        manager.mark_socket_busy(Socket::Socket1, 1, CommandCategory::Quick);
+        manager.mark_socket_busy(Socket::Socket2, 2, CommandCategory::Movement);
+        assert_eq!(manager.get_free_socket(), None);
+
+        // Free Socket2
+        manager.mark_socket_free(Socket::Socket2);
+
+        // Socket1 is still busy, Socket2 should be available
+        assert_eq!(manager.get_free_socket(), Some(Socket::Socket2));
+
+        // Free Socket1
+        manager.mark_socket_free(Socket::Socket1);
+
+        // Now Socket1 should be preferred again
+        assert_eq!(manager.get_free_socket(), Some(Socket::Socket1));
+    }
+
+    // ===== Unit Tests for Command Queue Management =====
+
+    #[test]
+    fn test_command_queue_enqueue_dequeue() {
+        #[cfg(feature = "rt-tokio")]
+        {
+            let mut manager = SocketManagerInner::new();
+
+            // Create test commands
+            let (tx1, _rx1) = channels::oneshot();
+            let cmd1 = PendingCmd::new(1, vec![0x81, 0x01], CommandCategory::Quick, tx1, false);
+
+            let (tx2, _rx2) = channels::oneshot();
+            let cmd2 = PendingCmd::new(2, vec![0x81, 0x02], CommandCategory::Movement, tx2, false);
+
+            // Queue should start empty
+            assert!(manager.command_queue.is_empty());
+            assert!(manager.dequeue_command().is_none());
+
+            // Enqueue commands
+            manager.enqueue_command(cmd1);
+            manager.enqueue_command(cmd2);
+
+            // Queue should have 2 commands
+            assert_eq!(manager.command_queue.len(), 2);
+
+            // Dequeue should return commands in FIFO order
+            let dequeued1 = manager.dequeue_command();
+            assert!(dequeued1.is_some());
+            assert_eq!(dequeued1.expect("should have command 1").id, 1);
+
+            let dequeued2 = manager.dequeue_command();
+            assert!(dequeued2.is_some());
+            assert_eq!(dequeued2.expect("should have command 2").id, 2);
+
+            // Queue should be empty again
+            assert!(manager.command_queue.is_empty());
+            assert!(manager.dequeue_command().is_none());
+        }
+    }
+
+    #[test]
+    fn test_command_queue_maintains_order() {
+        #[cfg(feature = "rt-tokio")]
+        {
+            let mut manager = SocketManagerInner::new();
+
+            // Enqueue multiple commands
+            for i in 1..=10 {
+                let (tx, _rx) = channels::oneshot();
+                let cmd =
+                    PendingCmd::new(i, vec![0x81, i as u8], CommandCategory::Quick, tx, false);
+                manager.enqueue_command(cmd);
+            }
+
+            // Verify FIFO order
+            for expected_id in 1..=10 {
+                let cmd = manager.dequeue_command();
+                assert!(cmd.is_some());
+                assert_eq!(cmd.expect("should have command in order").id, expected_id);
+            }
+
+            assert!(manager.dequeue_command().is_none());
+        }
+    }
+
+    #[test]
+    fn test_pending_inquiry_management() {
+        #[cfg(feature = "rt-tokio")]
+        {
+            let mut manager = SocketManagerInner::new();
+
+            // Initially no pending inquiry
+            assert!(manager.pending_inquiry.is_none());
+
+            // Set pending inquiry
+            let (tx, _rx) = channels::oneshot();
+            let inquiry = PendingCmd::new(1, vec![0x81, 0x09], CommandCategory::Quick, tx, true);
+            manager.set_pending_inquiry(inquiry);
+
+            assert!(manager.pending_inquiry.is_some());
+
+            // Take pending inquiry
+            let taken = manager.take_pending_inquiry();
+            assert!(taken.is_some());
+            assert_eq!(taken.expect("should take pending inquiry").id, 1);
+            assert!(manager.pending_inquiry.is_none());
+        }
+    }
+
+    // ===== Unit Tests for Retry Logic =====
+
+    #[test]
+    fn test_retry_logic_with_exponential_backoff() {
+        let hook = DefaultRetryHook::new();
+
+        // Test exponential backoff calculation
+        let delay0 = hook.retry_delay(&Error::CommandNotExecutable, 0);
+        let delay1 = hook.retry_delay(&Error::CommandNotExecutable, 1);
+        let delay2 = hook.retry_delay(&Error::CommandNotExecutable, 2);
+
+        // Each delay should be exponentially larger
+        assert_eq!(delay0, Duration::from_millis(100)); // base_delay
+        assert_eq!(delay1, Duration::from_millis(200)); // base_delay * 2
+        assert_eq!(delay2, Duration::from_millis(400)); // base_delay * 4
+    }
+
+    #[test]
+    fn test_retry_logic_respects_max_attempts() {
+        let hook = DefaultRetryHook::new(); // Default max_attempts is 3
+
+        // Should retry for attempts 0, 1, 2
+        assert!(hook.should_retry(&Error::CommandNotExecutable, 0));
+        assert!(hook.should_retry(&Error::CommandNotExecutable, 1));
+        assert!(hook.should_retry(&Error::CommandNotExecutable, 2));
+
+        // Should not retry after max_attempts
+        assert!(!hook.should_retry(&Error::CommandNotExecutable, 3));
+        assert!(!hook.should_retry(&Error::CommandNotExecutable, 4));
+    }
+
+    #[test]
+    fn test_retry_logic_selective_error_handling() {
+        let hook = DefaultRetryHook::new();
+
+        // Should retry these specific errors
+        assert!(hook.should_retry(&Error::CommandNotExecutable, 0));
+        assert!(hook.should_retry(&Error::CommandBufferFull, 0));
+
+        // Should NOT retry these errors
+        assert!(!hook.should_retry(&Error::CameraBusy, 0));
+        assert!(!hook.should_retry(&Error::Timeout, 0));
+        assert!(!hook.should_retry(&Error::SocketManagerUnavailable, 0));
+        assert!(!hook.should_retry(&Error::InvalidResponseFormat, 0));
+    }
+
+    #[test]
+    fn test_retry_logic_with_custom_configuration() {
+        let hook = DefaultRetryHook::new()
+            .with_max_attempts(5)
+            .with_base_delay(Duration::from_millis(50));
+
+        // Should allow more attempts
+        assert!(hook.should_retry(&Error::CommandNotExecutable, 3));
+        assert!(hook.should_retry(&Error::CommandNotExecutable, 4));
+        assert!(!hook.should_retry(&Error::CommandNotExecutable, 5));
+
+        // Should use custom base delay
+        let delay0 = hook.retry_delay(&Error::CommandNotExecutable, 0);
+        assert_eq!(delay0, Duration::from_millis(50));
+
+        let delay1 = hook.retry_delay(&Error::CommandNotExecutable, 1);
+        assert_eq!(delay1, Duration::from_millis(100)); // 50 * 2
+    }
+
+    #[test]
+    fn test_retry_logic_max_delay_cap() {
+        let hook = DefaultRetryHook::new();
+
+        // Even with high attempt numbers, delay should be capped
+        let delay10 = hook.retry_delay(&Error::CommandNotExecutable, 10);
+        assert!(delay10 <= Duration::from_secs(5)); // max_delay is 5 seconds
+    }
+
+    #[test]
+    fn test_command_id_wrapping() {
+        let mut manager = SocketManagerInner::new();
+        manager.next_command_id = u32::MAX;
+
+        assert_eq!(manager.get_next_command_id(), u32::MAX);
+        assert_eq!(manager.get_next_command_id(), 0); // Should wrap around
+        assert_eq!(manager.get_next_command_id(), 1);
+    }
+
+    #[test]
+    fn test_socket_state_transitions() {
+        let mut manager = SocketManagerInner::new();
+
+        // Initial state: both sockets free
+        assert!(manager.sockets[0].is_free());
+        assert!(manager.sockets[1].is_free());
+
+        // Transition Socket1 to busy
+        manager.mark_socket_busy(Socket::Socket1, 42, CommandCategory::Movement);
+        assert!(manager.sockets[0].is_busy());
+        assert_eq!(manager.sockets[0].command_id(), Some(42));
+
+        // Transition Socket2 to busy
+        manager.mark_socket_busy(Socket::Socket2, 43, CommandCategory::Quick);
+        assert!(manager.sockets[1].is_busy());
+        assert_eq!(manager.sockets[1].command_id(), Some(43));
+
+        // Free Socket1
+        manager.mark_socket_free(Socket::Socket1);
+        assert!(manager.sockets[0].is_free());
+        assert!(manager.active_commands[0].is_none());
+
+        // Socket2 should still be busy
+        assert!(manager.sockets[1].is_busy());
+    }
+
+    #[test]
+    fn test_active_command_tracking() {
+        #[cfg(feature = "rt-tokio")]
+        {
+            let mut manager = SocketManagerInner::new();
+
+            // Create test commands
+            let (tx1, _rx1) = channels::oneshot();
+            let cmd1 = PendingCmd::new(1, vec![0x81, 0x01], CommandCategory::Quick, tx1, false);
+
+            let (tx2, _rx2) = channels::oneshot();
+            let cmd2 = PendingCmd::new(2, vec![0x81, 0x02], CommandCategory::Movement, tx2, false);
+
+            // Set active commands
+            manager.set_active_command(Socket::Socket1, cmd1);
+            manager.set_active_command(Socket::Socket2, cmd2);
+
+            // Verify commands are tracked
+            assert!(manager.get_active_command(Socket::Socket1).is_some());
+            assert_eq!(
+                manager
+                    .get_active_command(Socket::Socket1)
+                    .expect("Socket1 should have active command")
+                    .id,
+                1
+            );
+
+            assert!(manager.get_active_command(Socket::Socket2).is_some());
+            assert_eq!(
+                manager
+                    .get_active_command(Socket::Socket2)
+                    .expect("Socket2 should have active command")
+                    .id,
+                2
+            );
+
+            // Take command from Socket1
+            let taken = manager.take_active_command(Socket::Socket1);
+            assert!(taken.is_some());
+            assert_eq!(taken.expect("should take active command").id, 1);
+            assert!(manager.get_active_command(Socket::Socket1).is_none());
+
+            // Socket2 should still have its command
+            assert!(manager.get_active_command(Socket::Socket2).is_some());
+        }
     }
 }

@@ -371,6 +371,11 @@ pub mod r#async;
 
 pub mod prelude;
 
+// Testing utilities (available with rt-tokio feature for integration tests)
+#[cfg(feature = "rt-tokio")]
+#[doc(hidden)]
+pub mod testing;
+
 // Core exports - only the essentials at root level
 pub use camera::{Camera, CameraBuilder};
 pub use camera_id::CameraId;
