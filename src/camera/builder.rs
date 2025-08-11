@@ -23,12 +23,12 @@ pub struct BlockingTcpMarker;
 pub struct BlockingUdpMarker;
 
 /// Marker for tokio TCP transport.
-#[cfg(feature = "tokio")]
+#[cfg(feature = "rt-tokio")]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct TokioTcpMarker;
 
 /// Marker for tokio UDP transport.
-#[cfg(feature = "tokio")]
+#[cfg(feature = "rt-tokio")]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct TokioUdpMarker;
 
@@ -106,7 +106,7 @@ impl CameraBuilder<(), ProfileUnset> {
     }
 
     /// Create a builder for an async TCP transport (tokio).
-    #[cfg(feature = "tokio")]
+    #[cfg(feature = "rt-tokio")]
     pub fn tokio_tcp(addr: impl Into<String>) -> CameraBuilder<TokioTcpMarker, ProfileUnset> {
         CameraBuilder {
             addr: addr.into(),
@@ -117,7 +117,7 @@ impl CameraBuilder<(), ProfileUnset> {
     }
 
     /// Create a builder for an async UDP transport (tokio).
-    #[cfg(feature = "tokio")]
+    #[cfg(feature = "rt-tokio")]
     pub fn tokio_udp(addr: impl Into<String>) -> CameraBuilder<TokioUdpMarker, ProfileUnset> {
         CameraBuilder {
             addr: addr.into(),
@@ -209,7 +209,7 @@ impl<P: Profile> CameraBuilder<BlockingUdpMarker, P> {
 }
 
 /// Build implementation for tokio TCP transport.
-#[cfg(feature = "tokio")]
+#[cfg(feature = "rt-tokio")]
 impl<P: Profile> CameraBuilder<TokioTcpMarker, P> {
     /// Build the camera with async TCP transport.
     ///
@@ -224,7 +224,9 @@ impl<P: Profile> CameraBuilder<TokioTcpMarker, P> {
         let mut camera = Camera::from_transport(transport);
 
         // Always set up runtime and initialize socket manager (actor) for async transports
-        let runtime = self.runtime.unwrap_or_else(crate::runtime::default_runtime);
+        let runtime = self
+            .runtime
+            .unwrap_or_else(|| crate::runtime::default_runtime());
         camera = camera.with_runtime(runtime);
 
         Ok(camera)
@@ -232,7 +234,7 @@ impl<P: Profile> CameraBuilder<TokioTcpMarker, P> {
 }
 
 /// Build implementation for tokio UDP transport.
-#[cfg(feature = "tokio")]
+#[cfg(feature = "rt-tokio")]
 impl<P: Profile> CameraBuilder<TokioUdpMarker, P> {
     /// Build the camera with async UDP transport.
     ///
@@ -247,7 +249,9 @@ impl<P: Profile> CameraBuilder<TokioUdpMarker, P> {
         let mut camera = Camera::from_transport(transport);
 
         // Always set up runtime and initialize socket manager (actor) for async transports
-        let runtime = self.runtime.unwrap_or_else(crate::runtime::default_runtime);
+        let runtime = self
+            .runtime
+            .unwrap_or_else(|| crate::runtime::default_runtime());
         camera = camera.with_runtime(runtime);
 
         Ok(camera)
@@ -294,7 +298,7 @@ mod tests {
         assert_eq!(typed.addr, "239.0.0.1:52381");
     }
 
-    #[cfg(feature = "tokio")]
+    #[cfg(feature = "rt-tokio")]
     #[test]
     fn test_tokio_tcp_builder_creation() {
         let builder = CameraBuilder::tokio_tcp("192.168.0.110:52381");
@@ -302,7 +306,7 @@ mod tests {
         assert_eq!(typed.addr, "192.168.0.110:52381");
     }
 
-    #[cfg(feature = "tokio")]
+    #[cfg(feature = "rt-tokio")]
     #[test]
     fn test_tokio_udp_builder_creation() {
         let builder = CameraBuilder::tokio_udp("239.0.0.1:52381");

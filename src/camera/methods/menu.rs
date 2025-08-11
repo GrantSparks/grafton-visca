@@ -28,6 +28,7 @@ pub trait MenuControlOps: Send + Sync {
 }
 
 /// Blocking menu control methods for cameras that support menu navigation.
+#[cfg(not(feature = "async"))]
 pub trait MenuControlOpsBlocking {
     /// Show or hide the on-screen menu.
     fn set_menu_display(&self, display: bool) -> Result<Response, Error>;
@@ -93,6 +94,7 @@ where
 }
 
 /// Implementation for blocking cameras with menu control.
+#[cfg(not(feature = "async"))]
 impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
     MenuControlOpsBlocking for crate::camera::generic::Camera<P, T>
 where

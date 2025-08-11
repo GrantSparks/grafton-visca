@@ -46,6 +46,7 @@ pub trait WhiteBalanceOps: Sized {
 }
 
 /// White balance operations (blocking).
+#[cfg(not(feature = "async"))]
 pub trait WhiteBalanceOpsBlocking: Sized {
     /// Set white balance mode to any supported mode.
     fn set_white_balance_mode(&self, mode: WhiteBalanceMode) -> Result<(), Error>;
@@ -137,6 +138,7 @@ where
 }
 
 // Blocking implementation
+#[cfg(not(feature = "async"))]
 impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
     WhiteBalanceOpsBlocking for crate::camera::generic::Camera<P, T>
 where
@@ -155,31 +157,31 @@ where
     }
 
     fn white_balance_auto(&self) -> Result<(), Error> {
-        WhiteBalanceOpsBlocking::set_white_balance_mode(self, WhiteBalanceMode::Auto)
+        Self::set_white_balance_mode(self, WhiteBalanceMode::Auto)
     }
 
     fn white_balance_indoor(&self) -> Result<(), Error> {
-        WhiteBalanceOpsBlocking::set_white_balance_mode(self, WhiteBalanceMode::Indoor)
+        Self::set_white_balance_mode(self, WhiteBalanceMode::Indoor)
     }
 
     fn white_balance_outdoor(&self) -> Result<(), Error> {
-        WhiteBalanceOpsBlocking::set_white_balance_mode(self, WhiteBalanceMode::Outdoor)
+        Self::set_white_balance_mode(self, WhiteBalanceMode::Outdoor)
     }
 
     fn white_balance_one_push(&self) -> Result<(), Error> {
-        WhiteBalanceOpsBlocking::set_white_balance_mode(self, WhiteBalanceMode::OnePush)
+        Self::set_white_balance_mode(self, WhiteBalanceMode::OnePush)
     }
 
     fn white_balance_atw(&self) -> Result<(), Error> {
-        WhiteBalanceOpsBlocking::set_white_balance_mode(self, WhiteBalanceMode::ATW)
+        Self::set_white_balance_mode(self, WhiteBalanceMode::ATW)
     }
 
     fn white_balance_manual(&self) -> Result<(), Error> {
-        WhiteBalanceOpsBlocking::set_white_balance_mode(self, WhiteBalanceMode::Manual)
+        Self::set_white_balance_mode(self, WhiteBalanceMode::Manual)
     }
 
     fn white_balance_color_temperature(&self) -> Result<(), Error> {
-        WhiteBalanceOpsBlocking::set_white_balance_mode(self, WhiteBalanceMode::ColorTemperature)
+        Self::set_white_balance_mode(self, WhiteBalanceMode::ColorTemperature)
     }
 
     fn set_awb_sensitivity(&self, sensitivity: AutoWhiteBalanceSensitivity) -> Result<(), Error> {

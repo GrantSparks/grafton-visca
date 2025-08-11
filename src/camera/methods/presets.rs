@@ -24,6 +24,7 @@ pub trait PresetsOps: Sized {
 }
 
 /// Presets operations (blocking).
+#[cfg(not(feature = "async"))]
 pub trait PresetsOpsBlocking: Sized {
     /// Recall a preset position.
     fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error>;
@@ -121,6 +122,7 @@ where
 }
 
 // Blocking implementation
+#[cfg(not(feature = "async"))]
 impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
     PresetsOpsBlocking for crate::camera::generic::Camera<P, T>
 where

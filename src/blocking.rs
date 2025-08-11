@@ -1,4 +1,5 @@
 //! Blocking API wrapper for synchronous camera control.
+#![cfg(not(feature = "async"))]
 //!
 //! This module provides a blocking interface to the camera functionality,
 //! exposing only synchronous methods without the `_blocking` suffix.

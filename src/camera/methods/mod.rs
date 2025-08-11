@@ -57,21 +57,38 @@ pub use white_balance::WhiteBalanceOps;
 #[cfg(feature = "async")]
 pub use zoom::ZoomOps;
 
-// Re-export blocking traits
+// Re-export blocking traits (only when async is disabled)
+#[cfg(not(feature = "async"))]
 pub use color::ColorOpsBlocking;
+#[cfg(not(feature = "async"))]
 pub use exposure::{ExposureCompensationOpsBlocking, ExposureOpsBlocking};
+#[cfg(not(feature = "async"))]
 pub use focus::FocusOpsBlocking;
+#[cfg(not(feature = "async"))]
 pub use image_processing::ImageProcessingOpsBlocking;
+#[cfg(not(feature = "async"))]
 pub use inquiry::{InquiryOpsBlocking, PanTiltInquiryOpsBlocking};
+#[cfg(not(feature = "async"))]
 pub use menu::MenuControlOpsBlocking;
+#[cfg(not(feature = "async"))]
 pub use motion_sync::MotionSyncControlBlocking;
+#[cfg(not(feature = "async"))]
 pub use nd_filter::NDFilterOpsBlocking;
+#[cfg(not(feature = "async"))]
 pub use pan_tilt::PanTiltOpsBlocking;
+#[cfg(not(feature = "async"))]
 pub use power::PowerOpsBlocking;
+#[cfg(not(feature = "async"))]
 pub use presets::PresetsOpsBlocking;
+#[cfg(not(feature = "async"))]
 pub use streaming::StreamingOpsBlocking;
+#[cfg(not(feature = "async"))]
 pub use system::SystemOpsBlocking;
+#[cfg(not(feature = "async"))]
 pub use tally::TallyOpsBlocking;
+#[cfg(not(feature = "async"))]
 pub use variable_speed::VariableSpeedOpsBlocking;
+#[cfg(not(feature = "async"))]
 pub use white_balance::WhiteBalanceOpsBlocking;
+#[cfg(not(feature = "async"))]
 pub use zoom::ZoomOpsBlocking;

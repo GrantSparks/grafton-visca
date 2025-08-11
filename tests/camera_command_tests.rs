@@ -5,7 +5,7 @@
 
 mod common;
 
-#[cfg(not(feature = "tokio"))]
+#[cfg(not(feature = "rt-tokio"))]
 mod blocking_tests {
     use crate::common::{
         patterns, MockResponse, MockTransport, MockTransportBuilder, ProtocolValidator,

@@ -9,7 +9,7 @@ use grafton_visca::{
     transport::Transport,
 };
 
-#[cfg(feature = "tokio")]
+#[cfg(feature = "rt-tokio")]
 use grafton_visca::Error;
 
 // These tests demonstrate that the code compiles correctly with proper trait bounds
@@ -124,7 +124,7 @@ fn test_generic_visca_limited_features() {
     // requires_advanced_features(&generic_camera); // Error: GenericVisca lacks these traits
 }
 
-#[cfg(feature = "tokio")]
+#[cfg(feature = "rt-tokio")]
 #[tokio::test]
 async fn test_compile_time_feature_detection() {
     // Note: The library now uses compile-time feature detection exclusively.
