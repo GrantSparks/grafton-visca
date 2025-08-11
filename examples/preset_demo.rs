@@ -10,7 +10,8 @@
 //! cargo run --example preset_demo [camera_ip[:port]]
 //! ```
 
-use grafton_visca::{prelude::blocking::*, CameraBuilder, Error};
+use grafton_visca::prelude::blocking::*;
+use grafton_visca::{CameraBuilder, Error};
 
 use std::{env, thread::sleep, time::Duration};
 

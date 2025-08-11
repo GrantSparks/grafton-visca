@@ -16,9 +16,8 @@
 //! cargo run --example quickstart [camera_ip[:port]]
 //! ```
 
-use grafton_visca::{
-    camera::profiles::PTZOpticsG2, prelude::blocking::*, CameraBuilder, Error, PanTiltDirection,
-};
+use grafton_visca::prelude::blocking::*;
+use grafton_visca::{camera::profiles::PTZOpticsG2, CameraBuilder, Error, PanTiltDirection};
 
 use std::{env, thread::sleep, time::Duration};
 

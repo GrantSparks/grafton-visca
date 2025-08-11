@@ -87,15 +87,16 @@ fn main() -> grafton_visca::Result<()> {
         Err(e) => println!("Failed to get exposure mode: {e}"),
     }
 
-    match camera.get_iris_position() {
-        Ok(iris) => println!("Iris: F{iris}"),
-        Err(e) => println!("Failed to get iris: {e}"),
-    }
+    // Note: get_iris_position() and get_shutter_speed() methods not yet implemented
+    // match camera.get_iris_position() {
+    //     Ok(iris) => println!("Iris: F{iris}"),
+    //     Err(e) => println!("Failed to get iris: {e}"),
+    // }
 
-    match camera.get_shutter_speed() {
-        Ok(speed) => println!("Shutter: 1/{speed}"),
-        Err(e) => println!("Failed to get shutter: {e}"),
-    }
+    // match camera.get_shutter_speed() {
+    //     Ok(speed) => println!("Shutter: 1/{speed}"),
+    //     Err(e) => println!("Failed to get shutter: {e}"),
+    // }
 
     match camera.get_gain() {
         Ok(gain) => println!("Gain: {gain} dB"),
@@ -143,14 +144,9 @@ fn main() -> grafton_visca::Result<()> {
 
     // Query flip status
     println!("\n--- Image Orientation ---");
-    match camera.get_flip_horizontal() {
-        Ok(flipped) => println!("H-Flip: {}", if flipped { "ON" } else { "OFF" }),
-        Err(e) => println!("Failed to get H-flip: {e}"),
-    }
-
-    match camera.get_flip_vertical() {
-        Ok(flipped) => println!("V-Flip: {}", if flipped { "ON" } else { "OFF" }),
-        Err(e) => println!("Failed to get V-flip: {e}"),
+    match camera.get_flip_mode() {
+        Ok(mode) => println!("Flip Mode: {mode:?}"),
+        Err(e) => println!("Failed to get flip mode: {e}"),
     }
 
     println!("\n✓ Inquiry demo completed!");

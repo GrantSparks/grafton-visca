@@ -80,7 +80,7 @@ name = "builder_api"
 
 [[example]]
 name = "camera_inquiry"
-required-features = ["rt-tokio"]
+# Supports both blocking and async modes
 
 [[example]]
 name = "concurrent_control"
