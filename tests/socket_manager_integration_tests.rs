@@ -101,7 +101,7 @@ mod integration_tests {
                     // Add jitter if enabled
                     if inner.network_jitter {
                         let jitter_ms = (rand::random::<f32>() * 50.0) as u64;
-                        delay = delay + Duration::from_millis(jitter_ms);
+                        delay += Duration::from_millis(jitter_ms);
                     }
 
                     let count = inner.call_count;
