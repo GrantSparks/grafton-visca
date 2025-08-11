@@ -59,7 +59,7 @@ where
     where
         Self: crate::camera::methods::PanTiltOpsBlocking
             + crate::camera::methods::ZoomOpsBlocking
-            + crate::camera::helpers::MovementOps,
+            + crate::camera::helpers::MovementOpsBlocking,
     {
         self.restore_state_with_speed(state, SpeedLevel::Fast)
     }
@@ -69,17 +69,17 @@ where
     where
         Self: crate::camera::methods::PanTiltOpsBlocking
             + crate::camera::methods::ZoomOpsBlocking
-            + crate::camera::helpers::MovementOps,
+            + crate::camera::helpers::MovementOpsBlocking,
     {
-        use crate::camera::helpers::MovementOps;
+        use crate::camera::helpers::MovementOpsBlocking;
         use crate::camera::methods::{PanTiltOpsBlocking, ZoomOpsBlocking};
 
         self.pan_tilt_absolute(Degrees(state.pan), Degrees(state.tilt), speed)?;
-        MovementOps::await_idle(self, Duration::from_secs(30))?;
+        MovementOpsBlocking::await_idle(self, Duration::from_secs(30))?;
 
         let normalized_zoom = state.zoom_normalized();
         self.zoom_absolute(Normalized(normalized_zoom))?;
-        MovementOps::await_idle(self, Duration::from_secs(10))?;
+        MovementOpsBlocking::await_idle(self, Duration::from_secs(10))?;
 
         Ok(())
     }
@@ -140,7 +140,7 @@ where
     where
         Self: crate::camera::methods::PanTiltOps
             + crate::camera::methods::ZoomOps
-            + crate::camera::helpers::MovementOpsAsync,
+            + crate::camera::helpers::MovementOps,
     {
         self.restore_state_with_speed_async(state, SpeedLevel::Fast)
             .await
@@ -155,18 +155,18 @@ where
     where
         Self: crate::camera::methods::PanTiltOps
             + crate::camera::methods::ZoomOps
-            + crate::camera::helpers::MovementOpsAsync,
+            + crate::camera::helpers::MovementOps,
     {
-        use crate::camera::helpers::MovementOpsAsync;
+        use crate::camera::helpers::MovementOps;
         use crate::camera::methods::{PanTiltOps, ZoomOps};
 
         self.pan_tilt_absolute(Degrees(state.pan), Degrees(state.tilt), speed)
             .await?;
-        MovementOpsAsync::await_idle(self, Duration::from_secs(30)).await?;
+        MovementOps::await_idle(self, Duration::from_secs(30)).await?;
 
         let normalized_zoom = state.zoom_normalized();
         self.zoom_absolute(Normalized(normalized_zoom)).await?;
-        MovementOpsAsync::await_idle(self, Duration::from_secs(10)).await?;
+        MovementOps::await_idle(self, Duration::from_secs(10)).await?;
 
         Ok(())
     }

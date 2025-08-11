@@ -11,7 +11,7 @@ use crate::{
 };
 
 /// Helper methods for camera movement operations (blocking).
-pub trait MovementOps: Sized {
+pub trait MovementOpsBlocking: Sized {
     /// Wait for all movements to complete.
     ///
     /// This waits for pan/tilt, zoom, and focus movements to finish.
@@ -59,7 +59,7 @@ pub trait MovementOps: Sized {
 
 /// Async helper methods for camera movement operations.
 #[cfg(feature = "async")]
-pub trait MovementOpsAsync: Sized {
+pub trait MovementOps: Sized {
     /// Wait for all movements to complete.
     ///
     /// This waits for pan/tilt, zoom, and focus movements to finish.
@@ -105,7 +105,7 @@ pub trait MovementOpsAsync: Sized {
     async fn is_moving(&self) -> Result<bool, Error>;
 }
 
-impl<P: Profile, T: Transport + Send + Sync + 'static> MovementOps for Camera<P, T>
+impl<P: Profile, T: Transport + Send + Sync + 'static> MovementOpsBlocking for Camera<P, T>
 where
     T::Error: Into<Error> + Send,
     for<'a> T::SendFut<'a>: Send,
@@ -126,7 +126,7 @@ where
         use crate::types::SpeedLevel;
 
         self.pan_tilt_absolute(pan, tilt, SpeedLevel::Fast)?;
-        MovementOps::await_idle(self, timeout)
+        MovementOpsBlocking::await_idle(self, timeout)
     }
 
     fn is_moving(&self) -> Result<bool, Error> {
@@ -135,7 +135,7 @@ where
 }
 
 #[cfg(feature = "tokio")]
-impl<P: Profile, T: Transport + Send + Sync + 'static> MovementOpsAsync for Camera<P, T>
+impl<P: Profile, T: Transport + Send + Sync + 'static> MovementOps for Camera<P, T>
 where
     T::Error: Into<Error> + Send,
     for<'a> T::SendFut<'a>: Send,
@@ -156,7 +156,7 @@ where
         use crate::types::SpeedLevel;
 
         self.pan_tilt_absolute(pan, tilt, SpeedLevel::Fast).await?;
-        MovementOpsAsync::await_idle(self, timeout).await
+        MovementOps::await_idle(self, timeout).await
     }
 
     async fn is_moving(&self) -> Result<bool, Error> {
@@ -165,32 +165,31 @@ where
 }
 
 #[cfg(all(feature = "async", not(feature = "tokio")))]
-impl<P: Profile, T: Transport + Send + Sync + 'static> MovementOpsAsync for Camera<P, T>
+impl<P: Profile, T: Transport + Send + Sync + 'static> MovementOps for Camera<P, T>
 where
     T::Error: Into<Error> + Send,
     for<'a> T::SendFut<'a>: Send,
     for<'a> T::RecvFut<'a>: Send,
 {
-    async fn await_idle(&self, _timeout: impl Into<Duration>) -> Result<(), Error> {
-        Err(Error::InvalidState(
-            "Async movement helpers require tokio feature".into(),
-        ))
+    async fn await_idle(&self, timeout: impl Into<Duration>) -> Result<(), Error> {
+        let config = MovementConfig::with_timeout(timeout.into());
+        self.wait_for_movement_async(&config).await
     }
 
     async fn move_to(
         &self,
-        _pan: Degrees,
-        _tilt: Degrees,
-        _timeout: impl Into<Duration>,
+        pan: Degrees,
+        tilt: Degrees,
+        timeout: impl Into<Duration>,
     ) -> Result<(), Error> {
-        Err(Error::InvalidState(
-            "Async movement helpers require tokio feature".into(),
-        ))
+        use crate::camera::methods::pan_tilt::PanTiltOps;
+        use crate::types::SpeedLevel;
+
+        self.pan_tilt_absolute(pan, tilt, SpeedLevel::Fast).await?;
+        MovementOps::await_idle(self, timeout).await
     }
 
     async fn is_moving(&self) -> Result<bool, Error> {
-        Err(Error::InvalidState(
-            "Async movement helpers require tokio feature".into(),
-        ))
+        self.is_moving_async().await
     }
 }
