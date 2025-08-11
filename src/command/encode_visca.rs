@@ -28,6 +28,40 @@ pub fn validate_terminator(buffer: &[u8], len: usize) {
     );
 }
 
+/// Validates that a VISCA command buffer has valid structure.
+///
+/// This function performs debug assertions to ensure:
+/// - Commands have proper terminator (0xFF)
+/// - Commands have valid camera address byte (0x81-0x88)
+/// - Commands have minimum required length
+///
+/// # Panics
+///
+/// In debug builds, panics if the buffer doesn't meet VISCA protocol requirements.
+#[inline]
+pub fn validate_command_structure(buffer: &[u8], len: usize) {
+    // Validate minimum length (at least address + terminator)
+    debug_assert!(
+        len >= 2,
+        "VISCA command too short: {} bytes. Minimum is 2 bytes. Command bytes: {:02X?}",
+        len,
+        &buffer[..len]
+    );
+
+    // Validate camera address byte (0x81-0x88 for cameras 1-8)
+    if len > 0 {
+        debug_assert!(
+            buffer[0] >= 0x81 && buffer[0] <= 0x88,
+            "Invalid VISCA camera address byte: 0x{:02X}. Must be 0x81-0x88. Command bytes: {:02X?}",
+            buffer[0],
+            &buffer[..len]
+        );
+    }
+
+    // Validate terminator
+    validate_terminator(buffer, len);
+}
+
 /// Unified trait for all VISCA commands.
 ///
 /// This trait combines the functionality of the previous `Command` and `ViscaCommand`
@@ -123,6 +157,10 @@ pub trait EncodeVisca: Send + Sync {
                 actual: N,
             });
         }
+
+        // Validate command structure in debug builds
+        validate_command_structure(&buffer, size);
+
         Ok(buffer)
     }
 
@@ -141,6 +179,10 @@ pub trait EncodeVisca: Send + Sync {
     fn try_into_vec(&self, camera_id: CameraId) -> Result<Vec<u8>, Error> {
         let mut buffer = vec![0u8; Self::MAX_SIZE];
         let size = self.encode_into(camera_id, &mut buffer)?;
+
+        // Validate terminator in debug builds before truncating
+        validate_terminator(&buffer, size);
+
         buffer.truncate(size);
         Ok(buffer)
     }

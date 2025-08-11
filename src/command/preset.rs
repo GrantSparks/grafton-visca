@@ -69,14 +69,11 @@ impl EncodeVisca for PresetCommand {
     ) -> Result<usize, Error> {
         use crate::command::const_encoding::constants::preset;
 
-        let command = CommandBuilder::<7>::from_prefix(preset::CONTROL_PREFIX)
+        CommandBuilder::<7>::from_prefix(preset::CONTROL_PREFIX)
             .with_camera_id(camera_id)
             .push(self.action as u8)
             .push(self.preset_number.value())
-            .build();
-
-        buffer[..7].copy_from_slice(&command);
-        Ok(7)
+            .build_into(buffer)
     }
 
     fn response_type(&self) -> Option<ResponseType> {

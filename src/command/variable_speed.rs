@@ -54,13 +54,10 @@ impl EncodeVisca for VariableSpeedModeCommand {
             VariableSpeedMode::Fine50 => 0x02,
         };
 
-        let command = CommandBuilder::<7>::from_prefix(constants::variable_speed::CONTROL_PREFIX)
+        CommandBuilder::<7>::from_prefix(constants::variable_speed::CONTROL_PREFIX)
             .with_camera_id(camera_id)
             .push(mode_byte)
-            .build();
-
-        buffer[..7].copy_from_slice(&command);
-        Ok(7)
+            .build_into(buffer)
     }
 
     fn response_type(&self) -> Option<ResponseType> {

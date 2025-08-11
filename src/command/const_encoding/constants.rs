@@ -13,10 +13,10 @@ pub mod power {
     use super::*;
 
     /// Power on command.
-    pub const ON: &[u8] = visca_bytes![0x81, 0x01, 0x04, 0x00, 0x02];
+    pub const ON: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x00, 0x02];
 
     /// Power off/standby command.
-    pub const OFF: &[u8] = visca_bytes![0x81, 0x01, 0x04, 0x00, 0x03];
+    pub const OFF: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x00, 0x03];
 }
 
 /// Pan/Tilt command constants.
@@ -502,11 +502,11 @@ mod validation_tests {
     /// 2. Constants have the expected format (proper camera ID, terminator, etc.)
     #[test]
     fn test_constants_compile_time_validation() {
-        // Power constants
+        // Power constants (using visca_prefix! so no terminator)
         assert_eq!(power::ON[0], 0x81); // Camera ID
-        assert_eq!(power::ON[power::ON.len() - 1], 0xFF); // Terminator
+        assert_ne!(power::ON[power::ON.len() - 1], 0xFF); // No Terminator
         assert_eq!(power::OFF[0], 0x81);
-        assert_eq!(power::OFF[power::OFF.len() - 1], 0xFF);
+        assert_ne!(power::OFF[power::OFF.len() - 1], 0xFF); // No Terminator
 
         // Pan/Tilt constants
         assert_eq!(pan_tilt::HOME[0], 0x81);
@@ -721,12 +721,9 @@ mod validation_tests {
         // The visca_test! macro in tests should use the same byte sequences
         // as our constants. This test ensures they stay in sync.
 
-        // Power commands
-        assert_eq!(power::ON, &[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
-        assert_eq!(
-            power::OFF,
-            &[0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]
-        );
+        // Power commands (using visca_prefix! so no terminator)
+        assert_eq!(power::ON, &[0x81, 0x01, 0x04, 0x00, 0x02]);
+        assert_eq!(power::OFF, &[0x81, 0x01, 0x04, 0x00, 0x03]);
 
         // Pan/Tilt commands
         assert_eq!(pan_tilt::HOME, &[0x81, 0x01, 0x06, 0x04, VISCA_TERMINATOR]);

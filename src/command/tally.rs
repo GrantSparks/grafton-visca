@@ -27,75 +27,57 @@ visca_command! {
     enum Tally {
         /// Turn red tally light on
         RedOn => {
-            let cmd = CommandBuilder::<8>::new()
+            Ok(CommandBuilder::<16>::new()
                 .append(crate::command::const_encoding::constants::tally::TALLY_PREFIX)
-                .append(&[0x02])
-                .build();
-            Ok::<Vec<u8>, Error>(cmd.to_vec())
+                .append(&[0x02]))
         },
         /// Turn red tally light off
         RedOff => {
-            let cmd = CommandBuilder::<8>::new()
+            Ok(CommandBuilder::<16>::new()
                 .append(crate::command::const_encoding::constants::tally::TALLY_PREFIX)
-                .append(&[0x03])
-                .build();
-            Ok::<Vec<u8>, Error>(cmd.to_vec())
+                .append(&[0x03]))
         },
         /// Set tally brightness to low
         BrightLo => {
-            let cmd = CommandBuilder::<8>::new()
+            Ok(CommandBuilder::<16>::new()
                 .append(crate::command::const_encoding::constants::tally::TALLY_BRIGHT_PREFIX)
-                .append(&[0x04])
-                .build();
-            Ok::<Vec<u8>, Error>(cmd.to_vec())
+                .append(&[0x04]))
         },
         /// Set tally brightness to high
         BrightHi => {
-            let cmd = CommandBuilder::<8>::new()
+            Ok(CommandBuilder::<16>::new()
                 .append(crate::command::const_encoding::constants::tally::TALLY_BRIGHT_PREFIX)
-                .append(&[0x05])
-                .build();
-            Ok::<Vec<u8>, Error>(cmd.to_vec())
+                .append(&[0x05]))
         },
         /// Turn green tally light on (FR7 specific)
         GreenOn => {
-            let cmd = CommandBuilder::<8>::new()
+            Ok(CommandBuilder::<16>::new()
                 .append(crate::command::const_encoding::constants::tally::TALLY_GREEN_PREFIX)
-                .append(&[0x02])
-                .build();
-            Ok::<Vec<u8>, Error>(cmd.to_vec())
+                .append(&[0x02]))
         },
         /// Turn green tally light off (FR7 specific)
         GreenOff => {
-            let cmd = CommandBuilder::<8>::new()
+            Ok(CommandBuilder::<16>::new()
                 .append(crate::command::const_encoding::constants::tally::TALLY_GREEN_PREFIX)
-                .append(&[0x03])
-                .build();
-            Ok::<Vec<u8>, Error>(cmd.to_vec())
+                .append(&[0x03]))
         },
         /// Set tally to flash mode (PTZOptics specific)
         Flash => {
-            let cmd = CommandBuilder::<6>::new()
+            Ok(CommandBuilder::<16>::new()
                 .append(crate::command::const_encoding::constants::tally::TALLY_PTZO_PREFIX)
-                .append(&[0x01])
-                .build();
-            Ok::<Vec<u8>, Error>(cmd.to_vec())
+                .append(&[0x01]))
         },
         /// Set tally to solid on (PTZOptics specific)
         On => {
-            let cmd = CommandBuilder::<6>::new()
+            Ok(CommandBuilder::<16>::new()
                 .append(crate::command::const_encoding::constants::tally::TALLY_PTZO_PREFIX)
-                .append(&[0x02])
-                .build();
-            Ok::<Vec<u8>, Error>(cmd.to_vec())
+                .append(&[0x02]))
         },
         /// Turn tally off (PTZOptics specific)
         Off => {
-            let cmd = CommandBuilder::<6>::new()
+            Ok(CommandBuilder::<16>::new()
                 .append(crate::command::const_encoding::constants::tally::TALLY_PTZO_PREFIX)
-                .append(&[0x03])
-                .build();
-            Ok::<Vec<u8>, Error>(cmd.to_vec())
+                .append(&[0x03]))
         },
     }
 }
@@ -123,12 +105,9 @@ impl EncodeVisca for TallyInquiry {
     ) -> Result<usize, Error> {
         use crate::command::const_encoding::constants;
 
-        let command = CommandBuilder::<7>::from_prefix(constants::tally::TALLY_INQUIRY_PREFIX)
+        CommandBuilder::<7>::from_prefix(constants::tally::TALLY_INQUIRY_PREFIX)
             .with_camera_id(camera_id)
-            .build();
-
-        buffer[..7].copy_from_slice(&command);
-        Ok(7)
+            .build_into(buffer)
     }
 
     fn response_type(&self) -> Option<ResponseType> {

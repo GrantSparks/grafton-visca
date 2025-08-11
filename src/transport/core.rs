@@ -58,7 +58,6 @@ pub trait TransportExt: Transport {
     /// Receive with timeout using a runtime-specific Sleep implementation.
     ///
     /// When `sleep_impl` is provided, it will be used for timeout.
-    /// When `sleep_impl` is None and tokio feature is enabled, tokio::time::timeout is used.
     /// Otherwise, no timeout is applied.
     #[cfg(feature = "async")]
     fn recv_with_timeout<'a>(
@@ -75,29 +74,22 @@ pub trait TransportExt: Transport {
                     .await?
                     .map_err(Into::into)
             } else {
-                #[cfg(feature = "tokio")]
-                {
-                    tokio::time::timeout(duration, self.recv())
-                        .await
-                        .map_err(|_| Error::Timeout)?
-                        .map_err(Into::into)
-                }
-                #[cfg(not(feature = "tokio"))]
-                {
-                    // Without a specific runtime, we can't implement timeout.
-                    log::debug!("Timeout requested but no Sleep implementation provided and tokio feature not enabled");
-                    self.recv().await.map_err(Into::into)
-                }
+                // Without a specific runtime, we can't implement timeout.
+                log::debug!("Timeout requested but no Sleep implementation provided");
+                self.recv().await.map_err(Into::into)
             }
         }
     }
 
     /// Blocking timeout helper for non-async transports.
+    ///
+    /// Uses a deadline-based polling loop to implement timeouts for blocking transports.
     #[cfg(not(feature = "async"))]
     fn recv_with_timeout_blocking(
         &self,
         duration: core::time::Duration,
     ) -> Result<bytes::Bytes, Error> {
+        // Use the deadline-based timeout implementation
         crate::executor::timeout(duration, self.recv()).and_then(|r| r.map_err(Into::into))
     }
 }

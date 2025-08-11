@@ -72,6 +72,7 @@ use grafton_visca::{
 #[tokio::main]
 async fn main() -> grafton_visca::Result<()> {
     // Port is optional - defaults to profile-specific port (5678 for PTZOptics)
+    // The socket manager actor is automatically initialized for async transports
     let cam = CameraBuilder::tokio_tcp("192.168.0.110")
         .profile::<PTZOpticsG2>()
         .build()
@@ -127,6 +128,29 @@ grafton-visca = { version = "0.6", features = ["tokio"] }
 - **`tokio`** - Adds Tokio-specific transport implementations and timeout support (implies `async`)
 
 The async implementation is truly runtime-agnostic - you can use it with tokio, async-std, smol, or any other async runtime by implementing the `Transport` trait for your runtime's networking types.
+
+### Timeout Configuration
+
+The library uses a deadline-based timeout system that automatically categorizes commands and applies appropriate timeouts:
+
+```rust
+use grafton_visca::{timeout::TimeoutConfig, Duration};
+
+// Use custom timeout configuration
+let camera = CameraBuilder::tokio_tcp("192.168.0.110")
+    .profile::<PTZOpticsG2>()
+    .build()
+    .await?
+    .with_timeout_config(TimeoutConfig::builder()
+        .quick(Duration::from_secs(1))      // Fast commands (power, zoom stop)
+        .movement(Duration::from_secs(10))   // PTZ movements
+        .preset(Duration::from_secs(15))     // Preset operations
+        .long_running(Duration::from_secs(30)) // Firmware updates
+        .network(Duration::from_secs(5))     // Network operations
+        .build());
+```
+
+Commands are automatically categorized, but you can also use the default configuration which provides sensible timeout values for each category.
 
 ---
 

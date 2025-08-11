@@ -101,19 +101,19 @@ impl EncodeVisca for Zoom {
                 let builder = CommandBuilder::<6>::from_prefix(zoom::STOP)
                     .with_camera_id(camera_id)
                     .terminate();
-                builder.copy_to(buffer)
+                builder.build_into(buffer)
             }
             Self::TeleStd => {
                 let builder = CommandBuilder::<6>::from_prefix(zoom::TELE_STD)
                     .with_camera_id(camera_id)
                     .terminate();
-                builder.copy_to(buffer)
+                builder.build_into(buffer)
             }
             Self::WideStd => {
                 let builder = CommandBuilder::<6>::from_prefix(zoom::WIDE_STD)
                     .with_camera_id(camera_id)
                     .terminate();
-                builder.copy_to(buffer)
+                builder.build_into(buffer)
             }
             Self::TeleVariable(speed) => {
                 // Tele variable: 81 01 04 07 2p FF where p is speed
@@ -121,7 +121,7 @@ impl EncodeVisca for Zoom {
                     .with_camera_id(camera_id)
                     .push(0x20 | (speed.0 & 0x0F))
                     .terminate();
-                builder.copy_to(buffer)
+                builder.build_into(buffer)
             }
             Self::WideVariable(speed) => {
                 // Wide variable: 81 01 04 07 3p FF where p is speed
@@ -129,7 +129,7 @@ impl EncodeVisca for Zoom {
                     .with_camera_id(camera_id)
                     .push(0x30 | (speed.0 & 0x0F))
                     .terminate();
-                builder.copy_to(buffer)
+                builder.build_into(buffer)
             }
             Self::Position(position) => {
                 // Direct position: 81 01 04 47 0p 0q 0r 0s FF
@@ -137,7 +137,7 @@ impl EncodeVisca for Zoom {
                     .with_camera_id(camera_id)
                     .push_visca_u14(position.value())
                     .terminate();
-                builder.copy_to(buffer)
+                builder.build_into(buffer)
             }
         }
     }
@@ -182,7 +182,7 @@ impl EncodeVisca for DigitalZoomCommand {
             .with_camera_id(camera_id)
             .push(if self.enabled { 0x02 } else { 0x03 })
             .terminate();
-        builder.copy_to(buffer)
+        builder.build_into(buffer)
     }
 
     fn response_type(&self) -> Option<ResponseType> {

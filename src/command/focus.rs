@@ -127,7 +127,7 @@ impl EncodeVisca for Focus {
                         .terminate();
 
                     // Now we can access bytes only after termination
-                    builder.copy_to(buffer)
+                    builder.build_into(buffer)
                 } else {
                     // Use legacy API for other commands
                     let mut builder = CommandBuilder::<6>::new();
@@ -137,9 +137,7 @@ impl EncodeVisca for Focus {
                         Self::Near => 0x03,
                         _ => unreachable!(),
                     });
-                    builder.with_camera_id_mut(camera_id);
-                    builder.finalize();
-                    builder.copy_to(buffer)
+                    builder.with_camera_id(camera_id).build_into(buffer)
                 }
             }
             Self::FarWithSpeed(_) | Self::NearWithSpeed(_) => {
@@ -150,9 +148,7 @@ impl EncodeVisca for Focus {
                     Self::NearWithSpeed(s) => 0x30 | s.value(),
                     _ => unreachable!(),
                 });
-                builder.with_camera_id_mut(camera_id);
-                builder.finalize();
-                builder.copy_to(buffer)
+                builder.with_camera_id(camera_id).build_into(buffer)
             }
             Self::Position(position) => {
                 let builder = CommandBuilder::<9>::new()
@@ -160,7 +156,7 @@ impl EncodeVisca for Focus {
                     .push_visca_u16(position.value())
                     .with_camera_id(camera_id)
                     .terminate();
-                builder.copy_to(buffer)
+                builder.build_into(buffer)
             }
             Self::Auto | Self::Manual => {
                 let mut builder = CommandBuilder::<6>::new();
@@ -170,9 +166,7 @@ impl EncodeVisca for Focus {
                     Self::Manual => 0x03,
                     _ => unreachable!(),
                 });
-                builder.with_camera_id_mut(camera_id);
-                builder.finalize();
-                builder.copy_to(buffer)
+                builder.with_camera_id(camera_id).build_into(buffer)
             }
             Self::OnePushTrigger | Self::Infinity => {
                 let mut builder = CommandBuilder::<6>::new();
@@ -182,9 +176,7 @@ impl EncodeVisca for Focus {
                     Self::Infinity => 0x02,
                     _ => unreachable!(),
                 });
-                builder.with_camera_id_mut(camera_id);
-                builder.finalize();
-                builder.copy_to(buffer)
+                builder.with_camera_id(camera_id).build_into(buffer)
             }
         }
     }
@@ -288,19 +280,15 @@ visca_command! {
     enum FocusLock {
         /// Enable focus lock
         On => {
-            let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
+            Ok(CommandBuilder::<16>::new()
                 .append(crate::command::const_encoding::constants::focus::LOCK_PREFIX)
-                .push(0x02)
-                .build();
-            Ok::<Vec<u8>, Error>(cmd.to_vec())
+                .push(0x02))
         },
         /// Disable focus lock
         Off => {
-            let cmd = crate::command::const_encoding::CommandBuilder::<6>::new()
+            Ok(CommandBuilder::<16>::new()
                 .append(crate::command::const_encoding::constants::focus::LOCK_PREFIX)
-                .push(0x03)
-                .build();
-            Ok::<Vec<u8>, Error>(cmd.to_vec())
+                .push(0x03))
         },
     }
 }
@@ -337,9 +325,7 @@ impl EncodeVisca for PushAF {
             Self::Press => 0x01,
             Self::Release => 0x00,
         });
-        builder.with_camera_id_mut(camera_id);
-        builder.finalize();
-        builder.copy_to(buffer)
+        builder.with_camera_id(camera_id).build_into(buffer)
     }
 
     fn response_type(&self) -> Option<ResponseType> {
