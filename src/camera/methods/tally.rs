@@ -3,7 +3,7 @@
 use crate::{
     command::{
         tally::{Tally, TallyInquiry},
-        InquiryResponse, Response,
+        InquiryResponse,
     },
     Error,
 };
@@ -99,92 +99,47 @@ where
 {
     async fn tally_red_on(&self) -> Result<(), Error> {
         let command = Tally::RedOn;
-        let response = self.send_command(&command).await?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command(&command).await
     }
 
     async fn tally_red_off(&self) -> Result<(), Error> {
         let command = Tally::RedOff;
-        let response = self.send_command(&command).await?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command(&command).await
     }
 
     async fn tally_bright_lo(&self) -> Result<(), Error> {
         let command = Tally::BrightLo;
-        let response = self.send_command(&command).await?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command(&command).await
     }
 
     async fn tally_bright_hi(&self) -> Result<(), Error> {
         let command = Tally::BrightHi;
-        let response = self.send_command(&command).await?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command(&command).await
     }
 
     async fn tally_green_on(&self) -> Result<(), Error> {
         let command = Tally::GreenOn;
-        let response = self.send_command(&command).await?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command(&command).await
     }
 
     async fn tally_green_off(&self) -> Result<(), Error> {
         let command = Tally::GreenOff;
-        let response = self.send_command(&command).await?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command(&command).await
     }
 
     async fn tally_flash(&self) -> Result<(), Error> {
         let command = Tally::Flash;
-        let response = self.send_command(&command).await?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command(&command).await
     }
 
     async fn tally_on(&self) -> Result<(), Error> {
         let command = Tally::On;
-        let response = self.send_command(&command).await?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command(&command).await
     }
 
     async fn tally_off(&self) -> Result<(), Error> {
         let command = Tally::Off;
-        let response = self.send_command(&command).await?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command(&command).await
     }
 
     async fn get_tally_status(&self) -> Result<bool, Error> {
@@ -194,20 +149,18 @@ where
 
     async fn get_red_tally_status(&self) -> Result<bool, Error> {
         let command = TallyInquiry::Red;
-        let response = self.send_command(&command).await?;
-        match response {
-            Response::Inquiry(InquiryResponse::TallyRed { on }) => Ok(on),
-            Response::Error(e) => Err(e),
+        let inquiry = self.send_inquiry_command(&command).await?;
+        match inquiry {
+            InquiryResponse::TallyRed { on } => Ok(on),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     async fn get_green_tally_status(&self) -> Result<bool, Error> {
         let command = TallyInquiry::Green;
-        let response = self.send_command(&command).await?;
-        match response {
-            Response::Inquiry(InquiryResponse::TallyGreen { on }) => Ok(on),
-            Response::Error(e) => Err(e),
+        let inquiry = self.send_inquiry_command(&command).await?;
+        match inquiry {
+            InquiryResponse::TallyGreen { on } => Ok(on),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -215,8 +168,14 @@ where
 
 // Blocking implementation
 #[cfg(not(feature = "async"))]
-impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
-    TallyOpsBlocking for crate::camera::generic::Camera<P, T>
+impl<
+        P: crate::capabilities::Profile,
+        T: crate::transport::Transport
+            + Send
+            + Sync
+            + 'static
+            + crate::transport::core::BlockingTransport,
+    > TallyOpsBlocking for crate::camera::generic::Camera<P, T>
 where
     T::Error: Into<Error> + Send,
     for<'a> T::SendFut<'a>: Send,
@@ -224,92 +183,47 @@ where
 {
     fn tally_red_on(&self) -> Result<(), Error> {
         let command = Tally::RedOn;
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command_blocking(&command)
     }
 
     fn tally_red_off(&self) -> Result<(), Error> {
         let command = Tally::RedOff;
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command_blocking(&command)
     }
 
     fn tally_bright_lo(&self) -> Result<(), Error> {
         let command = Tally::BrightLo;
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command_blocking(&command)
     }
 
     fn tally_bright_hi(&self) -> Result<(), Error> {
         let command = Tally::BrightHi;
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command_blocking(&command)
     }
 
     fn tally_green_on(&self) -> Result<(), Error> {
         let command = Tally::GreenOn;
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command_blocking(&command)
     }
 
     fn tally_green_off(&self) -> Result<(), Error> {
         let command = Tally::GreenOff;
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command_blocking(&command)
     }
 
     fn tally_flash(&self) -> Result<(), Error> {
         let command = Tally::Flash;
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command_blocking(&command)
     }
 
     fn tally_on(&self) -> Result<(), Error> {
         let command = Tally::On;
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command_blocking(&command)
     }
 
     fn tally_off(&self) -> Result<(), Error> {
         let command = Tally::Off;
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command_blocking(&command)
     }
 
     fn get_tally_status(&self) -> Result<bool, Error> {
@@ -319,20 +233,18 @@ where
 
     fn get_red_tally_status(&self) -> Result<bool, Error> {
         let command = TallyInquiry::Red;
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            Response::Inquiry(InquiryResponse::TallyRed { on }) => Ok(on),
-            Response::Error(e) => Err(e),
+        let inquiry = self.send_inquiry_command_blocking(&command)?;
+        match inquiry {
+            InquiryResponse::TallyRed { on } => Ok(on),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     fn get_green_tally_status(&self) -> Result<bool, Error> {
         let command = TallyInquiry::Green;
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            Response::Inquiry(InquiryResponse::TallyGreen { on }) => Ok(on),
-            Response::Error(e) => Err(e),
+        let inquiry = self.send_inquiry_command_blocking(&command)?;
+        match inquiry {
+            InquiryResponse::TallyGreen { on } => Ok(on),
             _ => Err(Error::UnexpectedResponseType),
         }
     }

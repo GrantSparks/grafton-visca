@@ -382,6 +382,7 @@ impl crate::capabilities::HasRGBGain for SonyFR7 {}
 impl crate::capabilities::HasAutoFocus for SonyFR7 {}
 impl crate::capabilities::HasOnePushFocus for SonyFR7 {}
 impl crate::capabilities::HasHue for SonyFR7 {}
+impl crate::capabilities::menu_control::HasDirectMenuControl for SonyFR7 {}
 
 /// Sony BRC-H900 camera profile.
 ///

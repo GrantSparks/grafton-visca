@@ -107,7 +107,10 @@ pub trait MovementOps: Sized {
 }
 
 #[cfg(not(feature = "async"))]
-impl<P: Profile, T: Transport + Send + Sync + 'static> MovementOpsBlocking for Camera<P, T>
+impl<
+        P: Profile,
+        T: Transport + Send + Sync + 'static + crate::transport::core::BlockingTransport,
+    > MovementOpsBlocking for Camera<P, T>
 where
     T::Error: Into<Error> + Send,
     for<'a> T::SendFut<'a>: Send,

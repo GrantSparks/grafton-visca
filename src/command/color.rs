@@ -38,7 +38,7 @@ visca_builder! {
         // Convert -10..+10 to 0x00..0x14 (0x00 = -10, 0x0A = 0, 0x14 = +10)
         let level_value = level.value();
         let level_offset = level_value + 10;
-        debug_assert!((0..=20).contains(&level_offset));
+        assert!((0..=20).contains(&level_offset), "Color tuning level offset out of range: {}", level_offset);
         // Safe cast: level_offset is guaranteed to be 0..=20 after validation
         #[allow(clippy::cast_sign_loss)]
         let encoded = level_offset as u8;
@@ -71,7 +71,7 @@ visca_builder! {
         // Convert -10..+10 to 0x00..0x14 (0x00 = -10, 0x0A = 0, 0x14 = +10)
         let level_value = level.value();
         let level_offset = level_value + 10;
-        debug_assert!((0..=20).contains(&level_offset));
+        assert!((0..=20).contains(&level_offset), "Color tuning level offset out of range: {}", level_offset);
         // Safe cast: level_offset is guaranteed to be 0..=20 after validation
         #[allow(clippy::cast_sign_loss)]
         let encoded = level_offset as u8;
