@@ -284,6 +284,7 @@ mod tests {
             assert_eq!(rx.recv().await.expect("recv should succeed"), 42);
         }
 
+        #[cfg(feature = "rt-tokio")]
         #[tokio::test]
         async fn test_async_oneshot_with_timeout() {
             use crate::runtime::TokioRuntime;
