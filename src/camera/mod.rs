@@ -33,4 +33,5 @@ pub use movement_probe::{MovementConfig, PanTiltPosition};
 // Re-export helper traits
 #[cfg(feature = "async")]
 pub use helpers::MovementOps;
+#[cfg(not(feature = "async"))]
 pub use helpers::MovementOpsBlocking;

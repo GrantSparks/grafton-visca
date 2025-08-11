@@ -26,10 +26,10 @@
 //!
 //! For async transports (with tokio):
 //! ```rust,no_run
-//! # #[cfg(feature = "tokio")]
+//! # #[cfg(feature = "rt-tokio")]
 //! use grafton_visca::transport::tokio::tcp::Tcp;
 //!
-//! # #[cfg(feature = "tokio")]
+//! # #[cfg(feature = "rt-tokio")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let transport = Tcp::connect("192.168.0.110:5678").await?;
 //! // transport is ready to use with CameraAsync
@@ -55,5 +55,5 @@ pub use envelope::TransportEnvelope;
 pub use visca_protocol::ViscaProtocol;
 
 // Tokio implementations
-#[cfg(feature = "tokio")]
+#[cfg(feature = "rt-tokio")]
 pub mod tokio;

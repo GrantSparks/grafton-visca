@@ -16,7 +16,7 @@ use grafton_visca::{
     CameraBuilder, Result,
 };
 
-#[cfg(not(feature = "tokio"))]
+#[cfg(not(feature = "rt-tokio"))]
 fn main() -> Result<()> {
     env_logger::init();
 
@@ -69,7 +69,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "tokio")]
+#[cfg(feature = "rt-tokio")]
 #[tokio::main]
 async fn main() -> Result<()> {
     env_logger::init();

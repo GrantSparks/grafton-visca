@@ -1,6 +1,6 @@
 //! Tests for socket manager functionality through the public Camera API
 
-#[cfg(feature = "tokio")]
+#[cfg(feature = "rt-tokio")]
 mod tokio_tests {
     use bytes::Bytes;
     use grafton_visca::r#async::prelude::*;

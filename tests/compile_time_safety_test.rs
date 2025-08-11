@@ -1,6 +1,7 @@
 //! Integration test demonstrating compile-time capability checking with the generic API.
 
 #![allow(clippy::expect_used)]
+#![cfg(not(feature = "async"))]
 
 /// VISCA command terminator byte.
 const VISCA_TERMINATOR: u8 = 0xFF;

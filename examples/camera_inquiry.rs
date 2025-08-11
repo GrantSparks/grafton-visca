@@ -13,7 +13,7 @@
 //! - Blocking: cargo run --example camera_inquiry
 //! - Async: cargo run --example camera_inquiry --features tokio
 
-#[cfg(not(feature = "tokio"))]
+#[cfg(not(feature = "rt-tokio"))]
 fn main() -> grafton_visca::Result<()> {
     use grafton_visca::{camera::profiles::PTZOpticsG2, prelude::blocking::*, CameraBuilder};
 
@@ -158,7 +158,7 @@ fn main() -> grafton_visca::Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "tokio")]
+#[cfg(feature = "rt-tokio")]
 #[tokio::main]
 async fn main() -> grafton_visca::Result<()> {
     use grafton_visca::{camera::profiles::PTZOpticsG2, prelude::r#async::*, CameraBuilder};

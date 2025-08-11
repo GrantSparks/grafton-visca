@@ -163,20 +163,10 @@ impl<T: Transport + Send + Sync> ViscaProtocol<T> {
                 .await?
                 .map_err(Into::into)
             } else {
-                #[cfg(feature = "tokio")]
-                {
-                    // Fallback to tokio if available and no Sleep impl provided
-                    tokio::time::timeout(duration, self.transport.recv())
-                        .await
-                        .map_err(|_| Error::Timeout)?
-                        .map_err(Into::into)
-                }
-                #[cfg(not(feature = "tokio"))]
-                {
-                    // For runtime-agnostic async without a Sleep impl, we can't implement timeout.
-                    log::debug!("Timeout of {duration:?} requested, but no Sleep implementation provided. Users should either provide a Sleep implementation or wrap operations with their runtime's timeout mechanism.");
-                    self.transport.recv().await.map_err(Into::into)
-                }
+                // Without a Sleep impl, return an error indicating runtime is required
+                Err(Error::InvalidState(
+                    "No runtime configured for timeout operations. Please provide a Sleep implementation when creating ViscaProtocol.".into()
+                ))
             }
         }
 

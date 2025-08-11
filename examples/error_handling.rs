@@ -5,7 +5,7 @@
 
 use std::borrow::Cow;
 use std::time::Duration;
-#[cfg(any(not(feature = "async"), feature = "tokio"))]
+#[cfg(any(not(feature = "async"), feature = "rt-tokio"))]
 use std::time::Instant;
 
 use grafton_visca::Error;
@@ -17,7 +17,7 @@ use grafton_visca::{
     types::{PanSpeed, TiltSpeed},
     PanTiltDirection, PresetNumber,
 };
-#[cfg(feature = "tokio")]
+#[cfg(feature = "rt-tokio")]
 use grafton_visca::{
     camera::profiles::G2PresetId,
     prelude::r#async::*,
@@ -26,7 +26,7 @@ use grafton_visca::{
     PanTiltDirection, PresetNumber,
 };
 
-#[cfg(all(feature = "async", not(feature = "tokio")))]
+#[cfg(all(feature = "async", not(feature = "rt-tokio")))]
 fn main() {
     println!("=== VISCA Error Handling Demo ===\n");
     println!("This example demonstrates error handling patterns.\n");
@@ -67,7 +67,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(feature = "tokio")]
+#[cfg(feature = "rt-tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -317,7 +317,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     Ok(())
 }
 
-#[cfg(feature = "tokio")]
+#[cfg(feature = "rt-tokio")]
 async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("   Attempting to connect to camera at {camera_addr}...");
 

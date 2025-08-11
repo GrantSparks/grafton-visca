@@ -28,6 +28,7 @@ impl CameraState {
     }
 }
 
+#[cfg(not(feature = "async"))]
 impl<P, T> Camera<P, T>
 where
     P: Profile,
@@ -93,40 +94,24 @@ where
     for<'a> T::RecvFut<'a>: Send,
 {
     /// Save the current camera state (async)
-    #[cfg(feature = "tokio")]
+    #[cfg(feature = "async")]
     pub async fn save_state_async(&self) -> Result<CameraState>
     where
         Self: crate::camera::methods::InquiryOps + crate::camera::methods::PanTiltInquiryOps,
     {
         use crate::camera::methods::{InquiryOps, PanTiltInquiryOps};
 
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        // Use runtime for sleep
+        let runtime = self.require_runtime()?;
+        runtime.sleep(Duration::from_millis(500)).await;
 
         let (pan, tilt) = self.get_pan_tilt_degrees().await?;
 
         let mut zoom = self.get_zoom_position().await?;
         if zoom == 0 {
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            runtime.sleep(Duration::from_millis(500)).await;
             zoom = self.get_zoom_position().await?;
         }
-
-        Ok(CameraState {
-            pan: pan.0,
-            tilt: tilt.0,
-            zoom,
-        })
-    }
-
-    /// Save the current camera state (async without tokio)
-    #[cfg(all(feature = "async", not(feature = "tokio")))]
-    pub async fn save_state_async(&self) -> Result<CameraState>
-    where
-        Self: crate::camera::methods::InquiryOps + crate::camera::methods::PanTiltInquiryOps,
-    {
-        use crate::camera::methods::{InquiryOps, PanTiltInquiryOps};
-
-        let (pan, tilt) = self.get_pan_tilt_degrees().await?;
-        let zoom = self.get_zoom_position().await?;
 
         Ok(CameraState {
             pan: pan.0,

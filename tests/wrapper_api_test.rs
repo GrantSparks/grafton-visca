@@ -30,7 +30,7 @@ fn test_blocking_wrapper_api() {
     // as that would require a concrete Transport type
 }
 
-#[cfg(feature = "tokio")]
+#[cfg(feature = "rt-tokio")]
 #[tokio::test]
 async fn test_async_wrapper_api() {
     use grafton_visca::capabilities::Profile;
