@@ -11,7 +11,7 @@ use crate::{
         EncodeVisca,
     },
     error::{Error, Result},
-    timeout::CommandCategory,
+    timeout::{CommandCategory, TimeoutConfig},
     transport::Transport,
 };
 
@@ -477,20 +477,22 @@ pub(crate) struct SocketManagerActor<T> {
     inner: SocketManagerInner,
     transport: Arc<T>,
     command_receiver: UnboundedReceiver<SocketManagerCommand>,
-    ack_timeout: std::time::Duration,
-    completion_timeout: std::time::Duration,
+    timeout_config: TimeoutConfig,
+    #[cfg(feature = "async")]
+    runtime: Option<crate::runtime::SharedRuntime>,
     retry_hook: Box<dyn RetryHook + Send + Sync>,
 }
 
 impl<T> std::fmt::Debug for SocketManagerActor<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SocketManagerActor")
+        let mut builder = f.debug_struct("SocketManagerActor");
+        builder
             .field("inner", &self.inner)
             .field("transport", &"Arc<T>")
-            .field("ack_timeout", &self.ack_timeout)
-            .field("completion_timeout", &self.completion_timeout)
-            .field("retry_hook", &"Box<dyn RetryHook>")
-            .finish()
+            .field("timeout_config", &self.timeout_config);
+        #[cfg(feature = "async")]
+        builder.field("runtime", &self.runtime.is_some());
+        builder.field("retry_hook", &"Box<dyn RetryHook>").finish()
     }
 }
 
@@ -505,8 +507,7 @@ where
     pub fn new(
         transport: Arc<T>,
         command_receiver: UnboundedReceiver<SocketManagerCommand>,
-        ack_timeout: std::time::Duration,
-        completion_timeout: std::time::Duration,
+        timeout_config: TimeoutConfig,
         camera_id: CameraId,
     ) -> Self {
         let mut inner = SocketManagerInner::new();
@@ -515,10 +516,18 @@ where
             inner,
             transport,
             command_receiver,
-            ack_timeout,
-            completion_timeout,
+            timeout_config,
+            #[cfg(feature = "async")]
+            runtime: None,
             retry_hook: Box::new(DefaultRetryHook::new()),
         }
+    }
+
+    /// Set the runtime for async timeout operations.
+    #[cfg(feature = "async")]
+    pub fn with_runtime(mut self, runtime: crate::runtime::SharedRuntime) -> Self {
+        self.runtime = Some(runtime);
+        self
     }
 
     /// Run the socket manager actor event loop.
@@ -814,6 +823,13 @@ where
 
     async fn handle_ack_response(&mut self, socket: Socket) {
         trace!("Received ACK for {socket:?}");
+
+        // Check if socket is still busy with a command (not already timed out)
+        if !self.inner.sockets[socket.as_index()].is_busy() {
+            warn!("Received ACK for {socket:?} but socket is not busy (likely timed out)");
+            return;
+        }
+
         if let Some(command) = self.inner.get_active_command(socket) {
             debug!("ACK received for command {} on {socket:?}", command.id);
         } else {
@@ -830,6 +846,12 @@ where
             let _ = waiter.send(Ok(()));
         }
 
+        // Check if socket is still busy with a command (not already timed out)
+        if !self.inner.sockets[socket.as_index()].is_busy() {
+            warn!("Received completion for {socket:?} but socket is not busy (likely timed out)");
+            return;
+        }
+
         if let Some(command) = self.inner.take_active_command(socket) {
             debug!(
                 "Completion received for command {} on {:?}",
@@ -840,11 +862,20 @@ where
             self.try_dispatch_next_command().await;
         } else {
             warn!("Received completion for {socket:?} but no active command");
+            // Mark socket free even if no command found
+            self.inner.mark_socket_free(socket);
         }
     }
 
     async fn handle_error_response(&mut self, socket: Socket, error: Error) {
         trace!("Received error for {socket:?}: {error:?}");
+
+        // Check if socket is still busy with a command (not already timed out)
+        if !self.inner.sockets[socket.as_index()].is_busy() {
+            warn!("Received error for {socket:?} but socket is not busy (likely timed out)");
+            return;
+        }
+
         if let Some(mut command) = self.inner.take_active_command(socket) {
             debug!(
                 "Error received for command {} on {:?}: {:?}",
@@ -876,6 +907,8 @@ where
             self.try_dispatch_next_command().await;
         } else {
             warn!("Received error for {socket:?} but no active command");
+            // Mark socket free even if no command found
+            self.inner.mark_socket_free(socket);
         }
     }
 
@@ -908,14 +941,7 @@ where
                 if let (Some(started_at), Some(category)) =
                     (socket_state.started_at(), socket_state.category())
                 {
-                    let timeout_duration = match category {
-                        CommandCategory::Quick => self.ack_timeout,
-                        CommandCategory::Movement => self.completion_timeout,
-                        CommandCategory::Preset => self.completion_timeout,
-                        CommandCategory::LongRunning => self.completion_timeout,
-                        CommandCategory::Network => self.ack_timeout,
-                        CommandCategory::Custom => self.completion_timeout,
-                    };
+                    let timeout_duration = self.timeout_config.get_timeout(category);
 
                     if now.duration_since(started_at) > timeout_duration {
                         let socket = match socket_index {
@@ -940,7 +966,8 @@ where
         }
 
         if let Some(ref inquiry) = self.inner.pending_inquiry {
-            let timeout_duration = self.completion_timeout;
+            // Use the appropriate timeout for inquiry commands
+            let timeout_duration = self.timeout_config.get_timeout(inquiry.category);
             if now.duration_since(inquiry.enqueued_at) > timeout_duration {
                 let id = inquiry.id;
                 warn!("Inquiry command timeout for command {id}");
@@ -952,6 +979,13 @@ where
     async fn handle_command_timeout(&mut self, socket: Socket) {
         let command_id = self.inner.sockets[socket.as_index()].command_id();
 
+        // First, take the active command to prevent race conditions
+        let command = self.inner.take_active_command(socket);
+
+        // Mark socket as free immediately to prevent further operations
+        self.inner.mark_socket_free(socket);
+
+        // Send cancel command to ensure camera state is consistent
         let cancel_command = CommandCancelCommand::new(socket);
         let mut cancel_bytes = vec![0u8; CommandCancelCommand::MAX_SIZE];
 
@@ -960,9 +994,11 @@ where
         } else {
             debug!("Sending cancel command for timed out socket {socket:?}");
         }
+
         match cancel_command.encode_into(self.inner.camera_id, &mut cancel_bytes) {
             Ok(size) => {
                 cancel_bytes.truncate(size);
+                // Send cancel command but don't wait for response to avoid further delays
                 if let Err(e) = Transport::send(self.transport.as_ref(), &cancel_bytes).await {
                     let err: Error = e.into();
                     error!("Failed to send cancel command: {err}");
@@ -973,23 +1009,28 @@ where
             }
         }
 
-        if let Some(command) = self.inner.take_active_command(socket) {
+        // Complete the command with timeout error
+        if let Some(command) = command {
+            let category = command.category;
+            let timeout_duration = self.timeout_config.get_timeout(category);
             let timeout_error = Error::CommandTimeout {
-                duration: self.completion_timeout,
+                duration: timeout_duration,
                 command: Cow::Owned(format!("Command {} on {socket:?}", command.id)),
             };
             command.complete(Err(timeout_error));
         }
 
-        self.inner.mark_socket_free(socket);
+        // Try to dispatch the next queued command
         self.try_dispatch_next_command().await;
     }
 
     async fn handle_inquiry_timeout(&mut self) {
         if let Some(inquiry) = self.inner.take_pending_inquiry() {
             let id = inquiry.id;
+            let category = inquiry.category;
+            let timeout_duration = self.timeout_config.get_timeout(category);
             let timeout_error = Error::CommandTimeout {
-                duration: self.completion_timeout,
+                duration: timeout_duration,
                 command: Cow::Owned(format!("Inquiry command {id}")),
             };
             inquiry.complete(Err(timeout_error));
