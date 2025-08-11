@@ -55,6 +55,7 @@ pub trait MotionSyncControl {
 }
 
 /// Blocking version of motion sync control methods.
+#[cfg(not(feature = "async"))]
 pub trait MotionSyncControlBlocking {
     /// Sets the motion sync mode (on/off).
     fn set_motion_sync_mode(&self, mode: MotionSyncMode) -> Result<(), Error>;
@@ -123,6 +124,7 @@ where
 }
 
 // Blocking implementation
+#[cfg(not(feature = "async"))]
 impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
     MotionSyncControlBlocking for crate::camera::generic::Camera<P, T>
 where

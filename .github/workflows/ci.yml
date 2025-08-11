@@ -72,11 +72,11 @@ jobs:
           echo "Testing runtime-agnostic async (async feature only)..."
           cargo test --no-default-features --features async --verbose
       
-      # Configuration 3: Tokio runtime (tokio feature, which implies async)
-      - name: Test tokio runtime (tokio feature)
+      # Configuration 3: Tokio runtime (rt-tokio feature, which implies async)
+      - name: Test tokio runtime (rt-tokio feature)
         run: |
-          echo "Testing tokio runtime (tokio feature)..."
-          cargo test --no-default-features --features tokio --verbose
+          echo "Testing tokio runtime (rt-tokio feature)..."
+          cargo test --no-default-features --features rt-tokio --verbose
       
       # Also test all features for completeness
       - name: Test all features
@@ -99,11 +99,11 @@ jobs:
           echo "Building async examples (runtime-agnostic)..."
           cargo build --examples --no-default-features --features async
       
-      - name: Build tokio examples (tokio feature)
+      - name: Build tokio examples (rt-tokio feature)
         if: matrix.rust == 'stable'
         run: |
           echo "Building tokio examples..."
-          cargo build --examples --no-default-features --features tokio
+          cargo build --examples --no-default-features --features rt-tokio
 
   # Combined lint and doc check  
   lint-and-docs:
@@ -129,8 +129,8 @@ jobs:
       - name: Clippy async mode (async feature only)
         run: cargo clippy --all-targets --no-default-features --features async -- -D warnings
       
-      - name: Clippy tokio mode (tokio feature)
-        run: cargo clippy --all-targets --no-default-features --features tokio -- -D warnings
+      - name: Clippy tokio mode (rt-tokio feature)
+        run: cargo clippy --all-targets --no-default-features --features rt-tokio -- -D warnings
       
       # Also check all features
       - name: Clippy all features

@@ -31,7 +31,7 @@ pub type SpawnableFuture = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 /// ## Using with Tokio
 /// ```no_run
 /// # use grafton_visca::executor::Spawner;
-/// # #[cfg(feature = "tokio")]
+/// # #[cfg(feature = "rt-tokio")]
 /// # {
 /// let handle = tokio::runtime::Handle::current();
 /// // The Handle implements Spawner automatically when the tokio feature is enabled
@@ -160,7 +160,7 @@ pub trait Spawner: Send + Sync + 'static {
 }
 
 /// Blanket implementation for tokio::runtime::Handle when the tokio feature is enabled.
-#[cfg(feature = "tokio")]
+#[cfg(feature = "rt-tokio")]
 impl Spawner for tokio::runtime::Handle {
     fn spawn(&self, task: SpawnableFuture) {
         tokio::runtime::Handle::spawn(self, task);
@@ -316,7 +316,7 @@ pub fn timeout<F: Future>(duration: core::time::Duration, fut: F) -> Result<F::O
 ///
 /// ## Using with Tokio
 /// ```no_run
-/// # #[cfg(feature = "tokio")]
+/// # #[cfg(feature = "rt-tokio")]
 /// # {
 /// use grafton_visca::executor::{Sleep, TokioSleep};
 /// use std::time::Duration;
@@ -354,11 +354,11 @@ pub trait Sleep: Send + Sync + 'static {
 /// Tokio-based sleep implementation.
 ///
 /// This implementation uses `tokio::time::sleep` for the sleep operation.
-#[cfg(feature = "tokio")]
+#[cfg(feature = "rt-tokio")]
 #[derive(Debug, Clone, Copy)]
 pub struct TokioSleep;
 
-#[cfg(feature = "tokio")]
+#[cfg(feature = "rt-tokio")]
 impl Sleep for TokioSleep {
     fn sleep(
         &self,

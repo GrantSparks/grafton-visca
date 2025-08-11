@@ -16,6 +16,7 @@ pub trait PowerOps: Sized {
 }
 
 /// Power operations (blocking).
+#[cfg(not(feature = "async"))]
 pub trait PowerOpsBlocking: Sized {
     /// Power on the camera.
     fn power_on(&self) -> Result<(), Error>;
@@ -38,18 +39,9 @@ where
         let response = self.send_command(&command).await?;
         match response {
             Response::Completion => {
-                // Wait for camera to be ready using runtime if available
-                if let Some(runtime) = self.runtime() {
-                    runtime.sleep(self.power_on_time()).await;
-                } else {
-                    // Fallback to tokio if available
-                    #[cfg(feature = "tokio")]
-                    if tokio::runtime::Handle::try_current().is_ok() {
-                        tokio::time::sleep(self.power_on_time()).await;
-                    }
-                    // If no runtime available, just return immediately
-                    // Users will need to handle delays at the application level
-                }
+                // Wait for camera to be ready using runtime
+                let runtime = self.require_runtime()?;
+                runtime.sleep(self.power_on_time()).await;
                 Ok(())
             }
             Response::Error(e) => Err(e),
@@ -62,18 +54,9 @@ where
         let response = self.send_command(&command).await?;
         match response {
             Response::Completion => {
-                // Wait for standby/off using runtime if available
-                if let Some(runtime) = self.runtime() {
-                    runtime.sleep(self.standby_time()).await;
-                } else {
-                    // Fallback to tokio if available
-                    #[cfg(feature = "tokio")]
-                    if tokio::runtime::Handle::try_current().is_ok() {
-                        tokio::time::sleep(self.standby_time()).await;
-                    }
-                    // If no runtime available, just return immediately
-                    // Users will need to handle delays at the application level
-                }
+                // Wait for standby/off using runtime
+                let runtime = self.require_runtime()?;
+                runtime.sleep(self.standby_time()).await;
                 Ok(())
             }
             Response::Error(e) => Err(e),
@@ -83,6 +66,7 @@ where
 }
 
 // Blocking implementation
+#[cfg(not(feature = "async"))]
 impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
     PowerOpsBlocking for crate::camera::generic::Camera<P, T>
 where

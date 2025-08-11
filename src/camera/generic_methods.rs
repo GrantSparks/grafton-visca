@@ -34,6 +34,7 @@ where
     }
 
     /// Set the ND filter mode (blocking).
+    #[cfg(not(feature = "async"))]
     pub fn set_nd_filter_mode_blocking(
         &self,
         mode: CommandNDFilterMode,
@@ -73,6 +74,7 @@ where
     }
 
     /// Set the motion sync mode (blocking).
+    #[cfg(not(feature = "async"))]
     pub fn set_motion_sync_mode_blocking(&self, mode: MotionSyncMode) -> Result<Response, Error> {
         let command = MotionSyncModeCommand::new(mode);
         self.send_command_blocking(&command)

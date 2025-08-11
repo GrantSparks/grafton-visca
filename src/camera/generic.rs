@@ -441,36 +441,9 @@ where
             }
         };
 
-        // Use runtime for timeout if available
-        if let Some(runtime) = &self.runtime {
-            crate::runtime::timeout_with_runtime(runtime.as_ref(), timeout_duration, recv_fut)
-                .await?
-        } else {
-            // Fallback to tokio if available and no runtime provided
-            #[cfg(feature = "tokio")]
-            {
-                // Check if we're in a tokio runtime context
-                if tokio::runtime::Handle::try_current().is_ok() {
-                    tokio::time::timeout(timeout_duration, recv_fut)
-                        .await
-                        .map_err(|_| Error::Timeout)?
-                } else {
-                    // No runtime available, run without timeout
-                    log::warn!(
-                        "No runtime provided and not in tokio context, timeout not available"
-                    );
-                    recv_fut.await
-                }
-            }
-
-            #[cfg(not(feature = "tokio"))]
-            {
-                // No runtime available, run without timeout
-                log::warn!("No runtime provided for timeout");
-                let _ = timeout_duration; // Suppress unused warning
-                recv_fut.await
-            }
-        }
+        // Require runtime for timeout operations
+        let runtime = self.require_runtime()?;
+        crate::runtime::timeout_with_runtime(runtime.as_ref(), timeout_duration, recv_fut).await?
     }
 
     /// Wait for a specific type of response with timeout.
@@ -520,54 +493,19 @@ where
             }
         };
 
-        // Use runtime for timeout if available
-        if let Some(runtime) = &self.runtime {
-            crate::runtime::timeout_with_runtime(runtime.as_ref(), timeout_duration, recv_loop)
-                .await?
-        } else {
-            // Fallback to tokio if available and no runtime provided
-            #[cfg(feature = "tokio")]
-            {
-                // Check if we're in a tokio runtime context
-                if tokio::runtime::Handle::try_current().is_ok() {
-                    tokio::time::timeout(timeout_duration, recv_loop)
-                        .await
-                        .map_err(|_| Error::Timeout)?
-                } else {
-                    // No runtime available, run without timeout
-                    log::warn!(
-                        "No runtime provided and not in tokio context, timeout not available"
-                    );
-                    recv_loop.await
-                }
-            }
-
-            #[cfg(not(feature = "tokio"))]
-            {
-                // No runtime available, run without timeout
-                log::warn!("No runtime provided for timeout");
-                let _ = timeout_duration; // Suppress unused warning
-                recv_loop.await
-            }
-        }
+        // Require runtime for timeout operations
+        let runtime = self.require_runtime()?;
+        crate::runtime::timeout_with_runtime(runtime.as_ref(), timeout_duration, recv_loop).await?
     }
 
     /// Send a command synchronously (blocking).
+    #[cfg(not(feature = "async"))]
     pub(crate) fn send_command_blocking<C>(&self, command: &C) -> Result<Response, Error>
     where
         C: EncodeVisca,
     {
-        #[cfg(feature = "async")]
-        {
-            // Use a minimal executor to block on the async method
-            futures::executor::block_on(self.send_command(command))
-        }
-
-        #[cfg(not(feature = "async"))]
-        {
-            // Direct blocking implementation
-            self.send_command_blocking_direct(command)
-        }
+        // Direct blocking implementation
+        self.send_command_blocking_direct(command)
     }
 
     /// Wait for a completion message from the camera.
@@ -579,7 +517,7 @@ where
     /// * `Ok(())` if a completion message was received
     /// * `Err(Error::Timeout)` if no completion message was received within the timeout
     #[cfg(feature = "async")]
-    #[cfg_attr(not(feature = "tokio"), allow(unused_variables))]
+    #[cfg_attr(not(feature = "rt-tokio"), allow(unused_variables))]
     pub(crate) async fn wait_for_completion(&self, timeout: Duration) -> Result<(), Error> {
         // Check if socket manager is available
         if let Some(socket_manager) = &self.socket_manager {
@@ -598,7 +536,7 @@ where
                 }
             } else {
                 // Fallback to tokio if available
-                #[cfg(feature = "tokio")]
+                #[cfg(feature = "rt-tokio")]
                 {
                     if tokio::runtime::Handle::try_current().is_ok() {
                         match tokio::time::timeout(timeout, wait_fut).await {
@@ -613,7 +551,7 @@ where
                     }
                 }
 
-                #[cfg(not(feature = "tokio"))]
+                #[cfg(not(feature = "rt-tokio"))]
                 {
                     // For non-tokio, we need a different timeout mechanism
                     // For now, just call the method without timeout wrapper
@@ -623,52 +561,6 @@ where
         } else {
             // No socket manager, can't wait for completion
             log::debug!("wait_for_completion: no socket manager available");
-            Err(Error::Unsupported)
-        }
-    }
-
-    /// Wait for a completion message from the camera (blocking).
-    ///
-    /// This method is used for event-driven movement detection. It waits for the camera
-    /// to send a completion message (0x51) indicating that a movement operation has finished.
-    ///
-    /// # Returns
-    /// * `Ok(())` if a completion message was received
-    /// * `Err(Error::Timeout)` if no completion message was received within the timeout
-    /// * `Err(Error::Unsupported)` if no socket manager is available
-    #[cfg(feature = "async")]
-    pub(crate) fn wait_for_completion_blocking(&self, timeout: Duration) -> Result<(), Error> {
-        // Check if socket manager is available
-        if let Some(socket_manager) = &self.socket_manager {
-            log::debug!(
-                "wait_for_completion_blocking: using socket manager to wait for completion message"
-            );
-
-            // Send the wait request to the socket manager and get the receiver
-            let response_receiver = socket_manager.send_wait_for_completion()?;
-
-            // Wait for the completion with timeout
-            match response_receiver.recv_timeout(timeout) {
-                Ok(Ok(())) => {
-                    log::debug!("wait_for_completion_blocking: received completion message");
-                    Ok(())
-                }
-                Ok(Err(e)) => {
-                    log::debug!("wait_for_completion_blocking: error from socket manager: {e:?}");
-                    Err(e)
-                }
-                Err(Error::Timeout) => {
-                    log::debug!("wait_for_completion_blocking: timeout waiting for completion");
-                    Err(Error::Timeout)
-                }
-                Err(e) => {
-                    log::debug!("wait_for_completion_blocking: channel error: {e:?}");
-                    Err(e)
-                }
-            }
-        } else {
-            // No socket manager, can't wait for completion
-            log::debug!("wait_for_completion_blocking: no socket manager available");
             Err(Error::Unsupported)
         }
     }
@@ -875,10 +767,22 @@ where
         self
     }
 
-    /// Get the configured runtime for async operations, if any.
+    /// Set a runtime for async operations without initializing socket manager.
+    /// This is primarily useful for testing.
     #[cfg(feature = "async")]
-    pub(crate) fn runtime(&self) -> Option<&crate::runtime::SharedRuntime> {
-        self.runtime.as_ref()
+    #[doc(hidden)]
+    pub fn with_runtime_only(mut self, runtime: crate::runtime::SharedRuntime) -> Self {
+        self.runtime = Some(runtime);
+        self
+    }
+
+    /// Ensure a runtime is available for async operations.
+    /// Returns an error if no runtime is configured.
+    #[cfg(feature = "async")]
+    pub(crate) fn require_runtime(&self) -> Result<&crate::runtime::SharedRuntime, Error> {
+        self.runtime
+            .as_ref()
+            .ok_or(Error::InvalidState("No runtime configured. Please call with_runtime() or use a builder with runtime support.".into()))
     }
 
     /// Initialize the socket manager for this camera.

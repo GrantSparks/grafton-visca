@@ -143,93 +143,136 @@
 //!
 //! ## Async Support
 //!
-//! The library provides optional async support with a runtime-agnostic design:
+//! The library provides runtime-agnostic async support, allowing you to use ANY async runtime
+//! (tokio, async-std, smol, etc.) or even create your own.
 //!
 //! ### Feature Flags
 //!
-//! - `async` - Enables async support without any specific runtime. You bring your own runtime.
-//! - `tokio` - Enables async with built-in tokio implementations (implies `async`).
+//! - `async` - Enables async support without any specific runtime. You must provide your own runtime.
+//! - `rt-tokio` - Enables async with built-in tokio runtime support (implies `async`).
 //!
-//! ### With Tokio (built-in implementations)
+//! ### ⚠️ Important: Runtime Requirements for Async
 //!
-//! When using the `tokio` feature, the library provides ready-to-use TCP and UDP transports:
+//! **The async API REQUIRES a runtime to be configured.** Without a runtime, ALL async operations
+//! will fail with: `Error::InvalidState("No runtime configured for async operations")`.
+//!
+//! The runtime is essential for:
+//! - **Timeout handling** - All camera commands have configurable timeouts
+//! - **Power sequences** - Power on/off operations require delays
+//! - **Movement detection** - Polling for pan/tilt/zoom completion
+//! - **Background tasks** - Socket manager for concurrent operations
+//!
+//! ### Runtime Requirements for Async
+//!
+//! You have two options for configuring a runtime:
+//!
+//! #### Option 1: Use the built-in tokio runtime support (Easiest)
+//!
+//! Enable the `rt-tokio` feature in your `Cargo.toml`:
+//!
+//! ```toml
+//! [dependencies]
+//! grafton-visca = { version = "*", features = ["rt-tokio"] }
+//! ```
+//!
+//! Then use `CameraBuilder` with tokio support:
 //!
 //! ```ignore
-//! # // Cargo.toml: features = ["tokio"]
-//! use grafton_visca::{Camera, CameraModel};
-//! use grafton_visca::transport::tokio::Tcp;
+//! use grafton_visca::{CameraBuilder, prelude::r#async::*};
 //!
 //! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let transport = Tcp::connect("192.168.0.110:5678").await?;
-//!     let camera = PTZOpticsG2Cam::new(transport);
-//!
+//! async fn main() -> Result<(), Error> {
+//!     // The tokio_tcp() method automatically configures the runtime
+//!     let camera = CameraBuilder::tokio_tcp("192.168.0.110:52381")
+//!         .profile::<PTZOpticsG2>()
+//!         .build()
+//!         .await?;
+//!     
+//!     // All async operations will work
 //!     camera.power_on().await?;
-//!     camera.pan_tilt_home().await?;
+//!     camera.zoom_in().await?;
 //!     Ok(())
 //! }
 //! ```
 //!
-//! ### Runtime-Agnostic Async (bring your own runtime)
+//! #### Option 2: Provide your own runtime (Advanced)
 //!
-//! When using only the `async` feature, the library provides the async traits and protocol
-//! handling, but you must provide your own transport implementation and handle timeouts
-//! using your runtime's facilities:
+//! For complete runtime independence, implement the `Runtime` trait or use `GenericRuntime`:
 //!
 //! ```ignore
-//! # // Cargo.toml: features = ["async"]
-//! use grafton_visca::{Camera, CameraModel};
-//! use grafton_visca::transport::Transport;
-//! use async_std::net::TcpStream; // or any runtime's stream
-//! use async_std::io::{ReadExt, WriteExt};
-//! use async_std::future::timeout;
-//! use std::time::Duration;
+//! use grafton_visca::{
+//!     Camera, CameraBuilder,
+//!     runtime::{GenericRuntime, SharedRuntime},
+//!     executor::{Sleep, Spawner, SpawnableFuture},
+//!     prelude::r#async::*,
+//! };
+//! use std::{pin::Pin, sync::Arc, time::Duration, future::Future};
 //!
-//! // Implement Transport for your runtime's types
-//! struct AsyncStdTcp {
-//!     stream: TcpStream,
-//! }
+//! // Example: Using async-std instead of tokio
+//! #[derive(Debug, Clone)]
+//! struct AsyncStdSleep;
 //!
-//! impl Transport for AsyncStdTcp {
-//!     type Error = std::io::Error;
-//!     type SendFut<'a> = Pin<Box<dyn Future<Output = Result<(), Self::Error>> + Send + 'a>>;
-//!     type RecvFut<'a> = Pin<Box<dyn Future<Output = Result<bytes::Bytes, Self::Error>> + Send + 'a>>;
-//!
-//!     fn send<'a>(&'a self, bytes: &'a [u8]) -> Self::SendFut<'a> {
-//!         Box::pin(async move {
-//!             self.stream.write_all(bytes).await?;
-//!             self.stream.flush().await
-//!         })
-//!     }
-//!
-//!     fn recv<'a>(&'a self) -> Self::RecvFut<'a> {
-//!         Box::pin(async move {
-//!             // Read VISCA frame (implementation details omitted)
-//!             let mut buffer = vec![0u8; 1024];
-//!             let n = self.stream.read(&mut buffer).await?;
-//!             Ok(bytes::Bytes::from(buffer[..n].to_vec()))
-//!         })
+//! impl Sleep for AsyncStdSleep {
+//!     fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+//!         Box::pin(async_std::task::sleep(duration))
 //!     }
 //! }
 //!
-//! // Use with your runtime's timeout facilities
-//! async fn send_with_timeout(camera: &Camera, duration: Duration) -> Result<(), Box<dyn std::error::Error>> {
-//!     timeout(duration, camera.power_on()).await??;
+//! #[derive(Debug, Clone)]
+//! struct AsyncStdSpawner;
+//!
+//! impl Spawner for AsyncStdSpawner {
+//!     fn spawn(&self, task: SpawnableFuture) {
+//!         async_std::task::spawn(task);
+//!     }
+//! }
+//!
+//! #[async_std::main]
+//! async fn main() -> Result<(), Error> {
+//!     // Create your custom runtime
+//!     let runtime: SharedRuntime = Arc::new(GenericRuntime::new(
+//!         AsyncStdSleep,
+//!         AsyncStdSpawner,
+//!     ));
+//!
+//!     // Build camera with your transport
+//!     let camera = CameraBuilder::tcp("192.168.0.110:52381")
+//!         .profile::<PTZOpticsG2>()
+//!         .with_runtime(runtime)  // Provide your runtime
+//!         .build()
+//!         .await?;
+//!
+//!     // All async operations now use async-std
+//!     camera.power_on().await?;
+//!     camera.zoom_in().await?;
 //!     Ok(())
 //! }
 //! ```
 //!
-//! ### Important Notes on Timeouts
+//! ### Common Runtime Errors and Solutions
 //!
-//! When using the `async` feature without `tokio`, the library cannot provide built-in timeout
-//! functionality. You must wrap operations with your runtime's timeout mechanism:
+//! #### Error: `InvalidState("No runtime configured for async operations")`
+//! **Cause:** You're using async mode but haven't configured a runtime.
+//! **Solution:** Either:
+//! - Enable `rt-tokio` feature and use `CameraBuilder::tokio_tcp()`
+//! - Call `.with_runtime()` on your camera builder with a custom runtime
 //!
-//! - **async-std**: Use `async_std::future::timeout`
-//! - **smol**: Use `smol::future::or` with `smol::Timer`
-//! - **futures-timer**: Use `futures_timer::Delay`
+//! #### Error: `InvalidState("Operation requires runtime for timeout handling")`
+//! **Cause:** The operation needs timeout support but no runtime is available.
+//! **Solution:** Same as above - configure a runtime.
 //!
-//! The library will log when timeouts are requested but not available. This is not an error,
-//! just a reminder to handle timeouts at the application level.
+//! #### Error: Socket manager initialization issues
+//! **Cause:** The socket manager requires a runtime to spawn background tasks.
+//! **Solution:** Ensure your runtime's `Spawner` implementation is working correctly.
+//!
+//! ### Blocking vs Async Mode
+//!
+//! The library enforces a clear separation between blocking and async modes:
+//!
+//! - **Blocking mode** (default): No runtime needed, uses synchronous I/O
+//! - **Async mode** (`async` feature): REQUIRES runtime configuration
+//!
+//! You cannot use both modes simultaneously - choose one at compile time via features.
 //!
 //! ## Supported Commands
 //!
@@ -320,12 +363,18 @@ pub(crate) mod socket_manager;
 pub mod executor;
 pub mod runtime;
 
+#[cfg(not(feature = "async"))]
 pub mod blocking;
 
 #[cfg(feature = "async")]
 pub mod r#async;
 
 pub mod prelude;
+
+// Testing utilities (available with rt-tokio feature for integration tests)
+#[cfg(feature = "rt-tokio")]
+#[doc(hidden)]
+pub mod testing;
 
 // Core exports - only the essentials at root level
 pub use camera::{Camera, CameraBuilder};

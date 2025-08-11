@@ -13,13 +13,18 @@
 //! cargo run --example transports [camera_ip[:port]]
 //! ```
 
+#[cfg(not(feature = "async"))]
 use std::{
     env, thread,
     time::{Duration, Instant},
 };
 
-use grafton_visca::{prelude::blocking::*, CameraBuilder, Error};
+#[cfg(not(feature = "async"))]
+use grafton_visca::prelude::blocking::*;
+#[cfg(not(feature = "async"))]
+use grafton_visca::{CameraBuilder, Error};
 
+#[cfg(not(feature = "async"))]
 fn main() -> Result<(), Error> {
     env_logger::init();
 
@@ -220,4 +225,10 @@ fn main() -> Result<(), Error> {
     println!("See camera_profiles for camera-specific configurations.");
 
     Ok(())
+}
+
+#[cfg(feature = "async")]
+fn main() {
+    println!("This example requires blocking mode. Run without the async feature:");
+    println!("  cargo run --example transports --no-default-features");
 }

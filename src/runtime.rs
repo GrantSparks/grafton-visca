@@ -28,11 +28,11 @@ pub trait Runtime: std::fmt::Debug + Send + Sync + 'static {
 }
 
 /// Tokio runtime implementation.
-#[cfg(feature = "tokio")]
+#[cfg(feature = "rt-tokio")]
 #[derive(Debug, Clone, Copy)]
 pub struct TokioRuntime;
 
-#[cfg(feature = "tokio")]
+#[cfg(feature = "rt-tokio")]
 impl Runtime for TokioRuntime {
     fn spawn(&self, task: SpawnableFuture) {
         tokio::spawn(task);
@@ -80,13 +80,13 @@ impl<S: Sleep + std::fmt::Debug + 'static, P: Spawner + std::fmt::Debug + 'stati
 pub type SharedRuntime = Arc<dyn Runtime>;
 
 /// Get the default runtime based on enabled features.
-#[cfg(feature = "tokio")]
+#[cfg(feature = "rt-tokio")]
 pub fn default_runtime() -> SharedRuntime {
     Arc::new(TokioRuntime)
 }
 
 /// For async without tokio, users must provide their own runtime.
-#[cfg(all(feature = "async", not(feature = "tokio")))]
+#[cfg(all(feature = "async", not(feature = "rt-tokio")))]
 pub fn default_runtime() -> Option<SharedRuntime> {
     None
 }
