@@ -823,7 +823,6 @@ where
     }
 }
 
-#[async_trait::async_trait]
 impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
     MenuControlOps for Camera<P, T>
 where

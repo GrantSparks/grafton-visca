@@ -264,9 +264,12 @@ pub fn block_on<F: Future>(fut: F) -> F::Output {
     }
 }
 
-/// Execute a future with a timeout.
+/// Execute a future with a timeout using a deadline-based polling loop.
 ///
-/// For blocking transports, this uses a simple deadline-based approach.
+/// This function polls the future repeatedly until it completes or the deadline is reached.
+/// For blocking transports (which return immediately-ready futures), this typically
+/// completes on the first poll. For truly async futures, it uses a polling loop with
+/// brief sleeps to avoid busy-waiting.
 pub fn timeout<F: Future>(duration: core::time::Duration, fut: F) -> Result<F::Output, Error> {
     use std::time::Instant;
 
@@ -275,15 +278,31 @@ pub fn timeout<F: Future>(duration: core::time::Duration, fut: F) -> Result<F::O
     let waker = noop_waker();
     let mut cx = Context::from_waker(&waker);
 
+    // First poll - for blocking transports this will complete immediately
+    match fut.as_mut().poll(&mut cx) {
+        Poll::Ready(val) => return Ok(val),
+        Poll::Pending => {
+            // Only enter the loop if the future is truly pending
+            if Instant::now() >= deadline {
+                return Err(Error::Timeout);
+            }
+        }
+    }
+
+    // Polling loop for async futures that are actually pending
     loop {
+        // Brief sleep to avoid busy-waiting
+        std::thread::sleep(std::time::Duration::from_millis(1));
+
+        // Check deadline before polling
+        if Instant::now() >= deadline {
+            return Err(Error::Timeout);
+        }
+
+        // Poll the future
         match fut.as_mut().poll(&mut cx) {
             Poll::Ready(val) => return Ok(val),
-            Poll::Pending => {
-                if Instant::now() >= deadline {
-                    return Err(Error::Timeout);
-                }
-                std::thread::sleep(std::time::Duration::from_millis(1));
-            }
+            Poll::Pending => continue,
         }
     }
 }

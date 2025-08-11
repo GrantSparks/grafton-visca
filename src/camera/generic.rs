@@ -13,6 +13,7 @@ use crate::{
     capabilities::Profile,
     command::{encode_visca::EncodeVisca, Response, ResponseType},
     error::Error,
+    timeout::TimeoutConfig,
     transport::{core::Transport, TransportEnvelope},
 };
 
@@ -58,6 +59,7 @@ where
     spawner: Option<Arc<dyn Spawner>>,
     #[cfg(feature = "async")]
     runtime: Option<Arc<dyn crate::runtime::Runtime>>,
+    timeout_config: TimeoutConfig,
     _profile: PhantomData<P>,
 }
 
@@ -80,6 +82,7 @@ where
             spawner: self.spawner.clone(),
             #[cfg(feature = "async")]
             runtime: self.runtime.clone(),
+            timeout_config: self.timeout_config,
             _profile: PhantomData,
         }
     }
@@ -129,6 +132,7 @@ where
             spawner: None,
             #[cfg(feature = "async")]
             runtime: None,
+            timeout_config: TimeoutConfig::default(),
             _profile: PhantomData,
         }
     }
@@ -292,6 +296,24 @@ where
             .convert_from_camera_coords(pan, tilt)
     }
 
+    /// Get the current timeout configuration.
+    #[must_use]
+    pub fn timeout_config(&self) -> &TimeoutConfig {
+        &self.timeout_config
+    }
+
+    /// Set a new timeout configuration.
+    pub fn set_timeout_config(&mut self, config: TimeoutConfig) {
+        self.timeout_config = config;
+    }
+
+    /// Create a new camera with a custom timeout configuration.
+    #[must_use]
+    pub fn with_timeout_config(mut self, config: TimeoutConfig) -> Self {
+        self.timeout_config = config;
+        self
+    }
+
     /// Send a command asynchronously and wait for response.
     #[cfg(feature = "async")]
     pub async fn send_command<C>(&self, command: &C) -> Result<Response, Error>
@@ -376,11 +398,12 @@ where
         match command.response_type() {
             None => {
                 // Action command - wait for ACK then Completion
-                let ack_response = self.wait_for_response(P::ACK_TIMEOUT).await?;
+                let timeout = self.timeout_config.get_timeout(command.timeout_kind());
+                let ack_response = self.wait_for_response(timeout).await?;
                 match ack_response {
                     Response::CmdAck => {
-                        // Wait for completion
-                        self.wait_for_response(P::COMPLETION_TIMEOUT).await
+                        // Wait for completion with the same timeout
+                        self.wait_for_response(timeout).await
                     }
                     Response::Completion => {
                         // Some cameras send completion directly
@@ -394,7 +417,7 @@ where
             }
             Some(response_type) => {
                 // Inquiry command - wait for specific response type
-                let timeout = P::COMPLETION_TIMEOUT;
+                let timeout = self.timeout_config.get_timeout(command.timeout_kind());
                 self.wait_for_response_with_type(response_type, timeout)
                     .await
             }
@@ -412,12 +435,8 @@ where
                     Response::parse(&visca_bytes)
                 }
                 Err(e) => {
-                    // Preserve the original error type
-                    if e.to_string().contains("Operation timed out") {
-                        Err(Error::Timeout)
-                    } else {
-                        Err(e)
-                    }
+                    // Map timeout errors consistently
+                    Err(e)
                 }
             }
         };
@@ -494,12 +513,8 @@ where
                         }
                     }
                     Err(e) => {
-                        // Preserve the original error type
-                        if e.to_string().contains("Operation timed out") {
-                            return Err(Error::Timeout);
-                        } else {
-                            return Err(e);
-                        }
+                        // Map timeout errors consistently
+                        return Err(e);
                     }
                 }
             }
@@ -688,11 +703,12 @@ where
         match command.response_type() {
             None => {
                 // Action command - wait for ACK then Completion
-                let ack_response = self.wait_for_response_blocking(P::ACK_TIMEOUT)?;
+                let timeout = self.timeout_config.get_timeout(command.timeout_kind());
+                let ack_response = self.wait_for_response_blocking(timeout)?;
                 match ack_response {
                     Response::CmdAck => {
-                        // Wait for completion
-                        self.wait_for_response_blocking(P::COMPLETION_TIMEOUT)
+                        // Wait for completion with the same timeout
+                        self.wait_for_response_blocking(timeout)
                     }
                     Response::Completion => {
                         // Some cameras send completion directly
@@ -706,7 +722,8 @@ where
             }
             Some(expected_type) => {
                 // Inquiry command - wait for specific response with type
-                self.wait_for_response_with_type_blocking(expected_type, P::COMPLETION_TIMEOUT)
+                let timeout = self.timeout_config.get_timeout(command.timeout_kind());
+                self.wait_for_response_with_type_blocking(expected_type, timeout)
             }
         }
     }
@@ -882,7 +899,7 @@ where
 
             // Start the socket manager actor with default timeout config
             let transport = Arc::clone(&self.transport);
-            let timeout_config = crate::timeout::TimeoutConfig::default();
+            let timeout_config = TimeoutConfig::default();
             let mut actor = crate::socket_manager::SocketManagerActor::new(
                 transport,
                 command_receiver,

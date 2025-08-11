@@ -811,7 +811,7 @@ impl crate::command::encode_visca::EncodeVisca for TallyGreenInquiry {
             .append(crate::command::const_encoding::constants::inquiry::TALLY_GREEN)
             .with_camera_id(camera_id)
             .terminate();
-        builder.copy_to(buffer)
+        builder.build_into(buffer)
     }
 
     fn response_type(&self) -> Option<crate::command::response::ResponseType> {

@@ -222,9 +222,11 @@ impl<P: Profile> CameraBuilder<TokioTcpMarker, P> {
         let addr = ensure_port::<P>(&self.addr, Protocol::Tcp);
         let transport = crate::transport::tokio::Tcp::connect(&addr).await?;
         let mut camera = Camera::from_transport(transport);
-        if let Some(runtime) = self.runtime {
-            camera = camera.with_runtime(runtime);
-        }
+
+        // Always set up runtime and initialize socket manager (actor) for async transports
+        let runtime = self.runtime.unwrap_or_else(crate::runtime::default_runtime);
+        camera = camera.with_runtime(runtime);
+
         Ok(camera)
     }
 }
@@ -243,9 +245,11 @@ impl<P: Profile> CameraBuilder<TokioUdpMarker, P> {
         let addr = ensure_port::<P>(&self.addr, Protocol::Udp);
         let transport = crate::transport::tokio::Udp::connect(&addr).await?;
         let mut camera = Camera::from_transport(transport);
-        if let Some(runtime) = self.runtime {
-            camera = camera.with_runtime(runtime);
-        }
+
+        // Always set up runtime and initialize socket manager (actor) for async transports
+        let runtime = self.runtime.unwrap_or_else(crate::runtime::default_runtime);
+        camera = camera.with_runtime(runtime);
+
         Ok(camera)
     }
 }
