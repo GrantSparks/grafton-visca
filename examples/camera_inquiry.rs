@@ -13,7 +13,7 @@
 //! - Blocking: cargo run --example camera_inquiry
 //! - Async: cargo run --example camera_inquiry --features tokio
 
-#[cfg(not(feature = "rt-tokio"))]
+#[cfg(not(feature = "async"))]
 fn main() -> grafton_visca::Result<()> {
     use grafton_visca::{camera::profiles::PTZOpticsG2, prelude::blocking::*, CameraBuilder};
 
@@ -260,4 +260,11 @@ async fn main() -> grafton_visca::Result<()> {
     println!("Note: Concurrent queries are much faster than sequential!");
 
     Ok(())
+}
+
+#[cfg(all(feature = "async", not(feature = "rt-tokio")))]
+fn main() {
+    println!("This example requires either blocking mode or tokio runtime:");
+    println!("  cargo run --example camera_inquiry --no-default-features");
+    println!("  cargo run --example camera_inquiry --features rt-tokio");
 }

@@ -16,11 +16,15 @@
 //! cargo run --example quickstart [camera_ip[:port]]
 //! ```
 
+#[cfg(not(feature = "async"))]
 use grafton_visca::prelude::blocking::*;
+#[cfg(not(feature = "async"))]
 use grafton_visca::{camera::profiles::PTZOpticsG2, CameraBuilder, Error, PanTiltDirection};
 
+#[cfg(not(feature = "async"))]
 use std::{env, thread::sleep, time::Duration};
 
+#[cfg(not(feature = "async"))]
 fn main() -> Result<(), Error> {
     env_logger::init();
 
@@ -294,4 +298,10 @@ fn main() -> Result<(), Error> {
     println!("  - Check other examples for specific features");
 
     Ok(())
+}
+
+#[cfg(feature = "async")]
+fn main() {
+    println!("This example requires blocking mode. Run without the async feature:");
+    println!("  cargo run --example quickstart --no-default-features");
 }
