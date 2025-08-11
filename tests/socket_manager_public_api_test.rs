@@ -274,7 +274,7 @@ mod tokio_tests {
         drop(camera);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_socket_manager_with_commands() {
         let transport = MockTransport::with_auto_respond();
         let handle = tokio::runtime::Handle::current();
@@ -291,9 +291,13 @@ mod tokio_tests {
         // Give the actor time to start
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        // Test sending commands through the public API
-        let result = camera.power_on().await;
-        assert!(result.is_ok(), "Power on command should succeed");
+        // Test sending commands through the public API with timeout
+        let result = tokio::time::timeout(Duration::from_secs(2), camera.power_on()).await;
+        assert!(
+            result.is_ok(),
+            "Power on command should complete within timeout"
+        );
+        assert!(result.unwrap().is_ok(), "Power on command should succeed");
 
         // Check that command was sent
         let sent_commands = transport.get_sent_commands();
@@ -302,21 +306,35 @@ mod tokio_tests {
             "Commands should be sent to transport"
         );
 
-        // Test other camera operations
-        let result = camera.preset_recall(PresetNumber::new(1).unwrap()).await;
-        assert!(result.is_ok(), "Recall preset should succeed");
+        // Test other camera operations with timeout
+        let result = tokio::time::timeout(
+            Duration::from_secs(2),
+            camera.preset_recall(PresetNumber::new(1).unwrap()),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "Preset recall should complete within timeout"
+        );
+        assert!(result.unwrap().is_ok(), "Recall preset should succeed");
 
-        let result = camera
-            .pan_tilt_move(
+        let result = tokio::time::timeout(
+            Duration::from_secs(2),
+            camera.pan_tilt_move(
                 PanTiltDirection::Up,
                 5.try_into().unwrap(),
                 5.try_into().unwrap(),
-            )
-            .await;
-        assert!(result.is_ok(), "Move direction should succeed");
+            ),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "Move direction should complete within timeout"
+        );
+        assert!(result.unwrap().is_ok(), "Move direction should succeed");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_concurrent_commands() {
         let transport = MockTransport::with_concurrent_response();
         let handle = tokio::runtime::Handle::current();
@@ -331,8 +349,17 @@ mod tokio_tests {
 
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        // Send multiple commands concurrently
-        let (r1, r2) = tokio::join!(camera.zoom_in(), camera.zoom_out(),);
+        // Send multiple commands concurrently with timeout
+        let result = tokio::time::timeout(Duration::from_secs(2), async {
+            tokio::join!(camera.zoom_in(), camera.zoom_out())
+        })
+        .await;
+
+        assert!(
+            result.is_ok(),
+            "Concurrent commands should complete within timeout"
+        );
+        let (r1, r2) = result.unwrap();
 
         // Print debug info to understand what's happening
         eprintln!("Result 1: {r1:?}");
@@ -351,7 +378,7 @@ mod tokio_tests {
         assert!(sent_commands.len() >= 2, "Both commands should be sent");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_command_without_socket_manager() {
         let transport = MockTransport::new();
         transport.add_response(Ok(Bytes::from(vec![0x90, 0x41, VISCA_TERMINATOR]))); // ACK
@@ -362,8 +389,12 @@ mod tokio_tests {
         let camera = r#async::Camera::new(inner_camera);
 
         // Don't initialize socket manager - commands should still work via direct transport
-        let result = camera.power_on().await;
-        assert!(result.is_ok(), "Command should work without socket manager");
+        let result = tokio::time::timeout(Duration::from_secs(2), camera.power_on()).await;
+        assert!(result.is_ok(), "Command should complete within timeout");
+        assert!(
+            result.unwrap().is_ok(),
+            "Command should work without socket manager"
+        );
 
         let sent_commands = transport.get_sent_commands();
         assert_eq!(sent_commands.len(), 1, "Command should be sent directly");
