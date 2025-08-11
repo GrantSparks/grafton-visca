@@ -858,6 +858,12 @@ where
         self
     }
 
+    /// Get the configured runtime for async operations, if any.
+    #[cfg(feature = "async")]
+    pub(crate) fn runtime(&self) -> Option<&crate::runtime::SharedRuntime> {
+        self.runtime.as_ref()
+    }
+
     /// Initialize the socket manager for this camera.
     pub fn initialize_socket_manager(&mut self) -> Result<(), Error> {
         #[cfg(feature = "async")]
@@ -874,15 +880,21 @@ where
             let handle = SocketManagerHandle::new(command_sender);
             self.socket_manager = Some(handle);
 
-            // Start the socket manager actor
+            // Start the socket manager actor with default timeout config
             let transport = Arc::clone(&self.transport);
-            let actor = crate::socket_manager::SocketManagerActor::new(
+            let timeout_config = crate::timeout::TimeoutConfig::default();
+            let mut actor = crate::socket_manager::SocketManagerActor::new(
                 transport,
                 command_receiver,
-                P::ACK_TIMEOUT,
-                P::COMPLETION_TIMEOUT,
+                timeout_config,
                 self.camera_id,
             );
+
+            // Pass runtime if available
+            #[cfg(feature = "async")]
+            if let Some(runtime) = &self.runtime {
+                actor = actor.with_runtime(runtime.clone());
+            }
 
             if let Some(spawner) = &self.spawner {
                 // Use the provided spawner

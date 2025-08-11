@@ -217,11 +217,25 @@ where
                 return Ok(());
             }
 
-            // Yield to scheduler
-            #[cfg(feature = "tokio")]
-            tokio::task::yield_now().await;
-            #[cfg(not(feature = "tokio"))]
-            std::thread::yield_now();
+            // Yield to scheduler using runtime abstraction or small delay
+            if let Some(runtime) = self.runtime() {
+                // Use runtime's sleep for a very short delay (1ms)
+                runtime.sleep(std::time::Duration::from_millis(1)).await;
+            } else {
+                // Fallback to tokio if available
+                #[cfg(feature = "tokio")]
+                if tokio::runtime::Handle::try_current().is_ok() {
+                    tokio::task::yield_now().await;
+                } else {
+                    // No runtime available, use a tiny async delay
+                    futures::future::ready(()).await;
+                }
+                #[cfg(not(feature = "tokio"))]
+                {
+                    // No runtime available, use a tiny async delay
+                    futures::future::ready(()).await;
+                }
+            }
         }
     }
 
@@ -234,11 +248,25 @@ where
         let pos1_zoom = self.get_zoom_position().await?;
         let pos1_focus = self.get_focus_position().await?;
 
-        // Yield to scheduler
-        #[cfg(feature = "tokio")]
-        tokio::task::yield_now().await;
-        #[cfg(not(feature = "tokio"))]
-        std::thread::yield_now();
+        // Yield to scheduler using runtime abstraction or small delay
+        if let Some(runtime) = self.runtime() {
+            // Use runtime's sleep for a very short delay (1ms)
+            runtime.sleep(std::time::Duration::from_millis(1)).await;
+        } else {
+            // Fallback to tokio if available
+            #[cfg(feature = "tokio")]
+            if tokio::runtime::Handle::try_current().is_ok() {
+                tokio::task::yield_now().await;
+            } else {
+                // No runtime available, use a tiny async delay
+                futures::future::ready(()).await;
+            }
+            #[cfg(not(feature = "tokio"))]
+            {
+                // No runtime available, use a tiny async delay
+                futures::future::ready(()).await;
+            }
+        }
 
         // Get second reading
         let pos2_pt = self.get_pan_tilt_position().await?;

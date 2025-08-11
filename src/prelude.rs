@@ -62,11 +62,11 @@
 /// ```
 #[cfg(feature = "async")]
 pub mod r#async {
-    pub use crate::camera::helpers::MovementOpsAsync;
+    pub use crate::camera::helpers::MovementOps;
     pub use crate::camera::methods::{
-        ColorOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps, MenuControlOps,
-        MotionSyncControl, NDFilterOps, PanTiltInquiryOps, PanTiltOps, PowerOps, PresetsOps,
-        StreamingOps, SystemOps, TallyOps, VariableSpeedOps, WhiteBalanceOps, ZoomOps,
+        ColorOps, ExposureCompensationOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps,
+        MenuControlOps, MotionSyncControl, NDFilterOps, PanTiltInquiryOps, PanTiltOps, PowerOps,
+        PresetsOps, StreamingOps, SystemOps, TallyOps, VariableSpeedOps, WhiteBalanceOps, ZoomOps,
     };
     pub use crate::camera::profiles::{
         GenericVisca, NearusBRC300, PTZOptics30X, PTZOpticsG2, PTZOpticsG3, SonyBRC300,
@@ -121,17 +121,18 @@ pub mod r#async {
 /// use grafton_visca::prelude::blocking::*;
 /// ```
 pub mod blocking {
-    pub use crate::camera::helpers::MovementOps;
+    pub use crate::camera::helpers::MovementOpsBlocking as MovementOps;
     pub use crate::camera::methods::{
-        ColorOpsBlocking as ColorOps, ExposureOpsBlocking as ExposureOps,
-        FocusOpsBlocking as FocusOps, ImageProcessingOpsBlocking as ImageProcessingOps,
-        InquiryOpsBlocking as InquiryOps, MenuControlOpsBlocking as MenuControlOps,
-        MotionSyncControlBlocking as MotionSyncControl, NDFilterOpsBlocking as NDFilterOps,
-        PanTiltInquiryOpsBlocking as PanTiltInquiryOps, PanTiltOpsBlocking as PanTiltOps,
-        PowerOpsBlocking as PowerOps, PresetsOpsBlocking as PresetsOps,
-        StreamingOpsBlocking as StreamingOps, SystemOpsBlocking as SystemOps,
-        TallyOpsBlocking as TallyOps, VariableSpeedOpsBlocking as VariableSpeedOps,
-        WhiteBalanceOpsBlocking as WhiteBalanceOps, ZoomOpsBlocking as ZoomOps,
+        ColorOpsBlocking as ColorOps, ExposureCompensationOpsBlocking as ExposureCompensationOps,
+        ExposureOpsBlocking as ExposureOps, FocusOpsBlocking as FocusOps,
+        ImageProcessingOpsBlocking as ImageProcessingOps, InquiryOpsBlocking as InquiryOps,
+        MenuControlOpsBlocking as MenuControlOps, MotionSyncControlBlocking as MotionSyncControl,
+        NDFilterOpsBlocking as NDFilterOps, PanTiltInquiryOpsBlocking as PanTiltInquiryOps,
+        PanTiltOpsBlocking as PanTiltOps, PowerOpsBlocking as PowerOps,
+        PresetsOpsBlocking as PresetsOps, StreamingOpsBlocking as StreamingOps,
+        SystemOpsBlocking as SystemOps, TallyOpsBlocking as TallyOps,
+        VariableSpeedOpsBlocking as VariableSpeedOps, WhiteBalanceOpsBlocking as WhiteBalanceOps,
+        ZoomOpsBlocking as ZoomOps,
     };
     pub use crate::camera::profiles::{
         GenericVisca, NearusBRC300, PTZOptics30X, PTZOpticsG2, PTZOpticsG3, SonyBRC300,
