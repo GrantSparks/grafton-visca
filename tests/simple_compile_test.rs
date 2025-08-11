@@ -5,8 +5,13 @@ use grafton_visca::{
     transport::Transport,
     Camera,
 };
-// Import type aliases from the blocking prelude
+
+// Import type aliases based on feature flags
+#[cfg(not(feature = "async"))]
 use grafton_visca::prelude::blocking::{GenericViscaCam, PTZOpticsG2Cam, SonyFR7Cam};
+
+#[cfg(feature = "async")]
+use grafton_visca::prelude::r#async::{GenericViscaCam, PTZOpticsG2Cam, SonyFR7Cam};
 
 #[test]
 fn test_compilation_succeeds() {
