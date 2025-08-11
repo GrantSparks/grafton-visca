@@ -251,7 +251,6 @@ impl<const N: usize> CommandBuilder<N, Incomplete> {
         buffer[..len].copy_from_slice(&self.buffer[..len]);
         Ok(len)
     }
-
 }
 
 // Methods available only in Terminated state
