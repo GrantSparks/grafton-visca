@@ -110,7 +110,7 @@ fn generate_struct_impl(
             // This is a simplified version - you'd need to handle struct fields
 
             let terminated = builder.with_camera_id(camera_id).terminate();
-            terminated.copy_to(buffer)
+            terminated.build_into(buffer)
         }
     } else {
         // Generate encoding based on struct fields
@@ -146,7 +146,7 @@ fn generate_struct_encoding(data_struct: &DataStruct) -> TokenStream {
                 // TODO: Generate encoding based on named fields
                 let builder = crate::command::const_encoding::CommandBuilder::<32>::new();
                 let terminated = builder.with_camera_id(camera_id).terminate();
-                terminated.copy_to(buffer)
+                terminated.build_into(buffer)
             }
         }
         Fields::Unnamed(_fields) => {
@@ -154,7 +154,7 @@ fn generate_struct_encoding(data_struct: &DataStruct) -> TokenStream {
                 // TODO: Generate encoding based on unnamed fields
                 let builder = crate::command::const_encoding::CommandBuilder::<32>::new();
                 let terminated = builder.with_camera_id(camera_id).terminate();
-                terminated.copy_to(buffer)
+                terminated.build_into(buffer)
             }
         }
         Fields::Unit => {
@@ -162,7 +162,7 @@ fn generate_struct_encoding(data_struct: &DataStruct) -> TokenStream {
                 // Unit struct - just use the prefix if available
                 let builder = crate::command::const_encoding::CommandBuilder::<32>::new();
                 let terminated = builder.with_camera_id(camera_id).terminate();
-                terminated.copy_to(buffer)
+                terminated.build_into(buffer)
             }
         }
     }
@@ -207,7 +207,7 @@ fn generate_enum_impl(_name: &Ident, data_enum: DataEnum, attrs: &ViscaAttribute
                             #(builder = builder.push(#byte_literals);)*
                             // Finally terminate
                             let terminated = builder.terminate();
-                            terminated.copy_to(buffer)
+                            terminated.build_into(buffer)
                         }
                     }
                 } else {

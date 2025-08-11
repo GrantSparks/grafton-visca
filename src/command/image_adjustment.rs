@@ -97,33 +97,25 @@ impl EncodeVisca for Sharpness {
                 let mut builder = CommandBuilder::<6>::new();
                 builder.append_mut(constants::image::SHARPNESS_MODE_PREFIX);
                 builder.push_mut(mode_byte);
-                builder.with_camera_id_mut(camera_id);
-                builder.finalize();
-                builder.copy_to(buffer)
+                builder.with_camera_id(camera_id).build_into(buffer)
             }
             Self::Reset => {
                 let mut builder = CommandBuilder::<6>::new();
                 builder.append_mut(constants::image::SHARPNESS_CONTROL_PREFIX);
                 builder.push_mut(0x00);
-                builder.with_camera_id_mut(camera_id);
-                builder.finalize();
-                builder.copy_to(buffer)
+                builder.with_camera_id(camera_id).build_into(buffer)
             }
             Self::Up => {
                 let mut builder = CommandBuilder::<6>::new();
                 builder.append_mut(constants::image::SHARPNESS_CONTROL_PREFIX);
                 builder.push_mut(0x02);
-                builder.with_camera_id_mut(camera_id);
-                builder.finalize();
-                builder.copy_to(buffer)
+                builder.with_camera_id(camera_id).build_into(buffer)
             }
             Self::Down => {
                 let mut builder = CommandBuilder::<6>::new();
                 builder.append_mut(constants::image::SHARPNESS_CONTROL_PREFIX);
                 builder.push_mut(0x03);
-                builder.with_camera_id_mut(camera_id);
-                builder.finalize();
-                builder.copy_to(buffer)
+                builder.with_camera_id(camera_id).build_into(buffer)
             }
             Self::SetLevel { value } => {
                 if *value > 11 {
@@ -136,9 +128,7 @@ impl EncodeVisca for Sharpness {
                 let mut builder = CommandBuilder::<9>::new();
                 builder.append_mut(constants::image::SHARPNESS_LEVEL_PREFIX);
                 builder.push_nibble_pair_mut(*value as u16);
-                builder.with_camera_id_mut(camera_id);
-                builder.finalize();
-                builder.copy_to(buffer)
+                builder.with_camera_id(camera_id).build_into(buffer)
             }
         }
     }

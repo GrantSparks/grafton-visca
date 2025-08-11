@@ -46,13 +46,10 @@ impl EncodeVisca for MotionSyncModeCommand {
             MotionSyncMode::Off => 0x03,
         };
 
-        let command = CommandBuilder::<6>::from_prefix(constants::motion_sync::MODE_PREFIX)
+        CommandBuilder::<6>::from_prefix(constants::motion_sync::MODE_PREFIX)
             .with_camera_id(camera_id)
             .push(mode_byte)
-            .build();
-
-        buffer[..6].copy_from_slice(&command);
-        Ok(6)
+            .build_into(buffer)
     }
 
     fn response_type(&self) -> Option<ResponseType> {
@@ -114,13 +111,10 @@ impl EncodeVisca for MotionSyncSpeedCommand {
         use crate::command::const_encoding::constants;
 
         // The VISCA protocol uses 0x01-0x18 for speeds 1-24
-        let command = CommandBuilder::<6>::from_prefix(constants::motion_sync::SPEED_PREFIX)
+        CommandBuilder::<6>::from_prefix(constants::motion_sync::SPEED_PREFIX)
             .with_camera_id(camera_id)
             .push(self.speed)
-            .build();
-
-        buffer[..6].copy_from_slice(&command);
-        Ok(6)
+            .build_into(buffer)
     }
 
     fn response_type(&self) -> Option<ResponseType> {

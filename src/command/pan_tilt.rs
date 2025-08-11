@@ -264,12 +264,12 @@ impl EncodeVisca for PanTilt {
             Self::Home => {
                 let mut builder = CommandBuilder::<6>::from_prefix(pan_tilt::HOME);
                 builder = builder.with_camera_id(camera_id);
-                builder.copy_to(buffer)
+                builder.build_into(buffer)
             }
             Self::Reset => {
                 let mut builder = CommandBuilder::<6>::from_prefix(pan_tilt::RESET);
                 builder = builder.with_camera_id(camera_id);
-                builder.copy_to(buffer)
+                builder.build_into(buffer)
             }
             Self::Move {
                 direction,
@@ -286,9 +286,7 @@ impl EncodeVisca for PanTilt {
                 builder.push_mut(tilt_speed.value());
                 builder.push_mut(pan_dir);
                 builder.push_mut(tilt_dir);
-                builder.finalize();
-
-                builder.copy_to(buffer)
+                builder.build_into(buffer)
             }
             Self::AbsolutePosition {
                 pan,
@@ -304,9 +302,7 @@ impl EncodeVisca for PanTilt {
                 builder.push_mut(tilt_speed.value());
                 builder.push_visca_u16_mut(pan.value() as u16);
                 builder.push_visca_u16_mut(tilt.value() as u16);
-                builder.finalize();
-
-                builder.copy_to(buffer)
+                builder.build_into(buffer)
             }
             Self::RelativePosition {
                 pan,
@@ -322,9 +318,7 @@ impl EncodeVisca for PanTilt {
                 builder.push_mut(tilt_speed.value());
                 builder.push_visca_u16_mut(pan.value() as u16);
                 builder.push_visca_u16_mut(tilt.value() as u16);
-                builder.finalize();
-
-                builder.copy_to(buffer)
+                builder.build_into(buffer)
             }
             Self::LimitSet { corner, pan, tilt } => {
                 // PT Limit Set: 81 01 06 07 00 0W PPPP TTTT FF
@@ -336,7 +330,7 @@ impl EncodeVisca for PanTilt {
                     .push_visca_u16(tilt.value() as u16)
                     .terminate();
 
-                builder.copy_to(buffer)
+                builder.build_into(buffer)
             }
             Self::LimitClear { corner } => {
                 // PT Limit Clear: 81 01 06 07 01 0W 07 0F 0F 0F 07 0F 0F 0F FF
@@ -354,7 +348,7 @@ impl EncodeVisca for PanTilt {
                     .push(0x0F)
                     .terminate();
 
-                builder.copy_to(buffer)
+                builder.build_into(buffer)
             }
         }
     }

@@ -60,31 +60,25 @@ impl EncodeVisca for Gain {
                     _ => unreachable!(),
                 };
 
-                let command = CommandBuilder::<6>::from_prefix(
+                CommandBuilder::<6>::from_prefix(
                     crate::command::const_encoding::constants::gain::CONTROL_PREFIX,
                 )
                 .with_camera_id(camera_id)
                 .push(control_byte)
-                .build();
-
-                buffer[..6].copy_from_slice(&command);
-                Ok(6)
+                .build_into(buffer)
             }
             Self::SetValue(level) => {
                 let value = level.value();
                 let high = (value >> 4) & 0x0F;
                 let low = value & 0x0F;
 
-                let command = CommandBuilder::<9>::from_prefix(
+                CommandBuilder::<9>::from_prefix(
                     crate::command::const_encoding::constants::gain::DIRECT_PREFIX,
                 )
                 .with_camera_id(camera_id)
                 .push(high)
                 .push(low)
-                .build();
-
-                buffer[..9].copy_from_slice(&command);
-                Ok(9)
+                .build_into(buffer)
             }
         }
     }

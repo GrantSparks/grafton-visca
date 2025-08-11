@@ -32,6 +32,9 @@ const fn str_bytes(s: &str) -> &[u8] {
 ///
 /// This macro generates a complete implementation of the `Command` trait
 /// for simple commands that don't require parameters.
+///
+/// The body of each variant should build and return a CommandBuilder.
+/// The macro will handle camera ID and termination.
 macro_rules! visca_command {
     (
         $(#[$meta:meta])*
@@ -39,7 +42,7 @@ macro_rules! visca_command {
         enum $name:ident {
             $(
                 $(#[$variant_meta:meta])*
-                $variant:ident $( ($($param:ident : $ptype:ty),*) )? => $body:tt
+                $variant:ident $( ($($param:ident : $ptype:ty),*) )? => $body:expr
             ),+ $(,)?
         }
     ) => {
@@ -59,39 +62,25 @@ macro_rules! visca_command {
                 $crate::macros::internal::str_to_command_category($category);
 
             fn encode_into(&self, camera_id: $crate::camera_id::CameraId, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
-                $(
-                    #[allow(non_snake_case)]
-                    fn $variant($($($param: &$ptype),*)?) -> Result<Vec<u8>, $crate::Error> {
-                        $body
-                    }
-                )+
+                use $crate::command::const_encoding::CommandBuilder;
 
-                let bytes = match self {
+                // Build the command directly without Vec allocation
+                match self {
                     $(
-                        Self::$variant$( ($($param),*) )? => $variant($($($param),*)?)?,
+                        Self::$variant$( ($($param),*) )? => {
+                            // Execute the body which should build a command
+                            let builder_result: Result<CommandBuilder<16, _>, $crate::Error> = {
+                                $body
+                            };
+
+                            let builder = builder_result?;
+
+                            // Apply camera ID and terminate
+                            let terminated = builder.with_camera_id(camera_id).terminate();
+                            terminated.build_into(buffer)
+                        },
                     )+
-                };
-
-                // Build command using CommandBuilder with type-state pattern
-                // Use a conservative size for the builder
-                let builder = $crate::command::const_encoding::CommandBuilder::<16>::new();
-
-                // Append all bytes except potentially the terminator
-                let has_terminator = bytes.last() == Some(&$crate::command::const_encoding::VISCA_TERMINATOR);
-                let bytes_to_add = if has_terminator {
-                    &bytes[..bytes.len() - 1]
-                } else {
-                    &bytes[..]
-                };
-
-                // Build command using type-state pattern
-                let mut builder = builder;
-                for byte in bytes_to_add {
-                    builder = builder.push(*byte);
                 }
-
-                let terminated = builder.with_camera_id(camera_id).terminate();
-                terminated.copy_to(buffer)
             }
 
             fn response_type(&self) -> Option<$crate::command::ResponseType> {
@@ -162,7 +151,7 @@ macro_rules! visca_bool_command {
                     .push(if self.enabled { $on } else { $off })
                     .with_camera_id(camera_id)
                     .terminate();
-                terminated.copy_to(buffer)
+                terminated.build_into(buffer)
             }
 
             fn response_type(&self) -> Option<$crate::command::ResponseType> {
@@ -228,7 +217,7 @@ macro_rules! visca_bool_command {
                     .push(if self.enabled { $on } else { $off })
                     .with_camera_id(camera_id)
                     .terminate();
-                terminated.copy_to(buffer)
+                terminated.build_into(buffer)
             }
 
             fn response_type(&self) -> Option<$crate::command::ResponseType> {
@@ -288,7 +277,7 @@ macro_rules! visca_builder {
                 };
 
                 let terminated = $builder.with_camera_id(camera_id).terminate();
-                terminated.copy_to(buffer)
+                terminated.build_into(buffer)
             }
 
             fn response_type(&self) -> Option<$crate::command::ResponseType> {
@@ -381,7 +370,7 @@ macro_rules! visca_param_command {
                     .push($param_expr)
                     .with_camera_id(camera_id)
                     .terminate();
-                terminated.copy_to(buffer)
+                terminated.build_into(buffer)
             }
 
             fn response_type(&self) -> Option<$crate::command::ResponseType> {
@@ -422,7 +411,7 @@ macro_rules! visca_param_command {
                     .push($param_expr)
                     .with_camera_id(camera_id)
                     .terminate();
-                terminated.copy_to(buffer)
+                terminated.build_into(buffer)
             }
 
             fn response_type(&self) -> Option<$crate::command::ResponseType> {
@@ -464,7 +453,7 @@ macro_rules! visca_param_command {
                     .push($param_expr)
                     .with_camera_id(camera_id)
                     .terminate();
-                terminated.copy_to(buffer)
+                terminated.build_into(buffer)
             }
 
             fn response_type(&self) -> Option<$crate::command::ResponseType> {
@@ -544,14 +533,14 @@ macro_rules! visca_const_command {
                     let mut builder = $crate::command::const_encoding::CommandBuilder::<16>::new();
                     builder.append_mut(BYTES);
                     builder.with_camera_id_mut(camera_id);
-                    builder.copy_to(buffer)
+                    builder.build_into(buffer)
                 } else {
                     // Use type-state pattern for proper termination
                     let terminated = $crate::command::const_encoding::CommandBuilder::<16>::new()
                         .append(BYTES)
                         .with_camera_id(camera_id)
                         .terminate();
-                    terminated.copy_to(buffer)
+                    terminated.build_into(buffer)
                 }
             }
 
