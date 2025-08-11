@@ -18,7 +18,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use grafton_visca::{prelude::blocking::*, CameraBuilder, Error};
+use grafton_visca::prelude::blocking::*;
+use grafton_visca::{CameraBuilder, Error};
 
 fn main() -> Result<(), Error> {
     env_logger::init();
