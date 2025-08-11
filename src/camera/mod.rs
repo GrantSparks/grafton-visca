@@ -31,6 +31,6 @@ pub use builder::{CameraBuilder, Protocol};
 pub use movement_probe::{MovementConfig, PanTiltPosition};
 
 // Re-export helper traits
-pub use helpers::MovementOps;
 #[cfg(feature = "async")]
-pub use helpers::MovementOpsAsync;
+pub use helpers::MovementOps;
+pub use helpers::MovementOpsBlocking;

@@ -38,9 +38,18 @@ where
         let response = self.send_command(&command).await?;
         match response {
             Response::Completion => {
-                // Wait for camera to be ready
-                // Note: Sleep is runtime-specific, so we just return immediately
-                // Users should handle delays at the application level
+                // Wait for camera to be ready using runtime if available
+                if let Some(runtime) = self.runtime() {
+                    runtime.sleep(self.power_on_time()).await;
+                } else {
+                    // Fallback to tokio if available
+                    #[cfg(feature = "tokio")]
+                    if tokio::runtime::Handle::try_current().is_ok() {
+                        tokio::time::sleep(self.power_on_time()).await;
+                    }
+                    // If no runtime available, just return immediately
+                    // Users will need to handle delays at the application level
+                }
                 Ok(())
             }
             Response::Error(e) => Err(e),
@@ -53,9 +62,18 @@ where
         let response = self.send_command(&command).await?;
         match response {
             Response::Completion => {
-                // Wait for standby/off
-                // Note: Sleep is runtime-specific, so we just return immediately
-                // Users should handle delays at the application level
+                // Wait for standby/off using runtime if available
+                if let Some(runtime) = self.runtime() {
+                    runtime.sleep(self.standby_time()).await;
+                } else {
+                    // Fallback to tokio if available
+                    #[cfg(feature = "tokio")]
+                    if tokio::runtime::Handle::try_current().is_ok() {
+                        tokio::time::sleep(self.standby_time()).await;
+                    }
+                    // If no runtime available, just return immediately
+                    // Users will need to handle delays at the application level
+                }
                 Ok(())
             }
             Response::Error(e) => Err(e),
