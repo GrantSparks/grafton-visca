@@ -62,7 +62,43 @@ impl Transport for Tcp {
     }
 }
 
-impl BlockingTransport for Tcp {}
+impl BlockingTransport for Tcp {
+    fn recv_blocking_with_timeout(&self, duration: Duration) -> Result<bytes::Bytes, Error> {
+        // Get the reader
+        let mut reader = self
+            .reader
+            .lock()
+            .map_err(|_| Error::LockPoisoned("reader"))?;
+
+        // Save the current timeout
+        let original_timeout = reader.get_ref().read_timeout()?;
+
+        // Set the new timeout for this operation
+        reader.get_mut().set_read_timeout(Some(duration))?;
+
+        // Perform the read operation
+        let mut buffer = Vec::with_capacity(64);
+        let result = reader.read_until(0xFF, &mut buffer);
+
+        // Restore the original timeout
+        reader.get_mut().set_read_timeout(original_timeout)?;
+
+        // Handle the result
+        match result {
+            Ok(0) => Err(Error::ConnectionLost {
+                reason: Cow::Borrowed("peer closed connection"),
+            }),
+            Ok(_) => Ok(bytes::Bytes::from(buffer)),
+            Err(e)
+                if e.kind() == std::io::ErrorKind::TimedOut
+                    || e.kind() == std::io::ErrorKind::WouldBlock =>
+            {
+                Err(Error::Timeout)
+            }
+            Err(e) => Err(e.into()),
+        }
+    }
+}
 
 fn send_impl(writer: &Mutex<TcpStream>, data: &[u8]) -> Result<(), Error> {
     let mut writer = writer.lock().map_err(|_| Error::LockPoisoned("writer"))?;

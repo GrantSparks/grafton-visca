@@ -43,7 +43,43 @@ impl Transport for Udp {
     }
 }
 
-impl BlockingTransport for Udp {}
+impl BlockingTransport for Udp {
+    fn recv_blocking_with_timeout(&self, duration: Duration) -> Result<bytes::Bytes, Error> {
+        // Get the socket
+        let socket = self
+            .socket
+            .lock()
+            .map_err(|_| Error::LockPoisoned("socket"))?;
+
+        // Save the current timeout
+        let original_timeout = socket.read_timeout()?;
+
+        // Set the new timeout for this operation
+        socket.set_read_timeout(Some(duration))?;
+
+        // Perform the receive operation
+        let mut buffer = vec![0u8; 1024];
+        let result = socket.recv(&mut buffer);
+
+        // Restore the original timeout
+        socket.set_read_timeout(original_timeout)?;
+
+        // Handle the result
+        match result {
+            Ok(n) => {
+                buffer.truncate(n);
+                Ok(bytes::Bytes::from(buffer))
+            }
+            Err(e)
+                if e.kind() == std::io::ErrorKind::TimedOut
+                    || e.kind() == std::io::ErrorKind::WouldBlock =>
+            {
+                Err(Error::Timeout)
+            }
+            Err(e) => Err(e.into()),
+        }
+    }
+}
 
 fn send_impl(socket: &Mutex<UdpSocket>, data: &[u8]) -> Result<(), Error> {
     let socket = socket.lock().map_err(|_| Error::LockPoisoned("socket"))?;

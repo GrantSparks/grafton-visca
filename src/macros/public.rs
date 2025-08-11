@@ -156,7 +156,7 @@ macro_rules! forward_facade {
     // Blocking variant with optional trait disambiguation
     ($wrapper:ident, blocking, $($trait_name:ident : $($method:ident $(@ $disambiguate_trait:ident)? $(($($param:ident : $ptype:ty),* $(,)?))? -> $ret:ty),+ ;)+) => {
         $(
-            impl<P: $crate::capabilities::Profile, T: $crate::transport::Transport + Send + Sync + 'static> $trait_name for $wrapper<P, T>
+            impl<P: $crate::capabilities::Profile, T: $crate::transport::Transport + Send + Sync + 'static + $crate::transport::core::BlockingTransport> $trait_name for $wrapper<P, T>
             where
                 T::Error: Into<$crate::Error> + Send,
                 for<'a> T::SendFut<'a>: Send,

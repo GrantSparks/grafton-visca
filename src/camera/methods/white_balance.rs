@@ -1,12 +1,8 @@
 //! White balance methods for cameras using the new GAT architecture.
 
 use crate::{
-    command::{
-        white_balance::{
-            AWBSensitivityCommand, AutoWhiteBalanceSensitivity, WhiteBalanceCommand,
-            WhiteBalanceMode,
-        },
-        Response,
+    command::white_balance::{
+        AWBSensitivityCommand, AutoWhiteBalanceSensitivity, WhiteBalanceCommand, WhiteBalanceMode,
     },
     Error,
 };
@@ -87,12 +83,7 @@ where
 {
     async fn set_white_balance_mode(&self, mode: WhiteBalanceMode) -> Result<(), Error> {
         let command = WhiteBalanceCommand { mode };
-        let response = self.send_command(&command).await?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command(&command).await
     }
 
     async fn white_balance_auto(&self) -> Result<(), Error> {
@@ -128,19 +119,20 @@ where
         sensitivity: AutoWhiteBalanceSensitivity,
     ) -> Result<(), Error> {
         let command = AWBSensitivityCommand { sensitivity };
-        let response = self.send_command(&command).await?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command(&command).await
     }
 }
 
 // Blocking implementation
 #[cfg(not(feature = "async"))]
-impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
-    WhiteBalanceOpsBlocking for crate::camera::generic::Camera<P, T>
+impl<
+        P: crate::capabilities::Profile,
+        T: crate::transport::Transport
+            + Send
+            + Sync
+            + 'static
+            + crate::transport::core::BlockingTransport,
+    > WhiteBalanceOpsBlocking for crate::camera::generic::Camera<P, T>
 where
     T::Error: Into<Error> + Send,
     for<'a> T::SendFut<'a>: Send,
@@ -148,12 +140,7 @@ where
 {
     fn set_white_balance_mode(&self, mode: WhiteBalanceMode) -> Result<(), Error> {
         let command = WhiteBalanceCommand { mode };
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command_blocking(&command)
     }
 
     fn white_balance_auto(&self) -> Result<(), Error> {
@@ -186,11 +173,6 @@ where
 
     fn set_awb_sensitivity(&self, sensitivity: AutoWhiteBalanceSensitivity) -> Result<(), Error> {
         let command = AWBSensitivityCommand { sensitivity };
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command_blocking(&command)
     }
 }

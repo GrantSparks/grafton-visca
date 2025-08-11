@@ -9,7 +9,7 @@ use std::borrow::Cow;
 use std::time::Duration;
 
 #[cfg(feature = "async")]
-use crate::executor::Sleep;
+use crate::runtime::SharedRuntime;
 
 /// VISCA protocol constants.
 // Removed duplicate - use from const_encoding module
@@ -27,7 +27,7 @@ const COMPLETION_TIMEOUT: Duration = Duration::from_secs(30);
 pub struct ViscaProtocol<T: Transport + Send + Sync> {
     transport: T,
     #[cfg(feature = "async")]
-    sleep_impl: Option<std::sync::Arc<dyn Sleep>>,
+    runtime: Option<SharedRuntime>,
 }
 
 impl<T: Transport + Send + Sync> std::fmt::Debug for ViscaProtocol<T> {
@@ -35,7 +35,7 @@ impl<T: Transport + Send + Sync> std::fmt::Debug for ViscaProtocol<T> {
         let mut debug = f.debug_struct("ViscaProtocol");
         debug.field("transport", &"<Transport>");
         #[cfg(feature = "async")]
-        debug.field("has_sleep_impl", &self.sleep_impl.is_some());
+        debug.field("has_runtime", &self.runtime.is_some());
         debug.finish()
     }
 }
@@ -46,16 +46,16 @@ impl<T: Transport + Send + Sync> ViscaProtocol<T> {
         Self {
             transport,
             #[cfg(feature = "async")]
-            sleep_impl: None,
+            runtime: None,
         }
     }
 
-    /// Create a new VISCA protocol handler with a specific Sleep implementation.
+    /// Create a new VISCA protocol handler with a specific Runtime.
     #[cfg(feature = "async")]
-    pub fn new_with_sleep(transport: T, sleep_impl: std::sync::Arc<dyn Sleep>) -> Self {
+    pub fn new_with_runtime(transport: T, runtime: SharedRuntime) -> Self {
         Self {
             transport,
-            sleep_impl: Some(sleep_impl),
+            runtime: Some(runtime),
         }
     }
 
@@ -76,8 +76,8 @@ impl<T: Transport + Send + Sync> ViscaProtocol<T> {
         let size = command.encode_into(crate::camera_id::CameraId::CAMERA_1, &mut buffer)?;
         let cmd_bytes = &buffer[..size];
 
-        // Debug assertion to ensure commands have proper terminator
-        debug_assert!(
+        // Validate commands have proper terminator (critical safety invariant)
+        assert!(
             size == 0 || cmd_bytes[size - 1] == crate::command::const_encoding::VISCA_TERMINATOR,
             "VISCA command missing 0xFF terminator. Command bytes: {:02X?}",
             cmd_bytes
@@ -153,19 +153,19 @@ impl<T: Transport + Send + Sync> ViscaProtocol<T> {
     async fn recv_with_timeout(&self, duration: Duration) -> Result<bytes::Bytes, Error> {
         #[cfg(feature = "async")]
         {
-            if let Some(sleep_impl) = &self.sleep_impl {
-                // Use the provided Sleep implementation
-                crate::executor::timeout_with_sleep(
-                    sleep_impl.as_ref(),
+            if let Some(runtime) = &self.runtime {
+                // Use the provided Runtime for timeout
+                crate::runtime::timeout_with_runtime(
+                    runtime.as_ref(),
                     duration,
                     self.transport.recv(),
                 )
                 .await?
                 .map_err(Into::into)
             } else {
-                // Without a Sleep impl, return an error indicating runtime is required
+                // Without a runtime, return an error indicating runtime is required
                 Err(Error::InvalidState(
-                    "No runtime configured for timeout operations. Please provide a Sleep implementation when creating ViscaProtocol.".into()
+                    "No runtime configured for timeout operations. Please provide a Runtime when creating ViscaProtocol.".into()
                 ))
             }
         }

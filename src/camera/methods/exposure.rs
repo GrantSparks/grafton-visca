@@ -503,8 +503,14 @@ where
 
 // Blocking implementation
 #[cfg(not(feature = "async"))]
-impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
-    ExposureOpsBlocking for crate::camera::generic::Camera<P, T>
+impl<
+        P: crate::capabilities::Profile,
+        T: crate::transport::Transport
+            + Send
+            + Sync
+            + 'static
+            + crate::transport::core::BlockingTransport,
+    > ExposureOpsBlocking for crate::camera::generic::Camera<P, T>
 where
     T::Error: Into<Error> + Send,
     for<'a> T::SendFut<'a>: Send,
@@ -797,7 +803,11 @@ where
     P: crate::capabilities::Profile
         + crate::capabilities::Exposure
         + crate::capabilities::HasExposureCompensation,
-    T: crate::transport::Transport + Send + Sync + 'static,
+    T: crate::transport::Transport
+        + Send
+        + Sync
+        + 'static
+        + crate::transport::core::BlockingTransport,
     T::Error: Into<Error> + Send,
     for<'a> T::SendFut<'a>: Send,
     for<'a> T::RecvFut<'a>: Send,

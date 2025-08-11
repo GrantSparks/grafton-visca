@@ -19,7 +19,7 @@ use crate::{
 impl<P, T> Camera<P, T>
 where
     P: Profile + NDFilter,
-    T: Transport + Send + Sync + 'static,
+    T: Transport + Send + Sync + 'static + crate::transport::core::BlockingTransport,
     T::Error: Into<Error> + Send,
     for<'a> T::SendFut<'a>: Send,
     for<'a> T::RecvFut<'a>: Send,
@@ -59,7 +59,7 @@ where
 impl<P, T> Camera<P, T>
 where
     P: Profile + MotionSync,
-    T: Transport + Send + Sync + 'static,
+    T: Transport + Send + Sync + 'static + crate::transport::core::BlockingTransport,
     T::Error: Into<Error> + Send,
     for<'a> T::SendFut<'a>: Send,
     for<'a> T::RecvFut<'a>: Send,

@@ -2,10 +2,7 @@
 
 use crate::{
     capabilities::ValidationError,
-    command::{
-        preset::{PresetAction, PresetCommand, PresetNumber},
-        Response,
-    },
+    command::preset::{PresetAction, PresetCommand, PresetNumber},
     Error,
 };
 use std::borrow::Cow;
@@ -62,12 +59,7 @@ where
             action: PresetAction::Recall,
             preset_number: preset,
         };
-        let response = self.send_command(&command).await?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command(&command).await
     }
 
     async fn preset_set(&self, preset: PresetNumber) -> Result<(), Error> {
@@ -87,12 +79,7 @@ where
             action: PresetAction::Set,
             preset_number: preset,
         };
-        let response = self.send_command(&command).await?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command(&command).await
     }
 
     async fn preset_reset(&self, preset: PresetNumber) -> Result<(), Error> {
@@ -112,19 +99,20 @@ where
             action: PresetAction::Reset,
             preset_number: preset,
         };
-        let response = self.send_command(&command).await?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command(&command).await
     }
 }
 
 // Blocking implementation
 #[cfg(not(feature = "async"))]
-impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
-    PresetsOpsBlocking for crate::camera::generic::Camera<P, T>
+impl<
+        P: crate::capabilities::Profile,
+        T: crate::transport::Transport
+            + Send
+            + Sync
+            + 'static
+            + crate::transport::core::BlockingTransport,
+    > PresetsOpsBlocking for crate::camera::generic::Camera<P, T>
 where
     T::Error: Into<Error> + Send,
     for<'a> T::SendFut<'a>: Send,
@@ -147,12 +135,7 @@ where
             action: PresetAction::Recall,
             preset_number: preset,
         };
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command_blocking(&command)
     }
 
     fn preset_set(&self, preset: PresetNumber) -> Result<(), Error> {
@@ -172,12 +155,7 @@ where
             action: PresetAction::Set,
             preset_number: preset,
         };
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command_blocking(&command)
     }
 
     fn preset_reset(&self, preset: PresetNumber) -> Result<(), Error> {
@@ -197,11 +175,6 @@ where
             action: PresetAction::Reset,
             preset_number: preset,
         };
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command_blocking(&command)
     }
 }
