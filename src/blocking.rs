@@ -334,12 +334,10 @@ where
         control1: u8,
         control2: u8,
     ) -> crate::Result<crate::command::Response> {
-        use crate::camera::methods::DirectMenuControlOpsBlocking as _;
         self.0.direct_menu_control(control1, control2)
     }
 
     fn toggle_menu(&self) -> crate::Result<crate::command::Response> {
-        use crate::camera::methods::DirectMenuControlOpsBlocking as _;
         self.0.toggle_menu()
     }
 }
