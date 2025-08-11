@@ -30,11 +30,10 @@
 //! # Blocking Usage
 //!
 //! ```no_run
-//! use grafton_visca::prelude::blocking::*;
-//!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # #[cfg(not(feature = "async"))]
 //! # {
+//! use grafton_visca::prelude::blocking::*;
 //! use grafton_visca::transport::blocking::Tcp;
 //!
 //! let transport = Tcp::connect("192.168.0.110:52381")?;
