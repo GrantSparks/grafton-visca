@@ -1793,14 +1793,18 @@ where
                 let ack_bytes = self
                     .transport
                     .recv_blocking_with_timeout(self.timeout_config.ack_timeout)?;
-                let ack = Response::parse(&ack_bytes)?;
+                // Extract VISCA payload from envelope if needed
+                let visca_bytes = self.envelope.extract_response(&ack_bytes)?;
+                let ack = Response::parse(&visca_bytes)?;
 
                 match ack {
                     Response::CmdAck => {
                         // ACK received, now wait for completion
                         let completion_bytes =
                             self.transport.recv_blocking_with_timeout(command_timeout)?;
-                        Response::parse(&completion_bytes)
+                        // Extract VISCA payload from envelope if needed
+                        let visca_bytes = self.envelope.extract_response(&completion_bytes)?;
+                        Response::parse(&visca_bytes)
                     }
                     Response::Completion => {
                         // Some cameras send completion directly without ACK
@@ -1819,7 +1823,9 @@ where
             Some(_response_type) => {
                 // Inquiry command - wait for specific response
                 let response_bytes = self.transport.recv_blocking_with_timeout(command_timeout)?;
-                let response = Response::parse(&response_bytes)?;
+                // Extract VISCA payload from envelope if needed
+                let visca_bytes = self.envelope.extract_response(&response_bytes)?;
+                let response = Response::parse(&visca_bytes)?;
 
                 // Verify we got the expected response type
                 // For now, just return the response
