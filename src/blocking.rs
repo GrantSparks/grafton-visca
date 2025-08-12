@@ -138,9 +138,9 @@ forward_facade!(Camera, blocking,
         get_motion_sync_mode() -> crate::Result<crate::MotionSyncMode>,
         get_motion_sync_speed() -> crate::Result<crate::MotionSyncSpeed>;
     MenuControl:
-        set_menu_display(display: bool) -> crate::Result<crate::command::Response>,
-        menu_navigate(direction: crate::command::MenuDirection) -> crate::Result<crate::command::Response>,
-        menu_action(action: crate::command::MenuAction) -> crate::Result<crate::command::Response>;
+        set_menu_display(display: bool) -> crate::Result<()>,
+        menu_navigate(direction: crate::command::MenuDirection) -> crate::Result<()>,
+        menu_action(action: crate::command::MenuAction) -> crate::Result<()>;
     PanTiltOps:
         pan_tilt_stop() -> crate::Result<()>,
         pan_tilt_home() -> crate::Result<()>,
@@ -329,15 +329,11 @@ where
     for<'a> T::SendFut<'a>: Send,
     for<'a> T::RecvFut<'a>: Send,
 {
-    fn direct_menu_control(
-        &self,
-        control1: u8,
-        control2: u8,
-    ) -> crate::Result<crate::command::Response> {
+    fn direct_menu_control(&self, control1: u8, control2: u8) -> crate::Result<()> {
         self.0.direct_menu_control(control1, control2)
     }
 
-    fn toggle_menu(&self) -> crate::Result<crate::command::Response> {
+    fn toggle_menu(&self) -> crate::Result<()> {
         self.0.toggle_menu()
     }
 }

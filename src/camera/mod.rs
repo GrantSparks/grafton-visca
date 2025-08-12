@@ -9,8 +9,8 @@
 //! - etc.
 
 pub mod builder;
+pub mod capability_introspection;
 pub mod generic;
-pub mod generic_methods;
 pub mod generic_state;
 pub mod helpers;
 pub mod methods;
