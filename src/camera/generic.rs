@@ -347,6 +347,12 @@ where
         self
     }
 
+    /// Get the runtime if configured.
+    #[cfg(feature = "async")]
+    pub(crate) fn runtime(&self) -> Option<&crate::runtime::SharedRuntime> {
+        self.runtime.as_ref()
+    }
+
     /// Initialize the socket manager for this camera.
     pub fn initialize_socket_manager(&mut self) -> Result<(), Error> {
         if self.socket_manager.is_some() {
@@ -368,14 +374,7 @@ where
         let runtime = if let Some(ref runtime) = self.runtime {
             Arc::clone(runtime)
         } else {
-            #[cfg(feature = "rt-tokio")]
-            {
-                crate::runtime::default_runtime()
-            }
-            #[cfg(all(feature = "async", not(feature = "rt-tokio")))]
-            {
-                crate::runtime::default_runtime()?
-            }
+            return Err(Error::MissingRuntime);
         };
 
         let actor = crate::socket_manager::SocketManagerActor::new(
@@ -531,14 +530,7 @@ where
         let runtime = if let Some(ref runtime) = self.runtime {
             Arc::clone(runtime)
         } else {
-            #[cfg(feature = "rt-tokio")]
-            {
-                crate::runtime::default_runtime()
-            }
-            #[cfg(not(feature = "rt-tokio"))]
-            {
-                crate::runtime::default_runtime()?
-            }
+            return Err(Error::MissingRuntime);
         };
 
         crate::runtime::timeout_with_runtime(runtime.as_ref(), timeout_duration, recv_fut).await?
@@ -595,14 +587,7 @@ where
         let runtime = if let Some(ref runtime) = self.runtime {
             Arc::clone(runtime)
         } else {
-            #[cfg(feature = "rt-tokio")]
-            {
-                crate::runtime::default_runtime()
-            }
-            #[cfg(not(feature = "rt-tokio"))]
-            {
-                crate::runtime::default_runtime()?
-            }
+            return Err(Error::MissingRuntime);
         };
 
         crate::runtime::timeout_with_runtime(runtime.as_ref(), timeout_duration, recv_loop).await?
@@ -626,18 +611,7 @@ where
             let wait_fut = socket_manager.wait_for_completion();
 
             // Try to get runtime for timeout
-            let runtime = if let Some(ref runtime) = self.runtime {
-                Some(Arc::clone(runtime))
-            } else {
-                #[cfg(feature = "rt-tokio")]
-                {
-                    Some(crate::runtime::default_runtime())
-                }
-                #[cfg(not(feature = "rt-tokio"))]
-                {
-                    crate::runtime::default_runtime().ok()
-                }
-            };
+            let runtime = self.runtime.as_ref().map(Arc::clone);
 
             if let Some(runtime) = runtime.as_ref() {
                 match crate::runtime::timeout_with_runtime(runtime.as_ref(), timeout, wait_fut)
@@ -737,25 +711,12 @@ where
         self.send_action_command(&command).await?;
         // Wait for camera to be ready
         let runtime = if let Some(ref runtime) = self.runtime {
-            Some(Arc::clone(runtime))
+            Arc::clone(runtime)
         } else {
-            #[cfg(feature = "rt-tokio")]
-            {
-                Some(crate::runtime::default_runtime())
-            }
-            #[cfg(not(feature = "rt-tokio"))]
-            {
-                crate::runtime::default_runtime().ok()
-            }
+            return Err(Error::MissingRuntime);
         };
 
-        if let Some(runtime) = runtime.as_ref() {
-            runtime.sleep(P::POWER_ON_TIME).await;
-        } else {
-            // Without runtime, use tokio directly if available
-            #[cfg(feature = "rt-tokio")]
-            tokio::time::sleep(P::POWER_ON_TIME).await;
-        }
+        runtime.sleep(P::POWER_ON_TIME).await;
         Ok(())
     }
 
@@ -766,25 +727,12 @@ where
         self.send_action_command(&command).await?;
         // Wait for standby/off
         let runtime = if let Some(ref runtime) = self.runtime {
-            Some(Arc::clone(runtime))
+            Arc::clone(runtime)
         } else {
-            #[cfg(feature = "rt-tokio")]
-            {
-                Some(crate::runtime::default_runtime())
-            }
-            #[cfg(not(feature = "rt-tokio"))]
-            {
-                crate::runtime::default_runtime().ok()
-            }
+            return Err(Error::MissingRuntime);
         };
 
-        if let Some(runtime) = runtime.as_ref() {
-            runtime.sleep(P::STANDBY_TIME).await;
-        } else {
-            // Without runtime, use tokio directly if available
-            #[cfg(feature = "rt-tokio")]
-            tokio::time::sleep(P::STANDBY_TIME).await;
-        }
+        runtime.sleep(P::STANDBY_TIME).await;
         Ok(())
     }
 

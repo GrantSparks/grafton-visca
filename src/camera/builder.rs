@@ -192,6 +192,9 @@ impl<P: Profile> CameraBuilder<BlockingUdpMarker, P> {
 impl<P: Profile> CameraBuilder<TokioTcpMarker, P> {
     /// Build the camera with async TCP transport.
     ///
+    /// Note: For async cameras, you must call `.with_runtime()` on the returned camera
+    /// to provide an async runtime before performing operations.
+    ///
     /// # Errors
     ///
     /// Returns an error if:
@@ -202,15 +205,7 @@ impl<P: Profile> CameraBuilder<TokioTcpMarker, P> {
     ) -> Result<crate::camera::CameraAsync<P, crate::transport::tokio::Tcp>, Error> {
         let addr = ensure_port::<P>(&self.addr, Protocol::Tcp);
         let transport = crate::transport::tokio::Tcp::connect(&addr).await?;
-        let mut camera = crate::camera::CameraAsync::from_transport(transport);
-
-        // Always set up runtime and initialize socket manager (actor) for async transports
-        #[cfg(feature = "rt-tokio")]
-        let runtime = crate::runtime::default_runtime();
-        #[cfg(not(feature = "rt-tokio"))]
-        let runtime = crate::runtime::default_runtime()?;
-        camera = camera.with_runtime(runtime);
-
+        let camera = crate::camera::CameraAsync::from_transport(transport);
         Ok(camera)
     }
 }
@@ -219,6 +214,9 @@ impl<P: Profile> CameraBuilder<TokioTcpMarker, P> {
 #[cfg(feature = "rt-tokio")]
 impl<P: Profile> CameraBuilder<TokioUdpMarker, P> {
     /// Build the camera with async UDP transport.
+    ///
+    /// Note: For async cameras, you must call `.with_runtime()` on the returned camera
+    /// to provide an async runtime before performing operations.
     ///
     /// # Errors
     ///
@@ -230,15 +228,7 @@ impl<P: Profile> CameraBuilder<TokioUdpMarker, P> {
     ) -> Result<crate::camera::CameraAsync<P, crate::transport::tokio::Udp>, Error> {
         let addr = ensure_port::<P>(&self.addr, Protocol::Udp);
         let transport = crate::transport::tokio::Udp::connect(&addr).await?;
-        let mut camera = crate::camera::CameraAsync::from_transport(transport);
-
-        // Always set up runtime and initialize socket manager (actor) for async transports
-        #[cfg(feature = "rt-tokio")]
-        let runtime = crate::runtime::default_runtime();
-        #[cfg(not(feature = "rt-tokio"))]
-        let runtime = crate::runtime::default_runtime()?;
-        camera = camera.with_runtime(runtime);
-
+        let camera = crate::camera::CameraAsync::from_transport(transport);
         Ok(camera)
     }
 }

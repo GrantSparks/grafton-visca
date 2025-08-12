@@ -3,7 +3,8 @@
 use std::time::Duration;
 
 use crate::{
-    camera::generic::Camera, capabilities::Profile, types::SpeedLevel, units::Normalized, Result,
+    camera::generic::Camera, capabilities::Profile, types::SpeedLevel, units::Normalized, Error,
+    Result,
 };
 
 /// Camera state for saving and restoring position
@@ -86,10 +87,11 @@ where
     #[cfg(feature = "async")]
     pub async fn save_state_async(&self) -> Result<CameraState> {
         // Use runtime for sleep
-        #[cfg(feature = "rt-tokio")]
-        let runtime = crate::runtime::default_runtime();
-        #[cfg(not(feature = "rt-tokio"))]
-        let runtime = crate::runtime::default_runtime()?;
+        let runtime = if let Some(runtime) = self.runtime() {
+            std::sync::Arc::clone(runtime)
+        } else {
+            return Err(Error::MissingRuntime);
+        };
 
         runtime.sleep(Duration::from_millis(500)).await;
 
