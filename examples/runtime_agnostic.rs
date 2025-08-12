@@ -45,7 +45,7 @@ fn main() {
     impl Spawner for CustomSpawner {
         fn spawn(&self, task: SpawnableFuture) {
             // In a real implementation, this would spawn on your runtime
-            let _ = task;
+            drop(task);
         }
     }
 
