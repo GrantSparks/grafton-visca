@@ -18,7 +18,10 @@
 
 #[cfg(feature = "rt-tokio")]
 use grafton_visca::{
-    camera::profiles::PTZOpticsG2, prelude::r#async::*, CameraBuilder, Error, PanTiltDirection,
+    camera::profiles::PTZOpticsG2,
+    prelude::r#async::*,
+    types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed},
+    CameraBuilder, Error, PanTiltDirection,
 };
 
 #[cfg(feature = "rt-tokio")]
@@ -83,13 +86,13 @@ async fn main() -> Result<(), Error> {
     // Demonstrate zoom control
     println!("Testing zoom...");
     println!("  Zooming in briefly...");
-    camera.zoom_in().await?;
+    camera.zoom_tele_std().await?;
     sleep(Duration::from_millis(100)).await;
     camera.zoom_stop().await?;
     camera.await_zoom_idle(Duration::from_secs(5)).await?;
 
     println!("  Zooming out briefly...");
-    camera.zoom_out().await?;
+    camera.zoom_wide_std().await?;
     sleep(Duration::from_millis(100)).await;
     camera.zoom_stop().await?;
     camera.await_zoom_idle(Duration::from_secs(5)).await?;
@@ -125,7 +128,12 @@ async fn main() -> Result<(), Error> {
     // Absolute positioning with custom movement detection
     println!("Moving to absolute position (45°, 15°) with custom detection...");
     camera
-        .pan_tilt_absolute(Degrees(45.0), Degrees(15.0), SpeedLevel::Fast)
+        .pan_tilt_absolute(
+            PanPosition::from_degrees(45.0)?,
+            TiltPosition::from_degrees(15.0)?,
+            PanSpeed::new(18)?,
+            TiltSpeed::new(18)?,
+        )
         .await?;
 
     let custom_config = MovementConfig {
@@ -138,7 +146,12 @@ async fn main() -> Result<(), Error> {
     // Relative movement with simplified API
     println!("Moving relative (+10°, +5°)...");
     camera
-        .pan_tilt_relative(Degrees(10.0), Degrees(5.0), SpeedLevel::Medium)
+        .pan_tilt_relative(
+            PanPosition::from_degrees(10.0)?,
+            TiltPosition::from_degrees(5.0)?,
+            PanSpeed::new(12)?,
+            TiltSpeed::new(12)?,
+        )
         .await?;
     camera.await_pan_tilt_idle(Duration::from_secs(30)).await?;
     println!("✓ Relative movement complete");
@@ -160,7 +173,12 @@ async fn main() -> Result<(), Error> {
 
     println!("Initiating multiple movements...");
     camera
-        .pan_tilt_absolute(Degrees(0.0), Degrees(0.0), SpeedLevel::Fast)
+        .pan_tilt_absolute(
+            PanPosition::from_degrees(0.0)?,
+            TiltPosition::from_degrees(0.0)?,
+            PanSpeed::new(18)?,
+            TiltSpeed::new(18)?,
+        )
         .await?;
     camera.zoom_absolute(Normalized(0.3)).await?;
 
@@ -172,7 +190,12 @@ async fn main() -> Result<(), Error> {
     use tokio::join;
 
     // Start multiple movements simultaneously
-    let pan_tilt = camera.pan_tilt_absolute(Degrees(20.0), Degrees(-5.0), SpeedLevel::Medium);
+    let pan_tilt = camera.pan_tilt_absolute(
+        PanPosition::from_degrees(20.0)?,
+        TiltPosition::from_degrees(-5.0)?,
+        PanSpeed::new(12)?,
+        TiltSpeed::new(12)?,
+    );
     let zoom = camera.zoom_absolute(Normalized(0.6));
 
     // Execute them concurrently
@@ -194,12 +217,12 @@ async fn main() -> Result<(), Error> {
 
     println!("Testing manual focus...");
     camera.focus_manual().await?;
-    camera.focus_near(SpeedLevel::Medium).await?;
+    camera.focus_near().await?;
     sleep(Duration::from_millis(100)).await;
     camera.focus_stop().await?;
     camera.await_focus_idle(Duration::from_secs(5)).await?;
 
-    camera.focus_far(SpeedLevel::Medium).await?;
+    camera.focus_far().await?;
     sleep(Duration::from_millis(100)).await;
     camera.focus_stop().await?;
     camera.await_focus_idle(Duration::from_secs(5)).await?;
@@ -280,7 +303,12 @@ async fn main() -> Result<(), Error> {
 
     // Preset 1: Wide overview
     camera
-        .pan_tilt_absolute(Degrees(0.0), Degrees(0.0), SpeedLevel::Medium)
+        .pan_tilt_absolute(
+            PanPosition::from_degrees(0.0)?,
+            TiltPosition::from_degrees(0.0)?,
+            PanSpeed::new(12)?,
+            TiltSpeed::new(12)?,
+        )
         .await?;
     camera.zoom_absolute(Normalized(0.0)).await?;
     camera.await_idle(Duration::from_secs(5)).await?;
@@ -289,7 +317,12 @@ async fn main() -> Result<(), Error> {
 
     // Preset 2: Right view
     camera
-        .pan_tilt_absolute(Degrees(45.0), Degrees(-10.0), SpeedLevel::Medium)
+        .pan_tilt_absolute(
+            PanPosition::from_degrees(45.0)?,
+            TiltPosition::from_degrees(-10.0)?,
+            PanSpeed::new(12)?,
+            TiltSpeed::new(12)?,
+        )
         .await?;
     camera.zoom_absolute(Normalized(0.3)).await?;
     camera.await_idle(Duration::from_secs(5)).await?;
@@ -298,7 +331,12 @@ async fn main() -> Result<(), Error> {
 
     // Preset 3: Left view
     camera
-        .pan_tilt_absolute(Degrees(-45.0), Degrees(-10.0), SpeedLevel::Medium)
+        .pan_tilt_absolute(
+            PanPosition::from_degrees(-45.0)?,
+            TiltPosition::from_degrees(-10.0)?,
+            PanSpeed::new(12)?,
+            TiltSpeed::new(12)?,
+        )
         .await?;
     camera.zoom_absolute(Normalized(0.3)).await?;
     camera.await_idle(Duration::from_secs(5)).await?;
@@ -363,7 +401,12 @@ async fn main() -> Result<(), Error> {
 
     match (&initial_position, &initial_zoom) {
         (Ok((pan, tilt)), Ok(zoom)) => {
-            let pan_tilt_future = camera.pan_tilt_absolute(*pan, *tilt, SpeedLevel::Fast);
+            let pan_tilt_future = camera.pan_tilt_absolute(
+                PanPosition::from_degrees(pan.0)?,
+                TiltPosition::from_degrees(tilt.0)?,
+                PanSpeed::new(18)?,
+                TiltSpeed::new(18)?,
+            );
             let zoom_future = camera.zoom_absolute(Normalized((*zoom as f32) / 16384.0));
 
             tokio::try_join!(pan_tilt_future, zoom_future)?;

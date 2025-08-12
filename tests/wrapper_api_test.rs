@@ -20,7 +20,7 @@ fn test_blocking_wrapper_api() {
         camera.zoom_stop()?;
         camera.zoom_tele_std()?;
         camera.zoom_wide_std()?;
-        camera.zoom_position(grafton_visca::units::Normalized(0.5))?;
+        camera.zoom_absolute(grafton_visca::units::Normalized(0.5))?;
         Ok(())
     }
 
@@ -58,7 +58,11 @@ fn test_wrapper_creation() {
     // This would normally use a real transport
     // Here we just test the type system compiles
     use grafton_visca::camera::profiles::PTZOpticsG2;
-    use grafton_visca::camera::{AsyncMode, Camera};
+    #[cfg(feature = "async")]
+    use grafton_visca::camera::AsyncMode;
+    #[cfg(not(feature = "async"))]
+    use grafton_visca::camera::BlockingMode;
+    use grafton_visca::camera::Camera;
     use grafton_visca::capabilities::Profile;
     #[cfg(feature = "async")]
     use grafton_visca::transport::AsyncTransport;

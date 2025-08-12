@@ -3,11 +3,14 @@
 //! In the mode-based Camera API, feature support is determined at compile-time
 //! through trait bounds and mode markers rather than runtime checks.
 
+#[cfg(feature = "async")]
+use grafton_visca::{camera::AsyncMode, transport::async_transport::AsyncTransport};
+#[cfg(not(feature = "async"))]
+use grafton_visca::{camera::BlockingMode, transport::BlockingTransport};
 use grafton_visca::{
-    camera::{AsyncMode, BlockingMode, Camera},
+    camera::Camera,
     capabilities::{MotionSync, NDFilter, Profile, VariableSpeed},
     command::resolution::NDFilterPosition,
-    transport::{AsyncTransport, BlockingTransport},
 };
 
 // These tests demonstrate that the code compiles correctly with proper trait bounds

@@ -51,30 +51,26 @@ impl Tcp {
 }
 
 impl AsyncTransport for Tcp {
-    fn send(&self, data: &[u8]) -> impl std::future::Future<Output = Result<(), Error>> + Send {
-        async move {
-            let mut writer = self.writer.lock().await;
-            writer.write_all(data).await?;
-            writer.flush().await?;
-            Ok(())
-        }
+    async fn send(&self, data: &[u8]) -> Result<(), Error> {
+        let mut writer = self.writer.lock().await;
+        writer.write_all(data).await?;
+        writer.flush().await?;
+        Ok(())
     }
 
-    fn recv(&self) -> impl std::future::Future<Output = Result<Bytes, Error>> + Send {
-        async move {
-            let mut reader = self.reader.lock().await;
-            let mut buf = Vec::with_capacity(64);
+    async fn recv(&self) -> Result<Bytes, Error> {
+        let mut reader = self.reader.lock().await;
+        let mut buf = Vec::with_capacity(64);
 
-            // Use buffered read_until to find VISCA terminator (0xFF)
-            let n = reader.read_until(0xFF, &mut buf).await?;
+        // Use buffered read_until to find VISCA terminator (0xFF)
+        let n = reader.read_until(0xFF, &mut buf).await?;
 
-            if n == 0 {
-                return Err(Error::ConnectionLost {
-                    reason: Cow::Borrowed("peer closed connection"),
-                });
-            }
-
-            Ok(Bytes::from(buf))
+        if n == 0 {
+            return Err(Error::ConnectionLost {
+                reason: Cow::Borrowed("peer closed connection"),
+            });
         }
+
+        Ok(Bytes::from(buf))
     }
 }

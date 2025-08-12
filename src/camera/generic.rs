@@ -5,8 +5,9 @@
 
 use std::{borrow::Cow, marker::PhantomData, sync::Arc, time::Duration};
 
-use crate::camera::{AsyncMode, BlockingMode};
-use crate::command::ResponseType;
+#[cfg(feature = "async")]
+use crate::camera::AsyncMode;
+use crate::camera::BlockingMode;
 
 #[cfg(feature = "async")]
 use crate::{executor::Spawner, runtime::RuntimeSpawner, socket_manager::SocketManagerHandle};
@@ -19,6 +20,9 @@ use crate::{
     timeout::TimeoutConfig,
     transport::TransportEnvelope,
 };
+
+#[cfg(feature = "async")]
+use crate::command::ResponseType;
 
 #[cfg(feature = "async")]
 use crate::transport::AsyncTransport;
@@ -457,10 +461,7 @@ where
         log::debug!("Sending VISCA command: {framed_bytes:02X?}");
 
         // Send command
-        self.transport
-            .send(&framed_bytes)
-            .await
-            .map_err(|e| Error::from(e))?;
+        self.transport.send(&framed_bytes).await?;
 
         // Handle response based on command type
         match command.response_type() {
@@ -496,7 +497,7 @@ where
     #[cfg(feature = "async")]
     async fn wait_for_response(&self, timeout_duration: Duration) -> Result<Response, Error> {
         let recv_fut = async {
-            match self.transport.recv().await.map_err(Into::into) {
+            match self.transport.recv().await {
                 Ok(bytes) => {
                     // Extract VISCA payload from envelope if needed
                     let visca_bytes = self.envelope.extract_response(&bytes)?;
@@ -527,7 +528,7 @@ where
     ) -> Result<Response, Error> {
         let recv_loop = async {
             loop {
-                match self.transport.recv().await.map_err(Into::into) {
+                match self.transport.recv().await {
                     Ok(bytes) => {
                         // Extract VISCA payload from envelope if needed
                         let visca_bytes = match self.envelope.extract_response(&bytes) {
@@ -744,13 +745,14 @@ where
     // Pan/Tilt methods
 
     /// Stop all pan/tilt movement.
+    #[allow(clippy::expect_used)]
     pub async fn pan_tilt_stop(&self) -> Result<(), Error> {
         use crate::command::pan_tilt::{PanTilt, PanTiltDirection};
         use crate::types::{PanSpeed, TiltSpeed};
         let command = PanTilt::Move {
             direction: PanTiltDirection::Stop,
-            pan_speed: PanSpeed::new(0).unwrap(),
-            tilt_speed: TiltSpeed::new(0).unwrap(),
+            pan_speed: PanSpeed::new(0).expect("0 is valid speed"),
+            tilt_speed: TiltSpeed::new(0).expect("0 is valid speed"),
         };
         self.send_action_command(&command).await
     }
@@ -918,7 +920,7 @@ where
             return Err(Error::InvalidParameter {
                 parameter: "zoom position",
                 value: Cow::Owned(position_value.to_string()),
-                reason: Cow::Owned(format!("must be between 0.0 and 1.0")),
+                reason: Cow::Borrowed("must be between 0.0 and 1.0"),
             });
         }
 
@@ -1314,7 +1316,7 @@ where
         use crate::command::color::ColorTemperature;
         use crate::types::ColorTemp;
         let color_temp = ColorTemp::new(temp).map_err(|_| Error::InvalidParameter {
-            parameter: "color_temperature".into(),
+            parameter: "color_temperature",
             value: temp.to_string().into(),
             reason: "Invalid color temperature value".into(),
         })?;
@@ -1487,6 +1489,245 @@ where
             }),
         }
     }
+
+    // ============================================================================
+    // Inquiry Methods - Complete Implementation
+    // ============================================================================
+
+    /// Get the current power state of the camera.
+    /// Returns `true` if powered on, `false` if in standby.
+    pub async fn get_power_state(&self) -> Result<bool, Error> {
+        use crate::command::inquiry::PowerInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&PowerInquiry).await?;
+        match response {
+            InquiryResponse::Power { on } => Ok(on),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("Power inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    /// Get the current focus position.
+    pub async fn get_focus_position(&self) -> Result<u16, Error> {
+        use crate::command::inquiry::FocusPositionInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&FocusPositionInquiry).await?;
+        match response {
+            InquiryResponse::FocusPosition { position } => Ok(position),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("FocusPosition inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    /// Get the focus near limit position.
+    pub async fn get_focus_near_limit(&self) -> Result<u16, Error> {
+        use crate::command::inquiry::FocusNearLimitInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&FocusNearLimitInquiry).await?;
+        match response {
+            InquiryResponse::FocusNearLimit { position } => Ok(position),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("FocusNearLimit inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    /// Get the current focus zone.
+    pub async fn get_focus_zone(&self) -> Result<crate::command::FocusZone, Error> {
+        use crate::command::inquiry::FocusZoneInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&FocusZoneInquiry).await?;
+        match response {
+            InquiryResponse::FocusZone { zone } => Ok(zone),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("FocusZone inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    /// Get the auto-focus sensitivity setting.
+    pub async fn get_auto_focus_sensitivity(
+        &self,
+    ) -> Result<crate::command::AutoFocusSensitivity, Error> {
+        use crate::command::inquiry::AutoFocusSensitivityInquiry;
+        use crate::command::InquiryResponse;
+        let response = self
+            .send_inquiry_command(&AutoFocusSensitivityInquiry)
+            .await?;
+        match response {
+            InquiryResponse::AutoFocusSensitivity { sensitivity } => Ok(sensitivity),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("AutoFocusSensitivity inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    /// Get the current exposure mode.
+    pub async fn get_exposure_mode(&self) -> Result<crate::command::exposure::ExposureMode, Error> {
+        use crate::command::inquiry::ExposureModeInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&ExposureModeInquiry).await?;
+        match response {
+            InquiryResponse::ExposureMode { mode } => Ok(mode),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("ExposureMode inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    /// Get the exposure compensation value.
+    pub async fn get_exposure_compensation(&self) -> Result<i8, Error> {
+        use crate::command::inquiry::ExposureCompensationInquiry;
+        use crate::command::InquiryResponse;
+        let response = self
+            .send_inquiry_command(&ExposureCompensationInquiry)
+            .await?;
+        match response {
+            InquiryResponse::ExposureCompensation { value } => Ok(value),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("ExposureCompensation inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    /// Check if exposure compensation is enabled.
+    pub async fn get_exposure_compensation_enabled(&self) -> Result<bool, Error> {
+        use crate::command::inquiry::ExposureCompensationModeInquiry;
+        use crate::command::InquiryResponse;
+        let response = self
+            .send_inquiry_command(&ExposureCompensationModeInquiry)
+            .await?;
+        match response {
+            InquiryResponse::ExposureCompensationMode { on } => Ok(on),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("ExposureCompensationMode inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    /// Get the current iris value.
+    pub async fn get_iris(&self) -> Result<u8, Error> {
+        use crate::command::inquiry::IrisInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&IrisInquiry).await?;
+        match response {
+            InquiryResponse::Iris { position } => Ok(position),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("Iris inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    /// Get the current shutter speed.
+    pub async fn get_shutter(&self) -> Result<u16, Error> {
+        use crate::command::inquiry::ShutterInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&ShutterInquiry).await?;
+        match response {
+            InquiryResponse::Shutter { position } => Ok(position),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("Shutter inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    /// Get the current gain value.
+    pub async fn get_gain(&self) -> Result<u8, Error> {
+        use crate::command::inquiry::GainInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&GainInquiry).await?;
+        match response {
+            InquiryResponse::GainLevel { gain } => Ok(gain),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("Gain inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    /// Get the gain limit value.
+    pub async fn get_gain_limit(&self) -> Result<u8, Error> {
+        use crate::command::inquiry::GainLimitInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&GainLimitInquiry).await?;
+        match response {
+            InquiryResponse::GainLimit { limit } => Ok(limit),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("GainLimit inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    /// Get the white balance mode.
+    pub async fn get_white_balance_mode(
+        &self,
+    ) -> Result<crate::command::white_balance::WhiteBalanceMode, Error> {
+        use crate::command::inquiry::WhiteBalanceModeInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&WhiteBalanceModeInquiry).await?;
+        match response {
+            InquiryResponse::WhiteBalanceMode { mode } => Ok(mode),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("WhiteBalanceMode inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    /// Get the current red gain.
+    pub async fn get_red_gain(&self) -> Result<u8, Error> {
+        use crate::command::inquiry::RedGainInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&RedGainInquiry).await?;
+        match response {
+            InquiryResponse::RedChannel { gain } => Ok(gain.max(0) as u8),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("RedGain inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    /// Get the current blue gain.
+    pub async fn get_blue_gain(&self) -> Result<u8, Error> {
+        use crate::command::inquiry::BlueGainInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&BlueGainInquiry).await?;
+        match response {
+            InquiryResponse::BlueChannel { gain } => Ok(gain.max(0) as u8),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("BlueGain inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    /// Get the current focus mode (Auto/Manual).
+    pub async fn get_focus_mode(&self) -> Result<crate::command::FocusMode, Error> {
+        use crate::command::inquiry::FocusModeInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&FocusModeInquiry).await?;
+        match response {
+            InquiryResponse::FocusMode { mode } => Ok(mode),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("FocusMode inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
 }
 
 // Blocking mode implementation
@@ -1644,13 +1885,14 @@ where
     // Pan/Tilt methods
 
     /// Stop all pan/tilt movement.
+    #[allow(clippy::expect_used)]
     pub fn pan_tilt_stop(&self) -> Result<(), Error> {
         use crate::command::pan_tilt::{PanTilt, PanTiltDirection};
         use crate::types::{PanSpeed, TiltSpeed};
         let command = PanTilt::Move {
             direction: PanTiltDirection::Stop,
-            pan_speed: PanSpeed::new(0).unwrap(),
-            tilt_speed: TiltSpeed::new(0).unwrap(),
+            pan_speed: PanSpeed::new(0).expect("0 is valid speed"),
+            tilt_speed: TiltSpeed::new(0).expect("0 is valid speed"),
         };
         self.send_action_command(&command)
     }
@@ -1812,7 +2054,7 @@ where
             return Err(Error::InvalidParameter {
                 parameter: "zoom position",
                 value: Cow::Owned(position_value.to_string()),
-                reason: Cow::Owned(format!("must be between 0.0 and 1.0")),
+                reason: Cow::Borrowed("must be between 0.0 and 1.0"),
             });
         }
 
@@ -2200,7 +2442,7 @@ where
         use crate::command::color::ColorTemperature;
         use crate::types::ColorTemp;
         let color_temp = ColorTemp::new(temp).map_err(|_| Error::InvalidParameter {
-            parameter: "color_temperature".into(),
+            parameter: "color_temperature",
             value: temp.to_string().into(),
             reason: "Invalid color temperature value".into(),
         })?;
@@ -2359,6 +2601,239 @@ where
             }),
             _ => Err(Error::InvalidResponse {
                 expected: Cow::Borrowed("ImageFlip inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    // ============================================================================
+    // Inquiry Methods - Complete Implementation (Blocking)
+    // ============================================================================
+
+    /// Get the current power state of the camera.
+    /// Returns `true` if powered on, `false` if in standby.
+    pub fn get_power_state(&self) -> Result<bool, Error> {
+        use crate::command::inquiry::PowerInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&PowerInquiry)?;
+        match response {
+            InquiryResponse::Power { on } => Ok(on),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("Power inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    /// Get the current focus position.
+    pub fn get_focus_position(&self) -> Result<u16, Error> {
+        use crate::command::inquiry::FocusPositionInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&FocusPositionInquiry)?;
+        match response {
+            InquiryResponse::FocusPosition { position } => Ok(position),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("FocusPosition inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    /// Get the focus near limit position.
+    pub fn get_focus_near_limit(&self) -> Result<u16, Error> {
+        use crate::command::inquiry::FocusNearLimitInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&FocusNearLimitInquiry)?;
+        match response {
+            InquiryResponse::FocusNearLimit { position } => Ok(position),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("FocusNearLimit inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    /// Get the current focus zone.
+    pub fn get_focus_zone(&self) -> Result<crate::command::FocusZone, Error> {
+        use crate::command::inquiry::FocusZoneInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&FocusZoneInquiry)?;
+        match response {
+            InquiryResponse::FocusZone { zone } => Ok(zone),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("FocusZone inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    /// Get the auto-focus sensitivity setting.
+    pub fn get_auto_focus_sensitivity(
+        &self,
+    ) -> Result<crate::command::AutoFocusSensitivity, Error> {
+        use crate::command::inquiry::AutoFocusSensitivityInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&AutoFocusSensitivityInquiry)?;
+        match response {
+            InquiryResponse::AutoFocusSensitivity { sensitivity } => Ok(sensitivity),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("AutoFocusSensitivity inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    /// Get the current exposure mode.
+    pub fn get_exposure_mode(&self) -> Result<crate::command::exposure::ExposureMode, Error> {
+        use crate::command::inquiry::ExposureModeInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&ExposureModeInquiry)?;
+        match response {
+            InquiryResponse::ExposureMode { mode } => Ok(mode),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("ExposureMode inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    /// Get the exposure compensation value.
+    pub fn get_exposure_compensation(&self) -> Result<i8, Error> {
+        use crate::command::inquiry::ExposureCompensationInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&ExposureCompensationInquiry)?;
+        match response {
+            InquiryResponse::ExposureCompensation { value } => Ok(value),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("ExposureCompensation inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    /// Check if exposure compensation is enabled.
+    pub fn get_exposure_compensation_enabled(&self) -> Result<bool, Error> {
+        use crate::command::inquiry::ExposureCompensationModeInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&ExposureCompensationModeInquiry)?;
+        match response {
+            InquiryResponse::ExposureCompensationMode { on } => Ok(on),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("ExposureCompensationMode inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    /// Get the current iris value.
+    pub fn get_iris(&self) -> Result<u8, Error> {
+        use crate::command::inquiry::IrisInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&IrisInquiry)?;
+        match response {
+            InquiryResponse::Iris { position } => Ok(position),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("Iris inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    /// Get the current shutter speed.
+    pub fn get_shutter(&self) -> Result<u16, Error> {
+        use crate::command::inquiry::ShutterInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&ShutterInquiry)?;
+        match response {
+            InquiryResponse::Shutter { position } => Ok(position),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("Shutter inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    /// Get the current gain value.
+    pub fn get_gain(&self) -> Result<u8, Error> {
+        use crate::command::inquiry::GainInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&GainInquiry)?;
+        match response {
+            InquiryResponse::GainLevel { gain } => Ok(gain),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("Gain inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    /// Get the gain limit value.
+    pub fn get_gain_limit(&self) -> Result<u8, Error> {
+        use crate::command::inquiry::GainLimitInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&GainLimitInquiry)?;
+        match response {
+            InquiryResponse::GainLimit { limit } => Ok(limit),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("GainLimit inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    /// Get the white balance mode.
+    pub fn get_white_balance_mode(
+        &self,
+    ) -> Result<crate::command::white_balance::WhiteBalanceMode, Error> {
+        use crate::command::inquiry::WhiteBalanceModeInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&WhiteBalanceModeInquiry)?;
+        match response {
+            InquiryResponse::WhiteBalanceMode { mode } => Ok(mode),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("WhiteBalanceMode inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    /// Get the current red gain.
+    pub fn get_red_gain(&self) -> Result<u8, Error> {
+        use crate::command::inquiry::RedGainInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&RedGainInquiry)?;
+        match response {
+            InquiryResponse::RedChannel { gain } => Ok(gain.max(0) as u8),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("RedGain inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    /// Get the current blue gain.
+    pub fn get_blue_gain(&self) -> Result<u8, Error> {
+        use crate::command::inquiry::BlueGainInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&BlueGainInquiry)?;
+        match response {
+            InquiryResponse::BlueChannel { gain } => Ok(gain.max(0) as u8),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("BlueGain inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+
+    /// Get the current focus mode (Auto/Manual).
+    pub fn get_focus_mode(&self) -> Result<crate::command::FocusMode, Error> {
+        use crate::command::inquiry::FocusModeInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&FocusModeInquiry)?;
+        match response {
+            InquiryResponse::FocusMode { mode } => Ok(mode),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("FocusMode inquiry response"),
                 actual: vec![],
             }),
         }

@@ -556,7 +556,7 @@ where
                                 self.handle_raw_response(bytes).await;
                             }
                             Err(e) => {
-                                let err: Error = e.into();
+                                let err: Error = e;
                                 warn!("Failed to receive response from transport: {err}");
                                 // Continue processing other commands
                             }
@@ -682,7 +682,7 @@ where
             }
             Err(e) => {
                 let id = pending_cmd.id;
-                let err: Error = e.into();
+                let err: Error = e;
                 error!("Failed to send inquiry command {id}: {err}");
                 pending_cmd.complete(Err(err));
             }
@@ -718,7 +718,7 @@ where
             }
             Err(e) => {
                 let id = pending_cmd.id;
-                let err: Error = e.into();
+                let err: Error = e;
                 error!("Failed to send command {id} on {socket:?}: {err}");
                 pending_cmd.complete(Err(err));
             }
@@ -981,7 +981,7 @@ where
                 cancel_bytes.truncate(size);
                 // Send cancel command but don't wait for response to avoid further delays
                 if let Err(e) = self.transport.send(&cancel_bytes).await {
-                    let err: Error = e.into();
+                    let err: Error = e;
                     error!("Failed to send cancel command: {err}");
                 }
             }

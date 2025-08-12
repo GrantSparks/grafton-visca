@@ -28,6 +28,9 @@ visca_const_command! {
     ///
     /// This is used during initial setup of VISCA cameras on a serial bus.
     /// Note: This is a broadcast command that affects all cameras on the bus.
+    ///
+    /// TODO: Implement for serial transport support
+    #[allow(dead_code)]
     pub(crate) struct AddressSetCommand;
     bytes = [0x88, 0x30, 0x01,  VISCA_TERMINATOR];
     timeout = Quick;
@@ -99,6 +102,7 @@ visca_param_command! {
 
 impl CommandCancelCommand {
     /// Create a new command cancel command.
+    #[allow(dead_code)]
     pub fn new(socket: Socket) -> Self {
         Self { socket }
     }

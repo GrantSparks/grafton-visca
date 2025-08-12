@@ -63,19 +63,15 @@ impl Udp {
 }
 
 impl AsyncTransport for Udp {
-    fn send(&self, data: &[u8]) -> impl std::future::Future<Output = Result<(), Error>> + Send {
-        async move {
-            self.socket.send(data).await?;
-            Ok(())
-        }
+    async fn send(&self, data: &[u8]) -> Result<(), Error> {
+        self.socket.send(data).await?;
+        Ok(())
     }
 
-    fn recv(&self) -> impl std::future::Future<Output = Result<Bytes, Error>> + Send {
-        async move {
-            let mut buffer = vec![0u8; 1024];
-            let n = self.socket.recv(&mut buffer).await?;
-            buffer.truncate(n);
-            Ok(Bytes::from(buffer))
-        }
+    async fn recv(&self) -> Result<Bytes, Error> {
+        let mut buffer = vec![0u8; 1024];
+        let n = self.socket.recv(&mut buffer).await?;
+        buffer.truncate(n);
+        Ok(Bytes::from(buffer))
     }
 }

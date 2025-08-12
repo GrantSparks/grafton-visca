@@ -15,7 +15,7 @@
 
 #[cfg(not(feature = "async"))]
 fn main() -> grafton_visca::Result<()> {
-    use grafton_visca::{camera::profiles::PTZOpticsG2, prelude::blocking::*, CameraBuilder};
+    use grafton_visca::{camera::profiles::PTZOpticsG2, CameraBuilder};
 
     env_logger::init();
 
@@ -43,19 +43,21 @@ fn main() -> grafton_visca::Result<()> {
 
     // Query position
     println!("\n--- Position ---");
-    match camera.get_pan_tilt_position() {
-        Ok((pan, tilt)) => {
-            println!("Pan: {pan} units");
-            println!("Tilt: {tilt} units");
-
-            // Convert to degrees if profile supports it
-            let pan_deg = pan as f32 * 0.0146484375;
-            let tilt_deg = tilt as f32 * 0.0146484375;
-            println!("Pan: {pan_deg:.2}°");
-            println!("Tilt: {tilt_deg:.2}°");
-        }
-        Err(e) => println!("Failed to get position: {e}"),
-    }
+    // TODO: get_pan_tilt_position() not yet implemented
+    // match camera.get_pan_tilt_position() {
+    //     Ok((pan, tilt)) => {
+    //         println!("Pan: {pan} units");
+    //         println!("Tilt: {tilt} units");
+    //
+    //         // Convert to degrees if profile supports it
+    //         let pan_deg = pan as f32 * 0.0146484375;
+    //         let tilt_deg = tilt as f32 * 0.0146484375;
+    //         println!("Pan: {pan_deg:.2}°");
+    //         println!("Tilt: {tilt_deg:.2}°");
+    //     }
+    //     Err(e) => println!("Failed to get position: {e}"),
+    // }
+    println!("Pan/Tilt position inquiry not yet implemented");
 
     // Query zoom
     println!("\n--- Zoom ---");
@@ -110,44 +112,51 @@ fn main() -> grafton_visca::Result<()> {
         Err(e) => println!("Failed to get WB mode: {e}"),
     }
 
-    match camera.get_color_temperature() {
-        Ok(temp) => println!("Color Temp: {temp}K"),
-        Err(e) => println!("Failed to get color temp: {e}"),
-    }
+    // TODO: get_color_temperature() not yet implemented
+    // match camera.get_color_temperature() {
+    //     Ok(temp) => println!("Color Temp: {temp}K"),
+    //     Err(e) => println!("Failed to get color temp: {e}"),
+    // }
 
     // Query image adjustments
     println!("\n--- Image Adjustments ---");
-    match camera.get_brightness() {
-        Ok(val) => println!("Brightness: {val}/100"),
-        Err(e) => println!("Failed to get brightness: {e}"),
-    }
+    // TODO: get_brightness() not yet implemented
+    // match camera.get_brightness() {
+    //     Ok(val) => println!("Brightness: {val}/100"),
+    //     Err(e) => println!("Failed to get brightness: {e}"),
+    // }
 
-    match camera.get_contrast() {
-        Ok(val) => println!("Contrast: {val}/100"),
-        Err(e) => println!("Failed to get contrast: {e}"),
-    }
+    // TODO: get_contrast() not yet implemented
+    // match camera.get_contrast() {
+    //     Ok(val) => println!("Contrast: {val}/100"),
+    //     Err(e) => println!("Failed to get contrast: {e}"),
+    // }
 
-    match camera.get_saturation() {
-        Ok(val) => println!("Saturation: {val}/100"),
-        Err(e) => println!("Failed to get saturation: {e}"),
-    }
+    // TODO: get_saturation() not yet implemented
+    // match camera.get_saturation() {
+    //     Ok(val) => println!("Saturation: {val}/100"),
+    //     Err(e) => println!("Failed to get saturation: {e}"),
+    // }
 
-    match camera.get_sharpness() {
-        Ok(val) => println!("Sharpness: {val}/100"),
-        Err(e) => println!("Failed to get sharpness: {e}"),
-    }
+    // TODO: get_sharpness() not yet implemented
+    // match camera.get_sharpness() {
+    //     Ok(val) => println!("Sharpness: {val}/100"),
+    //     Err(e) => println!("Failed to get sharpness: {e}"),
+    // }
 
-    match camera.get_hue() {
-        Ok(val) => println!("Hue: {val}°"),
-        Err(e) => println!("Failed to get hue: {e}"),
-    }
+    // TODO: get_hue() not yet implemented
+    // match camera.get_hue() {
+    //     Ok(val) => println!("Hue: {val}°"),
+    //     Err(e) => println!("Failed to get hue: {e}"),
+    // }
 
     // Query flip status
     println!("\n--- Image Orientation ---");
-    match camera.get_flip_mode() {
-        Ok(mode) => println!("Flip Mode: {mode:?}"),
-        Err(e) => println!("Failed to get flip mode: {e}"),
-    }
+    // TODO: get_flip_mode() not yet implemented
+    // match camera.get_flip_mode() {
+    //     Ok(mode) => println!("Flip Mode: {mode:?}"),
+    //     Err(e) => println!("Failed to get flip mode: {e}"),
+    // }
 
     println!("\n✓ Inquiry demo completed!");
 
@@ -157,7 +166,7 @@ fn main() -> grafton_visca::Result<()> {
 #[cfg(feature = "rt-tokio")]
 #[tokio::main]
 async fn main() -> grafton_visca::Result<()> {
-    use grafton_visca::{camera::profiles::PTZOpticsG2, prelude::r#async::*, CameraBuilder};
+    use grafton_visca::{camera::profiles::PTZOpticsG2, CameraBuilder};
 
     env_logger::init();
 
@@ -180,7 +189,7 @@ async fn main() -> grafton_visca::Result<()> {
 
     let (power, position, zoom, focus_mode, exposure_mode, wb_mode) = join!(
         camera.get_power_state(),
-        camera.get_pan_tilt_position(),
+        camera.get_pan_tilt_degrees(),
         camera.get_zoom_position(),
         camera.get_focus_mode(),
         camera.get_exposure_mode(),
@@ -196,12 +205,8 @@ async fn main() -> grafton_visca::Result<()> {
     println!("\n--- Position ---");
     match position {
         Ok((pan, tilt)) => {
-            println!("Pan: {pan} units");
-            println!("Tilt: {tilt} units");
-            let pan_deg = pan as f32 * 0.0146484375;
-            let tilt_deg = tilt as f32 * 0.0146484375;
-            println!("Pan: {pan_deg:.2}°");
-            println!("Tilt: {tilt_deg:.2}°");
+            println!("Pan: {:.2}°", pan.0);
+            println!("Tilt: {:.2}°", tilt.0);
         }
         Err(e) => println!("Failed: {e}"),
     }
@@ -235,26 +240,14 @@ async fn main() -> grafton_visca::Result<()> {
     }
 
     println!("\n--- Detailed Image Settings ---");
-
-    if let Ok(brightness) = camera.get_brightness().await {
-        println!("Brightness: {brightness}/100");
-    }
-
-    if let Ok(contrast) = camera.get_contrast().await {
-        println!("Contrast: {contrast}/100");
-    }
-
-    if let Ok(saturation) = camera.get_saturation().await {
-        println!("Saturation: {saturation}/100");
-    }
-
-    if let Ok(sharpness) = camera.get_sharpness().await {
-        println!("Sharpness: {sharpness}/100");
-    }
-
-    if let Ok(hue) = camera.get_hue().await {
-        println!("Hue: {hue}°");
-    }
+    // Note: Some inquiry methods may not be available for all camera models
+    // The following are not yet implemented:
+    // - get_brightness()
+    // - get_contrast()
+    // - get_saturation()
+    // - get_sharpness()
+    // - get_hue()
+    println!("(Image adjustment inquiries not yet implemented)");
 
     println!("\n✓ Async inquiry demo completed!");
     println!("Note: Concurrent queries are much faster than sequential!");

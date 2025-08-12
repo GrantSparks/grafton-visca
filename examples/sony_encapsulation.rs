@@ -12,7 +12,12 @@
 #[cfg(not(feature = "async"))]
 use grafton_visca::prelude::blocking::*;
 #[cfg(not(feature = "async"))]
-use grafton_visca::{camera::profiles::SonyFR7, CameraBuilder, Error};
+use grafton_visca::{
+    camera::profiles::SonyFR7,
+    command::zoom::ZoomSpeed,
+    types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed},
+    CameraBuilder, Error,
+};
 
 #[cfg(not(feature = "async"))]
 use std::{env, thread::sleep, time::Duration};
@@ -87,12 +92,17 @@ fn main() -> Result<(), Error> {
     println!("  ✓ Moved to home position");
 
     println!("Testing pan/tilt movement...");
-    camera.pan_tilt_absolute(Degrees(30.0), Degrees(10.0), SpeedLevel::Fast)?;
+    camera.pan_tilt_absolute(
+        PanPosition::new((30.0 * 614.4) as i16)?, // Convert 30 degrees to units
+        TiltPosition::new((10.0 * 614.4) as i16)?, // Convert 10 degrees to units
+        PanSpeed::from(SpeedLevel::Fast),
+        TiltSpeed::from(SpeedLevel::Fast),
+    )?;
     camera.await_idle(Duration::from_secs(10))?;
     println!("  ✓ Moved to Pan=30°, Tilt=10°");
 
     println!("Testing zoom...");
-    camera.zoom_in()?;
+    camera.zoom_tele_variable(ZoomSpeed::new(4)?)?;
     sleep(Duration::from_millis(500));
     camera.zoom_stop()?;
     camera.await_idle(Duration::from_secs(10))?;
@@ -101,7 +111,7 @@ fn main() -> Result<(), Error> {
     // Return to home
     println!("\nReturning to home position...");
     camera.pan_tilt_home()?;
-    camera.zoom_out()?;
+    camera.zoom_wide_variable(ZoomSpeed::new(4)?)?;
     sleep(Duration::from_millis(500));
     camera.zoom_stop()?;
     camera.await_idle(Duration::from_secs(10))?;
@@ -122,7 +132,12 @@ fn main() -> Result<(), Error> {
 }
 
 #[cfg(feature = "rt-tokio")]
-use grafton_visca::{camera::profiles::SonyFR7, prelude::r#async::*, CameraBuilder, Error};
+use grafton_visca::{
+    camera::profiles::SonyFR7,
+    prelude::r#async::*,
+    types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed},
+    CameraBuilder, Error,
+};
 
 #[cfg(feature = "rt-tokio")]
 use tokio::time::{sleep, Duration};
@@ -203,13 +218,18 @@ async fn main() -> Result<(), Error> {
 
     println!("Testing pan/tilt movement...");
     camera
-        .pan_tilt_absolute(Degrees(30.0), Degrees(10.0), SpeedLevel::Fast)
+        .pan_tilt_absolute(
+            PanPosition::from_degrees(30.0)?,
+            TiltPosition::from_degrees(10.0)?,
+            PanSpeed::new(18)?,
+            TiltSpeed::new(18)?,
+        )
         .await?;
     camera.await_idle(Duration::from_secs(10)).await?;
     println!("  ✓ Moved to Pan=30°, Tilt=10°");
 
     println!("Testing zoom...");
-    camera.zoom_in().await?;
+    camera.zoom_tele_std().await?;
     sleep(Duration::from_millis(500)).await;
     camera.zoom_stop().await?;
     camera.await_idle(Duration::from_secs(10)).await?;
@@ -220,9 +240,14 @@ async fn main() -> Result<(), Error> {
     println!("Executing pan and zoom simultaneously...");
 
     let (pan_result, zoom_result): (Result<(), Error>, Result<(), Error>) = tokio::join!(
-        camera.pan_tilt_absolute(Degrees(0.0), Degrees(0.0), SpeedLevel::Fast),
+        camera.pan_tilt_absolute(
+            PanPosition::from_degrees(0.0)?,
+            TiltPosition::from_degrees(0.0)?,
+            PanSpeed::new(18)?,
+            TiltSpeed::new(18)?
+        ),
         async {
-            camera.zoom_out().await?;
+            camera.zoom_wide_std().await?;
             sleep(Duration::from_millis(500)).await;
             camera.zoom_stop().await
         }

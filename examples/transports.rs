@@ -22,7 +22,10 @@ use std::{
 #[cfg(not(feature = "async"))]
 use grafton_visca::prelude::blocking::*;
 #[cfg(not(feature = "async"))]
-use grafton_visca::{CameraBuilder, Error};
+use grafton_visca::{
+    types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed},
+    CameraBuilder, Error,
+};
 
 #[cfg(not(feature = "async"))]
 fn main() -> Result<(), Error> {
@@ -108,7 +111,12 @@ fn main() -> Result<(), Error> {
 
             // Test UDP connection
             println!("Testing UDP transport with pan/tilt command...");
-            camera.pan_tilt_absolute(Degrees(45.0), Degrees(0.0), SpeedLevel::Medium)?;
+            camera.pan_tilt_absolute(
+                PanPosition::from_degrees(45.0)?,
+                TiltPosition::from_degrees(0.0)?,
+                PanSpeed::new(12)?,
+                TiltSpeed::new(12)?,
+            )?;
             camera.await_pan_tilt_idle(Duration::from_secs(5))?;
             println!("✓ Command sent successfully via UDP");
 
