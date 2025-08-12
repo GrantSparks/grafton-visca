@@ -246,3 +246,11 @@ async fn main() -> Result<(), Error> {
 
     Ok(())
 }
+
+// Provide a stub main when neither blocking nor tokio runtime is available
+#[cfg(all(feature = "async", not(feature = "rt-tokio")))]
+fn main() {
+    eprintln!("This example requires either no features (for blocking) or --features rt-tokio for async");
+    eprintln!("Try: cargo run --example sony_encapsulation");
+    eprintln!("  or: cargo run --example sony_encapsulation --features rt-tokio");
+}
