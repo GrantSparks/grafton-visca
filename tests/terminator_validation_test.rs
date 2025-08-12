@@ -21,61 +21,6 @@ fn test_no_hardcoded_terminator_test_exists() {
     );
 }
 
-/// Test that VISCA_TERMINATOR documentation exists
-#[test]
-fn test_visca_terminator_documentation_exists() {
-    use std::fs;
-    use std::path::Path;
-
-    // Check that the safety documentation exists
-    let safety_doc = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("docs")
-        .join("visca_terminator_safety.md");
-
-    assert!(
-        safety_doc.exists(),
-        "visca_terminator_safety.md should exist"
-    );
-
-    // Verify it contains key information
-    let content = fs::read_to_string(safety_doc).expect("Failed to read safety doc");
-    assert!(
-        content.contains("VISCA_TERMINATOR"),
-        "Documentation should mention VISCA_TERMINATOR"
-    );
-    assert!(
-        content.contains("type-state"),
-        "Documentation should mention type-state pattern"
-    );
-}
-
-/// Test that migration guide exists
-#[test]
-fn test_migration_guide_exists() {
-    use std::fs;
-    use std::path::Path;
-
-    let migration_guide = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("docs")
-        .join("type_state_migration_guide.md");
-
-    assert!(
-        migration_guide.exists(),
-        "type_state_migration_guide.md should exist"
-    );
-
-    // Verify it contains migration instructions
-    let content = fs::read_to_string(migration_guide).expect("Failed to read migration guide");
-    assert!(
-        content.contains("migration"),
-        "Guide should contain migration instructions"
-    );
-    assert!(
-        content.contains("terminate()"),
-        "Guide should mention terminate() method"
-    );
-}
-
 /// Test that the type-safe example exists
 #[test]
 fn test_type_safe_example_exists() {

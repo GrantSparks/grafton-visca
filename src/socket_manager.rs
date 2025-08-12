@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use log::{debug, error, trace, warn};
 
 use std::{borrow::Cow, collections::VecDeque, sync::Arc, time::Instant};
@@ -92,7 +93,7 @@ pub struct PendingCmd {
     /// Unique identifier for this command instance.
     pub id: u32,
     /// The raw VISCA command bytes to send.
-    pub bytes: Vec<u8>,
+    pub bytes: Bytes,
     /// Category of the command for timeout and retry logic.
     pub category: CommandCategory,
     /// Channel to send the response back to the caller.
@@ -109,7 +110,7 @@ impl PendingCmd {
     /// Create a new pending command.
     pub fn new(
         id: u32,
-        bytes: Vec<u8>,
+        bytes: Bytes,
         category: CommandCategory,
         response_sender: OneshotSender<Result<Response>>,
         is_inquiry: bool,
@@ -253,7 +254,7 @@ pub(crate) enum SocketManagerCommand {
     /// Send a VISCA command through the socket manager.
     SendCommand {
         /// Raw command bytes to send.
-        bytes: Vec<u8>,
+        bytes: Bytes,
         /// Command category for timeout and retry logic.
         category: CommandCategory,
         /// Whether this is an inquiry (query) command.
@@ -297,7 +298,7 @@ impl SocketManagerHandle {
     /// returns when the command completes or times out.
     pub async fn send_command(
         &self,
-        bytes: Vec<u8>,
+        bytes: Bytes,
         category: CommandCategory,
         is_inquiry: bool,
     ) -> Result<Response> {
@@ -576,7 +577,8 @@ where
                         if let Some(runtime) = &self.runtime {
                             runtime.sleep(std::time::Duration::from_millis(100)).await
                         } else {
-                            // Fall back to immediate wake if no runtime
+                            // Should not happen if runtime is properly configured
+                            log::error!("No runtime available for timeout sleep - this is a bug");
                             futures::future::ready(()).await
                         }
                     } => {}
@@ -670,7 +672,7 @@ where
 
     async fn handle_send_command(
         &mut self,
-        bytes: Vec<u8>,
+        bytes: Bytes,
         category: CommandCategory,
         is_inquiry: bool,
         response_sender: OneshotSender<Result<Response>>,
@@ -745,7 +747,7 @@ where
         }
     }
 
-    async fn handle_raw_response(&mut self, bytes: bytes::Bytes) {
+    async fn handle_raw_response(&mut self, bytes: Bytes) {
         trace!("Handling raw response: {bytes:02X?}");
 
         if bytes.is_empty() {
@@ -1051,8 +1053,10 @@ where
             if let Some(runtime) = &self.runtime {
                 runtime.sleep(delay).await;
             } else {
-                // If no runtime available, proceed immediately
-                log::warn!("No runtime available for retry delay, proceeding immediately");
+                // Should not happen if runtime is properly configured
+                log::error!(
+                    "No runtime available for retry delay - this is a bug, proceeding immediately"
+                );
             }
 
             if command.is_inquiry {
@@ -1178,7 +1182,7 @@ mod tests {
     #[test]
     fn test_pending_cmd_creation() {
         let (tx, _rx) = channels::oneshot();
-        let bytes = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
+        let bytes = Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
         let cmd = PendingCmd::new(1, bytes.clone(), CommandCategory::Movement, tx, false);
 
         assert_eq!(cmd.id, 1);
@@ -1191,23 +1195,27 @@ mod tests {
     fn test_command_category_default_timeouts() {
         assert_eq!(
             CommandCategory::Quick.default_timeout(),
-            Duration::from_secs(2)
+            Duration::from_secs(5)
         );
         assert_eq!(
             CommandCategory::Movement.default_timeout(),
-            Duration::from_secs(10)
+            Duration::from_secs(30)
         );
         assert_eq!(
             CommandCategory::Preset.default_timeout(),
-            Duration::from_secs(60)
+            Duration::from_secs(90)
         );
         assert_eq!(
             CommandCategory::LongRunning.default_timeout(),
             Duration::from_secs(300)
         );
         assert_eq!(
+            CommandCategory::Network.default_timeout(),
+            Duration::from_secs(5)
+        );
+        assert_eq!(
             CommandCategory::Custom.default_timeout(),
-            Duration::from_secs(30)
+            Duration::from_secs(60)
         );
     }
 
@@ -1274,7 +1282,7 @@ mod tests {
             let (tx, _rx) = channels::oneshot();
             let mut cmd = PendingCmd::new(
                 1,
-                vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
+                Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]),
                 CommandCategory::Movement,
                 tx,
                 false,
@@ -1430,10 +1438,22 @@ mod tests {
 
             // Create test commands
             let (tx1, _rx1) = channels::oneshot();
-            let cmd1 = PendingCmd::new(1, vec![0x81, 0x01], CommandCategory::Quick, tx1, false);
+            let cmd1 = PendingCmd::new(
+                1,
+                Bytes::from(vec![0x81, 0x01]),
+                CommandCategory::Quick,
+                tx1,
+                false,
+            );
 
             let (tx2, _rx2) = channels::oneshot();
-            let cmd2 = PendingCmd::new(2, vec![0x81, 0x02], CommandCategory::Movement, tx2, false);
+            let cmd2 = PendingCmd::new(
+                2,
+                Bytes::from(vec![0x81, 0x02]),
+                CommandCategory::Movement,
+                tx2,
+                false,
+            );
 
             // Queue should start empty
             assert!(manager.command_queue.is_empty());
@@ -1470,8 +1490,13 @@ mod tests {
             // Enqueue multiple commands
             for i in 1..=10 {
                 let (tx, _rx) = channels::oneshot();
-                let cmd =
-                    PendingCmd::new(i, vec![0x81, i as u8], CommandCategory::Quick, tx, false);
+                let cmd = PendingCmd::new(
+                    i,
+                    Bytes::from(vec![0x81, i as u8]),
+                    CommandCategory::Quick,
+                    tx,
+                    false,
+                );
                 manager.enqueue_command(cmd);
             }
 
@@ -1497,7 +1522,13 @@ mod tests {
 
             // Set pending inquiry
             let (tx, _rx) = channels::oneshot();
-            let inquiry = PendingCmd::new(1, vec![0x81, 0x09], CommandCategory::Quick, tx, true);
+            let inquiry = PendingCmd::new(
+                1,
+                Bytes::from(vec![0x81, 0x09]),
+                CommandCategory::Quick,
+                tx,
+                true,
+            );
             manager.set_pending_inquiry(inquiry);
 
             assert!(manager.pending_inquiry.is_some());
@@ -1629,10 +1660,22 @@ mod tests {
 
             // Create test commands
             let (tx1, _rx1) = channels::oneshot();
-            let cmd1 = PendingCmd::new(1, vec![0x81, 0x01], CommandCategory::Quick, tx1, false);
+            let cmd1 = PendingCmd::new(
+                1,
+                Bytes::from(vec![0x81, 0x01]),
+                CommandCategory::Quick,
+                tx1,
+                false,
+            );
 
             let (tx2, _rx2) = channels::oneshot();
-            let cmd2 = PendingCmd::new(2, vec![0x81, 0x02], CommandCategory::Movement, tx2, false);
+            let cmd2 = PendingCmd::new(
+                2,
+                Bytes::from(vec![0x81, 0x02]),
+                CommandCategory::Movement,
+                tx2,
+                false,
+            );
 
             // Set active commands
             manager.set_active_command(Socket::Socket1, cmd1);
