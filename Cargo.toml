@@ -100,3 +100,6 @@ name = "type_safe_commands"
 
 [[example]]
 name = "runtime_agnostic"
+
+[[example]]
+name = "sony_encapsulation"

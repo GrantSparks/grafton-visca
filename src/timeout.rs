@@ -28,12 +28,12 @@ impl CommandCategory {
     #[must_use]
     pub const fn default_timeout(&self) -> Duration {
         match self {
-            Self::Quick => Duration::from_secs(2),
-            Self::Movement => Duration::from_secs(10),
-            Self::Preset => Duration::from_secs(60),
-            Self::LongRunning => Duration::from_secs(300),
-            Self::Network => Duration::from_secs(2),
-            Self::Custom => Duration::from_secs(30),
+            Self::Quick => Duration::from_secs(5), // Increased from 2s for network delays
+            Self::Movement => Duration::from_secs(30), // Increased from 10s for full-range movements
+            Self::Preset => Duration::from_secs(90),   // Increased from 60s for complex presets
+            Self::LongRunning => Duration::from_secs(300), // Keep at 5 minutes for discovery
+            Self::Network => Duration::from_secs(5),   // Increased from 2s for network operations
+            Self::Custom => Duration::from_secs(60),   // Increased from 30s as general fallback
         }
     }
 }
@@ -58,12 +58,12 @@ pub struct TimeoutConfig {
 impl Default for TimeoutConfig {
     fn default() -> Self {
         Self {
-            quick_timeout: Duration::from_secs(2),
-            movement_timeout: Duration::from_secs(10),
-            preset_timeout: Duration::from_secs(60),
-            long_timeout: Duration::from_secs(300),
-            network_timeout: Duration::from_secs(2),
-            default_timeout: Duration::from_secs(30),
+            quick_timeout: Duration::from_secs(5), // Increased for network delays
+            movement_timeout: Duration::from_secs(30), // Increased for full-range movements
+            preset_timeout: Duration::from_secs(90), // Increased for complex presets
+            long_timeout: Duration::from_secs(300), // Keep at 5 minutes for discovery
+            network_timeout: Duration::from_secs(5), // Increased for network operations
+            default_timeout: Duration::from_secs(60), // Increased as general fallback
         }
     }
 }
@@ -172,34 +172,39 @@ mod tests {
     fn test_command_category_defaults() {
         assert_eq!(
             CommandCategory::Quick.default_timeout(),
-            Duration::from_secs(2)
+            Duration::from_secs(5)
         );
         assert_eq!(
             CommandCategory::Movement.default_timeout(),
-            Duration::from_secs(10)
+            Duration::from_secs(30)
         );
         assert_eq!(
             CommandCategory::Preset.default_timeout(),
-            Duration::from_secs(60)
+            Duration::from_secs(90)
         );
         assert_eq!(
             CommandCategory::LongRunning.default_timeout(),
             Duration::from_secs(300)
         );
         assert_eq!(
+            CommandCategory::Network.default_timeout(),
+            Duration::from_secs(5)
+        );
+        assert_eq!(
             CommandCategory::Custom.default_timeout(),
-            Duration::from_secs(30)
+            Duration::from_secs(60)
         );
     }
 
     #[test]
     fn test_timeout_config_default() {
         let config = TimeoutConfig::default();
-        assert_eq!(config.quick_timeout, Duration::from_secs(2));
-        assert_eq!(config.movement_timeout, Duration::from_secs(10));
-        assert_eq!(config.preset_timeout, Duration::from_secs(60));
+        assert_eq!(config.quick_timeout, Duration::from_secs(5));
+        assert_eq!(config.movement_timeout, Duration::from_secs(30));
+        assert_eq!(config.preset_timeout, Duration::from_secs(90));
         assert_eq!(config.long_timeout, Duration::from_secs(300));
-        assert_eq!(config.default_timeout, Duration::from_secs(30));
+        assert_eq!(config.network_timeout, Duration::from_secs(5));
+        assert_eq!(config.default_timeout, Duration::from_secs(60));
     }
 
     #[test]
@@ -218,23 +223,27 @@ mod tests {
         let config = TimeoutConfig::default();
         assert_eq!(
             config.get_timeout(CommandCategory::Quick),
-            Duration::from_secs(2)
+            Duration::from_secs(5)
         );
         assert_eq!(
             config.get_timeout(CommandCategory::Movement),
-            Duration::from_secs(10)
+            Duration::from_secs(30)
         );
         assert_eq!(
             config.get_timeout(CommandCategory::Preset),
-            Duration::from_secs(60)
+            Duration::from_secs(90)
         );
         assert_eq!(
             config.get_timeout(CommandCategory::LongRunning),
             Duration::from_secs(300)
         );
         assert_eq!(
+            config.get_timeout(CommandCategory::Network),
+            Duration::from_secs(5)
+        );
+        assert_eq!(
             config.get_timeout(CommandCategory::Custom),
-            Duration::from_secs(30)
+            Duration::from_secs(60)
         );
     }
 
