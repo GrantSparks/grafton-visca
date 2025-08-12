@@ -302,6 +302,16 @@ where
     P: Profile,
     T: AsyncTransport + 'static,
 {
+    /// Shutdown the socket manager gracefully (for testing).
+    /// This ensures all background tasks are properly terminated.
+    #[cfg(test)]
+    pub async fn shutdown_for_test(&self) -> Result<(), Error> {
+        if let Some(socket_manager) = &self.socket_manager {
+            socket_manager.shutdown().await?;
+        }
+        Ok(())
+    }
+
     /// Create a new async camera from an async transport.
     pub fn from_transport(transport: T) -> Self {
         let camera_id = CameraId::new(P::DEFAULT_ADDRESS).unwrap_or(CameraId::CAMERA_1);
