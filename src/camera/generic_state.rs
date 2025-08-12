@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use crate::{
-    camera::generic::Camera, capabilities::Profile, types::SpeedLevel, units::Normalized, Error,
+    camera::generic::Camera, capabilities::Profile, types::SpeedLevel, units::Normalized,
     Result,
 };
 
