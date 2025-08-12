@@ -86,9 +86,13 @@ pub fn default_runtime() -> SharedRuntime {
 }
 
 /// For async without tokio, users must provide their own runtime.
+/// 
+/// Returns an error indicating that a runtime must be configured.
 #[cfg(all(feature = "async", not(feature = "rt-tokio")))]
-pub fn default_runtime() -> Option<SharedRuntime> {
-    None
+pub fn default_runtime() -> Result<SharedRuntime, Error> {
+    Err(Error::InvalidState(
+        "No runtime configured for async operations. Please provide a runtime using .with_runtime()".into()
+    ))
 }
 
 /// Execute a future with a timeout using the provided runtime.

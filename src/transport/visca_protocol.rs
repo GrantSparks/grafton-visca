@@ -153,21 +153,18 @@ impl<T: Transport + Send + Sync> ViscaProtocol<T> {
     async fn recv_with_timeout(&self, duration: Duration) -> Result<bytes::Bytes, Error> {
         #[cfg(feature = "async")]
         {
-            if let Some(runtime) = &self.runtime {
-                // Use the provided Runtime for timeout
-                crate::runtime::timeout_with_runtime(
-                    runtime.as_ref(),
-                    duration,
-                    self.transport.recv(),
-                )
-                .await?
-                .map_err(Into::into)
-            } else {
-                // Without a runtime, return an error indicating runtime is required
-                Err(Error::InvalidState(
-                    "No runtime configured for timeout operations. Please provide a Runtime when creating ViscaProtocol.".into()
-                ))
-            }
+            let runtime = self.runtime.as_ref().ok_or_else(|| {
+                Error::InvalidState("No runtime configured for async operations".into())
+            })?;
+            
+            // Use the provided Runtime for timeout
+            crate::runtime::timeout_with_runtime(
+                runtime.as_ref(),
+                duration,
+                self.transport.recv(),
+            )
+            .await?
+            .map_err(Into::into)
         }
 
         #[cfg(not(feature = "async"))]

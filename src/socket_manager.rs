@@ -576,7 +576,8 @@ where
                         if let Some(runtime) = &self.runtime {
                             runtime.sleep(std::time::Duration::from_millis(100)).await
                         } else {
-                            // Fall back to immediate wake if no runtime
+                            // Should not happen if runtime is properly configured
+                            log::error!("No runtime available for timeout sleep - this is a bug");
                             futures::future::ready(()).await
                         }
                     } => {}
@@ -1051,8 +1052,8 @@ where
             if let Some(runtime) = &self.runtime {
                 runtime.sleep(delay).await;
             } else {
-                // If no runtime available, proceed immediately
-                log::warn!("No runtime available for retry delay, proceeding immediately");
+                // Should not happen if runtime is properly configured
+                log::error!("No runtime available for retry delay - this is a bug, proceeding immediately");
             }
 
             if command.is_inquiry {
