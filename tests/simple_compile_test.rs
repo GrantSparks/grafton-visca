@@ -1,9 +1,11 @@
 //! Simple test to verify compilation succeeds with generic Camera implementation.
+//!
+//! This test demonstrates the mode-based Camera API with compile-time mode selection.
 
 use grafton_visca::{
+    camera::{AsyncMode, BlockingMode, Camera},
     capabilities::{NDFilter, Profile},
-    transport::Transport,
-    Camera,
+    transport::{AsyncTransport, BlockingTransport},
 };
 
 // Import type aliases based on feature flags
@@ -27,32 +29,77 @@ fn test_compilation_succeeds() {
     // No assertion needed - the test passes if compilation succeeds
 }
 
-// Compile-time capability checking example:
+// Compile-time capability checking example with mode-based API:
 #[test]
 fn test_compile_time_safety() {
-    // This function can only be called with cameras that support ND filter
-    fn _use_nd_filter<P, T>(_camera: &Camera<P, T>)
+    // For async cameras with ND filter support
+    #[cfg(feature = "async")]
+    fn _use_nd_filter_async<P, T>(_camera: &Camera<AsyncMode, P, T>)
     where
         P: Profile + NDFilter,
-        T: Transport + Send + Sync + 'static,
-        T::Error: Into<grafton_visca::Error> + Send,
-        for<'a> T::SendFut<'a>: Send,
-        for<'a> T::RecvFut<'a>: Send,
+        T: AsyncTransport + Send + Sync + 'static,
     {
-        // This would compile only for cameras with ND filter support
+        // This would compile only for async cameras with ND filter support
     }
 
-    // This function works with any camera
-    fn _use_basic_features<P, T>(_camera: &Camera<P, T>)
+    // For blocking cameras with ND filter support
+    #[cfg(not(feature = "async"))]
+    fn _use_nd_filter_blocking<P, T>(_camera: &Camera<BlockingMode, P, T>)
+    where
+        P: Profile + NDFilter,
+        T: BlockingTransport + Send + Sync + 'static,
+    {
+        // This would compile only for blocking cameras with ND filter support
+    }
+
+    // For async cameras with basic features
+    #[cfg(feature = "async")]
+    fn _use_basic_features_async<P, T>(_camera: &Camera<AsyncMode, P, T>)
     where
         P: Profile,
-        T: Transport + Send + Sync + 'static,
-        T::Error: Into<grafton_visca::Error> + Send,
-        for<'a> T::SendFut<'a>: Send,
-        for<'a> T::RecvFut<'a>: Send,
+        T: AsyncTransport + Send + Sync + 'static,
     {
-        // Basic features available on all cameras
+        // Basic features available on all async cameras
+    }
+
+    // For blocking cameras with basic features
+    #[cfg(not(feature = "async"))]
+    fn _use_basic_features_blocking<P, T>(_camera: &Camera<BlockingMode, P, T>)
+    where
+        P: Profile,
+        T: BlockingTransport + Send + Sync + 'static,
+    {
+        // Basic features available on all blocking cameras
     }
 
     // Test passes if code compiles
+}
+
+#[test]
+fn test_mode_specific_apis() {
+    // Demonstrate that the mode marker ensures correct API usage
+
+    #[cfg(feature = "async")]
+    {
+        // This function only accepts async cameras
+        fn _async_only<P, T>(_camera: &Camera<AsyncMode, P, T>)
+        where
+            P: Profile,
+            T: AsyncTransport,
+        {
+            // Would have access to async methods here
+        }
+    }
+
+    #[cfg(not(feature = "async"))]
+    {
+        // This function only accepts blocking cameras
+        fn _blocking_only<P, T>(_camera: &Camera<BlockingMode, P, T>)
+        where
+            P: Profile,
+            T: BlockingTransport,
+        {
+            // Would have access to blocking methods here
+        }
+    }
 }

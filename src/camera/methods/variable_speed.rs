@@ -24,16 +24,14 @@ pub trait VariableSpeedOps {
     async fn set_variable_speed_mode(&self, mode: VariableSpeedMode) -> Result<(), Error>;
 }
 
+// Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P, T> VariableSpeedOps for crate::camera::generic::Camera<P, T>
+impl<P, T> VariableSpeedOps for crate::camera::Camera<crate::camera::AsyncMode, P, T>
 where
     P: crate::capabilities::Profile
         + crate::capabilities::VariableSpeed
         + crate::capabilities::HasVariableSpeed,
-    T: crate::transport::Transport + Send + Sync + 'static,
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+    T: crate::transport::AsyncTransport + Send + Sync + 'static,
 {
     async fn set_variable_speed_mode(&self, mode: VariableSpeedMode) -> Result<(), Error> {
         // No runtime check needed - compile-time guarantee via HasVariableSpeed marker trait
@@ -61,25 +59,19 @@ pub trait VariableSpeedOpsBlocking {
     fn set_variable_speed_mode(&self, mode: VariableSpeedMode) -> Result<(), Error>;
 }
 
+// Blocking implementation for Camera with BlockingMode
 #[cfg(not(feature = "async"))]
-impl<P, T> VariableSpeedOpsBlocking for crate::camera::generic::Camera<P, T>
+impl<P, T> VariableSpeedOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T>
 where
     P: crate::capabilities::Profile
         + crate::capabilities::VariableSpeed
         + crate::capabilities::HasVariableSpeed,
-    T: crate::transport::Transport
-        + Send
-        + Sync
-        + 'static
-        + crate::transport::core::BlockingTransport,
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+    T: crate::transport::BlockingTransport + Send + Sync + 'static,
 {
     fn set_variable_speed_mode(&self, mode: VariableSpeedMode) -> Result<(), Error> {
         // No runtime check needed - compile-time guarantee via HasVariableSpeed marker trait
         let cmd = VariableSpeedModeCommand::new(mode);
-        match self.send_command_blocking(&cmd)? {
+        match self.send_command(&cmd)? {
             Response::CmdAck | Response::Completion => Ok(()),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),

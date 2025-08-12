@@ -1,11 +1,6 @@
 //! Preset methods for cameras using the new GAT architecture.
 
-use crate::{
-    capabilities::ValidationError,
-    command::preset::{PresetAction, PresetCommand, PresetNumber},
-    Error,
-};
-use std::borrow::Cow;
+use crate::{command::preset::PresetNumber, Error};
 
 /// Presets operations (async).
 #[cfg(feature = "async")]
@@ -33,148 +28,42 @@ pub trait PresetsOpsBlocking: Sized {
     fn preset_reset(&self, preset: PresetNumber) -> Result<(), Error>;
 }
 
-// Async implementation
+// Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
-    PresetsOps for crate::camera::generic::Camera<P, T>
+impl<P, T> PresetsOps for crate::camera::Camera<crate::camera::AsyncMode, P, T>
 where
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+    P: crate::capabilities::Profile,
+    T: crate::transport::AsyncTransport + 'static,
 {
     async fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error> {
-        // Validate preset number (0 is valid - it's the home position)
-        if preset.value() > self.max_presets() {
-            return Err(Error::ValidationError(ValidationError::InvalidValue {
-                parameter: "preset",
-                message: Cow::Owned(format!(
-                    "Preset {} is invalid, must be 0-{}",
-                    preset.value(),
-                    self.max_presets()
-                )),
-            }));
-        }
-
-        let command = PresetCommand {
-            action: PresetAction::Recall,
-            preset_number: preset,
-        };
-        self.send_action_command(&command).await
+        self.preset_recall(preset).await
     }
 
     async fn preset_set(&self, preset: PresetNumber) -> Result<(), Error> {
-        // Validate preset number (0 is valid - it's the home position)
-        if preset.value() > self.max_presets() {
-            return Err(Error::ValidationError(ValidationError::InvalidValue {
-                parameter: "preset",
-                message: Cow::Owned(format!(
-                    "Preset {} is invalid, must be 0-{}",
-                    preset.value(),
-                    self.max_presets()
-                )),
-            }));
-        }
-
-        let command = PresetCommand {
-            action: PresetAction::Set,
-            preset_number: preset,
-        };
-        self.send_action_command(&command).await
+        self.preset_set(preset).await
     }
 
     async fn preset_reset(&self, preset: PresetNumber) -> Result<(), Error> {
-        // Validate preset number (0 is valid - it's the home position)
-        if preset.value() > self.max_presets() {
-            return Err(Error::ValidationError(ValidationError::InvalidValue {
-                parameter: "preset",
-                message: Cow::Owned(format!(
-                    "Preset {} is invalid, must be 0-{}",
-                    preset.value(),
-                    self.max_presets()
-                )),
-            }));
-        }
-
-        let command = PresetCommand {
-            action: PresetAction::Reset,
-            preset_number: preset,
-        };
-        self.send_action_command(&command).await
+        self.preset_reset(preset).await
     }
 }
 
-// Blocking implementation
+// Blocking implementation for Camera with BlockingMode
 #[cfg(not(feature = "async"))]
-impl<
-        P: crate::capabilities::Profile,
-        T: crate::transport::Transport
-            + Send
-            + Sync
-            + 'static
-            + crate::transport::core::BlockingTransport,
-    > PresetsOpsBlocking for crate::camera::generic::Camera<P, T>
+impl<P, T> PresetsOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T>
 where
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+    P: crate::capabilities::Profile,
+    T: crate::transport::BlockingTransport,
 {
     fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error> {
-        // Validate preset number (0 is valid - it's the home position)
-        if preset.value() > self.max_presets() {
-            return Err(Error::ValidationError(ValidationError::InvalidValue {
-                parameter: "preset",
-                message: Cow::Owned(format!(
-                    "Preset {} is invalid, must be 0-{}",
-                    preset.value(),
-                    self.max_presets()
-                )),
-            }));
-        }
-
-        let command = PresetCommand {
-            action: PresetAction::Recall,
-            preset_number: preset,
-        };
-        self.send_action_command_blocking(&command)
+        self.preset_recall(preset)
     }
 
     fn preset_set(&self, preset: PresetNumber) -> Result<(), Error> {
-        // Validate preset number (0 is valid - it's the home position)
-        if preset.value() > self.max_presets() {
-            return Err(Error::ValidationError(ValidationError::InvalidValue {
-                parameter: "preset",
-                message: Cow::Owned(format!(
-                    "Preset {} is invalid, must be 0-{}",
-                    preset.value(),
-                    self.max_presets()
-                )),
-            }));
-        }
-
-        let command = PresetCommand {
-            action: PresetAction::Set,
-            preset_number: preset,
-        };
-        self.send_action_command_blocking(&command)
+        self.preset_set(preset)
     }
 
     fn preset_reset(&self, preset: PresetNumber) -> Result<(), Error> {
-        // Validate preset number (0 is valid - it's the home position)
-        if preset.value() > self.max_presets() {
-            return Err(Error::ValidationError(ValidationError::InvalidValue {
-                parameter: "preset",
-                message: Cow::Owned(format!(
-                    "Preset {} is invalid, must be 0-{}",
-                    preset.value(),
-                    self.max_presets()
-                )),
-            }));
-        }
-
-        let command = PresetCommand {
-            action: PresetAction::Reset,
-            preset_number: preset,
-        };
-        self.send_action_command_blocking(&command)
+        self.preset_reset(preset)
     }
 }

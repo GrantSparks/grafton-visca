@@ -5,50 +5,56 @@
 
 use std::{borrow::Cow, marker::PhantomData, sync::Arc, time::Duration};
 
+use crate::camera::{AsyncMode, BlockingMode};
+use crate::command::ResponseType;
+
 #[cfg(feature = "async")]
 use crate::{executor::Spawner, runtime::RuntimeSpawner, socket_manager::SocketManagerHandle};
 
 use crate::{
     camera_id::CameraId,
     capabilities::Profile,
-    command::{encode_visca::EncodeVisca, Response, ResponseType},
+    command::{encode_visca::EncodeVisca, Response},
     error::Error,
     timeout::TimeoutConfig,
-    transport::{core::Transport, TransportEnvelope},
+    transport::TransportEnvelope,
 };
 
-/// Generic camera client with compile-time profile selection.
+#[cfg(feature = "async")]
+use crate::transport::AsyncTransport;
+
+use crate::transport::BlockingTransport;
+
+/// Generic camera client with compile-time mode and profile selection.
 ///
 /// This struct provides type-safe camera control with zero runtime overhead.
-/// All profile-specific constants and behaviors are resolved at compile time.
+/// All mode and profile-specific constants and behaviors are resolved at compile time.
 ///
 /// # Type Parameters
 ///
+/// * `M` - Camera mode (AsyncMode or BlockingMode)
 /// * `P` - Camera profile implementing the `Profile` trait
-/// * `T` - Transport implementing `UnifiedTransport`
+/// * `T` - Transport (AsyncTransport for async mode, BlockingTransport for blocking mode)
 ///
 /// # Examples
 ///
 /// ```ignore
 /// use grafton_visca::{CameraBuilder, camera::profiles::PTZOpticsG2};
+/// use grafton_visca::camera::{CameraAsync, CameraBlocking};
 ///
-/// // Create a camera using the builder pattern
-/// let camera = CameraBuilder::tcp("192.168.0.110:52381")
-///     .profile::<PTZOpticsG2>()
-///     .build()?;
+/// // Async camera
+/// use grafton_visca::transport::tokio::Tcp;
+/// let transport = Tcp::connect("192.168.0.110:52381").await?;
+/// let camera: CameraAsync<PTZOpticsG2, _> = Camera::new(transport);
 ///
-/// // Or create directly with a transport
+/// // Blocking camera
 /// use grafton_visca::transport::blocking::Tcp;
 /// let transport = Tcp::connect("192.168.0.110:52381")?;
-/// let camera = Camera::<PTZOpticsG2, _>::new(transport);
+/// let camera: CameraBlocking<PTZOpticsG2, _> = Camera::new(transport);
 /// ```
-pub struct Camera<P, T>
+pub struct Camera<M, P, T>
 where
     P: Profile,
-    T: Transport + Send + Sync + 'static,
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
 {
     transport: Arc<T>,
     camera_id: CameraId,
@@ -57,19 +63,14 @@ where
     envelope: TransportEnvelope,
     #[cfg(feature = "async")]
     spawner: Option<Arc<dyn Spawner>>,
-    #[cfg(feature = "async")]
-    runtime: Option<Arc<dyn crate::runtime::Runtime>>,
     timeout_config: TimeoutConfig,
+    _mode: PhantomData<M>,
     _profile: PhantomData<P>,
 }
 
-impl<P, T> Clone for Camera<P, T>
+impl<M, P, T> Clone for Camera<M, P, T>
 where
     P: Profile,
-    T: Transport + Send + Sync + 'static,
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
 {
     fn clone(&self) -> Self {
         Self {
@@ -80,21 +81,16 @@ where
             envelope: TransportEnvelope::new(P::PROTOCOL_STYLE),
             #[cfg(feature = "async")]
             spawner: self.spawner.clone(),
-            #[cfg(feature = "async")]
-            runtime: self.runtime.clone(),
             timeout_config: self.timeout_config,
+            _mode: PhantomData,
             _profile: PhantomData,
         }
     }
 }
 
-impl<P, T> std::fmt::Debug for Camera<P, T>
+impl<M, P, T> std::fmt::Debug for Camera<M, P, T>
 where
     P: Profile,
-    T: Transport + Send + Sync + 'static,
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut debug = f.debug_struct("Camera");
@@ -104,39 +100,15 @@ where
             .field("transport", &"<Transport>");
         #[cfg(feature = "async")]
         debug.field("socket_manager", &self.socket_manager.is_some());
-        #[cfg(feature = "async")]
-        debug.field("runtime", &self.runtime.is_some());
         debug.finish()
     }
 }
 
-impl<P, T> Camera<P, T>
+// Common methods that work for any mode
+impl<M, P, T> Camera<M, P, T>
 where
     P: Profile,
-    T: Transport + Send + Sync + 'static,
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
 {
-    /// Create a new camera from a transport.
-    pub fn from_transport(transport: T) -> Self {
-        let camera_id = CameraId::new(P::DEFAULT_ADDRESS).unwrap_or(CameraId::CAMERA_1);
-
-        Self {
-            envelope: TransportEnvelope::new(P::PROTOCOL_STYLE),
-            transport: Arc::new(transport),
-            camera_id,
-            #[cfg(feature = "async")]
-            socket_manager: None,
-            #[cfg(feature = "async")]
-            spawner: None,
-            #[cfg(feature = "async")]
-            runtime: None,
-            timeout_config: TimeoutConfig::default(),
-            _profile: PhantomData,
-        }
-    }
-
     /// Get the camera's model name.
     #[must_use]
     pub fn model_name(&self) -> &'static str {
@@ -313,9 +285,105 @@ where
         self.timeout_config = config;
         self
     }
+}
+
+// Async mode implementation
+#[cfg(feature = "async")]
+impl<P, T> Camera<AsyncMode, P, T>
+where
+    P: Profile,
+    T: AsyncTransport + 'static,
+{
+    /// Create a new async camera from an async transport.
+    pub fn from_transport(transport: T) -> Self {
+        let camera_id = CameraId::new(P::DEFAULT_ADDRESS).unwrap_or(CameraId::CAMERA_1);
+
+        Self {
+            envelope: TransportEnvelope::new(P::PROTOCOL_STYLE),
+            transport: Arc::new(transport),
+            camera_id,
+            socket_manager: None,
+            spawner: None,
+            timeout_config: TimeoutConfig::default(),
+            _mode: PhantomData,
+            _profile: PhantomData,
+        }
+    }
+
+    /// Set a spawner for async operations.
+    pub fn with_spawner<S>(mut self, spawner: S) -> Self
+    where
+        S: Spawner,
+    {
+        self.spawner = Some(Arc::new(spawner));
+
+        // Initialize socket manager automatically for better reliability
+        if let Err(e) = self.initialize_socket_manager() {
+            log::warn!("Failed to initialize socket manager: {e}");
+        }
+
+        self
+    }
+
+    /// Set a runtime for async operations.
+    pub fn with_runtime(mut self, runtime: crate::runtime::SharedRuntime) -> Self {
+        self.spawner = Some(Arc::new(RuntimeSpawner::new(runtime)));
+
+        // Initialize socket manager automatically for better reliability
+        if let Err(e) = self.initialize_socket_manager() {
+            log::warn!("Failed to initialize socket manager: {e}");
+        }
+
+        self
+    }
+
+    /// Initialize the socket manager for this camera.
+    pub fn initialize_socket_manager(&mut self) -> Result<(), Error> {
+        if self.socket_manager.is_some() {
+            return Ok(());
+        }
+
+        // Create socket manager components
+        let (command_sender, command_receiver) = crate::channels::unbounded();
+
+        // Store the handle
+        let handle = SocketManagerHandle::new(command_sender);
+        self.socket_manager = Some(handle);
+
+        // Start the socket manager actor with default timeout config
+        let transport = Arc::clone(&self.transport);
+        let timeout_config = TimeoutConfig::default();
+
+        // Get runtime (required for socket manager)
+        let runtime = crate::runtime::default_runtime();
+
+        let actor = crate::socket_manager::SocketManagerActor::new(
+            transport,
+            command_receiver,
+            timeout_config,
+            self.camera_id,
+            runtime,
+        );
+
+        if let Some(spawner) = &self.spawner {
+            // Use the provided spawner
+            let future = Box::pin(async move {
+                if let Err(e) = actor.run().await {
+                    log::error!("Socket manager actor failed: {e}");
+                }
+            });
+            spawner.spawn(future);
+        } else {
+            log::error!("Cannot initialize socket manager without a spawner");
+            return Err(Error::InvalidState(
+                Cow::Borrowed("Socket manager requires a spawner. Use Camera::new().with_spawner() to provide one."),
+            ));
+        }
+
+        Ok(())
+    }
 
     /// Send a command asynchronously and wait for response.
-    #[cfg(feature = "async")]
     pub async fn send_command<C>(&self, command: &C) -> Result<Response, Error>
     where
         C: EncodeVisca,
@@ -392,7 +460,7 @@ where
         self.transport
             .send(&framed_bytes)
             .await
-            .map_err(Into::into)?;
+            .map_err(|e| Error::from(e))?;
 
         // Handle response based on command type
         match command.response_type() {
@@ -441,8 +509,12 @@ where
             }
         };
 
-        // Require runtime for timeout operations
-        let runtime = self.require_runtime()?;
+        // Get runtime for timeout operations
+        #[cfg(feature = "rt-tokio")]
+        let runtime = crate::runtime::default_runtime();
+        #[cfg(not(feature = "rt-tokio"))]
+        let runtime = crate::runtime::default_runtime()?;
+
         crate::runtime::timeout_with_runtime(runtime.as_ref(), timeout_duration, recv_fut).await?
     }
 
@@ -493,20 +565,13 @@ where
             }
         };
 
-        // Require runtime for timeout operations
-        let runtime = self.require_runtime()?;
-        crate::runtime::timeout_with_runtime(runtime.as_ref(), timeout_duration, recv_loop).await?
-    }
+        // Get runtime for timeout operations
+        #[cfg(feature = "rt-tokio")]
+        let runtime = crate::runtime::default_runtime();
+        #[cfg(not(feature = "rt-tokio"))]
+        let runtime = crate::runtime::default_runtime()?;
 
-    /// Send a command synchronously (blocking).
-    #[cfg(not(feature = "async"))]
-    pub(crate) fn send_command_blocking<C>(&self, command: &C) -> Result<Response, Error>
-    where
-        C: EncodeVisca,
-        T: crate::transport::core::BlockingTransport,
-    {
-        // Direct blocking implementation
-        self.send_command_blocking_direct(command)
+        crate::runtime::timeout_with_runtime(runtime.as_ref(), timeout_duration, recv_loop).await?
     }
 
     /// Wait for a completion message from the camera.
@@ -526,8 +591,13 @@ where
 
             let wait_fut = socket_manager.wait_for_completion();
 
-            // Use runtime for timeout if available
-            if let Some(runtime) = &self.runtime {
+            // Try to get runtime for timeout
+            #[cfg(feature = "rt-tokio")]
+            let runtime = Some(crate::runtime::default_runtime());
+            #[cfg(not(feature = "rt-tokio"))]
+            let runtime = crate::runtime::default_runtime().ok();
+
+            if let Some(runtime) = runtime.as_ref() {
                 match crate::runtime::timeout_with_runtime(runtime.as_ref(), timeout, wait_fut)
                     .await
                 {
@@ -547,7 +617,7 @@ where
                         }
                     } else {
                         // No runtime available
-                        log::warn!("No runtime provided and not in tokio context");
+                        log::warn!("No runtime available for timeout");
                         wait_fut.await
                     }
                 }
@@ -563,173 +633,6 @@ where
             // No socket manager, can't wait for completion
             log::debug!("wait_for_completion: no socket manager available");
             Err(Error::Unsupported)
-        }
-    }
-
-    /// Direct blocking implementation without async
-    #[cfg(not(feature = "async"))]
-    fn send_command_blocking_direct<C>(&self, command: &C) -> Result<Response, Error>
-    where
-        C: EncodeVisca,
-        T: crate::transport::core::BlockingTransport,
-    {
-        // Get command bytes using EncodeVisca
-        let mut buffer = [0u8; 64];
-        let size = command.encode_into(self.camera_id, &mut buffer)?;
-        let mut cmd_bytes = buffer[..size].to_vec();
-
-        // Add VISCA terminator if not present
-        if cmd_bytes.last() != Some(&crate::command::const_encoding::VISCA_TERMINATOR) {
-            cmd_bytes.push(crate::command::const_encoding::VISCA_TERMINATOR);
-        }
-
-        // Apply protocol-specific framing using transport envelope
-        let is_inquiry = command.response_type().is_some();
-        let framed_bytes = self.envelope.frame_command(&cmd_bytes, is_inquiry);
-
-        log::debug!("Sending VISCA command: {framed_bytes:02X?}");
-
-        // Send command using blocking transport
-        use crate::executor::block_on;
-        block_on(self.transport.send(&framed_bytes)).map_err(Into::into)?;
-
-        // Handle response based on command type
-        match command.response_type() {
-            None => {
-                // Action command - wait for ACK then Completion
-                let timeout = self.timeout_config.get_timeout(command.timeout_kind());
-                let ack_response = self.wait_for_response_blocking(timeout)?;
-                match ack_response {
-                    Response::CmdAck => {
-                        // Wait for completion with the same timeout
-                        self.wait_for_response_blocking(timeout)
-                    }
-                    Response::Completion => {
-                        // Some cameras send completion directly
-                        Ok(Response::Completion)
-                    }
-                    Response::Error(e) => Err(e),
-                    _ => Err(Error::ParseError(Cow::Owned(format!(
-                        "Unexpected response: {ack_response:?}"
-                    )))),
-                }
-            }
-            Some(expected_type) => {
-                // Inquiry command - wait for specific response with type
-                let timeout = self.timeout_config.get_timeout(command.timeout_kind());
-                self.wait_for_response_with_type_blocking(expected_type, timeout)
-            }
-        }
-    }
-
-    /// Wait for a response with timeout (blocking version)
-    #[cfg(not(feature = "async"))]
-    fn wait_for_response_blocking(&self, timeout: Duration) -> Result<Response, Error>
-    where
-        T: crate::transport::core::BlockingTransport,
-    {
-        let start = std::time::Instant::now();
-        loop {
-            // Calculate remaining timeout
-            let remaining = timeout.saturating_sub(start.elapsed());
-            if remaining.is_zero() {
-                return Err(Error::CommandTimeout {
-                    duration: timeout,
-                    command: Cow::Borrowed("wait_for_response_blocking"),
-                });
-            }
-
-            // Try to receive a response with timeout using the blocking transport method
-            match self.transport.recv_blocking_with_timeout(remaining) {
-                Ok(bytes) => {
-                    log::debug!("Received response: {bytes:02X?}");
-
-                    // Deframe the response
-                    let response_bytes = self.envelope.extract_response(&bytes)?;
-
-                    // Parse using the generic Response parser
-                    match Response::parse(&response_bytes) {
-                        Ok(response) => return Ok(response),
-                        Err(e) => {
-                            log::warn!("Failed to parse response: {e:?}");
-                        }
-                    }
-                }
-                Err(Error::Timeout) => {
-                    if start.elapsed() >= timeout {
-                        return Err(Error::CommandTimeout {
-                            duration: timeout,
-                            command: Cow::Borrowed("wait_for_response_blocking"),
-                        });
-                    }
-                }
-                Err(e) => return Err(e),
-            }
-        }
-    }
-
-    /// Wait for a specific type of response with timeout (blocking version).
-    #[cfg(not(feature = "async"))]
-    fn wait_for_response_with_type_blocking(
-        &self,
-        expected_type: ResponseType,
-        timeout: Duration,
-    ) -> Result<Response, Error>
-    where
-        T: crate::transport::core::BlockingTransport,
-    {
-        let start = std::time::Instant::now();
-        loop {
-            // Calculate remaining timeout
-            let remaining = timeout.saturating_sub(start.elapsed());
-            if remaining.is_zero() {
-                return Err(Error::CommandTimeout {
-                    duration: timeout,
-                    command: Cow::Borrowed("wait_for_response_with_type_blocking"),
-                });
-            }
-
-            // Try to receive a response with timeout using the blocking transport method
-            match self.transport.recv_blocking_with_timeout(remaining) {
-                Ok(bytes) => {
-                    log::debug!("Received response: {bytes:02X?}");
-
-                    // Deframe the response
-                    let response_bytes = self.envelope.extract_response(&bytes)?;
-
-                    // First try to parse as a regular response
-                    match Response::parse(&response_bytes) {
-                        Ok(Response::CmdAck) => {
-                            // Skip ACK for inquiry commands and wait for the actual response
-                            log::debug!("Skipping ACK response for inquiry command");
-                            continue;
-                        }
-                        Ok(Response::Error(e)) => return Err(e),
-                        Ok(Response::Completion) => {
-                            // Unexpected completion for inquiry
-                            return Err(Error::UnexpectedResponseType);
-                        }
-                        Ok(other) => {
-                            return Ok(other);
-                        }
-                        Err(_) => {
-                            match Response::parse_with_type(&response_bytes, &expected_type) {
-                                Ok(response) => return Ok(response),
-                                Err(e) => return Err(e),
-                            }
-                        }
-                    }
-                }
-                Err(Error::Timeout) => {
-                    if start.elapsed() >= timeout {
-                        return Err(Error::CommandTimeout {
-                            duration: timeout,
-                            command: Cow::Borrowed("wait_for_response_with_type_blocking"),
-                        });
-                    }
-                }
-                Err(e) => return Err(e),
-            }
         }
     }
 
@@ -768,7 +671,7 @@ where
     /// * `Ok(InquiryResponse)` if the inquiry succeeded
     /// * `Err(Error)` if the inquiry failed or returned unexpected data
     #[cfg(feature = "async")]
-    pub(crate) async fn send_inquiry_command<C>(
+    pub async fn send_inquiry_command<C>(
         &self,
         command: &C,
     ) -> Result<crate::command::InquiryResponse, Error>
@@ -783,175 +686,1683 @@ where
         }
     }
 
-    /// Send an action command and wait for completion (blocking).
-    ///
-    /// This method centralizes the ACK/Completion handling for action commands,
-    /// automatically handling the response sequence and returning a simple Result.
-    ///
-    /// # Returns
-    /// * `Ok(())` if the command completed successfully
-    /// * `Err(Error)` if the command failed or timed out
-    #[cfg(not(feature = "async"))]
-    pub(crate) fn send_action_command_blocking<C>(&self, command: &C) -> Result<(), Error>
-    where
-        C: EncodeVisca,
-        T: crate::transport::core::BlockingTransport,
-    {
-        let response = self.send_command_blocking(command)?;
+    // Power methods for async mode
+
+    /// Power on the camera.
+    pub async fn power_on(&self) -> Result<(), Error> {
+        use crate::command::PowerCommand;
+        let command = PowerCommand::On;
+        self.send_action_command(&command).await?;
+        // Wait for camera to be ready
+        #[cfg(feature = "rt-tokio")]
+        let runtime = Some(crate::runtime::default_runtime());
+        #[cfg(not(feature = "rt-tokio"))]
+        let runtime = crate::runtime::default_runtime().ok();
+
+        if let Some(runtime) = runtime.as_ref() {
+            runtime.sleep(P::POWER_ON_TIME).await;
+        } else {
+            // Without runtime, use tokio directly if available
+            #[cfg(feature = "rt-tokio")]
+            tokio::time::sleep(P::POWER_ON_TIME).await;
+        }
+        Ok(())
+    }
+
+    /// Power off the camera.
+    pub async fn power_off(&self) -> Result<(), Error> {
+        use crate::command::PowerCommand;
+        let command = PowerCommand::Standby;
+        self.send_action_command(&command).await?;
+        // Wait for standby/off
+        #[cfg(feature = "rt-tokio")]
+        let runtime = Some(crate::runtime::default_runtime());
+        #[cfg(not(feature = "rt-tokio"))]
+        let runtime = crate::runtime::default_runtime().ok();
+
+        if let Some(runtime) = runtime.as_ref() {
+            runtime.sleep(P::STANDBY_TIME).await;
+        } else {
+            // Without runtime, use tokio directly if available
+            #[cfg(feature = "rt-tokio")]
+            tokio::time::sleep(P::STANDBY_TIME).await;
+        }
+        Ok(())
+    }
+
+    /// Inquiry: Get current power status.
+    pub async fn power_inquiry(&self) -> Result<bool, Error> {
+        use crate::command::inquiry::PowerInquiry;
+        let command = PowerInquiry;
+        let response = self.send_inquiry_command(&command).await?;
         match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            Response::CmdAck => Err(Error::CommandPending), // Should not happen with current logic
+            crate::command::InquiryResponse::Power { on } => Ok(on),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
 
-    /// Send an inquiry command and extract the typed result (blocking).
+    // Pan/Tilt methods
+
+    /// Stop all pan/tilt movement.
+    pub async fn pan_tilt_stop(&self) -> Result<(), Error> {
+        use crate::command::pan_tilt::{PanTilt, PanTiltDirection};
+        use crate::types::{PanSpeed, TiltSpeed};
+        let command = PanTilt::Move {
+            direction: PanTiltDirection::Stop,
+            pan_speed: PanSpeed::new(0).unwrap(),
+            tilt_speed: TiltSpeed::new(0).unwrap(),
+        };
+        self.send_action_command(&command).await
+    }
+
+    /// Move to home position (0, 0).
+    pub async fn pan_tilt_home(&self) -> Result<(), Error> {
+        use crate::command::pan_tilt::PanTilt;
+        let command = PanTilt::Home;
+        self.send_action_command(&command).await
+    }
+
+    /// Reset pan/tilt mechanism.
+    pub async fn pan_tilt_reset(&self) -> Result<(), Error> {
+        use crate::command::pan_tilt::PanTilt;
+        let command = PanTilt::Reset;
+        self.send_action_command(&command).await
+    }
+
+    /// Move to absolute pan/tilt position.
+    pub async fn pan_tilt_absolute(
+        &self,
+        pan: crate::types::PanPosition,
+        tilt: crate::types::TiltPosition,
+        pan_speed: crate::types::PanSpeed,
+        tilt_speed: crate::types::TiltSpeed,
+    ) -> Result<(), Error> {
+        use crate::command::pan_tilt::PanTilt;
+        let command = PanTilt::AbsolutePosition {
+            pan,
+            tilt,
+            pan_speed,
+            tilt_speed,
+        };
+        self.send_action_command(&command).await
+    }
+
+    /// Move relative to current position.
+    pub async fn pan_tilt_relative(
+        &self,
+        pan: crate::types::PanPosition,
+        tilt: crate::types::TiltPosition,
+        pan_speed: crate::types::PanSpeed,
+        tilt_speed: crate::types::TiltSpeed,
+    ) -> Result<(), Error> {
+        use crate::command::pan_tilt::PanTilt;
+        let command = PanTilt::RelativePosition {
+            pan,
+            tilt,
+            pan_speed,
+            tilt_speed,
+        };
+        self.send_action_command(&command).await
+    }
+
+    /// Move pan/tilt in a specific direction.
+    pub async fn pan_tilt_move(
+        &self,
+        direction: crate::command::pan_tilt::PanTiltDirection,
+        pan_speed: crate::types::PanSpeed,
+        tilt_speed: crate::types::TiltSpeed,
+    ) -> Result<(), Error> {
+        use crate::command::pan_tilt::PanTilt;
+        let command = PanTilt::Move {
+            direction,
+            pan_speed,
+            tilt_speed,
+        };
+        self.send_action_command(&command).await
+    }
+
+    /// Set pan/tilt movement limit for a specific corner.
+    pub async fn pan_tilt_limit_set(
+        &self,
+        corner: crate::command::pan_tilt::PanTiltLimitCorner,
+        pan: crate::types::PanPosition,
+        tilt: crate::types::TiltPosition,
+    ) -> Result<(), Error> {
+        use crate::command::pan_tilt::PanTilt;
+        let command = PanTilt::LimitSet { corner, pan, tilt };
+        self.send_action_command(&command).await
+    }
+
+    /// Clear pan/tilt movement limit for a specific corner.
+    pub async fn pan_tilt_limit_clear(
+        &self,
+        corner: crate::command::pan_tilt::PanTiltLimitCorner,
+    ) -> Result<(), Error> {
+        use crate::command::pan_tilt::PanTilt;
+        let command = PanTilt::LimitClear { corner };
+        self.send_action_command(&command).await
+    }
+
+    /// Inquiry: Get current pan/tilt position.
+    pub async fn pan_tilt_position_inquiry(
+        &self,
+    ) -> Result<(crate::types::PanPosition, crate::types::TiltPosition), Error> {
+        use crate::command::inquiry::PanTiltPositionInquiry;
+        let command = PanTiltPositionInquiry;
+        let response = self.send_inquiry_command(&command).await?;
+        match response {
+            crate::command::InquiryResponse::PanTiltPosition { pan, tilt } => Ok((
+                crate::types::PanPosition::try_from(pan)?,
+                crate::types::TiltPosition::try_from(tilt)?,
+            )),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    // Zoom methods
+
+    /// Stop zoom movement.
+    pub async fn zoom_stop(&self) -> Result<(), Error> {
+        use crate::command::zoom::Zoom;
+        let command = Zoom::Stop;
+        self.send_action_command(&command).await
+    }
+
+    /// Zoom in at standard speed (telephoto).
+    pub async fn zoom_tele_std(&self) -> Result<(), Error> {
+        use crate::command::zoom::Zoom;
+        let command = Zoom::TeleStd;
+        self.send_action_command(&command).await
+    }
+
+    /// Zoom out at standard speed (wide).
+    pub async fn zoom_wide_std(&self) -> Result<(), Error> {
+        use crate::command::zoom::Zoom;
+        let command = Zoom::WideStd;
+        self.send_action_command(&command).await
+    }
+
+    /// Zoom in at variable speed.
+    pub async fn zoom_tele_variable(
+        &self,
+        speed: crate::command::zoom::ZoomSpeed,
+    ) -> Result<(), Error> {
+        use crate::command::zoom::Zoom;
+        let command = Zoom::TeleVariable(speed);
+        self.send_action_command(&command).await
+    }
+
+    /// Zoom out at variable speed.
+    pub async fn zoom_wide_variable(
+        &self,
+        speed: crate::command::zoom::ZoomSpeed,
+    ) -> Result<(), Error> {
+        use crate::command::zoom::Zoom;
+        let command = Zoom::WideVariable(speed);
+        self.send_action_command(&command).await
+    }
+
+    /// Set zoom to specific position.
+    pub async fn zoom_position(&self, position: crate::types::ZoomPosition) -> Result<(), Error> {
+        use crate::command::zoom::Zoom;
+        let command = Zoom::Position(position);
+        self.send_action_command(&command).await
+    }
+
+    /// Set zoom to absolute position (0.0 = wide, 1.0 = full tele).
+    pub async fn zoom_absolute(&self, position: crate::units::Normalized) -> Result<(), Error> {
+        let position_value = position.0;
+
+        // Validate position
+        if !(0.0..=1.0).contains(&position_value) {
+            return Err(Error::InvalidParameter {
+                parameter: "zoom position",
+                value: Cow::Owned(position_value.to_string()),
+                reason: Cow::Owned(format!("must be between 0.0 and 1.0")),
+            });
+        }
+
+        // Convert normalized to raw zoom position (0x0000 to 0x4000)
+        let raw = (position_value * 16384.0) as u16;
+        let zoom_pos = crate::types::ZoomPosition::try_from(raw)?;
+        self.zoom_position(zoom_pos).await
+    }
+
+    /// Inquiry: Get current zoom position.
+    pub async fn zoom_position_inquiry(&self) -> Result<crate::types::ZoomPosition, Error> {
+        use crate::command::inquiry::ZoomPositionInquiry;
+        let command = ZoomPositionInquiry;
+        let response = self.send_inquiry_command(&command).await?;
+        match response {
+            crate::command::InquiryResponse::ZoomPosition { position } => {
+                crate::types::ZoomPosition::try_from(position)
+            }
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Get the current zoom position as a raw value.
+    pub async fn get_zoom_position(&self) -> Result<u16, Error> {
+        let zoom_pos = self.zoom_position_inquiry().await?;
+        Ok(zoom_pos.into())
+    }
+
+    /// Get the current pan and tilt position in degrees.
+    pub async fn get_pan_tilt_degrees(
+        &self,
+    ) -> Result<(crate::units::Degrees, crate::units::Degrees), Error> {
+        let (pan_pos, tilt_pos) = self.pan_tilt_position_inquiry().await?;
+        let (pan_deg, tilt_deg) = self.units_to_degrees(pan_pos.into(), tilt_pos.into());
+        Ok((pan_deg, tilt_deg))
+    }
+
+    // Focus methods
+
+    /// Stop any focus movement.
+    pub async fn focus_stop(&self) -> Result<(), Error> {
+        use crate::command::focus::Focus;
+        let command = Focus::Stop;
+        self.send_action_command(&command).await
+    }
+
+    /// Move focus far at standard speed.
+    pub async fn focus_far(&self) -> Result<(), Error> {
+        use crate::command::focus::Focus;
+        let command = Focus::Far;
+        self.send_action_command(&command).await
+    }
+
+    /// Move focus near at standard speed.
+    pub async fn focus_near(&self) -> Result<(), Error> {
+        use crate::command::focus::Focus;
+        let command = Focus::Near;
+        self.send_action_command(&command).await
+    }
+
+    /// Move focus far at variable speed.
+    pub async fn focus_far_with_speed(
+        &self,
+        speed: crate::command::focus::FocusSpeed,
+    ) -> Result<(), Error> {
+        use crate::command::focus::Focus;
+        let command = Focus::FarWithSpeed(speed);
+        self.send_action_command(&command).await
+    }
+
+    /// Move focus near at variable speed.
+    pub async fn focus_near_with_speed(
+        &self,
+        speed: crate::command::focus::FocusSpeed,
+    ) -> Result<(), Error> {
+        use crate::command::focus::Focus;
+        let command = Focus::NearWithSpeed(speed);
+        self.send_action_command(&command).await
+    }
+
+    /// Set focus to specific position.
+    pub async fn focus_position(&self, position: crate::types::FocusPosition) -> Result<(), Error> {
+        use crate::command::focus::Focus;
+        let command = Focus::Position(position);
+        self.send_action_command(&command).await
+    }
+
+    /// Enable auto focus mode.
+    pub async fn focus_auto(&self) -> Result<(), Error> {
+        use crate::command::focus::Focus;
+        let command = Focus::Auto;
+        self.send_action_command(&command).await
+    }
+
+    /// Enable manual focus mode.
+    pub async fn focus_manual(&self) -> Result<(), Error> {
+        use crate::command::focus::Focus;
+        let command = Focus::Manual;
+        self.send_action_command(&command).await
+    }
+
+    /// Trigger one-push auto focus (focus once then return to manual).
+    pub async fn focus_one_push(&self) -> Result<(), Error> {
+        use crate::command::focus::Focus;
+        let command = Focus::OnePushTrigger;
+        self.send_action_command(&command).await
+    }
+
+    /// Set focus to infinity.
+    pub async fn focus_infinity(&self) -> Result<(), Error> {
+        use crate::command::focus::Focus;
+        let command = Focus::Infinity;
+        self.send_action_command(&command).await
+    }
+
+    /// Inquiry: Get current focus position.
+    pub async fn focus_position_inquiry(&self) -> Result<crate::types::FocusPosition, Error> {
+        use crate::command::inquiry::FocusPositionInquiry;
+        let command = FocusPositionInquiry;
+        let response = self.send_inquiry_command(&command).await?;
+        match response {
+            crate::command::InquiryResponse::FocusPosition { position } => {
+                crate::types::FocusPosition::try_from(position)
+            }
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get current focus mode (auto/manual).
+    pub async fn focus_mode_inquiry(&self) -> Result<crate::command::focus::FocusMode, Error> {
+        use crate::command::inquiry::FocusModeInquiry;
+        let command = FocusModeInquiry;
+        let response = self.send_inquiry_command(&command).await?;
+        match response {
+            crate::command::InquiryResponse::FocusMode { mode } => Ok(mode),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    // Exposure methods
+
+    /// Set exposure mode.
+    pub async fn set_exposure_mode(
+        &self,
+        mode: crate::command::exposure::ExposureMode,
+    ) -> Result<(), Error> {
+        use crate::command::exposure::ExposureCommand;
+        let command = ExposureCommand { mode };
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Set auto exposure mode.
+    pub async fn exposure_auto(&self) -> Result<(), Error> {
+        self.set_exposure_mode(crate::command::exposure::ExposureMode::Auto)
+            .await
+    }
+
+    /// Set manual exposure mode.
+    pub async fn exposure_manual(&self) -> Result<(), Error> {
+        self.set_exposure_mode(crate::command::exposure::ExposureMode::Manual)
+            .await
+    }
+
+    /// Set shutter priority exposure mode.
+    pub async fn exposure_shutter_priority(&self) -> Result<(), Error> {
+        self.set_exposure_mode(crate::command::exposure::ExposureMode::Shutter)
+            .await
+    }
+
+    /// Set iris priority exposure mode.
+    pub async fn exposure_iris_priority(&self) -> Result<(), Error> {
+        self.set_exposure_mode(crate::command::exposure::ExposureMode::Iris)
+            .await
+    }
+
+    /// Set brightness priority exposure mode.
+    pub async fn exposure_bright_mode(&self) -> Result<(), Error> {
+        self.set_exposure_mode(crate::command::exposure::ExposureMode::Bright)
+            .await
+    }
+
+    /// Set iris level.
+    pub async fn set_iris(&self, level: crate::types::IrisLevel) -> Result<(), Error> {
+        use crate::command::exposure::Iris;
+        let command = Iris::SetAperture(level);
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Reset iris to default.
+    pub async fn reset_iris(&self) -> Result<(), Error> {
+        use crate::command::exposure::Iris;
+        let command = Iris::Reset;
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Increase iris (open aperture).
+    pub async fn increase_iris(&self) -> Result<(), Error> {
+        use crate::command::exposure::Iris;
+        let command = Iris::Up;
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Decrease iris (close aperture).
+    pub async fn decrease_iris(&self) -> Result<(), Error> {
+        use crate::command::exposure::Iris;
+        let command = Iris::Down;
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Set brightness level.
+    pub async fn set_brightness(&self, level: crate::types::BrightnessLevel) -> Result<(), Error> {
+        use crate::command::exposure::Bright;
+        let command = Bright::SetLevel(level);
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Reset brightness to default.
+    pub async fn reset_brightness(&self) -> Result<(), Error> {
+        use crate::command::exposure::Bright;
+        let command = Bright::Reset;
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Increase brightness.
+    pub async fn increase_brightness(&self) -> Result<(), Error> {
+        use crate::command::exposure::Bright;
+        let command = Bright::Up;
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Decrease brightness.
+    pub async fn decrease_brightness(&self) -> Result<(), Error> {
+        use crate::command::exposure::Bright;
+        let command = Bright::Down;
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Set shutter speed.
+    pub async fn set_shutter_speed(&self, speed: crate::types::ShutterSpeed) -> Result<(), Error> {
+        use crate::command::exposure::Shutter;
+        let command = Shutter::SetSpeed(speed);
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Reset shutter speed to default.
+    pub async fn reset_shutter_speed(&self) -> Result<(), Error> {
+        use crate::command::exposure::Shutter;
+        let command = Shutter::Reset;
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Increase shutter speed (faster).
+    pub async fn increase_shutter_speed(&self) -> Result<(), Error> {
+        use crate::command::exposure::Shutter;
+        let command = Shutter::Up;
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Decrease shutter speed (slower).
+    pub async fn decrease_shutter_speed(&self) -> Result<(), Error> {
+        use crate::command::exposure::Shutter;
+        let command = Shutter::Down;
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Set gain value.
+    pub async fn set_gain(&self, gain: crate::types::GainLevel) -> Result<(), Error> {
+        use crate::command::gain::Gain;
+        let command = Gain::SetValue(gain);
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Reset gain to default.
+    pub async fn reset_gain(&self) -> Result<(), Error> {
+        use crate::command::gain::Gain;
+        let command = Gain::Reset;
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Increase gain.
+    pub async fn increase_gain(&self) -> Result<(), Error> {
+        use crate::command::gain::Gain;
+        let command = Gain::Up;
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Decrease gain.
+    pub async fn decrease_gain(&self) -> Result<(), Error> {
+        use crate::command::gain::Gain;
+        let command = Gain::Down;
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Set gain limit.
+    pub async fn set_gain_limit(&self, limit: crate::types::GainLimit) -> Result<(), Error> {
+        use crate::command::gain::GainLimitCommand;
+        let command = GainLimitCommand::new(limit);
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Set exposure compensation level.
+    pub async fn set_exposure_compensation_level(
+        &self,
+        level: crate::types::ExposureCompensationLevel,
+    ) -> Result<(), Error> {
+        use crate::command::exposure::ExposureCompensation;
+        let command = ExposureCompensation::SetLevel(level);
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Enable exposure compensation.
+    pub async fn enable_exposure_compensation(&self) -> Result<(), Error> {
+        use crate::command::exposure::ExposureCompensation;
+        let command = ExposureCompensation::On;
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Disable exposure compensation.
+    pub async fn disable_exposure_compensation(&self) -> Result<(), Error> {
+        use crate::command::exposure::ExposureCompensation;
+        let command = ExposureCompensation::Off;
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Reset exposure compensation.
+    pub async fn reset_exposure_compensation(&self) -> Result<(), Error> {
+        use crate::command::exposure::ExposureCompensation;
+        let command = ExposureCompensation::Reset;
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Increase exposure compensation.
+    pub async fn increase_exposure_compensation(&self) -> Result<(), Error> {
+        use crate::command::exposure::ExposureCompensation;
+        let command = ExposureCompensation::Up;
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Decrease exposure compensation.
+    pub async fn decrease_exposure_compensation(&self) -> Result<(), Error> {
+        use crate::command::exposure::ExposureCompensation;
+        let command = ExposureCompensation::Down;
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Set backlight compensation.
+    pub async fn set_backlight(&self, enabled: bool) -> Result<(), Error> {
+        use crate::command::image::BacklightCommand;
+        let command = BacklightCommand::new(enabled);
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Enable auto slow shutter.
+    pub async fn enable_auto_slow_shutter(&self) -> Result<(), Error> {
+        use crate::command::exposure::AutoSlowShutter;
+        let command = AutoSlowShutter::On;
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Disable auto slow shutter.
+    pub async fn disable_auto_slow_shutter(&self) -> Result<(), Error> {
+        use crate::command::exposure::AutoSlowShutter;
+        let command = AutoSlowShutter::Off;
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Enable spotlight mode.
+    pub async fn enable_spotlight(&self) -> Result<(), Error> {
+        use crate::command::exposure::Spotlight;
+        let command = Spotlight::On;
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Disable spotlight mode.
+    pub async fn disable_spotlight(&self) -> Result<(), Error> {
+        use crate::command::exposure::Spotlight;
+        let command = Spotlight::Off;
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Set brightness direct value.
+    pub async fn set_brightness_direct(
+        &self,
+        value: crate::types::BrightnessLevel,
+    ) -> Result<(), Error> {
+        use crate::command::exposure::Bright;
+        let command = Bright::SetLevel(value);
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Set color temperature.
+    pub async fn set_color_temperature(&self, temp: u16) -> Result<(), Error> {
+        use crate::command::color::ColorTemperature;
+        use crate::types::ColorTemp;
+        let color_temp = ColorTemp::new(temp).map_err(|_| Error::InvalidParameter {
+            parameter: "color_temperature".into(),
+            value: temp.to_string().into(),
+            reason: "Invalid color temperature value".into(),
+        })?;
+        let command = ColorTemperature::SetTemperature(color_temp);
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    // White Balance Methods
+
+    /// Set white balance mode to any supported mode.
+    pub async fn set_white_balance_mode(
+        &self,
+        mode: crate::command::white_balance::WhiteBalanceMode,
+    ) -> Result<(), Error> {
+        use crate::command::white_balance::WhiteBalanceCommand;
+        let command = WhiteBalanceCommand { mode };
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Set auto white balance mode.
+    pub async fn white_balance_auto(&self) -> Result<(), Error> {
+        self.set_white_balance_mode(crate::command::white_balance::WhiteBalanceMode::Auto)
+            .await
+    }
+
+    /// Set indoor white balance preset (optimized for incandescent/tungsten lighting).
+    pub async fn white_balance_indoor(&self) -> Result<(), Error> {
+        self.set_white_balance_mode(crate::command::white_balance::WhiteBalanceMode::Indoor)
+            .await
+    }
+
+    /// Set outdoor white balance preset (optimized for daylight).
+    pub async fn white_balance_outdoor(&self) -> Result<(), Error> {
+        self.set_white_balance_mode(crate::command::white_balance::WhiteBalanceMode::Outdoor)
+            .await
+    }
+
+    /// Set one-push white balance mode (calibrate once based on current scene).
+    pub async fn white_balance_one_push(&self) -> Result<(), Error> {
+        self.set_white_balance_mode(crate::command::white_balance::WhiteBalanceMode::OnePush)
+            .await
+    }
+
+    /// Set auto tracking white balance (Sony FR7 specific).
+    pub async fn white_balance_atw(&self) -> Result<(), Error> {
+        self.set_white_balance_mode(crate::command::white_balance::WhiteBalanceMode::ATW)
+            .await
+    }
+
+    /// Set manual white balance mode.
+    pub async fn white_balance_manual(&self) -> Result<(), Error> {
+        self.set_white_balance_mode(crate::command::white_balance::WhiteBalanceMode::Manual)
+            .await
+    }
+
+    /// Set color temperature white balance mode.
+    pub async fn white_balance_color_temperature(&self) -> Result<(), Error> {
+        self.set_white_balance_mode(
+            crate::command::white_balance::WhiteBalanceMode::ColorTemperature,
+        )
+        .await
+    }
+
+    /// Set AWB sensitivity level (PTZOptics specific).
+    pub async fn set_awb_sensitivity(
+        &self,
+        sensitivity: crate::command::white_balance::AutoWhiteBalanceSensitivity,
+    ) -> Result<(), Error> {
+        use crate::command::white_balance::AWBSensitivityCommand;
+        let command = AWBSensitivityCommand { sensitivity };
+        self.send_command(&command).await.map(|_| ())
+    }
+
+    /// Set dynamic range.
+    pub async fn set_dynamic_range(
+        &self,
+        _range: crate::types::DynamicRangeLevel,
+    ) -> Result<(), Error> {
+        // TODO: DynamicRangeCommand not yet implemented
+        Err(Error::Unsupported)
+    }
+
+    /// Set the variable speed mode (24-step or 50-step).
     ///
-    /// This method centralizes the response handling for inquiry commands,
-    /// automatically extracting the inquiry data and returning it.
-    ///
-    /// # Returns
-    /// * `Ok(InquiryResponse)` if the inquiry succeeded
-    /// * `Err(Error)` if the inquiry failed or returned unexpected data
-    #[cfg(not(feature = "async"))]
-    pub(crate) fn send_inquiry_command_blocking<C>(
+    /// Only available on Sony FR7.
+    pub async fn set_variable_speed_mode(
+        &self,
+        mode: crate::command::VariableSpeedMode,
+    ) -> Result<(), Error> {
+        use crate::command::{Response, VariableSpeedModeCommand};
+        let cmd = VariableSpeedModeCommand::new(mode);
+        match self.send_command(&cmd).await? {
+            Response::CmdAck | Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    // ========== Preset Methods ==========
+
+    /// Store current position to a preset.
+    pub async fn preset_set(
+        &self,
+        preset_number: crate::command::preset::PresetNumber,
+    ) -> Result<(), Error> {
+        use crate::command::preset::{PresetAction, PresetCommand};
+        let command = PresetCommand {
+            action: PresetAction::Set,
+            preset_number,
+        };
+        self.send_action_command(&command).await
+    }
+
+    /// Recall a preset position.
+    pub async fn preset_recall(
+        &self,
+        preset_number: crate::command::preset::PresetNumber,
+    ) -> Result<(), Error> {
+        use crate::command::preset::{PresetAction, PresetCommand};
+        let command = PresetCommand {
+            action: PresetAction::Recall,
+            preset_number,
+        };
+        self.send_action_command(&command).await
+    }
+
+    /// Reset/clear a preset.
+    pub async fn preset_reset(
+        &self,
+        preset_number: crate::command::preset::PresetNumber,
+    ) -> Result<(), Error> {
+        use crate::command::preset::{PresetAction, PresetCommand};
+        let command = PresetCommand {
+            action: PresetAction::Reset,
+            preset_number,
+        };
+        self.send_action_command(&command).await
+    }
+
+    /// Enable image flip (vertical).
+    pub async fn enable_flip(&self) -> Result<(), Error> {
+        use crate::command::flip::{Flip, ImageFlipCommand};
+        let command = ImageFlipCommand::new(Flip::On);
+        self.send_action_command(&command).await
+    }
+
+    /// Disable image flip (vertical).
+    pub async fn disable_flip(&self) -> Result<(), Error> {
+        use crate::command::flip::{Flip, ImageFlipCommand};
+        let command = ImageFlipCommand::new(Flip::Off);
+        self.send_action_command(&command).await
+    }
+
+    /// Get image flip status.
+    pub async fn get_image_flip(&self) -> Result<crate::command::ImageFlipStatus, Error> {
+        use crate::command::inquiry::ImageFlipInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&ImageFlipInquiry).await?;
+        match response {
+            InquiryResponse::ImageFlip {
+                vertical,
+                horizontal,
+            } => Ok(crate::command::ImageFlipStatus {
+                vertical,
+                horizontal,
+            }),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("ImageFlip inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
+}
+
+// Blocking mode implementation
+impl<P, T> Camera<BlockingMode, P, T>
+where
+    P: Profile,
+    T: BlockingTransport,
+{
+    /// Create a new blocking camera from a blocking transport.
+    pub fn from_transport(transport: T) -> Self {
+        let camera_id = CameraId::new(P::DEFAULT_ADDRESS).unwrap_or(CameraId::CAMERA_1);
+
+        Self {
+            envelope: TransportEnvelope::new(P::PROTOCOL_STYLE),
+            transport: Arc::new(transport),
+            camera_id,
+            #[cfg(feature = "async")]
+            socket_manager: None,
+            #[cfg(feature = "async")]
+            spawner: None,
+            timeout_config: TimeoutConfig::default(),
+            _mode: PhantomData,
+            _profile: PhantomData,
+        }
+    }
+
+    /// Send a command synchronously and wait for response.
+    pub fn send_command<C>(&self, command: &C) -> Result<Response, Error>
+    where
+        C: EncodeVisca,
+    {
+        // Get command bytes using EncodeVisca
+        let mut buffer = [0u8; 64];
+        let size = command.encode_into(self.camera_id, &mut buffer)?;
+        let cmd_bytes = &buffer[..size];
+
+        // Add VISCA terminator if not present
+        let mut cmd_vec = cmd_bytes.to_vec();
+        if cmd_vec.last() != Some(&crate::command::const_encoding::VISCA_TERMINATOR) {
+            cmd_vec.push(crate::command::const_encoding::VISCA_TERMINATOR);
+        }
+
+        // Apply protocol-specific framing using transport envelope
+        let is_inquiry = command.response_type().is_some();
+        let framed_bytes = self.envelope.frame_command(&cmd_vec, is_inquiry);
+
+        log::debug!("Sending VISCA command (blocking): {:02X?}", framed_bytes);
+
+        // Get the appropriate timeout for this command category
+        let command_timeout = self.timeout_config.get_timeout(command.timeout_kind());
+
+        // Send command using BlockingTransport
+        self.transport.send_blocking(&framed_bytes)?;
+
+        // Handle response based on command type following VISCA protocol spec
+        match command.response_type() {
+            None => {
+                // Action command - wait for ACK then Completion
+                let ack_bytes = self
+                    .transport
+                    .recv_blocking_with_timeout(self.timeout_config.ack_timeout)?;
+                let ack = Response::parse(&ack_bytes)?;
+
+                match ack {
+                    Response::CmdAck => {
+                        // ACK received, now wait for completion
+                        let completion_bytes =
+                            self.transport.recv_blocking_with_timeout(command_timeout)?;
+                        Response::parse(&completion_bytes)
+                    }
+                    Response::Completion => {
+                        // Some cameras send completion directly without ACK
+                        Ok(Response::Completion)
+                    }
+                    _ => Err(Error::ParseError(Cow::Owned(format!(
+                        "Expected ACK or Completion, got: {:?}",
+                        ack
+                    )))),
+                }
+            }
+            Some(_response_type) => {
+                // Inquiry command - wait for specific response
+                let response_bytes = self.transport.recv_blocking_with_timeout(command_timeout)?;
+                let response = Response::parse(&response_bytes)?;
+
+                // Verify we got the expected response type
+                // For now, just return the response
+                Ok(response)
+            }
+        }
+    }
+
+    /// Send an action command and wait for completion.
+    pub fn send_action_command<C>(&self, command: &C) -> Result<(), Error>
+    where
+        C: EncodeVisca,
+    {
+        let response = self.send_command(command)?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Send an inquiry command and extract the typed result.
+    pub fn send_inquiry_command<C>(
         &self,
         command: &C,
     ) -> Result<crate::command::InquiryResponse, Error>
     where
         C: EncodeVisca,
-        T: crate::transport::core::BlockingTransport,
     {
-        let response = self.send_command_blocking(command)?;
+        let response = self.send_command(command)?;
         match response {
             Response::Inquiry(data) => Ok(data),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
-}
 
-impl<P, T> Camera<P, T>
-where
-    P: Profile,
-    T: Transport + Send + Sync + 'static,
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
-{
-    /// Create a new camera with a custom transport.
-    ///
-    /// For standard TCP/UDP transports, prefer using the CameraBuilder:
-    /// - `CameraBuilder::tcp()` for blocking TCP
-    /// - `CameraBuilder::udp()` for blocking UDP
-    /// - `CameraBuilder::tokio_tcp()` for async TCP with tokio
-    /// - `CameraBuilder::tokio_udp()` for async UDP with tokio
-    pub fn new(transport: T) -> Self {
-        Self::from_transport(transport)
-    }
+    // Power methods for blocking mode
 
-    /// Set a spawner for async operations.
-    #[cfg(feature = "async")]
-    pub fn with_spawner<S>(mut self, spawner: S) -> Self
-    where
-        S: Spawner,
-    {
-        self.spawner = Some(Arc::new(spawner));
-
-        // Initialize socket manager automatically for better reliability
-        if let Err(e) = self.initialize_socket_manager() {
-            log::warn!("Failed to initialize socket manager: {e}");
-        }
-
-        self
-    }
-
-    /// Set a runtime for async operations.
-    #[cfg(feature = "async")]
-    pub fn with_runtime(mut self, runtime: crate::runtime::SharedRuntime) -> Self {
-        self.runtime = Some(runtime.clone());
-        self.spawner = Some(Arc::new(RuntimeSpawner::new(runtime)));
-
-        // Initialize socket manager automatically for better reliability
-        if let Err(e) = self.initialize_socket_manager() {
-            log::warn!("Failed to initialize socket manager: {e}");
-        }
-
-        self
-    }
-
-    /// Set a runtime for async operations without initializing socket manager.
-    /// This is primarily useful for testing.
-    #[cfg(feature = "async")]
-    #[doc(hidden)]
-    pub fn with_runtime_only(mut self, runtime: crate::runtime::SharedRuntime) -> Self {
-        self.runtime = Some(runtime);
-        self
-    }
-
-    /// Ensure a runtime is available for async operations.
-    /// Returns an error if no runtime is configured.
-    #[cfg(feature = "async")]
-    pub(crate) fn require_runtime(&self) -> Result<&crate::runtime::SharedRuntime, Error> {
-        self.runtime
-            .as_ref()
-            .ok_or(Error::InvalidState("No runtime configured. Please call with_runtime() or use a builder with runtime support.".into()))
-    }
-
-    /// Initialize the socket manager for this camera.
-    pub fn initialize_socket_manager(&mut self) -> Result<(), Error> {
-        #[cfg(feature = "async")]
-        if self.socket_manager.is_some() {
-            return Ok(());
-        }
-
-        #[cfg(feature = "async")]
-        {
-            // Create socket manager components
-            let (command_sender, command_receiver) = crate::channels::unbounded();
-
-            // Store the handle
-            let handle = SocketManagerHandle::new(command_sender);
-            self.socket_manager = Some(handle);
-
-            // Start the socket manager actor with default timeout config
-            let transport = Arc::clone(&self.transport);
-            let timeout_config = TimeoutConfig::default();
-            let mut actor = crate::socket_manager::SocketManagerActor::new(
-                transport,
-                command_receiver,
-                timeout_config,
-                self.camera_id,
-            );
-
-            // Pass runtime if available
-            #[cfg(feature = "async")]
-            if let Some(runtime) = &self.runtime {
-                actor = actor.with_runtime(runtime.clone());
-            }
-
-            if let Some(spawner) = &self.spawner {
-                // Use the provided spawner
-                let future = Box::pin(async move {
-                    if let Err(e) = actor.run().await {
-                        log::error!("Socket manager actor failed: {e}");
-                    }
-                });
-                spawner.spawn(future);
-            } else {
-                log::error!("Cannot initialize socket manager without a spawner");
-                return Err(Error::InvalidState(
-                    Cow::Borrowed("Socket manager requires a spawner. Use Camera::new().with_spawner() to provide one."),
-                ));
-            }
-        }
-
-        #[cfg(not(feature = "async"))]
-        {
-            log::warn!("Socket manager not available in blocking-only builds");
-        }
-
+    /// Power on the camera.
+    pub fn power_on(&self) -> Result<(), Error> {
+        use crate::command::PowerCommand;
+        let command = PowerCommand::On;
+        self.send_action_command(&command)?;
+        // Wait for camera to be ready
+        std::thread::sleep(P::POWER_ON_TIME);
         Ok(())
     }
+
+    /// Power off the camera.
+    pub fn power_off(&self) -> Result<(), Error> {
+        use crate::command::PowerCommand;
+        let command = PowerCommand::Standby;
+        self.send_action_command(&command)?;
+        // Wait for standby/off
+        std::thread::sleep(P::STANDBY_TIME);
+        Ok(())
+    }
+
+    /// Inquiry: Get current power status.
+    pub fn power_inquiry(&self) -> Result<bool, Error> {
+        use crate::command::inquiry::PowerInquiry;
+        let command = PowerInquiry;
+        let response = self.send_inquiry_command(&command)?;
+        match response {
+            crate::command::InquiryResponse::Power { on } => Ok(on),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    // Pan/Tilt methods
+
+    /// Stop all pan/tilt movement.
+    pub fn pan_tilt_stop(&self) -> Result<(), Error> {
+        use crate::command::pan_tilt::{PanTilt, PanTiltDirection};
+        use crate::types::{PanSpeed, TiltSpeed};
+        let command = PanTilt::Move {
+            direction: PanTiltDirection::Stop,
+            pan_speed: PanSpeed::new(0).unwrap(),
+            tilt_speed: TiltSpeed::new(0).unwrap(),
+        };
+        self.send_action_command(&command)
+    }
+
+    /// Move to home position (0, 0).
+    pub fn pan_tilt_home(&self) -> Result<(), Error> {
+        use crate::command::pan_tilt::PanTilt;
+        let command = PanTilt::Home;
+        self.send_action_command(&command)
+    }
+
+    /// Reset pan/tilt mechanism.
+    pub fn pan_tilt_reset(&self) -> Result<(), Error> {
+        use crate::command::pan_tilt::PanTilt;
+        let command = PanTilt::Reset;
+        self.send_action_command(&command)
+    }
+
+    /// Move to absolute pan/tilt position.
+    pub fn pan_tilt_absolute(
+        &self,
+        pan: crate::types::PanPosition,
+        tilt: crate::types::TiltPosition,
+        pan_speed: crate::types::PanSpeed,
+        tilt_speed: crate::types::TiltSpeed,
+    ) -> Result<(), Error> {
+        use crate::command::pan_tilt::PanTilt;
+        let command = PanTilt::AbsolutePosition {
+            pan,
+            tilt,
+            pan_speed,
+            tilt_speed,
+        };
+        self.send_action_command(&command)
+    }
+
+    /// Move relative to current position.
+    pub fn pan_tilt_relative(
+        &self,
+        pan: crate::types::PanPosition,
+        tilt: crate::types::TiltPosition,
+        pan_speed: crate::types::PanSpeed,
+        tilt_speed: crate::types::TiltSpeed,
+    ) -> Result<(), Error> {
+        use crate::command::pan_tilt::PanTilt;
+        let command = PanTilt::RelativePosition {
+            pan,
+            tilt,
+            pan_speed,
+            tilt_speed,
+        };
+        self.send_action_command(&command)
+    }
+
+    /// Move pan/tilt in a specific direction.
+    pub fn pan_tilt_move(
+        &self,
+        direction: crate::command::pan_tilt::PanTiltDirection,
+        pan_speed: crate::types::PanSpeed,
+        tilt_speed: crate::types::TiltSpeed,
+    ) -> Result<(), Error> {
+        use crate::command::pan_tilt::PanTilt;
+        let command = PanTilt::Move {
+            direction,
+            pan_speed,
+            tilt_speed,
+        };
+        self.send_action_command(&command)
+    }
+
+    /// Set pan/tilt movement limit for a specific corner.
+    pub fn pan_tilt_limit_set(
+        &self,
+        corner: crate::command::pan_tilt::PanTiltLimitCorner,
+        pan: crate::types::PanPosition,
+        tilt: crate::types::TiltPosition,
+    ) -> Result<(), Error> {
+        use crate::command::pan_tilt::PanTilt;
+        let command = PanTilt::LimitSet { corner, pan, tilt };
+        self.send_action_command(&command)
+    }
+
+    /// Clear pan/tilt movement limit for a specific corner.
+    pub fn pan_tilt_limit_clear(
+        &self,
+        corner: crate::command::pan_tilt::PanTiltLimitCorner,
+    ) -> Result<(), Error> {
+        use crate::command::pan_tilt::PanTilt;
+        let command = PanTilt::LimitClear { corner };
+        self.send_action_command(&command)
+    }
+
+    /// Inquiry: Get current pan/tilt position.
+    pub fn pan_tilt_position_inquiry(
+        &self,
+    ) -> Result<(crate::types::PanPosition, crate::types::TiltPosition), Error> {
+        use crate::command::inquiry::PanTiltPositionInquiry;
+        let command = PanTiltPositionInquiry;
+        let response = self.send_inquiry_command(&command)?;
+        match response {
+            crate::command::InquiryResponse::PanTiltPosition { pan, tilt } => Ok((
+                crate::types::PanPosition::try_from(pan)?,
+                crate::types::TiltPosition::try_from(tilt)?,
+            )),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    // Zoom methods
+
+    /// Stop zoom movement.
+    pub fn zoom_stop(&self) -> Result<(), Error> {
+        use crate::command::zoom::Zoom;
+        let command = Zoom::Stop;
+        self.send_action_command(&command)
+    }
+
+    /// Zoom in at standard speed (telephoto).
+    pub fn zoom_tele_std(&self) -> Result<(), Error> {
+        use crate::command::zoom::Zoom;
+        let command = Zoom::TeleStd;
+        self.send_action_command(&command)
+    }
+
+    /// Zoom out at standard speed (wide).
+    pub fn zoom_wide_std(&self) -> Result<(), Error> {
+        use crate::command::zoom::Zoom;
+        let command = Zoom::WideStd;
+        self.send_action_command(&command)
+    }
+
+    /// Zoom in at variable speed.
+    pub fn zoom_tele_variable(&self, speed: crate::command::zoom::ZoomSpeed) -> Result<(), Error> {
+        use crate::command::zoom::Zoom;
+        let command = Zoom::TeleVariable(speed);
+        self.send_action_command(&command)
+    }
+
+    /// Zoom out at variable speed.
+    pub fn zoom_wide_variable(&self, speed: crate::command::zoom::ZoomSpeed) -> Result<(), Error> {
+        use crate::command::zoom::Zoom;
+        let command = Zoom::WideVariable(speed);
+        self.send_action_command(&command)
+    }
+
+    /// Set zoom to specific position.
+    pub fn zoom_position(&self, position: crate::types::ZoomPosition) -> Result<(), Error> {
+        use crate::command::zoom::Zoom;
+        let command = Zoom::Position(position);
+        self.send_action_command(&command)
+    }
+
+    /// Set zoom to absolute position (0.0 = wide, 1.0 = full tele).
+    pub fn zoom_absolute(&self, position: crate::units::Normalized) -> Result<(), Error> {
+        let position_value = position.0;
+
+        // Validate position
+        if !(0.0..=1.0).contains(&position_value) {
+            return Err(Error::InvalidParameter {
+                parameter: "zoom position",
+                value: Cow::Owned(position_value.to_string()),
+                reason: Cow::Owned(format!("must be between 0.0 and 1.0")),
+            });
+        }
+
+        // Convert normalized to raw zoom position (0x0000 to 0x4000)
+        let raw = (position_value * 16384.0) as u16;
+        let zoom_pos = crate::types::ZoomPosition::try_from(raw)?;
+        self.zoom_position(zoom_pos)
+    }
+
+    /// Inquiry: Get current zoom position.
+    pub fn zoom_position_inquiry(&self) -> Result<crate::types::ZoomPosition, Error> {
+        use crate::command::inquiry::ZoomPositionInquiry;
+        let command = ZoomPositionInquiry;
+        let response = self.send_inquiry_command(&command)?;
+        match response {
+            crate::command::InquiryResponse::ZoomPosition { position } => {
+                crate::types::ZoomPosition::try_from(position)
+            }
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Get the current zoom position as a raw value.
+    pub fn get_zoom_position(&self) -> Result<u16, Error> {
+        let zoom_pos = self.zoom_position_inquiry()?;
+        Ok(zoom_pos.into())
+    }
+
+    /// Get the current pan and tilt position in degrees.
+    pub fn get_pan_tilt_degrees(
+        &self,
+    ) -> Result<(crate::units::Degrees, crate::units::Degrees), Error> {
+        let (pan_pos, tilt_pos) = self.pan_tilt_position_inquiry()?;
+        let (pan_deg, tilt_deg) = self.units_to_degrees(pan_pos.into(), tilt_pos.into());
+        Ok((pan_deg, tilt_deg))
+    }
+
+    // Focus methods
+
+    /// Stop any focus movement.
+    pub fn focus_stop(&self) -> Result<(), Error> {
+        use crate::command::focus::Focus;
+        let command = Focus::Stop;
+        self.send_action_command(&command)
+    }
+
+    /// Move focus far at standard speed.
+    pub fn focus_far(&self) -> Result<(), Error> {
+        use crate::command::focus::Focus;
+        let command = Focus::Far;
+        self.send_action_command(&command)
+    }
+
+    /// Move focus near at standard speed.
+    pub fn focus_near(&self) -> Result<(), Error> {
+        use crate::command::focus::Focus;
+        let command = Focus::Near;
+        self.send_action_command(&command)
+    }
+
+    /// Move focus far at variable speed.
+    pub fn focus_far_with_speed(
+        &self,
+        speed: crate::command::focus::FocusSpeed,
+    ) -> Result<(), Error> {
+        use crate::command::focus::Focus;
+        let command = Focus::FarWithSpeed(speed);
+        self.send_action_command(&command)
+    }
+
+    /// Move focus near at variable speed.
+    pub fn focus_near_with_speed(
+        &self,
+        speed: crate::command::focus::FocusSpeed,
+    ) -> Result<(), Error> {
+        use crate::command::focus::Focus;
+        let command = Focus::NearWithSpeed(speed);
+        self.send_action_command(&command)
+    }
+
+    /// Set focus to specific position.
+    pub fn focus_position(&self, position: crate::types::FocusPosition) -> Result<(), Error> {
+        use crate::command::focus::Focus;
+        let command = Focus::Position(position);
+        self.send_action_command(&command)
+    }
+
+    /// Enable auto focus mode.
+    pub fn focus_auto(&self) -> Result<(), Error> {
+        use crate::command::focus::Focus;
+        let command = Focus::Auto;
+        self.send_action_command(&command)
+    }
+
+    /// Enable manual focus mode.
+    pub fn focus_manual(&self) -> Result<(), Error> {
+        use crate::command::focus::Focus;
+        let command = Focus::Manual;
+        self.send_action_command(&command)
+    }
+
+    /// Trigger one-push auto focus (focus once then return to manual).
+    pub fn focus_one_push(&self) -> Result<(), Error> {
+        use crate::command::focus::Focus;
+        let command = Focus::OnePushTrigger;
+        self.send_action_command(&command)
+    }
+
+    /// Set focus to infinity.
+    pub fn focus_infinity(&self) -> Result<(), Error> {
+        use crate::command::focus::Focus;
+        let command = Focus::Infinity;
+        self.send_action_command(&command)
+    }
+
+    /// Inquiry: Get current focus position.
+    pub fn focus_position_inquiry(&self) -> Result<crate::types::FocusPosition, Error> {
+        use crate::command::inquiry::FocusPositionInquiry;
+        let command = FocusPositionInquiry;
+        let response = self.send_inquiry_command(&command)?;
+        match response {
+            crate::command::InquiryResponse::FocusPosition { position } => {
+                crate::types::FocusPosition::try_from(position)
+            }
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get current focus mode (auto/manual).
+    pub fn focus_mode_inquiry(&self) -> Result<crate::command::focus::FocusMode, Error> {
+        use crate::command::inquiry::FocusModeInquiry;
+        let command = FocusModeInquiry;
+        let response = self.send_inquiry_command(&command)?;
+        match response {
+            crate::command::InquiryResponse::FocusMode { mode } => Ok(mode),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    // Exposure methods
+
+    /// Set exposure mode.
+    pub fn set_exposure_mode(
+        &self,
+        mode: crate::command::exposure::ExposureMode,
+    ) -> Result<(), Error> {
+        use crate::command::exposure::ExposureCommand;
+        let command = ExposureCommand { mode };
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Set auto exposure mode.
+    pub fn exposure_auto(&self) -> Result<(), Error> {
+        self.set_exposure_mode(crate::command::exposure::ExposureMode::Auto)
+    }
+
+    /// Set manual exposure mode.
+    pub fn exposure_manual(&self) -> Result<(), Error> {
+        self.set_exposure_mode(crate::command::exposure::ExposureMode::Manual)
+    }
+
+    /// Set shutter priority exposure mode.
+    pub fn exposure_shutter_priority(&self) -> Result<(), Error> {
+        self.set_exposure_mode(crate::command::exposure::ExposureMode::Shutter)
+    }
+
+    /// Set iris priority exposure mode.
+    pub fn exposure_iris_priority(&self) -> Result<(), Error> {
+        self.set_exposure_mode(crate::command::exposure::ExposureMode::Iris)
+    }
+
+    /// Set brightness priority exposure mode.
+    pub fn exposure_bright_mode(&self) -> Result<(), Error> {
+        self.set_exposure_mode(crate::command::exposure::ExposureMode::Bright)
+    }
+
+    /// Set iris level.
+    pub fn set_iris(&self, level: crate::types::IrisLevel) -> Result<(), Error> {
+        use crate::command::exposure::Iris;
+        let command = Iris::SetAperture(level);
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Reset iris to default.
+    pub fn reset_iris(&self) -> Result<(), Error> {
+        use crate::command::exposure::Iris;
+        let command = Iris::Reset;
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Increase iris (open aperture).
+    pub fn increase_iris(&self) -> Result<(), Error> {
+        use crate::command::exposure::Iris;
+        let command = Iris::Up;
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Decrease iris (close aperture).
+    pub fn decrease_iris(&self) -> Result<(), Error> {
+        use crate::command::exposure::Iris;
+        let command = Iris::Down;
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Set brightness level.
+    pub fn set_brightness(&self, level: crate::types::BrightnessLevel) -> Result<(), Error> {
+        use crate::command::exposure::Bright;
+        let command = Bright::SetLevel(level);
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Reset brightness to default.
+    pub fn reset_brightness(&self) -> Result<(), Error> {
+        use crate::command::exposure::Bright;
+        let command = Bright::Reset;
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Increase brightness.
+    pub fn increase_brightness(&self) -> Result<(), Error> {
+        use crate::command::exposure::Bright;
+        let command = Bright::Up;
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Decrease brightness.
+    pub fn decrease_brightness(&self) -> Result<(), Error> {
+        use crate::command::exposure::Bright;
+        let command = Bright::Down;
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Set shutter speed.
+    pub fn set_shutter_speed(&self, speed: crate::types::ShutterSpeed) -> Result<(), Error> {
+        use crate::command::exposure::Shutter;
+        let command = Shutter::SetSpeed(speed);
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Reset shutter speed to default.
+    pub fn reset_shutter_speed(&self) -> Result<(), Error> {
+        use crate::command::exposure::Shutter;
+        let command = Shutter::Reset;
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Increase shutter speed (faster).
+    pub fn increase_shutter_speed(&self) -> Result<(), Error> {
+        use crate::command::exposure::Shutter;
+        let command = Shutter::Up;
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Decrease shutter speed (slower).
+    pub fn decrease_shutter_speed(&self) -> Result<(), Error> {
+        use crate::command::exposure::Shutter;
+        let command = Shutter::Down;
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Set gain value.
+    pub fn set_gain(&self, gain: crate::types::GainLevel) -> Result<(), Error> {
+        use crate::command::gain::Gain;
+        let command = Gain::SetValue(gain);
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Reset gain to default.
+    pub fn reset_gain(&self) -> Result<(), Error> {
+        use crate::command::gain::Gain;
+        let command = Gain::Reset;
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Increase gain.
+    pub fn increase_gain(&self) -> Result<(), Error> {
+        use crate::command::gain::Gain;
+        let command = Gain::Up;
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Decrease gain.
+    pub fn decrease_gain(&self) -> Result<(), Error> {
+        use crate::command::gain::Gain;
+        let command = Gain::Down;
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Set gain limit.
+    pub fn set_gain_limit(&self, limit: crate::types::GainLimit) -> Result<(), Error> {
+        use crate::command::gain::GainLimitCommand;
+        let command = GainLimitCommand::new(limit);
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Set exposure compensation level.
+    pub fn set_exposure_compensation_level(
+        &self,
+        level: crate::types::ExposureCompensationLevel,
+    ) -> Result<(), Error> {
+        use crate::command::exposure::ExposureCompensation;
+        let command = ExposureCompensation::SetLevel(level);
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Enable exposure compensation.
+    pub fn enable_exposure_compensation(&self) -> Result<(), Error> {
+        use crate::command::exposure::ExposureCompensation;
+        let command = ExposureCompensation::On;
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Disable exposure compensation.
+    pub fn disable_exposure_compensation(&self) -> Result<(), Error> {
+        use crate::command::exposure::ExposureCompensation;
+        let command = ExposureCompensation::Off;
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Reset exposure compensation.
+    pub fn reset_exposure_compensation(&self) -> Result<(), Error> {
+        use crate::command::exposure::ExposureCompensation;
+        let command = ExposureCompensation::Reset;
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Increase exposure compensation.
+    pub fn increase_exposure_compensation(&self) -> Result<(), Error> {
+        use crate::command::exposure::ExposureCompensation;
+        let command = ExposureCompensation::Up;
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Decrease exposure compensation.
+    pub fn decrease_exposure_compensation(&self) -> Result<(), Error> {
+        use crate::command::exposure::ExposureCompensation;
+        let command = ExposureCompensation::Down;
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Set backlight compensation.
+    pub fn set_backlight(&self, enabled: bool) -> Result<(), Error> {
+        use crate::command::image::BacklightCommand;
+        let command = BacklightCommand::new(enabled);
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Enable auto slow shutter.
+    pub fn enable_auto_slow_shutter(&self) -> Result<(), Error> {
+        use crate::command::exposure::AutoSlowShutter;
+        let command = AutoSlowShutter::On;
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Disable auto slow shutter.
+    pub fn disable_auto_slow_shutter(&self) -> Result<(), Error> {
+        use crate::command::exposure::AutoSlowShutter;
+        let command = AutoSlowShutter::Off;
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Enable spotlight mode.
+    pub fn enable_spotlight(&self) -> Result<(), Error> {
+        use crate::command::exposure::Spotlight;
+        let command = Spotlight::On;
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Disable spotlight mode.
+    pub fn disable_spotlight(&self) -> Result<(), Error> {
+        use crate::command::exposure::Spotlight;
+        let command = Spotlight::Off;
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Set brightness direct value.
+    pub fn set_brightness_direct(&self, value: crate::types::BrightnessLevel) -> Result<(), Error> {
+        use crate::command::exposure::Bright;
+        let command = Bright::SetLevel(value);
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Set color temperature.
+    pub fn set_color_temperature(&self, temp: u16) -> Result<(), Error> {
+        use crate::command::color::ColorTemperature;
+        use crate::types::ColorTemp;
+        let color_temp = ColorTemp::new(temp).map_err(|_| Error::InvalidParameter {
+            parameter: "color_temperature".into(),
+            value: temp.to_string().into(),
+            reason: "Invalid color temperature value".into(),
+        })?;
+        let command = ColorTemperature::SetTemperature(color_temp);
+        self.send_command(&command).map(|_| ())
+    }
+
+    // White Balance Methods (Blocking)
+
+    /// Set white balance mode to any supported mode.
+    pub fn set_white_balance_mode(
+        &self,
+        mode: crate::command::white_balance::WhiteBalanceMode,
+    ) -> Result<(), Error> {
+        use crate::command::white_balance::WhiteBalanceCommand;
+        let command = WhiteBalanceCommand { mode };
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Set auto white balance mode.
+    pub fn white_balance_auto(&self) -> Result<(), Error> {
+        self.set_white_balance_mode(crate::command::white_balance::WhiteBalanceMode::Auto)
+    }
+
+    /// Set indoor white balance preset (optimized for incandescent/tungsten lighting).
+    pub fn white_balance_indoor(&self) -> Result<(), Error> {
+        self.set_white_balance_mode(crate::command::white_balance::WhiteBalanceMode::Indoor)
+    }
+
+    /// Set outdoor white balance preset (optimized for daylight).
+    pub fn white_balance_outdoor(&self) -> Result<(), Error> {
+        self.set_white_balance_mode(crate::command::white_balance::WhiteBalanceMode::Outdoor)
+    }
+
+    /// Set one-push white balance mode (calibrate once based on current scene).
+    pub fn white_balance_one_push(&self) -> Result<(), Error> {
+        self.set_white_balance_mode(crate::command::white_balance::WhiteBalanceMode::OnePush)
+    }
+
+    /// Set auto tracking white balance (Sony FR7 specific).
+    pub fn white_balance_atw(&self) -> Result<(), Error> {
+        self.set_white_balance_mode(crate::command::white_balance::WhiteBalanceMode::ATW)
+    }
+
+    /// Set manual white balance mode.
+    pub fn white_balance_manual(&self) -> Result<(), Error> {
+        self.set_white_balance_mode(crate::command::white_balance::WhiteBalanceMode::Manual)
+    }
+
+    /// Set color temperature white balance mode.
+    pub fn white_balance_color_temperature(&self) -> Result<(), Error> {
+        self.set_white_balance_mode(
+            crate::command::white_balance::WhiteBalanceMode::ColorTemperature,
+        )
+    }
+
+    /// Set AWB sensitivity level (PTZOptics specific).
+    pub fn set_awb_sensitivity(
+        &self,
+        sensitivity: crate::command::white_balance::AutoWhiteBalanceSensitivity,
+    ) -> Result<(), Error> {
+        use crate::command::white_balance::AWBSensitivityCommand;
+        let command = AWBSensitivityCommand { sensitivity };
+        self.send_command(&command).map(|_| ())
+    }
+
+    /// Set dynamic range.
+    pub fn set_dynamic_range(&self, _range: crate::types::DynamicRangeLevel) -> Result<(), Error> {
+        // TODO: DynamicRangeCommand not yet implemented
+        Err(Error::Unsupported)
+    }
+
+    /// Set the variable speed mode (24-step or 50-step).
+    ///
+    /// Only available on Sony FR7.
+    pub fn set_variable_speed_mode(
+        &self,
+        mode: crate::command::VariableSpeedMode,
+    ) -> Result<(), Error> {
+        use crate::command::{Response, VariableSpeedModeCommand};
+        let cmd = VariableSpeedModeCommand::new(mode);
+        match self.send_command(&cmd)? {
+            Response::CmdAck | Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    // ========== Preset Methods ==========
+
+    /// Store current position to a preset.
+    pub fn preset_set(
+        &self,
+        preset_number: crate::command::preset::PresetNumber,
+    ) -> Result<(), Error> {
+        use crate::command::preset::{PresetAction, PresetCommand};
+        let command = PresetCommand {
+            action: PresetAction::Set,
+            preset_number,
+        };
+        self.send_action_command(&command)
+    }
+
+    /// Recall a preset position.
+    pub fn preset_recall(
+        &self,
+        preset_number: crate::command::preset::PresetNumber,
+    ) -> Result<(), Error> {
+        use crate::command::preset::{PresetAction, PresetCommand};
+        let command = PresetCommand {
+            action: PresetAction::Recall,
+            preset_number,
+        };
+        self.send_action_command(&command)
+    }
+
+    /// Reset/clear a preset.
+    pub fn preset_reset(
+        &self,
+        preset_number: crate::command::preset::PresetNumber,
+    ) -> Result<(), Error> {
+        use crate::command::preset::{PresetAction, PresetCommand};
+        let command = PresetCommand {
+            action: PresetAction::Reset,
+            preset_number,
+        };
+        self.send_action_command(&command)
+    }
+
+    /// Enable image flip (vertical).
+    pub fn enable_flip(&self) -> Result<(), Error> {
+        use crate::command::flip::{Flip, ImageFlipCommand};
+        let command = ImageFlipCommand::new(Flip::On);
+        self.send_action_command(&command)
+    }
+
+    /// Disable image flip (vertical).
+    pub fn disable_flip(&self) -> Result<(), Error> {
+        use crate::command::flip::{Flip, ImageFlipCommand};
+        let command = ImageFlipCommand::new(Flip::Off);
+        self.send_action_command(&command)
+    }
+
+    /// Get image flip status.
+    pub fn get_image_flip(&self) -> Result<crate::command::ImageFlipStatus, Error> {
+        use crate::command::inquiry::ImageFlipInquiry;
+        use crate::command::InquiryResponse;
+        let response = self.send_inquiry_command(&ImageFlipInquiry)?;
+        match response {
+            InquiryResponse::ImageFlip {
+                vertical,
+                horizontal,
+            } => Ok(crate::command::ImageFlipStatus {
+                vertical,
+                horizontal,
+            }),
+            _ => Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("ImageFlip inquiry response"),
+                actual: vec![],
+            }),
+        }
+    }
 }
+
+// Legacy impl block removed - use CameraAsync::from_transport() or CameraBlocking::from_transport() instead

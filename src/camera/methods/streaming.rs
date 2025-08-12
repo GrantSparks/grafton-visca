@@ -2,11 +2,7 @@
 //!
 //! This module provides convenient methods for controlling PTZOptics NDI streaming features.
 
-use crate::{
-    command::streaming::{MulticastStreaming, NDIQualityCommand},
-    types::NDIQuality,
-    Error, Result,
-};
+use crate::{types::NDIQuality, Result};
 
 /// Operations for controlling network and streaming features (async).
 pub trait StreamingOps: Sized {
@@ -129,57 +125,3 @@ pub trait StreamingOpsBlocking: Sized {
 }
 
 // Implementation for async Camera
-#[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
-    StreamingOps for crate::camera::generic::Camera<P, T>
-where
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
-{
-    async fn enable_multicast(&self) -> Result<()> {
-        let command = MulticastStreaming::On;
-        self.send_action_command(&command).await
-    }
-
-    async fn disable_multicast(&self) -> Result<()> {
-        let command = MulticastStreaming::Off;
-        self.send_action_command(&command).await
-    }
-
-    async fn set_ndi_quality(&self, quality: NDIQuality) -> Result<()> {
-        let command = NDIQualityCommand::new(quality);
-        self.send_action_command(&command).await
-    }
-}
-
-// Implementation for blocking Camera
-#[cfg(not(feature = "async"))]
-impl<
-        P: crate::capabilities::Profile,
-        T: crate::transport::Transport
-            + Send
-            + Sync
-            + 'static
-            + crate::transport::core::BlockingTransport,
-    > StreamingOpsBlocking for crate::camera::generic::Camera<P, T>
-where
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
-{
-    fn enable_multicast(&self) -> Result<()> {
-        let command = MulticastStreaming::On;
-        self.send_action_command_blocking(&command)
-    }
-
-    fn disable_multicast(&self) -> Result<()> {
-        let command = MulticastStreaming::Off;
-        self.send_action_command_blocking(&command)
-    }
-
-    fn set_ndi_quality(&self, quality: NDIQuality) -> Result<()> {
-        let command = NDIQualityCommand::new(quality);
-        self.send_action_command_blocking(&command)
-    }
-}

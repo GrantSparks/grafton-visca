@@ -13,7 +13,7 @@ use crate::{
     },
     error::{Error, Result},
     timeout::{CommandCategory, TimeoutConfig},
-    transport::Transport,
+    transport::AsyncTransport,
 };
 
 impl Socket {
@@ -471,8 +471,7 @@ pub(crate) struct SocketManagerActor<T> {
     transport: Arc<T>,
     command_receiver: UnboundedReceiver<SocketManagerCommand>,
     timeout_config: TimeoutConfig,
-    #[cfg(feature = "async")]
-    runtime: Option<crate::runtime::SharedRuntime>,
+    runtime: crate::runtime::SharedRuntime,
     retry_hook: Box<dyn RetryHook + Send + Sync>,
 }
 
@@ -482,19 +481,16 @@ impl<T> std::fmt::Debug for SocketManagerActor<T> {
         builder
             .field("inner", &self.inner)
             .field("transport", &"Arc<T>")
-            .field("timeout_config", &self.timeout_config);
-        #[cfg(feature = "async")]
-        builder.field("runtime", &self.runtime.is_some());
-        builder.field("retry_hook", &"Box<dyn RetryHook>").finish()
+            .field("timeout_config", &self.timeout_config)
+            .field("runtime", &"SharedRuntime")
+            .field("retry_hook", &"Box<dyn RetryHook>")
+            .finish()
     }
 }
 
 impl<T> SocketManagerActor<T>
 where
-    T: Transport + Send + Sync + 'static,
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+    T: AsyncTransport + Send + Sync + 'static,
 {
     /// Create a new socket manager actor.
     pub fn new(
@@ -502,6 +498,7 @@ where
         command_receiver: UnboundedReceiver<SocketManagerCommand>,
         timeout_config: TimeoutConfig,
         camera_id: CameraId,
+        runtime: crate::runtime::SharedRuntime,
     ) -> Self {
         let mut inner = SocketManagerInner::new();
         inner.camera_id = camera_id;
@@ -510,17 +507,9 @@ where
             transport,
             command_receiver,
             timeout_config,
-            #[cfg(feature = "async")]
-            runtime: None,
+            runtime,
             retry_hook: Box::new(DefaultRetryHook::new()),
         }
-    }
-
-    /// Set the runtime for async timeout operations.
-    #[cfg(feature = "async")]
-    pub fn with_runtime(mut self, runtime: crate::runtime::SharedRuntime) -> Self {
-        self.runtime = Some(runtime);
-        self
     }
 
     /// Run the socket manager actor event loop.
@@ -561,7 +550,7 @@ where
                             }
                         }
                     }
-                    response_result = Transport::recv(self.transport.as_ref()) => {
+                    response_result = self.transport.recv() => {
                         match response_result {
                             Ok(bytes) => {
                                 self.handle_raw_response(bytes).await;
@@ -573,15 +562,7 @@ where
                             }
                         }
                     }
-                    _ = async {
-                        if let Some(runtime) = &self.runtime {
-                            runtime.sleep(std::time::Duration::from_millis(100)).await
-                        } else {
-                            // Should not happen if runtime is properly configured
-                            log::error!("No runtime available for timeout sleep - this is a bug");
-                            futures::future::ready(()).await
-                        }
-                    } => {}
+                    _ = self.runtime.sleep(std::time::Duration::from_millis(100)) => {}
                 }
             }
 
@@ -613,10 +594,7 @@ where
                     }
                 }
 
-                if let Ok(bytes) = Transport::recv(self.transport.as_ref())
-                    .await
-                    .map_err(Into::<Error>::into)
-                {
+                if let Ok(bytes) = self.transport.recv().await.map_err(Into::<Error>::into) {
                     activity = true;
                     empty_iterations = 0;
                     self.handle_raw_response(bytes).await;
@@ -697,7 +675,7 @@ where
             return;
         }
 
-        match Transport::send(self.transport.as_ref(), &pending_cmd.bytes).await {
+        match self.transport.send(&pending_cmd.bytes).await {
             Ok(()) => {
                 trace!("Inquiry command {} sent successfully", pending_cmd.id);
                 self.inner.set_pending_inquiry(pending_cmd);
@@ -727,7 +705,7 @@ where
     async fn send_command_on_socket(&mut self, pending_cmd: PendingCmd, socket: Socket) {
         trace!("Sending command {} on {socket:?}", pending_cmd.id);
 
-        match Transport::send(self.transport.as_ref(), &pending_cmd.bytes).await {
+        match self.transport.send(&pending_cmd.bytes).await {
             Ok(()) => {
                 trace!(
                     "Command {} sent successfully on {:?}",
@@ -1002,7 +980,7 @@ where
             Ok(size) => {
                 cancel_bytes.truncate(size);
                 // Send cancel command but don't wait for response to avoid further delays
-                if let Err(e) = Transport::send(self.transport.as_ref(), &cancel_bytes).await {
+                if let Err(e) = self.transport.send(&cancel_bytes).await {
                     let err: Error = e.into();
                     error!("Failed to send cancel command: {err}");
                 }
@@ -1048,34 +1026,12 @@ where
             delay
         );
 
-        #[cfg(feature = "async")]
-        {
-            if let Some(runtime) = &self.runtime {
-                runtime.sleep(delay).await;
-            } else {
-                // Should not happen if runtime is properly configured
-                log::error!(
-                    "No runtime available for retry delay - this is a bug, proceeding immediately"
-                );
-            }
+        self.runtime.sleep(delay).await;
 
-            if command.is_inquiry {
-                self.inner.set_pending_inquiry(command);
-            } else {
-                self.inner.enqueue_command(command);
-            }
-        }
-
-        #[cfg(not(feature = "async"))]
-        {
-            // In blocking mode, we can use thread::sleep
-            std::thread::sleep(delay);
-
-            if command.is_inquiry {
-                self.inner.set_pending_inquiry(command);
-            } else {
-                self.inner.enqueue_command(command);
-            }
+        if command.is_inquiry {
+            self.inner.set_pending_inquiry(command);
+        } else {
+            self.inner.enqueue_command(command);
         }
     }
 }

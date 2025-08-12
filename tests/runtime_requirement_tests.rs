@@ -6,29 +6,21 @@
 #![cfg(feature = "async")]
 
 use bytes::Bytes;
-use grafton_visca::transport::Transport;
-use std::future::Future;
-use std::pin::Pin;
+use grafton_visca::transport::AsyncTransport;
 
 /// Mock transport that always succeeds but never actually sends/receives
 #[derive(Debug)]
 #[allow(dead_code)]
 struct MockTransport;
 
-impl Transport for MockTransport {
-    type Error = std::io::Error;
-    type SendFut<'a> = Pin<Box<dyn Future<Output = Result<(), Self::Error>> + Send + 'a>>;
-    type RecvFut<'a> = Pin<Box<dyn Future<Output = Result<Bytes, Self::Error>> + Send + 'a>>;
-
-    fn send<'a>(&'a self, _data: &'a [u8]) -> Self::SendFut<'a> {
-        Box::pin(async { Ok(()) })
+impl AsyncTransport for MockTransport {
+    async fn send(&self, _bytes: &[u8]) -> Result<(), grafton_visca::Error> {
+        Ok(())
     }
 
-    fn recv(&self) -> Self::RecvFut<'_> {
-        Box::pin(async {
-            // Return a mock ACK response
-            Ok(Bytes::from_static(&[0x90, 0x41, 0xFF]))
-        })
+    async fn recv(&self) -> Result<Bytes, grafton_visca::Error> {
+        // Return a mock ACK response
+        Ok(Bytes::from_static(&[0x90, 0x41, 0xFF]))
     }
 }
 
@@ -55,29 +47,23 @@ impl MockTransportWithResponses {
     }
 }
 
-impl Transport for MockTransportWithResponses {
-    type Error = std::io::Error;
-    type SendFut<'a> = Pin<Box<dyn Future<Output = Result<(), Self::Error>> + Send + 'a>>;
-    type RecvFut<'a> = Pin<Box<dyn Future<Output = Result<Bytes, Self::Error>> + Send + 'a>>;
-
-    fn send<'a>(&'a self, _data: &'a [u8]) -> Self::SendFut<'a> {
-        Box::pin(async { Ok(()) })
+impl AsyncTransport for MockTransportWithResponses {
+    async fn send(&self, _data: &[u8]) -> Result<(), grafton_visca::Error> {
+        Ok(())
     }
 
-    fn recv(&self) -> Self::RecvFut<'_> {
-        Box::pin(async move {
-            let mut index = self.index.lock().unwrap();
-            let responses = self.responses.lock().unwrap();
+    async fn recv(&self) -> Result<Bytes, grafton_visca::Error> {
+        let mut index = self.index.lock().unwrap();
+        let responses = self.responses.lock().unwrap();
 
-            if *index < responses.len() {
-                let response = responses[*index].clone();
-                *index += 1;
-                Ok(Bytes::from(response))
-            } else {
-                // Return completion if we run out of responses
-                Ok(Bytes::from_static(&[0x90, 0x51, 0xFF]))
-            }
-        })
+        if *index < responses.len() {
+            let response = responses[*index].clone();
+            *index += 1;
+            Ok(Bytes::from(response))
+        } else {
+            // Return completion if we run out of responses
+            Ok(Bytes::from_static(&[0x90, 0x51, 0xFF]))
+        }
     }
 }
 
@@ -85,14 +71,13 @@ impl Transport for MockTransportWithResponses {
 #[tokio::test]
 async fn test_operations_fail_without_runtime() {
     use grafton_visca::{
-        camera::{profiles::PTZOpticsG2, Camera},
-        prelude::r#async::*,
+        camera::{profiles::PTZOpticsG2, CameraAsync, MovementOps},
         Error,
     };
 
     // Create camera without runtime
     let transport = MockTransport;
-    let camera = Camera::<PTZOpticsG2, _>::new(transport);
+    let camera = CameraAsync::<PTZOpticsG2, _>::from_transport(transport);
     // Note: NOT calling with_runtime()
 
     // Power operations should fail
@@ -120,8 +105,7 @@ async fn test_operations_fail_without_runtime() {
 #[tokio::test]
 async fn test_operations_succeed_with_runtime() {
     use grafton_visca::{
-        camera::{profiles::PTZOpticsG2, Camera},
-        prelude::r#async::*,
+        camera::{profiles::PTZOpticsG2, CameraAsync},
         runtime::{SharedRuntime, TokioRuntime},
     };
     use std::sync::Arc;
@@ -129,7 +113,7 @@ async fn test_operations_succeed_with_runtime() {
     // Create a better mock transport that returns proper VISCA responses
     let transport = MockTransportWithResponses::new();
     let runtime: SharedRuntime = Arc::new(TokioRuntime);
-    let camera = Camera::<PTZOpticsG2, _>::new(transport).with_runtime_only(runtime);
+    let camera = CameraAsync::<PTZOpticsG2, _>::from_transport(transport).with_runtime(runtime);
 
     // Operations should succeed with proper mock responses
     let result = camera.zoom_stop().await;
@@ -141,12 +125,11 @@ async fn test_operations_succeed_with_runtime() {
 #[tokio::test]
 async fn test_custom_runtime_works() {
     use grafton_visca::{
-        camera::{profiles::PTZOpticsG2, Camera},
+        camera::{profiles::PTZOpticsG2, CameraAsync},
         executor::{Sleep, SpawnableFuture, Spawner},
-        prelude::r#async::*,
         runtime::{GenericRuntime, SharedRuntime},
     };
-    use std::{pin::Pin, sync::Arc, time::Duration};
+    use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
     // Create a custom runtime using tokio components
     #[derive(Debug, Clone)]
@@ -170,7 +153,7 @@ async fn test_custom_runtime_works() {
     // Create camera with custom runtime
     let transport = MockTransportWithResponses::new();
     let runtime: SharedRuntime = Arc::new(GenericRuntime::new(TokioSleep, TokioSpawner));
-    let camera = Camera::<PTZOpticsG2, _>::new(transport).with_runtime_only(runtime);
+    let camera = CameraAsync::<PTZOpticsG2, _>::from_transport(transport).with_runtime(runtime);
 
     // Operations should succeed
     let result = camera.zoom_stop().await;
@@ -182,14 +165,13 @@ async fn test_custom_runtime_works() {
 #[tokio::test]
 async fn test_movement_detection_requires_runtime() {
     use grafton_visca::{
-        camera::{profiles::PTZOpticsG2, Camera},
-        prelude::r#async::*,
+        camera::{profiles::PTZOpticsG2, CameraAsync, MovementOps},
         Error,
     };
 
     // Create camera without runtime
     let transport = MockTransport;
-    let camera = Camera::<PTZOpticsG2, _>::new(transport);
+    let camera = CameraAsync::<PTZOpticsG2, _>::from_transport(transport);
 
     // Movement detection should fail without runtime
     // Using await_idle which internally uses movement detection
@@ -207,14 +189,13 @@ async fn test_movement_detection_requires_runtime() {
 #[tokio::test]
 async fn test_power_delays_require_runtime() {
     use grafton_visca::{
-        camera::{profiles::PTZOpticsG2, Camera},
-        prelude::r#async::*,
+        camera::{profiles::PTZOpticsG2, CameraAsync, MovementOps},
         Error,
     };
 
     // Create camera without runtime
     let transport = MockTransport;
-    let camera = Camera::<PTZOpticsG2, _>::new(transport);
+    let camera = CameraAsync::<PTZOpticsG2, _>::from_transport(transport);
 
     // Power on should fail due to missing runtime for delay
     let result = camera.power_on().await;
