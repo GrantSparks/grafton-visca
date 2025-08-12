@@ -385,39 +385,15 @@ impl grafton_visca::transport::core::BlockingTransport for MockTransport {
                     Ok(Bytes::from(bytes))
                 }
                 MockResponse::ErrorCode(code) => {
-                    let error_response = vec![
-                        0x01,
-                        0x11,
-                        0x00,
-                        0x03,
-                        0x00,
-                        0x00,
-                        0x00,
-                        0x00,
-                        0x90,
-                        0x60 | code,
-                        VISCA_TERMINATOR,
-                    ];
+                    let error_response = vec![0x90, 0x60, code, VISCA_TERMINATOR];
                     inner.response_history.push(error_response.clone());
                     Ok(Bytes::from(error_response))
                 }
                 MockResponse::Timeout => Err(Error::Timeout),
             }
         } else {
-            // Return a default completion if no responses queued
-            Ok(Bytes::from(vec![
-                0x01,
-                0x11,
-                0x00,
-                0x03,
-                0x00,
-                0x00,
-                0x00,
-                0x00,
-                0x90,
-                0x51,
-                VISCA_TERMINATOR,
-            ]))
+            // No response queued - simulate timeout
+            Err(Error::Timeout)
         }
     }
 }
