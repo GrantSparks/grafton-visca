@@ -58,10 +58,17 @@ fn test_tcp_blocking_timeout_enforcement() {
     let transport = Tcp::connect(&addr).expect("Failed to connect");
 
     // Test different timeout durations
+    // Windows has less precise timing, especially in CI, so we need larger tolerances
+    let tolerance_multiplier = if cfg!(windows) || std::env::var("CI").is_ok() {
+        2 // Double tolerance for Windows or CI environments
+    } else {
+        1
+    };
+
     let test_cases = vec![
-        (Duration::from_millis(100), 25), // 100ms timeout, ±25ms tolerance
-        (Duration::from_millis(500), 50), // 500ms timeout, ±50ms tolerance
-        (Duration::from_secs(1), 100),    // 1s timeout, ±100ms tolerance
+        (Duration::from_millis(100), 25 * tolerance_multiplier), // 100ms timeout, ±25-50ms tolerance
+        (Duration::from_millis(500), 50 * tolerance_multiplier), // 500ms timeout, ±50-100ms tolerance
+        (Duration::from_secs(1), 100 * tolerance_multiplier),    // 1s timeout, ±100-200ms tolerance
     ];
 
     for (timeout_duration, tolerance_ms) in test_cases {
@@ -104,10 +111,17 @@ fn test_udp_blocking_timeout_enforcement() {
     let _ = grafton_visca::executor::block_on(send_fut);
 
     // Test different timeout durations
+    // Windows has less precise timing, especially in CI, so we need larger tolerances
+    let tolerance_multiplier = if cfg!(windows) || std::env::var("CI").is_ok() {
+        2 // Double tolerance for Windows or CI environments
+    } else {
+        1
+    };
+
     let test_cases = vec![
-        (Duration::from_millis(100), 25), // 100ms timeout, ±25ms tolerance
-        (Duration::from_millis(500), 50), // 500ms timeout, ±50ms tolerance
-        (Duration::from_secs(1), 100),    // 1s timeout, ±100ms tolerance
+        (Duration::from_millis(100), 25 * tolerance_multiplier), // 100ms timeout, ±25-50ms tolerance
+        (Duration::from_millis(500), 50 * tolerance_multiplier), // 500ms timeout, ±50-100ms tolerance
+        (Duration::from_secs(1), 100 * tolerance_multiplier),    // 1s timeout, ±100-200ms tolerance
     ];
 
     for (timeout_duration, tolerance_ms) in test_cases {
