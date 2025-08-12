@@ -16,6 +16,7 @@ struct MockTransport {
 }
 
 impl MockTransport {
+    #[cfg(feature = "rt-tokio")]
     fn new() -> Self {
         Self {
             response_count: std::sync::Mutex::new(0),
@@ -36,7 +37,7 @@ impl AsyncTransport for MockTransport {
     async fn recv(&self) -> Result<Bytes, grafton_visca::Error> {
         let mut count = self.response_count.lock().unwrap();
         *count += 1;
-        
+
         // Simple logic: ACK for odd counts, Completion for even counts
         // This works for basic action commands like zoom_stop
         if *count % 2 == 1 {
@@ -95,9 +96,7 @@ impl AsyncTransport for MockTransportWithResponses {
 #[cfg(feature = "rt-tokio")]
 #[tokio::test]
 async fn test_operations_work_with_default_runtime() {
-    use grafton_visca::{
-        camera::{profiles::PTZOpticsG2, CameraAsync},
-    };
+    use grafton_visca::camera::{profiles::PTZOpticsG2, CameraAsync};
 
     // Create camera with mock transport (uses default runtime from rt-tokio)
     let transport = MockTransport::new();
@@ -116,9 +115,7 @@ async fn test_operations_work_with_default_runtime() {
 #[cfg(feature = "rt-tokio")]
 #[tokio::test]
 async fn test_operations_succeed_with_explicit_runtime() {
-    use grafton_visca::{
-        camera::{profiles::PTZOpticsG2, CameraAsync},
-    };
+    use grafton_visca::camera::{profiles::PTZOpticsG2, CameraAsync};
 
     // Create a better mock transport that returns proper VISCA responses
     let transport = MockTransportWithResponses::new();
@@ -149,9 +146,7 @@ async fn test_custom_runtime_works() {
 #[cfg(feature = "rt-tokio")]
 #[tokio::test]
 async fn test_movement_detection_works_with_default_runtime() {
-    use grafton_visca::{
-        camera::{profiles::PTZOpticsG2, CameraAsync},
-    };
+    use grafton_visca::camera::{profiles::PTZOpticsG2, CameraAsync};
 
     // Create camera with mock transport (uses default runtime from rt-tokio)
     let transport = MockTransport::new();
@@ -161,7 +156,7 @@ async fn test_movement_detection_works_with_default_runtime() {
     // Just test basic commands that don't require complex inquiry responses
     let result = camera.zoom_stop().await;
     assert!(result.is_ok(), "zoom_stop failed: {:?}", result);
-    
+
     let result = camera.pan_tilt_stop().await;
     assert!(result.is_ok(), "pan_tilt_stop failed: {:?}", result);
 }
@@ -169,9 +164,7 @@ async fn test_movement_detection_works_with_default_runtime() {
 #[cfg(feature = "rt-tokio")]
 #[tokio::test]
 async fn test_power_operations_work_with_default_runtime() {
-    use grafton_visca::{
-        camera::{profiles::PTZOpticsG2, CameraAsync},
-    };
+    use grafton_visca::camera::{profiles::PTZOpticsG2, CameraAsync};
 
     // Create camera with mock transport (uses default runtime from rt-tokio)
     let transport = MockTransport::new();
@@ -180,7 +173,7 @@ async fn test_power_operations_work_with_default_runtime() {
     // Just test that basic operations work, not power operations which have long delays
     let result = camera.zoom_stop().await;
     assert!(result.is_ok(), "zoom_stop failed: {:?}", result);
-    
+
     let result = camera.focus_stop().await;
     assert!(result.is_ok(), "focus_stop failed: {:?}", result);
 }
