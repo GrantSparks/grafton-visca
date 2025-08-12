@@ -99,7 +99,28 @@ impl MockTransport {
     }
 }
 
-// No need to implement BlockingTransport - it's a marker trait
+// Implement BlockingTransport for MockTransport
+impl grafton_visca::transport::core::BlockingTransport for MockTransport {
+    fn recv_blocking_with_timeout(
+        &self,
+        _duration: core::time::Duration,
+    ) -> Result<bytes::Bytes, Error> {
+        // For testing, just return the next response from the queue
+        let response_sequence = self.response_sequence.lock().unwrap();
+        let mut response_index = self.response_index.lock().unwrap();
+
+        if *response_index < response_sequence.len() {
+            let response = response_sequence[*response_index].clone();
+            *response_index += 1;
+            Ok(bytes::Bytes::from(response))
+        } else {
+            // Return a default ACK response if no more responses
+            Ok(bytes::Bytes::from(vec![
+                0x01, 0x11, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x90, 0x41, 0xFF,
+            ]))
+        }
+    }
+}
 
 #[test]
 fn test_ptzoptics_g2_capabilities() {
