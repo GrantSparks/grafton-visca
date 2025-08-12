@@ -1,15 +1,17 @@
-//! Blocking TCP transport implementation using GAT.
+//! Blocking TCP transport implementation with DNS resolution and IPv6 support.
 
-use crate::transport::core::{blocking::ready, BlockingTransport, Transport};
+use crate::transport::BlockingTransport;
 use crate::Error;
-use core::future::Ready;
+use bytes::Bytes;
 use std::borrow::Cow;
 use std::io::{BufRead, BufReader, Write};
-use std::net::TcpStream;
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// TCP transport for blocking VISCA communication.
+///
+/// This transport supports DNS resolution and both IPv4 and IPv6 addresses.
 #[derive(Debug)]
 pub struct Tcp {
     reader: Mutex<BufReader<TcpStream>>,
@@ -18,52 +20,100 @@ pub struct Tcp {
 
 impl Tcp {
     /// Connect to a TCP endpoint.
+    ///
+    /// This method resolves hostnames and supports both IPv4 and IPv6 addresses.
     pub fn connect(address: &str) -> Result<Self, Error> {
         Self::connect_timeout(address, Duration::from_secs(5))
     }
 
     /// Connect with a custom timeout.
+    ///
+    /// This method resolves hostnames and supports both IPv4 and IPv6 addresses.
+    /// It will try each resolved address in order until one succeeds or the
+    /// overall timeout is reached.
     pub fn connect_timeout(address: &str, timeout: Duration) -> Result<Self, Error> {
-        let stream = TcpStream::connect_timeout(
-            &address
-                .parse::<std::net::SocketAddr>()
-                .map_err(|e| Error::InvalidAddress {
-                    reason: Cow::Owned(e.to_string()),
-                })?,
-            timeout,
-        )?;
+        let deadline = Instant::now() + timeout;
 
-        // Set socket options
-        stream.set_read_timeout(Some(Duration::from_secs(5)))?;
-        stream.set_write_timeout(Some(Duration::from_secs(5)))?;
-        stream.set_nodelay(true)?;
+        // Resolve the address (supports DNS and IPv6)
+        let addrs: Vec<SocketAddr> = address
+            .to_socket_addrs()
+            .map_err(|e| Error::InvalidAddress {
+                reason: format!("Failed to resolve '{}': {}", address, e).into(),
+            })?
+            .collect();
 
-        // Clone the stream for separate reader and writer
-        let reader_stream = stream.try_clone()?;
+        if addrs.is_empty() {
+            return Err(Error::InvalidAddress {
+                reason: format!("No addresses resolved for '{}'", address).into(),
+            });
+        }
 
-        Ok(Self {
-            reader: Mutex::new(BufReader::new(reader_stream)),
-            writer: Mutex::new(stream),
-        })
-    }
-}
+        let mut last_error = None;
 
-impl Transport for Tcp {
-    type Error = Error;
-    type SendFut<'a> = Ready<Result<(), Self::Error>>;
-    type RecvFut<'a> = Ready<Result<bytes::Bytes, Self::Error>>;
+        // Try each address with remaining time
+        for addr in addrs {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
 
-    fn send<'a>(&'a self, data: &'a [u8]) -> Self::SendFut<'a> {
-        ready(send_impl(&self.writer, data))
-    }
+            match TcpStream::connect_timeout(&addr, remaining) {
+                Ok(stream) => {
+                    // Set socket options
+                    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+                    stream.set_write_timeout(Some(Duration::from_secs(5)))?;
+                    stream.set_nodelay(true)?;
 
-    fn recv(&self) -> Self::RecvFut<'_> {
-        ready(recv_impl(&self.reader))
+                    // Clone the stream for separate reader and writer
+                    let reader_stream = stream.try_clone()?;
+
+                    return Ok(Self {
+                        reader: Mutex::new(BufReader::new(reader_stream)),
+                        writer: Mutex::new(stream),
+                    });
+                }
+                Err(e) => {
+                    last_error = Some(e);
+                }
+            }
+        }
+
+        // All attempts failed
+        Err(last_error.map(Into::into).unwrap_or_else(|| Error::Timeout))
     }
 }
 
 impl BlockingTransport for Tcp {
-    fn recv_blocking_with_timeout(&self, duration: Duration) -> Result<bytes::Bytes, Error> {
+    fn send_blocking(&self, data: &[u8]) -> Result<(), Error> {
+        let mut writer = self
+            .writer
+            .lock()
+            .map_err(|_| Error::LockPoisoned("writer"))?;
+        writer.write_all(data)?;
+        writer.flush()?;
+        Ok(())
+    }
+
+    fn recv_blocking(&self) -> Result<Bytes, Error> {
+        let mut reader = self
+            .reader
+            .lock()
+            .map_err(|_| Error::LockPoisoned("reader"))?;
+        let mut buffer = Vec::with_capacity(64);
+
+        // Use buffered read_until to find VISCA terminator
+        let n = reader.read_until(0xFF, &mut buffer)?;
+
+        if n == 0 {
+            return Err(Error::ConnectionLost {
+                reason: Cow::Borrowed("peer closed connection"),
+            });
+        }
+
+        Ok(Bytes::from(buffer))
+    }
+
+    fn recv_blocking_with_timeout(&self, duration: Duration) -> Result<Bytes, Error> {
         // Get the reader
         let mut reader = self
             .reader
@@ -88,7 +138,7 @@ impl BlockingTransport for Tcp {
             Ok(0) => Err(Error::ConnectionLost {
                 reason: Cow::Borrowed("peer closed connection"),
             }),
-            Ok(_) => Ok(bytes::Bytes::from(buffer)),
+            Ok(_) => Ok(Bytes::from(buffer)),
             Err(e)
                 if e.kind() == std::io::ErrorKind::TimedOut
                     || e.kind() == std::io::ErrorKind::WouldBlock =>
@@ -98,29 +148,4 @@ impl BlockingTransport for Tcp {
             Err(e) => Err(e.into()),
         }
     }
-}
-
-fn send_impl(writer: &Mutex<TcpStream>, data: &[u8]) -> Result<(), Error> {
-    let mut writer = writer.lock().map_err(|_| Error::LockPoisoned("writer"))?;
-
-    writer.write_all(data)?;
-    writer.flush()?;
-    Ok(())
-}
-
-fn recv_impl(reader: &Mutex<BufReader<TcpStream>>) -> Result<bytes::Bytes, Error> {
-    let mut reader = reader.lock().map_err(|_| Error::LockPoisoned("reader"))?;
-
-    let mut buffer = Vec::with_capacity(64);
-
-    // Use buffered read_until to find VISCA terminator
-    let n = reader.read_until(0xFF, &mut buffer)?;
-
-    if n == 0 {
-        return Err(Error::ConnectionLost {
-            reason: Cow::Borrowed("peer closed connection"),
-        });
-    }
-
-    Ok(bytes::Bytes::from(buffer))
 }

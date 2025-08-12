@@ -1,9 +1,7 @@
-//! White balance methods for cameras using the new GAT architecture.
+//! White balance methods for cameras using mode markers.
 
 use crate::{
-    command::white_balance::{
-        AWBSensitivityCommand, AutoWhiteBalanceSensitivity, WhiteBalanceCommand, WhiteBalanceMode,
-    },
+    command::white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode},
     Error,
 };
 
@@ -72,107 +70,93 @@ pub trait WhiteBalanceOpsBlocking: Sized {
     fn set_awb_sensitivity(&self, sensitivity: AutoWhiteBalanceSensitivity) -> Result<(), Error>;
 }
 
-// Async implementation
+// Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
-    WhiteBalanceOps for crate::camera::generic::Camera<P, T>
+impl<P, T> WhiteBalanceOps for crate::camera::Camera<crate::camera::AsyncMode, P, T>
 where
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+    P: crate::capabilities::Profile,
+    T: crate::transport::AsyncTransport + Send + Sync + 'static,
 {
     async fn set_white_balance_mode(&self, mode: WhiteBalanceMode) -> Result<(), Error> {
-        let command = WhiteBalanceCommand { mode };
-        self.send_action_command(&command).await
+        self.set_white_balance_mode(mode).await
     }
 
     async fn white_balance_auto(&self) -> Result<(), Error> {
-        WhiteBalanceOps::set_white_balance_mode(self, WhiteBalanceMode::Auto).await
+        self.white_balance_auto().await
     }
 
     async fn white_balance_indoor(&self) -> Result<(), Error> {
-        WhiteBalanceOps::set_white_balance_mode(self, WhiteBalanceMode::Indoor).await
+        self.white_balance_indoor().await
     }
 
     async fn white_balance_outdoor(&self) -> Result<(), Error> {
-        WhiteBalanceOps::set_white_balance_mode(self, WhiteBalanceMode::Outdoor).await
+        self.white_balance_outdoor().await
     }
 
     async fn white_balance_one_push(&self) -> Result<(), Error> {
-        WhiteBalanceOps::set_white_balance_mode(self, WhiteBalanceMode::OnePush).await
+        self.white_balance_one_push().await
     }
 
     async fn white_balance_atw(&self) -> Result<(), Error> {
-        WhiteBalanceOps::set_white_balance_mode(self, WhiteBalanceMode::ATW).await
+        self.white_balance_atw().await
     }
 
     async fn white_balance_manual(&self) -> Result<(), Error> {
-        WhiteBalanceOps::set_white_balance_mode(self, WhiteBalanceMode::Manual).await
+        self.white_balance_manual().await
     }
 
     async fn white_balance_color_temperature(&self) -> Result<(), Error> {
-        WhiteBalanceOps::set_white_balance_mode(self, WhiteBalanceMode::ColorTemperature).await
+        self.white_balance_color_temperature().await
     }
 
     async fn set_awb_sensitivity(
         &self,
         sensitivity: AutoWhiteBalanceSensitivity,
     ) -> Result<(), Error> {
-        let command = AWBSensitivityCommand { sensitivity };
-        self.send_action_command(&command).await
+        self.set_awb_sensitivity(sensitivity).await
     }
 }
 
-// Blocking implementation
+// Blocking implementation for Camera with BlockingMode
 #[cfg(not(feature = "async"))]
-impl<
-        P: crate::capabilities::Profile,
-        T: crate::transport::Transport
-            + Send
-            + Sync
-            + 'static
-            + crate::transport::core::BlockingTransport,
-    > WhiteBalanceOpsBlocking for crate::camera::generic::Camera<P, T>
+impl<P, T> WhiteBalanceOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T>
 where
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+    P: crate::capabilities::Profile,
+    T: crate::transport::BlockingTransport + Send + Sync + 'static,
 {
     fn set_white_balance_mode(&self, mode: WhiteBalanceMode) -> Result<(), Error> {
-        let command = WhiteBalanceCommand { mode };
-        self.send_action_command_blocking(&command)
+        self.set_white_balance_mode(mode)
     }
 
     fn white_balance_auto(&self) -> Result<(), Error> {
-        Self::set_white_balance_mode(self, WhiteBalanceMode::Auto)
+        self.white_balance_auto()
     }
 
     fn white_balance_indoor(&self) -> Result<(), Error> {
-        Self::set_white_balance_mode(self, WhiteBalanceMode::Indoor)
+        self.white_balance_indoor()
     }
 
     fn white_balance_outdoor(&self) -> Result<(), Error> {
-        Self::set_white_balance_mode(self, WhiteBalanceMode::Outdoor)
+        self.white_balance_outdoor()
     }
 
     fn white_balance_one_push(&self) -> Result<(), Error> {
-        Self::set_white_balance_mode(self, WhiteBalanceMode::OnePush)
+        self.white_balance_one_push()
     }
 
     fn white_balance_atw(&self) -> Result<(), Error> {
-        Self::set_white_balance_mode(self, WhiteBalanceMode::ATW)
+        self.white_balance_atw()
     }
 
     fn white_balance_manual(&self) -> Result<(), Error> {
-        Self::set_white_balance_mode(self, WhiteBalanceMode::Manual)
+        self.white_balance_manual()
     }
 
     fn white_balance_color_temperature(&self) -> Result<(), Error> {
-        Self::set_white_balance_mode(self, WhiteBalanceMode::ColorTemperature)
+        self.white_balance_color_temperature()
     }
 
     fn set_awb_sensitivity(&self, sensitivity: AutoWhiteBalanceSensitivity) -> Result<(), Error> {
-        let command = AWBSensitivityCommand { sensitivity };
-        self.send_action_command_blocking(&command)
+        self.set_awb_sensitivity(sensitivity)
     }
 }

@@ -4,8 +4,6 @@
 
 use crate::{capabilities::Profile, error::Error};
 
-use super::Camera;
-
 // ========================================================================================
 // Zero-sized type (ZST) markers for type-state pattern
 // ========================================================================================
@@ -74,8 +72,6 @@ pub struct CameraBuilder<K, P = ProfileUnset> {
     #[allow(dead_code)] // Used for type-state pattern
     profile: P,
     marker: K,
-    #[cfg(feature = "async")]
-    runtime: Option<std::sync::Arc<dyn crate::runtime::Runtime>>,
 }
 
 // ========================================================================================
@@ -89,8 +85,6 @@ impl CameraBuilder<(), ProfileUnset> {
             addr: addr.into(),
             profile: ProfileUnset,
             marker: BlockingTcpMarker,
-            #[cfg(feature = "async")]
-            runtime: None,
         }
     }
 
@@ -100,8 +94,6 @@ impl CameraBuilder<(), ProfileUnset> {
             addr: addr.into(),
             profile: ProfileUnset,
             marker: BlockingUdpMarker,
-            #[cfg(feature = "async")]
-            runtime: None,
         }
     }
 
@@ -112,7 +104,6 @@ impl CameraBuilder<(), ProfileUnset> {
             addr: addr.into(),
             profile: ProfileUnset,
             marker: TokioTcpMarker,
-            runtime: Some(crate::runtime::default_runtime()),
         }
     }
 
@@ -123,7 +114,6 @@ impl CameraBuilder<(), ProfileUnset> {
             addr: addr.into(),
             profile: ProfileUnset,
             marker: TokioUdpMarker,
-            runtime: Some(crate::runtime::default_runtime()),
         }
     }
 }
@@ -142,26 +132,11 @@ impl<K> CameraBuilder<K, ProfileUnset> {
             addr: self.addr,
             profile: P::default(),
             marker: self.marker,
-            #[cfg(feature = "async")]
-            runtime: self.runtime,
         }
     }
 }
 
-impl<K, P> CameraBuilder<K, P> {
-    /// Set a custom runtime for async operations.
-    ///
-    /// This is useful when you want to use a runtime other than tokio,
-    /// or when you want to explicitly provide a runtime handle.
-    #[cfg(feature = "async")]
-    pub fn with_runtime<R>(mut self, runtime: std::sync::Arc<R>) -> Self
-    where
-        R: crate::runtime::Runtime,
-    {
-        self.runtime = Some(runtime);
-        self
-    }
-}
+impl<K, P> CameraBuilder<K, P> {}
 
 /// Protocol selection for transport builders
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -185,10 +160,12 @@ impl<P: Profile> CameraBuilder<BlockingTcpMarker, P> {
     /// Returns an error if:
     /// - The address is invalid
     /// - Connection to the camera fails
-    pub fn build(self) -> Result<Camera<P, crate::transport::blocking::Tcp>, Error> {
+    pub fn build(
+        self,
+    ) -> Result<crate::camera::CameraBlocking<P, crate::transport::blocking::Tcp>, Error> {
         let addr = ensure_port::<P>(&self.addr, Protocol::Tcp);
         let transport = crate::transport::blocking::Tcp::connect(&addr)?;
-        Ok(Camera::from_transport(transport))
+        Ok(crate::camera::CameraBlocking::from_transport(transport))
     }
 }
 
@@ -201,10 +178,12 @@ impl<P: Profile> CameraBuilder<BlockingUdpMarker, P> {
     /// Returns an error if:
     /// - The address is invalid
     /// - Connection to the camera fails
-    pub fn build(self) -> Result<Camera<P, crate::transport::blocking::Udp>, Error> {
+    pub fn build(
+        self,
+    ) -> Result<crate::camera::CameraBlocking<P, crate::transport::blocking::Udp>, Error> {
         let addr = ensure_port::<P>(&self.addr, Protocol::Udp);
         let transport = crate::transport::blocking::Udp::connect(&addr)?;
-        Ok(Camera::from_transport(transport))
+        Ok(crate::camera::CameraBlocking::from_transport(transport))
     }
 }
 
@@ -218,29 +197,18 @@ impl<P: Profile> CameraBuilder<TokioTcpMarker, P> {
     /// Returns an error if:
     /// - The address is invalid
     /// - Connection to the camera fails
-    pub async fn build(self) -> Result<Camera<P, crate::transport::tokio::Tcp>, Error> {
+    pub async fn build(
+        self,
+    ) -> Result<crate::camera::CameraAsync<P, crate::transport::tokio::Tcp>, Error> {
         let addr = ensure_port::<P>(&self.addr, Protocol::Tcp);
         let transport = crate::transport::tokio::Tcp::connect(&addr).await?;
-        let mut camera = Camera::from_transport(transport);
+        let mut camera = crate::camera::CameraAsync::from_transport(transport);
 
         // Always set up runtime and initialize socket manager (actor) for async transports
-        let runtime = self
-            .runtime
-            .or_else(|| {
-                #[cfg(feature = "rt-tokio")]
-                {
-                    Some(crate::runtime::default_runtime())
-                }
-                #[cfg(not(feature = "rt-tokio"))]
-                {
-                    None
-                }
-            })
-            .ok_or_else(|| {
-                Error::InvalidState(
-                    "No runtime configured for async operations. Please provide a runtime using .with_runtime()".into()
-                )
-            })?;
+        #[cfg(feature = "rt-tokio")]
+        let runtime = crate::runtime::default_runtime();
+        #[cfg(not(feature = "rt-tokio"))]
+        let runtime = crate::runtime::default_runtime()?;
         camera = camera.with_runtime(runtime);
 
         Ok(camera)
@@ -257,29 +225,18 @@ impl<P: Profile> CameraBuilder<TokioUdpMarker, P> {
     /// Returns an error if:
     /// - The address is invalid
     /// - Connection to the camera fails
-    pub async fn build(self) -> Result<Camera<P, crate::transport::tokio::Udp>, Error> {
+    pub async fn build(
+        self,
+    ) -> Result<crate::camera::CameraAsync<P, crate::transport::tokio::Udp>, Error> {
         let addr = ensure_port::<P>(&self.addr, Protocol::Udp);
         let transport = crate::transport::tokio::Udp::connect(&addr).await?;
-        let mut camera = Camera::from_transport(transport);
+        let mut camera = crate::camera::CameraAsync::from_transport(transport);
 
         // Always set up runtime and initialize socket manager (actor) for async transports
-        let runtime = self
-            .runtime
-            .or_else(|| {
-                #[cfg(feature = "rt-tokio")]
-                {
-                    Some(crate::runtime::default_runtime())
-                }
-                #[cfg(not(feature = "rt-tokio"))]
-                {
-                    None
-                }
-            })
-            .ok_or_else(|| {
-                Error::InvalidState(
-                    "No runtime configured for async operations. Please provide a runtime using .with_runtime()".into()
-                )
-            })?;
+        #[cfg(feature = "rt-tokio")]
+        let runtime = crate::runtime::default_runtime();
+        #[cfg(not(feature = "rt-tokio"))]
+        let runtime = crate::runtime::default_runtime()?;
         camera = camera.with_runtime(runtime);
 
         Ok(camera)

@@ -363,11 +363,7 @@ pub(crate) mod socket_manager;
 pub mod executor;
 pub mod runtime;
 
-#[cfg(not(feature = "async"))]
-pub mod blocking;
-
-#[cfg(feature = "async")]
-pub mod r#async;
+// Removed async and blocking wrappers - using mode markers instead
 
 pub mod prelude;
 

@@ -3,11 +3,7 @@
 use std::time::Duration;
 
 use crate::{
-    camera::generic::Camera,
-    capabilities::Profile,
-    types::SpeedLevel,
-    units::{Degrees, Normalized},
-    Error, Result,
+    camera::generic::Camera, capabilities::Profile, types::SpeedLevel, units::Normalized, Result,
 };
 
 /// Camera state for saving and restoring position
@@ -29,22 +25,13 @@ impl CameraState {
 }
 
 #[cfg(not(feature = "async"))]
-impl<P, T> Camera<P, T>
+impl<P, T> Camera<crate::camera::BlockingMode, P, T>
 where
     P: Profile,
-    T: crate::transport::Transport + Send + Sync + 'static,
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+    T: crate::transport::BlockingTransport + Send + Sync + 'static,
 {
     /// Save the current camera state
-    pub fn save_state(&self) -> Result<CameraState>
-    where
-        Self: crate::camera::methods::InquiryOpsBlocking
-            + crate::camera::methods::PanTiltInquiryOpsBlocking,
-    {
-        use crate::camera::methods::{InquiryOpsBlocking, PanTiltInquiryOpsBlocking};
-
+    pub fn save_state(&self) -> Result<CameraState> {
         let (pan, tilt) = self.get_pan_tilt_degrees()?;
         let zoom = self.get_zoom_position()?;
 
@@ -56,26 +43,28 @@ where
     }
 
     /// Restore camera to a previously saved state
-    pub fn restore_state(&self, state: &CameraState) -> Result<()>
-    where
-        Self: crate::camera::methods::PanTiltOpsBlocking
-            + crate::camera::methods::ZoomOpsBlocking
-            + crate::camera::helpers::MovementOpsBlocking,
-    {
+    pub fn restore_state(&self, state: &CameraState) -> Result<()> {
         self.restore_state_with_speed(state, SpeedLevel::Fast)
     }
 
     /// Restore camera to a previously saved state with custom speed
-    pub fn restore_state_with_speed(&self, state: &CameraState, speed: SpeedLevel) -> Result<()>
-    where
-        Self: crate::camera::methods::PanTiltOpsBlocking
-            + crate::camera::methods::ZoomOpsBlocking
-            + crate::camera::helpers::MovementOpsBlocking,
-    {
+    pub fn restore_state_with_speed(&self, state: &CameraState, speed: SpeedLevel) -> Result<()> {
         use crate::camera::helpers::MovementOpsBlocking;
-        use crate::camera::methods::{PanTiltOpsBlocking, ZoomOpsBlocking};
+        use crate::types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed};
 
-        self.pan_tilt_absolute(Degrees(state.pan), Degrees(state.tilt), speed)?;
+        let pan_pos = PanPosition::from_degrees(state.pan)?;
+        let tilt_pos = TiltPosition::from_degrees(state.tilt)?;
+        let speed_val = match speed {
+            SpeedLevel::Slowest => 1,
+            SpeedLevel::Slow => 5,
+            SpeedLevel::Medium => 12,
+            SpeedLevel::Fast => 18,
+            SpeedLevel::Fastest => 24,
+        };
+        let pan_speed = PanSpeed::new(speed_val).unwrap();
+        let tilt_speed = TiltSpeed::new(speed_val).unwrap();
+
+        self.pan_tilt_absolute(pan_pos, tilt_pos, pan_speed, tilt_speed)?;
         MovementOpsBlocking::await_idle(self, Duration::from_secs(30))?;
 
         let normalized_zoom = state.zoom_normalized();
@@ -87,22 +76,20 @@ where
 }
 
 #[cfg(feature = "async")]
-impl<P: Profile, T: crate::transport::Transport + Send + Sync> Camera<P, T>
+impl<P, T> Camera<crate::camera::AsyncMode, P, T>
 where
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+    P: Profile,
+    T: crate::transport::AsyncTransport + 'static,
 {
     /// Save the current camera state (async)
     #[cfg(feature = "async")]
-    pub async fn save_state_async(&self) -> Result<CameraState>
-    where
-        Self: crate::camera::methods::InquiryOps + crate::camera::methods::PanTiltInquiryOps,
-    {
-        use crate::camera::methods::{InquiryOps, PanTiltInquiryOps};
-
+    pub async fn save_state_async(&self) -> Result<CameraState> {
         // Use runtime for sleep
-        let runtime = self.require_runtime()?;
+        #[cfg(feature = "rt-tokio")]
+        let runtime = crate::runtime::default_runtime();
+        #[cfg(not(feature = "rt-tokio"))]
+        let runtime = crate::runtime::default_runtime()?;
+
         runtime.sleep(Duration::from_millis(500)).await;
 
         let (pan, tilt) = self.get_pan_tilt_degrees().await?;
@@ -121,12 +108,7 @@ where
     }
 
     /// Restore camera to a previously saved state (async)
-    pub async fn restore_state_async(&self, state: &CameraState) -> Result<()>
-    where
-        Self: crate::camera::methods::PanTiltOps
-            + crate::camera::methods::ZoomOps
-            + crate::camera::helpers::MovementOps,
-    {
+    pub async fn restore_state_async(&self, state: &CameraState) -> Result<()> {
         self.restore_state_with_speed_async(state, SpeedLevel::Fast)
             .await
     }
@@ -136,16 +118,22 @@ where
         &self,
         state: &CameraState,
         speed: SpeedLevel,
-    ) -> Result<()>
-    where
-        Self: crate::camera::methods::PanTiltOps
-            + crate::camera::methods::ZoomOps
-            + crate::camera::helpers::MovementOps,
-    {
+    ) -> Result<()> {
         use crate::camera::helpers::MovementOps;
-        use crate::camera::methods::{PanTiltOps, ZoomOps};
 
-        self.pan_tilt_absolute(Degrees(state.pan), Degrees(state.tilt), speed)
+        use crate::types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed};
+        let pan_pos = PanPosition::from_degrees(state.pan)?;
+        let tilt_pos = TiltPosition::from_degrees(state.tilt)?;
+        let speed_val = match speed {
+            SpeedLevel::Slowest => 1,
+            SpeedLevel::Slow => 5,
+            SpeedLevel::Medium => 12,
+            SpeedLevel::Fast => 18,
+            SpeedLevel::Fastest => 24,
+        };
+        let pan_speed = PanSpeed::new(speed_val).unwrap();
+        let tilt_speed = TiltSpeed::new(speed_val).unwrap();
+        self.pan_tilt_absolute(pan_pos, tilt_pos, pan_speed, tilt_speed)
             .await?;
         MovementOps::await_idle(self, Duration::from_secs(30)).await?;
 

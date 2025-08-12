@@ -1,7 +1,7 @@
 //! Prelude modules for convenient imports.
 //!
 //! This module provides two separate preludes for async and blocking APIs.
-//! Import only the prelude that matches your use case to avoid trait conflicts.
+//! Import only the prelude that matches your use case.
 //!
 //! # Async Usage
 //!
@@ -18,7 +18,7 @@
 //! let transport = Tcp::connect("192.168.0.110:52381").await?;
 //! let camera = PTZOpticsG2Cam::new(transport);
 //!
-//! // Async trait methods are available with clean names
+//! // Async methods are available directly on the camera
 //! camera.power_on().await?;
 //! camera.zoom_stop().await?;
 //! camera.pan_tilt_home().await?;
@@ -39,7 +39,7 @@
 //! let transport = Tcp::connect("192.168.0.110:52381")?;
 //! let camera = PTZOpticsG2Cam::new(transport);
 //!
-//! // Blocking trait methods are available with clean names
+//! // Blocking methods are available directly on the camera
 //! camera.power_on()?;
 //! camera.zoom_stop()?;
 //! camera.pan_tilt_home()?;
@@ -51,7 +51,6 @@
 /// Async prelude - import this for async camera control.
 ///
 /// This prelude provides everything needed for async camera control:
-/// - All async operation traits with clean names
 /// - Camera profiles and type aliases
 /// - Common types and error handling
 ///
@@ -62,16 +61,11 @@
 #[cfg(feature = "async")]
 pub mod r#async {
     pub use crate::camera::helpers::MovementOps;
-    pub use crate::camera::methods::{
-        ColorOps, ExposureCompensationOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps,
-        MenuControlOps, MotionSyncControl, NDFilterOps, PanTiltInquiryOps, PanTiltOps, PowerOps,
-        PresetsOps, StreamingOps, SystemOps, TallyOps, VariableSpeedOps, WhiteBalanceOps, ZoomOps,
-    };
     pub use crate::camera::profiles::{
         GenericVisca, NearusBRC300, PTZOptics30X, PTZOpticsG2, PTZOpticsG3, SonyBRC300,
         SonyBRCH900, SonyEVIH100, SonyFR7,
     };
-    pub use crate::camera::{Camera, CameraState, MovementConfig};
+    pub use crate::camera::{CameraAsync as Camera, CameraState, MovementConfig};
     pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
     pub use crate::units::{Degrees, Normalized, Percentage, Raw};
     pub use crate::{
@@ -111,7 +105,6 @@ pub mod r#async {
 /// Blocking prelude - import this for synchronous camera control.
 ///
 /// This prelude provides everything needed for blocking camera control:
-/// - All blocking operation traits with clean names (no 'Blocking' suffix)
 /// - Camera profiles and type aliases
 /// - Common types and error handling
 ///
@@ -125,23 +118,11 @@ pub mod r#async {
 #[cfg(not(feature = "async"))]
 pub mod blocking {
     pub use crate::camera::helpers::MovementOpsBlocking as MovementOps;
-    pub use crate::camera::methods::{
-        ColorOpsBlocking as ColorOps, ExposureCompensationOpsBlocking as ExposureCompensationOps,
-        ExposureOpsBlocking as ExposureOps, FocusOpsBlocking as FocusOps,
-        ImageProcessingOpsBlocking as ImageProcessingOps, InquiryOpsBlocking as InquiryOps,
-        MenuControlOpsBlocking as MenuControlOps, MotionSyncControlBlocking as MotionSyncControl,
-        NDFilterOpsBlocking as NDFilterOps, PanTiltInquiryOpsBlocking as PanTiltInquiryOps,
-        PanTiltOpsBlocking as PanTiltOps, PowerOpsBlocking as PowerOps,
-        PresetsOpsBlocking as PresetsOps, StreamingOpsBlocking as StreamingOps,
-        SystemOpsBlocking as SystemOps, TallyOpsBlocking as TallyOps,
-        VariableSpeedOpsBlocking as VariableSpeedOps, WhiteBalanceOpsBlocking as WhiteBalanceOps,
-        ZoomOpsBlocking as ZoomOps,
-    };
     pub use crate::camera::profiles::{
         GenericVisca, NearusBRC300, PTZOptics30X, PTZOpticsG2, PTZOpticsG3, SonyBRC300,
         SonyBRCH900, SonyEVIH100, SonyFR7,
     };
-    pub use crate::camera::{Camera, CameraState, MovementConfig};
+    pub use crate::camera::{CameraBlocking as Camera, CameraState, MovementConfig};
     pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
     pub use crate::units::{Degrees, Normalized, Percentage, Raw};
     pub use crate::{

@@ -10,7 +10,7 @@ use grafton_visca::camera::methods::{
     FocusOpsBlocking, PanTiltOpsBlocking, PowerOpsBlocking, PresetsOpsBlocking, ZoomOpsBlocking,
 };
 use grafton_visca::prelude::blocking::{GenericViscaCam, PTZOpticsG2Cam, SonyFR7Cam};
-use grafton_visca::transport::Transport;
+use grafton_visca::transport::BlockingTransport;
 use grafton_visca::{capabilities::*, Camera, Error, PresetNumber};
 use std::sync::Mutex;
 

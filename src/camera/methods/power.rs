@@ -1,6 +1,6 @@
-//! Power methods for cameras using the new GAT architecture.
+//! Power methods for cameras using mode markers.
 
-use crate::{command::PowerCommand, Error};
+use crate::Error;
 
 /// Power operations (async).
 #[cfg(feature = "async")]
@@ -10,6 +10,9 @@ pub trait PowerOps: Sized {
 
     /// Power off the camera.
     async fn power_off(&self) -> Result<(), Error>;
+
+    /// Query the current power status.
+    async fn power_inquiry(&self) -> Result<bool, Error>;
 }
 
 /// Power operations (blocking).
@@ -20,64 +23,53 @@ pub trait PowerOpsBlocking: Sized {
 
     /// Power off the camera.
     fn power_off(&self) -> Result<(), Error>;
+
+    /// Query the current power status.
+    fn power_inquiry(&self) -> Result<bool, Error>;
 }
 
-// Async implementation
+// Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
-    PowerOps for crate::camera::generic::Camera<P, T>
+impl<P, T> PowerOps for crate::camera::Camera<crate::camera::AsyncMode, P, T>
 where
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+    P: crate::capabilities::Profile,
+    T: crate::transport::AsyncTransport + Send + Sync + 'static,
 {
     async fn power_on(&self) -> Result<(), Error> {
-        let command = PowerCommand::On;
-        self.send_action_command(&command).await?;
-        // Wait for camera to be ready using runtime
-        let runtime = self.require_runtime()?;
-        runtime.sleep(self.power_on_time()).await;
-        Ok(())
+        // Forward to the inherent method
+        self.power_on().await
     }
 
     async fn power_off(&self) -> Result<(), Error> {
-        let command = PowerCommand::Standby;
-        self.send_action_command(&command).await?;
-        // Wait for standby/off using runtime
-        let runtime = self.require_runtime()?;
-        runtime.sleep(self.standby_time()).await;
-        Ok(())
+        // Forward to the inherent method
+        self.power_off().await
+    }
+
+    async fn power_inquiry(&self) -> Result<bool, Error> {
+        // Forward to the inherent method
+        self.power_inquiry().await
     }
 }
 
-// Blocking implementation
+// Blocking implementation for Camera with BlockingMode
 #[cfg(not(feature = "async"))]
-impl<
-        P: crate::capabilities::Profile,
-        T: crate::transport::Transport
-            + Send
-            + Sync
-            + 'static
-            + crate::transport::core::BlockingTransport,
-    > PowerOpsBlocking for crate::camera::generic::Camera<P, T>
+impl<P, T> PowerOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T>
 where
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+    P: crate::capabilities::Profile,
+    T: crate::transport::BlockingTransport + Send + Sync + 'static,
 {
     fn power_on(&self) -> Result<(), Error> {
-        let command = PowerCommand::On;
-        self.send_action_command_blocking(&command)?;
-        // Wait for camera to be ready
-        std::thread::sleep(self.power_on_time());
-        Ok(())
+        // Forward to the inherent method
+        self.power_on()
     }
 
     fn power_off(&self) -> Result<(), Error> {
-        let command = PowerCommand::Standby;
-        self.send_action_command_blocking(&command)?;
-        // Wait for standby/off
-        std::thread::sleep(self.standby_time());
-        Ok(())
+        // Forward to the inherent method
+        self.power_off()
+    }
+
+    fn power_inquiry(&self) -> Result<bool, Error> {
+        // Forward to the inherent method
+        self.power_inquiry()
     }
 }
