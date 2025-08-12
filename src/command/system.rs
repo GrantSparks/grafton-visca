@@ -43,6 +43,7 @@ visca_const_command! {
     ///
     /// This resets the command buffer and clears any pending commands.
     /// Note: This is a broadcast command that affects all cameras on the bus.
+    #[allow(dead_code)]
     pub(crate) struct InterfaceClearCommand;
     bytes = [0x88, 0x01, 0x00, 0x01,  VISCA_TERMINATOR];
     timeout = Quick;
