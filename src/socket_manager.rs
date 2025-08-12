@@ -267,6 +267,8 @@ pub(crate) enum SocketManagerCommand {
         /// Channel to send the result when a completion message is received.
         response_sender: OneshotSender<Result<()>>,
     },
+    /// Shutdown the socket manager gracefully.
+    Shutdown,
 }
 
 /// Handle to communicate with the socket manager actor.
@@ -354,6 +356,15 @@ impl SocketManagerHandle {
             .map_err(|_| Error::SocketManagerChannelClosed)?;
 
         Ok(response_receiver)
+    }
+
+    /// Shutdown the socket manager gracefully.
+    /// This method sends a shutdown command to the actor and returns immediately.
+    /// The actor will complete any in-flight commands before shutting down.
+    pub async fn shutdown(&self) -> Result<()> {
+        self.command_sender
+            .send(SocketManagerCommand::Shutdown)
+            .map_err(|_| Error::SocketManagerChannelClosed)
     }
 }
 
@@ -544,6 +555,10 @@ where
                                 self.inner.completion_waiters.push_back(response_sender);
                                 debug!("Added completion waiter, {} waiters now", self.inner.completion_waiters.len());
                             }
+                            Some(SocketManagerCommand::Shutdown) => {
+                                debug!("Socket manager received shutdown command");
+                                break;
+                            }
                             None => {
                                 debug!("Socket manager command channel closed");
                                 break;
@@ -591,6 +606,10 @@ where
                                 self.inner.completion_waiters.len()
                             );
                         }
+                        SocketManagerCommand::Shutdown => {
+                            debug!("Socket manager received shutdown command");
+                            return Ok(());
+                        }
                     }
                 }
 
@@ -627,6 +646,10 @@ where
                                             "Added completion waiter, {} waiters now",
                                             self.inner.completion_waiters.len()
                                         );
+                                    }
+                                    SocketManagerCommand::Shutdown => {
+                                        debug!("Socket manager received shutdown command");
+                                        return Ok(());
                                     }
                                 }
                             }
