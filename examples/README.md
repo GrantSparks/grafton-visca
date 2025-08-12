@@ -24,6 +24,7 @@ If you're new to the library, start with these examples in order:
 ### Connection & Transport
 - **[transports.rs](transports.rs)** - Compare TCP vs UDP transports, configuration options
 - **[builder_api.rs](builder_api.rs)** - Explore all CameraBuilder patterns and options
+- **[sony_encapsulation.rs](sony_encapsulation.rs)** - Sony encapsulated protocol with 8-byte header
 
 ### Advanced Patterns
 - **[concurrent_control.rs](concurrent_control.rs)** - Thread-safe operations from multiple threads

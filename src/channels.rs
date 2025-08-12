@@ -73,16 +73,6 @@ impl<T> UnboundedSender<T> {
             UnboundedSender::Std(tx) => tx.send(value).map_err(|_| Error::ChannelClosed),
         }
     }
-
-    /// Sends a value on this channel asynchronously.
-    ///
-    /// This async version is available when the async feature is enabled.
-    #[cfg(feature = "async")]
-    pub async fn send_async(&self, value: T) -> Result<()> {
-        match self {
-            UnboundedSender::Async(tx) => tx.send(value).await.map_err(|_| Error::ChannelClosed),
-        }
-    }
 }
 
 impl<T> Clone for UnboundedSender<T> {

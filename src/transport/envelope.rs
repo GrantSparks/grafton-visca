@@ -3,8 +3,8 @@
 //! This module provides abstraction for protocol envelopes, specifically
 //! handling Sony's 8-byte encapsulated VISCA protocol vs raw VISCA bytes.
 
-use bytes::{Bytes, BytesMut};
 use crate::capabilities::ProtocolStyle;
+use bytes::{Bytes, BytesMut};
 use std::borrow::Cow;
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -65,12 +65,7 @@ impl TransportEnvelope {
     /// │ Payload-Type │ Length │ Sequence-No. ││ 8x … payload … FF │  
     /// └──────────────────────────────────────┘└─────────────────────┘
     /// ```
-    fn sony_encapsulate(
-        &self,
-        visca_bytes: &[u8],
-        is_inquiry: bool,
-        use_sequence: bool,
-    ) -> Bytes {
+    fn sony_encapsulate(&self, visca_bytes: &[u8], is_inquiry: bool, use_sequence: bool) -> Bytes {
         let payload_type = if is_inquiry {
             SonyPayloadType::Inquiry
         } else {

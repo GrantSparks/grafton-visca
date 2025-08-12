@@ -1195,23 +1195,27 @@ mod tests {
     fn test_command_category_default_timeouts() {
         assert_eq!(
             CommandCategory::Quick.default_timeout(),
-            Duration::from_secs(2)
+            Duration::from_secs(5)
         );
         assert_eq!(
             CommandCategory::Movement.default_timeout(),
-            Duration::from_secs(10)
+            Duration::from_secs(30)
         );
         assert_eq!(
             CommandCategory::Preset.default_timeout(),
-            Duration::from_secs(60)
+            Duration::from_secs(90)
         );
         assert_eq!(
             CommandCategory::LongRunning.default_timeout(),
             Duration::from_secs(300)
         );
         assert_eq!(
+            CommandCategory::Network.default_timeout(),
+            Duration::from_secs(5)
+        );
+        assert_eq!(
             CommandCategory::Custom.default_timeout(),
-            Duration::from_secs(30)
+            Duration::from_secs(60)
         );
     }
 
@@ -1434,10 +1438,22 @@ mod tests {
 
             // Create test commands
             let (tx1, _rx1) = channels::oneshot();
-            let cmd1 = PendingCmd::new(1, Bytes::from(vec![0x81, 0x01]), CommandCategory::Quick, tx1, false);
+            let cmd1 = PendingCmd::new(
+                1,
+                Bytes::from(vec![0x81, 0x01]),
+                CommandCategory::Quick,
+                tx1,
+                false,
+            );
 
             let (tx2, _rx2) = channels::oneshot();
-            let cmd2 = PendingCmd::new(2, Bytes::from(vec![0x81, 0x02]), CommandCategory::Movement, tx2, false);
+            let cmd2 = PendingCmd::new(
+                2,
+                Bytes::from(vec![0x81, 0x02]),
+                CommandCategory::Movement,
+                tx2,
+                false,
+            );
 
             // Queue should start empty
             assert!(manager.command_queue.is_empty());
@@ -1474,8 +1490,13 @@ mod tests {
             // Enqueue multiple commands
             for i in 1..=10 {
                 let (tx, _rx) = channels::oneshot();
-                let cmd =
-                    PendingCmd::new(i, Bytes::from(vec![0x81, i as u8]), CommandCategory::Quick, tx, false);
+                let cmd = PendingCmd::new(
+                    i,
+                    Bytes::from(vec![0x81, i as u8]),
+                    CommandCategory::Quick,
+                    tx,
+                    false,
+                );
                 manager.enqueue_command(cmd);
             }
 
@@ -1501,7 +1522,13 @@ mod tests {
 
             // Set pending inquiry
             let (tx, _rx) = channels::oneshot();
-            let inquiry = PendingCmd::new(1, Bytes::from(vec![0x81, 0x09]), CommandCategory::Quick, tx, true);
+            let inquiry = PendingCmd::new(
+                1,
+                Bytes::from(vec![0x81, 0x09]),
+                CommandCategory::Quick,
+                tx,
+                true,
+            );
             manager.set_pending_inquiry(inquiry);
 
             assert!(manager.pending_inquiry.is_some());
@@ -1633,10 +1660,22 @@ mod tests {
 
             // Create test commands
             let (tx1, _rx1) = channels::oneshot();
-            let cmd1 = PendingCmd::new(1, Bytes::from(vec![0x81, 0x01]), CommandCategory::Quick, tx1, false);
+            let cmd1 = PendingCmd::new(
+                1,
+                Bytes::from(vec![0x81, 0x01]),
+                CommandCategory::Quick,
+                tx1,
+                false,
+            );
 
             let (tx2, _rx2) = channels::oneshot();
-            let cmd2 = PendingCmd::new(2, Bytes::from(vec![0x81, 0x02]), CommandCategory::Movement, tx2, false);
+            let cmd2 = PendingCmd::new(
+                2,
+                Bytes::from(vec![0x81, 0x02]),
+                CommandCategory::Movement,
+                tx2,
+                false,
+            );
 
             // Set active commands
             manager.set_active_command(Socket::Socket1, cmd1);
