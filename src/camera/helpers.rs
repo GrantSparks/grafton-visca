@@ -119,6 +119,7 @@ impl<P: Profile, T: BlockingTransport + Send + Sync + 'static> MovementOpsBlocki
         self.wait_for_movement(&config)
     }
 
+    #[allow(clippy::expect_used)]
     fn move_to(
         &self,
         pan: Degrees,
@@ -129,8 +130,8 @@ impl<P: Profile, T: BlockingTransport + Send + Sync + 'static> MovementOpsBlocki
 
         let pan_pos = PanPosition::from_degrees(pan.0)?;
         let tilt_pos = TiltPosition::from_degrees(tilt.0)?;
-        let pan_speed = PanSpeed::new(18).unwrap(); // Fast speed
-        let tilt_speed = TiltSpeed::new(18).unwrap(); // Fast speed
+        let pan_speed = PanSpeed::new(18).expect("18 is valid speed"); // Fast speed
+        let tilt_speed = TiltSpeed::new(18).expect("18 is valid speed"); // Fast speed
         self.pan_tilt_absolute(pan_pos, tilt_pos, pan_speed, tilt_speed)?;
         MovementOpsBlocking::await_idle(self, timeout)
     }
@@ -149,6 +150,7 @@ impl<P: Profile, T: AsyncTransport + Send + Sync + 'static> MovementOps
         self.wait_for_movement_async(&config).await
     }
 
+    #[allow(clippy::expect_used)]
     async fn move_to(
         &self,
         pan: Degrees,
@@ -159,8 +161,8 @@ impl<P: Profile, T: AsyncTransport + Send + Sync + 'static> MovementOps
 
         let pan_pos = PanPosition::from_degrees(pan.0)?;
         let tilt_pos = TiltPosition::from_degrees(tilt.0)?;
-        let pan_speed = PanSpeed::new(18).unwrap(); // Fast speed
-        let tilt_speed = TiltSpeed::new(18).unwrap(); // Fast speed
+        let pan_speed = PanSpeed::new(18).expect("18 is valid speed"); // Fast speed
+        let tilt_speed = TiltSpeed::new(18).expect("18 is valid speed"); // Fast speed
         self.pan_tilt_absolute(pan_pos, tilt_pos, pan_speed, tilt_speed)
             .await?;
         MovementOps::await_idle(self, timeout).await
@@ -180,6 +182,7 @@ impl<P: Profile, T: AsyncTransport + Send + Sync + 'static> MovementOps
         self.wait_for_movement_async(&config).await
     }
 
+    #[allow(clippy::expect_used)]
     async fn move_to(
         &self,
         pan: Degrees,
@@ -190,8 +193,8 @@ impl<P: Profile, T: AsyncTransport + Send + Sync + 'static> MovementOps
 
         let pan_pos = PanPosition::from_degrees(pan.0)?;
         let tilt_pos = TiltPosition::from_degrees(tilt.0)?;
-        let pan_speed = PanSpeed::new(18).unwrap(); // Fast speed
-        let tilt_speed = TiltSpeed::new(18).unwrap(); // Fast speed
+        let pan_speed = PanSpeed::new(18).expect("18 is valid speed"); // Fast speed
+        let tilt_speed = TiltSpeed::new(18).expect("18 is valid speed"); // Fast speed
         self.pan_tilt_absolute(pan_pos, tilt_pos, pan_speed, tilt_speed)
             .await?;
         MovementOps::await_idle(self, timeout).await

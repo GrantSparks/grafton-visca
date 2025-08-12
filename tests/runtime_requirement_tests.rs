@@ -71,7 +71,7 @@ impl AsyncTransport for MockTransportWithResponses {
 #[tokio::test]
 async fn test_operations_fail_without_runtime() {
     use grafton_visca::{
-        camera::{profiles::PTZOpticsG2, CameraAsync, MovementOps},
+        camera::{helpers::MovementOps, profiles::PTZOpticsG2, CameraAsync},
         Error,
     };
 
@@ -165,7 +165,7 @@ async fn test_custom_runtime_works() {
 #[tokio::test]
 async fn test_movement_detection_requires_runtime() {
     use grafton_visca::{
-        camera::{profiles::PTZOpticsG2, CameraAsync, MovementOps},
+        camera::{helpers::MovementOps, profiles::PTZOpticsG2, CameraAsync},
         Error,
     };
 
@@ -189,7 +189,7 @@ async fn test_movement_detection_requires_runtime() {
 #[tokio::test]
 async fn test_power_delays_require_runtime() {
     use grafton_visca::{
-        camera::{profiles::PTZOpticsG2, CameraAsync, MovementOps},
+        camera::{profiles::PTZOpticsG2, CameraAsync},
         Error,
     };
 

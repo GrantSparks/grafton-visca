@@ -2,10 +2,13 @@
 //!
 //! This test demonstrates the mode-based Camera API with compile-time mode selection.
 
+#[cfg(feature = "async")]
+use grafton_visca::{camera::AsyncMode, transport::async_transport::AsyncTransport};
+#[cfg(not(feature = "async"))]
+use grafton_visca::{camera::BlockingMode, transport::BlockingTransport};
 use grafton_visca::{
-    camera::{AsyncMode, BlockingMode, Camera},
+    camera::Camera,
     capabilities::{NDFilter, Profile},
-    transport::{AsyncTransport, BlockingTransport},
 };
 
 // Import type aliases based on feature flags

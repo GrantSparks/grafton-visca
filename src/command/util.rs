@@ -7,6 +7,7 @@ use crate::Error;
 ///
 /// Converts successful command acknowledgments (CmdAck, Completion) to Ok(()),
 /// and all other responses to appropriate errors.
+#[allow(dead_code)]
 pub(crate) fn map_ack_to_unit(resp: Response) -> Result<(), Error> {
     match resp {
         Response::Completion | Response::CmdAck => Ok(()),

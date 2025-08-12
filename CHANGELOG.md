@@ -5,9 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.7.0] - 2025-01-12
+
+### Major Architectural Improvements (Issue #226)
+
+This release introduces significant architectural improvements focused on zero-cost abstractions, better type safety, and improved network support. See [MIGRATION.md](MIGRATION.md) for a complete migration guide.
 
 ### Breaking Changes
+
+#### 🚀 Zero-Cost Async Architecture (Issue #226)
+- **BREAKING**: Complete redesign of transport traits to eliminate boxing overhead
+  - Removed GAT-based `Transport` trait
+  - Added separate `AsyncTransport` and `BlockingTransport` traits with native async functions
+  - Zero heap allocations in hot paths
+- **BREAKING**: Unified camera type with compile-time mode dispatch
+  - Single `Camera<Mode, Profile, Transport>` type
+  - `AsyncMode` and `BlockingMode` zero-size type markers
+  - Type aliases: `CameraAsync<P, T>` and `CameraBlocking<P, T>`
+- **BREAKING**: Camera construction changes
+  - Changed from `PTZOpticsG2Cam::new()` to `CameraBuilder` pattern
+  - Explicit transport creation with `connect_tcp()` / `connect_tcp_blocking()`
+- **BREAKING**: Method name changes for clarity
+  - `zoom_in()` → `zoom_tele_std()` (telephoto/zoom in)
+  - `zoom_out()` → `zoom_wide_std()` (wide angle/zoom out)
+  - `get_pan_tilt_position()` → `get_pan_tilt_degrees()`
+  - `get_zoom_position()` → `get_zoom()`
+- **BREAKING**: Position and speed types now require explicit construction
+  - Use `PanPosition::from_degrees()`, `TiltPosition::from_degrees()`
+  - Use `PanSpeed::new()`, `TiltSpeed::new()` with numeric values
 
 #### 🔄 API Consolidation and Cleanup (Issue #222)
 - **BREAKING**: Removed duplicate setter methods from `Camera` struct:
@@ -19,19 +44,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING**: Renamed module `generic_methods.rs` to `capability_introspection.rs` to better reflect its purpose
 
 ### Added
+- **Network**: Full DNS resolution support for hostnames
+- **Network**: Consistent IPv6 support across all transports (TCP and UDP)
+- **Timeout**: ACK timeout configuration (default 75ms) for camera acknowledgments
+- **Timeout**: Fine-grained timeout control per operation category
+- **Inquiry**: Complete set of inquiry methods added to Camera struct
+  - `get_power_state()`, `get_focus_mode()`, `get_exposure_mode()`, etc.
+  - Direct methods on Camera for better ergonomics
+- **Documentation**: Comprehensive migration guide in MIGRATION.md
 - New `map_ack_to_unit()` helper function in `src/command/util.rs` for standardized response handling
 - Async facade now uses `forward_facade!` macro for consistency with blocking implementation
 
 ### Changed
+- **Performance**: Eliminated all boxing in async code paths
+- **Runtime**: Runtime is no longer optional - async always requires runtime, blocking never uses it
+- **Transport**: TCP and UDP transports rewritten for zero-cost abstractions
 - Module `src/camera/generic_methods.rs` renamed to `src/camera/capability_introspection.rs`
 - Documentation updated to clarify that capability introspection methods are read-only
 - Async and blocking facades now have identical API surfaces generated from the same macro specification
 
+### Removed
+- **Legacy**: Removed `src/async.rs` and `src/blocking.rs` modules
+- **Legacy**: Removed GAT-based `Transport` trait
+- **Legacy**: Removed boxed futures from all async implementations
+
 ### Migration Guide
-Users upgrading from 0.6.0 should:
-1. Replace calls to `Camera::set_nd_filter_mode()` with the trait method from `NDFilterOps`
-2. Replace calls to `Camera::set_motion_sync_mode()` with the trait method from `MotionSyncControl`
-3. Update menu control code to handle `()` return type instead of `Response`
+See [MIGRATION.md](MIGRATION.md) for complete migration instructions from v0.6.x to v0.7.0.
+
+Key points:
+1. Update camera construction to use `CameraBuilder` pattern
+2. Replace method calls according to the name changes (e.g., `zoom_in()` → `zoom_tele_std()`)
+3. Update position/speed types to use explicit constructors
 4. Import specific trait modules as needed for accessing control methods
 
 ## [0.6.0] - 2025-01-07

@@ -113,17 +113,34 @@ impl MockTransport {
     }
 
     /// Convenience method for tests - send data synchronously
+    #[cfg(feature = "async")]
     pub fn send(&mut self, data: &[u8]) -> Result<()> {
         // Use futures::executor to block on the future
-        use grafton_visca::transport::AsyncTransport;
+        use grafton_visca::transport::async_transport::AsyncTransport;
         grafton_visca::executor::block_on(AsyncTransport::send(self, data))
     }
 
+    #[cfg(not(feature = "async"))]
+    pub fn send(&mut self, data: &[u8]) -> Result<()> {
+        use grafton_visca::transport::BlockingTransport;
+        BlockingTransport::send_blocking(self, data)
+    }
+
     /// Convenience method for tests - receive data with timeout
+    #[cfg(feature = "async")]
     pub fn receive(&mut self, _timeout: Duration) -> Result<Vec<u8>> {
         // Just use the recv method which already handles everything
-        use grafton_visca::transport::AsyncTransport;
+        use grafton_visca::transport::async_transport::AsyncTransport;
         match grafton_visca::executor::block_on(AsyncTransport::recv(self)) {
+            Ok(bytes) => Ok(bytes.to_vec()),
+            Err(e) => Err(e),
+        }
+    }
+
+    #[cfg(not(feature = "async"))]
+    pub fn receive(&mut self, timeout: Duration) -> Result<Vec<u8>> {
+        use grafton_visca::transport::BlockingTransport;
+        match BlockingTransport::recv_blocking_with_timeout(self, timeout) {
             Ok(bytes) => Ok(bytes.to_vec()),
             Err(e) => Err(e),
         }
@@ -385,8 +402,9 @@ impl BlockingTransport for MockTransport {
 
         // Check if this matches an expectation
         let mut responses_to_queue = Vec::new();
-        if inner.current_expectation < inner.expectations.len() {
-            let expectation = &mut inner.expectations[inner.current_expectation];
+        let current_idx = inner.current_expectation;
+        if current_idx < inner.expectations.len() {
+            let expectation = &mut inner.expectations[current_idx];
             if expectation.command == data {
                 expectation.met = true;
 
@@ -529,12 +547,24 @@ mod tests {
             .then_complete(1);
 
         // Send the expected command
-        use grafton_visca::transport::AsyncTransport;
-        grafton_visca::executor::block_on(AsyncTransport::send(
-            &mock,
-            &[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
-        ))
-        .unwrap();
+        #[cfg(feature = "async")]
+        {
+            use grafton_visca::transport::async_transport::AsyncTransport;
+            grafton_visca::executor::block_on(AsyncTransport::send(
+                &mock,
+                &[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
+            ))
+            .unwrap();
+        }
+        #[cfg(not(feature = "async"))]
+        {
+            use grafton_visca::transport::BlockingTransport;
+            BlockingTransport::send_blocking(
+                &mock,
+                &[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
+            )
+            .unwrap();
+        }
 
         // Receive the responses
         let ack = mock.receive(Duration::from_millis(100)).unwrap();

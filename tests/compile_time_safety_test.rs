@@ -6,12 +6,9 @@
 /// VISCA command terminator byte.
 const VISCA_TERMINATOR: u8 = 0xFF;
 
-use grafton_visca::camera::methods::{
-    FocusOpsBlocking, PanTiltOpsBlocking, PowerOpsBlocking, PresetsOpsBlocking, ZoomOpsBlocking,
-};
 use grafton_visca::prelude::blocking::{GenericViscaCam, PTZOpticsG2Cam, SonyFR7Cam};
 use grafton_visca::transport::BlockingTransport;
-use grafton_visca::{capabilities::*, Camera, Error, PresetNumber};
+use grafton_visca::{capabilities::*, Error, PresetNumber};
 use std::sync::Mutex;
 
 // Mock transport that returns proper VISCA responses
@@ -21,28 +18,7 @@ struct MockTransport {
     response_index: Mutex<usize>,
 }
 
-impl Transport for MockTransport {
-    type Error = Error;
-    type SendFut<'a> = std::future::Ready<Result<(), Error>>;
-    type RecvFut<'a> = std::future::Ready<Result<bytes::Bytes, Error>>;
-
-    fn send<'a>(&'a self, _bytes: &'a [u8]) -> Self::SendFut<'a> {
-        std::future::ready(Ok(()))
-    }
-
-    fn recv(&self) -> Self::RecvFut<'_> {
-        let mut index = self.response_index.lock().unwrap();
-        let responses = self.response_sequence.lock().unwrap();
-
-        if *index < responses.len() {
-            let response = responses[*index].clone();
-            *index += 1;
-            std::future::ready(Ok(bytes::Bytes::from(response)))
-        } else {
-            std::future::ready(Err(Error::Timeout))
-        }
-    }
-}
+// Remove async Transport impl since we're in blocking mode
 
 impl MockTransport {
     fn new() -> Self {
@@ -100,7 +76,24 @@ impl MockTransport {
 }
 
 // Implement BlockingTransport for MockTransport
-impl grafton_visca::transport::core::BlockingTransport for MockTransport {
+impl BlockingTransport for MockTransport {
+    fn send_blocking(&self, _bytes: &[u8]) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn recv_blocking(&self) -> Result<bytes::Bytes, Error> {
+        let response_sequence = self.response_sequence.lock().unwrap();
+        let mut response_index = self.response_index.lock().unwrap();
+
+        if *response_index < response_sequence.len() {
+            let response = response_sequence[*response_index].clone();
+            *response_index += 1;
+            Ok(bytes::Bytes::from(response))
+        } else {
+            Err(Error::Timeout)
+        }
+    }
+
     fn recv_blocking_with_timeout(
         &self,
         _duration: core::time::Duration,
@@ -124,14 +117,14 @@ impl grafton_visca::transport::core::BlockingTransport for MockTransport {
 
 #[test]
 fn test_ptzoptics_g2_capabilities() {
-    let camera = PTZOpticsG2Cam::new(MockTransport::new());
+    let camera = PTZOpticsG2Cam::from_transport(MockTransport::new());
 
     // These methods exist for PTZOpticsG2 - checked at compile time
-    assert!(PowerOpsBlocking::power_on(&camera).is_ok());
-    assert!(PanTiltOpsBlocking::pan_tilt_home(&camera).is_ok());
-    assert!(ZoomOpsBlocking::zoom_stop(&camera).is_ok());
-    assert!(FocusOpsBlocking::focus_auto(&camera).is_ok());
-    assert!(PresetsOpsBlocking::preset_recall(&camera, PresetNumber::new(1).unwrap()).is_ok());
+    assert!(camera.power_on().is_ok());
+    assert!(camera.pan_tilt_home().is_ok());
+    assert!(camera.zoom_stop().is_ok());
+    assert!(camera.focus_auto().is_ok());
+    assert!(camera.preset_recall(PresetNumber::new(1).unwrap()).is_ok());
 
     // This would NOT compile - G2 doesn't implement NDFilter trait!
     // camera.set_nd_filter_mode(NDFilterMode::Clear).unwrap(); // COMPILE ERROR!
@@ -139,7 +132,7 @@ fn test_ptzoptics_g2_capabilities() {
 
 #[test]
 fn test_sony_fr7_has_nd_filter() {
-    let camera = SonyFR7Cam::new(MockTransport::new_with_sony_envelope());
+    let camera = SonyFR7Cam::from_transport(MockTransport::new_with_sony_envelope());
 
     // FR7 has all standard features
     assert!(camera.power_on().is_ok());
@@ -154,20 +147,19 @@ fn test_sony_fr7_has_nd_filter() {
 #[test]
 fn test_compile_time_capability_checking() {
     // This function can only be called with cameras that have ND filter support
-    fn adjust_nd_filter<P, T>(_camera: &Camera<P, T>) -> Result<(), Error>
+    fn adjust_nd_filter<P, T>(
+        _camera: &grafton_visca::camera::Camera<grafton_visca::camera::BlockingMode, P, T>,
+    ) -> Result<(), Error>
     where
         P: Profile + NDFilter,
-        T: Transport + Send + Sync + 'static,
-        T::Error: Into<Error> + Send,
-        for<'a> T::SendFut<'a>: Send,
-        for<'a> T::RecvFut<'a>: Send,
+        T: BlockingTransport + Send + Sync + 'static,
     {
         // ND filter methods would be available here
         Ok(())
     }
 
-    let fr7 = SonyFR7Cam::new(MockTransport::new_with_sony_envelope());
-    let _g2 = PTZOpticsG2Cam::new(MockTransport::new());
+    let fr7 = SonyFR7Cam::from_transport(MockTransport::new_with_sony_envelope());
+    let _g2 = PTZOpticsG2Cam::from_transport(MockTransport::new());
 
     // This compiles - FR7 has NDFilter
     assert!(adjust_nd_filter(&fr7).is_ok());
@@ -181,18 +173,30 @@ fn test_compile_time_capability_checking() {
 #[test]
 fn test_generic_functions_with_trait_bounds() {
     // Function that works with any camera
-    fn basic_control<P>(camera: &Camera<P, MockTransport>) -> Result<(), Error>
+    fn basic_control<P>(
+        camera: &grafton_visca::camera::Camera<
+            grafton_visca::camera::BlockingMode,
+            P,
+            MockTransport,
+        >,
+    ) -> Result<(), Error>
     where
         P: Profile,
     {
-        // Use blocking operations through the blocking traits
-        PowerOpsBlocking::power_on(camera)?;
-        ZoomOpsBlocking::zoom_stop(camera)?;
+        // Use blocking operations directly on the camera
+        camera.power_on()?;
+        camera.zoom_stop()?;
         Ok(())
     }
 
     // Function that requires motion sync capability
-    fn motion_sync_control<P>(_camera: &Camera<P, MockTransport>) -> Result<(), Error>
+    fn motion_sync_control<P>(
+        _camera: &grafton_visca::camera::Camera<
+            grafton_visca::camera::BlockingMode,
+            P,
+            MockTransport,
+        >,
+    ) -> Result<(), Error>
     where
         P: Profile + MotionSync,
     {
@@ -200,9 +204,9 @@ fn test_generic_functions_with_trait_bounds() {
         Ok(())
     }
 
-    let g2 = PTZOpticsG2Cam::new(MockTransport::new());
-    let fr7 = SonyFR7Cam::new(MockTransport::new_with_sony_envelope());
-    let generic = GenericViscaCam::new(MockTransport::new());
+    let g2 = PTZOpticsG2Cam::from_transport(MockTransport::new());
+    let fr7 = SonyFR7Cam::from_transport(MockTransport::new_with_sony_envelope());
+    let generic = GenericViscaCam::from_transport(MockTransport::new());
 
     // Test each camera individually to isolate the issue
     println!("Testing G2 camera...");

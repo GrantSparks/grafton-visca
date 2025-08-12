@@ -48,6 +48,7 @@ where
     }
 
     /// Restore camera to a previously saved state with custom speed
+    #[allow(clippy::expect_used)]
     pub fn restore_state_with_speed(&self, state: &CameraState, speed: SpeedLevel) -> Result<()> {
         use crate::camera::helpers::MovementOpsBlocking;
         use crate::types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed};
@@ -61,8 +62,8 @@ where
             SpeedLevel::Fast => 18,
             SpeedLevel::Fastest => 24,
         };
-        let pan_speed = PanSpeed::new(speed_val).unwrap();
-        let tilt_speed = TiltSpeed::new(speed_val).unwrap();
+        let pan_speed = PanSpeed::new(speed_val).expect("speed_val is valid");
+        let tilt_speed = TiltSpeed::new(speed_val).expect("speed_val is valid");
 
         self.pan_tilt_absolute(pan_pos, tilt_pos, pan_speed, tilt_speed)?;
         MovementOpsBlocking::await_idle(self, Duration::from_secs(30))?;
@@ -114,6 +115,7 @@ where
     }
 
     /// Restore camera to a previously saved state with custom speed (async)
+    #[allow(clippy::expect_used)]
     pub async fn restore_state_with_speed_async(
         &self,
         state: &CameraState,
@@ -131,8 +133,8 @@ where
             SpeedLevel::Fast => 18,
             SpeedLevel::Fastest => 24,
         };
-        let pan_speed = PanSpeed::new(speed_val).unwrap();
-        let tilt_speed = TiltSpeed::new(speed_val).unwrap();
+        let pan_speed = PanSpeed::new(speed_val).expect("speed_val is valid");
+        let tilt_speed = TiltSpeed::new(speed_val).expect("speed_val is valid");
         self.pan_tilt_absolute(pan_pos, tilt_pos, pan_speed, tilt_speed)
             .await?;
         MovementOps::await_idle(self, Duration::from_secs(30)).await?;

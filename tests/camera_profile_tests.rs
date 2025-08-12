@@ -2,11 +2,11 @@
 //!
 //! This test suite validates the mode-based Camera API with profile capabilities.
 
-use grafton_visca::{
-    camera::{AsyncMode, BlockingMode, Camera},
-    capabilities::*,
-    transport::{AsyncTransport, BlockingTransport},
-};
+#[cfg(feature = "async")]
+use grafton_visca::{camera::AsyncMode, transport::async_transport::AsyncTransport};
+#[cfg(not(feature = "async"))]
+use grafton_visca::{camera::BlockingMode, transport::BlockingTransport};
+use grafton_visca::{camera::Camera, capabilities::*};
 
 // Import type aliases based on feature flags
 #[cfg(not(feature = "async"))]
