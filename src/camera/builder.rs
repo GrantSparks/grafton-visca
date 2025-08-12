@@ -226,7 +226,21 @@ impl<P: Profile> CameraBuilder<TokioTcpMarker, P> {
         // Always set up runtime and initialize socket manager (actor) for async transports
         let runtime = self
             .runtime
-            .unwrap_or_else(|| crate::runtime::default_runtime());
+            .or_else(|| {
+                #[cfg(feature = "rt-tokio")]
+                {
+                    Some(crate::runtime::default_runtime())
+                }
+                #[cfg(not(feature = "rt-tokio"))]
+                {
+                    None
+                }
+            })
+            .ok_or_else(|| {
+                Error::InvalidState(
+                    "No runtime configured for async operations. Please provide a runtime using .with_runtime()".into()
+                )
+            })?;
         camera = camera.with_runtime(runtime);
 
         Ok(camera)
@@ -251,7 +265,21 @@ impl<P: Profile> CameraBuilder<TokioUdpMarker, P> {
         // Always set up runtime and initialize socket manager (actor) for async transports
         let runtime = self
             .runtime
-            .unwrap_or_else(|| crate::runtime::default_runtime());
+            .or_else(|| {
+                #[cfg(feature = "rt-tokio")]
+                {
+                    Some(crate::runtime::default_runtime())
+                }
+                #[cfg(not(feature = "rt-tokio"))]
+                {
+                    None
+                }
+            })
+            .ok_or_else(|| {
+                Error::InvalidState(
+                    "No runtime configured for async operations. Please provide a runtime using .with_runtime()".into()
+                )
+            })?;
         camera = camera.with_runtime(runtime);
 
         Ok(camera)

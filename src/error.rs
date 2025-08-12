@@ -10,6 +10,9 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 /// Provides comprehensive error handling for all VISCA operations.
 /// The VISCA protocol has a well-defined set of error conditions
 /// that map directly to camera responses and communication failures.
+///
+/// For detailed error code mappings and retry policies, see the
+/// [error handling documentation](../docs/error-handling.md).
 #[derive(ThisError, Debug)]
 pub enum Error {
     /// Failed to establish connection to the camera.

@@ -2,6 +2,7 @@
 
 use crate::{
     command::{encode_visca::EncodeVisca, InquiryResponse, Response, ResponseType},
+    timeout::TimeoutConfig,
     transport::core::Transport,
     Error,
 };
@@ -12,10 +13,8 @@ use std::time::Duration;
 use crate::runtime::SharedRuntime;
 
 /// VISCA protocol constants.
-// Removed duplicate - use from const_encoding module
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
+// These are base timeouts; actual timeouts come from command categories
 const ACK_TIMEOUT: Duration = Duration::from_millis(500);
-const COMPLETION_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// VISCA protocol handler that manages protocol-specific logic.
 ///
@@ -23,9 +22,10 @@ const COMPLETION_TIMEOUT: Duration = Duration::from_secs(30);
 /// - Command formatting and termination
 /// - ACK/Completion response handling
 /// - Response parsing and validation
-/// - Timeout management
+/// - Timeout management based on command categories
 pub struct ViscaProtocol<T: Transport + Send + Sync> {
     transport: T,
+    timeout_config: TimeoutConfig,
     #[cfg(feature = "async")]
     runtime: Option<SharedRuntime>,
 }
@@ -34,6 +34,7 @@ impl<T: Transport + Send + Sync> std::fmt::Debug for ViscaProtocol<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut debug = f.debug_struct("ViscaProtocol");
         debug.field("transport", &"<Transport>");
+        debug.field("timeout_config", &self.timeout_config);
         #[cfg(feature = "async")]
         debug.field("has_runtime", &self.runtime.is_some());
         debug.finish()
@@ -41,10 +42,21 @@ impl<T: Transport + Send + Sync> std::fmt::Debug for ViscaProtocol<T> {
 }
 
 impl<T: Transport + Send + Sync> ViscaProtocol<T> {
-    /// Create a new VISCA protocol handler wrapping a transport.
+    /// Create a new VISCA protocol handler wrapping a transport with default timeout config.
     pub fn new(transport: T) -> Self {
         Self {
             transport,
+            timeout_config: TimeoutConfig::default(),
+            #[cfg(feature = "async")]
+            runtime: None,
+        }
+    }
+
+    /// Create a new VISCA protocol handler with custom timeout configuration.
+    pub fn new_with_timeout_config(transport: T, timeout_config: TimeoutConfig) -> Self {
+        Self {
+            transport,
+            timeout_config,
             #[cfg(feature = "async")]
             runtime: None,
         }
@@ -55,6 +67,21 @@ impl<T: Transport + Send + Sync> ViscaProtocol<T> {
     pub fn new_with_runtime(transport: T, runtime: SharedRuntime) -> Self {
         Self {
             transport,
+            timeout_config: TimeoutConfig::default(),
+            runtime: Some(runtime),
+        }
+    }
+
+    /// Create a new VISCA protocol handler with specific Runtime and timeout configuration.
+    #[cfg(feature = "async")]
+    pub fn new_with_runtime_and_timeout(
+        transport: T,
+        runtime: SharedRuntime,
+        timeout_config: TimeoutConfig,
+    ) -> Self {
+        Self {
+            transport,
+            timeout_config,
             runtime: Some(runtime),
         }
     }
@@ -62,6 +89,16 @@ impl<T: Transport + Send + Sync> ViscaProtocol<T> {
     /// Get a reference to the underlying transport.
     pub fn inner(&self) -> &T {
         &self.transport
+    }
+
+    /// Get the current timeout configuration.
+    pub const fn timeout_config(&self) -> &TimeoutConfig {
+        &self.timeout_config
+    }
+
+    /// Set a new timeout configuration.
+    pub fn set_timeout_config(&mut self, timeout_config: TimeoutConfig) {
+        self.timeout_config = timeout_config;
     }
 
     /// Send a VISCA command and return a future that resolves to the response.
@@ -83,31 +120,49 @@ impl<T: Transport + Send + Sync> ViscaProtocol<T> {
             cmd_bytes
         );
 
-        log::debug!("Sending VISCA command: {cmd_bytes:02X?}");
+        // Get the appropriate timeout for this command category
+        let command_timeout = self.timeout_config.get_timeout(command.timeout_kind());
+
+        log::debug!(
+            "Sending VISCA command (category: {:?}, timeout: {:?}): {:02X?}",
+            command.timeout_kind(),
+            command_timeout,
+            cmd_bytes
+        );
 
         // Send command
         self.transport.send(cmd_bytes).await.map_err(Into::into)?;
 
-        // Handle response based on command type
+        // Handle response based on command type following VISCA protocol spec:
+        // - Commands (action): Controller → Camera: 8x 01... FF
+        //                     Camera → Controller: ACK (9x 4y FF) then Completion (9x 5y FF)
+        // - Inquiries:        Controller → Camera: 8x 09... FF
+        //                     Camera → Controller: Data Reply (9x 50 <data> FF) - no ACK
         match command.response_type() {
             None => {
                 // Action command - wait for ACK then Completion
+                // ACK should come quickly (within 500ms), but completion may take much longer
                 let ack = self.wait_for_ack(ACK_TIMEOUT).await?;
                 match ack {
                     Response::CmdAck => {
-                        // Now wait for completion
-                        self.wait_for_completion(COMPLETION_TIMEOUT).await
+                        // ACK received, command accepted into socket
+                        // Now wait for completion using command-specific timeout
+                        // This timeout is generous to handle long operations like full-range movements
+                        self.wait_for_completion(command_timeout).await
                     }
                     Response::Completion => {
-                        // Some cameras send completion directly
+                        // Some cameras send completion directly without ACK
                         Ok(Response::Completion)
                     }
-                    _ => Err(Error::ParseError(Cow::Owned(format!("{ack:?}")))),
+                    _ => Err(Error::ParseError(Cow::Owned(format!(
+                        "Expected ACK or Completion, got: {ack:?}"
+                    )))),
                 }
             }
             Some(response_type) => {
-                // Inquiry command - wait for specific response
-                self.wait_for_response(response_type, DEFAULT_TIMEOUT).await
+                // Inquiry command - wait for specific response with command-specific timeout
+                // Inquiries don't send ACK, just the data reply directly
+                self.wait_for_response(response_type, command_timeout).await
             }
         }
     }
@@ -153,21 +208,14 @@ impl<T: Transport + Send + Sync> ViscaProtocol<T> {
     async fn recv_with_timeout(&self, duration: Duration) -> Result<bytes::Bytes, Error> {
         #[cfg(feature = "async")]
         {
-            if let Some(runtime) = &self.runtime {
-                // Use the provided Runtime for timeout
-                crate::runtime::timeout_with_runtime(
-                    runtime.as_ref(),
-                    duration,
-                    self.transport.recv(),
-                )
+            let runtime = self.runtime.as_ref().ok_or_else(|| {
+                Error::InvalidState("No runtime configured for async operations".into())
+            })?;
+
+            // Use the provided Runtime for timeout
+            crate::runtime::timeout_with_runtime(runtime.as_ref(), duration, self.transport.recv())
                 .await?
                 .map_err(Into::into)
-            } else {
-                // Without a runtime, return an error indicating runtime is required
-                Err(Error::InvalidState(
-                    "No runtime configured for timeout operations. Please provide a Runtime when creating ViscaProtocol.".into()
-                ))
-            }
         }
 
         #[cfg(not(feature = "async"))]

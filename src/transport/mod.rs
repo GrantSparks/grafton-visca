@@ -40,6 +40,7 @@
 // Transport trait and utilities
 pub mod core;
 pub mod envelope;
+pub mod frame_parser;
 
 pub use core::Transport;
 
