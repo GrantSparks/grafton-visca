@@ -111,16 +111,20 @@ pub fn validate_frame(data: &[u8]) -> Result<(), Error> {
 mod tests {
     #![allow(clippy::expect_used)]
     use super::*;
+    use crate::command::const_encoding::VISCA_TERMINATOR;
 
     #[test]
     fn test_frame_extraction() {
         let mut parser = FrameParser::new();
 
         // Feed a complete frame
-        parser.feed(&[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]);
+        parser.feed(&[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
 
         let frame = parser.next_frame().expect("should extract frame");
-        assert_eq!(&frame[..], &[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]);
+        assert_eq!(
+            &frame[..],
+            &[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]
+        );
 
         // Buffer should be empty after extraction
         assert!(parser.is_empty());
@@ -135,9 +139,12 @@ mod tests {
         assert!(parser.next_frame().is_none());
 
         // Complete the frame
-        parser.feed(&[0x00, 0x02, 0xFF]);
+        parser.feed(&[0x00, 0x02, VISCA_TERMINATOR]);
         let frame = parser.next_frame().expect("should extract frame");
-        assert_eq!(&frame[..], &[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]);
+        assert_eq!(
+            &frame[..],
+            &[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]
+        );
     }
 
     #[test]
@@ -146,15 +153,25 @@ mod tests {
 
         // Feed two frames at once
         parser.feed(&[
-            0x81, 0x01, 0x04, 0x00, 0x02, 0xFF, // Frame 1
-            0x90, 0x41, 0xFF, // Frame 2
+            0x81,
+            0x01,
+            0x04,
+            0x00,
+            0x02,
+            VISCA_TERMINATOR, // Frame 1
+            0x90,
+            0x41,
+            VISCA_TERMINATOR, // Frame 2
         ]);
 
         let frame1 = parser.next_frame().expect("should extract first frame");
-        assert_eq!(&frame1[..], &[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]);
+        assert_eq!(
+            &frame1[..],
+            &[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]
+        );
 
         let frame2 = parser.next_frame().expect("should extract second frame");
-        assert_eq!(&frame2[..], &[0x90, 0x41, 0xFF]);
+        assert_eq!(&frame2[..], &[0x90, 0x41, VISCA_TERMINATOR]);
 
         assert!(parser.is_empty());
     }
@@ -162,7 +179,7 @@ mod tests {
     #[test]
     fn test_frame_validation() {
         // Valid frame
-        assert!(validate_frame(&[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]).is_ok());
+        assert!(validate_frame(&[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]).is_ok());
 
         // Empty frame
         assert!(validate_frame(&[]).is_err());
