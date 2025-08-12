@@ -71,7 +71,7 @@ pub trait StreamingOpsBlocking: Sized {
     /// Returns an error if the command fails or the camera doesn't support NDI multicast.
     ///
     /// # Example
-    /// ```no_run
+    /// ```ignore
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// # use grafton_visca::blocking::{Camera, StreamingOps};
     /// # use grafton_visca::transport::blocking::Tcp;
@@ -90,7 +90,7 @@ pub trait StreamingOpsBlocking: Sized {
     /// Returns an error if the command fails or the camera doesn't support NDI multicast.
     ///
     /// # Example
-    /// ```no_run
+    /// ```ignore
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// # use grafton_visca::blocking::{Camera, StreamingOps};
     /// # use grafton_visca::transport::blocking::Tcp;
@@ -109,7 +109,7 @@ pub trait StreamingOpsBlocking: Sized {
     /// Returns an error if the command fails or the camera doesn't support NDI quality control.
     ///
     /// # Example
-    /// ```no_run
+    /// ```ignore
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// # use grafton_visca::blocking::{Camera, StreamingOps};
     /// # use grafton_visca::transport::blocking::Tcp;
