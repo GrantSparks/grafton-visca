@@ -86,7 +86,7 @@ pub fn default_runtime() -> SharedRuntime {
 }
 
 /// For async without tokio, users must provide their own runtime.
-/// 
+///
 /// Returns an error indicating that a runtime must be configured.
 #[cfg(all(feature = "async", not(feature = "rt-tokio")))]
 pub fn default_runtime() -> Result<SharedRuntime, Error> {

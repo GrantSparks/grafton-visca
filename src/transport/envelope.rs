@@ -3,6 +3,7 @@
 //! This module provides abstraction for protocol envelopes, specifically
 //! handling Sony's 8-byte encapsulated VISCA protocol vs raw VISCA bytes.
 
+use bytes::{Bytes, BytesMut};
 use crate::capabilities::ProtocolStyle;
 use std::borrow::Cow;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -31,9 +32,9 @@ impl TransportEnvelope {
     ///
     /// For raw VISCA, returns the command bytes unchanged.
     /// For Sony encapsulated, wraps with 8-byte header.
-    pub fn frame_command(&self, visca_bytes: &[u8], is_inquiry: bool) -> Vec<u8> {
+    pub fn frame_command(&self, visca_bytes: &[u8], is_inquiry: bool) -> Bytes {
         match self.style {
-            ProtocolStyle::RawVisca => visca_bytes.to_vec(),
+            ProtocolStyle::RawVisca => Bytes::copy_from_slice(visca_bytes),
             ProtocolStyle::SonyEncapsulated { use_sequence } => {
                 self.sony_encapsulate(visca_bytes, is_inquiry, use_sequence)
             }
@@ -44,9 +45,9 @@ impl TransportEnvelope {
     ///
     /// For raw VISCA, returns the bytes unchanged.
     /// For Sony encapsulated, extracts payload from 8-byte header.
-    pub fn extract_response(&self, framed_bytes: &[u8]) -> Result<Vec<u8>, crate::Error> {
+    pub fn extract_response(&self, framed_bytes: &[u8]) -> Result<Bytes, crate::Error> {
         match self.style {
-            ProtocolStyle::RawVisca => Ok(framed_bytes.to_vec()),
+            ProtocolStyle::RawVisca => Ok(Bytes::copy_from_slice(framed_bytes)),
             ProtocolStyle::SonyEncapsulated { .. } => self.sony_extract_payload(framed_bytes),
         }
     }
@@ -69,7 +70,7 @@ impl TransportEnvelope {
         visca_bytes: &[u8],
         is_inquiry: bool,
         use_sequence: bool,
-    ) -> Vec<u8> {
+    ) -> Bytes {
         let payload_type = if is_inquiry {
             SonyPayloadType::Inquiry
         } else {
@@ -83,7 +84,7 @@ impl TransportEnvelope {
             0
         };
 
-        let mut envelope = Vec::with_capacity(8 + visca_bytes.len());
+        let mut envelope = BytesMut::with_capacity(8 + visca_bytes.len());
 
         // Payload Type (2 bytes)
         envelope.extend_from_slice(&payload_type.to_bytes());
@@ -97,11 +98,11 @@ impl TransportEnvelope {
         // VISCA payload
         envelope.extend_from_slice(visca_bytes);
 
-        envelope
+        envelope.freeze()
     }
 
     /// Extract VISCA payload from Sony encapsulated response.
-    fn sony_extract_payload(&self, framed_bytes: &[u8]) -> Result<Vec<u8>, crate::Error> {
+    fn sony_extract_payload(&self, framed_bytes: &[u8]) -> Result<Bytes, crate::Error> {
         if framed_bytes.len() < 8 {
             return Err(crate::Error::ParseError(Cow::Borrowed(
                 "Sony response too short for header",
@@ -141,8 +142,8 @@ impl TransportEnvelope {
             ))));
         }
 
-        // Extract VISCA payload
-        Ok(framed_bytes[8..].to_vec())
+        // Extract VISCA payload - use slice to avoid allocation
+        Ok(Bytes::copy_from_slice(&framed_bytes[8..]))
     }
 }
 
@@ -190,12 +191,12 @@ mod tests {
         let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]; // Power On
 
         let framed = envelope.frame_command(&visca_cmd, false);
-        assert_eq!(framed, visca_cmd);
+        assert_eq!(&framed[..], &visca_cmd[..]);
 
         let extracted = envelope
             .extract_response(&visca_cmd)
             .expect("raw visca should extract unchanged");
-        assert_eq!(extracted, visca_cmd);
+        assert_eq!(&extracted[..], &visca_cmd[..]);
     }
 
     #[test]
@@ -216,7 +217,7 @@ mod tests {
         assert_eq!(&framed[4..8], &0u32.to_be_bytes()); // Sequence = 0
 
         // Check VISCA payload
-        assert_eq!(&framed[8..], visca_cmd);
+        assert_eq!(&framed[8..], &visca_cmd[..]);
     }
 
     #[test]
@@ -236,7 +237,7 @@ mod tests {
         assert_eq!(&framed[4..8], &0u32.to_be_bytes()); // Sequence = 0 (first call)
 
         // Check VISCA payload
-        assert_eq!(&framed[8..], visca_inquiry);
+        assert_eq!(&framed[8..], &visca_inquiry[..]);
     }
 
     #[test]
@@ -256,7 +257,7 @@ mod tests {
         let extracted = envelope
             .extract_response(&response)
             .expect("valid sony response should extract");
-        assert_eq!(extracted, visca_ack);
+        assert_eq!(&extracted[..], &visca_ack[..]);
     }
 
     #[test]
