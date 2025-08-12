@@ -3,9 +3,11 @@
 use std::time::Duration;
 
 use crate::{
-    camera::generic::Camera, capabilities::Profile, types::SpeedLevel, units::Normalized,
-    Result,
+    camera::generic::Camera, capabilities::Profile, types::SpeedLevel, units::Normalized, Result,
 };
+
+#[cfg(feature = "async")]
+use crate::Error;
 
 /// Camera state for saving and restoring position
 #[derive(Debug, Clone, Copy)]
