@@ -219,8 +219,7 @@ impl<const N: usize> CommandBuilder<N, Incomplete> {
             self.position += 1;
         }
 
-        // Validate terminator in debug builds
-        #[cfg(debug_assertions)]
+        // Validate terminator (critical safety invariant)
         crate::command::encode_visca::validate_terminator(&self.buffer, self.position);
 
         self.buffer
@@ -237,8 +236,7 @@ impl<const N: usize> CommandBuilder<N, Incomplete> {
             self.position += 1;
         }
 
-        // Validate terminator in debug builds
-        #[cfg(debug_assertions)]
+        // Validate terminator (critical safety invariant)
         crate::command::encode_visca::validate_terminator(&self.buffer, self.position);
 
         let len = self.position;

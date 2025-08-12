@@ -220,10 +220,13 @@ mod blocking_tests {
             Err(Error::Timeout) => {
                 // Expected timeout
             }
+            Err(Error::CommandTimeout { .. }) => {
+                // Also accept CommandTimeout error
+            }
             Err(Error::Io(e)) if e.to_string().contains("timed out") => {
                 // Also accept IO error with timeout message
             }
-            _ => panic!("Expected Timeout or IO timeout error, got {result:?}"),
+            _ => panic!("Expected Timeout or CommandTimeout or IO timeout error, got {result:?}"),
         }
     }
 

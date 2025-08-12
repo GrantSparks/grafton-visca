@@ -12,3 +12,10 @@ pub trait MenuControl {
     /// Sony FR7 supports additional menu control commands beyond basic navigation.
     const SUPPORTS_DIRECT_CONTROL: bool = false;
 }
+
+/// Marker trait for cameras that support direct menu control.
+///
+/// This trait is implemented for camera profiles that support advanced
+/// direct menu control commands beyond basic navigation. Currently,
+/// only the Sony FR7 supports this feature.
+pub trait HasDirectMenuControl: MenuControl {}

@@ -125,8 +125,14 @@ where
 
 // Blocking implementation
 #[cfg(not(feature = "async"))]
-impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
-    MotionSyncControlBlocking for crate::camera::generic::Camera<P, T>
+impl<
+        P: crate::capabilities::Profile,
+        T: crate::transport::Transport
+            + Send
+            + Sync
+            + 'static
+            + crate::transport::core::BlockingTransport,
+    > MotionSyncControlBlocking for crate::camera::generic::Camera<P, T>
 where
     T::Error: Into<Error> + Send,
     for<'a> T::SendFut<'a>: Send,

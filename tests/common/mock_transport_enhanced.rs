@@ -365,6 +365,39 @@ impl Transport for MockTransport {
 // MockTransport already implements Transport, so it can be used directly
 // No need for UnifiedTransport anymore
 
+// Implement BlockingTransport for MockTransport to support blocking API tests
+#[cfg(not(feature = "async"))]
+impl grafton_visca::transport::core::BlockingTransport for MockTransport {
+    fn recv_blocking_with_timeout(&self, _duration: core::time::Duration) -> Result<bytes::Bytes> {
+        // For testing, simulate blocking receive
+        let mut inner = self.inner.lock().unwrap();
+
+        // Return next response from queue
+        if let Some(response) = inner.response_queue.pop_front() {
+            match response {
+                MockResponse::Immediate(bytes) => {
+                    inner.response_history.push(bytes.clone());
+                    Ok(Bytes::from(bytes))
+                }
+                MockResponse::Delayed(bytes, _) => {
+                    // Ignore delay in blocking mode
+                    inner.response_history.push(bytes.clone());
+                    Ok(Bytes::from(bytes))
+                }
+                MockResponse::ErrorCode(code) => {
+                    let error_response = vec![0x90, 0x60, code, VISCA_TERMINATOR];
+                    inner.response_history.push(error_response.clone());
+                    Ok(Bytes::from(error_response))
+                }
+                MockResponse::Timeout => Err(Error::Timeout),
+            }
+        } else {
+            // No response queued - simulate timeout
+            Err(Error::Timeout)
+        }
+    }
+}
+
 impl Default for MockTransport {
     fn default() -> Self {
         Self::new()

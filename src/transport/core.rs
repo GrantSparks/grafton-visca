@@ -7,7 +7,7 @@ use crate::Error;
 use core::future::Future;
 
 #[cfg(feature = "async")]
-use crate::executor::Sleep;
+use crate::runtime::Runtime;
 
 /// Low-level VISCA byte transport - one frame at a time.
 ///
@@ -51,46 +51,44 @@ pub mod blocking {
 /// This trait is implemented by transports that return immediately-ready futures
 /// (using `std::future::Ready`). It's used to enforce at compile time that
 /// `CameraBlocking` can only be used with blocking transports.
-pub trait BlockingTransport: Transport {}
+pub trait BlockingTransport: Transport {
+    /// Receive with per-call timeout for blocking transports.
+    ///
+    /// This method sets a socket-level timeout for the duration of the receive
+    /// operation, ensuring that the timeout is enforced by the OS rather than
+    /// through a polling loop.
+    fn recv_blocking_with_timeout(
+        &self,
+        duration: core::time::Duration,
+    ) -> Result<bytes::Bytes, Error>;
+}
 
 /// Extension trait for timeout operations.
 pub trait TransportExt: Transport {
-    /// Receive with timeout using a runtime-specific Sleep implementation.
+    /// Receive with timeout using a runtime.
     ///
-    /// When `sleep_impl` is provided, it will be used for timeout.
+    /// When `runtime` is provided, it will be used for timeout.
     /// Otherwise, no timeout is applied.
     #[cfg(feature = "async")]
     fn recv_with_timeout<'a>(
         &'a self,
         duration: core::time::Duration,
-        sleep_impl: Option<&'a dyn Sleep>,
+        runtime: Option<&'a dyn Runtime>,
     ) -> impl Future<Output = Result<bytes::Bytes, Error>> + 'a
     where
         Self: 'a,
     {
         async move {
-            if let Some(sleep) = sleep_impl {
-                crate::executor::timeout_with_sleep(sleep, duration, self.recv())
+            if let Some(runtime) = runtime {
+                crate::runtime::timeout_with_runtime(runtime, duration, self.recv())
                     .await?
                     .map_err(Into::into)
             } else {
                 // Without a specific runtime, we can't implement timeout.
-                log::debug!("Timeout requested but no Sleep implementation provided");
+                log::debug!("Timeout requested but no Runtime provided");
                 self.recv().await.map_err(Into::into)
             }
         }
-    }
-
-    /// Blocking timeout helper for non-async transports.
-    ///
-    /// Uses a deadline-based polling loop to implement timeouts for blocking transports.
-    #[cfg(not(feature = "async"))]
-    fn recv_with_timeout_blocking(
-        &self,
-        duration: core::time::Duration,
-    ) -> Result<bytes::Bytes, Error> {
-        // Use the deadline-based timeout implementation
-        crate::executor::timeout(duration, self.recv()).and_then(|r| r.map_err(Into::into))
     }
 }
 
