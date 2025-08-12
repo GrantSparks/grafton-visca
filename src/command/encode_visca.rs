@@ -12,15 +12,16 @@ use super::response::ResponseType;
 
 /// Validates that a VISCA command buffer has the proper terminator.
 ///
-/// This function performs a debug assertion in debug builds to ensure
-/// that commands are properly terminated with 0xFF.
+/// This function ensures that commands are properly terminated with 0xFF,
+/// a critical safety invariant for the VISCA protocol.
 ///
 /// # Panics
 ///
-/// In debug builds, panics if the buffer doesn't end with VISCA_TERMINATOR (0xFF).
+/// Panics if the buffer doesn't end with VISCA_TERMINATOR (0xFF).
+/// This validation runs in all build modes for safety.
 #[inline]
 pub fn validate_terminator(buffer: &[u8], len: usize) {
-    debug_assert!(
+    assert!(
         len == 0 || buffer[len - 1] == crate::command::const_encoding::VISCA_TERMINATOR,
         "VISCA command missing 0xFF terminator at position {}. Command bytes: {:02X?}",
         len - 1,
@@ -30,18 +31,21 @@ pub fn validate_terminator(buffer: &[u8], len: usize) {
 
 /// Validates that a VISCA command buffer has valid structure.
 ///
-/// This function performs debug assertions to ensure:
+/// This function ensures:
 /// - Commands have proper terminator (0xFF)
 /// - Commands have valid camera address byte (0x81-0x88)
 /// - Commands have minimum required length
 ///
+/// These are critical safety invariants for the VISCA protocol.
+///
 /// # Panics
 ///
-/// In debug builds, panics if the buffer doesn't meet VISCA protocol requirements.
+/// Panics if the buffer doesn't meet VISCA protocol requirements.
+/// This validation runs in all build modes for safety.
 #[inline]
 pub fn validate_command_structure(buffer: &[u8], len: usize) {
     // Validate minimum length (at least address + terminator)
-    debug_assert!(
+    assert!(
         len >= 2,
         "VISCA command too short: {} bytes. Minimum is 2 bytes. Command bytes: {:02X?}",
         len,
@@ -50,7 +54,7 @@ pub fn validate_command_structure(buffer: &[u8], len: usize) {
 
     // Validate camera address byte (0x81-0x88 for cameras 1-8)
     if len > 0 {
-        debug_assert!(
+        assert!(
             buffer[0] >= 0x81 && buffer[0] <= 0x88,
             "Invalid VISCA camera address byte: 0x{:02X}. Must be 0x81-0x88. Command bytes: {:02X?}",
             buffer[0],

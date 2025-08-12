@@ -65,9 +65,10 @@ pub mod prelude {
 
 #[cfg(feature = "async")]
 pub use crate::camera::methods::{
-    ColorOps, ExposureCompensationOps, ExposureOps, FocusOps, ImageProcessingOps, InquiryOps,
-    MenuControlOps, MotionSyncControl, NDFilterOps, PanTiltInquiryOps, PanTiltOps, PowerOps,
-    PresetsOps, StreamingOps, SystemOps, TallyOps, VariableSpeedOps, WhiteBalanceOps, ZoomOps,
+    ColorOps, DirectMenuControlOps, ExposureCompensationOps, ExposureOps, FocusOps,
+    ImageProcessingOps, InquiryOps, MenuControlOps, MotionSyncControl, NDFilterOps,
+    PanTiltInquiryOps, PanTiltOps, PowerOps, PresetsOps, StreamingOps, SystemOps, TallyOps,
+    VariableSpeedOps, WhiteBalanceOps, ZoomOps,
 };
 
 impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
@@ -847,7 +848,17 @@ where
     ) -> crate::Result<crate::command::Response> {
         self.0.menu_action(action).await
     }
+}
 
+impl<
+        P: crate::capabilities::Profile + crate::capabilities::HasDirectMenuControl,
+        T: crate::transport::Transport + Send + Sync + 'static,
+    > DirectMenuControlOps for Camera<P, T>
+where
+    T::Error: Into<crate::Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
+{
     async fn direct_menu_control(
         &self,
         control1: u8,

@@ -25,7 +25,11 @@ use crate::forward_facade;
 pub struct Camera<P, T>(pub(super) crate::Camera<P, T>)
 where
     P: crate::capabilities::Profile,
-    T: crate::transport::Transport + Send + Sync + 'static,
+    T: crate::transport::Transport
+        + Send
+        + Sync
+        + 'static
+        + crate::transport::core::BlockingTransport,
     T::Error: Into<crate::Error> + Send,
     for<'a> T::SendFut<'a>: Send,
     for<'a> T::RecvFut<'a>: Send;
@@ -33,7 +37,11 @@ where
 impl<P, T> Camera<P, T>
 where
     P: crate::capabilities::Profile,
-    T: crate::transport::Transport + Send + Sync + 'static,
+    T: crate::transport::Transport
+        + Send
+        + Sync
+        + 'static
+        + crate::transport::core::BlockingTransport,
     T::Error: Into<crate::Error> + Send,
     for<'a> T::SendFut<'a>: Send,
     for<'a> T::RecvFut<'a>: Send,
@@ -53,7 +61,8 @@ where
 /// ```
 pub mod prelude {
     pub use crate::camera::methods::{
-        ColorOpsBlocking as ColorOps, ExposureCompensationOpsBlocking as ExposureCompensationOps,
+        ColorOpsBlocking as ColorOps, DirectMenuControlOpsBlocking as DirectMenuControl,
+        ExposureCompensationOpsBlocking as ExposureCompensationOps,
         ExposureOpsBlocking as ExposureOps, FocusOpsBlocking as FocusOps,
         ImageProcessingOpsBlocking as ImageProcessingOps, InquiryOpsBlocking as InquiryOps,
         MenuControlOpsBlocking as MenuControl, MotionSyncControlBlocking as MotionSyncControl,
@@ -66,16 +75,16 @@ pub mod prelude {
 }
 
 pub use crate::camera::methods::{
-    ColorOpsBlocking as ColorOps, ExposureCompensationOpsBlocking as ExposureCompensationOps,
-    ExposureOpsBlocking as ExposureOps, FocusOpsBlocking as FocusOps,
-    ImageProcessingOpsBlocking as ImageProcessingOps, InquiryOpsBlocking as InquiryOps,
-    MenuControlOpsBlocking as MenuControl, MotionSyncControlBlocking as MotionSyncControl,
-    NDFilterOpsBlocking as NDFilterOps, PanTiltInquiryOpsBlocking as PanTiltInquiryOps,
-    PanTiltOpsBlocking as PanTiltOps, PowerOpsBlocking as PowerOps,
-    PresetsOpsBlocking as PresetsOps, StreamingOpsBlocking as StreamingOps,
-    SystemOpsBlocking as SystemOps, TallyOpsBlocking as TallyOps,
-    VariableSpeedOpsBlocking as VariableSpeedOps, WhiteBalanceOpsBlocking as WhiteBalanceOps,
-    ZoomOpsBlocking as ZoomOps,
+    ColorOpsBlocking as ColorOps, DirectMenuControlOpsBlocking as DirectMenuControl,
+    ExposureCompensationOpsBlocking as ExposureCompensationOps, ExposureOpsBlocking as ExposureOps,
+    FocusOpsBlocking as FocusOps, ImageProcessingOpsBlocking as ImageProcessingOps,
+    InquiryOpsBlocking as InquiryOps, MenuControlOpsBlocking as MenuControl,
+    MotionSyncControlBlocking as MotionSyncControl, NDFilterOpsBlocking as NDFilterOps,
+    PanTiltInquiryOpsBlocking as PanTiltInquiryOps, PanTiltOpsBlocking as PanTiltOps,
+    PowerOpsBlocking as PowerOps, PresetsOpsBlocking as PresetsOps,
+    StreamingOpsBlocking as StreamingOps, SystemOpsBlocking as SystemOps,
+    TallyOpsBlocking as TallyOps, VariableSpeedOpsBlocking as VariableSpeedOps,
+    WhiteBalanceOpsBlocking as WhiteBalanceOps, ZoomOpsBlocking as ZoomOps,
 };
 
 forward_facade!(Camera, blocking,
@@ -131,9 +140,7 @@ forward_facade!(Camera, blocking,
     MenuControl:
         set_menu_display(display: bool) -> crate::Result<crate::command::Response>,
         menu_navigate(direction: crate::command::MenuDirection) -> crate::Result<crate::command::Response>,
-        menu_action(action: crate::command::MenuAction) -> crate::Result<crate::command::Response>,
-        direct_menu_control(control1: u8, control2: u8) -> crate::Result<crate::command::Response>,
-        toggle_menu() -> crate::Result<crate::command::Response>;
+        menu_action(action: crate::command::MenuAction) -> crate::Result<crate::command::Response>;
     PanTiltOps:
         pan_tilt_stop() -> crate::Result<()>,
         pan_tilt_home() -> crate::Result<()>,
@@ -310,12 +317,41 @@ forward_facade!(Camera, blocking,
         set_ndi_quality(quality: crate::types::NDIQuality) -> crate::Result<()>;
 );
 
+impl<P, T> DirectMenuControl for Camera<P, T>
+where
+    P: crate::capabilities::Profile + crate::capabilities::HasDirectMenuControl,
+    T: crate::transport::Transport
+        + Send
+        + Sync
+        + 'static
+        + crate::transport::core::BlockingTransport,
+    T::Error: Into<crate::Error> + Send,
+    for<'a> T::SendFut<'a>: Send,
+    for<'a> T::RecvFut<'a>: Send,
+{
+    fn direct_menu_control(
+        &self,
+        control1: u8,
+        control2: u8,
+    ) -> crate::Result<crate::command::Response> {
+        self.0.direct_menu_control(control1, control2)
+    }
+
+    fn toggle_menu(&self) -> crate::Result<crate::command::Response> {
+        self.0.toggle_menu()
+    }
+}
+
 impl<P, T> VariableSpeedOps for Camera<P, T>
 where
     P: crate::capabilities::Profile
         + crate::capabilities::VariableSpeed
         + crate::capabilities::HasVariableSpeed,
-    T: crate::transport::Transport + Send + Sync + 'static,
+    T: crate::transport::Transport
+        + Send
+        + Sync
+        + 'static
+        + crate::transport::core::BlockingTransport,
     T::Error: Into<crate::Error> + Send,
     for<'a> T::SendFut<'a>: Send,
     for<'a> T::RecvFut<'a>: Send,
@@ -334,7 +370,11 @@ where
     P: crate::capabilities::Profile
         + crate::capabilities::Exposure
         + crate::capabilities::HasExposureCompensation,
-    T: crate::transport::Transport + Send + Sync + 'static,
+    T: crate::transport::Transport
+        + Send
+        + Sync
+        + 'static
+        + crate::transport::core::BlockingTransport,
     T::Error: Into<crate::Error> + Send,
     for<'a> T::SendFut<'a>: Send,
     for<'a> T::RecvFut<'a>: Send,

@@ -139,39 +139,30 @@ where
 {
     async fn enable_multicast(&self) -> Result<()> {
         let command = MulticastStreaming::On;
-        let response = self.send_command(&command).await?;
-        match response {
-            crate::command::Response::Completion => Ok(()),
-            crate::command::Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command(&command).await
     }
 
     async fn disable_multicast(&self) -> Result<()> {
         let command = MulticastStreaming::Off;
-        let response = self.send_command(&command).await?;
-        match response {
-            crate::command::Response::Completion => Ok(()),
-            crate::command::Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command(&command).await
     }
 
     async fn set_ndi_quality(&self, quality: NDIQuality) -> Result<()> {
         let command = NDIQualityCommand::new(quality);
-        let response = self.send_command(&command).await?;
-        match response {
-            crate::command::Response::Completion => Ok(()),
-            crate::command::Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command(&command).await
     }
 }
 
 // Implementation for blocking Camera
 #[cfg(not(feature = "async"))]
-impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
-    StreamingOpsBlocking for crate::camera::generic::Camera<P, T>
+impl<
+        P: crate::capabilities::Profile,
+        T: crate::transport::Transport
+            + Send
+            + Sync
+            + 'static
+            + crate::transport::core::BlockingTransport,
+    > StreamingOpsBlocking for crate::camera::generic::Camera<P, T>
 where
     T::Error: Into<Error> + Send,
     for<'a> T::SendFut<'a>: Send,
@@ -179,31 +170,16 @@ where
 {
     fn enable_multicast(&self) -> Result<()> {
         let command = MulticastStreaming::On;
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            crate::command::Response::Completion => Ok(()),
-            crate::command::Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command_blocking(&command)
     }
 
     fn disable_multicast(&self) -> Result<()> {
         let command = MulticastStreaming::Off;
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            crate::command::Response::Completion => Ok(()),
-            crate::command::Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command_blocking(&command)
     }
 
     fn set_ndi_quality(&self, quality: NDIQuality) -> Result<()> {
         let command = NDIQualityCommand::new(quality);
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            crate::command::Response::Completion => Ok(()),
-            crate::command::Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command_blocking(&command)
     }
 }

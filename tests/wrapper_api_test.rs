@@ -12,10 +12,9 @@ fn test_blocking_wrapper_api() {
     // In a real test, you'd use a mock transport
 
     // The blocking wrapper should expose methods without _blocking suffix
-    fn _example<P: Profile, T: Transport + Send + Sync + 'static>(
-        camera: &Camera<P, T>,
-    ) -> Result<(), grafton_visca::Error>
+    fn _example<P: Profile, T>(camera: &Camera<P, T>) -> Result<(), grafton_visca::Error>
     where
+        T: Transport + Send + Sync + 'static + grafton_visca::transport::core::BlockingTransport,
         T::Error: Into<grafton_visca::Error> + Send,
         for<'a> T::SendFut<'a>: Send,
         for<'a> T::RecvFut<'a>: Send,

@@ -67,7 +67,11 @@ where
     P: crate::capabilities::Profile
         + crate::capabilities::VariableSpeed
         + crate::capabilities::HasVariableSpeed,
-    T: crate::transport::Transport + Send + Sync + 'static,
+    T: crate::transport::Transport
+        + Send
+        + Sync
+        + 'static
+        + crate::transport::core::BlockingTransport,
     T::Error: Into<Error> + Send,
     for<'a> T::SendFut<'a>: Send,
     for<'a> T::RecvFut<'a>: Send,

@@ -56,7 +56,7 @@ pub use profile_metadata::{
 pub use exposure::Exposure;
 pub use focus::Focus;
 pub use image_processing::ImageProcessing;
-pub use menu_control::MenuControl;
+pub use menu_control::{HasDirectMenuControl, MenuControl};
 pub use motion_sync::MotionSync;
 pub use nd_filter::{NDFilter, NDFilterMode};
 pub use pan_tilt::PanTilt;

@@ -14,7 +14,10 @@ use crate::{
 use super::{Camera, MovementConfig, PanTiltPosition};
 
 #[cfg(not(feature = "async"))]
-impl<P: Profile + ProfileMetadata, T: Transport + Send + Sync + 'static> Camera<P, T>
+impl<
+        P: Profile + ProfileMetadata,
+        T: Transport + Send + Sync + 'static + crate::transport::core::BlockingTransport,
+    > Camera<P, T>
 where
     T::Error: Into<Error> + Send,
     for<'a> T::SendFut<'a>: Send,

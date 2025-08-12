@@ -503,6 +503,7 @@ where
     pub(crate) fn send_command_blocking<C>(&self, command: &C) -> Result<Response, Error>
     where
         C: EncodeVisca,
+        T: crate::transport::core::BlockingTransport,
     {
         // Direct blocking implementation
         self.send_command_blocking_direct(command)
@@ -570,6 +571,7 @@ where
     fn send_command_blocking_direct<C>(&self, command: &C) -> Result<Response, Error>
     where
         C: EncodeVisca,
+        T: crate::transport::core::BlockingTransport,
     {
         // Get command bytes using EncodeVisca
         let mut buffer = [0u8; 64];
@@ -622,16 +624,24 @@ where
 
     /// Wait for a response with timeout (blocking version)
     #[cfg(not(feature = "async"))]
-    fn wait_for_response_blocking(&self, timeout: Duration) -> Result<Response, Error> {
-        use crate::executor::timeout as exec_timeout;
+    fn wait_for_response_blocking(&self, timeout: Duration) -> Result<Response, Error>
+    where
+        T: crate::transport::core::BlockingTransport,
+    {
         let start = std::time::Instant::now();
         loop {
-            // Try to receive a response with timeout
-            match exec_timeout(
-                timeout.saturating_sub(start.elapsed()),
-                self.transport.recv(),
-            ) {
-                Ok(Ok(bytes)) => {
+            // Calculate remaining timeout
+            let remaining = timeout.saturating_sub(start.elapsed());
+            if remaining.is_zero() {
+                return Err(Error::CommandTimeout {
+                    duration: timeout,
+                    command: Cow::Borrowed("wait_for_response_blocking"),
+                });
+            }
+
+            // Try to receive a response with timeout using the blocking transport method
+            match self.transport.recv_blocking_with_timeout(remaining) {
+                Ok(bytes) => {
                     log::debug!("Received response: {bytes:02X?}");
 
                     // Deframe the response
@@ -645,7 +655,6 @@ where
                         }
                     }
                 }
-                Ok(Err(e)) => return Err(e.into()),
                 Err(Error::Timeout) => {
                     if start.elapsed() >= timeout {
                         return Err(Error::CommandTimeout {
@@ -665,16 +674,24 @@ where
         &self,
         expected_type: ResponseType,
         timeout: Duration,
-    ) -> Result<Response, Error> {
-        use crate::executor::timeout as exec_timeout;
+    ) -> Result<Response, Error>
+    where
+        T: crate::transport::core::BlockingTransport,
+    {
         let start = std::time::Instant::now();
         loop {
-            // Try to receive a response with timeout
-            match exec_timeout(
-                timeout.saturating_sub(start.elapsed()),
-                self.transport.recv(),
-            ) {
-                Ok(Ok(bytes)) => {
+            // Calculate remaining timeout
+            let remaining = timeout.saturating_sub(start.elapsed());
+            if remaining.is_zero() {
+                return Err(Error::CommandTimeout {
+                    duration: timeout,
+                    command: Cow::Borrowed("wait_for_response_with_type_blocking"),
+                });
+            }
+
+            // Try to receive a response with timeout using the blocking transport method
+            match self.transport.recv_blocking_with_timeout(remaining) {
+                Ok(bytes) => {
                     log::debug!("Received response: {bytes:02X?}");
 
                     // Deframe the response
@@ -703,7 +720,6 @@ where
                         }
                     }
                 }
-                Ok(Err(e)) => return Err(e.into()),
                 Err(Error::Timeout) => {
                     if start.elapsed() >= timeout {
                         return Err(Error::CommandTimeout {
@@ -714,6 +730,104 @@ where
                 }
                 Err(e) => return Err(e),
             }
+        }
+    }
+
+    // ================================================================================
+    // Centralized command sending with typed results (Workstream C)
+    // ================================================================================
+
+    /// Send an action command and wait for completion.
+    ///
+    /// This method centralizes the ACK/Completion handling for action commands,
+    /// automatically handling the response sequence and returning a simple Result.
+    ///
+    /// # Returns
+    /// * `Ok(())` if the command completed successfully
+    /// * `Err(Error)` if the command failed or timed out
+    #[cfg(feature = "async")]
+    pub(crate) async fn send_action_command<C>(&self, command: &C) -> Result<(), Error>
+    where
+        C: EncodeVisca,
+    {
+        let response = self.send_command(command).await?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            Response::CmdAck => Err(Error::CommandPending), // Should not happen with current logic
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Send an inquiry command and extract the typed result.
+    ///
+    /// This method centralizes the response handling for inquiry commands,
+    /// automatically extracting the inquiry data and returning it.
+    ///
+    /// # Returns
+    /// * `Ok(InquiryResponse)` if the inquiry succeeded
+    /// * `Err(Error)` if the inquiry failed or returned unexpected data
+    #[cfg(feature = "async")]
+    pub(crate) async fn send_inquiry_command<C>(
+        &self,
+        command: &C,
+    ) -> Result<crate::command::InquiryResponse, Error>
+    where
+        C: EncodeVisca,
+    {
+        let response = self.send_command(command).await?;
+        match response {
+            Response::Inquiry(data) => Ok(data),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Send an action command and wait for completion (blocking).
+    ///
+    /// This method centralizes the ACK/Completion handling for action commands,
+    /// automatically handling the response sequence and returning a simple Result.
+    ///
+    /// # Returns
+    /// * `Ok(())` if the command completed successfully
+    /// * `Err(Error)` if the command failed or timed out
+    #[cfg(not(feature = "async"))]
+    pub(crate) fn send_action_command_blocking<C>(&self, command: &C) -> Result<(), Error>
+    where
+        C: EncodeVisca,
+        T: crate::transport::core::BlockingTransport,
+    {
+        let response = self.send_command_blocking(command)?;
+        match response {
+            Response::Completion => Ok(()),
+            Response::Error(e) => Err(e),
+            Response::CmdAck => Err(Error::CommandPending), // Should not happen with current logic
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Send an inquiry command and extract the typed result (blocking).
+    ///
+    /// This method centralizes the response handling for inquiry commands,
+    /// automatically extracting the inquiry data and returning it.
+    ///
+    /// # Returns
+    /// * `Ok(InquiryResponse)` if the inquiry succeeded
+    /// * `Err(Error)` if the inquiry failed or returned unexpected data
+    #[cfg(not(feature = "async"))]
+    pub(crate) fn send_inquiry_command_blocking<C>(
+        &self,
+        command: &C,
+    ) -> Result<crate::command::InquiryResponse, Error>
+    where
+        C: EncodeVisca,
+        T: crate::transport::core::BlockingTransport,
+    {
+        let response = self.send_command_blocking(command)?;
+        match response {
+            Response::Inquiry(data) => Ok(data),
+            Response::Error(e) => Err(e),
+            _ => Err(Error::UnexpectedResponseType),
         }
     }
 }

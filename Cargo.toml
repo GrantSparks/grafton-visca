@@ -100,4 +100,3 @@ name = "type_safe_commands"
 
 [[example]]
 name = "runtime_agnostic"
-required-features = ["rt-tokio"]

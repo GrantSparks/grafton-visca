@@ -2,10 +2,7 @@
 
 use crate::{
     capabilities::ValidationError,
-    command::{
-        zoom::{DigitalZoomCommand, Zoom as ZoomCommand, ZoomSpeed},
-        Response,
-    },
+    command::zoom::{DigitalZoomCommand, Zoom as ZoomCommand, ZoomSpeed},
     types::ZoomPosition,
     units::Normalized,
     Error,
@@ -78,12 +75,7 @@ where
 {
     async fn zoom_stop(&self) -> Result<(), Error> {
         let command = ZoomCommand::Stop;
-        let response = self.send_command(&command).await?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command(&command).await
     }
 
     async fn zoom_in(&self) -> Result<(), Error> {
@@ -91,12 +83,7 @@ where
         let speed = self.zoom_speed_range().end / 2;
         let zoom_speed = ZoomSpeed::new(speed)?;
         let command = ZoomCommand::TeleVariable(zoom_speed);
-        let response = self.send_command(&command).await?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command(&command).await
     }
 
     async fn zoom_out(&self) -> Result<(), Error> {
@@ -104,32 +91,17 @@ where
         let speed = self.zoom_speed_range().end / 2;
         let zoom_speed = ZoomSpeed::new(speed)?;
         let command = ZoomCommand::WideVariable(zoom_speed);
-        let response = self.send_command(&command).await?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command(&command).await
     }
 
     async fn zoom_in_standard(&self) -> Result<(), Error> {
         let command = ZoomCommand::TeleStd;
-        let response = self.send_command(&command).await?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command(&command).await
     }
 
     async fn zoom_out_standard(&self) -> Result<(), Error> {
         let command = ZoomCommand::WideStd;
-        let response = self.send_command(&command).await?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command(&command).await
     }
 
     async fn zoom_absolute(&self, position: Normalized) -> Result<(), Error> {
@@ -151,39 +123,30 @@ where
         let zoom_pos = (position_value * max_zoom as f32) as u16;
         let zoom_position = ZoomPosition::new(zoom_pos)?;
         let command = ZoomCommand::Position(zoom_position);
-        let response = self.send_command(&command).await?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command(&command).await
     }
 
     async fn enable_digital_zoom(&self) -> Result<(), Error> {
         let command = DigitalZoomCommand::new(true);
-        let response = self.send_command(&command).await?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command(&command).await
     }
 
     async fn disable_digital_zoom(&self) -> Result<(), Error> {
         let command = DigitalZoomCommand::new(false);
-        let response = self.send_command(&command).await?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command(&command).await
     }
 }
 
 // Blocking implementation
 #[cfg(not(feature = "async"))]
-impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
-    ZoomOpsBlocking for crate::camera::generic::Camera<P, T>
+impl<
+        P: crate::capabilities::Profile,
+        T: crate::transport::Transport
+            + Send
+            + Sync
+            + 'static
+            + crate::transport::core::BlockingTransport,
+    > ZoomOpsBlocking for crate::camera::generic::Camera<P, T>
 where
     T::Error: Into<Error> + Send,
     for<'a> T::SendFut<'a>: Send,
@@ -191,12 +154,7 @@ where
 {
     fn zoom_stop(&self) -> Result<(), Error> {
         let command = ZoomCommand::Stop;
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command_blocking(&command)
     }
 
     fn zoom_in(&self) -> Result<(), Error> {
@@ -204,12 +162,7 @@ where
         let speed = self.zoom_speed_range().end / 2;
         let zoom_speed = ZoomSpeed::new(speed)?;
         let command = ZoomCommand::TeleVariable(zoom_speed);
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command_blocking(&command)
     }
 
     fn zoom_out(&self) -> Result<(), Error> {
@@ -217,32 +170,17 @@ where
         let speed = self.zoom_speed_range().end / 2;
         let zoom_speed = ZoomSpeed::new(speed)?;
         let command = ZoomCommand::WideVariable(zoom_speed);
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command_blocking(&command)
     }
 
     fn zoom_in_standard(&self) -> Result<(), Error> {
         let command = ZoomCommand::TeleStd;
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command_blocking(&command)
     }
 
     fn zoom_out_standard(&self) -> Result<(), Error> {
         let command = ZoomCommand::WideStd;
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command_blocking(&command)
     }
 
     fn zoom_absolute(&self, position: Normalized) -> Result<(), Error> {
@@ -264,31 +202,16 @@ where
         let zoom_pos = (position_value * max_zoom as f32) as u16;
         let zoom_position = ZoomPosition::new(zoom_pos)?;
         let command = ZoomCommand::Position(zoom_position);
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command_blocking(&command)
     }
 
     fn enable_digital_zoom(&self) -> Result<(), Error> {
         let command = DigitalZoomCommand::new(true);
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command_blocking(&command)
     }
 
     fn disable_digital_zoom(&self) -> Result<(), Error> {
         let command = DigitalZoomCommand::new(false);
-        let response = self.send_command_blocking(&command)?;
-        match response {
-            Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_action_command_blocking(&command)
     }
 }

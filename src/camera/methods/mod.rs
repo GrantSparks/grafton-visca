@@ -33,7 +33,7 @@ pub use image_processing::ImageProcessingOps;
 #[cfg(feature = "async")]
 pub use inquiry::{InquiryOps, PanTiltInquiryOps};
 #[cfg(feature = "async")]
-pub use menu::MenuControlOps;
+pub use menu::{DirectMenuControlOps, MenuControlOps};
 #[cfg(feature = "async")]
 pub use motion_sync::MotionSyncControl;
 #[cfg(feature = "async")]
@@ -69,7 +69,7 @@ pub use image_processing::ImageProcessingOpsBlocking;
 #[cfg(not(feature = "async"))]
 pub use inquiry::{InquiryOpsBlocking, PanTiltInquiryOpsBlocking};
 #[cfg(not(feature = "async"))]
-pub use menu::MenuControlOpsBlocking;
+pub use menu::{DirectMenuControlOpsBlocking, MenuControlOpsBlocking};
 #[cfg(not(feature = "async"))]
 pub use motion_sync::MotionSyncControlBlocking;
 #[cfg(not(feature = "async"))]
