@@ -54,13 +54,20 @@ impl<T> UnboundedSender<T> {
     /// Sends a value on this channel.
     ///
     /// This will always succeed unless the receiver has been dropped.
+    /// In async mode, this uses try_send which is non-blocking.
     pub fn send(&self, value: T) -> Result<()> {
         match self {
             #[cfg(feature = "async")]
             UnboundedSender::Async(tx) => {
-                // async_channel::Sender::send is a blocking operation but
-                // since the channel is unbounded, it should complete immediately
-                tx.send_blocking(value).map_err(|_| Error::ChannelClosed)
+                // Use try_send for non-blocking operation
+                // For unbounded channels, try_send only fails if the receiver is closed
+                tx.try_send(value).map_err(|e| match e {
+                    async_channel::TrySendError::Closed(_) => Error::ChannelClosed,
+                    async_channel::TrySendError::Full(_) => {
+                        // This should never happen for unbounded channels
+                        unreachable!("Unbounded channel reported as full")
+                    }
+                })
             }
             #[cfg(not(feature = "async"))]
             UnboundedSender::Std(tx) => tx.send(value).map_err(|_| Error::ChannelClosed),
