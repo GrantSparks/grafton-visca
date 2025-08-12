@@ -75,11 +75,7 @@ fn test_tcp_blocking_timeout_enforcement() {
                 // Check that timeout happened within tolerance
                 let expected_ms = timeout_duration.as_millis() as u64;
                 let actual_ms = elapsed.as_millis() as u64;
-                let diff_ms = if actual_ms > expected_ms {
-                    actual_ms - expected_ms
-                } else {
-                    expected_ms - actual_ms
-                };
+                let diff_ms = actual_ms.abs_diff(expected_ms);
 
                 assert!(
                     diff_ms <= tolerance_ms,
@@ -125,11 +121,7 @@ fn test_udp_blocking_timeout_enforcement() {
                 // Check that timeout happened within tolerance
                 let expected_ms = timeout_duration.as_millis() as u64;
                 let actual_ms = elapsed.as_millis() as u64;
-                let diff_ms = if actual_ms > expected_ms {
-                    actual_ms - expected_ms
-                } else {
-                    expected_ms - actual_ms
-                };
+                let diff_ms = actual_ms.abs_diff(expected_ms);
 
                 assert!(
                     diff_ms <= tolerance_ms,
