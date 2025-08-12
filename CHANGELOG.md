@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Breaking Changes
+
+#### 🔄 API Consolidation and Cleanup (Issue #222)
+- **BREAKING**: Removed duplicate setter methods from `Camera` struct:
+  - `set_nd_filter_mode()` - Use `NDFilterOps` trait methods instead
+  - `set_motion_sync_mode()` - Use `MotionSyncControl` trait methods instead
+- **BREAKING**: Changed return types for all menu control methods from `Result<Response, Error>` to `Result<(), Error>`
+  - Affects `MenuControlOps` and `DirectMenuControlOps` traits
+  - Simplifies API by returning unit type for command acknowledgments
+- **BREAKING**: Renamed module `generic_methods.rs` to `capability_introspection.rs` to better reflect its purpose
+
+### Added
+- New `map_ack_to_unit()` helper function in `src/command/util.rs` for standardized response handling
+- Async facade now uses `forward_facade!` macro for consistency with blocking implementation
+
+### Changed
+- Module `src/camera/generic_methods.rs` renamed to `src/camera/capability_introspection.rs`
+- Documentation updated to clarify that capability introspection methods are read-only
+- Async and blocking facades now have identical API surfaces generated from the same macro specification
+
+### Migration Guide
+Users upgrading from 0.6.0 should:
+1. Replace calls to `Camera::set_nd_filter_mode()` with the trait method from `NDFilterOps`
+2. Replace calls to `Camera::set_motion_sync_mode()` with the trait method from `MotionSyncControl`
+3. Update menu control code to handle `()` return type instead of `Response`
+4. Import specific trait modules as needed for accessing control methods
+
 ## [0.6.0] - 2025-01-07
 
 ### Added
