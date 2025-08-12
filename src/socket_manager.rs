@@ -594,7 +594,7 @@ where
                     }
                 }
 
-                if let Ok(bytes) = self.transport.recv().await.map_err(Into::<Error>::into) {
+                if let Ok(bytes) = self.transport.recv().await {
                     activity = true;
                     empty_iterations = 0;
                     self.handle_raw_response(bytes).await;

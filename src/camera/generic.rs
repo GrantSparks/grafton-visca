@@ -359,7 +359,11 @@ where
         let timeout_config = TimeoutConfig::default();
 
         // Get runtime (required for socket manager)
+        #[cfg(feature = "rt-tokio")]
         let runtime = crate::runtime::default_runtime();
+
+        #[cfg(all(feature = "async", not(feature = "rt-tokio")))]
+        let runtime = crate::runtime::default_runtime()?;
 
         let actor = crate::socket_manager::SocketManagerActor::new(
             transport,
