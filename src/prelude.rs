@@ -16,7 +16,7 @@
 //! use grafton_visca::transport::tokio::Tcp;
 //!
 //! let transport = Tcp::connect("192.168.0.110:52381").await?;
-//! let camera = PTZOpticsG2Cam::new(transport);
+//! let camera = PTZOpticsG2Cam::from_transport(transport);
 //!
 //! // Async methods are available directly on the camera
 //! camera.power_on().await?;
@@ -37,7 +37,7 @@
 //! use grafton_visca::transport::blocking::Tcp;
 //!
 //! let transport = Tcp::connect("192.168.0.110:52381")?;
-//! let camera = PTZOpticsG2Cam::new(transport);
+//! let camera = PTZOpticsG2Cam::from_transport(transport);
 //!
 //! // Blocking methods are available directly on the camera
 //! camera.power_on()?;
