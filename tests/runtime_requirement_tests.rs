@@ -94,7 +94,7 @@ impl AsyncTransport for MockTransportWithResponses {
 }
 
 #[cfg(feature = "rt-tokio")]
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 async fn test_operations_work_with_default_runtime() {
     use grafton_visca::camera::{profiles::PTZOpticsG2, CameraAsync};
 
@@ -111,10 +111,15 @@ async fn test_operations_work_with_default_runtime() {
     // Pan/tilt operations should work with default runtime
     let result = camera.pan_tilt_stop().await;
     assert!(result.is_ok(), "pan_tilt_stop failed: {:?}", result);
+
+    // Explicitly drop camera to ensure socket manager is cleaned up
+    drop(camera);
+    // Give a small delay for background tasks to complete
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 }
 
 #[cfg(feature = "rt-tokio")]
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 async fn test_operations_succeed_with_explicit_runtime() {
     use grafton_visca::camera::{profiles::PTZOpticsG2, CameraAsync};
 
@@ -127,6 +132,11 @@ async fn test_operations_succeed_with_explicit_runtime() {
     // Operations should succeed with proper mock responses
     let result = camera.zoom_stop().await;
     assert!(result.is_ok());
+
+    // Explicitly drop camera to ensure socket manager is cleaned up
+    drop(camera);
+    // Give a small delay for background tasks to complete
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 }
 
 // NOTE: Testing custom runtimes is complex because:
@@ -145,7 +155,7 @@ async fn test_custom_runtime_works() {
 }
 
 #[cfg(feature = "rt-tokio")]
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 async fn test_movement_detection_works_with_default_runtime() {
     use grafton_visca::camera::{profiles::PTZOpticsG2, CameraAsync};
 
@@ -161,10 +171,15 @@ async fn test_movement_detection_works_with_default_runtime() {
 
     let result = camera.pan_tilt_stop().await;
     assert!(result.is_ok(), "pan_tilt_stop failed: {:?}", result);
+
+    // Explicitly drop camera to ensure socket manager is cleaned up
+    drop(camera);
+    // Give a small delay for background tasks to complete
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 }
 
 #[cfg(feature = "rt-tokio")]
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 async fn test_power_operations_work_with_default_runtime() {
     use grafton_visca::camera::{profiles::PTZOpticsG2, CameraAsync};
 
@@ -179,6 +194,11 @@ async fn test_power_operations_work_with_default_runtime() {
 
     let result = camera.focus_stop().await;
     assert!(result.is_ok(), "focus_stop failed: {:?}", result);
+
+    // Explicitly drop camera to ensure socket manager is cleaned up
+    drop(camera);
+    // Give a small delay for background tasks to complete
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 }
 
 // NOTE: To truly test "no runtime" scenarios, we would need:
