@@ -48,10 +48,10 @@ impl FrameParser {
         if let Some(pos) = self.buffer.iter().position(|&b| b == VISCA_TERMINATOR) {
             // Include the terminator in the frame
             let frame_len = pos + 1;
-            
+
             // Split off the frame from the buffer
             let frame = self.buffer.split_to(frame_len);
-            
+
             Some(frame)
         } else {
             None
@@ -109,6 +109,7 @@ pub fn validate_frame(data: &[u8]) -> Result<(), Error> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::expect_used)]
     use super::*;
 
     #[test]
@@ -117,10 +118,10 @@ mod tests {
 
         // Feed a complete frame
         parser.feed(&[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]);
-        
+
         let frame = parser.next_frame().expect("should extract frame");
         assert_eq!(&frame[..], &[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]);
-        
+
         // Buffer should be empty after extraction
         assert!(parser.is_empty());
     }
@@ -132,7 +133,7 @@ mod tests {
         // Feed partial frame
         parser.feed(&[0x81, 0x01, 0x04]);
         assert!(parser.next_frame().is_none());
-        
+
         // Complete the frame
         parser.feed(&[0x00, 0x02, 0xFF]);
         let frame = parser.next_frame().expect("should extract frame");
@@ -145,8 +146,8 @@ mod tests {
 
         // Feed two frames at once
         parser.feed(&[
-            0x81, 0x01, 0x04, 0x00, 0x02, 0xFF,  // Frame 1
-            0x90, 0x41, 0xFF,                     // Frame 2
+            0x81, 0x01, 0x04, 0x00, 0x02, 0xFF, // Frame 1
+            0x90, 0x41, 0xFF, // Frame 2
         ]);
 
         let frame1 = parser.next_frame().expect("should extract first frame");
