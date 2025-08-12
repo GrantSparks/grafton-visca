@@ -1806,6 +1806,10 @@ where
                         // Some cameras send completion directly without ACK
                         Ok(Response::Completion)
                     }
+                    Response::Error(e) => {
+                        // Error response received instead of ACK
+                        Err(e)
+                    }
                     _ => Err(Error::ParseError(Cow::Owned(format!(
                         "Expected ACK or Completion, got: {:?}",
                         ack

@@ -72,10 +72,9 @@ mod blocking_tests {
     #[test]
     fn test_camera_zoom_commands() {
         // Use MockTransportBuilder for multiple command expectations
-        // Note: blocking mode uses variable speed commands, not standard speed
-        // For PTZOpticsG2, zoom_speed_range().end is 8, so medium speed is 4
-        let zoom_in_cmd = vec![0x81, 0x01, 0x04, 0x07, 0x24, VISCA_TERMINATOR]; // TeleVariable with speed 4
-        let zoom_out_cmd = vec![0x81, 0x01, 0x04, 0x07, 0x34, VISCA_TERMINATOR]; // WideVariable with speed 4
+        // Standard speed zoom commands as per VISCA spec
+        let zoom_in_cmd = vec![0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR]; // TeleStd
+        let zoom_out_cmd = vec![0x81, 0x01, 0x04, 0x07, 0x03, VISCA_TERMINATOR]; // WideStd
 
         let mock = MockTransportBuilder::new()
             .connected(true)
@@ -127,7 +126,7 @@ mod blocking_tests {
     #[test]
     fn test_simple_zoom_in() {
         // Simple test with just zoom_in to isolate the issue
-        let zoom_in_cmd = vec![0x81, 0x01, 0x04, 0x07, 0x24, VISCA_TERMINATOR]; // Speed 4
+        let zoom_in_cmd = vec![0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR]; // Standard speed
 
         let mock = MockTransportBuilder::new()
             .connected(true)
