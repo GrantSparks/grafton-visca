@@ -21,7 +21,6 @@ fn test_no_hardcoded_terminator_test_exists() {
     );
 }
 
-
 /// Test that the type-safe example exists
 #[test]
 fn test_type_safe_example_exists() {
