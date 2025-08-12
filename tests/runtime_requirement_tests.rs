@@ -98,11 +98,12 @@ impl AsyncTransport for MockTransportWithResponses {
 async fn test_operations_work_with_default_runtime() {
     use grafton_visca::camera::{profiles::PTZOpticsG2, CameraAsync};
 
-    // Create camera with mock transport (uses default runtime from rt-tokio)
+    // Create camera with mock transport and explicit runtime
     let transport = MockTransport::new();
-    let camera = CameraAsync::<PTZOpticsG2, _>::from_transport(transport);
+    let runtime = std::sync::Arc::new(grafton_visca::runtime::TokioRuntime);
+    let camera = CameraAsync::<PTZOpticsG2, _>::from_transport(transport).with_runtime(runtime);
 
-    // Simple operations should work with default runtime
+    // Simple operations should work with explicit runtime
     // We'll just test zoom_stop which is a simple action command
     let result = camera.zoom_stop().await;
     assert!(result.is_ok(), "zoom_stop failed: {:?}", result);
@@ -119,9 +120,9 @@ async fn test_operations_succeed_with_explicit_runtime() {
 
     // Create a better mock transport that returns proper VISCA responses
     let transport = MockTransportWithResponses::new();
-    // Just use the default runtime from rt-tokio, don't provide an explicit one
-    // The whole point is that rt-tokio provides a working default
-    let camera = CameraAsync::<PTZOpticsG2, _>::from_transport(transport);
+    // Provide explicit runtime as required by the new API
+    let runtime = std::sync::Arc::new(grafton_visca::runtime::TokioRuntime);
+    let camera = CameraAsync::<PTZOpticsG2, _>::from_transport(transport).with_runtime(runtime);
 
     // Operations should succeed with proper mock responses
     let result = camera.zoom_stop().await;
@@ -148,11 +149,12 @@ async fn test_custom_runtime_works() {
 async fn test_movement_detection_works_with_default_runtime() {
     use grafton_visca::camera::{profiles::PTZOpticsG2, CameraAsync};
 
-    // Create camera with mock transport (uses default runtime from rt-tokio)
+    // Create camera with mock transport and explicit runtime
     let transport = MockTransport::new();
-    let camera = CameraAsync::<PTZOpticsG2, _>::from_transport(transport);
+    let runtime = std::sync::Arc::new(grafton_visca::runtime::TokioRuntime);
+    let camera = CameraAsync::<PTZOpticsG2, _>::from_transport(transport).with_runtime(runtime);
 
-    // Simple operations should work with the default runtime
+    // Simple operations should work with explicit runtime
     // Just test basic commands that don't require complex inquiry responses
     let result = camera.zoom_stop().await;
     assert!(result.is_ok(), "zoom_stop failed: {:?}", result);
@@ -166,9 +168,10 @@ async fn test_movement_detection_works_with_default_runtime() {
 async fn test_power_operations_work_with_default_runtime() {
     use grafton_visca::camera::{profiles::PTZOpticsG2, CameraAsync};
 
-    // Create camera with mock transport (uses default runtime from rt-tokio)
+    // Create camera with mock transport and explicit runtime
     let transport = MockTransport::new();
-    let camera = CameraAsync::<PTZOpticsG2, _>::from_transport(transport);
+    let runtime = std::sync::Arc::new(grafton_visca::runtime::TokioRuntime);
+    let camera = CameraAsync::<PTZOpticsG2, _>::from_transport(transport).with_runtime(runtime);
 
     // Just test that basic operations work, not power operations which have long delays
     let result = camera.zoom_stop().await;

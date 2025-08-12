@@ -192,16 +192,12 @@ where
             }
 
             // Yield to scheduler using runtime abstraction
-            #[cfg(feature = "rt-tokio")]
-            {
-                let runtime = crate::runtime::default_runtime();
-                runtime.sleep(std::time::Duration::from_millis(1)).await;
-            }
-            #[cfg(not(feature = "rt-tokio"))]
-            {
-                let runtime = crate::runtime::default_runtime()?;
-                runtime.sleep(std::time::Duration::from_millis(1)).await;
-            }
+            let runtime = if let Some(runtime) = self.runtime() {
+                std::sync::Arc::clone(runtime)
+            } else {
+                return Err(Error::MissingRuntime);
+            };
+            runtime.sleep(std::time::Duration::from_millis(1)).await;
         }
     }
 
@@ -213,16 +209,12 @@ where
         let pos1_focus = self.focus_position_inquiry().await?;
 
         // Yield to scheduler using runtime abstraction
-        #[cfg(feature = "rt-tokio")]
-        {
-            let runtime = crate::runtime::default_runtime();
-            runtime.sleep(std::time::Duration::from_millis(1)).await;
-        }
-        #[cfg(not(feature = "rt-tokio"))]
-        {
-            let runtime = crate::runtime::default_runtime()?;
-            runtime.sleep(std::time::Duration::from_millis(1)).await;
-        }
+        let runtime = if let Some(runtime) = self.runtime() {
+            std::sync::Arc::clone(runtime)
+        } else {
+            return Err(Error::MissingRuntime);
+        };
+        runtime.sleep(std::time::Duration::from_millis(1)).await;
 
         // Get second reading
         let pos2_pt = self.pan_tilt_position_inquiry().await?;

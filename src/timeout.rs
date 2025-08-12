@@ -41,7 +41,7 @@ impl CommandCategory {
 /// Configuration for command timeouts.
 #[derive(Debug, Copy, Clone)]
 pub struct TimeoutConfig {
-    /// Timeout for ACK responses from the camera (typically 50-75ms)
+    /// Timeout for ACK responses from the camera (default 500ms)
     pub ack_timeout: Duration,
     /// Timeout for quick commands (inquiry, power status)
     pub quick_timeout: Duration,
@@ -60,11 +60,11 @@ pub struct TimeoutConfig {
 impl Default for TimeoutConfig {
     fn default() -> Self {
         Self {
-            ack_timeout: Duration::from_millis(75), // Quick ACK response timeout
-            quick_timeout: Duration::from_secs(5),  // Increased for network delays
+            ack_timeout: Duration::from_millis(500), // Default ACK timeout as specified in epic
+            quick_timeout: Duration::from_secs(5),   // Increased for network delays
             movement_timeout: Duration::from_secs(30), // Increased for full-range movements
             preset_timeout: Duration::from_secs(90), // Increased for complex presets
-            long_timeout: Duration::from_secs(300), // Keep at 5 minutes for discovery
+            long_timeout: Duration::from_secs(300),  // Keep at 5 minutes for discovery
             network_timeout: Duration::from_secs(5), // Increased for network operations
             default_timeout: Duration::from_secs(60), // Increased as general fallback
         }
@@ -211,7 +211,7 @@ mod tests {
     #[test]
     fn test_timeout_config_default() {
         let config = TimeoutConfig::default();
-        assert_eq!(config.ack_timeout, Duration::from_millis(75));
+        assert_eq!(config.ack_timeout, Duration::from_millis(500));
         assert_eq!(config.quick_timeout, Duration::from_secs(5));
         assert_eq!(config.movement_timeout, Duration::from_secs(30));
         assert_eq!(config.preset_timeout, Duration::from_secs(90));
