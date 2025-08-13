@@ -793,7 +793,7 @@ where
                 // This looks like an inquiry response but couldn't be parsed without type info
                 // First, try to use the pending inquiry's response type if available
                 let response_type = if let Some(ref pending) = self.inner.pending_inquiry {
-                    pending.response_type.clone()
+                    pending.response_type
                 } else {
                     // If no pending inquiry, try to determine based on payload length as fallback
                     let payload_len = bytes.len() - 3; // Subtract header (0x90, 0x50) and terminator (0xFF)
@@ -812,7 +812,6 @@ where
                     match Response::parse_with_type(&bytes, rt) {
                         Ok(Response::Inquiry(data)) => {
                             self.handle_inquiry_response(data).await;
-                            return;
                         }
                         Ok(other) => {
                             warn!("Unexpected response type from parse_with_type: {:?}", other);

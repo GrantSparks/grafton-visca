@@ -439,11 +439,12 @@ where
         C: EncodeVisca,
     {
         // Socket manager is mandatory for async mode
-        let socket_manager = self.socket_manager.as_ref().ok_or_else(|| {
-            Error::InvalidState(Cow::Borrowed(
-                "Socket manager not initialized. Call initialize_socket_manager() first.",
-            ))
-        })?;
+        let socket_manager =
+            self.socket_manager
+                .as_ref()
+                .ok_or(Error::InvalidState(Cow::Borrowed(
+                    "Socket manager not initialized. Call initialize_socket_manager() first.",
+                )))?;
 
         self.send_command_via_socket_manager(command, socket_manager)
             .await
