@@ -89,11 +89,10 @@ struct CameraState {
     color_temperature: u16,
 
     // Image adjustments
-    sharpness: u8,
-    contrast: u8,
+    // NOTE: sharpness, contrast, and luminance are not documented in VISCA specs
+    // and have been removed from the simulator until proper documentation is found
     saturation: u8,
     hue: u8,
-    luminance: u8,
 
     // Image settings
     image_flip_vertical: bool,
@@ -105,7 +104,8 @@ struct CameraState {
 
     // Focus
     focus_mode: u8,
-    auto_focus_enabled: bool,
+    // NOTE: auto_focus_enabled is not documented in VISCA specs
+    // and has been removed from the simulator until proper documentation is found
 
     // Resolution
     resolution: u8,
@@ -131,17 +131,13 @@ impl Default for CameraState {
             backlight_enabled: false,
             white_balance_mode: 0x00, // Auto
             color_temperature: 2800,
-            sharpness: 0x07,
-            contrast: 0x07,
             saturation: 0x07,
             hue: 0x07,
-            luminance: 0x00,
             image_flip_vertical: false,
             image_flip_horizontal: false,
             noise_reduction_2d: 0x01,
             noise_reduction_3d: 0x01,
             focus_mode: 0x02, // Auto
-            auto_focus_enabled: true,
             resolution: 0x00, // 1080p
         }
     }
@@ -761,7 +757,7 @@ fn encode_position(value: u16) -> [u8; 4] {
 }
 
 fn encode_signed_position(value: i16) -> [u8; 4] {
-    let abs_val = value.abs() as u16;
+    let abs_val = value.unsigned_abs();
     let nibbles = encode_position(abs_val);
 
     if value >= 0 {
