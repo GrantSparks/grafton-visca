@@ -373,26 +373,19 @@ impl SocketManagerHandle {
             .map_err(|_| Error::SocketManagerChannelClosed)
     }
 
-    /// Shutdown the socket manager gracefully.
-    /// This method sends a shutdown command to the actor and waits for it to confirm shutdown.
-    /// The actor will complete any in-flight commands before shutting down.
+    /// Send a shutdown signal without waiting for confirmation.
     ///
-    /// This is primarily intended for testing to ensure clean shutdown of background tasks.
-    #[doc(hidden)]
-    pub async fn shutdown(&self) -> Result<()> {
-        let (confirmation_sender, confirmation_receiver) = channels::oneshot();
+    /// This is used internally by the Camera's Drop implementation to ensure
+    /// the socket manager is gracefully shut down when the camera is dropped.
+    /// Unlike `shutdown()`, this method doesn't wait for confirmation and can
+    /// be called from synchronous contexts like Drop.
+    pub(crate) fn shutdown_nowait(&self) {
+        let (confirmation_sender, _confirmation_receiver) = channels::oneshot();
 
-        #[allow(unreachable_patterns)]
-        match self.command_sender.send(SocketManagerCommand::Shutdown {
+        // Send shutdown command - ignore result as this is best-effort
+        let _ = self.command_sender.send(SocketManagerCommand::Shutdown {
             confirmation: confirmation_sender,
-        }) {
-            Ok(_) => {
-                // Wait for the actor to confirm shutdown
-                let _ = confirmation_receiver.recv().await;
-                Ok(())
-            }
-            Err(_) => Err(Error::SocketManagerChannelClosed),
-        }
+        });
     }
 }
 

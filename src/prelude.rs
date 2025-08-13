@@ -60,7 +60,7 @@
 /// ```
 #[cfg(feature = "async")]
 pub mod r#async {
-    pub use crate::camera::helpers::MovementOps;
+    // MovementOps trait has been removed - movement methods are now inherent methods on Camera
     pub use crate::camera::profiles::{
         GenericVisca, NearusBRC300, PTZOptics30X, PTZOpticsG2, PTZOpticsG3, SonyBRC300,
         SonyBRCH900, SonyEVIH100, SonyFR7,
@@ -117,7 +117,7 @@ pub mod r#async {
 /// ```
 #[cfg(not(feature = "async"))]
 pub mod blocking {
-    pub use crate::camera::helpers::MovementOpsBlocking as MovementOps;
+    // MovementOps trait has been removed - movement methods are now inherent methods on Camera
     pub use crate::camera::profiles::{
         GenericVisca, NearusBRC300, PTZOptics30X, PTZOpticsG2, PTZOpticsG3, SonyBRC300,
         SonyBRCH900, SonyEVIH100, SonyFR7,

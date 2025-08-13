@@ -10,15 +10,13 @@ use crate::{
     error::Error,
 };
 
-#[cfg(not(feature = "async"))]
 use crate::transport::BlockingTransport;
 
-#[cfg(not(feature = "async"))]
 use super::BlockingMode;
 
 use super::{Camera, MovementConfig, PanTiltPosition};
 
-#[cfg(not(feature = "async"))]
+// Blocking mode implementation is always available
 impl<P, T> Camera<BlockingMode, P, T>
 where
     P: Profile + ProfileMetadata,
@@ -192,11 +190,7 @@ where
             }
 
             // Yield to scheduler using runtime abstraction
-            let runtime = if let Some(runtime) = self.runtime() {
-                std::sync::Arc::clone(runtime)
-            } else {
-                return Err(Error::MissingRuntime);
-            };
+            let runtime = self.runtime().ok_or(Error::MissingRuntime)?;
             runtime.sleep(std::time::Duration::from_millis(1)).await;
         }
     }
@@ -209,11 +203,7 @@ where
         let pos1_focus = self.focus_position_inquiry().await?;
 
         // Yield to scheduler using runtime abstraction
-        let runtime = if let Some(runtime) = self.runtime() {
-            std::sync::Arc::clone(runtime)
-        } else {
-            return Err(Error::MissingRuntime);
-        };
+        let runtime = self.runtime().ok_or(Error::MissingRuntime)?;
         runtime.sleep(std::time::Duration::from_millis(1)).await;
 
         // Get second reading
