@@ -20,7 +20,7 @@
 
 #[cfg(not(feature = "async"))]
 fn main() -> grafton_visca::Result<()> {
-    use grafton_visca::{camera::CameraBlocking, CameraBuilder};
+    use grafton_visca::CameraBuilder;
 
     env_logger::init();
 
@@ -80,10 +80,11 @@ fn main() -> grafton_visca::Result<()> {
         Err(e) => println!("  Mode: ❌ {e}"),
     }
 
-    match camera.auto_focus_inquiry() {
-        Ok(enabled) => println!("  Auto Focus: {}", if enabled { "✓" } else { "✗" }),
-        Err(e) => println!("  Auto Focus: ❌ {e}"),
-    }
+    // auto_focus_inquiry() has been commented out pending verification
+    // match camera.auto_focus_inquiry() {
+    //     Ok(enabled) => println!("  Auto Focus: {}", if enabled { "✓" } else { "✗" }),
+    //     Err(e) => println!("  Auto Focus: ❌ {e}"),
+    // }
 
     match camera.focus_position_inquiry() {
         Ok(pos) => println!("  Position: {pos:?}"),
@@ -156,15 +157,17 @@ fn main() -> grafton_visca::Result<()> {
 
     // Image Adjustments
     println!("\n── Image Adjustments ──");
-    match camera.sharpness_inquiry() {
-        Ok(val) => println!("  Sharpness: {val:?}"),
-        Err(e) => println!("  Sharpness: ❌ {e}"),
-    }
+    // sharpness_inquiry() and contrast_inquiry() have been commented out pending verification
+    // These are not standard VISCA inquiries according to the protocol documentation
+    // match camera.sharpness_inquiry() {
+    //     Ok(val) => println!("  Sharpness: {val:?}"),
+    //     Err(e) => println!("  Sharpness: ❌ {e}"),
+    // }
 
-    match camera.contrast_inquiry() {
-        Ok(val) => println!("  Contrast: {val:?}"),
-        Err(e) => println!("  Contrast: ❌ {e}"),
-    }
+    // match camera.contrast_inquiry() {
+    //     Ok(val) => println!("  Contrast: {val:?}"),
+    //     Err(e) => println!("  Contrast: ❌ {e}"),
+    // }
 
     match camera.saturation_inquiry() {
         Ok(val) => println!("  Saturation: {val:?}"),
