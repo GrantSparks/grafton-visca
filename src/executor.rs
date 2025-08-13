@@ -4,12 +4,15 @@
 //! It includes a minimal blocking executor for synchronous operation and a `Spawner` trait
 //! that allows users to provide their own async runtime integration.
 
+#[cfg(any(test, feature = "test-utils"))]
 use core::future::Future;
+#[cfg(any(test, feature = "test-utils"))]
 use core::task::{Context, Poll, Waker};
 
 #[cfg(feature = "async")]
 use std::pin::Pin;
 
+#[cfg(any(test, feature = "test-utils"))]
 use crate::Error;
 
 /// Type alias for a boxed future that can be spawned.
@@ -173,11 +176,15 @@ impl Spawner for tokio::runtime::Handle {
 /// a minimal executor on that thread. It's useful for unit tests or
 /// environments where a full async runtime is not available.
 ///
-/// This type is only available when the `async` feature is enabled.
+/// **Note:** This type is only intended for test utilities and should not be used
+/// in production code. Production code should use proper async runtimes.
+///
+/// This type is only available when both the `async` feature and either `test` or
+/// `test-utils` feature are enabled.
 ///
 /// # Example
 /// ```no_run
-/// # #[cfg(feature = "async")]
+/// # #[cfg(all(feature = "async", any(test, feature = "test-utils")))]
 /// # {
 /// use grafton_visca::executor::{Spawner, BlockingSpawner};
 ///
@@ -187,11 +194,11 @@ impl Spawner for tokio::runtime::Handle {
 /// }));
 /// # }
 /// ```
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", any(test, feature = "test-utils")))]
 #[derive(Debug, Clone, Copy)]
 pub struct BlockingSpawner;
 
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", any(test, feature = "test-utils")))]
 impl BlockingSpawner {
     /// Create a new blocking spawner.
     #[must_use]
@@ -200,14 +207,14 @@ impl BlockingSpawner {
     }
 }
 
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", any(test, feature = "test-utils")))]
 impl Default for BlockingSpawner {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", any(test, feature = "test-utils")))]
 impl Spawner for BlockingSpawner {
     fn spawn(&self, task: SpawnableFuture) {
         std::thread::spawn(move || {
@@ -220,12 +227,12 @@ impl Spawner for BlockingSpawner {
 ///
 /// This creates a waker that panics if used, which is fine for blocking
 /// transports since their futures are immediately ready and never wake.
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", any(test, feature = "test-utils")))]
 fn noop_waker() -> Waker {
     futures::task::noop_waker()
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(all(not(feature = "async"), any(test, feature = "test-utils")))]
 fn noop_waker() -> Waker {
     // For blocking-only builds, we need to create a waker that will never be used.
     // Since blocking transports return Ready futures that are immediately ready,
@@ -249,6 +256,10 @@ fn noop_waker() -> Waker {
 /// This is a minimal executor that simply polls the future once.
 /// For `Ready` futures (as used by blocking transports), this is
 /// optimized away by the compiler.
+///
+/// **Note:** This function is only intended for test utilities and should not be used
+/// in production code. Production code should use proper async runtimes.
+#[cfg(any(test, feature = "test-utils"))]
 pub fn block_on<F: Future>(fut: F) -> F::Output {
     let mut fut = Box::pin(fut);
 
@@ -270,6 +281,10 @@ pub fn block_on<F: Future>(fut: F) -> F::Output {
 /// For blocking transports (which return immediately-ready futures), this typically
 /// completes on the first poll. For truly async futures, it uses a polling loop with
 /// brief sleeps to avoid busy-waiting.
+///
+/// **Note:** This function is only intended for test utilities and should not be used
+/// in production code. Production code should use proper async runtimes with their timeout facilities.
+#[cfg(any(test, feature = "test-utils"))]
 pub fn timeout<F: Future>(duration: core::time::Duration, fut: F) -> Result<F::Output, Error> {
     use std::time::Instant;
 
