@@ -3,10 +3,12 @@
 #[cfg(feature = "rt-tokio")]
 mod tokio_tests {
     use bytes::Bytes;
-    use grafton_visca::r#async::prelude::*;
     use grafton_visca::runtime::TokioRuntime;
-    use grafton_visca::transport::Transport;
-    use grafton_visca::{camera::profiles::PTZOpticsG2, r#async, Camera, Error};
+    use grafton_visca::transport::AsyncTransport;
+    use grafton_visca::{
+        camera::{profiles::PTZOpticsG2, CameraAsync as Camera},
+        Error,
+    };
     use std::collections::VecDeque;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
@@ -63,13 +65,8 @@ mod tokio_tests {
         }
     }
 
-    impl Transport for MockTransport {
-        type Error = Error;
-        type SendFut<'a> = core::future::Ready<Result<(), Error>>;
-        type RecvFut<'a> =
-            std::pin::Pin<Box<dyn std::future::Future<Output = Result<Bytes, Error>> + Send + 'a>>;
-
-        fn send(&self, bytes: &[u8]) -> Self::SendFut<'_> {
+    impl AsyncTransport for MockTransport {
+        async fn send(&self, bytes: &[u8]) -> Result<(), Error> {
             {
                 let mut commands = self.sent_commands.lock().unwrap();
                 commands.push(bytes.to_vec());
@@ -84,36 +81,28 @@ mod tokio_tests {
                 responses.push_back(Ok(completion));
             }
 
-            core::future::ready(Ok(()))
+            Ok(())
         }
 
-        fn recv(&self) -> Self::RecvFut<'_> {
+        async fn recv(&self) -> Result<Bytes, Error> {
             let responses = self.responses.clone();
 
-            Box::pin(async move {
-                // Poll for responses with a reasonable timeout
-                let timeout = tokio::time::Instant::now() + Duration::from_secs(5);
-
-                loop {
-                    // Check if response is available
-                    {
-                        let mut responses = responses.lock().unwrap();
-                        if let Some(response) = responses.pop_front() {
-                            return response;
-                        }
+            // The socket manager will continuously call recv() in its event loop.
+            // We need to wait indefinitely for responses to avoid returning errors
+            // that would disrupt the socket manager.
+            loop {
+                // Check if response is available
+                {
+                    let mut responses = responses.lock().unwrap();
+                    if let Some(response) = responses.pop_front() {
+                        return response;
                     }
-
-                    // Check if we've timed out
-                    if tokio::time::Instant::now() >= timeout {
-                        return Err(Error::TransportError(std::borrow::Cow::Borrowed(
-                            "No response available after timeout",
-                        )));
-                    }
-
-                    // Wait a short time before checking again
-                    tokio::time::sleep(Duration::from_millis(1)).await;
                 }
-            })
+
+                // Wait a short time before checking again
+                // This prevents busy-waiting while allowing the socket manager to work
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
         }
     }
 
@@ -124,7 +113,7 @@ mod tokio_tests {
         let transport = MockTransport::new();
         let handle = tokio::runtime::Handle::current();
         let runtime = Arc::new(TokioRuntime);
-        let mut inner_camera = Camera::<PTZOpticsG2, _>::new(transport)
+        let mut inner_camera = Camera::<PTZOpticsG2, _>::from_transport(transport)
             .with_spawner(handle)
             .with_runtime(runtime);
 
@@ -135,37 +124,32 @@ mod tokio_tests {
             "Socket manager should initialize successfully"
         );
 
-        let camera = r#async::Camera::new(inner_camera);
         // Camera is now ready with socket manager initialized
-        drop(camera);
+        drop(inner_camera);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_socket_manager_with_commands() {
         let transport = MockTransport::with_auto_respond();
-        let handle = tokio::runtime::Handle::current();
         let runtime = Arc::new(TokioRuntime);
-        let mut inner_camera = Camera::<PTZOpticsG2, _>::new(transport.clone())
-            .with_spawner(handle)
-            .with_runtime(runtime);
-
-        // Initialize socket manager
-        inner_camera
-            .initialize_socket_manager()
-            .expect("Failed to initialize socket manager");
-
-        let camera = r#async::Camera::new(inner_camera);
+        let camera =
+            Camera::<PTZOpticsG2, _>::from_transport(transport.clone()).with_runtime(runtime);
 
         // Give the actor time to start
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Test zoom commands (simpler than power_on which has long delays)
-        let result = tokio::time::timeout(Duration::from_secs(5), camera.zoom_in()).await;
+        let result = tokio::time::timeout(Duration::from_secs(5), camera.zoom_tele_std()).await;
         assert!(
             result.is_ok(),
             "Zoom in command should complete within timeout"
         );
-        assert!(result.unwrap().is_ok(), "Zoom in command should succeed");
+        let inner_result = result.unwrap();
+        assert!(
+            inner_result.is_ok(),
+            "Zoom in command should succeed: {:?}",
+            inner_result
+        );
 
         // Check that command was sent
         let sent_commands = transport.get_sent_commands();
@@ -175,7 +159,7 @@ mod tokio_tests {
         );
 
         // Test another simple operation
-        let result = tokio::time::timeout(Duration::from_secs(5), camera.zoom_out()).await;
+        let result = tokio::time::timeout(Duration::from_secs(5), camera.zoom_wide_std()).await;
         assert!(result.is_ok(), "Zoom out should complete within timeout");
         assert!(result.unwrap().is_ok(), "Zoom out should succeed");
 
@@ -193,24 +177,16 @@ mod tokio_tests {
         // Testing true concurrency with a mock is complex and timing-dependent
         // The important thing is that the socket manager can handle multiple commands
         let transport = MockTransport::with_auto_respond();
-        let handle = tokio::runtime::Handle::current();
         let runtime = Arc::new(TokioRuntime);
-        let mut inner_camera = Camera::<PTZOpticsG2, _>::new(transport.clone())
-            .with_spawner(handle)
-            .with_runtime(runtime);
-
-        inner_camera
-            .initialize_socket_manager()
-            .expect("Failed to initialize socket manager");
-
-        let camera = r#async::Camera::new(inner_camera);
+        let camera =
+            Camera::<PTZOpticsG2, _>::from_transport(transport.clone()).with_runtime(runtime);
 
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Send commands sequentially but quickly
         // This tests that socket manager can queue and handle multiple commands
-        let r1 = camera.zoom_in().await;
-        let r2 = camera.zoom_out().await;
+        let r1 = camera.zoom_tele_std().await;
+        let r2 = camera.zoom_wide_std().await;
 
         // Verify both commands succeeded
         assert!(r1.is_ok(), "First command should succeed");
@@ -226,10 +202,7 @@ mod tokio_tests {
         // Use auto-respond for automatic ACK and completion
         let transport = MockTransport::with_auto_respond();
 
-        let runtime = Arc::new(TokioRuntime);
-        let inner_camera =
-            Camera::<PTZOpticsG2, _>::new(transport.clone()).with_runtime_only(runtime);
-        let camera = r#async::Camera::new(inner_camera);
+        let camera = Camera::<PTZOpticsG2, _>::from_transport(transport.clone());
 
         // Don't initialize socket manager - commands should still work via direct transport
         // Note: PTZOpticsG2 has a 10-second power on time, so we need a longer timeout
@@ -251,7 +224,7 @@ mod tokio_tests {
         let transport = MockTransport::new(); // No auto-respond
         let handle = tokio::runtime::Handle::current();
         let runtime = Arc::new(TokioRuntime);
-        let mut inner_camera = Camera::<PTZOpticsG2, _>::new(transport)
+        let mut inner_camera = Camera::<PTZOpticsG2, _>::from_transport(transport)
             .with_spawner(handle)
             .with_runtime(runtime);
 
@@ -259,7 +232,7 @@ mod tokio_tests {
             .initialize_socket_manager()
             .expect("Failed to initialize socket manager");
 
-        let camera = r#async::Camera::new(inner_camera);
+        let camera = inner_camera;
 
         tokio::time::sleep(Duration::from_millis(100)).await;
 

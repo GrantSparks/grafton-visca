@@ -41,6 +41,8 @@ impl CommandCategory {
 /// Configuration for command timeouts.
 #[derive(Debug, Copy, Clone)]
 pub struct TimeoutConfig {
+    /// Timeout for ACK responses from the camera (default 500ms)
+    pub ack_timeout: Duration,
     /// Timeout for quick commands (inquiry, power status)
     pub quick_timeout: Duration,
     /// Timeout for movement commands (pan/tilt/zoom)
@@ -58,10 +60,11 @@ pub struct TimeoutConfig {
 impl Default for TimeoutConfig {
     fn default() -> Self {
         Self {
-            quick_timeout: Duration::from_secs(5), // Increased for network delays
+            ack_timeout: Duration::from_millis(500), // Default ACK timeout as specified in epic
+            quick_timeout: Duration::from_secs(5),   // Increased for network delays
             movement_timeout: Duration::from_secs(30), // Increased for full-range movements
             preset_timeout: Duration::from_secs(90), // Increased for complex presets
-            long_timeout: Duration::from_secs(300), // Keep at 5 minutes for discovery
+            long_timeout: Duration::from_secs(300),  // Keep at 5 minutes for discovery
             network_timeout: Duration::from_secs(5), // Increased for network operations
             default_timeout: Duration::from_secs(60), // Increased as general fallback
         }
@@ -73,6 +76,7 @@ impl TimeoutConfig {
     #[must_use]
     pub const fn uniform(timeout: Duration) -> Self {
         Self {
+            ack_timeout: timeout,
             quick_timeout: timeout,
             movement_timeout: timeout,
             preset_timeout: timeout,
@@ -109,6 +113,14 @@ pub struct TimeoutConfigBuilder {
 }
 
 impl TimeoutConfigBuilder {
+    /// Sets the timeout for ACK responses.
+    #[allow(clippy::missing_const_for_fn)]
+    #[must_use]
+    pub fn ack_timeout(mut self, timeout: Duration) -> Self {
+        self.config.ack_timeout = timeout;
+        self
+    }
+
     /// Sets the timeout for quick commands.
     #[allow(clippy::missing_const_for_fn)]
     #[must_use]
@@ -199,6 +211,7 @@ mod tests {
     #[test]
     fn test_timeout_config_default() {
         let config = TimeoutConfig::default();
+        assert_eq!(config.ack_timeout, Duration::from_millis(500));
         assert_eq!(config.quick_timeout, Duration::from_secs(5));
         assert_eq!(config.movement_timeout, Duration::from_secs(30));
         assert_eq!(config.preset_timeout, Duration::from_secs(90));
@@ -211,10 +224,12 @@ mod tests {
     fn test_timeout_config_uniform() {
         let timeout = Duration::from_secs(5);
         let config = TimeoutConfig::uniform(timeout);
+        assert_eq!(config.ack_timeout, timeout);
         assert_eq!(config.quick_timeout, timeout);
         assert_eq!(config.movement_timeout, timeout);
         assert_eq!(config.preset_timeout, timeout);
         assert_eq!(config.long_timeout, timeout);
+        assert_eq!(config.network_timeout, timeout);
         assert_eq!(config.default_timeout, timeout);
     }
 

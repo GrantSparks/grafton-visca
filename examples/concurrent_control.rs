@@ -191,15 +191,15 @@ async fn parallel_single_camera() -> Result<()> {
 
     println!("Querying multiple states in parallel...");
 
-    let (power, position, zoom, focus) = tokio::join!(
+    let (power, pan_tilt, zoom, focus) = tokio::join!(
         camera.get_power_state(),
-        camera.get_pan_tilt_position(),
+        camera.get_pan_tilt_degrees(),
         camera.get_zoom_position(),
         camera.get_focus_position()
     );
 
     println!("Power: {power:?}");
-    println!("Position: {position:?}");
+    println!("Pan/Tilt: {pan_tilt:?}");
     println!("Zoom: {zoom:?}");
     println!("Focus: {focus:?}");
 
@@ -207,7 +207,7 @@ async fn parallel_single_camera() -> Result<()> {
 
     let zoom_task = {
         let cam = camera.clone();
-        tokio::spawn(async move { cam.zoom_in().await })
+        tokio::spawn(async move { cam.zoom_tele_std().await })
     };
 
     let pan_task = {

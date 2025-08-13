@@ -8,17 +8,12 @@
 use crate::{
     camera::generic::Camera,
     capabilities::{MotionSync, NDFilter, NDFilterMode as CapabilityNDFilterMode, Profile},
-    error::Error,
-    transport::core::Transport,
 };
 
-impl<P, T> Camera<P, T>
+// These methods are available for both async and blocking modes
+impl<M, P, T> Camera<M, P, T>
 where
     P: Profile + NDFilter,
-    T: Transport + Send + Sync + 'static + crate::transport::core::BlockingTransport,
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
 {
     // ND filter setters are provided by NDFilterOps / NDFilterOpsBlocking traits
     // in src/camera/methods/nd_filter.rs
@@ -36,13 +31,9 @@ where
     }
 }
 
-impl<P, T> Camera<P, T>
+impl<M, P, T> Camera<M, P, T>
 where
     P: Profile + MotionSync,
-    T: Transport + Send + Sync + 'static + crate::transport::core::BlockingTransport,
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
 {
     // Motion sync setters are provided by MotionSyncControl / MotionSyncControlBlocking traits
     // in src/camera/methods/motion_sync.rs

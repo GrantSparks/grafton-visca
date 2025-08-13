@@ -174,7 +174,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         }
     };
 
-    let camera = GenericViscaCam::new(transport);
+    let camera = GenericViscaCam::from_transport(transport);
 
     // Save initial state
     let initial_state = camera.save_state().ok();
@@ -254,7 +254,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
             println!("   ✓ Started movement");
 
             // Try another command immediately (might get CameraBusy)
-            match camera.zoom_in() {
+            match camera.zoom_tele_std() {
                 Ok(_) => println!("   ✓ Zoom command accepted"),
                 Err(Error::CameraBusy) => {
                     println!("   ⚠️  Camera busy (expected during movement)");
@@ -266,7 +266,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
                     println!("   ✓ Movement stopped");
 
                     // Retry zoom
-                    match camera.zoom_in() {
+                    match camera.zoom_tele_std() {
                         Ok(_) => println!("   ✓ Zoom succeeded after stopping movement"),
                         Err(e) => println!("   ✗ Zoom still failed: {e}"),
                     }
@@ -334,7 +334,7 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         }
     };
 
-    let camera = PTZOpticsG2Cam::new(transport);
+    let camera = PTZOpticsG2Cam::from_transport(transport);
 
     // Save initial state
     let initial_state = camera.save_state_async().await.ok();
@@ -406,7 +406,7 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
             println!("   ✓ Started continuous movement");
 
             // Immediately try another command
-            match camera.zoom_in().await {
+            match camera.zoom_tele_std().await {
                 Ok(_) => println!("   ✓ Zoom command accepted"),
                 Err(Error::CameraBusy) => {
                     println!("   ⚠️  Camera busy (expected)");
@@ -417,7 +417,7 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
                     println!("   ✓ Movement stopped");
 
                     // Retry zoom
-                    match camera.zoom_in().await {
+                    match camera.zoom_tele_std().await {
                         Ok(_) => println!("   ✓ Zoom succeeded after stopping movement"),
                         Err(e) => println!("   ✗ Zoom still failed: {e}"),
                     }

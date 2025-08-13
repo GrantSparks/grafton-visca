@@ -13,6 +13,7 @@ Use `gh issue view $ARGUMENTS --comments` to read the issue and all comments. Do
    - Extract all requirements from the original issue
    - Identify any scope expansions or clarifications in comments
    - Note any edge cases or special considerations mentioned
+   - Read all the comments, particularly all the way to the end, to capture the latest discussions and decisions
 
 2. **Define Full Scope**:
    - Determine what should properly be in scope given the initial task

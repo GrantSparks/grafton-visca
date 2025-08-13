@@ -6,9 +6,13 @@
 use std::time::Duration;
 
 use super::MovementConfig;
-use crate::{
-    camera::Camera, capabilities::Profile, error::Error, transport::Transport, units::Degrees,
-};
+use crate::{camera::Camera, capabilities::Profile, error::Error, units::Degrees};
+
+#[cfg(feature = "async")]
+use crate::transport::async_transport::AsyncTransport;
+
+#[cfg(not(feature = "async"))]
+use crate::transport::blocking_transport::BlockingTransport;
 
 /// Helper methods for camera movement operations (blocking).
 #[cfg(not(feature = "async"))]
@@ -107,30 +111,28 @@ pub trait MovementOps: Sized {
 }
 
 #[cfg(not(feature = "async"))]
-impl<
-        P: Profile,
-        T: Transport + Send + Sync + 'static + crate::transport::core::BlockingTransport,
-    > MovementOpsBlocking for Camera<P, T>
-where
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+impl<P: Profile, T: BlockingTransport + Send + Sync + 'static> MovementOpsBlocking
+    for Camera<crate::camera::BlockingMode, P, T>
 {
     fn await_idle(&self, timeout: impl Into<Duration>) -> Result<(), Error> {
         let config = MovementConfig::with_timeout(timeout.into());
         self.wait_for_movement(&config)
     }
 
+    #[allow(clippy::expect_used)]
     fn move_to(
         &self,
         pan: Degrees,
         tilt: Degrees,
         timeout: impl Into<Duration>,
     ) -> Result<(), Error> {
-        use crate::camera::methods::pan_tilt::PanTiltOpsBlocking;
-        use crate::types::SpeedLevel;
+        use crate::types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed};
 
-        self.pan_tilt_absolute(pan, tilt, SpeedLevel::Fast)?;
+        let pan_pos = PanPosition::from_degrees(pan.0)?;
+        let tilt_pos = TiltPosition::from_degrees(tilt.0)?;
+        let pan_speed = PanSpeed::new(18).expect("18 is valid speed"); // Fast speed
+        let tilt_speed = TiltSpeed::new(18).expect("18 is valid speed"); // Fast speed
+        self.pan_tilt_absolute(pan_pos, tilt_pos, pan_speed, tilt_speed)?;
         MovementOpsBlocking::await_idle(self, timeout)
     }
 
@@ -140,27 +142,29 @@ where
 }
 
 #[cfg(feature = "rt-tokio")]
-impl<P: Profile, T: Transport + Send + Sync + 'static> MovementOps for Camera<P, T>
-where
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+impl<P: Profile, T: AsyncTransport + Send + Sync + 'static> MovementOps
+    for Camera<crate::camera::AsyncMode, P, T>
 {
     async fn await_idle(&self, timeout: impl Into<Duration>) -> Result<(), Error> {
         let config = MovementConfig::with_timeout(timeout.into());
         self.wait_for_movement_async(&config).await
     }
 
+    #[allow(clippy::expect_used)]
     async fn move_to(
         &self,
         pan: Degrees,
         tilt: Degrees,
         timeout: impl Into<Duration>,
     ) -> Result<(), Error> {
-        use crate::camera::methods::pan_tilt::PanTiltOps;
-        use crate::types::SpeedLevel;
+        use crate::types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed};
 
-        self.pan_tilt_absolute(pan, tilt, SpeedLevel::Fast).await?;
+        let pan_pos = PanPosition::from_degrees(pan.0)?;
+        let tilt_pos = TiltPosition::from_degrees(tilt.0)?;
+        let pan_speed = PanSpeed::new(18).expect("18 is valid speed"); // Fast speed
+        let tilt_speed = TiltSpeed::new(18).expect("18 is valid speed"); // Fast speed
+        self.pan_tilt_absolute(pan_pos, tilt_pos, pan_speed, tilt_speed)
+            .await?;
         MovementOps::await_idle(self, timeout).await
     }
 
@@ -170,27 +174,29 @@ where
 }
 
 #[cfg(all(feature = "async", not(feature = "rt-tokio")))]
-impl<P: Profile, T: Transport + Send + Sync + 'static> MovementOps for Camera<P, T>
-where
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+impl<P: Profile, T: AsyncTransport + Send + Sync + 'static> MovementOps
+    for Camera<crate::camera::AsyncMode, P, T>
 {
     async fn await_idle(&self, timeout: impl Into<Duration>) -> Result<(), Error> {
         let config = MovementConfig::with_timeout(timeout.into());
         self.wait_for_movement_async(&config).await
     }
 
+    #[allow(clippy::expect_used)]
     async fn move_to(
         &self,
         pan: Degrees,
         tilt: Degrees,
         timeout: impl Into<Duration>,
     ) -> Result<(), Error> {
-        use crate::camera::methods::pan_tilt::PanTiltOps;
-        use crate::types::SpeedLevel;
+        use crate::types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed};
 
-        self.pan_tilt_absolute(pan, tilt, SpeedLevel::Fast).await?;
+        let pan_pos = PanPosition::from_degrees(pan.0)?;
+        let tilt_pos = TiltPosition::from_degrees(tilt.0)?;
+        let pan_speed = PanSpeed::new(18).expect("18 is valid speed"); // Fast speed
+        let tilt_speed = TiltSpeed::new(18).expect("18 is valid speed"); // Fast speed
+        self.pan_tilt_absolute(pan_pos, tilt_pos, pan_speed, tilt_speed)
+            .await?;
         MovementOps::await_idle(self, timeout).await
     }
 

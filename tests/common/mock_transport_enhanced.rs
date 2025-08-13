@@ -13,9 +13,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
-use grafton_visca::transport::Transport;
+#[cfg(feature = "async")]
+use grafton_visca::transport::AsyncTransport;
+#[cfg(not(feature = "async"))]
+use grafton_visca::transport::BlockingTransport;
 use grafton_visca::{Error, Result};
-use std::future::Ready;
 
 /// A mock transport for testing VISCA communication.
 ///
@@ -111,15 +113,34 @@ impl MockTransport {
     }
 
     /// Convenience method for tests - send data synchronously
+    #[cfg(feature = "async")]
     pub fn send(&mut self, data: &[u8]) -> Result<()> {
         // Use futures::executor to block on the future
-        grafton_visca::executor::block_on(Transport::send(self, data))
+        use grafton_visca::transport::async_transport::AsyncTransport;
+        grafton_visca::executor::block_on(AsyncTransport::send(self, data))
+    }
+
+    #[cfg(not(feature = "async"))]
+    pub fn send(&mut self, data: &[u8]) -> Result<()> {
+        use grafton_visca::transport::BlockingTransport;
+        BlockingTransport::send_blocking(self, data)
     }
 
     /// Convenience method for tests - receive data with timeout
+    #[cfg(feature = "async")]
     pub fn receive(&mut self, _timeout: Duration) -> Result<Vec<u8>> {
         // Just use the recv method which already handles everything
-        match grafton_visca::executor::block_on(Transport::recv(self)) {
+        use grafton_visca::transport::async_transport::AsyncTransport;
+        match grafton_visca::executor::block_on(AsyncTransport::recv(self)) {
+            Ok(bytes) => Ok(bytes.to_vec()),
+            Err(e) => Err(e),
+        }
+    }
+
+    #[cfg(not(feature = "async"))]
+    pub fn receive(&mut self, timeout: Duration) -> Result<Vec<u8>> {
+        use grafton_visca::transport::BlockingTransport;
+        match BlockingTransport::recv_blocking_with_timeout(self, timeout) {
             Ok(bytes) => Ok(bytes.to_vec()),
             Err(e) => Err(e),
         }
@@ -259,38 +280,27 @@ impl Drop for ExpectationBuilder {
     }
 }
 
-impl Transport for MockTransport {
-    type Error = Error;
-    type SendFut<'a>
-        = Ready<Result<(), Self::Error>>
-    where
-        Self: 'a;
-    type RecvFut<'a>
-        = Ready<Result<Bytes, Self::Error>>
-    where
-        Self: 'a;
-
-    fn send<'a>(&'a self, data: &'a [u8]) -> Self::SendFut<'a> {
+#[cfg(feature = "async")]
+impl AsyncTransport for MockTransport {
+    async fn send(&self, data: &[u8]) -> Result<(), Error> {
         let mut inner = self.inner.lock().unwrap();
 
         if !inner.connected {
-            return std::future::ready(Err(Error::ConnectionLost {
+            return Err(Error::ConnectionLost {
                 reason: Cow::Borrowed("Mock transport disconnected"),
-            }));
+            });
         }
 
         // Validate frame format if enabled
         if inner.validate_frames && data.len() >= 3 {
             if data[0] & 0xF0 != 0x80 {
-                return std::future::ready(Err(Error::InvalidState(Cow::Owned(format!(
+                return Err(Error::InvalidState(Cow::Owned(format!(
                     "Invalid address byte: {:02X}",
                     data[0]
-                )))));
+                ))));
             }
             if data[data.len() - 1] != 0xFF {
-                return std::future::ready(Err(Error::InvalidState(Cow::Borrowed(
-                    "Missing terminator FF",
-                ))));
+                return Err(Error::InvalidState(Cow::Borrowed("Missing terminator FF")));
             }
         }
 
@@ -323,16 +333,16 @@ impl Transport for MockTransport {
             std::thread::sleep(latency);
         }
 
-        std::future::ready(Ok(()))
+        Ok(())
     }
 
-    fn recv(&self) -> Self::RecvFut<'_> {
+    async fn recv(&self) -> Result<Bytes, Error> {
         let mut inner = self.inner.lock().unwrap();
 
         if !inner.connected {
-            return std::future::ready(Err(Error::ConnectionLost {
+            return Err(Error::ConnectionLost {
                 reason: Cow::Borrowed("Mock transport disconnected"),
-            }));
+            });
         }
 
         if let Some(response) = inner.response_queue.pop_front() {
@@ -342,7 +352,7 @@ impl Transport for MockTransport {
                     Ok(Bytes::from(data))
                 }
                 MockResponse::Delayed(data, _delay) => {
-                    // For blocking transport, we ignore delay in recv
+                    // For async transport, we could simulate delay with sleep
                     inner.response_history.push(data.clone());
                     Ok(Bytes::from(data))
                 }
@@ -354,21 +364,76 @@ impl Transport for MockTransport {
                 MockResponse::Timeout => Err(Error::Timeout),
             };
 
-            return std::future::ready(result);
+            return result;
         }
 
         // No response queued
-        std::future::ready(Err(Error::Timeout))
+        Err(Error::Timeout)
     }
 }
 
-// MockTransport already implements Transport, so it can be used directly
-// No need for UnifiedTransport anymore
-
 // Implement BlockingTransport for MockTransport to support blocking API tests
 #[cfg(not(feature = "async"))]
-impl grafton_visca::transport::core::BlockingTransport for MockTransport {
-    fn recv_blocking_with_timeout(&self, _duration: core::time::Duration) -> Result<bytes::Bytes> {
+impl BlockingTransport for MockTransport {
+    fn send_blocking(&self, data: &[u8]) -> Result<(), Error> {
+        let mut inner = self.inner.lock().unwrap();
+
+        if !inner.connected {
+            return Err(Error::ConnectionLost {
+                reason: Cow::Borrowed("Mock transport disconnected"),
+            });
+        }
+
+        // Validate frame format if enabled
+        if inner.validate_frames && data.len() >= 3 {
+            if data[0] & 0xF0 != 0x80 {
+                return Err(Error::InvalidState(Cow::Owned(format!(
+                    "Invalid address byte: {:02X}",
+                    data[0]
+                ))));
+            }
+            if data[data.len() - 1] != 0xFF {
+                return Err(Error::InvalidState(Cow::Borrowed("Missing terminator FF")));
+            }
+        }
+
+        // Record the command
+        inner.sent_history.push((Instant::now(), data.to_vec()));
+
+        // Check if this matches an expectation
+        let mut responses_to_queue = Vec::new();
+        let current_idx = inner.current_expectation;
+        if current_idx < inner.expectations.len() {
+            let expectation = &mut inner.expectations[current_idx];
+            if expectation.command == data {
+                expectation.met = true;
+
+                // Collect responses to queue
+                responses_to_queue = expectation.responses.clone();
+            }
+        }
+
+        // Queue the responses after releasing the borrow
+        if !responses_to_queue.is_empty() {
+            for response in responses_to_queue {
+                inner.response_queue.push_back(response);
+            }
+            inner.current_expectation += 1;
+        }
+
+        // Simulate latency
+        if let Some(latency) = inner.latency {
+            std::thread::sleep(latency);
+        }
+
+        Ok(())
+    }
+
+    fn recv_blocking(&self) -> Result<Bytes, Error> {
+        self.recv_blocking_with_timeout(Duration::from_secs(30))
+    }
+
+    fn recv_blocking_with_timeout(&self, _duration: Duration) -> Result<Bytes, Error> {
         // For testing, simulate blocking receive
         let mut inner = self.inner.lock().unwrap();
 
@@ -482,11 +547,24 @@ mod tests {
             .then_complete(1);
 
         // Send the expected command
-        grafton_visca::executor::block_on(Transport::send(
-            &mock,
-            &[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
-        ))
-        .unwrap();
+        #[cfg(feature = "async")]
+        {
+            use grafton_visca::transport::async_transport::AsyncTransport;
+            grafton_visca::executor::block_on(AsyncTransport::send(
+                &mock,
+                &[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
+            ))
+            .unwrap();
+        }
+        #[cfg(not(feature = "async"))]
+        {
+            use grafton_visca::transport::BlockingTransport;
+            BlockingTransport::send_blocking(
+                &mock,
+                &[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
+            )
+            .unwrap();
+        }
 
         // Receive the responses
         let ack = mock.receive(Duration::from_millis(100)).unwrap();

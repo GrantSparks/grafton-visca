@@ -278,6 +278,10 @@ pub enum Error {
         /// Reason for the mismatch.
         reason: &'static str,
     },
+
+    /// Runtime is required for async operations but was not provided.
+    #[error("No runtime configured for async operations")]
+    MissingRuntime,
 }
 
 impl Error {

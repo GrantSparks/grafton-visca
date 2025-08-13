@@ -13,7 +13,10 @@
 #[cfg(not(feature = "async"))]
 use grafton_visca::prelude::blocking::*;
 #[cfg(not(feature = "async"))]
-use grafton_visca::{CameraBuilder, Error};
+use grafton_visca::{
+    types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed},
+    CameraBuilder, Error,
+};
 
 #[cfg(not(feature = "async"))]
 use std::{env, thread::sleep, time::Duration};
@@ -91,7 +94,12 @@ fn main() -> Result<(), Error> {
         );
 
         // Move to position
-        camera.pan_tilt_absolute(preset.pan, preset.tilt, SpeedLevel::Medium)?;
+        camera.pan_tilt_absolute(
+            PanPosition::new((preset.pan.0 * 614.4) as i16)?, // Convert degrees to units
+            TiltPosition::new((preset.tilt.0 * 614.4) as i16)?, // Convert degrees to units
+            PanSpeed::from(SpeedLevel::Medium),
+            TiltSpeed::from(SpeedLevel::Medium),
+        )?;
         camera.zoom_absolute(preset.zoom)?;
 
         // Wait for movement
@@ -115,7 +123,12 @@ fn main() -> Result<(), Error> {
 
     // Go to a different position first
     println!("Moving to test position (60°, -15°)...");
-    camera.pan_tilt_absolute(Degrees(60.0), Degrees(-15.0), SpeedLevel::Fast)?;
+    camera.pan_tilt_absolute(
+        PanPosition::from_degrees(60.0)?,
+        TiltPosition::from_degrees(-15.0)?,
+        PanSpeed::new(18)?,
+        TiltSpeed::new(18)?,
+    )?;
     camera.zoom_absolute(Normalized(0.7))?;
     camera.await_idle(Duration::from_secs(10))?;
 

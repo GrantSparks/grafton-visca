@@ -8,20 +8,21 @@ use std::time::Instant;
 use crate::{
     capabilities::{Profile, ProfileMetadata},
     error::Error,
-    transport::Transport,
 };
+
+#[cfg(not(feature = "async"))]
+use crate::transport::BlockingTransport;
+
+#[cfg(not(feature = "async"))]
+use super::BlockingMode;
 
 use super::{Camera, MovementConfig, PanTiltPosition};
 
 #[cfg(not(feature = "async"))]
-impl<
-        P: Profile + ProfileMetadata,
-        T: Transport + Send + Sync + 'static + crate::transport::core::BlockingTransport,
-    > Camera<P, T>
+impl<P, T> Camera<BlockingMode, P, T>
 where
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+    P: Profile + ProfileMetadata,
+    T: BlockingTransport,
 {
     /// Wait for any movement operation to complete.
     ///
@@ -77,47 +78,49 @@ where
     ///
     /// This checks pan/tilt, zoom, and focus positions to detect movement.
     pub fn is_moving(&self) -> Result<bool, Error> {
-        use crate::camera::methods::inquiry::{InquiryOpsBlocking, PanTiltInquiryOpsBlocking};
-
         // Get first reading
-        let pos1_pt = self.get_pan_tilt_position()?;
-        let pos1_zoom = self.get_zoom_position()?;
-        let pos1_focus = self.get_focus_position()?;
+        let pos1_pt = self.pan_tilt_position_inquiry()?;
+        let pos1_zoom = self.zoom_position_inquiry()?;
+        let pos1_focus = self.focus_position_inquiry()?;
 
         // Yield to scheduler
         std::thread::yield_now();
 
         // Get second reading
-        let pos2_pt = self.get_pan_tilt_position()?;
-        let pos2_zoom = self.get_zoom_position()?;
-        let pos2_focus = self.get_focus_position()?;
+        let pos2_pt = self.pan_tilt_position_inquiry()?;
+        let pos2_zoom = self.zoom_position_inquiry()?;
+        let pos2_focus = self.focus_position_inquiry()?;
 
         // Check for movement with reasonable tolerances
         let pt_moving = !positions_equal_within_tolerance(
             PanTiltPosition {
-                pan: pos1_pt.0,
-                tilt: pos1_pt.1,
+                pan: pos1_pt.0.value(),
+                tilt: pos1_pt.1.value(),
             },
             PanTiltPosition {
-                pan: pos2_pt.0,
-                tilt: pos2_pt.1,
+                pan: pos2_pt.0.value(),
+                tilt: pos2_pt.1.value(),
             },
             2, // 2 units tolerance for pan/tilt
         );
 
-        let zoom_moving = (pos1_zoom as i32 - pos2_zoom as i32).abs() > 10; // 10 units tolerance for zoom
-        let focus_moving = (pos1_focus as i32 - pos2_focus as i32).abs() > 5; // 5 units tolerance for focus
+        let zoom_moving = (pos1_zoom.value() as i32 - pos2_zoom.value() as i32).abs() > 10; // 10 units tolerance for zoom
+        let focus_moving = (pos1_focus.value() as i32 - pos2_focus.value() as i32).abs() > 5; // 5 units tolerance for focus
 
         Ok(pt_moving || zoom_moving || focus_moving)
     }
 }
 
 #[cfg(feature = "async")]
-impl<P: Profile + ProfileMetadata, T: Transport + Send + Sync + 'static> Camera<P, T>
+use super::AsyncMode;
+#[cfg(feature = "async")]
+use crate::transport::AsyncTransport;
+
+#[cfg(feature = "async")]
+impl<P, T> Camera<AsyncMode, P, T>
 where
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+    P: Profile + ProfileMetadata,
+    T: AsyncTransport + 'static,
 {
     /// Wait for any movement operation to complete (async version).
     ///
@@ -189,46 +192,50 @@ where
             }
 
             // Yield to scheduler using runtime abstraction
-            let runtime = self.require_runtime()?;
-            // Use runtime's sleep for a very short delay (1ms)
+            let runtime = if let Some(runtime) = self.runtime() {
+                std::sync::Arc::clone(runtime)
+            } else {
+                return Err(Error::MissingRuntime);
+            };
             runtime.sleep(std::time::Duration::from_millis(1)).await;
         }
     }
 
     /// Check if the camera is currently moving (async version).
     pub async fn is_moving_async(&self) -> Result<bool, Error> {
-        use crate::camera::methods::inquiry::{InquiryOps, PanTiltInquiryOps};
-
         // Get first reading
-        let pos1_pt = self.get_pan_tilt_position().await?;
-        let pos1_zoom = self.get_zoom_position().await?;
-        let pos1_focus = self.get_focus_position().await?;
+        let pos1_pt = self.pan_tilt_position_inquiry().await?;
+        let pos1_zoom = self.zoom_position_inquiry().await?;
+        let pos1_focus = self.focus_position_inquiry().await?;
 
         // Yield to scheduler using runtime abstraction
-        let runtime = self.require_runtime()?;
-        // Use runtime's sleep for a very short delay (1ms)
+        let runtime = if let Some(runtime) = self.runtime() {
+            std::sync::Arc::clone(runtime)
+        } else {
+            return Err(Error::MissingRuntime);
+        };
         runtime.sleep(std::time::Duration::from_millis(1)).await;
 
         // Get second reading
-        let pos2_pt = self.get_pan_tilt_position().await?;
-        let pos2_zoom = self.get_zoom_position().await?;
-        let pos2_focus = self.get_focus_position().await?;
+        let pos2_pt = self.pan_tilt_position_inquiry().await?;
+        let pos2_zoom = self.zoom_position_inquiry().await?;
+        let pos2_focus = self.focus_position_inquiry().await?;
 
         // Check for movement with reasonable tolerances
         let pt_moving = !positions_equal_within_tolerance(
             PanTiltPosition {
-                pan: pos1_pt.0,
-                tilt: pos1_pt.1,
+                pan: pos1_pt.0.value(),
+                tilt: pos1_pt.1.value(),
             },
             PanTiltPosition {
-                pan: pos2_pt.0,
-                tilt: pos2_pt.1,
+                pan: pos2_pt.0.value(),
+                tilt: pos2_pt.1.value(),
             },
             2, // 2 units tolerance for pan/tilt
         );
 
-        let zoom_moving = (pos1_zoom as i32 - pos2_zoom as i32).abs() > 10; // 10 units tolerance for zoom
-        let focus_moving = (pos1_focus as i32 - pos2_focus as i32).abs() > 5; // 5 units tolerance for focus
+        let zoom_moving = (pos1_zoom.value() as i32 - pos2_zoom.value() as i32).abs() > 10; // 10 units tolerance for zoom
+        let focus_moving = (pos1_focus.value() as i32 - pos2_focus.value() as i32).abs() > 5; // 5 units tolerance for focus
 
         Ok(pt_moving || zoom_moving || focus_moving)
     }

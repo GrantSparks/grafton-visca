@@ -1,7 +1,7 @@
 //! Pan/Tilt methods for cameras using the new GAT architecture.
 
 use crate::{
-    command::pan_tilt::{PanTilt, PanTiltDirection, PanTiltLimitCorner},
+    command::pan_tilt::{PanTiltDirection, PanTiltLimitCorner},
     types::{PanPosition, PanSpeed, SpeedLevel, TiltPosition, TiltSpeed},
     units::Degrees,
     Error,
@@ -103,29 +103,19 @@ pub trait PanTiltOpsBlocking: Sized {
     fn pan_tilt_limit_clear(&self, corner: PanTiltLimitCorner) -> Result<(), Error>;
 }
 
-// Async implementation
+// Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
-    PanTiltOps for crate::camera::generic::Camera<P, T>
+impl<P, T> PanTiltOps for crate::camera::Camera<crate::camera::AsyncMode, P, T>
 where
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+    P: crate::capabilities::Profile,
+    T: crate::transport::AsyncTransport + Send + Sync + 'static,
 {
     async fn pan_tilt_stop(&self) -> Result<(), Error> {
-        let cmd = PanTilt::Move {
-            direction: PanTiltDirection::Stop,
-            pan_speed: PanSpeed::ZERO,
-            tilt_speed: TiltSpeed::ZERO,
-        };
-        self.send_command(&cmd).await?;
-        Ok(())
+        self.pan_tilt_stop().await
     }
 
     async fn pan_tilt_home(&self) -> Result<(), Error> {
-        let cmd = PanTilt::Home;
-        self.send_command(&cmd).await?;
-        Ok(())
+        self.pan_tilt_home().await
     }
 
     async fn pan_tilt_absolute(
@@ -134,34 +124,13 @@ where
         tilt: Degrees,
         speed: SpeedLevel,
     ) -> Result<(), Error> {
-        // Convert degrees to units using Camera's methods
-        let (pan_units, tilt_units) = self.degrees_to_units(pan, tilt);
-
-        // Validate using camera's profile
-        let pan_validated = self.validate_pan(pan_units.0)?;
-        let tilt_validated = self.validate_tilt(tilt_units.0)?;
-
-        // Convert SpeedLevel to specific pan/tilt speeds
-        let pan_speed_val = speed.to_pan_speed();
-        let tilt_speed_val = speed.to_tilt_speed();
-
-        // Convert logical coordinates to camera coordinates
-        let (cam_pan, cam_tilt) = self.to_camera_coords(pan_validated, tilt_validated);
-
-        // Create position objects using camera coordinates
-        let pan_pos = PanPosition::new(cam_pan as i16)?;
-        let tilt_pos = TiltPosition::new(cam_tilt as i16)?;
-        let pan_spd = PanSpeed::new(pan_speed_val)?;
-        let tilt_spd = TiltSpeed::new(tilt_speed_val)?;
-
-        let cmd = PanTilt::AbsolutePosition {
-            pan: pan_pos,
-            tilt: tilt_pos,
-            pan_speed: pan_spd,
-            tilt_speed: tilt_spd,
-        };
-        self.send_command(&cmd).await?;
-        Ok(())
+        // Convert Degrees to Position and SpeedLevel to individual speeds
+        let pan_pos = PanPosition::from_degrees(pan.0)?;
+        let tilt_pos = TiltPosition::from_degrees(tilt.0)?;
+        let pan_speed = PanSpeed::from(speed);
+        let tilt_speed = TiltSpeed::from(speed);
+        self.pan_tilt_absolute(pan_pos, tilt_pos, pan_speed, tilt_speed)
+            .await
     }
 
     async fn pan_tilt_relative(
@@ -170,26 +139,13 @@ where
         tilt: Degrees,
         speed: SpeedLevel,
     ) -> Result<(), Error> {
-        // Convert degrees to units using Camera's methods
-        let (pan_units, tilt_units) = self.degrees_to_units(pan, tilt);
-
-        // Convert SpeedLevel to specific pan/tilt speeds
-        let pan_speed_val = speed.to_pan_speed();
-        let tilt_speed_val = speed.to_tilt_speed();
-
-        let pan_pos = PanPosition::new(pan_units.0)?;
-        let tilt_pos = TiltPosition::new(tilt_units.0)?;
-        let pan_spd = PanSpeed::new(pan_speed_val)?;
-        let tilt_spd = TiltSpeed::new(tilt_speed_val)?;
-
-        let cmd = PanTilt::RelativePosition {
-            pan: pan_pos,
-            tilt: tilt_pos,
-            pan_speed: pan_spd,
-            tilt_speed: tilt_spd,
-        };
-        self.send_command(&cmd).await?;
-        Ok(())
+        // Convert Degrees to Position and SpeedLevel to individual speeds
+        let pan_pos = PanPosition::from_degrees(pan.0)?;
+        let tilt_pos = TiltPosition::from_degrees(tilt.0)?;
+        let pan_speed = PanSpeed::from(speed);
+        let tilt_speed = TiltSpeed::from(speed);
+        self.pan_tilt_relative(pan_pos, tilt_pos, pan_speed, tilt_speed)
+            .await
     }
 
     async fn pan_tilt_move(
@@ -198,19 +154,11 @@ where
         pan_speed: PanSpeed,
         tilt_speed: TiltSpeed,
     ) -> Result<(), Error> {
-        let cmd = PanTilt::Move {
-            direction,
-            pan_speed,
-            tilt_speed,
-        };
-        self.send_command(&cmd).await?;
-        Ok(())
+        self.pan_tilt_move(direction, pan_speed, tilt_speed).await
     }
 
     async fn pan_tilt_reset(&self) -> Result<(), Error> {
-        let cmd = PanTilt::Reset;
-        self.send_command(&cmd).await?;
-        Ok(())
+        self.pan_tilt_reset().await
     }
 
     async fn pan_tilt_limit_set(
@@ -219,47 +167,27 @@ where
         pan: PanPosition,
         tilt: TiltPosition,
     ) -> Result<(), Error> {
-        let cmd = PanTilt::LimitSet { corner, pan, tilt };
-        self.send_command(&cmd).await?;
-        Ok(())
+        self.pan_tilt_limit_set(corner, pan, tilt).await
     }
 
     async fn pan_tilt_limit_clear(&self, corner: PanTiltLimitCorner) -> Result<(), Error> {
-        let cmd = PanTilt::LimitClear { corner };
-        self.send_command(&cmd).await?;
-        Ok(())
+        self.pan_tilt_limit_clear(corner).await
     }
 }
 
-// Blocking implementation
+// Blocking implementation for Camera with BlockingMode
 #[cfg(not(feature = "async"))]
-impl<
-        P: crate::capabilities::Profile,
-        T: crate::transport::Transport
-            + Send
-            + Sync
-            + 'static
-            + crate::transport::core::BlockingTransport,
-    > PanTiltOpsBlocking for crate::camera::generic::Camera<P, T>
+impl<P, T> PanTiltOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T>
 where
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+    P: crate::capabilities::Profile,
+    T: crate::transport::BlockingTransport + Send + Sync + 'static,
 {
     fn pan_tilt_stop(&self) -> Result<(), Error> {
-        let cmd = PanTilt::Move {
-            direction: PanTiltDirection::Stop,
-            pan_speed: PanSpeed::ZERO,
-            tilt_speed: TiltSpeed::ZERO,
-        };
-        self.send_command_blocking(&cmd)?;
-        Ok(())
+        self.pan_tilt_stop()
     }
 
     fn pan_tilt_home(&self) -> Result<(), Error> {
-        let cmd = PanTilt::Home;
-        self.send_command_blocking(&cmd)?;
-        Ok(())
+        self.pan_tilt_home()
     }
 
     fn pan_tilt_absolute(
@@ -268,34 +196,12 @@ where
         tilt: Degrees,
         speed: SpeedLevel,
     ) -> Result<(), Error> {
-        // Convert degrees to units using Camera's methods
-        let (pan_units, tilt_units) = self.degrees_to_units(pan, tilt);
-
-        // Validate using camera's profile
-        let pan_validated = self.validate_pan(pan_units.0)?;
-        let tilt_validated = self.validate_tilt(tilt_units.0)?;
-
-        // Convert SpeedLevel to specific pan/tilt speeds
-        let pan_speed_val = speed.to_pan_speed();
-        let tilt_speed_val = speed.to_tilt_speed();
-
-        // Convert logical coordinates to camera coordinates
-        let (cam_pan, cam_tilt) = self.to_camera_coords(pan_validated, tilt_validated);
-
-        // Create position objects using camera coordinates
-        let pan_pos = PanPosition::new(cam_pan as i16)?;
-        let tilt_pos = TiltPosition::new(cam_tilt as i16)?;
-        let pan_spd = PanSpeed::new(pan_speed_val)?;
-        let tilt_spd = TiltSpeed::new(tilt_speed_val)?;
-
-        let cmd = PanTilt::AbsolutePosition {
-            pan: pan_pos,
-            tilt: tilt_pos,
-            pan_speed: pan_spd,
-            tilt_speed: tilt_spd,
-        };
-        self.send_command_blocking(&cmd)?;
-        Ok(())
+        // Convert Degrees to Position and SpeedLevel to individual speeds
+        let pan_pos = PanPosition::from_degrees(pan.0)?;
+        let tilt_pos = TiltPosition::from_degrees(tilt.0)?;
+        let pan_speed = PanSpeed::from(speed);
+        let tilt_speed = TiltSpeed::from(speed);
+        self.pan_tilt_absolute(pan_pos, tilt_pos, pan_speed, tilt_speed)
     }
 
     fn pan_tilt_relative(
@@ -304,26 +210,12 @@ where
         tilt: Degrees,
         speed: SpeedLevel,
     ) -> Result<(), Error> {
-        // Convert degrees to units using Camera's methods
-        let (pan_units, tilt_units) = self.degrees_to_units(pan, tilt);
-
-        // Convert SpeedLevel to specific pan/tilt speeds
-        let pan_speed_val = speed.to_pan_speed();
-        let tilt_speed_val = speed.to_tilt_speed();
-
-        let pan_pos = PanPosition::new(pan_units.0)?;
-        let tilt_pos = TiltPosition::new(tilt_units.0)?;
-        let pan_spd = PanSpeed::new(pan_speed_val)?;
-        let tilt_spd = TiltSpeed::new(tilt_speed_val)?;
-
-        let cmd = PanTilt::RelativePosition {
-            pan: pan_pos,
-            tilt: tilt_pos,
-            pan_speed: pan_spd,
-            tilt_speed: tilt_spd,
-        };
-        self.send_command_blocking(&cmd)?;
-        Ok(())
+        // Convert Degrees to Position and SpeedLevel to individual speeds
+        let pan_pos = PanPosition::from_degrees(pan.0)?;
+        let tilt_pos = TiltPosition::from_degrees(tilt.0)?;
+        let pan_speed = PanSpeed::from(speed);
+        let tilt_speed = TiltSpeed::from(speed);
+        self.pan_tilt_relative(pan_pos, tilt_pos, pan_speed, tilt_speed)
     }
 
     fn pan_tilt_move(
@@ -332,19 +224,11 @@ where
         pan_speed: PanSpeed,
         tilt_speed: TiltSpeed,
     ) -> Result<(), Error> {
-        let cmd = PanTilt::Move {
-            direction,
-            pan_speed,
-            tilt_speed,
-        };
-        self.send_command_blocking(&cmd)?;
-        Ok(())
+        self.pan_tilt_move(direction, pan_speed, tilt_speed)
     }
 
     fn pan_tilt_reset(&self) -> Result<(), Error> {
-        let cmd = PanTilt::Reset;
-        self.send_command_blocking(&cmd)?;
-        Ok(())
+        self.pan_tilt_reset()
     }
 
     fn pan_tilt_limit_set(
@@ -353,14 +237,10 @@ where
         pan: PanPosition,
         tilt: TiltPosition,
     ) -> Result<(), Error> {
-        let cmd = PanTilt::LimitSet { corner, pan, tilt };
-        self.send_command_blocking(&cmd)?;
-        Ok(())
+        self.pan_tilt_limit_set(corner, pan, tilt)
     }
 
     fn pan_tilt_limit_clear(&self, corner: PanTiltLimitCorner) -> Result<(), Error> {
-        let cmd = PanTilt::LimitClear { corner };
-        self.send_command_blocking(&cmd)?;
-        Ok(())
+        self.pan_tilt_limit_clear(corner)
     }
 }
