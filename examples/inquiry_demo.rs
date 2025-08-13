@@ -205,7 +205,7 @@ fn main() -> grafton_visca::Result<()> {
 #[cfg(feature = "rt-tokio")]
 #[tokio::main]
 async fn main() -> grafton_visca::Result<()> {
-    use grafton_visca::{camera::Camera, CameraBuilder};
+    use grafton_visca::CameraBuilder;
     use tokio::time::{Duration, Instant};
 
     env_logger::init();
@@ -235,7 +235,7 @@ async fn main() -> grafton_visca::Result<()> {
         pan_tilt,
         zoom,
         focus_mode,
-        auto_focus,
+        // auto_focus, // Not documented in VISCA specs
         focus_pos,
         focus_near,
         exposure_mode,
@@ -249,8 +249,8 @@ async fn main() -> grafton_visca::Result<()> {
         backlight,
         wb_mode,
         color_temp,
-        sharpness,
-        contrast,
+        // sharpness, // Not documented in VISCA specs
+        // contrast,  // Not documented in VISCA specs
         saturation,
         hue,
         flip,
@@ -263,7 +263,7 @@ async fn main() -> grafton_visca::Result<()> {
         camera.pan_tilt_position_inquiry(),
         camera.zoom_position_inquiry(),
         camera.focus_mode_inquiry(),
-        camera.auto_focus_inquiry(),
+        // camera.auto_focus_inquiry(), // Not documented in VISCA specs
         camera.focus_position_inquiry(),
         camera.focus_near_limit_inquiry(),
         camera.exposure_mode_inquiry(),
@@ -277,8 +277,8 @@ async fn main() -> grafton_visca::Result<()> {
         camera.backlight_inquiry(),
         camera.white_balance_mode_inquiry(),
         camera.color_temperature_inquiry(),
-        camera.sharpness_inquiry(),
-        camera.contrast_inquiry(),
+        // camera.sharpness_inquiry(), // Not documented in VISCA specs
+        // camera.contrast_inquiry(),  // Not documented in VISCA specs
         camera.saturation_inquiry(),
         camera.hue_inquiry(),
         camera.image_flip_inquiry(),
@@ -293,13 +293,13 @@ async fn main() -> grafton_visca::Result<()> {
     println!(
         "  Power: {}",
         power.map_or("❌".to_string(), |on| if on {
-            "🟢 ON"
+            "🟢 ON".to_string()
         } else {
-            "🔴 OFF"
+            "🔴 OFF".to_string()
         })
     );
-    println!("  Version: {:?}", version.unwrap_or_default());
-    println!("  Resolution: {:?}", resolution.unwrap_or_default());
+    println!("  Version: {:?}", version.ok());
+    println!("  Resolution: {:?}", resolution.ok());
 
     println!("\n── Position ──");
     if let Ok((pan, tilt)) = pan_tilt {
@@ -317,51 +317,54 @@ async fn main() -> grafton_visca::Result<()> {
     }
 
     println!("\n── Focus ──");
-    println!("  Mode: {:?}", focus_mode.unwrap_or_default());
-    println!(
-        "  Auto Focus: {}",
-        auto_focus.map_or("❌".to_string(), |e| if e { "✓" } else { "✗" })
-    );
-    println!("  Position: {:?}", focus_pos.unwrap_or_default());
+    println!("  Mode: {:?}", focus_mode.ok());
+    // NOTE: auto_focus inquiry is not documented in VISCA specs
+    // println!(
+    //     "  Auto Focus: {}",
+    //     auto_focus.map_or("❌".to_string(), |e| if e { "✓" } else { "✗" })
+    // );
+    println!("  Position: {:?}", focus_pos.ok());
     println!(
         "  Near Limit: {}",
         focus_near.map_or("❌".to_string(), |l| format!("0x{l:04X}"))
     );
 
     println!("\n── Exposure ──");
-    println!("  Mode: {:?}", exposure_mode.unwrap_or_default());
-    println!("  Iris: {:?}", iris.unwrap_or_default());
-    println!("  Shutter: {:?}", shutter.unwrap_or_default());
-    println!("  Gain: {:?}", gain.unwrap_or_default());
-    println!("  Gain Limit: {:?}", gain_limit.unwrap_or_default());
-    println!("  Brightness: {:?}", brightness.unwrap_or_default());
+    println!("  Mode: {:?}", exposure_mode.ok());
+    println!("  Iris: {:?}", iris.ok());
+    println!("  Shutter: {:?}", shutter.ok());
+    println!("  Gain: {:?}", gain.ok());
+    println!("  Gain Limit: {:?}", gain_limit.ok());
+    println!("  Brightness: {:?}", brightness.ok());
     println!(
         "  Compensation: {}",
-        exp_comp.map_or("❌".to_string(), |e| if e { "✓" } else { "✗" })
+        exp_comp.map_or("❌".to_string(), |e| format!("{}", e))
     );
-    println!(
-        "  Compensation Level: {:?}",
-        exp_comp_mode.unwrap_or_default()
-    );
+    println!("  Compensation Level: {:?}", exp_comp_mode.ok());
     println!(
         "  Backlight Comp: {}",
-        backlight.map_or("❌".to_string(), |e| if e { "✓" } else { "✗" })
+        backlight.map_or("❌".to_string(), |e| if e {
+            "✓".to_string()
+        } else {
+            "✗".to_string()
+        })
     );
 
     println!("\n── White Balance ──");
-    println!("  Mode: {:?}", wb_mode.unwrap_or_default());
+    println!("  Mode: {:?}", wb_mode.ok());
     println!("  Color Temperature: {}K", color_temp.unwrap_or(0));
 
     println!("\n── Image Adjustments ──");
-    println!("  Sharpness: {:?}", sharpness.unwrap_or_default());
-    println!("  Contrast: {:?}", contrast.unwrap_or_default());
-    println!("  Saturation: {:?}", saturation.unwrap_or_default());
-    println!("  Hue: {:?}", hue.unwrap_or_default());
-    println!("  Image Flip: {:?}", flip.unwrap_or_default());
+    // NOTE: sharpness and contrast inquiries are not documented in VISCA specs
+    // println!("  Sharpness: {:?}", sharpness.unwrap_or_default());
+    // println!("  Contrast: {:?}", contrast.unwrap_or_default());
+    println!("  Saturation: {:?}", saturation.ok());
+    println!("  Hue: {:?}", hue.ok());
+    println!("  Image Flip: {:?}", flip.ok());
 
     println!("\n── Noise Reduction ──");
-    println!("  2D NR Level: {:?}", nr_2d.unwrap_or_default());
-    println!("  3D NR Level: {:?}", nr_3d.unwrap_or_default());
+    println!("  2D NR Level: {:?}", nr_2d.ok());
+    println!("  3D NR Level: {:?}", nr_3d.ok());
 
     println!("\n✅ All inquiries completed in {:.2?}!", elapsed);
     println!(

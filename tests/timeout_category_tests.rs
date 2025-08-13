@@ -28,7 +28,6 @@ mod timeout_tests {
         send_count: Arc<Mutex<usize>>,
         last_send_time: Arc<Mutex<Option<Instant>>>,
         response_index: Arc<Mutex<usize>>,
-        response_available_time: Arc<Mutex<Option<Instant>>>,
     }
 
     impl DelayedMockTransport {
@@ -41,7 +40,6 @@ mod timeout_tests {
                 send_count: Arc::new(Mutex::new(0)),
                 last_send_time: Arc::new(Mutex::new(None)),
                 response_index: Arc::new(Mutex::new(0)),
-                response_available_time: Arc::new(Mutex::new(None)),
             }
         }
 
@@ -141,8 +139,10 @@ mod timeout_tests {
             CameraAsync::from_transport(transport.clone());
 
         // Set very short timeout for quick commands
-        let mut config = TimeoutConfig::default();
-        config.quick_timeout = Duration::from_millis(100);
+        let config = TimeoutConfig {
+            quick_timeout: Duration::from_millis(100),
+            ..Default::default()
+        };
         camera.set_timeout_config(config);
 
         // Initialize socket manager with runtime
@@ -176,8 +176,10 @@ mod timeout_tests {
             CameraAsync::from_transport(transport.clone());
 
         // Set 1 second timeout for movement commands
-        let mut config = TimeoutConfig::default();
-        config.movement_timeout = Duration::from_secs(1);
+        let config = TimeoutConfig {
+            movement_timeout: Duration::from_secs(1),
+            ..Default::default()
+        };
         camera.set_timeout_config(config);
 
         // Initialize socket manager with runtime
@@ -211,8 +213,10 @@ mod timeout_tests {
             CameraAsync::from_transport(transport.clone());
 
         // Set 2 second timeout for preset commands
-        let mut config = TimeoutConfig::default();
-        config.preset_timeout = Duration::from_secs(2);
+        let config = TimeoutConfig {
+            preset_timeout: Duration::from_secs(2),
+            ..Default::default()
+        };
         camera.set_timeout_config(config);
 
         // Initialize socket manager with runtime
@@ -273,8 +277,10 @@ mod timeout_tests {
         assert!(elapsed < Duration::from_secs(1));
 
         // Update timeout to be shorter
-        let mut config = TimeoutConfig::default();
-        config.quick_timeout = Duration::from_millis(300);
+        let config = TimeoutConfig {
+            quick_timeout: Duration::from_millis(300),
+            ..Default::default()
+        };
         camera.set_timeout_config(config);
 
         // Second command should timeout with new config
@@ -301,9 +307,11 @@ mod timeout_tests {
         // Create camera with different timeouts per category
         let mut camera: CameraAsync<GenericVisca, _> = CameraAsync::from_transport(transport);
 
-        let mut config = TimeoutConfig::default();
-        config.quick_timeout = Duration::from_millis(500); // Will timeout
-        config.movement_timeout = Duration::from_secs(2); // Will succeed
+        let config = TimeoutConfig {
+            quick_timeout: Duration::from_millis(500), // Will timeout
+            movement_timeout: Duration::from_secs(2),
+            ..Default::default()
+        }; // Will succeed
         camera.set_timeout_config(config);
 
         // Initialize socket manager with runtime

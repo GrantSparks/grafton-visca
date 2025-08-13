@@ -191,8 +191,8 @@ async fn main() -> grafton_visca::Result<()> {
         wb_mode,
         color_temp,
         brightness,
-        contrast,
-        sharpness,
+        // contrast,  // Not documented in VISCA specs
+        // sharpness, // Not documented in VISCA specs
         saturation,
         hue,
         flip,
@@ -209,8 +209,8 @@ async fn main() -> grafton_visca::Result<()> {
         camera.white_balance_mode_inquiry(),
         camera.color_temperature_inquiry(),
         camera.brightness_inquiry(),
-        camera.contrast_inquiry(),
-        camera.sharpness_inquiry(),
+        // camera.contrast_inquiry(),  // Not documented in VISCA specs
+        // camera.sharpness_inquiry(), // Not documented in VISCA specs
         camera.saturation_inquiry(),
         camera.hue_inquiry(),
         camera.image_flip_inquiry(),
@@ -287,14 +287,15 @@ async fn main() -> grafton_visca::Result<()> {
         Ok(val) => println!("Brightness: {:?}", val),
         Err(e) => println!("Failed: {e}"),
     }
-    match contrast {
-        Ok(val) => println!("Contrast: {:?}", val),
-        Err(e) => println!("Failed: {e}"),
-    }
-    match sharpness {
-        Ok(val) => println!("Sharpness: {:?}", val),
-        Err(e) => println!("Failed: {e}"),
-    }
+    // NOTE: contrast and sharpness inquiries are not documented in VISCA specs
+    // match contrast {
+    //     Ok(val) => println!("Contrast: {:?}", val),
+    //     Err(e) => println!("Failed: {e}"),
+    // }
+    // match sharpness {
+    //     Ok(val) => println!("Sharpness: {:?}", val),
+    //     Err(e) => println!("Failed: {e}"),
+    // }
     match saturation {
         Ok(val) => println!("Saturation: {:?}", val),
         Err(e) => println!("Failed: {e}"),
