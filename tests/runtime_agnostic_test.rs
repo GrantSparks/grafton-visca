@@ -2,6 +2,7 @@
 
 #![cfg(feature = "async")]
 
+#[cfg(feature = "rt-tokio")]
 use grafton_visca::Error;
 
 #[cfg(not(feature = "rt-tokio"))]
