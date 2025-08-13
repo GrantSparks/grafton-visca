@@ -119,20 +119,22 @@ fn main() -> grafton_visca::Result<()> {
         Err(e) => println!("Failed to get brightness: {e}"),
     }
 
-    match camera.contrast_inquiry() {
-        Ok(val) => println!("Contrast: {:?}", val),
-        Err(e) => println!("Failed to get contrast: {e}"),
-    }
+    // contrast_inquiry(), saturation_inquiry(), and sharpness_inquiry() have been commented out pending verification
+    // These are not standard VISCA inquiries according to the protocol documentation
+    // match camera.contrast_inquiry() {
+    //     Ok(val) => println!("Contrast: {:?}", val),
+    //     Err(e) => println!("Failed to get contrast: {e}"),
+    // }
 
-    match camera.saturation_inquiry() {
-        Ok(val) => println!("Saturation: {:?}", val),
-        Err(e) => println!("Failed to get saturation: {e}"),
-    }
+    // match camera.saturation_inquiry() {
+    //     Ok(val) => println!("Saturation: {:?}", val),
+    //     Err(e) => println!("Failed to get saturation: {e}"),
+    // }
 
-    match camera.sharpness_inquiry() {
-        Ok(val) => println!("Sharpness: {:?}", val),
-        Err(e) => println!("Failed to get sharpness: {e}"),
-    }
+    // match camera.sharpness_inquiry() {
+    //     Ok(val) => println!("Sharpness: {:?}", val),
+    //     Err(e) => println!("Failed to get sharpness: {e}"),
+    // }
 
     match camera.hue_inquiry() {
         Ok(val) => println!("Hue: {:?}", val),

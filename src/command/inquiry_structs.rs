@@ -301,7 +301,7 @@ pub struct FocusModeInquiry;
 )]
 pub struct MenuOpenCloseInquiry;
 
-/// Inquiry command to get the auto focus on/off status.
+// Inquiry command to get the auto focus on/off status.
 // NOTE: AutoFocus inquiry is not documented in VISCA specs
 // and has been disabled until proper documentation is found.
 
@@ -313,7 +313,6 @@ pub struct MenuOpenCloseInquiry;
 //     custom_fn = "parse_auto_focus"
 // )]
 // pub struct AutoFocusInquiry;
-
 /// Inquiry command to get the tally light status (red and green).
 #[derive(InquiryCommand, Debug, Copy, Clone)]
 #[visca(
