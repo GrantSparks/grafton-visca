@@ -158,7 +158,8 @@ fn test_image_flip_inquiry() {
 #[test]
 fn test_brightness_inquiry() {
     // Test brightness inquiry response parsing
-    let payload = vec![0x90, 0x50, 0x00, 0x00, 0x08, 0xFF];
+    // Brightness uses 4 nibbles to encode position (0x0008 = 8)
+    let payload = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x08, 0xFF];
 
     let result = parse_response(&payload, &ResponseType::Bright);
     assert!(
@@ -169,7 +170,7 @@ fn test_brightness_inquiry() {
 
     match result.unwrap() {
         Response::Inquiry(InquiryResponse::Bright { position }) => {
-            assert_eq!(position, 0x08, "Brightness position mismatch");
+            assert_eq!(position, 0x0008, "Brightness position mismatch");
         }
         _ => panic!("Response type mismatch"),
     }
@@ -178,7 +179,8 @@ fn test_brightness_inquiry() {
 #[test]
 fn test_gain_inquiry() {
     // Test gain inquiry response parsing
-    let payload = vec![0x90, 0x50, 0x00, 0x00, 0x05, 0xFF];
+    // Gain uses 4 bytes with the gain value in the last byte
+    let payload = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x05, 0xFF];
 
     let result = parse_response(&payload, &ResponseType::Gain);
     assert!(
@@ -198,13 +200,13 @@ fn test_gain_inquiry() {
 #[test]
 fn test_version_inquiry() {
     // Test version inquiry response parsing
+    // Version format: [0x90, 0x50, VV VV MM MM FF FF KK, 0xFF]
+    // Where: VV=Vendor ID, MM=Model ID, FF=ROM version, KK=Max socket
     let payload = vec![
-        0x90, 0x50, 0x00, 0x14, // Vendor ID
-        0x00, 0x10, // Model ID
-        0x02, 0x05, // ROM version
-        0x00, 0x00, // Reserved
-        0x00, 0x00, // Reserved
-        0x00, 0x00, // Reserved
+        0x90, 0x50, 0x00, 0x14, // Vendor ID (0x0014)
+        0x00, 0x10, // Model ID (0x0010)
+        0x02, 0x05, // ROM version (0x0205)
+        0x00, // Max socket number
         0xFF,
     ];
 
