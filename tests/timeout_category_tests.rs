@@ -120,8 +120,10 @@ mod timeout_tests {
 
                     Ok(response.unwrap())
                 } else {
-                    // No more responses, block indefinitely
-                    futures::future::pending().await
+                    // No more responses, simulate a timeout by waiting forever
+                    // This simulates an unresponsive camera
+                    tokio::time::sleep(Duration::from_secs(3600)).await;
+                    Err(Error::Timeout)
                 }
             }
         }
