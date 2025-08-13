@@ -100,6 +100,7 @@ async fn test_position_inquiries_integration() {
 /// Test exposure-related inquiries
 #[tokio::test]
 async fn test_exposure_inquiries_integration() {
+    let _ = env_logger::builder().is_test(true).try_init();
     use grafton_visca::runtime::TokioRuntime;
 
     let runtime = std::sync::Arc::new(TokioRuntime);
@@ -361,8 +362,13 @@ async fn test_concurrent_inquiries_integration() {
 
     // All should complete successfully
     let results = futures::future::join_all(futures).await;
-    for result in results {
-        assert!(result.is_ok(), "Concurrent inquiry should succeed");
+    for (i, result) in results.into_iter().enumerate() {
+        assert!(
+            result.is_ok(),
+            "Concurrent inquiry #{} should succeed: {:?}",
+            i + 1,
+            result
+        );
         assert!(result.unwrap(), "Power should be on");
     }
 }

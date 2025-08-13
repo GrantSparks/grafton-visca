@@ -303,10 +303,18 @@ impl ViscaCameraSimulator {
     /// Generate inquiry response based on the inquiry command
     async fn generate_inquiry_response(&self, data: &[u8]) -> Option<Vec<u8>> {
         if data.len() < 4 || data[1] != 0x09 {
+            log::debug!("Not an inquiry command: {:02X?}", data);
             return None;
         }
 
         let state = self.inner.camera_state.read().await;
+
+        log::debug!(
+            "Processing inquiry: cmd[2]={:02X?}, cmd[3]={:02X?}, full command: {:02X?}",
+            data.get(2),
+            data.get(3),
+            data
+        );
 
         // Parse inquiry type from command bytes
         match (data.get(2), data.get(3)) {
@@ -384,12 +392,22 @@ impl ViscaCameraSimulator {
 
             // Exposure compensation inquiry: 0x81 0x09 0x04 0x4E 0xFF
             (Some(0x04), Some(0x4E)) => {
-                let comp_value = if state.exposure_compensation >= 0 {
-                    state.exposure_compensation as u8
-                } else {
-                    (16 - state.exposure_compensation.abs()) as u8
-                };
-                Some(vec![0x90, 0x50, comp_value, VISCA_TERMINATOR])
+                // Exposure compensation value needs to be offset by 7 and encoded as nibbles
+                // The parser expects 4 bytes: 0x00, 0x00, nibble1, nibble2
+                let adjusted_value = (state.exposure_compensation + 7) as u8;
+                let nibble_high = (adjusted_value >> 4) & 0x0F;
+                let nibble_low = adjusted_value & 0x0F;
+                let response = vec![
+                    0x90,
+                    0x50,
+                    0x00,
+                    0x00,
+                    nibble_high,
+                    nibble_low,
+                    VISCA_TERMINATOR,
+                ];
+                log::debug!("Exposure compensation inquiry response: {:02X?}", response);
+                Some(response)
             }
 
             // Exposure compensation mode inquiry: 0x81 0x09 0x04 0x3E 0xFF
@@ -428,14 +446,48 @@ impl ViscaCameraSimulator {
 
             // Shutter inquiry: 0x81 0x09 0x04 0x4A 0xFF
             (Some(0x04), Some(0x4A)) => {
-                Some(vec![0x90, 0x50, state.shutter_speed, VISCA_TERMINATOR])
+                // Shutter speed needs to be encoded as 4 nibbles
+                let shutter_bytes = encode_position(state.shutter_speed as u16);
+                Some(vec![
+                    0x90,
+                    0x50,
+                    shutter_bytes[0],
+                    shutter_bytes[1],
+                    shutter_bytes[2],
+                    shutter_bytes[3],
+                    VISCA_TERMINATOR,
+                ])
             }
 
             // Brightness inquiry: 0x81 0x09 0x04 0x4D 0xFF
-            (Some(0x04), Some(0x4D)) => Some(vec![0x90, 0x50, state.brightness, VISCA_TERMINATOR]),
+            (Some(0x04), Some(0x4D)) => {
+                // Brightness needs to be encoded as 4 nibbles
+                let bright_bytes = encode_position(state.brightness as u16);
+                Some(vec![
+                    0x90,
+                    0x50,
+                    bright_bytes[0],
+                    bright_bytes[1],
+                    bright_bytes[2],
+                    bright_bytes[3],
+                    VISCA_TERMINATOR,
+                ])
+            }
 
             // Gain inquiry: 0x81 0x09 0x04 0x4C 0xFF
-            (Some(0x04), Some(0x4C)) => Some(vec![0x90, 0x50, state.gain_level, VISCA_TERMINATOR]),
+            (Some(0x04), Some(0x4C)) => {
+                // Gain needs to be encoded as 4 nibbles
+                let gain_bytes = encode_position(state.gain_level as u16);
+                Some(vec![
+                    0x90,
+                    0x50,
+                    gain_bytes[0],
+                    gain_bytes[1],
+                    gain_bytes[2],
+                    gain_bytes[3],
+                    VISCA_TERMINATOR,
+                ])
+            }
 
             // Gain limit inquiry: 0x81 0x09 0x04 0x2C 0xFF
             (Some(0x04), Some(0x2C)) => Some(vec![0x90, 0x50, state.gain_limit, VISCA_TERMINATOR]),
@@ -453,8 +505,25 @@ impl ViscaCameraSimulator {
 
             // Color temperature inquiry: 0x81 0x09 0x04 0x20 0xFF
             (Some(0x04), Some(0x20)) => {
-                let temp_index = ((state.color_temperature - 2800) / 100) as u8;
-                Some(vec![0x90, 0x50, temp_index, VISCA_TERMINATOR])
+                // The parser expects the raw temperature value
+                // Parser does: temperature = ((payload[2] as u16) << 4) | (payload[3] as u16)
+                // For 2800K (0x0AF0), we need: payload[2] = 0xAF, payload[3] = 0x00
+                // But wait, this would give us AF0 (2800 decimal), not 2800K
+                // Actually the parser is just expecting the temperature directly as a value
+                // Since 2800 = 0x0AF0, and parser does (payload[2] << 4) | payload[3]
+                // We need payload[2] = 0xAF, payload[3] = 0x00 to get 0xAF0
+                let temp_value = state.color_temperature;
+                let byte_high = (temp_value >> 4) as u8;
+                let byte_low = (temp_value & 0x0F) as u8;
+                Some(vec![
+                    0x90,
+                    0x50,
+                    0x00,
+                    0x00,
+                    byte_high,
+                    byte_low,
+                    VISCA_TERMINATOR,
+                ])
             }
 
             // NOTE: Sharpness and contrast inquiries are not documented in VISCA specs
@@ -469,10 +538,33 @@ impl ViscaCameraSimulator {
             // }
 
             // Saturation inquiry: 0x81 0x09 0x04 0x49 0xFF
-            (Some(0x04), Some(0x49)) => Some(vec![0x90, 0x50, state.saturation, VISCA_TERMINATOR]),
+            (Some(0x04), Some(0x49)) => {
+                // Saturation needs to be encoded as 4 nibbles
+                let sat_bytes = encode_position(state.saturation as u16);
+                Some(vec![
+                    0x90,
+                    0x50,
+                    sat_bytes[0],
+                    sat_bytes[1],
+                    sat_bytes[2],
+                    sat_bytes[3],
+                    VISCA_TERMINATOR,
+                ])
+            }
 
             // Hue inquiry: 0x81 0x09 0x04 0x4F 0xFF
-            (Some(0x04), Some(0x4F)) => Some(vec![0x90, 0x50, state.hue, VISCA_TERMINATOR]),
+            (Some(0x04), Some(0x4F)) => {
+                // Hue needs to be encoded as 4 nibbles, with the value in the last position
+                Some(vec![
+                    0x90,
+                    0x50,
+                    0x00,
+                    0x00,
+                    0x00,
+                    state.hue,
+                    VISCA_TERMINATOR,
+                ])
+            }
 
             // NOTE: Luminance inquiry is not documented in VISCA specs
             // and has been disabled until proper documentation is found.
@@ -516,7 +608,15 @@ impl ViscaCameraSimulator {
             // Resolution inquiry: 0x81 0x09 0x04 0x63 0xFF
             (Some(0x04), Some(0x63)) => Some(vec![0x90, 0x50, state.resolution, VISCA_TERMINATOR]),
 
-            _ => None,
+            _ => {
+                log::warn!(
+                    "Unhandled inquiry command: cmd[2]={:02X?}, cmd[3]={:02X?}, full: {:02X?}",
+                    data.get(2),
+                    data.get(3),
+                    data
+                );
+                None
+            }
         }
     }
 
@@ -581,6 +681,8 @@ impl AsyncTransport for ViscaCameraSimulator {
             stats.commands_received += 1;
         }
 
+        log::trace!("Simulator received command: {:02X?}", data);
+
         // Simulate packet loss
         if Self::should_drop_packet(&ViscaCameraSimulator {
             inner: inner.clone(),
@@ -596,9 +698,26 @@ impl AsyncTransport for ViscaCameraSimulator {
         if cmd_type == CommandType::Inquiry {
             // Handle inquiry immediately - generate and broadcast Data Reply
             if let Some(response) = self.generate_inquiry_response(&data_vec).await {
+                // Add a small delay to ensure receivers are ready
+                // This simulates real network latency and prevents race conditions in tests
+                sleep(Duration::from_millis(10)).await;
+
                 // Broadcast inquiry response immediately (no ACK for inquiries)
-                let _ = inner.response_broadcaster.send(response);
+                log::debug!("Broadcasting inquiry response: {:02X?}", response);
+                match inner.response_broadcaster.send(response.clone()) {
+                    Ok(count) => {
+                        log::debug!("Inquiry response broadcast to {} receivers", count);
+                    }
+                    Err(e) => {
+                        log::error!("Failed to broadcast inquiry response: {:?}", e);
+                    }
+                }
                 return Ok(());
+            } else {
+                log::warn!(
+                    "No response generated for inquiry command: {:02X?}",
+                    data_vec
+                );
             }
         }
 
