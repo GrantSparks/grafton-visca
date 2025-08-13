@@ -98,6 +98,9 @@ pub enum ImageFlipMode {
 
 visca_param_command! {
     /// Command to set the combined image flip mode.
+    ///
+    /// TODO: Connect to camera API for image flip functionality
+    #[allow(dead_code)]
     pub(crate) struct ImageFlipCombinedCommand {
         mode: ImageFlipMode,
     }
@@ -113,6 +116,7 @@ visca_param_command! {
 
 impl ImageFlipCombinedCommand {
     /// Create a new image flip combined command.
+    #[allow(dead_code)]
     pub fn new(mode: ImageFlipMode) -> Self {
         Self { mode }
     }
@@ -126,6 +130,9 @@ visca_param_command! {
     ///
     /// Controls various artistic effects like negative, sepia, sketch, etc.
     /// Note that not all effects are supported on all camera models.
+    ///
+    /// TODO: Connect to camera API for picture effects functionality
+    #[allow(dead_code)]
     pub(crate) struct PictureEffectCommand {
         mode: PictureEffectMode,
     }

@@ -1,11 +1,7 @@
 //! Inquiry methods for querying camera state using the new GAT architecture.
 
 use crate::{
-    command::{
-        inquiry::*, AutoFocusSensitivity, ExposureMode, FocusZone, InquiryResponse, Response,
-        SharpnessMode, WhiteBalanceMode,
-    },
-    units::Degrees,
+    command::{AutoFocusSensitivity, ExposureMode, FocusZone, SharpnessMode, WhiteBalanceMode},
     Error,
 };
 
@@ -418,6 +414,14 @@ pub trait InquiryOpsBlocking: Sized {
     fn get_tally_green_enabled(&self) -> Result<bool, Error>;
 }
 
+// TODO: Update for new Camera<M, P, T> mode marker architecture
+// The InquiryOps trait implementations are temporarily disabled because they
+// reference the old Transport trait and Camera<P, T> structure. These need to be
+// updated to work with the new Camera<M, P, T> mode marker system where:
+// - M is the mode marker (AsyncMode or BlockingMode)
+// - T implements either AsyncTransport or BlockingTransport
+
+/*
 // Async implementation
 #[cfg(feature = "async")]
 impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
@@ -1919,3 +1923,4 @@ where
         Ok((pan_deg, tilt_deg))
     }
 }
+*/

@@ -80,19 +80,13 @@ impl<S: Sleep + std::fmt::Debug + 'static, P: Spawner + std::fmt::Debug + 'stati
 pub type SharedRuntime = Arc<dyn Runtime>;
 
 /// Get the default runtime based on enabled features.
-#[cfg(feature = "rt-tokio")]
-pub fn default_runtime() -> SharedRuntime {
-    Arc::new(TokioRuntime)
-}
-
-/// For async without tokio, users must provide their own runtime.
 ///
-/// Returns an error indicating that a runtime must be configured.
-#[cfg(all(feature = "async", not(feature = "rt-tokio")))]
+/// This function no longer automatically creates a runtime. Users must explicitly
+/// provide a runtime via `.with_runtime()` when constructing async cameras.
+/// This ensures explicit runtime configuration and avoids silent fallbacks.
+#[cfg(feature = "async")]
 pub fn default_runtime() -> Result<SharedRuntime, Error> {
-    Err(Error::InvalidState(
-        "No runtime configured for async operations. Please provide a runtime using .with_runtime()".into()
-    ))
+    Err(Error::MissingRuntime)
 }
 
 /// Execute a future with a timeout using the provided runtime.

@@ -6,12 +6,10 @@
 #![allow(clippy::expect_used)]
 
 use crate::command::const_encoding::VISCA_TERMINATOR;
-use crate::transport::Transport;
+use crate::transport::AsyncTransport;
 use crate::Error;
 use bytes::Bytes;
 use std::collections::HashMap;
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, RwLock};
@@ -250,93 +248,85 @@ impl ViscaCameraSimulator {
     }
 }
 
-impl Transport for ViscaCameraSimulator {
-    type Error = Error;
-    type SendFut<'a> = Pin<Box<dyn Future<Output = Result<(), Self::Error>> + Send + 'a>>;
-    type RecvFut<'a> = Pin<Box<dyn Future<Output = Result<Bytes, Self::Error>> + Send + 'a>>;
-
-    fn send<'a>(&'a self, data: &'a [u8]) -> Self::SendFut<'a> {
+impl AsyncTransport for ViscaCameraSimulator {
+    async fn send(&self, data: &[u8]) -> Result<(), Error> {
         let data_vec = data.to_vec();
         let inner = self.inner.clone();
 
-        Box::pin(async move {
-            // Update stats
-            {
-                let mut stats = inner.stats.write().await;
-                stats.commands_received += 1;
-            }
+        // Update stats
+        {
+            let mut stats = inner.stats.write().await;
+            stats.commands_received += 1;
+        }
 
-            // Simulate packet loss
-            if Self::should_drop_packet(&ViscaCameraSimulator {
+        // Simulate packet loss
+        if Self::should_drop_packet(&ViscaCameraSimulator {
+            inner: inner.clone(),
+        }) {
+            let mut stats = inner.stats.write().await;
+            stats.packets_dropped += 1;
+            return Err(Error::Timeout);
+        }
+
+        // Try to allocate a socket
+        let socket_num = {
+            let simulator = ViscaCameraSimulator {
                 inner: inner.clone(),
-            }) {
-                let mut stats = inner.stats.write().await;
-                stats.packets_dropped += 1;
-                return Err(Error::Timeout);
-            }
-
-            // Try to allocate a socket
-            let socket_num = {
-                let simulator = ViscaCameraSimulator {
-                    inner: inner.clone(),
-                };
-                simulator.allocate_socket().await
             };
+            simulator.allocate_socket().await
+        };
 
-            if let Some(socket_num) = socket_num {
-                // Socket allocated - send ACK and schedule completion
-                let cmd_type = Self::parse_command_type(&data_vec);
-                let default_duration = Duration::from_millis(50);
-                let execution_time = inner
-                    .config
-                    .command_execution_times
-                    .get(&cmd_type)
-                    .unwrap_or(&default_duration);
+        if let Some(socket_num) = socket_num {
+            // Socket allocated - send ACK and schedule completion
+            let cmd_type = Self::parse_command_type(&data_vec);
+            let default_duration = Duration::from_millis(50);
+            let execution_time = inner
+                .config
+                .command_execution_times
+                .get(&cmd_type)
+                .unwrap_or(&default_duration);
 
-                // Mark socket as executing
-                {
-                    let mut socket_states = inner.socket_states.write().await;
-                    let socket_idx = (socket_num - 1) as usize;
-                    socket_states[socket_idx] = SocketState::Executing {
-                        completion_time: Instant::now() + *execution_time,
-                    };
-                }
-
-                // Send ACK immediately
-                let ack = make_ack_response(socket_num);
-                let _ = inner.response_broadcaster.send(ack);
-
-                Ok(())
-            } else {
-                // All sockets busy - send busy response
-                let mut stats = inner.stats.write().await;
-                stats.busy_responses_sent += 1;
-
-                let busy = make_busy_response(1);
-                let _ = inner.response_broadcaster.send(busy);
-
-                Ok(())
+            // Mark socket as executing
+            {
+                let mut socket_states = inner.socket_states.write().await;
+                let socket_idx = (socket_num - 1) as usize;
+                socket_states[socket_idx] = SocketState::Executing {
+                    completion_time: Instant::now() + *execution_time,
+                };
             }
-        })
+
+            // Send ACK immediately
+            let ack = make_ack_response(socket_num);
+            let _ = inner.response_broadcaster.send(ack);
+
+            Ok(())
+        } else {
+            // All sockets busy - send busy response
+            let mut stats = inner.stats.write().await;
+            stats.busy_responses_sent += 1;
+
+            let busy = make_busy_response(1);
+            let _ = inner.response_broadcaster.send(busy);
+
+            Ok(())
+        }
     }
 
-    fn recv(&self) -> Self::RecvFut<'_> {
-        Box::pin(async move {
-            let mut rx = self.inner.response_broadcaster.subscribe();
+    async fn recv(&self) -> Result<Bytes, Error> {
+        let mut rx = self.inner.response_broadcaster.subscribe();
 
-            // Add network jitter
-            let jitter = self.calculate_jitter();
-            if jitter > Duration::from_millis(0) {
-                sleep(jitter).await;
-            }
+        // Add network jitter
+        let jitter = self.calculate_jitter();
+        if jitter > Duration::from_millis(0) {
+            sleep(jitter).await;
+        }
 
-            // Wait for response with timeout
-            match tokio::time::timeout(Duration::from_secs(30), rx.recv()).await {
-                Ok(Ok(response)) => Ok(Bytes::from(response)),
-                Ok(Err(_)) => Err(Error::Timeout),
-                Err(_) => Err(Error::Timeout),
-            }
-        })
+        // Wait for response with timeout
+        match tokio::time::timeout(Duration::from_secs(30), rx.recv()).await {
+            Ok(Ok(response)) => Ok(Bytes::from(response)),
+            Ok(Err(_)) => Err(Error::Timeout),
+            Err(_) => Err(Error::Timeout),
+        }
     }
 }
 

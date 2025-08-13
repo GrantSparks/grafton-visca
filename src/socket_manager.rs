@@ -13,7 +13,7 @@ use crate::{
     },
     error::{Error, Result},
     timeout::{CommandCategory, TimeoutConfig},
-    transport::Transport,
+    transport::AsyncTransport,
 };
 
 impl Socket {
@@ -267,6 +267,13 @@ pub(crate) enum SocketManagerCommand {
         /// Channel to send the result when a completion message is received.
         response_sender: OneshotSender<Result<()>>,
     },
+    /// Shutdown the socket manager gracefully.
+    /// This is primarily for testing and internal use.
+    #[doc(hidden)]
+    Shutdown {
+        /// Channel to send confirmation when shutdown is complete.
+        confirmation: OneshotSender<()>,
+    },
 }
 
 /// Handle to communicate with the socket manager actor.
@@ -354,6 +361,28 @@ impl SocketManagerHandle {
             .map_err(|_| Error::SocketManagerChannelClosed)?;
 
         Ok(response_receiver)
+    }
+
+    /// Shutdown the socket manager gracefully.
+    /// This method sends a shutdown command to the actor and waits for it to confirm shutdown.
+    /// The actor will complete any in-flight commands before shutting down.
+    ///
+    /// This is primarily intended for testing to ensure clean shutdown of background tasks.
+    #[doc(hidden)]
+    pub async fn shutdown(&self) -> Result<()> {
+        let (confirmation_sender, confirmation_receiver) = channels::oneshot();
+
+        #[allow(unreachable_patterns)]
+        match self.command_sender.send(SocketManagerCommand::Shutdown {
+            confirmation: confirmation_sender,
+        }) {
+            Ok(_) => {
+                // Wait for the actor to confirm shutdown
+                let _ = confirmation_receiver.recv().await;
+                Ok(())
+            }
+            Err(_) => Err(Error::SocketManagerChannelClosed),
+        }
     }
 }
 
@@ -471,8 +500,7 @@ pub(crate) struct SocketManagerActor<T> {
     transport: Arc<T>,
     command_receiver: UnboundedReceiver<SocketManagerCommand>,
     timeout_config: TimeoutConfig,
-    #[cfg(feature = "async")]
-    runtime: Option<crate::runtime::SharedRuntime>,
+    runtime: crate::runtime::SharedRuntime,
     retry_hook: Box<dyn RetryHook + Send + Sync>,
 }
 
@@ -482,19 +510,16 @@ impl<T> std::fmt::Debug for SocketManagerActor<T> {
         builder
             .field("inner", &self.inner)
             .field("transport", &"Arc<T>")
-            .field("timeout_config", &self.timeout_config);
-        #[cfg(feature = "async")]
-        builder.field("runtime", &self.runtime.is_some());
-        builder.field("retry_hook", &"Box<dyn RetryHook>").finish()
+            .field("timeout_config", &self.timeout_config)
+            .field("runtime", &"SharedRuntime")
+            .field("retry_hook", &"Box<dyn RetryHook>")
+            .finish()
     }
 }
 
 impl<T> SocketManagerActor<T>
 where
-    T: Transport + Send + Sync + 'static,
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+    T: AsyncTransport + Send + Sync + 'static,
 {
     /// Create a new socket manager actor.
     pub fn new(
@@ -502,6 +527,7 @@ where
         command_receiver: UnboundedReceiver<SocketManagerCommand>,
         timeout_config: TimeoutConfig,
         camera_id: CameraId,
+        runtime: crate::runtime::SharedRuntime,
     ) -> Self {
         let mut inner = SocketManagerInner::new();
         inner.camera_id = camera_id;
@@ -510,17 +536,9 @@ where
             transport,
             command_receiver,
             timeout_config,
-            #[cfg(feature = "async")]
-            runtime: None,
+            runtime,
             retry_hook: Box::new(DefaultRetryHook::new()),
         }
-    }
-
-    /// Set the runtime for async timeout operations.
-    #[cfg(feature = "async")]
-    pub fn with_runtime(mut self, runtime: crate::runtime::SharedRuntime) -> Self {
-        self.runtime = Some(runtime);
-        self
     }
 
     /// Run the socket manager actor event loop.
@@ -555,33 +573,30 @@ where
                                 self.inner.completion_waiters.push_back(response_sender);
                                 debug!("Added completion waiter, {} waiters now", self.inner.completion_waiters.len());
                             }
+                            Some(SocketManagerCommand::Shutdown { confirmation }) => {
+                                debug!("Socket manager received shutdown command");
+                                let _ = confirmation.send(());
+                                break;
+                            }
                             None => {
                                 debug!("Socket manager command channel closed");
                                 break;
                             }
                         }
                     }
-                    response_result = Transport::recv(self.transport.as_ref()) => {
+                    response_result = self.transport.recv() => {
                         match response_result {
                             Ok(bytes) => {
                                 self.handle_raw_response(bytes).await;
                             }
                             Err(e) => {
-                                let err: Error = e.into();
+                                let err: Error = e;
                                 warn!("Failed to receive response from transport: {err}");
                                 // Continue processing other commands
                             }
                         }
                     }
-                    _ = async {
-                        if let Some(runtime) = &self.runtime {
-                            runtime.sleep(std::time::Duration::from_millis(100)).await
-                        } else {
-                            // Should not happen if runtime is properly configured
-                            log::error!("No runtime available for timeout sleep - this is a bug");
-                            futures::future::ready(()).await
-                        }
-                    } => {}
+                    _ = self.runtime.sleep(std::time::Duration::from_millis(100)) => {}
                 }
             }
 
@@ -610,13 +625,15 @@ where
                                 self.inner.completion_waiters.len()
                             );
                         }
+                        SocketManagerCommand::Shutdown { confirmation } => {
+                            debug!("Socket manager received shutdown command");
+                            let _ = confirmation.send(());
+                            return Ok(());
+                        }
                     }
                 }
 
-                if let Ok(bytes) = Transport::recv(self.transport.as_ref())
-                    .await
-                    .map_err(Into::<Error>::into)
-                {
+                if let Ok(bytes) = self.transport.recv().await {
                     activity = true;
                     empty_iterations = 0;
                     self.handle_raw_response(bytes).await;
@@ -649,6 +666,11 @@ where
                                             "Added completion waiter, {} waiters now",
                                             self.inner.completion_waiters.len()
                                         );
+                                    }
+                                    SocketManagerCommand::Shutdown { confirmation } => {
+                                        debug!("Socket manager received shutdown command");
+                                        let _ = confirmation.send(());
+                                        return Ok(());
                                     }
                                 }
                             }
@@ -697,14 +719,14 @@ where
             return;
         }
 
-        match Transport::send(self.transport.as_ref(), &pending_cmd.bytes).await {
+        match self.transport.send(&pending_cmd.bytes).await {
             Ok(()) => {
                 trace!("Inquiry command {} sent successfully", pending_cmd.id);
                 self.inner.set_pending_inquiry(pending_cmd);
             }
             Err(e) => {
                 let id = pending_cmd.id;
-                let err: Error = e.into();
+                let err: Error = e;
                 error!("Failed to send inquiry command {id}: {err}");
                 pending_cmd.complete(Err(err));
             }
@@ -727,7 +749,7 @@ where
     async fn send_command_on_socket(&mut self, pending_cmd: PendingCmd, socket: Socket) {
         trace!("Sending command {} on {socket:?}", pending_cmd.id);
 
-        match Transport::send(self.transport.as_ref(), &pending_cmd.bytes).await {
+        match self.transport.send(&pending_cmd.bytes).await {
             Ok(()) => {
                 trace!(
                     "Command {} sent successfully on {:?}",
@@ -740,7 +762,7 @@ where
             }
             Err(e) => {
                 let id = pending_cmd.id;
-                let err: Error = e.into();
+                let err: Error = e;
                 error!("Failed to send command {id} on {socket:?}: {err}");
                 pending_cmd.complete(Err(err));
             }
@@ -1002,8 +1024,8 @@ where
             Ok(size) => {
                 cancel_bytes.truncate(size);
                 // Send cancel command but don't wait for response to avoid further delays
-                if let Err(e) = Transport::send(self.transport.as_ref(), &cancel_bytes).await {
-                    let err: Error = e.into();
+                if let Err(e) = self.transport.send(&cancel_bytes).await {
+                    let err: Error = e;
                     error!("Failed to send cancel command: {err}");
                 }
             }
@@ -1048,34 +1070,12 @@ where
             delay
         );
 
-        #[cfg(feature = "async")]
-        {
-            if let Some(runtime) = &self.runtime {
-                runtime.sleep(delay).await;
-            } else {
-                // Should not happen if runtime is properly configured
-                log::error!(
-                    "No runtime available for retry delay - this is a bug, proceeding immediately"
-                );
-            }
+        self.runtime.sleep(delay).await;
 
-            if command.is_inquiry {
-                self.inner.set_pending_inquiry(command);
-            } else {
-                self.inner.enqueue_command(command);
-            }
-        }
-
-        #[cfg(not(feature = "async"))]
-        {
-            // In blocking mode, we can use thread::sleep
-            std::thread::sleep(delay);
-
-            if command.is_inquiry {
-                self.inner.set_pending_inquiry(command);
-            } else {
-                self.inner.enqueue_command(command);
-            }
+        if command.is_inquiry {
+            self.inner.set_pending_inquiry(command);
+        } else {
+            self.inner.enqueue_command(command);
         }
     }
 }

@@ -8,7 +8,7 @@
 #![cfg(not(feature = "async"))]
 
 use grafton_visca::transport::blocking::{Tcp, Udp};
-use grafton_visca::transport::core::{BlockingTransport, Transport};
+use grafton_visca::transport::BlockingTransport;
 use grafton_visca::Error;
 use std::net::{TcpListener, UdpSocket};
 use std::thread;
@@ -106,9 +106,7 @@ fn test_udp_blocking_timeout_enforcement() {
     let transport = Udp::connect(&addr).expect("Failed to connect");
 
     // Send something first to establish the "connection"
-    let send_fut = transport.send(b"\x81\x01\x04\x00\x02\xFF");
-    // Block on the future (it should be Ready for blocking transports)
-    let _ = grafton_visca::executor::block_on(send_fut);
+    let _ = transport.send_blocking(b"\x81\x01\x04\x00\x02\xFF");
 
     // Test different timeout durations
     // Windows has less precise timing, especially in CI, so we need larger tolerances

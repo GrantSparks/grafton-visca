@@ -9,6 +9,7 @@ Use `gh issue view $ARGUMENTS --comments` to read the issue and all comments. Th
 - Search for relevant code patterns mentioned in the issue
 - Read key files to understand code structure
 - Understand how components interact
+- Read all the comments, particularly all the way to the end, to capture the latest discussions and decisions
 
 Analyze:
 - What has already been implemented

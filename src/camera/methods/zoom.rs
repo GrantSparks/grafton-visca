@@ -1,12 +1,6 @@
-//! Zoom methods for cameras using the new GAT architecture.
+//! Zoom methods for cameras using mode markers.
 
-use crate::{
-    capabilities::ValidationError,
-    command::zoom::{DigitalZoomCommand, Zoom as ZoomCommand, ZoomSpeed},
-    types::ZoomPosition,
-    units::Normalized,
-    Error,
-};
+use crate::{command::zoom::ZoomSpeed, units::Normalized, Error};
 
 /// Zoom operations (async).
 #[cfg(feature = "async")]
@@ -14,26 +8,26 @@ pub trait ZoomOps: Sized {
     /// Stop zooming.
     async fn zoom_stop(&self) -> Result<(), Error>;
 
-    /// Start zooming in (telephoto).
-    async fn zoom_in(&self) -> Result<(), Error>;
-
-    /// Start zooming out (wide).
-    async fn zoom_out(&self) -> Result<(), Error>;
-
     /// Start zooming in at standard speed.
-    async fn zoom_in_standard(&self) -> Result<(), Error>;
+    async fn zoom_tele_std(&self) -> Result<(), Error>;
 
     /// Start zooming out at standard speed.
-    async fn zoom_out_standard(&self) -> Result<(), Error>;
+    async fn zoom_wide_std(&self) -> Result<(), Error>;
+
+    /// Start zooming in at variable speed.
+    async fn zoom_tele_variable(&self, speed: ZoomSpeed) -> Result<(), Error>;
+
+    /// Start zooming out at variable speed.
+    async fn zoom_wide_variable(&self, speed: ZoomSpeed) -> Result<(), Error>;
 
     /// Set zoom to absolute position (0.0 = wide, 1.0 = full tele).
     async fn zoom_absolute(&self, position: Normalized) -> Result<(), Error>;
 
-    /// Enable digital zoom.
-    async fn enable_digital_zoom(&self) -> Result<(), Error>;
+    /// Set zoom to a specific position value.
+    async fn zoom_position(&self, position: crate::types::ZoomPosition) -> Result<(), Error>;
 
-    /// Disable digital zoom.
-    async fn disable_digital_zoom(&self) -> Result<(), Error>;
+    /// Query the current zoom position.
+    async fn zoom_position_inquiry(&self) -> Result<crate::types::ZoomPosition, Error>;
 }
 
 /// Zoom operations (blocking).
@@ -42,176 +36,104 @@ pub trait ZoomOpsBlocking: Sized {
     /// Stop zooming.
     fn zoom_stop(&self) -> Result<(), Error>;
 
-    /// Start zooming in (telephoto).
-    fn zoom_in(&self) -> Result<(), Error>;
-
-    /// Start zooming out (wide).
-    fn zoom_out(&self) -> Result<(), Error>;
-
     /// Start zooming in at standard speed.
-    fn zoom_in_standard(&self) -> Result<(), Error>;
+    fn zoom_tele_std(&self) -> Result<(), Error>;
 
     /// Start zooming out at standard speed.
-    fn zoom_out_standard(&self) -> Result<(), Error>;
+    fn zoom_wide_std(&self) -> Result<(), Error>;
+
+    /// Start zooming in at variable speed.
+    fn zoom_tele_variable(&self, speed: ZoomSpeed) -> Result<(), Error>;
+
+    /// Start zooming out at variable speed.
+    fn zoom_wide_variable(&self, speed: ZoomSpeed) -> Result<(), Error>;
 
     /// Set zoom to absolute position (0.0 = wide, 1.0 = full tele).
     fn zoom_absolute(&self, position: Normalized) -> Result<(), Error>;
 
-    /// Enable digital zoom.
-    fn enable_digital_zoom(&self) -> Result<(), Error>;
+    /// Set zoom to a specific position value.
+    fn zoom_position(&self, position: crate::types::ZoomPosition) -> Result<(), Error>;
 
-    /// Disable digital zoom.
-    fn disable_digital_zoom(&self) -> Result<(), Error>;
+    /// Query the current zoom position.
+    fn zoom_position_inquiry(&self) -> Result<crate::types::ZoomPosition, Error>;
 }
 
-// Async implementation
+// Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
-    ZoomOps for crate::camera::generic::Camera<P, T>
+impl<P, T> ZoomOps for crate::camera::Camera<crate::camera::AsyncMode, P, T>
 where
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+    P: crate::capabilities::Profile,
+    T: crate::transport::AsyncTransport + Send + Sync + 'static,
 {
     async fn zoom_stop(&self) -> Result<(), Error> {
-        let command = ZoomCommand::Stop;
-        self.send_action_command(&command).await
+        self.zoom_stop().await
     }
 
-    async fn zoom_in(&self) -> Result<(), Error> {
-        // Use medium speed by default
-        let speed = self.zoom_speed_range().end / 2;
-        let zoom_speed = ZoomSpeed::new(speed)?;
-        let command = ZoomCommand::TeleVariable(zoom_speed);
-        self.send_action_command(&command).await
+    async fn zoom_tele_std(&self) -> Result<(), Error> {
+        self.zoom_tele_std().await
     }
 
-    async fn zoom_out(&self) -> Result<(), Error> {
-        // Use medium speed by default
-        let speed = self.zoom_speed_range().end / 2;
-        let zoom_speed = ZoomSpeed::new(speed)?;
-        let command = ZoomCommand::WideVariable(zoom_speed);
-        self.send_action_command(&command).await
+    async fn zoom_wide_std(&self) -> Result<(), Error> {
+        self.zoom_wide_std().await
     }
 
-    async fn zoom_in_standard(&self) -> Result<(), Error> {
-        let command = ZoomCommand::TeleStd;
-        self.send_action_command(&command).await
+    async fn zoom_tele_variable(&self, speed: ZoomSpeed) -> Result<(), Error> {
+        self.zoom_tele_variable(speed).await
     }
 
-    async fn zoom_out_standard(&self) -> Result<(), Error> {
-        let command = ZoomCommand::WideStd;
-        self.send_action_command(&command).await
+    async fn zoom_wide_variable(&self, speed: ZoomSpeed) -> Result<(), Error> {
+        self.zoom_wide_variable(speed).await
     }
 
     async fn zoom_absolute(&self, position: Normalized) -> Result<(), Error> {
-        let normalized = position;
-        let position_value = normalized.0;
-
-        // Validate position
-        if !(0.0..=1.0).contains(&position_value) {
-            return Err(Error::ValidationError(ValidationError::OutOfRange {
-                parameter: "zoom position",
-                value: position_value as f64,
-                min: 0.0,
-                max: 1.0,
-            }));
-        }
-
-        // Convert normalized position to VISCA units
-        let max_zoom = self.digital_zoom_max().unwrap_or(self.optical_zoom_max());
-        let zoom_pos = (position_value * max_zoom as f32) as u16;
-        let zoom_position = ZoomPosition::new(zoom_pos)?;
-        let command = ZoomCommand::Position(zoom_position);
-        self.send_action_command(&command).await
+        self.zoom_absolute(position).await
     }
 
-    async fn enable_digital_zoom(&self) -> Result<(), Error> {
-        let command = DigitalZoomCommand::new(true);
-        self.send_action_command(&command).await
+    async fn zoom_position(&self, position: crate::types::ZoomPosition) -> Result<(), Error> {
+        self.zoom_position(position).await
     }
 
-    async fn disable_digital_zoom(&self) -> Result<(), Error> {
-        let command = DigitalZoomCommand::new(false);
-        self.send_action_command(&command).await
+    async fn zoom_position_inquiry(&self) -> Result<crate::types::ZoomPosition, Error> {
+        self.zoom_position_inquiry().await
     }
 }
 
-// Blocking implementation
+// Blocking implementation for Camera with BlockingMode
 #[cfg(not(feature = "async"))]
-impl<
-        P: crate::capabilities::Profile,
-        T: crate::transport::Transport
-            + Send
-            + Sync
-            + 'static
-            + crate::transport::core::BlockingTransport,
-    > ZoomOpsBlocking for crate::camera::generic::Camera<P, T>
+impl<P, T> ZoomOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T>
 where
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+    P: crate::capabilities::Profile,
+    T: crate::transport::BlockingTransport + Send + Sync + 'static,
 {
     fn zoom_stop(&self) -> Result<(), Error> {
-        let command = ZoomCommand::Stop;
-        self.send_action_command_blocking(&command)
+        self.zoom_stop()
     }
 
-    fn zoom_in(&self) -> Result<(), Error> {
-        // Use medium speed by default
-        let speed = self.zoom_speed_range().end / 2;
-        let zoom_speed = ZoomSpeed::new(speed)?;
-        let command = ZoomCommand::TeleVariable(zoom_speed);
-        self.send_action_command_blocking(&command)
+    fn zoom_tele_std(&self) -> Result<(), Error> {
+        self.zoom_tele_std()
     }
 
-    fn zoom_out(&self) -> Result<(), Error> {
-        // Use medium speed by default
-        let speed = self.zoom_speed_range().end / 2;
-        let zoom_speed = ZoomSpeed::new(speed)?;
-        let command = ZoomCommand::WideVariable(zoom_speed);
-        self.send_action_command_blocking(&command)
+    fn zoom_wide_std(&self) -> Result<(), Error> {
+        self.zoom_wide_std()
     }
 
-    fn zoom_in_standard(&self) -> Result<(), Error> {
-        let command = ZoomCommand::TeleStd;
-        self.send_action_command_blocking(&command)
+    fn zoom_tele_variable(&self, speed: ZoomSpeed) -> Result<(), Error> {
+        self.zoom_tele_variable(speed)
     }
 
-    fn zoom_out_standard(&self) -> Result<(), Error> {
-        let command = ZoomCommand::WideStd;
-        self.send_action_command_blocking(&command)
+    fn zoom_wide_variable(&self, speed: ZoomSpeed) -> Result<(), Error> {
+        self.zoom_wide_variable(speed)
     }
 
     fn zoom_absolute(&self, position: Normalized) -> Result<(), Error> {
-        let normalized = position;
-        let position_value = normalized.0;
-
-        // Validate position
-        if !(0.0..=1.0).contains(&position_value) {
-            return Err(Error::ValidationError(ValidationError::OutOfRange {
-                parameter: "zoom position",
-                value: position_value as f64,
-                min: 0.0,
-                max: 1.0,
-            }));
-        }
-
-        // Convert normalized position to VISCA units
-        let max_zoom = self.digital_zoom_max().unwrap_or(self.optical_zoom_max());
-        let zoom_pos = (position_value * max_zoom as f32) as u16;
-        let zoom_position = ZoomPosition::new(zoom_pos)?;
-        let command = ZoomCommand::Position(zoom_position);
-        self.send_action_command_blocking(&command)
+        self.zoom_absolute(position)
     }
 
-    fn enable_digital_zoom(&self) -> Result<(), Error> {
-        let command = DigitalZoomCommand::new(true);
-        self.send_action_command_blocking(&command)
+    fn zoom_position(&self, position: crate::types::ZoomPosition) -> Result<(), Error> {
+        self.zoom_position(position)
     }
 
-    fn disable_digital_zoom(&self) -> Result<(), Error> {
-        let command = DigitalZoomCommand::new(false);
-        self.send_action_command_blocking(&command)
+    fn zoom_position_inquiry(&self) -> Result<crate::types::ZoomPosition, Error> {
+        self.zoom_position_inquiry()
     }
 }

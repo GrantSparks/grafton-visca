@@ -1,149 +1,262 @@
 //! Tests demonstrating compile-time feature safety with camera profiles.
 //!
-//! In the new generic API, feature support is determined at compile-time
-//! through trait bounds rather than runtime checks.
+//! In the mode-based Camera API, feature support is determined at compile-time
+//! through trait bounds and mode markers rather than runtime checks.
 
+#[cfg(feature = "async")]
+use grafton_visca::{camera::AsyncMode, transport::async_transport::AsyncTransport};
+#[cfg(not(feature = "async"))]
+use grafton_visca::{camera::BlockingMode, transport::BlockingTransport};
 use grafton_visca::{
-    camera::generic::Camera,
+    camera::Camera,
     capabilities::{MotionSync, NDFilter, Profile, VariableSpeed},
-    transport::Transport,
+    command::resolution::NDFilterPosition,
 };
 
-#[cfg(feature = "rt-tokio")]
-use grafton_visca::Error;
-
 // These tests demonstrate that the code compiles correctly with proper trait bounds
+// and mode separation. The actual runtime tests are in other test files.
 
 #[test]
-fn test_ptzoptics_g2_compile_time_features() {
-    // This function requires a camera with basic features (all cameras have these)
-    fn _use_basic_features<P, T>(_camera: &Camera<P, T>)
+fn test_nd_filter_compile_time_safety() {
+    // Async version - functions that require ND filter support
+    #[cfg(feature = "async")]
+    fn _set_nd_filter_async<P, T>(_camera: &Camera<AsyncMode, P, T>, _position: NDFilterPosition)
     where
-        P: Profile,
-        T: Transport + Send + Sync + 'static,
-        T::Error: Into<grafton_visca::Error> + Send,
-        for<'a> T::SendFut<'a>: Send,
-        for<'a> T::RecvFut<'a>: Send,
+        P: Profile + NDFilter,
+        T: AsyncTransport + Send + Sync + 'static,
     {
-        // All cameras implementing Profile support:
-        // - PanTilt
-        // - Zoom
-        // - Focus
-        // - Exposure
-        // - WhiteBalance
-        // - ImageProcessing
-        // - Power
-        // - Presets
-        // - MenuControl
+        // This function can only be called with cameras that have ND filter
+        // The trait bound P: NDFilter enforces this at compile time
     }
 
-    // PTZOptics G2 implements MotionSync
-    fn _use_motion_sync<P, T>(_camera: &Camera<P, T>)
-    where
+    // Blocking version - functions that require ND filter support
+    #[cfg(not(feature = "async"))]
+    fn _set_nd_filter_blocking<P, T>(
+        _camera: &Camera<BlockingMode, P, T>,
+        _position: NDFilterPosition,
+    ) where
+        P: Profile + NDFilter,
+        T: BlockingTransport + Send + Sync + 'static,
+    {
+        // This function can only be called with cameras that have ND filter
+        // The trait bound P: NDFilter enforces this at compile time
+    }
+
+    // Test passes if compilation succeeds
+}
+
+#[test]
+fn test_motion_sync_compile_time_safety() {
+    // Async version - functions that require motion sync support
+    #[cfg(feature = "async")]
+    fn _enable_motion_sync_async<P, T>(
+        _camera: &Camera<AsyncMode, P, T>,
+        _mode: grafton_visca::command::MotionSyncMode,
+    ) where
         P: Profile + MotionSync,
-        T: Transport + Send + Sync + 'static,
-        T::Error: Into<grafton_visca::Error> + Send,
-        for<'a> T::SendFut<'a>: Send,
-        for<'a> T::RecvFut<'a>: Send,
+        T: AsyncTransport + Send + Sync + 'static,
     {
-        // Only cameras with MotionSync trait can call this
+        // Only cameras with MotionSync can compile this function
     }
 
-    // PTZOptics G2 does NOT implement NDFilter
-    fn _use_nd_filter<P, T>(_camera: &Camera<P, T>)
-    where
-        P: Profile + NDFilter,
-        T: Transport + Send + Sync + 'static,
-        T::Error: Into<grafton_visca::Error> + Send,
-        for<'a> T::SendFut<'a>: Send,
-        for<'a> T::RecvFut<'a>: Send,
+    // Blocking version - functions that require motion sync support
+    #[cfg(not(feature = "async"))]
+    fn _enable_motion_sync_blocking<P, T>(
+        _camera: &Camera<BlockingMode, P, T>,
+        _mode: grafton_visca::command::MotionSyncMode,
+    ) where
+        P: Profile + MotionSync,
+        T: BlockingTransport + Send + Sync + 'static,
     {
-        // Only cameras with NDFilter trait can call this
+        // Only cameras with MotionSync can compile this function
     }
 
-    // This would compile:
-    // let g2_camera: PTZOpticsG2Cam<SomeTransport> = ...;
-    // use_basic_features(&g2_camera);
-    // use_motion_sync(&g2_camera);
-
-    // This would NOT compile:
-    // use_nd_filter(&g2_camera); // Error: PTZOpticsG2 doesn't implement NDFilter
+    // Test passes if compilation succeeds
 }
 
 #[test]
-fn test_sony_fr7_compile_time_features() {
-    // Sony FR7 has all the features PTZOptics G2 has, plus more
-
-    // Sony FR7 implements NDFilter
-    fn _use_nd_filter<P, T>(_camera: &Camera<P, T>)
-    where
-        P: Profile + NDFilter,
-        T: Transport + Send + Sync + 'static,
-        T::Error: Into<grafton_visca::Error> + Send,
-        for<'a> T::SendFut<'a>: Send,
-        for<'a> T::RecvFut<'a>: Send,
-    {
-        // Sony FR7 can use this
-    }
-
-    // Sony FR7 implements VariableSpeed
-    fn _use_variable_speed<P, T>(_camera: &Camera<P, T>)
-    where
+fn test_variable_speed_compile_time_safety() {
+    // Async version - functions that require variable speed support
+    #[cfg(feature = "async")]
+    fn _set_variable_speed_mode_async<P, T>(
+        _camera: &Camera<AsyncMode, P, T>,
+        _mode: grafton_visca::command::VariableSpeedMode,
+    ) where
         P: Profile + VariableSpeed,
-        T: Transport + Send + Sync + 'static,
-        T::Error: Into<grafton_visca::Error> + Send,
-        for<'a> T::SendFut<'a>: Send,
-        for<'a> T::RecvFut<'a>: Send,
+        T: AsyncTransport + Send + Sync + 'static,
     {
-        // Sony FR7 can use this
+        // Only cameras with VariableSpeed can compile this function
     }
 
-    // This would compile:
-    // let fr7_camera: SonyFR7Cam<SomeTransport> = ...;
-    // use_nd_filter(&fr7_camera);
-    // use_variable_speed(&fr7_camera);
+    // Blocking version - functions that require variable speed support
+    #[cfg(not(feature = "async"))]
+    fn _set_variable_speed_mode_blocking<P, T>(
+        _camera: &Camera<BlockingMode, P, T>,
+        _mode: grafton_visca::command::VariableSpeedMode,
+    ) where
+        P: Profile + VariableSpeed,
+        T: BlockingTransport + Send + Sync + 'static,
+    {
+        // Only cameras with VariableSpeed can compile this function
+    }
+
+    // Test passes if compilation succeeds
 }
 
 #[test]
-fn test_generic_visca_limited_features() {
-    // GenericVisca only has the basic Profile features
+fn test_basic_features_available_to_all() {
+    // All cameras have basic features through the Profile trait
 
-    fn _requires_advanced_features<P, T>(_camera: &Camera<P, T>)
-    where
-        P: Profile + NDFilter + MotionSync + VariableSpeed,
-        T: Transport + Send + Sync + 'static,
-        T::Error: Into<grafton_visca::Error> + Send,
-        for<'a> T::SendFut<'a>: Send,
-        for<'a> T::RecvFut<'a>: Send,
+    #[cfg(feature = "async")]
     {
-        // GenericVisca cannot be used here
+        fn _basic_operations_async<P, T>(_camera: &Camera<AsyncMode, P, T>)
+        where
+            P: Profile,
+            T: AsyncTransport + Send + Sync + 'static,
+        {
+            // All cameras can use basic operations like:
+            // - Power on/off
+            // - Pan/tilt/zoom
+            // - Focus control
+            // - Exposure settings
+            // - White balance
+            // - Presets
+            // These are guaranteed by the Profile trait
+        }
     }
 
-    // This would NOT compile:
-    // let generic_camera: GenericViscaCam<SomeTransport> = ...;
-    // requires_advanced_features(&generic_camera); // Error: GenericVisca lacks these traits
+    #[cfg(not(feature = "async"))]
+    {
+        fn _basic_operations_blocking<P, T>(_camera: &Camera<BlockingMode, P, T>)
+        where
+            P: Profile,
+            T: BlockingTransport + Send + Sync + 'static,
+        {
+            // All cameras can use basic operations
+        }
+    }
 }
 
-#[cfg(feature = "rt-tokio")]
-#[tokio::test]
-async fn test_compile_time_feature_detection() {
-    // Note: The library now uses compile-time feature detection exclusively.
-    // Camera capabilities are determined by the marker traits implemented by each profile.
+#[test]
+fn test_profile_specific_compile_time_checks() {
+    use grafton_visca::camera::profiles::{GenericVisca, PTZOpticsG2, SonyFR7};
 
-    // This approach provides better type safety and zero runtime overhead.
+    // Functions that demonstrate profile-specific capabilities
 
-    // Example of compile-time safety in action:
-    async fn _control_nd_filter<P, T>(_camera: &Camera<P, T>) -> Result<(), Error>
-    where
-        P: Profile + NDFilter,
-        T: Transport + Send + Sync + 'static,
-        T::Error: Into<grafton_visca::Error> + Send,
-        for<'a> T::SendFut<'a>: Send,
-        for<'a> T::RecvFut<'a>: Send,
+    #[cfg(feature = "async")]
     {
-        // camera.set_nd_filter_mode(NDFilterMode::Clear).await?;
-        Ok(())
+        // SonyFR7 has NDFilter and VariableSpeed
+        fn _sony_fr7_features_async<T>(_camera: &Camera<AsyncMode, SonyFR7, T>)
+        where
+            T: AsyncTransport + Send + Sync + 'static,
+        {
+            // This compiles because SonyFR7 implements NDFilter and VariableSpeed
+            fn requires_nd<P: NDFilter>() {}
+            fn requires_var_speed<P: VariableSpeed>() {}
+
+            requires_nd::<SonyFR7>();
+            requires_var_speed::<SonyFR7>();
+        }
+
+        // PTZOpticsG2 has MotionSync
+        fn _ptzoptics_g2_features_async<T>(_camera: &Camera<AsyncMode, PTZOpticsG2, T>)
+        where
+            T: AsyncTransport + Send + Sync + 'static,
+        {
+            // This compiles because PTZOpticsG2 implements MotionSync
+            fn requires_motion_sync<P: MotionSync>() {}
+
+            requires_motion_sync::<PTZOpticsG2>();
+        }
+
+        // GenericVisca only has basic features
+        fn _generic_visca_features_async<T>(_camera: &Camera<AsyncMode, GenericVisca, T>)
+        where
+            T: AsyncTransport + Send + Sync + 'static,
+        {
+            // GenericVisca doesn't have NDFilter, MotionSync, or VariableSpeed
+            // So we can only use basic Profile features
+            fn requires_profile<P: Profile>() {}
+
+            requires_profile::<GenericVisca>();
+        }
     }
 
-    // This ensures only cameras with ND filter support can call this function
+    #[cfg(not(feature = "async"))]
+    {
+        // Same checks for blocking mode
+        fn _sony_fr7_features_blocking<T>(_camera: &Camera<BlockingMode, SonyFR7, T>)
+        where
+            T: BlockingTransport + Send + Sync + 'static,
+        {
+            fn requires_nd<P: NDFilter>() {}
+            fn requires_var_speed<P: VariableSpeed>() {}
+
+            requires_nd::<SonyFR7>();
+            requires_var_speed::<SonyFR7>();
+        }
+
+        fn _ptzoptics_g2_features_blocking<T>(_camera: &Camera<BlockingMode, PTZOpticsG2, T>)
+        where
+            T: BlockingTransport + Send + Sync + 'static,
+        {
+            fn requires_motion_sync<P: MotionSync>() {}
+
+            requires_motion_sync::<PTZOpticsG2>();
+        }
+
+        fn _generic_visca_features_blocking<T>(_camera: &Camera<BlockingMode, GenericVisca, T>)
+        where
+            T: BlockingTransport + Send + Sync + 'static,
+        {
+            fn requires_profile<P: Profile>() {}
+
+            requires_profile::<GenericVisca>();
+        }
+    }
+}
+
+#[test]
+fn test_mode_transport_consistency() {
+    // Ensure that async mode requires async transport and blocking mode requires blocking transport
+
+    #[cfg(feature = "async")]
+    {
+        // This compiles: AsyncMode with AsyncTransport
+        fn _correct_async<P, T>(_camera: &Camera<AsyncMode, P, T>)
+        where
+            P: Profile,
+            T: AsyncTransport,
+        {
+            // Correct pairing
+        }
+
+        // This would NOT compile (if uncommented):
+        // fn _incorrect_async<P, T>(_camera: &Camera<AsyncMode, P, T>)
+        // where
+        //     P: Profile,
+        //     T: BlockingTransport,  // Wrong transport type for AsyncMode
+        // {
+        // }
+    }
+
+    #[cfg(not(feature = "async"))]
+    {
+        // This compiles: BlockingMode with BlockingTransport
+        fn _correct_blocking<P, T>(_camera: &Camera<BlockingMode, P, T>)
+        where
+            P: Profile,
+            T: BlockingTransport,
+        {
+            // Correct pairing
+        }
+
+        // This would NOT compile (if uncommented):
+        // fn _incorrect_blocking<P, T>(_camera: &Camera<BlockingMode, P, T>)
+        // where
+        //     P: Profile,
+        //     T: AsyncTransport,  // Wrong transport type for BlockingMode
+        // {
+        // }
+    }
 }
