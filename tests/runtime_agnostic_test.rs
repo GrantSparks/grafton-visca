@@ -41,7 +41,7 @@ mod async_tests {
     async fn test_socket_manager_requires_runtime() {
         // Create a camera without configuring a runtime
         let transport = TestTransport;
-        let mut camera = grafton_visca::camera::CameraAsync::<
+        let camera = grafton_visca::camera::CameraAsync::<
             grafton_visca::camera::profiles::PTZOpticsG2,
             TestTransport,
         >::from_transport(transport);
@@ -68,7 +68,7 @@ mod async_tests {
         let transport = TestTransport;
         let runtime: SharedRuntime = Arc::new(TokioRuntime);
 
-        let mut camera = grafton_visca::camera::CameraAsync::<
+        let camera = grafton_visca::camera::CameraAsync::<
             grafton_visca::camera::profiles::PTZOpticsG2,
             TestTransport,
         >::from_transport(transport)

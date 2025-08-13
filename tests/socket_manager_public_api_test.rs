@@ -113,7 +113,7 @@ mod tokio_tests {
         let transport = MockTransport::new();
         let handle = tokio::runtime::Handle::current();
         let runtime = Arc::new(TokioRuntime);
-        let mut inner_camera = Camera::<PTZOpticsG2, _>::from_transport(transport)
+        let inner_camera = Camera::<PTZOpticsG2, _>::from_transport(transport)
             .with_spawner(handle)
             .with_runtime(runtime);
 
@@ -234,7 +234,7 @@ mod tokio_tests {
         let transport = MockTransport::new(); // No auto-respond
         let handle = tokio::runtime::Handle::current();
         let runtime = Arc::new(TokioRuntime);
-        let mut inner_camera = Camera::<PTZOpticsG2, _>::from_transport(transport)
+        let inner_camera = Camera::<PTZOpticsG2, _>::from_transport(transport)
             .with_spawner(handle)
             .with_runtime(runtime);
 

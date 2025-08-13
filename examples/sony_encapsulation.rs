@@ -134,7 +134,6 @@ fn main() -> Result<(), Error> {
 #[cfg(feature = "rt-tokio")]
 use grafton_visca::{
     camera::profiles::SonyFR7,
-    prelude::r#async::*,
     types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed},
     CameraBuilder, Error,
 };
