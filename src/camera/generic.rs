@@ -375,8 +375,7 @@ where
         S: Spawner,
     {
         {
-            let mut spawner_lock = self.spawner.lock()
-                .unwrap_or_else(|e| e.into_inner());
+            let mut spawner_lock = self.spawner.lock().unwrap_or_else(|e| e.into_inner());
             *spawner_lock = Some(Arc::new(spawner));
         }
 
@@ -389,12 +388,10 @@ where
     /// Set a runtime for async operations.
     pub fn with_runtime(self, runtime: crate::runtime::SharedRuntime) -> Self {
         {
-            let mut spawner_lock = self.spawner.lock()
-                .unwrap_or_else(|e| e.into_inner());
+            let mut spawner_lock = self.spawner.lock().unwrap_or_else(|e| e.into_inner());
             *spawner_lock = Some(Arc::new(RuntimeSpawner::new(Arc::clone(&runtime))));
 
-            let mut runtime_lock = self.runtime.lock()
-                .unwrap_or_else(|e| e.into_inner());
+            let mut runtime_lock = self.runtime.lock().unwrap_or_else(|e| e.into_inner());
             *runtime_lock = Some(runtime);
         }
 
@@ -407,8 +404,7 @@ where
     /// Get the runtime if configured.
     #[cfg(feature = "async")]
     pub(crate) fn runtime(&self) -> Option<crate::runtime::SharedRuntime> {
-        let runtime_lock = self.runtime.lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let runtime_lock = self.runtime.lock().unwrap_or_else(|e| e.into_inner());
         runtime_lock.clone()
     }
 
@@ -473,7 +469,9 @@ where
     pub(crate) async fn auto_init_orchestrator_if_needed(&self) -> Result<(), Error> {
         // Check if already initialized without holding the lock too long
         {
-            let socket_manager_lock = self.socket_manager.lock()
+            let socket_manager_lock = self
+                .socket_manager
+                .lock()
                 .unwrap_or_else(|e| e.into_inner());
             if socket_manager_lock.is_some() {
                 return Ok(());
@@ -481,9 +479,11 @@ where
         }
 
         // Acquire all locks we need
-        let mut socket_manager_lock = self.socket_manager.lock()
+        let mut socket_manager_lock = self
+            .socket_manager
+            .lock()
             .unwrap_or_else(|e| e.into_inner());
-        
+
         // Double-check after acquiring locks
         if socket_manager_lock.is_some() {
             return Ok(());
@@ -492,34 +492,28 @@ where
         // If rt-tokio feature is enabled and no runtime is set, use default tokio runtime
         #[cfg(feature = "rt-tokio")]
         {
-            let spawner_lock = self.spawner.lock()
-                .unwrap_or_else(|e| e.into_inner());
-            let runtime_lock = self.runtime.lock()
-                .unwrap_or_else(|e| e.into_inner());
-            
+            let spawner_lock = self.spawner.lock().unwrap_or_else(|e| e.into_inner());
+            let runtime_lock = self.runtime.lock().unwrap_or_else(|e| e.into_inner());
+
             if runtime_lock.is_none() {
                 let default_runtime: crate::runtime::SharedRuntime =
                     Arc::new(crate::runtime::TokioRuntime);
-                
+
                 // Need mutable access - drop and re-acquire
                 drop(runtime_lock);
                 drop(spawner_lock);
-                
-                let mut runtime_lock_mut = self.runtime.lock()
-                    .unwrap_or_else(|e| e.into_inner());
-                let mut spawner_lock_mut = self.spawner.lock()
-                    .unwrap_or_else(|e| e.into_inner());
-                
+
+                let mut runtime_lock_mut = self.runtime.lock().unwrap_or_else(|e| e.into_inner());
+                let mut spawner_lock_mut = self.spawner.lock().unwrap_or_else(|e| e.into_inner());
+
                 *runtime_lock_mut = Some(default_runtime.clone());
                 *spawner_lock_mut = Some(Arc::new(RuntimeSpawner::new(default_runtime)));
             }
         }
-        
+
         // Get the locks for initialization
-        let spawner_lock = self.spawner.lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let runtime_lock = self.runtime.lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let spawner_lock = self.spawner.lock().unwrap_or_else(|e| e.into_inner());
+        let runtime_lock = self.runtime.lock().unwrap_or_else(|e| e.into_inner());
 
         // Now try to initialize the socket manager
         self.initialize_socket_manager_internal(
@@ -539,7 +533,9 @@ where
 
         // Get socket manager handle
         let socket_manager = {
-            let socket_manager_lock = self.socket_manager.lock()
+            let socket_manager_lock = self
+                .socket_manager
+                .lock()
                 .unwrap_or_else(|e| e.into_inner());
             socket_manager_lock
                 .as_ref()
@@ -607,7 +603,9 @@ where
 
         // Get socket manager handle
         let socket_manager = {
-            let socket_manager_lock = self.socket_manager.lock()
+            let socket_manager_lock = self
+                .socket_manager
+                .lock()
                 .unwrap_or_else(|e| e.into_inner());
             socket_manager_lock.clone()
         };
