@@ -16,6 +16,9 @@ use crate::{
     transport::AsyncTransport,
 };
 
+// Import futures select for runtime-agnostic event loop
+use futures::{select_biased, FutureExt};
+
 impl Socket {
     /// Get the socket as a zero-based array index.
     ///
@@ -100,8 +103,8 @@ pub struct PendingCmd {
     pub response_sender: OneshotSender<Result<Response>>,
     /// Whether this is an inquiry command (query) or action command.
     pub is_inquiry: bool,
-    /// When this command was first enqueued.
-    pub enqueued_at: Instant,
+    /// Expected response type for inquiry commands.
+    pub response_type: Option<crate::command::response::ResponseType>,
     /// Number of retry attempts made for this command.
     pub retry_attempt: u32,
 }
@@ -114,6 +117,7 @@ impl PendingCmd {
         category: CommandCategory,
         response_sender: OneshotSender<Result<Response>>,
         is_inquiry: bool,
+        response_type: Option<crate::command::response::ResponseType>,
     ) -> Self {
         Self {
             id,
@@ -121,7 +125,7 @@ impl PendingCmd {
             category,
             response_sender,
             is_inquiry,
-            enqueued_at: Instant::now(),
+            response_type,
             retry_attempt: 0,
         }
     }
@@ -146,8 +150,6 @@ pub struct SocketManagerInner {
     pub next_command_id: u32,
     /// Commands currently being executed on each socket.
     pub active_commands: [Option<PendingCmd>; 2],
-    /// Inquiry command waiting for response (only one allowed at a time).
-    pub pending_inquiry: Option<PendingCmd>,
     /// Camera ID for addressing commands.
     pub camera_id: CameraId,
     /// List of waiters for completion messages.
@@ -161,7 +163,6 @@ impl Default for SocketManagerInner {
             command_queue: VecDeque::new(),
             next_command_id: 1,
             active_commands: [None, None],
-            pending_inquiry: None,
             camera_id: CameraId::CAMERA_1,
             completion_waiters: VecDeque::new(),
         }
@@ -236,16 +237,6 @@ impl SocketManagerInner {
         let index = socket.as_index();
         self.active_commands[index].as_ref()
     }
-
-    /// Set the pending inquiry command.
-    pub fn set_pending_inquiry(&mut self, command: PendingCmd) {
-        self.pending_inquiry = Some(command);
-    }
-
-    /// Take the pending inquiry command, leaving None in its place.
-    pub fn take_pending_inquiry(&mut self) -> Option<PendingCmd> {
-        self.pending_inquiry.take()
-    }
 }
 
 /// Commands that can be sent to the socket manager actor.
@@ -259,6 +250,8 @@ pub(crate) enum SocketManagerCommand {
         category: CommandCategory,
         /// Whether this is an inquiry (query) command.
         is_inquiry: bool,
+        /// Expected response type for inquiry commands.
+        response_type: Option<crate::command::response::ResponseType>,
         /// Channel to send the response back to the caller.
         response_sender: OneshotSender<Result<Response>>,
     },
@@ -266,6 +259,11 @@ pub(crate) enum SocketManagerCommand {
     WaitForCompletion {
         /// Channel to send the result when a completion message is received.
         response_sender: OneshotSender<Result<()>>,
+    },
+    /// Update the timeout configuration.
+    UpdateTimeoutConfig {
+        /// New timeout configuration to use.
+        config: TimeoutConfig,
     },
     /// Shutdown the socket manager gracefully.
     /// This is primarily for testing and internal use.
@@ -308,6 +306,7 @@ impl SocketManagerHandle {
         bytes: Bytes,
         category: CommandCategory,
         is_inquiry: bool,
+        response_type: Option<crate::command::response::ResponseType>,
     ) -> Result<Response> {
         let (response_sender, response_receiver) = channels::oneshot();
 
@@ -317,6 +316,7 @@ impl SocketManagerHandle {
                 bytes,
                 category,
                 is_inquiry,
+                response_type,
                 response_sender,
             })
             .map_err(|_| Error::SocketManagerUnavailable);
@@ -361,6 +361,16 @@ impl SocketManagerHandle {
             .map_err(|_| Error::SocketManagerChannelClosed)?;
 
         Ok(response_receiver)
+    }
+
+    /// Update the timeout configuration.
+    ///
+    /// This method sends a new timeout configuration to the socket manager actor.
+    /// The new configuration will be used for all subsequent commands.
+    pub fn update_timeout_config(&self, config: TimeoutConfig) -> Result<()> {
+        self.command_sender
+            .send(SocketManagerCommand::UpdateTimeoutConfig { config })
+            .map_err(|_| Error::SocketManagerChannelClosed)
     }
 
     /// Shutdown the socket manager gracefully.
@@ -444,10 +454,10 @@ impl RetryHook for DefaultRetryHook {
         }
 
         // Check if this is a retryable error
-        matches!(
-            error,
-            Error::CommandNotExecutable | Error::CommandBufferFull
-        )
+        // Note: CommandNotExecutable is NOT retryable - it means the command
+        // cannot be executed in the current camera state (e.g., manual focus
+        // command while in auto-focus mode)
+        matches!(error, Error::CommandBufferFull)
     }
 
     fn retry_delay(&self, _error: &Error, attempt: u32) -> std::time::Duration {
@@ -547,31 +557,33 @@ where
     pub async fn run(mut self) -> Result<()> {
         debug!("Socket manager starting");
 
-        #[cfg(not(feature = "rt-tokio"))]
-        let mut empty_iterations = 0;
-
         loop {
-            #[cfg(feature = "rt-tokio")]
-            {
-                // Check for timeouts before processing new commands
-                self.check_timeouts().await;
+            // Check for timeouts before processing new commands
+            self.check_timeouts().await;
 
-                tokio::select! {
-                    command = self.command_receiver.recv() => {
+            // Use futures::select for runtime-agnostic event handling
+            select_biased! {
+                // Process commands from the channel
+                command = self.command_receiver.recv().fuse() => {
                         match command {
                             Some(SocketManagerCommand::SendCommand {
                                 bytes,
                                 category,
                                 is_inquiry,
+                                response_type,
                                 response_sender,
                             }) => {
-                                self.handle_send_command(bytes, category, is_inquiry, response_sender).await;
+                                self.handle_send_command(bytes, category, is_inquiry, response_type, response_sender).await;
                             }
                             Some(SocketManagerCommand::WaitForCompletion {
                                 response_sender,
                             }) => {
                                 self.inner.completion_waiters.push_back(response_sender);
                                 debug!("Added completion waiter, {} waiters now", self.inner.completion_waiters.len());
+                            }
+                            Some(SocketManagerCommand::UpdateTimeoutConfig { config }) => {
+                                debug!("Updating timeout configuration");
+                                self.timeout_config = config;
                             }
                             Some(SocketManagerCommand::Shutdown { confirmation }) => {
                                 debug!("Socket manager received shutdown command");
@@ -584,7 +596,8 @@ where
                             }
                         }
                     }
-                    response_result = self.transport.recv() => {
+                // Process responses from the transport
+                response_result = self.transport.recv().fuse() => {
                         match response_result {
                             Ok(bytes) => {
                                 self.handle_raw_response(bytes).await;
@@ -596,95 +609,10 @@ where
                             }
                         }
                     }
-                    _ = self.runtime.sleep(std::time::Duration::from_millis(100)) => {}
+                // Sleep to prevent busy-waiting
+                _ = self.runtime.sleep(std::time::Duration::from_millis(10)).fuse() => {
+                    // Just continue the loop after a short sleep
                 }
-            }
-
-            #[cfg(not(feature = "rt-tokio"))]
-            {
-                self.check_timeouts().await;
-
-                let mut activity = false;
-                if let Some(cmd) = self.command_receiver.try_recv() {
-                    activity = true;
-                    empty_iterations = 0;
-                    match cmd {
-                        SocketManagerCommand::SendCommand {
-                            bytes,
-                            category,
-                            is_inquiry,
-                            response_sender,
-                        } => {
-                            self.handle_send_command(bytes, category, is_inquiry, response_sender)
-                                .await;
-                        }
-                        SocketManagerCommand::WaitForCompletion { response_sender } => {
-                            self.inner.completion_waiters.push_back(response_sender);
-                            debug!(
-                                "Added completion waiter, {} waiters now",
-                                self.inner.completion_waiters.len()
-                            );
-                        }
-                        SocketManagerCommand::Shutdown { confirmation } => {
-                            debug!("Socket manager received shutdown command");
-                            let _ = confirmation.send(());
-                            return Ok(());
-                        }
-                    }
-                }
-
-                if let Ok(bytes) = self.transport.recv().await {
-                    activity = true;
-                    empty_iterations = 0;
-                    self.handle_raw_response(bytes).await;
-                }
-
-                if !activity {
-                    empty_iterations += 1;
-                    if empty_iterations > 1000 {
-                        match self.command_receiver.recv().await {
-                            Some(cmd) => {
-                                empty_iterations = 0;
-                                match cmd {
-                                    SocketManagerCommand::SendCommand {
-                                        bytes,
-                                        category,
-                                        is_inquiry,
-                                        response_sender,
-                                    } => {
-                                        self.handle_send_command(
-                                            bytes,
-                                            category,
-                                            is_inquiry,
-                                            response_sender,
-                                        )
-                                        .await;
-                                    }
-                                    SocketManagerCommand::WaitForCompletion { response_sender } => {
-                                        self.inner.completion_waiters.push_back(response_sender);
-                                        debug!(
-                                            "Added completion waiter, {} waiters now",
-                                            self.inner.completion_waiters.len()
-                                        );
-                                    }
-                                    SocketManagerCommand::Shutdown { confirmation } => {
-                                        debug!("Socket manager received shutdown command");
-                                        let _ = confirmation.send(());
-                                        return Ok(());
-                                    }
-                                }
-                            }
-                            None => {
-                                debug!("Socket manager command channel closed");
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                // In non-tokio async mode, we should not be using thread::sleep
-                // This should be handled differently in the async context
-                // For now, we'll keep this as-is since this is the non-tokio branch
             }
         }
 
@@ -697,40 +625,21 @@ where
         bytes: Bytes,
         category: CommandCategory,
         is_inquiry: bool,
+        response_type: Option<crate::command::response::ResponseType>,
         response_sender: OneshotSender<Result<Response>>,
     ) {
         let command_id = self.inner.get_next_command_id();
-        let pending_cmd = PendingCmd::new(command_id, bytes, category, response_sender, is_inquiry);
+        let pending_cmd = PendingCmd::new(
+            command_id,
+            bytes,
+            category,
+            response_sender,
+            is_inquiry,
+            response_type,
+        );
 
-        if is_inquiry {
-            self.handle_inquiry_command(pending_cmd).await;
-        } else {
-            self.handle_action_command(pending_cmd).await;
-        }
-    }
-
-    async fn handle_inquiry_command(&mut self, pending_cmd: PendingCmd) {
-        let id = pending_cmd.id;
-        trace!("Handling inquiry command {id}");
-
-        if self.inner.pending_inquiry.is_some() {
-            warn!("Inquiry already in progress, completing with error");
-            pending_cmd.complete(Err(Error::CommandBufferFull));
-            return;
-        }
-
-        match self.transport.send(&pending_cmd.bytes).await {
-            Ok(()) => {
-                trace!("Inquiry command {} sent successfully", pending_cmd.id);
-                self.inner.set_pending_inquiry(pending_cmd);
-            }
-            Err(e) => {
-                let id = pending_cmd.id;
-                let err: Error = e;
-                error!("Failed to send inquiry command {id}: {err}");
-                pending_cmd.complete(Err(err));
-            }
-        }
+        // Treat inquiries the same as regular commands - use socket allocation
+        self.handle_action_command(pending_cmd).await;
     }
 
     async fn handle_action_command(&mut self, pending_cmd: PendingCmd) {
@@ -837,6 +746,53 @@ where
             Ok(Response::Inquiry(data)) => {
                 self.handle_inquiry_response(data).await;
             }
+            Err(_e) if bytes.len() > 3 && bytes[0] == 0x90 && bytes[1] == 0x50 => {
+                // This looks like an inquiry response but couldn't be parsed without type info
+                // Check active commands for inquiries with response types to determine type
+                let response_type = {
+                    let mut found_type = None;
+                    for socket in [Socket::Socket1, Socket::Socket2] {
+                        if let Some(command) = self.inner.get_active_command(socket) {
+                            if command.is_inquiry && command.response_type.is_some() {
+                                found_type = command.response_type;
+                                break;
+                            }
+                        }
+                    }
+
+                    if let Some(found) = found_type {
+                        Some(found)
+                    } else {
+                        // If no active inquiry found, try to determine based on payload length as fallback
+                        let payload_len = bytes.len() - 3; // Subtract header (0x90, 0x50) and terminator (0xFF)
+                        match payload_len {
+                            1 => Some(crate::command::response::ResponseType::Power), // Single byte responses
+                            4 => Some(crate::command::response::ResponseType::ZoomPosition), // 4-byte responses
+                            8 => Some(crate::command::response::ResponseType::PanTiltPosition), // 8-byte responses
+                            _ => {
+                                warn!("Received inquiry response but no active inquiry and cannot determine type from payload length {}", payload_len);
+                                None
+                            }
+                        }
+                    }
+                };
+
+                if let Some(ref rt) = response_type {
+                    match Response::parse_with_type(&bytes, rt) {
+                        Ok(Response::Inquiry(data)) => {
+                            self.handle_inquiry_response(data).await;
+                        }
+                        Ok(other) => {
+                            warn!("Unexpected response type from parse_with_type: {:?}", other);
+                        }
+                        Err(e) => {
+                            warn!("Failed to parse inquiry response with type {:?}: {e:?}", rt);
+                        }
+                    }
+                } else {
+                    warn!("Could not determine response type for inquiry response");
+                }
+            }
             Ok(other) => {
                 warn!("Unhandled response type: {other:?}");
             }
@@ -939,13 +895,25 @@ where
 
     async fn handle_inquiry_response(&mut self, data: crate::command::InquiryResponse) {
         trace!("Received inquiry response: {data:?}");
-        if let Some(command) = self.inner.take_pending_inquiry() {
-            let id = command.id;
-            debug!("Inquiry response received for command {id}");
-            command.complete(Ok(Response::Inquiry(data)));
-        } else {
-            warn!("Received inquiry response but no pending inquiry");
+
+        // Check active commands on both sockets for inquiries
+        for socket in [Socket::Socket1, Socket::Socket2] {
+            if let Some(command) = self.inner.get_active_command(socket) {
+                if command.is_inquiry {
+                    // Found an active inquiry command, complete it
+                    if let Some(command) = self.inner.take_active_command(socket) {
+                        let id = command.id;
+                        debug!("Inquiry response received for command {id} on {socket:?}");
+                        command.complete(Ok(Response::Inquiry(data)));
+                        self.inner.mark_socket_free(socket);
+                        self.try_dispatch_next_command().await;
+                        return;
+                    }
+                }
+            }
         }
+
+        warn!("Received inquiry response but no active inquiry command found");
     }
 
     async fn try_dispatch_next_command(&mut self) {
@@ -988,16 +956,6 @@ where
                 warn!("Command timeout on {socket:?}, sending cancel command");
             }
             self.handle_command_timeout(socket).await;
-        }
-
-        if let Some(ref inquiry) = self.inner.pending_inquiry {
-            // Use the appropriate timeout for inquiry commands
-            let timeout_duration = self.timeout_config.get_timeout(inquiry.category);
-            if now.duration_since(inquiry.enqueued_at) > timeout_duration {
-                let id = inquiry.id;
-                warn!("Inquiry command timeout for command {id}");
-                self.handle_inquiry_timeout().await;
-            }
         }
     }
 
@@ -1049,19 +1007,6 @@ where
         self.try_dispatch_next_command().await;
     }
 
-    async fn handle_inquiry_timeout(&mut self) {
-        if let Some(inquiry) = self.inner.take_pending_inquiry() {
-            let id = inquiry.id;
-            let category = inquiry.category;
-            let timeout_duration = self.timeout_config.get_timeout(category);
-            let timeout_error = Error::CommandTimeout {
-                duration: timeout_duration,
-                command: Cow::Owned(format!("Inquiry command {id}")),
-            };
-            inquiry.complete(Err(timeout_error));
-        }
-    }
-
     async fn schedule_retry(&mut self, command: PendingCmd, delay: std::time::Duration) {
         log::debug!(
             "Scheduling retry for command {} (attempt {}) with delay {:?}",
@@ -1072,11 +1017,7 @@ where
 
         self.runtime.sleep(delay).await;
 
-        if command.is_inquiry {
-            self.inner.set_pending_inquiry(command);
-        } else {
-            self.inner.enqueue_command(command);
-        }
+        self.inner.enqueue_command(command);
     }
 }
 
@@ -1124,7 +1065,6 @@ mod tests {
         assert_eq!(manager.active_commands.len(), 2);
         assert!(manager.active_commands[0].is_none());
         assert!(manager.active_commands[1].is_none());
-        assert!(manager.pending_inquiry.is_none());
     }
 
     #[test]
@@ -1183,7 +1123,7 @@ mod tests {
     fn test_pending_cmd_creation() {
         let (tx, _rx) = channels::oneshot();
         let bytes = Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
-        let cmd = PendingCmd::new(1, bytes.clone(), CommandCategory::Movement, tx, false);
+        let cmd = PendingCmd::new(1, bytes.clone(), CommandCategory::Movement, tx, false, None);
 
         assert_eq!(cmd.id, 1);
         assert_eq!(cmd.bytes, bytes);
@@ -1223,10 +1163,10 @@ mod tests {
     fn test_default_retry_hook() {
         let hook = DefaultRetryHook::new();
 
-        // Should retry CommandNotExecutable errors
-        assert!(hook.should_retry(&Error::CommandNotExecutable, 0));
-        assert!(hook.should_retry(&Error::CommandNotExecutable, 1));
-        assert!(hook.should_retry(&Error::CommandNotExecutable, 2));
+        // Should NOT retry CommandNotExecutable errors (not retryable)
+        assert!(!hook.should_retry(&Error::CommandNotExecutable, 0));
+        assert!(!hook.should_retry(&Error::CommandNotExecutable, 1));
+        assert!(!hook.should_retry(&Error::CommandNotExecutable, 2));
         assert!(!hook.should_retry(&Error::CommandNotExecutable, 3));
 
         // Should retry CommandBufferFull errors
@@ -1237,9 +1177,9 @@ mod tests {
         assert!(!hook.should_retry(&Error::CameraBusy, 0));
         assert!(!hook.should_retry(&Error::SocketManagerUnavailable, 0));
 
-        let delay0 = hook.retry_delay(&Error::CommandNotExecutable, 0);
-        let delay1 = hook.retry_delay(&Error::CommandNotExecutable, 1);
-        let delay2 = hook.retry_delay(&Error::CommandNotExecutable, 2);
+        let delay0 = hook.retry_delay(&Error::CommandBufferFull, 0);
+        let delay1 = hook.retry_delay(&Error::CommandBufferFull, 1);
+        let delay2 = hook.retry_delay(&Error::CommandBufferFull, 2);
 
         assert!(delay1 > delay0);
         assert!(delay2 > delay1);
@@ -1268,10 +1208,10 @@ mod tests {
             .with_base_delay(Duration::from_millis(50));
 
         assert_eq!(hook.max_attempts(), 5);
-        assert!(hook.should_retry(&Error::CommandNotExecutable, 4));
-        assert!(!hook.should_retry(&Error::CommandNotExecutable, 5));
+        assert!(hook.should_retry(&Error::CommandBufferFull, 4));
+        assert!(!hook.should_retry(&Error::CommandBufferFull, 5));
 
-        let delay = hook.retry_delay(&Error::CommandNotExecutable, 0);
+        let delay = hook.retry_delay(&Error::CommandBufferFull, 0);
         assert_eq!(delay, Duration::from_millis(50));
     }
 
@@ -1286,6 +1226,7 @@ mod tests {
                 CommandCategory::Movement,
                 tx,
                 false,
+                None,
             );
 
             assert_eq!(cmd.retry_attempt, 0);
@@ -1444,6 +1385,7 @@ mod tests {
                 CommandCategory::Quick,
                 tx1,
                 false,
+                None,
             );
 
             let (tx2, _rx2) = channels::oneshot();
@@ -1453,6 +1395,7 @@ mod tests {
                 CommandCategory::Movement,
                 tx2,
                 false,
+                None,
             );
 
             // Queue should start empty
@@ -1496,6 +1439,7 @@ mod tests {
                     CommandCategory::Quick,
                     tx,
                     false,
+                    None,
                 );
                 manager.enqueue_command(cmd);
             }
@@ -1511,36 +1455,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_pending_inquiry_management() {
-        #[cfg(feature = "rt-tokio")]
-        {
-            let mut manager = SocketManagerInner::new();
-
-            // Initially no pending inquiry
-            assert!(manager.pending_inquiry.is_none());
-
-            // Set pending inquiry
-            let (tx, _rx) = channels::oneshot();
-            let inquiry = PendingCmd::new(
-                1,
-                Bytes::from(vec![0x81, 0x09]),
-                CommandCategory::Quick,
-                tx,
-                true,
-            );
-            manager.set_pending_inquiry(inquiry);
-
-            assert!(manager.pending_inquiry.is_some());
-
-            // Take pending inquiry
-            let taken = manager.take_pending_inquiry();
-            assert!(taken.is_some());
-            assert_eq!(taken.expect("should take pending inquiry").id, 1);
-            assert!(manager.pending_inquiry.is_none());
-        }
-    }
-
     // ===== Unit Tests for Retry Logic =====
 
     #[test]
@@ -1548,9 +1462,9 @@ mod tests {
         let hook = DefaultRetryHook::new();
 
         // Test exponential backoff calculation
-        let delay0 = hook.retry_delay(&Error::CommandNotExecutable, 0);
-        let delay1 = hook.retry_delay(&Error::CommandNotExecutable, 1);
-        let delay2 = hook.retry_delay(&Error::CommandNotExecutable, 2);
+        let delay0 = hook.retry_delay(&Error::CommandBufferFull, 0);
+        let delay1 = hook.retry_delay(&Error::CommandBufferFull, 1);
+        let delay2 = hook.retry_delay(&Error::CommandBufferFull, 2);
 
         // Each delay should be exponentially larger
         assert_eq!(delay0, Duration::from_millis(100)); // base_delay
@@ -1562,22 +1476,22 @@ mod tests {
     fn test_retry_logic_respects_max_attempts() {
         let hook = DefaultRetryHook::new(); // Default max_attempts is 3
 
-        // Should retry for attempts 0, 1, 2
-        assert!(hook.should_retry(&Error::CommandNotExecutable, 0));
-        assert!(hook.should_retry(&Error::CommandNotExecutable, 1));
-        assert!(hook.should_retry(&Error::CommandNotExecutable, 2));
+        // Should retry CommandBufferFull for attempts 0, 1, 2
+        assert!(hook.should_retry(&Error::CommandBufferFull, 0));
+        assert!(hook.should_retry(&Error::CommandBufferFull, 1));
+        assert!(hook.should_retry(&Error::CommandBufferFull, 2));
 
         // Should not retry after max_attempts
-        assert!(!hook.should_retry(&Error::CommandNotExecutable, 3));
-        assert!(!hook.should_retry(&Error::CommandNotExecutable, 4));
+        assert!(!hook.should_retry(&Error::CommandBufferFull, 3));
+        assert!(!hook.should_retry(&Error::CommandBufferFull, 4));
     }
 
     #[test]
     fn test_retry_logic_selective_error_handling() {
         let hook = DefaultRetryHook::new();
 
-        // Should retry these specific errors
-        assert!(hook.should_retry(&Error::CommandNotExecutable, 0));
+        // Should retry CommandBufferFull but NOT CommandNotExecutable
+        assert!(!hook.should_retry(&Error::CommandNotExecutable, 0));
         assert!(hook.should_retry(&Error::CommandBufferFull, 0));
 
         // Should NOT retry these errors
@@ -1593,16 +1507,16 @@ mod tests {
             .with_max_attempts(5)
             .with_base_delay(Duration::from_millis(50));
 
-        // Should allow more attempts
-        assert!(hook.should_retry(&Error::CommandNotExecutable, 3));
-        assert!(hook.should_retry(&Error::CommandNotExecutable, 4));
-        assert!(!hook.should_retry(&Error::CommandNotExecutable, 5));
+        // Should allow more attempts for retryable errors
+        assert!(hook.should_retry(&Error::CommandBufferFull, 3));
+        assert!(hook.should_retry(&Error::CommandBufferFull, 4));
+        assert!(!hook.should_retry(&Error::CommandBufferFull, 5));
 
         // Should use custom base delay
-        let delay0 = hook.retry_delay(&Error::CommandNotExecutable, 0);
+        let delay0 = hook.retry_delay(&Error::CommandBufferFull, 0);
         assert_eq!(delay0, Duration::from_millis(50));
 
-        let delay1 = hook.retry_delay(&Error::CommandNotExecutable, 1);
+        let delay1 = hook.retry_delay(&Error::CommandBufferFull, 1);
         assert_eq!(delay1, Duration::from_millis(100)); // 50 * 2
     }
 
@@ -1611,7 +1525,7 @@ mod tests {
         let hook = DefaultRetryHook::new();
 
         // Even with high attempt numbers, delay should be capped
-        let delay10 = hook.retry_delay(&Error::CommandNotExecutable, 10);
+        let delay10 = hook.retry_delay(&Error::CommandBufferFull, 10);
         assert!(delay10 <= Duration::from_secs(5)); // max_delay is 5 seconds
     }
 
@@ -1666,6 +1580,7 @@ mod tests {
                 CommandCategory::Quick,
                 tx1,
                 false,
+                None,
             );
 
             let (tx2, _rx2) = channels::oneshot();
@@ -1675,6 +1590,7 @@ mod tests {
                 CommandCategory::Movement,
                 tx2,
                 false,
+                None,
             );
 
             // Set active commands
