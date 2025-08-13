@@ -229,7 +229,7 @@ pub struct BacklightInquiry;
 
 /// Inquiry command to get the image flip (mirror/reverse) settings.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x61, response = "ImageFlip", parser = "flags")]
+#[visca(command = 0x66, response = "ImageFlip", parser = "flags")]
 pub struct ImageFlipInquiry;
 
 /// Inquiry command to get the black and white mode on/off status.
