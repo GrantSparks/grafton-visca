@@ -192,8 +192,9 @@ impl<P: Profile> CameraBuilder<BlockingUdpMarker, P> {
 impl<P: Profile> CameraBuilder<TokioTcpMarker, P> {
     /// Build the camera with async TCP transport.
     ///
-    /// Note: For async cameras, you must call `.with_runtime()` on the returned camera
-    /// to provide an async runtime before performing operations.
+    /// When using the `rt-tokio` feature, the camera is automatically configured with
+    /// a Tokio runtime and the socket manager is pre-initialized, making it ready to use
+    /// immediately.
     ///
     /// # Errors
     ///
@@ -205,7 +206,18 @@ impl<P: Profile> CameraBuilder<TokioTcpMarker, P> {
     ) -> Result<crate::camera::CameraAsync<P, crate::transport::tokio::Tcp>, Error> {
         let addr = ensure_port::<P>(&self.addr, Protocol::Tcp);
         let transport = crate::transport::tokio::Tcp::connect(&addr).await?;
-        let camera = crate::camera::CameraAsync::from_transport(transport);
+        let mut camera = crate::camera::CameraAsync::from_transport(transport);
+
+        // With rt-tokio feature, attach the runtime automatically
+        // The socket manager will be initialized lazily on first use
+        let runtime: std::sync::Arc<dyn crate::runtime::Runtime> =
+            std::sync::Arc::new(crate::runtime::TokioRuntime);
+        camera = camera.with_runtime(runtime);
+
+        // Pre-warm the socket manager to make the camera immediately ready
+        // This ensures the first command doesn't have initialization delay
+        camera.auto_init_orchestrator_if_needed().await?;
+
         Ok(camera)
     }
 }
@@ -215,8 +227,9 @@ impl<P: Profile> CameraBuilder<TokioTcpMarker, P> {
 impl<P: Profile> CameraBuilder<TokioUdpMarker, P> {
     /// Build the camera with async UDP transport.
     ///
-    /// Note: For async cameras, you must call `.with_runtime()` on the returned camera
-    /// to provide an async runtime before performing operations.
+    /// When using the `rt-tokio` feature, the camera is automatically configured with
+    /// a Tokio runtime and the socket manager is pre-initialized, making it ready to use
+    /// immediately.
     ///
     /// # Errors
     ///
@@ -228,7 +241,18 @@ impl<P: Profile> CameraBuilder<TokioUdpMarker, P> {
     ) -> Result<crate::camera::CameraAsync<P, crate::transport::tokio::Udp>, Error> {
         let addr = ensure_port::<P>(&self.addr, Protocol::Udp);
         let transport = crate::transport::tokio::Udp::connect(&addr).await?;
-        let camera = crate::camera::CameraAsync::from_transport(transport);
+        let mut camera = crate::camera::CameraAsync::from_transport(transport);
+
+        // With rt-tokio feature, attach the runtime automatically
+        // The socket manager will be initialized lazily on first use
+        let runtime: std::sync::Arc<dyn crate::runtime::Runtime> =
+            std::sync::Arc::new(crate::runtime::TokioRuntime);
+        camera = camera.with_runtime(runtime);
+
+        // Pre-warm the socket manager to make the camera immediately ready
+        // This ensures the first command doesn't have initialization delay
+        camera.auto_init_orchestrator_if_needed().await?;
+
         Ok(camera)
     }
 }

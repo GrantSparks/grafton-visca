@@ -122,9 +122,7 @@ async fn test_operations_work_with_default_runtime() {
     let result = camera.pan_tilt_stop().await;
     assert!(result.is_ok(), "pan_tilt_stop failed: {:?}", result);
 
-    // Gracefully shutdown the socket manager to ensure clean test execution
-    let mut camera = camera; // Make mutable for shutdown
-    camera.shutdown_socket_manager().await.ok();
+    // Socket manager cleanup is now handled automatically by Drop
 
     // Explicitly drop camera to ensure cleanup
     drop(camera);
@@ -145,9 +143,7 @@ async fn test_operations_succeed_with_explicit_runtime() {
     let result = camera.zoom_stop().await;
     assert!(result.is_ok());
 
-    // Gracefully shutdown the socket manager to ensure clean test execution
-    let mut camera = camera; // Make mutable for shutdown
-    camera.shutdown_socket_manager().await.ok();
+    // Socket manager cleanup is now handled automatically by Drop
 
     // Explicitly drop camera to ensure cleanup
     drop(camera);
@@ -186,9 +182,7 @@ async fn test_movement_detection_works_with_default_runtime() {
     let result = camera.pan_tilt_stop().await;
     assert!(result.is_ok(), "pan_tilt_stop failed: {:?}", result);
 
-    // Gracefully shutdown the socket manager to ensure clean test execution
-    let mut camera = camera; // Make mutable for shutdown
-    camera.shutdown_socket_manager().await.ok();
+    // Socket manager cleanup is now handled automatically by Drop
 
     // Explicitly drop camera to ensure cleanup
     drop(camera);
@@ -211,9 +205,7 @@ async fn test_power_operations_work_with_default_runtime() {
     let result = camera.focus_stop().await;
     assert!(result.is_ok(), "focus_stop failed: {:?}", result);
 
-    // Gracefully shutdown the socket manager to ensure clean test execution
-    let mut camera = camera; // Make mutable for shutdown
-    camera.shutdown_socket_manager().await.ok();
+    // Socket manager cleanup is now handled automatically by Drop
 
     // Explicitly drop camera to ensure cleanup
     drop(camera);

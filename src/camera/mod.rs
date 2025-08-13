@@ -11,7 +11,7 @@ pub mod builder;
 pub mod capability_introspection;
 pub mod generic;
 pub mod generic_state;
-pub mod helpers;
+// helpers module removed - movement methods are now inherent methods on Camera
 pub mod methods;
 pub mod mode;
 pub mod movement_detection;
@@ -33,8 +33,4 @@ pub use builder::{CameraBuilder, Protocol};
 // Re-export movement detection types
 pub use movement_probe::{MovementConfig, PanTiltPosition};
 
-// Re-export helper traits
-#[cfg(feature = "async")]
-pub use helpers::MovementOps;
-#[cfg(not(feature = "async"))]
-pub use helpers::MovementOpsBlocking;
+// MovementOps traits have been removed - movement methods are now inherent methods on Camera

@@ -46,15 +46,15 @@ mod async_tests {
             TestTransport,
         >::from_transport(transport);
 
-        // Try to initialize socket manager without runtime
-        // This should fail with MissingRuntime error
-        let result = camera.initialize_socket_manager();
+        // Try to perform an operation without runtime
+        // This should fail with MissingRuntime error when auto-init tries to create socket manager
+        let result = camera.power_inquiry().await;
 
         match result {
             Err(Error::MissingRuntime) => {
                 // This is the expected behavior - no fallback occurred
             }
-            Ok(_) => panic!("Expected MissingRuntime error, but socket manager initialized"),
+            Ok(_) => panic!("Expected MissingRuntime error, but operation succeeded"),
             Err(e) => panic!("Expected MissingRuntime error, but got: {}", e),
         }
     }
@@ -74,20 +74,21 @@ mod async_tests {
         >::from_transport(transport)
         .with_runtime(runtime);
 
-        // This should work with the configured runtime
-        let result = camera.initialize_socket_manager();
+        // Operations should work with the configured runtime
+        // The socket manager will be automatically initialized on first use
+        let result = camera.power_inquiry().await;
 
         // Should succeed with configured runtime
         match result {
-            Ok(()) => {
-                // Expected - socket manager initialized successfully
+            Ok(_) => {
+                // Expected - operation succeeded
             }
             Err(Error::MissingRuntime) => {
                 panic!("Got MissingRuntime error even though runtime was configured");
             }
             Err(e) => {
                 // Other errors are acceptable (e.g., connection issues)
-                eprintln!("Socket manager initialization failed with: {}", e);
+                eprintln!("Operation failed with: {}", e);
             }
         }
     }
