@@ -478,9 +478,12 @@ where
         // Get timeout category from command
         let category = command.timeout_kind();
 
+        // Get the expected response type from the command
+        let response_type = command.response_type();
+
         // Send via socket manager
         socket_manager
-            .send_command(framed_bytes, category, is_inquiry)
+            .send_command(framed_bytes, category, is_inquiry, response_type)
             .await
     }
 
@@ -955,6 +958,259 @@ where
         let response = self.send_inquiry_command(&command).await?;
         match response {
             crate::command::InquiryResponse::FocusMode { mode } => Ok(mode),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    // Additional inquiry helper methods
+
+    /// Inquiry: Get camera version information.
+    pub async fn version_inquiry(&self) -> Result<crate::command::InquiryResponse, Error> {
+        use crate::command::inquiry::VersionInquiry;
+        let command = VersionInquiry;
+        self.send_inquiry_command(&command).await
+    }
+
+    /// Inquiry: Get current exposure mode.
+    pub async fn exposure_mode_inquiry(
+        &self,
+    ) -> Result<crate::command::exposure::ExposureMode, Error> {
+        use crate::command::inquiry::ExposureModeInquiry;
+        let command = ExposureModeInquiry;
+        let response = self.send_inquiry_command(&command).await?;
+        match response {
+            crate::command::InquiryResponse::ExposureMode { mode } => Ok(mode),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get current white balance mode.
+    pub async fn white_balance_mode_inquiry(
+        &self,
+    ) -> Result<crate::command::white_balance::WhiteBalanceMode, Error> {
+        use crate::command::inquiry::WhiteBalanceModeInquiry;
+        let command = WhiteBalanceModeInquiry;
+        let response = self.send_inquiry_command(&command).await?;
+        match response {
+            crate::command::InquiryResponse::WhiteBalanceMode { mode } => Ok(mode),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get current iris position.
+    pub async fn iris_inquiry(&self) -> Result<u8, Error> {
+        use crate::command::inquiry::IrisInquiry;
+        let command = IrisInquiry;
+        let response = self.send_inquiry_command(&command).await?;
+        match response {
+            crate::command::InquiryResponse::Iris { position } => Ok(position),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get current gain value.
+    pub async fn gain_inquiry(&self) -> Result<u8, Error> {
+        use crate::command::inquiry::GainInquiry;
+        let command = GainInquiry;
+        let response = self.send_inquiry_command(&command).await?;
+        match response {
+            crate::command::InquiryResponse::GainLevel { gain } => Ok(gain),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get current shutter speed.
+    pub async fn shutter_inquiry(&self) -> Result<u8, Error> {
+        use crate::command::inquiry::ShutterInquiry;
+        let command = ShutterInquiry;
+        let response = self.send_inquiry_command(&command).await?;
+        match response {
+            crate::command::InquiryResponse::Shutter { position } => Ok(position as u8),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get current brightness level.
+    pub async fn brightness_inquiry(&self) -> Result<u16, Error> {
+        use crate::command::inquiry::BrightInquiry;
+        let command = BrightInquiry;
+        let response = self.send_inquiry_command(&command).await?;
+        match response {
+            crate::command::InquiryResponse::Bright { position } => Ok(position),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get backlight compensation state.
+    pub async fn backlight_inquiry(&self) -> Result<bool, Error> {
+        use crate::command::inquiry::BacklightInquiry;
+        let command = BacklightInquiry;
+        let response = self.send_inquiry_command(&command).await?;
+        match response {
+            crate::command::InquiryResponse::Backlight { status } => Ok(status),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get image flip settings.
+    pub async fn image_flip_inquiry(&self) -> Result<(bool, bool), Error> {
+        use crate::command::inquiry::ImageFlipInquiry;
+        let command = ImageFlipInquiry;
+        let response = self.send_inquiry_command(&command).await?;
+        match response {
+            crate::command::InquiryResponse::ImageFlip {
+                vertical,
+                horizontal,
+            } => Ok((horizontal, vertical)),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    // NOTE: Sharpness inquiry command is not documented in VISCA specs
+    // and has been disabled until proper documentation is found.
+    // /// Inquiry: Get current sharpness level.
+    // pub async fn sharpness_inquiry(&self) -> Result<u8, Error> {
+    //     use crate::command::inquiry::SharpnessInquiry;
+    //     let command = SharpnessInquiry;
+    //     let response = self.send_inquiry_command(&command).await?;
+    //     match response {
+    //         crate::command::InquiryResponse::Sharpness { value } => Ok(value),
+    //         _ => Err(Error::UnexpectedResponseType),
+    //     }
+    // }
+
+    // NOTE: Contrast inquiry command is not documented in VISCA specs
+    // and has been disabled until proper documentation is found.
+    // /// Inquiry: Get current contrast level.
+    // pub async fn contrast_inquiry(&self) -> Result<u8, Error> {
+    //     use crate::command::inquiry::ContrastInquiry;
+    //     let command = ContrastInquiry;
+    //     let response = self.send_inquiry_command(&command).await?;
+    //     match response {
+    //         crate::command::InquiryResponse::Contrast(value) => Ok(value),
+    //         _ => Err(Error::UnexpectedResponseType),
+    //     }
+    // }
+
+    /// Inquiry: Get current saturation level.
+    pub async fn saturation_inquiry(&self) -> Result<u8, Error> {
+        use crate::command::inquiry::SaturationInquiry;
+        let command = SaturationInquiry;
+        let response = self.send_inquiry_command(&command).await?;
+        match response {
+            crate::command::InquiryResponse::Saturation { level } => Ok(level),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    // NOTE: AutoFocus inquiry is not documented in VISCA specs
+    // and has been disabled until proper documentation is found.
+    // /// Inquiry: Get auto focus on/off state.
+    // pub async fn auto_focus_inquiry(&self) -> Result<bool, Error> {
+    //     use crate::command::inquiry::AutoFocusInquiry;
+    //     let command = AutoFocusInquiry;
+    //     let response = self.send_inquiry_command(&command).await?;
+    //     match response {
+    //         crate::command::InquiryResponse::AutoFocus { enabled } => Ok(enabled),
+    //         _ => Err(Error::UnexpectedResponseType),
+    //     }
+    // }
+
+    /// Inquiry: Get current color temperature.
+    pub async fn color_temperature_inquiry(&self) -> Result<u16, Error> {
+        use crate::command::inquiry::ColorTemperatureInquiry;
+        let command = ColorTemperatureInquiry;
+        let response = self.send_inquiry_command(&command).await?;
+        match response {
+            crate::command::InquiryResponse::ColorTemperature { temperature } => Ok(temperature),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get current hue adjustment.
+    pub async fn hue_inquiry(&self) -> Result<u8, Error> {
+        use crate::command::inquiry::HueInquiry;
+        let command = HueInquiry;
+        let response = self.send_inquiry_command(&command).await?;
+        match response {
+            crate::command::InquiryResponse::Hue { hue } => Ok(hue),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get current gain limit.
+    pub async fn gain_limit_inquiry(&self) -> Result<u8, Error> {
+        use crate::command::inquiry::GainLimitInquiry;
+        let command = GainLimitInquiry;
+        let response = self.send_inquiry_command(&command).await?;
+        match response {
+            crate::command::InquiryResponse::GainLimit { limit } => Ok(limit),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get exposure compensation mode on/off.
+    pub async fn exposure_compensation_mode_inquiry(&self) -> Result<bool, Error> {
+        use crate::command::inquiry::ExposureCompensationModeInquiry;
+        let command = ExposureCompensationModeInquiry;
+        let response = self.send_inquiry_command(&command).await?;
+        match response {
+            crate::command::InquiryResponse::ExposureCompensationMode { on } => Ok(on),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get exposure compensation value.
+    pub async fn exposure_compensation_inquiry(&self) -> Result<i8, Error> {
+        use crate::command::inquiry::ExposureCompensationInquiry;
+        let command = ExposureCompensationInquiry;
+        let response = self.send_inquiry_command(&command).await?;
+        match response {
+            crate::command::InquiryResponse::ExposureCompensation { value } => Ok(value),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get 2D noise reduction level.
+    pub async fn noise_reduction_2d_inquiry(&self) -> Result<u8, Error> {
+        use crate::command::inquiry::NoiseReduction2DInquiry;
+        let command = NoiseReduction2DInquiry;
+        let response = self.send_inquiry_command(&command).await?;
+        match response {
+            crate::command::InquiryResponse::NoiseReduction2D { level } => Ok(level),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get 3D noise reduction level.
+    pub async fn noise_reduction_3d_inquiry(&self) -> Result<u8, Error> {
+        use crate::command::inquiry::NoiseReduction3DInquiry;
+        let command = NoiseReduction3DInquiry;
+        let response = self.send_inquiry_command(&command).await?;
+        match response {
+            crate::command::InquiryResponse::NoiseReduction3D { level } => Ok(level),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get focus near limit position.
+    pub async fn focus_near_limit_inquiry(&self) -> Result<u16, Error> {
+        use crate::command::inquiry::FocusNearLimitInquiry;
+        let command = FocusNearLimitInquiry;
+        let response = self.send_inquiry_command(&command).await?;
+        match response {
+            crate::command::InquiryResponse::FocusNearLimit { position } => Ok(position),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get current resolution mode.
+    pub async fn resolution_inquiry(&self) -> Result<u8, Error> {
+        use crate::command::inquiry::ResolutionInquiry;
+        let command = ResolutionInquiry;
+        let response = self.send_inquiry_command(&command).await?;
+        match response {
+            crate::command::InquiryResponse::Resolution(mode) => Ok(mode),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -2101,6 +2357,257 @@ where
         let response = self.send_inquiry_command(&command)?;
         match response {
             crate::command::InquiryResponse::FocusMode { mode } => Ok(mode),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    // Additional inquiry helper methods
+
+    /// Inquiry: Get camera version information.
+    pub fn version_inquiry(&self) -> Result<crate::command::InquiryResponse, Error> {
+        use crate::command::inquiry::VersionInquiry;
+        let command = VersionInquiry;
+        self.send_inquiry_command(&command)
+    }
+
+    /// Inquiry: Get current exposure mode.
+    pub fn exposure_mode_inquiry(&self) -> Result<crate::command::exposure::ExposureMode, Error> {
+        use crate::command::inquiry::ExposureModeInquiry;
+        let command = ExposureModeInquiry;
+        let response = self.send_inquiry_command(&command)?;
+        match response {
+            crate::command::InquiryResponse::ExposureMode { mode } => Ok(mode),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get current white balance mode.
+    pub fn white_balance_mode_inquiry(
+        &self,
+    ) -> Result<crate::command::white_balance::WhiteBalanceMode, Error> {
+        use crate::command::inquiry::WhiteBalanceModeInquiry;
+        let command = WhiteBalanceModeInquiry;
+        let response = self.send_inquiry_command(&command)?;
+        match response {
+            crate::command::InquiryResponse::WhiteBalanceMode { mode } => Ok(mode),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get current iris position.
+    pub fn iris_inquiry(&self) -> Result<u8, Error> {
+        use crate::command::inquiry::IrisInquiry;
+        let command = IrisInquiry;
+        let response = self.send_inquiry_command(&command)?;
+        match response {
+            crate::command::InquiryResponse::Iris { position } => Ok(position),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get current gain value.
+    pub fn gain_inquiry(&self) -> Result<u8, Error> {
+        use crate::command::inquiry::GainInquiry;
+        let command = GainInquiry;
+        let response = self.send_inquiry_command(&command)?;
+        match response {
+            crate::command::InquiryResponse::GainLevel { gain } => Ok(gain),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get current shutter speed.
+    pub fn shutter_inquiry(&self) -> Result<u8, Error> {
+        use crate::command::inquiry::ShutterInquiry;
+        let command = ShutterInquiry;
+        let response = self.send_inquiry_command(&command)?;
+        match response {
+            crate::command::InquiryResponse::Shutter { position } => Ok(position as u8),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get current brightness level.
+    pub fn brightness_inquiry(&self) -> Result<u16, Error> {
+        use crate::command::inquiry::BrightInquiry;
+        let command = BrightInquiry;
+        let response = self.send_inquiry_command(&command)?;
+        match response {
+            crate::command::InquiryResponse::Bright { position } => Ok(position),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get backlight compensation state.
+    pub fn backlight_inquiry(&self) -> Result<bool, Error> {
+        use crate::command::inquiry::BacklightInquiry;
+        let command = BacklightInquiry;
+        let response = self.send_inquiry_command(&command)?;
+        match response {
+            crate::command::InquiryResponse::Backlight { status } => Ok(status),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get image flip settings.
+    pub fn image_flip_inquiry(&self) -> Result<(bool, bool), Error> {
+        use crate::command::inquiry::ImageFlipInquiry;
+        let command = ImageFlipInquiry;
+        let response = self.send_inquiry_command(&command)?;
+        match response {
+            crate::command::InquiryResponse::ImageFlip {
+                vertical,
+                horizontal,
+            } => Ok((horizontal, vertical)),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    // NOTE: Sharpness inquiry command is not documented in VISCA specs
+    // and has been disabled until proper documentation is found.
+    // /// Inquiry: Get current sharpness level.
+    // pub fn sharpness_inquiry(&self) -> Result<u8, Error> {
+    //     use crate::command::inquiry::SharpnessInquiry;
+    //     let command = SharpnessInquiry;
+    //     let response = self.send_inquiry_command(&command)?;
+    //     match response {
+    //         crate::command::InquiryResponse::Sharpness { value } => Ok(value),
+    //         _ => Err(Error::UnexpectedResponseType),
+    //     }
+    // }
+
+    // NOTE: Contrast inquiry command is not documented in VISCA specs
+    // and has been disabled until proper documentation is found.
+    // /// Inquiry: Get current contrast level.
+    // pub fn contrast_inquiry(&self) -> Result<u8, Error> {
+    //     use crate::command::inquiry::ContrastInquiry;
+    //     let command = ContrastInquiry;
+    //     let response = self.send_inquiry_command(&command)?;
+    //     match response {
+    //         crate::command::InquiryResponse::Contrast(value) => Ok(value),
+    //         _ => Err(Error::UnexpectedResponseType),
+    //     }
+    // }
+
+    /// Inquiry: Get current saturation level.
+    pub fn saturation_inquiry(&self) -> Result<u8, Error> {
+        use crate::command::inquiry::SaturationInquiry;
+        let command = SaturationInquiry;
+        let response = self.send_inquiry_command(&command)?;
+        match response {
+            crate::command::InquiryResponse::Saturation { level } => Ok(level),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    // NOTE: AutoFocus inquiry is not documented in VISCA specs
+    // and has been disabled until proper documentation is found.
+    // /// Inquiry: Get auto focus on/off state.
+    // pub fn auto_focus_inquiry(&self) -> Result<bool, Error> {
+    //     use crate::command::inquiry::AutoFocusInquiry;
+    //     let command = AutoFocusInquiry;
+    //     let response = self.send_inquiry_command(&command)?;
+    //     match response {
+    //         crate::command::InquiryResponse::AutoFocus { enabled } => Ok(enabled),
+    //         _ => Err(Error::UnexpectedResponseType),
+    //     }
+    // }
+
+    /// Inquiry: Get current color temperature.
+    pub fn color_temperature_inquiry(&self) -> Result<u16, Error> {
+        use crate::command::inquiry::ColorTemperatureInquiry;
+        let command = ColorTemperatureInquiry;
+        let response = self.send_inquiry_command(&command)?;
+        match response {
+            crate::command::InquiryResponse::ColorTemperature { temperature } => Ok(temperature),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get current hue adjustment.
+    pub fn hue_inquiry(&self) -> Result<u8, Error> {
+        use crate::command::inquiry::HueInquiry;
+        let command = HueInquiry;
+        let response = self.send_inquiry_command(&command)?;
+        match response {
+            crate::command::InquiryResponse::Hue { hue } => Ok(hue),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get current gain limit.
+    pub fn gain_limit_inquiry(&self) -> Result<u8, Error> {
+        use crate::command::inquiry::GainLimitInquiry;
+        let command = GainLimitInquiry;
+        let response = self.send_inquiry_command(&command)?;
+        match response {
+            crate::command::InquiryResponse::GainLimit { limit } => Ok(limit),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get exposure compensation mode on/off.
+    pub fn exposure_compensation_mode_inquiry(&self) -> Result<bool, Error> {
+        use crate::command::inquiry::ExposureCompensationModeInquiry;
+        let command = ExposureCompensationModeInquiry;
+        let response = self.send_inquiry_command(&command)?;
+        match response {
+            crate::command::InquiryResponse::ExposureCompensationMode { on } => Ok(on),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get exposure compensation value.
+    pub fn exposure_compensation_inquiry(&self) -> Result<i8, Error> {
+        use crate::command::inquiry::ExposureCompensationInquiry;
+        let command = ExposureCompensationInquiry;
+        let response = self.send_inquiry_command(&command)?;
+        match response {
+            crate::command::InquiryResponse::ExposureCompensation { value } => Ok(value),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get 2D noise reduction level.
+    pub fn noise_reduction_2d_inquiry(&self) -> Result<u8, Error> {
+        use crate::command::inquiry::NoiseReduction2DInquiry;
+        let command = NoiseReduction2DInquiry;
+        let response = self.send_inquiry_command(&command)?;
+        match response {
+            crate::command::InquiryResponse::NoiseReduction2D { level } => Ok(level),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get 3D noise reduction level.
+    pub fn noise_reduction_3d_inquiry(&self) -> Result<u8, Error> {
+        use crate::command::inquiry::NoiseReduction3DInquiry;
+        let command = NoiseReduction3DInquiry;
+        let response = self.send_inquiry_command(&command)?;
+        match response {
+            crate::command::InquiryResponse::NoiseReduction3D { level } => Ok(level),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get focus near limit position.
+    pub fn focus_near_limit_inquiry(&self) -> Result<u16, Error> {
+        use crate::command::inquiry::FocusNearLimitInquiry;
+        let command = FocusNearLimitInquiry;
+        let response = self.send_inquiry_command(&command)?;
+        match response {
+            crate::command::InquiryResponse::FocusNearLimit { position } => Ok(position),
+            _ => Err(Error::UnexpectedResponseType),
+        }
+    }
+
+    /// Inquiry: Get current resolution mode.
+    pub fn resolution_inquiry(&self) -> Result<u8, Error> {
+        use crate::command::inquiry::ResolutionInquiry;
+        let command = ResolutionInquiry;
+        let response = self.send_inquiry_command(&command)?;
+        match response {
+            crate::command::InquiryResponse::Resolution(mode) => Ok(mode),
             _ => Err(Error::UnexpectedResponseType),
         }
     }

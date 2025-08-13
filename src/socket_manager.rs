@@ -103,6 +103,8 @@ pub struct PendingCmd {
     pub response_sender: OneshotSender<Result<Response>>,
     /// Whether this is an inquiry command (query) or action command.
     pub is_inquiry: bool,
+    /// Expected response type for inquiry commands.
+    pub response_type: Option<crate::command::response::ResponseType>,
     /// When this command was first enqueued.
     pub enqueued_at: Instant,
     /// Number of retry attempts made for this command.
@@ -117,6 +119,7 @@ impl PendingCmd {
         category: CommandCategory,
         response_sender: OneshotSender<Result<Response>>,
         is_inquiry: bool,
+        response_type: Option<crate::command::response::ResponseType>,
     ) -> Self {
         Self {
             id,
@@ -124,6 +127,7 @@ impl PendingCmd {
             category,
             response_sender,
             is_inquiry,
+            response_type,
             enqueued_at: Instant::now(),
             retry_attempt: 0,
         }
@@ -262,6 +266,8 @@ pub(crate) enum SocketManagerCommand {
         category: CommandCategory,
         /// Whether this is an inquiry (query) command.
         is_inquiry: bool,
+        /// Expected response type for inquiry commands.
+        response_type: Option<crate::command::response::ResponseType>,
         /// Channel to send the response back to the caller.
         response_sender: OneshotSender<Result<Response>>,
     },
@@ -316,6 +322,7 @@ impl SocketManagerHandle {
         bytes: Bytes,
         category: CommandCategory,
         is_inquiry: bool,
+        response_type: Option<crate::command::response::ResponseType>,
     ) -> Result<Response> {
         let (response_sender, response_receiver) = channels::oneshot();
 
@@ -325,6 +332,7 @@ impl SocketManagerHandle {
                 bytes,
                 category,
                 is_inquiry,
+                response_type,
                 response_sender,
             })
             .map_err(|_| Error::SocketManagerUnavailable);
@@ -462,10 +470,10 @@ impl RetryHook for DefaultRetryHook {
         }
 
         // Check if this is a retryable error
-        matches!(
-            error,
-            Error::CommandNotExecutable | Error::CommandBufferFull
-        )
+        // Note: CommandNotExecutable is NOT retryable - it means the command
+        // cannot be executed in the current camera state (e.g., manual focus
+        // command while in auto-focus mode)
+        matches!(error, Error::CommandBufferFull)
     }
 
     fn retry_delay(&self, _error: &Error, attempt: u32) -> std::time::Duration {
@@ -578,9 +586,10 @@ where
                                 bytes,
                                 category,
                                 is_inquiry,
+                                response_type,
                                 response_sender,
                             }) => {
-                                self.handle_send_command(bytes, category, is_inquiry, response_sender).await;
+                                self.handle_send_command(bytes, category, is_inquiry, response_type, response_sender).await;
                             }
                             Some(SocketManagerCommand::WaitForCompletion {
                                 response_sender,
@@ -632,10 +641,18 @@ where
         bytes: Bytes,
         category: CommandCategory,
         is_inquiry: bool,
+        response_type: Option<crate::command::response::ResponseType>,
         response_sender: OneshotSender<Result<Response>>,
     ) {
         let command_id = self.inner.get_next_command_id();
-        let pending_cmd = PendingCmd::new(command_id, bytes, category, response_sender, is_inquiry);
+        let pending_cmd = PendingCmd::new(
+            command_id,
+            bytes,
+            category,
+            response_sender,
+            is_inquiry,
+            response_type,
+        );
 
         if is_inquiry {
             self.handle_inquiry_command(pending_cmd).await;
@@ -771,6 +788,42 @@ where
             }
             Ok(Response::Inquiry(data)) => {
                 self.handle_inquiry_response(data).await;
+            }
+            Err(_e) if bytes.len() > 3 && bytes[0] == 0x90 && bytes[1] == 0x50 => {
+                // This looks like an inquiry response but couldn't be parsed without type info
+                // First, try to use the pending inquiry's response type if available
+                let response_type = if let Some(ref pending) = self.inner.pending_inquiry {
+                    pending.response_type.clone()
+                } else {
+                    // If no pending inquiry, try to determine based on payload length as fallback
+                    let payload_len = bytes.len() - 3; // Subtract header (0x90, 0x50) and terminator (0xFF)
+                    match payload_len {
+                        1 => Some(crate::command::response::ResponseType::Power), // Single byte responses
+                        4 => Some(crate::command::response::ResponseType::ZoomPosition), // 4-byte responses
+                        8 => Some(crate::command::response::ResponseType::PanTiltPosition), // 8-byte responses
+                        _ => {
+                            warn!("Received inquiry response but no pending inquiry and cannot determine type from payload length {}", payload_len);
+                            None
+                        }
+                    }
+                };
+
+                if let Some(ref rt) = response_type {
+                    match Response::parse_with_type(&bytes, rt) {
+                        Ok(Response::Inquiry(data)) => {
+                            self.handle_inquiry_response(data).await;
+                            return;
+                        }
+                        Ok(other) => {
+                            warn!("Unexpected response type from parse_with_type: {:?}", other);
+                        }
+                        Err(e) => {
+                            warn!("Failed to parse inquiry response with type {:?}: {e:?}", rt);
+                        }
+                    }
+                } else {
+                    warn!("Could not determine response type for inquiry response");
+                }
             }
             Ok(other) => {
                 warn!("Unhandled response type: {other:?}");
@@ -1118,7 +1171,7 @@ mod tests {
     fn test_pending_cmd_creation() {
         let (tx, _rx) = channels::oneshot();
         let bytes = Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
-        let cmd = PendingCmd::new(1, bytes.clone(), CommandCategory::Movement, tx, false);
+        let cmd = PendingCmd::new(1, bytes.clone(), CommandCategory::Movement, tx, false, None);
 
         assert_eq!(cmd.id, 1);
         assert_eq!(cmd.bytes, bytes);
@@ -1158,10 +1211,10 @@ mod tests {
     fn test_default_retry_hook() {
         let hook = DefaultRetryHook::new();
 
-        // Should retry CommandNotExecutable errors
-        assert!(hook.should_retry(&Error::CommandNotExecutable, 0));
-        assert!(hook.should_retry(&Error::CommandNotExecutable, 1));
-        assert!(hook.should_retry(&Error::CommandNotExecutable, 2));
+        // Should NOT retry CommandNotExecutable errors (not retryable)
+        assert!(!hook.should_retry(&Error::CommandNotExecutable, 0));
+        assert!(!hook.should_retry(&Error::CommandNotExecutable, 1));
+        assert!(!hook.should_retry(&Error::CommandNotExecutable, 2));
         assert!(!hook.should_retry(&Error::CommandNotExecutable, 3));
 
         // Should retry CommandBufferFull errors
@@ -1172,9 +1225,9 @@ mod tests {
         assert!(!hook.should_retry(&Error::CameraBusy, 0));
         assert!(!hook.should_retry(&Error::SocketManagerUnavailable, 0));
 
-        let delay0 = hook.retry_delay(&Error::CommandNotExecutable, 0);
-        let delay1 = hook.retry_delay(&Error::CommandNotExecutable, 1);
-        let delay2 = hook.retry_delay(&Error::CommandNotExecutable, 2);
+        let delay0 = hook.retry_delay(&Error::CommandBufferFull, 0);
+        let delay1 = hook.retry_delay(&Error::CommandBufferFull, 1);
+        let delay2 = hook.retry_delay(&Error::CommandBufferFull, 2);
 
         assert!(delay1 > delay0);
         assert!(delay2 > delay1);
@@ -1203,10 +1256,10 @@ mod tests {
             .with_base_delay(Duration::from_millis(50));
 
         assert_eq!(hook.max_attempts(), 5);
-        assert!(hook.should_retry(&Error::CommandNotExecutable, 4));
-        assert!(!hook.should_retry(&Error::CommandNotExecutable, 5));
+        assert!(hook.should_retry(&Error::CommandBufferFull, 4));
+        assert!(!hook.should_retry(&Error::CommandBufferFull, 5));
 
-        let delay = hook.retry_delay(&Error::CommandNotExecutable, 0);
+        let delay = hook.retry_delay(&Error::CommandBufferFull, 0);
         assert_eq!(delay, Duration::from_millis(50));
     }
 
@@ -1221,6 +1274,7 @@ mod tests {
                 CommandCategory::Movement,
                 tx,
                 false,
+                None,
             );
 
             assert_eq!(cmd.retry_attempt, 0);
@@ -1379,6 +1433,7 @@ mod tests {
                 CommandCategory::Quick,
                 tx1,
                 false,
+                None,
             );
 
             let (tx2, _rx2) = channels::oneshot();
@@ -1388,6 +1443,7 @@ mod tests {
                 CommandCategory::Movement,
                 tx2,
                 false,
+                None,
             );
 
             // Queue should start empty
@@ -1431,6 +1487,7 @@ mod tests {
                     CommandCategory::Quick,
                     tx,
                     false,
+                    None,
                 );
                 manager.enqueue_command(cmd);
             }
@@ -1463,6 +1520,7 @@ mod tests {
                 CommandCategory::Quick,
                 tx,
                 true,
+                Some(crate::command::response::ResponseType::Power),
             );
             manager.set_pending_inquiry(inquiry);
 
@@ -1483,9 +1541,9 @@ mod tests {
         let hook = DefaultRetryHook::new();
 
         // Test exponential backoff calculation
-        let delay0 = hook.retry_delay(&Error::CommandNotExecutable, 0);
-        let delay1 = hook.retry_delay(&Error::CommandNotExecutable, 1);
-        let delay2 = hook.retry_delay(&Error::CommandNotExecutable, 2);
+        let delay0 = hook.retry_delay(&Error::CommandBufferFull, 0);
+        let delay1 = hook.retry_delay(&Error::CommandBufferFull, 1);
+        let delay2 = hook.retry_delay(&Error::CommandBufferFull, 2);
 
         // Each delay should be exponentially larger
         assert_eq!(delay0, Duration::from_millis(100)); // base_delay
@@ -1497,22 +1555,22 @@ mod tests {
     fn test_retry_logic_respects_max_attempts() {
         let hook = DefaultRetryHook::new(); // Default max_attempts is 3
 
-        // Should retry for attempts 0, 1, 2
-        assert!(hook.should_retry(&Error::CommandNotExecutable, 0));
-        assert!(hook.should_retry(&Error::CommandNotExecutable, 1));
-        assert!(hook.should_retry(&Error::CommandNotExecutable, 2));
+        // Should retry CommandBufferFull for attempts 0, 1, 2
+        assert!(hook.should_retry(&Error::CommandBufferFull, 0));
+        assert!(hook.should_retry(&Error::CommandBufferFull, 1));
+        assert!(hook.should_retry(&Error::CommandBufferFull, 2));
 
         // Should not retry after max_attempts
-        assert!(!hook.should_retry(&Error::CommandNotExecutable, 3));
-        assert!(!hook.should_retry(&Error::CommandNotExecutable, 4));
+        assert!(!hook.should_retry(&Error::CommandBufferFull, 3));
+        assert!(!hook.should_retry(&Error::CommandBufferFull, 4));
     }
 
     #[test]
     fn test_retry_logic_selective_error_handling() {
         let hook = DefaultRetryHook::new();
 
-        // Should retry these specific errors
-        assert!(hook.should_retry(&Error::CommandNotExecutable, 0));
+        // Should retry CommandBufferFull but NOT CommandNotExecutable
+        assert!(!hook.should_retry(&Error::CommandNotExecutable, 0));
         assert!(hook.should_retry(&Error::CommandBufferFull, 0));
 
         // Should NOT retry these errors
@@ -1528,16 +1586,16 @@ mod tests {
             .with_max_attempts(5)
             .with_base_delay(Duration::from_millis(50));
 
-        // Should allow more attempts
-        assert!(hook.should_retry(&Error::CommandNotExecutable, 3));
-        assert!(hook.should_retry(&Error::CommandNotExecutable, 4));
-        assert!(!hook.should_retry(&Error::CommandNotExecutable, 5));
+        // Should allow more attempts for retryable errors
+        assert!(hook.should_retry(&Error::CommandBufferFull, 3));
+        assert!(hook.should_retry(&Error::CommandBufferFull, 4));
+        assert!(!hook.should_retry(&Error::CommandBufferFull, 5));
 
         // Should use custom base delay
-        let delay0 = hook.retry_delay(&Error::CommandNotExecutable, 0);
+        let delay0 = hook.retry_delay(&Error::CommandBufferFull, 0);
         assert_eq!(delay0, Duration::from_millis(50));
 
-        let delay1 = hook.retry_delay(&Error::CommandNotExecutable, 1);
+        let delay1 = hook.retry_delay(&Error::CommandBufferFull, 1);
         assert_eq!(delay1, Duration::from_millis(100)); // 50 * 2
     }
 
@@ -1546,7 +1604,7 @@ mod tests {
         let hook = DefaultRetryHook::new();
 
         // Even with high attempt numbers, delay should be capped
-        let delay10 = hook.retry_delay(&Error::CommandNotExecutable, 10);
+        let delay10 = hook.retry_delay(&Error::CommandBufferFull, 10);
         assert!(delay10 <= Duration::from_secs(5)); // max_delay is 5 seconds
     }
 
@@ -1601,6 +1659,7 @@ mod tests {
                 CommandCategory::Quick,
                 tx1,
                 false,
+                None,
             );
 
             let (tx2, _rx2) = channels::oneshot();
@@ -1610,6 +1669,7 @@ mod tests {
                 CommandCategory::Movement,
                 tx2,
                 false,
+                None,
             );
 
             // Set active commands

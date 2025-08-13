@@ -62,25 +62,25 @@ pub trait ZoomOpsBlocking: Sized {
 impl_camera_ops!(
     async,
     ZoomOps,
-    async fn zoom_stop(&self) -> Result<(), Error>;
-    async fn zoom_tele_std(&self) -> Result<(), Error>;
-    async fn zoom_wide_std(&self) -> Result<(), Error>;
-    async fn zoom_tele_variable(&self, speed: ZoomSpeed) -> Result<(), Error>;
-    async fn zoom_wide_variable(&self, speed: ZoomSpeed) -> Result<(), Error>;
-    async fn zoom_absolute(&self, position: Normalized) -> Result<(), Error>;
-    async fn zoom_position(&self, position: crate::types::ZoomPosition) -> Result<(), Error>;
+    async fn zoom_stop(&self) -> Result<(), Error>;,
+    async fn zoom_tele_std(&self) -> Result<(), Error>;,
+    async fn zoom_wide_std(&self) -> Result<(), Error>;,
+    async fn zoom_tele_variable(&self, speed: ZoomSpeed) -> Result<(), Error>;,
+    async fn zoom_wide_variable(&self, speed: ZoomSpeed) -> Result<(), Error>;,
+    async fn zoom_absolute(&self, position: Normalized) -> Result<(), Error>;,
+    async fn zoom_position(&self, position: crate::types::ZoomPosition) -> Result<(), Error>;,
     async fn zoom_position_inquiry(&self) -> Result<crate::types::ZoomPosition, Error>;
 );
 
 impl_camera_ops!(
     blocking,
     ZoomOpsBlocking,
-    fn zoom_stop(&self) -> Result<(), Error>;
-    fn zoom_tele_std(&self) -> Result<(), Error>;
-    fn zoom_wide_std(&self) -> Result<(), Error>;
-    fn zoom_tele_variable(&self, speed: ZoomSpeed) -> Result<(), Error>;
-    fn zoom_wide_variable(&self, speed: ZoomSpeed) -> Result<(), Error>;
-    fn zoom_absolute(&self, position: Normalized) -> Result<(), Error>;
-    fn zoom_position(&self, position: crate::types::ZoomPosition) -> Result<(), Error>;
+    fn zoom_stop(&self) -> Result<(), Error>;,
+    fn zoom_tele_std(&self) -> Result<(), Error>;,
+    fn zoom_wide_std(&self) -> Result<(), Error>;,
+    fn zoom_tele_variable(&self, speed: ZoomSpeed) -> Result<(), Error>;,
+    fn zoom_wide_variable(&self, speed: ZoomSpeed) -> Result<(), Error>;,
+    fn zoom_absolute(&self, position: Normalized) -> Result<(), Error>;,
+    fn zoom_position(&self, position: crate::types::ZoomPosition) -> Result<(), Error>;,
     fn zoom_position_inquiry(&self) -> Result<crate::types::ZoomPosition, Error>;
 );

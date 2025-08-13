@@ -32,15 +32,15 @@ pub trait PresetsOpsBlocking: Sized {
 impl_camera_ops!(
     async,
     PresetsOps,
-    async fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error>;
-    async fn preset_set(&self, preset: PresetNumber) -> Result<(), Error>;
+    async fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error>;,
+    async fn preset_set(&self, preset: PresetNumber) -> Result<(), Error>;,
     async fn preset_reset(&self, preset: PresetNumber) -> Result<(), Error>;
 );
 
 impl_camera_ops!(
     blocking,
     PresetsOpsBlocking,
-    fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error>;
-    fn preset_set(&self, preset: PresetNumber) -> Result<(), Error>;
+    fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error>;,
+    fn preset_set(&self, preset: PresetNumber) -> Result<(), Error>;,
     fn preset_reset(&self, preset: PresetNumber) -> Result<(), Error>;
 );
