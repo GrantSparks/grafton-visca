@@ -117,14 +117,15 @@ mod tokio_tests {
             .with_spawner(handle)
             .with_runtime(runtime);
 
-        // Test initialization through public API
-        let result = inner_camera.initialize_socket_manager();
+        // Socket manager is now automatically initialized on first use
+        // Test that an operation works, which will trigger auto-initialization
+        let result = inner_camera.power_inquiry().await;
         assert!(
             result.is_ok(),
-            "Socket manager should initialize successfully"
+            "Operation should succeed (triggering auto-init of socket manager)"
         );
 
-        // Camera is now ready with socket manager initialized
+        // Camera now has socket manager initialized
         drop(inner_camera);
     }
 
@@ -237,9 +238,7 @@ mod tokio_tests {
             .with_spawner(handle)
             .with_runtime(runtime);
 
-        inner_camera
-            .initialize_socket_manager()
-            .expect("Failed to initialize socket manager");
+        // Socket manager is now automatically initialized on first use
 
         let camera = inner_camera;
 

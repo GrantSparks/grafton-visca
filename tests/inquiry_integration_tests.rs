@@ -24,11 +24,9 @@ async fn test_power_inquiry_integration() {
 
     let runtime = std::sync::Arc::new(TokioRuntime);
     let simulator = ViscaCameraSimulator::new();
-    let mut camera =
+    let camera =
         Camera::<AsyncMode, GenericVisca, _>::from_transport(simulator).with_runtime(runtime);
-    camera
-        .initialize_socket_manager()
-        .expect("socket manager should initialize");
+    // Socket manager is now automatically initialized on first use
 
     // Query power status
     let power_on = camera
@@ -45,11 +43,9 @@ async fn test_position_inquiries_integration() {
 
     let runtime = std::sync::Arc::new(TokioRuntime);
     let simulator = ViscaCameraSimulator::new();
-    let mut camera =
+    let camera =
         Camera::<AsyncMode, GenericVisca, _>::from_transport(simulator).with_runtime(runtime);
-    camera
-        .initialize_socket_manager()
-        .expect("socket manager should initialize");
+    // Socket manager is now automatically initialized on first use
 
     // Test pan/tilt position inquiry
     let (pan, tilt) = camera
@@ -105,11 +101,9 @@ async fn test_exposure_inquiries_integration() {
 
     let runtime = std::sync::Arc::new(TokioRuntime);
     let simulator = ViscaCameraSimulator::new();
-    let mut camera =
+    let camera =
         Camera::<AsyncMode, GenericVisca, _>::from_transport(simulator).with_runtime(runtime);
-    camera
-        .initialize_socket_manager()
-        .expect("socket manager should initialize");
+    // Socket manager is now automatically initialized on first use
 
     // Test exposure mode inquiry
     let mode = camera
@@ -182,11 +176,9 @@ async fn test_white_balance_color_inquiries_integration() {
 
     let runtime = std::sync::Arc::new(TokioRuntime);
     let simulator = ViscaCameraSimulator::new();
-    let mut camera =
+    let camera =
         Camera::<AsyncMode, GenericVisca, _>::from_transport(simulator).with_runtime(runtime);
-    camera
-        .initialize_socket_manager()
-        .expect("socket manager should initialize");
+    // Socket manager is now automatically initialized on first use
 
     // Test white balance mode inquiry
     let wb_mode = camera
@@ -214,11 +206,9 @@ async fn test_image_adjustment_inquiries_integration() {
 
     let runtime = std::sync::Arc::new(TokioRuntime);
     let simulator = ViscaCameraSimulator::new();
-    let mut camera =
+    let camera =
         Camera::<AsyncMode, GenericVisca, _>::from_transport(simulator).with_runtime(runtime);
-    camera
-        .initialize_socket_manager()
-        .expect("socket manager should initialize");
+    // Socket manager is now automatically initialized on first use
 
     // NOTE: Sharpness and contrast inquiries are not documented in VISCA specs
     // and have been disabled until proper documentation is found.
@@ -267,11 +257,9 @@ async fn test_noise_reduction_inquiries_integration() {
 
     let runtime = std::sync::Arc::new(TokioRuntime);
     let simulator = ViscaCameraSimulator::new();
-    let mut camera =
+    let camera =
         Camera::<AsyncMode, GenericVisca, _>::from_transport(simulator).with_runtime(runtime);
-    camera
-        .initialize_socket_manager()
-        .expect("socket manager should initialize");
+    // Socket manager is now automatically initialized on first use
 
     // Test noise reduction 2D inquiry
     let nr_2d = camera
@@ -295,11 +283,9 @@ async fn test_focus_mode_inquiries_integration() {
 
     let runtime = std::sync::Arc::new(TokioRuntime);
     let simulator = ViscaCameraSimulator::new();
-    let mut camera =
+    let camera =
         Camera::<AsyncMode, GenericVisca, _>::from_transport(simulator).with_runtime(runtime);
-    camera
-        .initialize_socket_manager()
-        .expect("socket manager should initialize");
+    // Socket manager is now automatically initialized on first use
 
     // Test focus mode inquiry
     let focus_mode = camera
@@ -326,11 +312,9 @@ async fn test_resolution_inquiry_integration() {
 
     let runtime = std::sync::Arc::new(TokioRuntime);
     let simulator = ViscaCameraSimulator::new();
-    let mut camera =
+    let camera =
         Camera::<AsyncMode, GenericVisca, _>::from_transport(simulator).with_runtime(runtime);
-    camera
-        .initialize_socket_manager()
-        .expect("socket manager should initialize");
+    // Socket manager is now automatically initialized on first use
 
     // Test resolution inquiry
     let resolution = camera
@@ -347,11 +331,9 @@ async fn test_concurrent_inquiries_integration() {
 
     let runtime = std::sync::Arc::new(TokioRuntime);
     let simulator = ViscaCameraSimulator::new();
-    let mut camera =
+    let camera =
         Camera::<AsyncMode, GenericVisca, _>::from_transport(simulator).with_runtime(runtime);
-    camera
-        .initialize_socket_manager()
-        .expect("socket manager should initialize");
+    // Socket manager is now automatically initialized on first use
 
     // Launch multiple inquiries concurrently
     let futures = vec![
@@ -380,11 +362,9 @@ async fn test_sequential_inquiries() {
 
     let runtime = std::sync::Arc::new(TokioRuntime);
     let simulator = ViscaCameraSimulator::new();
-    let mut camera =
+    let camera =
         Camera::<AsyncMode, GenericVisca, _>::from_transport(simulator).with_runtime(runtime);
-    camera
-        .initialize_socket_manager()
-        .expect("socket manager should initialize");
+    // Socket manager is now automatically initialized on first use
 
     // Test the failing sequence: exposure mode then exposure compensation
     let mode = camera
@@ -414,11 +394,9 @@ async fn test_inquiry_timeout_behavior() {
         .build();
 
     let runtime = std::sync::Arc::new(grafton_visca::runtime::TokioRuntime);
-    let mut camera =
+    let camera =
         Camera::<AsyncMode, GenericVisca, _>::from_transport(simulator).with_runtime(runtime);
-    camera
-        .initialize_socket_manager()
-        .expect("socket manager should initialize");
+    // Socket manager is now automatically initialized on first use
 
     // Query should complete within reasonable time
     let result = timeout(Duration::from_millis(200), camera.power_inquiry()).await;
@@ -436,11 +414,9 @@ async fn test_mixed_commands_and_inquiries() {
 
     let runtime = std::sync::Arc::new(TokioRuntime);
     let simulator = ViscaCameraSimulator::new();
-    let mut camera = Camera::<AsyncMode, GenericVisca, _>::from_transport(simulator.clone())
+    let camera = Camera::<AsyncMode, GenericVisca, _>::from_transport(simulator.clone())
         .with_runtime(runtime);
-    camera
-        .initialize_socket_manager()
-        .expect("socket manager should initialize");
+    // Socket manager is now automatically initialized on first use
 
     // Execute a preset recall command
     camera
