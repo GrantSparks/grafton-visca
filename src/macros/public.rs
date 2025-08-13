@@ -209,3 +209,70 @@ macro_rules! forward_facade {
         $receiver.$method($($param),*).await
     };
 }
+
+/// Generate trait implementations that forward to inherent methods on Camera.
+///
+/// This macro eliminates boilerplate for trait implementations that simply
+/// forward to identically-named inherent methods on the Camera struct.
+///
+/// # Example Usage
+///
+/// ```rust,ignore
+/// impl_camera_ops!(async, PowerOps,
+///     async fn power_on(&self) -> Result<(), Error>;
+///     async fn power_off(&self) -> Result<(), Error>;
+///     async fn power_inquiry(&self) -> Result<bool, Error>;
+/// );
+/// ```
+///
+/// This generates:
+/// ```rust,ignore
+/// impl<P, T> PowerOps for Camera<AsyncMode, P, T>
+/// where
+///     P: Profile,
+///     T: AsyncTransport + Send + Sync + 'static,
+/// {
+///     async fn power_on(&self) -> Result<(), Error> {
+///         self.power_on().await
+///     }
+///     // ... other methods
+/// }
+/// ```
+#[macro_export]
+macro_rules! impl_camera_ops {
+    // Async variant
+    (async, $trait_name:ident,
+     $(async fn $method:ident(&self $(, $param:ident: $ptype:ty)*) -> $ret:ty;)*
+    ) => {
+        #[cfg(feature = "async")]
+        impl<P, T> $trait_name for $crate::camera::Camera<$crate::camera::AsyncMode, P, T>
+        where
+            P: $crate::capabilities::Profile,
+            T: $crate::transport::AsyncTransport + Send + Sync + 'static,
+        {
+            $(
+                async fn $method(&self $(, $param: $ptype)*) -> $ret {
+                    self.$method($($param),*).await
+                }
+            )*
+        }
+    };
+
+    // Blocking variant
+    (blocking, $trait_name:ident,
+     $(fn $method:ident(&self $(, $param:ident: $ptype:ty)*) -> $ret:ty;)*
+    ) => {
+        #[cfg(not(feature = "async"))]
+        impl<P, T> $trait_name for $crate::camera::Camera<$crate::camera::BlockingMode, P, T>
+        where
+            P: $crate::capabilities::Profile,
+            T: $crate::transport::BlockingTransport + Send + Sync + 'static,
+        {
+            $(
+                fn $method(&self $(, $param: $ptype)*) -> $ret {
+                    self.$method($($param),*)
+                }
+            )*
+        }
+    };
+}
