@@ -139,25 +139,39 @@ pub struct BlueGainInquiry;
 
 // Image Adjustment Inquiries
 
-/// Inquiry command to get the current luminance setting.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0xA1, response = "Luminance", parser = "byte")]
-pub struct LuminanceInquiry;
+// NOTE: The following inquiry commands are not documented in the VISCA protocol specifications
+// and may not work with actual cameras. They appear to be based on direct command opcodes
+// rather than actual inquiry opcodes. Commenting out until proper documentation is found.
 
-/// Inquiry command to get the current contrast level.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0xA2, response = "Contrast", parser = "byte")]
-pub struct ContrastInquiry;
+// /// Inquiry command to get the current luminance setting.
+// #[derive(InquiryCommand, Debug, Copy, Clone)]
+// #[visca(
+//     command = 0x4D,
+//     sub_command = 0x50,
+//     response = "Luminance",
+//     parser = "byte"
+// )]
+// pub struct LuminanceInquiry;
 
-/// Inquiry command to get the current sharpness level.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(
-    command = 0x42,
-    response = "Sharpness",
-    parser = "custom",
-    custom_fn = "parse_middle_nibbles"
-)]
-pub struct SharpnessInquiry;
+// /// Inquiry command to get the current contrast level.
+// #[derive(InquiryCommand, Debug, Copy, Clone)]
+// #[visca(
+//     command = 0x4E,
+//     sub_command = 0x50,
+//     response = "Contrast",
+//     parser = "byte"
+// )]
+// pub struct ContrastInquiry;
+
+// /// Inquiry command to get the current sharpness level.
+// #[derive(InquiryCommand, Debug, Copy, Clone)]
+// #[visca(
+//     command = 0x42,
+//     response = "Sharpness",
+//     parser = "custom",
+//     custom_fn = "parse_middle_nibbles"
+// )]
+// pub struct SharpnessInquiry;
 
 /// Inquiry command to get the current sharpness mode on/off status.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
@@ -215,7 +229,7 @@ pub struct BacklightInquiry;
 
 /// Inquiry command to get the image flip (mirror/reverse) settings.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x61, response = "ImageFlip", parser = "flags")]
+#[visca(command = 0x66, response = "ImageFlip", parser = "flags")]
 pub struct ImageFlipInquiry;
 
 /// Inquiry command to get the black and white mode on/off status.
@@ -287,16 +301,18 @@ pub struct FocusModeInquiry;
 )]
 pub struct MenuOpenCloseInquiry;
 
-/// Inquiry command to get the auto focus on/off status.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(
-    command = 0x18,
-    response = "AutoFocus",
-    parser = "custom",
-    custom_fn = "parse_auto_focus"
-)]
-pub struct AutoFocusInquiry;
+// Inquiry command to get the auto focus on/off status.
+// NOTE: AutoFocus inquiry is not documented in VISCA specs
+// and has been disabled until proper documentation is found.
 
+// #[derive(InquiryCommand, Debug, Copy, Clone)]
+// #[visca(
+//     command = 0x18,
+//     response = "AutoFocus",
+//     parser = "custom",
+//     custom_fn = "parse_auto_focus"
+// )]
+// pub struct AutoFocusInquiry;
 /// Inquiry command to get the tally light status (red and green).
 #[derive(InquiryCommand, Debug, Copy, Clone)]
 #[visca(
@@ -613,12 +629,13 @@ mod tests {
         MenuOpenCloseInquiry,
         constants::inquiry::MENU_OPEN_CLOSE
     );
-    visca_test!(
-        AutoFocusInquiry,
-        test_auto_focus_inquiry,
-        AutoFocusInquiry,
-        constants::inquiry::AUTO_FOCUS
-    );
+    // NOTE: AutoFocus inquiry is not documented in VISCA specs
+    // visca_test!(
+    //     AutoFocusInquiry,
+    //     test_auto_focus_inquiry,
+    //     AutoFocusInquiry,
+    //     constants::inquiry::AUTO_FOCUS
+    // );
     visca_test!(
         TallyStatusInquiry,
         test_tally_status_inquiry,
