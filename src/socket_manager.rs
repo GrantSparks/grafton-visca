@@ -16,6 +16,9 @@ use crate::{
     transport::AsyncTransport,
 };
 
+// Import futures select for runtime-agnostic event loop
+use futures::{select_biased, FutureExt};
+
 impl Socket {
     /// Get the socket as a zero-based array index.
     ///
@@ -267,6 +270,11 @@ pub(crate) enum SocketManagerCommand {
         /// Channel to send the result when a completion message is received.
         response_sender: OneshotSender<Result<()>>,
     },
+    /// Update the timeout configuration.
+    UpdateTimeoutConfig {
+        /// New timeout configuration to use.
+        config: TimeoutConfig,
+    },
     /// Shutdown the socket manager gracefully.
     /// This is primarily for testing and internal use.
     #[doc(hidden)]
@@ -361,6 +369,16 @@ impl SocketManagerHandle {
             .map_err(|_| Error::SocketManagerChannelClosed)?;
 
         Ok(response_receiver)
+    }
+
+    /// Update the timeout configuration.
+    ///
+    /// This method sends a new timeout configuration to the socket manager actor.
+    /// The new configuration will be used for all subsequent commands.
+    pub fn update_timeout_config(&self, config: TimeoutConfig) -> Result<()> {
+        self.command_sender
+            .send(SocketManagerCommand::UpdateTimeoutConfig { config })
+            .map_err(|_| Error::SocketManagerChannelClosed)
     }
 
     /// Shutdown the socket manager gracefully.
@@ -547,17 +565,14 @@ where
     pub async fn run(mut self) -> Result<()> {
         debug!("Socket manager starting");
 
-        #[cfg(not(feature = "rt-tokio"))]
-        let mut empty_iterations = 0;
-
         loop {
-            #[cfg(feature = "rt-tokio")]
-            {
-                // Check for timeouts before processing new commands
-                self.check_timeouts().await;
+            // Check for timeouts before processing new commands
+            self.check_timeouts().await;
 
-                tokio::select! {
-                    command = self.command_receiver.recv() => {
+            // Use futures::select for runtime-agnostic event handling
+            select_biased! {
+                // Process commands from the channel
+                command = self.command_receiver.recv().fuse() => {
                         match command {
                             Some(SocketManagerCommand::SendCommand {
                                 bytes,
@@ -573,6 +588,10 @@ where
                                 self.inner.completion_waiters.push_back(response_sender);
                                 debug!("Added completion waiter, {} waiters now", self.inner.completion_waiters.len());
                             }
+                            Some(SocketManagerCommand::UpdateTimeoutConfig { config }) => {
+                                debug!("Updating timeout configuration");
+                                self.timeout_config = config;
+                            }
                             Some(SocketManagerCommand::Shutdown { confirmation }) => {
                                 debug!("Socket manager received shutdown command");
                                 let _ = confirmation.send(());
@@ -584,7 +603,8 @@ where
                             }
                         }
                     }
-                    response_result = self.transport.recv() => {
+                // Process responses from the transport
+                response_result = self.transport.recv().fuse() => {
                         match response_result {
                             Ok(bytes) => {
                                 self.handle_raw_response(bytes).await;
@@ -596,95 +616,10 @@ where
                             }
                         }
                     }
-                    _ = self.runtime.sleep(std::time::Duration::from_millis(100)) => {}
+                // Sleep to prevent busy-waiting
+                _ = self.runtime.sleep(std::time::Duration::from_millis(10)).fuse() => {
+                    // Just continue the loop after a short sleep
                 }
-            }
-
-            #[cfg(not(feature = "rt-tokio"))]
-            {
-                self.check_timeouts().await;
-
-                let mut activity = false;
-                if let Some(cmd) = self.command_receiver.try_recv() {
-                    activity = true;
-                    empty_iterations = 0;
-                    match cmd {
-                        SocketManagerCommand::SendCommand {
-                            bytes,
-                            category,
-                            is_inquiry,
-                            response_sender,
-                        } => {
-                            self.handle_send_command(bytes, category, is_inquiry, response_sender)
-                                .await;
-                        }
-                        SocketManagerCommand::WaitForCompletion { response_sender } => {
-                            self.inner.completion_waiters.push_back(response_sender);
-                            debug!(
-                                "Added completion waiter, {} waiters now",
-                                self.inner.completion_waiters.len()
-                            );
-                        }
-                        SocketManagerCommand::Shutdown { confirmation } => {
-                            debug!("Socket manager received shutdown command");
-                            let _ = confirmation.send(());
-                            return Ok(());
-                        }
-                    }
-                }
-
-                if let Ok(bytes) = self.transport.recv().await {
-                    activity = true;
-                    empty_iterations = 0;
-                    self.handle_raw_response(bytes).await;
-                }
-
-                if !activity {
-                    empty_iterations += 1;
-                    if empty_iterations > 1000 {
-                        match self.command_receiver.recv().await {
-                            Some(cmd) => {
-                                empty_iterations = 0;
-                                match cmd {
-                                    SocketManagerCommand::SendCommand {
-                                        bytes,
-                                        category,
-                                        is_inquiry,
-                                        response_sender,
-                                    } => {
-                                        self.handle_send_command(
-                                            bytes,
-                                            category,
-                                            is_inquiry,
-                                            response_sender,
-                                        )
-                                        .await;
-                                    }
-                                    SocketManagerCommand::WaitForCompletion { response_sender } => {
-                                        self.inner.completion_waiters.push_back(response_sender);
-                                        debug!(
-                                            "Added completion waiter, {} waiters now",
-                                            self.inner.completion_waiters.len()
-                                        );
-                                    }
-                                    SocketManagerCommand::Shutdown { confirmation } => {
-                                        debug!("Socket manager received shutdown command");
-                                        let _ = confirmation.send(());
-                                        return Ok(());
-                                    }
-                                }
-                            }
-                            None => {
-                                debug!("Socket manager command channel closed");
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                // In non-tokio async mode, we should not be using thread::sleep
-                // This should be handled differently in the async context
-                // For now, we'll keep this as-is since this is the non-tokio branch
             }
         }
 

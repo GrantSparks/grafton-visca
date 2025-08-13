@@ -22,9 +22,6 @@ use crate::{
 };
 
 #[cfg(feature = "async")]
-use crate::command::ResponseType;
-
-#[cfg(feature = "async")]
 use crate::transport::AsyncTransport;
 
 use crate::transport::BlockingTransport;
@@ -283,8 +280,19 @@ where
     }
 
     /// Set a new timeout configuration.
+    ///
+    /// If the socket manager is initialized (async mode), this will also update
+    /// its timeout configuration.
     pub fn set_timeout_config(&mut self, config: TimeoutConfig) {
         self.timeout_config = config;
+
+        // Update socket manager's timeout config if it's initialized
+        #[cfg(feature = "async")]
+        if let Some(ref socket_manager) = self.socket_manager {
+            if let Err(e) = socket_manager.update_timeout_config(config) {
+                log::warn!("Failed to update socket manager timeout config: {}", e);
+            }
+        }
     }
 
     /// Create a new camera with a custom timeout configuration.
@@ -388,9 +396,9 @@ where
         let handle = SocketManagerHandle::new(command_sender);
         self.socket_manager = Some(handle);
 
-        // Start the socket manager actor with default timeout config
+        // Start the socket manager actor with camera's timeout config
         let transport = Arc::clone(&self.transport);
-        let timeout_config = TimeoutConfig::default();
+        let timeout_config = self.timeout_config;
 
         // Get runtime (required for socket manager)
         let runtime = if let Some(ref runtime) = self.runtime {
@@ -430,15 +438,15 @@ where
     where
         C: EncodeVisca,
     {
-        // Check if socket manager is available
-        if let Some(socket_manager) = &self.socket_manager {
-            return self
-                .send_command_via_socket_manager(command, socket_manager)
-                .await;
-        }
+        // Socket manager is mandatory for async mode
+        let socket_manager = self.socket_manager.as_ref().ok_or_else(|| {
+            Error::InvalidState(Cow::Borrowed(
+                "Socket manager not initialized. Call initialize_socket_manager() first.",
+            ))
+        })?;
 
-        // Fall back to direct transport (legacy behavior)
-        self.send_command_direct(command).await
+        self.send_command_via_socket_manager(command, socket_manager)
+            .await
     }
 
     /// Send command via socket manager (new queued approach)
@@ -474,149 +482,6 @@ where
         socket_manager
             .send_command(framed_bytes, category, is_inquiry)
             .await
-    }
-
-    /// Send command directly via transport (legacy approach)
-    #[cfg(feature = "async")]
-    async fn send_command_direct<C>(&self, command: &C) -> Result<Response, Error>
-    where
-        C: EncodeVisca,
-    {
-        // Get command bytes using EncodeVisca
-        let mut buffer = [0u8; 64];
-        let size = command.encode_into(self.camera_id, &mut buffer)?;
-        let mut cmd_bytes = buffer[..size].to_vec();
-
-        // Add VISCA terminator if not present
-        if cmd_bytes.last() != Some(&crate::command::const_encoding::VISCA_TERMINATOR) {
-            cmd_bytes.push(crate::command::const_encoding::VISCA_TERMINATOR);
-        }
-
-        // Apply protocol-specific framing using transport envelope
-        let is_inquiry = command.response_type().is_some();
-        let framed_bytes = self.envelope.frame_command(&cmd_bytes, is_inquiry);
-
-        log::debug!("Sending VISCA command: {framed_bytes:02X?}");
-
-        // Send command
-        self.transport.send(&framed_bytes).await?;
-
-        // Handle response based on command type
-        match command.response_type() {
-            None => {
-                // Action command - wait for ACK then Completion
-                let timeout = self.timeout_config.get_timeout(command.timeout_kind());
-                let ack_response = self.wait_for_response(timeout).await?;
-                match ack_response {
-                    Response::CmdAck => {
-                        // Wait for completion with the same timeout
-                        self.wait_for_response(timeout).await
-                    }
-                    Response::Completion => {
-                        // Some cameras send completion directly
-                        Ok(Response::Completion)
-                    }
-                    Response::Error(e) => Err(e),
-                    _ => Err(Error::ParseError(Cow::Owned(format!(
-                        "Unexpected response: {ack_response:?}"
-                    )))),
-                }
-            }
-            Some(response_type) => {
-                // Inquiry command - wait for specific response type
-                let timeout = self.timeout_config.get_timeout(command.timeout_kind());
-                self.wait_for_response_with_type(response_type, timeout)
-                    .await
-            }
-        }
-    }
-
-    /// Wait for any response with timeout.
-    #[cfg(feature = "async")]
-    async fn wait_for_response(&self, timeout_duration: Duration) -> Result<Response, Error> {
-        let recv_fut = async {
-            match self.transport.recv().await {
-                Ok(bytes) => {
-                    // Extract VISCA payload from envelope if needed
-                    let visca_bytes = self.envelope.extract_response(&bytes)?;
-                    Response::parse(&visca_bytes)
-                }
-                Err(e) => {
-                    // Map timeout errors consistently
-                    Err(e)
-                }
-            }
-        };
-
-        // If runtime is available, use it for timeout operations
-        if let Some(ref runtime) = self.runtime {
-            let runtime = Arc::clone(runtime);
-            crate::runtime::timeout_with_runtime(runtime.as_ref(), timeout_duration, recv_fut)
-                .await?
-        } else {
-            // No runtime available - just wait without timeout
-            // This allows the camera to work without runtime configuration
-            recv_fut.await
-        }
-    }
-
-    /// Wait for a specific type of response with timeout.
-    #[cfg(feature = "async")]
-    async fn wait_for_response_with_type(
-        &self,
-        expected_type: ResponseType,
-        timeout_duration: Duration,
-    ) -> Result<Response, Error> {
-        let recv_loop = async {
-            loop {
-                match self.transport.recv().await {
-                    Ok(bytes) => {
-                        // Extract VISCA payload from envelope if needed
-                        let visca_bytes = match self.envelope.extract_response(&bytes) {
-                            Ok(payload) => payload,
-                            Err(e) => return Err(e),
-                        };
-
-                        // First try to parse as a regular response
-                        match Response::parse(&visca_bytes) {
-                            Ok(Response::CmdAck) => {
-                                // Skip ACK for inquiry commands and wait for the actual response
-                                log::debug!("Skipping ACK response for inquiry command");
-                                continue;
-                            }
-                            Ok(Response::Error(e)) => return Err(e),
-                            Ok(Response::Completion) => {
-                                // Unexpected completion for inquiry
-                                return Err(Error::UnexpectedResponseType);
-                            }
-                            Ok(other) => {
-                                return Ok(other);
-                            }
-                            Err(_) => match Response::parse_with_type(&visca_bytes, &expected_type)
-                            {
-                                Ok(response) => return Ok(response),
-                                Err(e) => return Err(e),
-                            },
-                        }
-                    }
-                    Err(e) => {
-                        // Map timeout errors consistently
-                        return Err(e);
-                    }
-                }
-            }
-        };
-
-        // If runtime is available, use it for timeout operations
-        if let Some(ref runtime) = self.runtime {
-            let runtime = Arc::clone(runtime);
-            crate::runtime::timeout_with_runtime(runtime.as_ref(), timeout_duration, recv_loop)
-                .await?
-        } else {
-            // No runtime available - just wait without timeout
-            // This allows the camera to work without runtime configuration
-            recv_loop.await
-        }
     }
 
     /// Wait for a completion message from the camera.

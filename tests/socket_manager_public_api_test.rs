@@ -204,19 +204,28 @@ mod tokio_tests {
 
         let camera = Camera::<PTZOpticsG2, _>::from_transport(transport.clone());
 
-        // Don't initialize socket manager - commands should still work via direct transport
-        // Note: PTZOpticsG2 has a 10-second power on time, so we need a longer timeout
-        let result = tokio::time::timeout(Duration::from_secs(15), camera.power_on()).await;
-        assert!(result.is_ok(), "Command should complete within timeout");
-        let inner_result = result.unwrap();
+        // Socket manager is now mandatory for async mode
+        // Expecting an error when trying to send commands without initializing socket manager
+        let result = camera.power_on().await;
         assert!(
-            inner_result.is_ok(),
-            "Command should work without socket manager: {:?}",
-            inner_result
+            result.is_err(),
+            "Command should fail without socket manager"
         );
 
+        if let Err(e) = result {
+            assert!(
+                matches!(e, Error::InvalidState(_)),
+                "Should return InvalidState error, got: {:?}",
+                e
+            );
+        }
+
         let sent_commands = transport.get_sent_commands();
-        assert_eq!(sent_commands.len(), 1, "Command should be sent directly");
+        assert_eq!(
+            sent_commands.len(),
+            0,
+            "No commands should be sent without socket manager"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -1,6 +1,6 @@
 //! Preset methods for cameras using the new GAT architecture.
 
-use crate::{command::preset::PresetNumber, Error};
+use crate::{command::preset::PresetNumber, impl_camera_ops, Error};
 
 /// Presets operations (async).
 #[cfg(feature = "async")]
@@ -28,42 +28,19 @@ pub trait PresetsOpsBlocking: Sized {
     fn preset_reset(&self, preset: PresetNumber) -> Result<(), Error>;
 }
 
-// Async implementation for Camera with AsyncMode
-#[cfg(feature = "async")]
-impl<P, T> PresetsOps for crate::camera::Camera<crate::camera::AsyncMode, P, T>
-where
-    P: crate::capabilities::Profile,
-    T: crate::transport::AsyncTransport + 'static,
-{
-    async fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error> {
-        self.preset_recall(preset).await
-    }
+// Use macro to generate implementations
+impl_camera_ops!(
+    async,
+    PresetsOps,
+    async fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error>;
+    async fn preset_set(&self, preset: PresetNumber) -> Result<(), Error>;
+    async fn preset_reset(&self, preset: PresetNumber) -> Result<(), Error>;
+);
 
-    async fn preset_set(&self, preset: PresetNumber) -> Result<(), Error> {
-        self.preset_set(preset).await
-    }
-
-    async fn preset_reset(&self, preset: PresetNumber) -> Result<(), Error> {
-        self.preset_reset(preset).await
-    }
-}
-
-// Blocking implementation for Camera with BlockingMode
-#[cfg(not(feature = "async"))]
-impl<P, T> PresetsOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T>
-where
-    P: crate::capabilities::Profile,
-    T: crate::transport::BlockingTransport,
-{
-    fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error> {
-        self.preset_recall(preset)
-    }
-
-    fn preset_set(&self, preset: PresetNumber) -> Result<(), Error> {
-        self.preset_set(preset)
-    }
-
-    fn preset_reset(&self, preset: PresetNumber) -> Result<(), Error> {
-        self.preset_reset(preset)
-    }
-}
+impl_camera_ops!(
+    blocking,
+    PresetsOpsBlocking,
+    fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error>;
+    fn preset_set(&self, preset: PresetNumber) -> Result<(), Error>;
+    fn preset_reset(&self, preset: PresetNumber) -> Result<(), Error>;
+);
