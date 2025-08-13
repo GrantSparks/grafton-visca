@@ -268,7 +268,8 @@ pub(crate) enum SocketManagerCommand {
         response_sender: OneshotSender<Result<()>>,
     },
     /// Shutdown the socket manager gracefully.
-    #[cfg(test)]
+    /// This is primarily for testing and internal use.
+    #[doc(hidden)]
     Shutdown,
 }
 
@@ -362,11 +363,15 @@ impl SocketManagerHandle {
     /// Shutdown the socket manager gracefully.
     /// This method sends a shutdown command to the actor and returns immediately.
     /// The actor will complete any in-flight commands before shutting down.
-    #[cfg(test)]
+    ///
+    /// This is primarily intended for testing to ensure clean shutdown of background tasks.
+    #[doc(hidden)]
     pub async fn shutdown(&self) -> Result<()> {
-        self.command_sender
-            .send(SocketManagerCommand::Shutdown)
-            .map_err(|_| Error::SocketManagerChannelClosed)
+        #[allow(unreachable_patterns)]
+        match self.command_sender.send(SocketManagerCommand::Shutdown) {
+            Ok(_) => Ok(()),
+            Err(_) => Err(Error::SocketManagerChannelClosed),
+        }
     }
 }
 
@@ -557,7 +562,6 @@ where
                                 self.inner.completion_waiters.push_back(response_sender);
                                 debug!("Added completion waiter, {} waiters now", self.inner.completion_waiters.len());
                             }
-                            #[cfg(test)]
                             Some(SocketManagerCommand::Shutdown) => {
                                 debug!("Socket manager received shutdown command");
                                 break;
@@ -609,7 +613,6 @@ where
                                 self.inner.completion_waiters.len()
                             );
                         }
-                        #[cfg(test)]
                         SocketManagerCommand::Shutdown => {
                             debug!("Socket manager received shutdown command");
                             return Ok(());
@@ -651,7 +654,6 @@ where
                                             self.inner.completion_waiters.len()
                                         );
                                     }
-                                    #[cfg(test)]
                                     SocketManagerCommand::Shutdown => {
                                         debug!("Socket manager received shutdown command");
                                         return Ok(());

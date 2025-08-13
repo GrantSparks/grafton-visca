@@ -302,10 +302,17 @@ where
     P: Profile,
     T: AsyncTransport + 'static,
 {
-    /// Shutdown the socket manager gracefully (for testing).
-    /// This ensures all background tasks are properly terminated.
-    #[cfg(test)]
-    pub async fn shutdown_for_test(&self) -> Result<(), Error> {
+    /// Shutdown the socket manager gracefully.
+    ///
+    /// This ensures all background tasks are properly terminated. It's primarily
+    /// intended for testing scenarios where you need to ensure clean shutdown
+    /// of the socket manager actor.
+    ///
+    /// In normal usage, the socket manager will automatically shut down when
+    /// the Camera is dropped, but in tests it can be useful to explicitly
+    /// trigger shutdown to avoid resource leaks or test interference.
+    #[doc(hidden)]
+    pub async fn shutdown_socket_manager(&self) -> Result<(), Error> {
         if let Some(socket_manager) = &self.socket_manager {
             socket_manager.shutdown().await?;
         }

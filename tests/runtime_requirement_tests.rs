@@ -112,8 +112,11 @@ async fn test_operations_work_with_default_runtime() {
     let result = camera.pan_tilt_stop().await;
     assert!(result.is_ok(), "pan_tilt_stop failed: {:?}", result);
 
-    // Gracefully shutdown the socket manager
-    camera.shutdown_for_test().await.ok();
+    // Gracefully shutdown the socket manager to ensure clean test execution
+    camera.shutdown_socket_manager().await.ok();
+    
+    // Give a small delay for background tasks to complete
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
     // Explicitly drop camera to ensure cleanup
     drop(camera);
@@ -134,8 +137,11 @@ async fn test_operations_succeed_with_explicit_runtime() {
     let result = camera.zoom_stop().await;
     assert!(result.is_ok());
 
-    // Gracefully shutdown the socket manager
-    camera.shutdown_for_test().await.ok();
+    // Gracefully shutdown the socket manager to ensure clean test execution
+    camera.shutdown_socket_manager().await.ok();
+    
+    // Give a small delay for background tasks to complete
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
     // Explicitly drop camera to ensure cleanup
     drop(camera);
@@ -174,8 +180,11 @@ async fn test_movement_detection_works_with_default_runtime() {
     let result = camera.pan_tilt_stop().await;
     assert!(result.is_ok(), "pan_tilt_stop failed: {:?}", result);
 
-    // Gracefully shutdown the socket manager
-    camera.shutdown_for_test().await.ok();
+    // Gracefully shutdown the socket manager to ensure clean test execution
+    camera.shutdown_socket_manager().await.ok();
+    
+    // Give a small delay for background tasks to complete
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
     // Explicitly drop camera to ensure cleanup
     drop(camera);
@@ -198,8 +207,11 @@ async fn test_power_operations_work_with_default_runtime() {
     let result = camera.focus_stop().await;
     assert!(result.is_ok(), "focus_stop failed: {:?}", result);
 
-    // Gracefully shutdown the socket manager
-    camera.shutdown_for_test().await.ok();
+    // Gracefully shutdown the socket manager to ensure clean test execution
+    camera.shutdown_socket_manager().await.ok();
+    
+    // Give a small delay for background tasks to complete
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
     // Explicitly drop camera to ensure cleanup
     drop(camera);
