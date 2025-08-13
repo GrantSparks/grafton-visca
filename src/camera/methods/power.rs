@@ -32,15 +32,15 @@ pub trait PowerOpsBlocking: Sized {
 impl_camera_ops!(
     async,
     PowerOps,
-    async fn power_on(&self) -> Result<(), Error>;
-    async fn power_off(&self) -> Result<(), Error>;
+    async fn power_on(&self) -> Result<(), Error>;,
+    async fn power_off(&self) -> Result<(), Error>;,
     async fn power_inquiry(&self) -> Result<bool, Error>;
 );
 
 impl_camera_ops!(
     blocking,
     PowerOpsBlocking,
-    fn power_on(&self) -> Result<(), Error>;
-    fn power_off(&self) -> Result<(), Error>;
+    fn power_on(&self) -> Result<(), Error>;,
+    fn power_off(&self) -> Result<(), Error>;,
     fn power_inquiry(&self) -> Result<bool, Error>;
 );
