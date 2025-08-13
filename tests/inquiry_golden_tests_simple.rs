@@ -3,23 +3,17 @@
 //! This module provides comprehensive testing for inquiry command types
 //! using real-world response patterns (golden replies) from PTZ cameras.
 
-use grafton_visca::{
-    command::{
-        response::{Response, ResponseType},
-        InquiryResponse,
-    },
-    transport::visca_protocol::{parse_visca_response, ViscaResponsePacket},
+use grafton_visca::command::{
+    response::{parse_response, Response, ResponseType},
+    InquiryResponse,
 };
 
 #[test]
 fn test_power_inquiry_on() {
     // Test power inquiry response parsing - Power On
-    let packet = ViscaResponsePacket {
-        payload: vec![0x90, 0x50, 0x02, 0xFF],
-        socket: 1,
-    };
+    let payload = vec![0x90, 0x50, 0x02, 0xFF];
 
-    let result = parse_visca_response(&packet, Some(ResponseType::Power));
+    let result = parse_response(&payload, &ResponseType::Power);
     assert!(
         result.is_ok(),
         "Failed to parse power response: {:?}",
@@ -37,12 +31,9 @@ fn test_power_inquiry_on() {
 #[test]
 fn test_power_inquiry_off() {
     // Test power inquiry response parsing - Power Off
-    let packet = ViscaResponsePacket {
-        payload: vec![0x90, 0x50, 0x03, 0xFF],
-        socket: 1,
-    };
+    let payload = vec![0x90, 0x50, 0x03, 0xFF];
 
-    let result = parse_visca_response(&packet, Some(ResponseType::Power));
+    let result = parse_response(&payload, &ResponseType::Power);
     assert!(
         result.is_ok(),
         "Failed to parse power response: {:?}",
@@ -60,14 +51,11 @@ fn test_power_inquiry_off() {
 #[test]
 fn test_pan_tilt_position_inquiry() {
     // Test pan/tilt position inquiry response parsing
-    let packet = ViscaResponsePacket {
-        payload: vec![
-            0x90, 0x50, 0x00, 0x01, 0x02, 0x03, 0x00, 0x04, 0x05, 0x06, 0xFF,
-        ],
-        socket: 1,
-    };
+    let payload = vec![
+        0x90, 0x50, 0x00, 0x01, 0x02, 0x03, 0x00, 0x04, 0x05, 0x06, 0xFF,
+    ];
 
-    let result = parse_visca_response(&packet, Some(ResponseType::PanTiltPosition));
+    let result = parse_response(&payload, &ResponseType::PanTiltPosition);
     assert!(
         result.is_ok(),
         "Failed to parse pan/tilt response: {:?}",
@@ -86,12 +74,9 @@ fn test_pan_tilt_position_inquiry() {
 #[test]
 fn test_zoom_position_inquiry() {
     // Test zoom position inquiry response parsing
-    let packet = ViscaResponsePacket {
-        payload: vec![0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0xFF],
-        socket: 1,
-    };
+    let payload = vec![0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0xFF];
 
-    let result = parse_visca_response(&packet, Some(ResponseType::ZoomPosition));
+    let result = parse_response(&payload, &ResponseType::ZoomPosition);
     assert!(
         result.is_ok(),
         "Failed to parse zoom response: {:?}",
@@ -109,12 +94,9 @@ fn test_zoom_position_inquiry() {
 #[test]
 fn test_focus_position_inquiry() {
     // Test focus position inquiry response parsing
-    let packet = ViscaResponsePacket {
-        payload: vec![0x90, 0x50, 0x05, 0x06, 0x07, 0x08, 0xFF],
-        socket: 1,
-    };
+    let payload = vec![0x90, 0x50, 0x05, 0x06, 0x07, 0x08, 0xFF];
 
-    let result = parse_visca_response(&packet, Some(ResponseType::FocusPosition));
+    let result = parse_response(&payload, &ResponseType::FocusPosition);
     assert!(
         result.is_ok(),
         "Failed to parse focus response: {:?}",
@@ -132,12 +114,9 @@ fn test_focus_position_inquiry() {
 #[test]
 fn test_backlight_inquiry() {
     // Test backlight compensation inquiry response parsing
-    let packet = ViscaResponsePacket {
-        payload: vec![0x90, 0x50, 0x02, 0xFF], // On
-        socket: 1,
-    };
+    let payload = vec![0x90, 0x50, 0x02, 0xFF]; // On
 
-    let result = parse_visca_response(&packet, Some(ResponseType::Backlight));
+    let result = parse_response(&payload, &ResponseType::Backlight);
     assert!(
         result.is_ok(),
         "Failed to parse backlight response: {:?}",
@@ -155,12 +134,9 @@ fn test_backlight_inquiry() {
 #[test]
 fn test_image_flip_inquiry() {
     // Test image flip inquiry response parsing
-    let packet = ViscaResponsePacket {
-        payload: vec![0x90, 0x50, 0x03, 0xFF], // Both vertical and horizontal
-        socket: 1,
-    };
+    let payload = vec![0x90, 0x50, 0x03, 0xFF]; // Both vertical and horizontal
 
-    let result = parse_visca_response(&packet, Some(ResponseType::ImageFlip));
+    let result = parse_response(&payload, &ResponseType::ImageFlip);
     assert!(
         result.is_ok(),
         "Failed to parse image flip response: {:?}",
@@ -182,12 +158,9 @@ fn test_image_flip_inquiry() {
 #[test]
 fn test_brightness_inquiry() {
     // Test brightness inquiry response parsing
-    let packet = ViscaResponsePacket {
-        payload: vec![0x90, 0x50, 0x00, 0x00, 0x08, 0xFF],
-        socket: 1,
-    };
+    let payload = vec![0x90, 0x50, 0x00, 0x00, 0x08, 0xFF];
 
-    let result = parse_visca_response(&packet, Some(ResponseType::Bright));
+    let result = parse_response(&payload, &ResponseType::Bright);
     assert!(
         result.is_ok(),
         "Failed to parse brightness response: {:?}",
@@ -205,12 +178,9 @@ fn test_brightness_inquiry() {
 #[test]
 fn test_gain_inquiry() {
     // Test gain inquiry response parsing
-    let packet = ViscaResponsePacket {
-        payload: vec![0x90, 0x50, 0x00, 0x00, 0x05, 0xFF],
-        socket: 1,
-    };
+    let payload = vec![0x90, 0x50, 0x00, 0x00, 0x05, 0xFF];
 
-    let result = parse_visca_response(&packet, Some(ResponseType::Gain));
+    let result = parse_response(&payload, &ResponseType::Gain);
     assert!(
         result.is_ok(),
         "Failed to parse gain response: {:?}",
@@ -228,20 +198,17 @@ fn test_gain_inquiry() {
 #[test]
 fn test_version_inquiry() {
     // Test version inquiry response parsing
-    let packet = ViscaResponsePacket {
-        payload: vec![
-            0x90, 0x50, 0x00, 0x14, // Vendor ID
-            0x00, 0x10, // Model ID
-            0x02, 0x05, // ROM version
-            0x00, 0x00, // Reserved
-            0x00, 0x00, // Reserved
-            0x00, 0x00, // Reserved
-            0xFF,
-        ],
-        socket: 1,
-    };
+    let payload = vec![
+        0x90, 0x50, 0x00, 0x14, // Vendor ID
+        0x00, 0x10, // Model ID
+        0x02, 0x05, // ROM version
+        0x00, 0x00, // Reserved
+        0x00, 0x00, // Reserved
+        0x00, 0x00, // Reserved
+        0xFF,
+    ];
 
-    let result = parse_visca_response(&packet, Some(ResponseType::Version));
+    let result = parse_response(&payload, &ResponseType::Version);
     assert!(
         result.is_ok(),
         "Failed to parse version response: {:?}",
@@ -267,12 +234,9 @@ fn test_version_inquiry() {
 #[test]
 fn test_contrast_inquiry() {
     // Test contrast inquiry response parsing
-    let packet = ViscaResponsePacket {
-        payload: vec![0x90, 0x50, 0x0C, 0xFF],
-        socket: 1,
-    };
+    let payload = vec![0x90, 0x50, 0x0C, 0xFF];
 
-    let result = parse_visca_response(&packet, Some(ResponseType::Contrast));
+    let result = parse_response(&payload, &ResponseType::Contrast);
     assert!(
         result.is_ok(),
         "Failed to parse contrast response: {:?}",
@@ -290,12 +254,9 @@ fn test_contrast_inquiry() {
 #[test]
 fn test_luminance_inquiry() {
     // Test luminance inquiry response parsing
-    let packet = ViscaResponsePacket {
-        payload: vec![0x90, 0x50, 0x07, 0xFF],
-        socket: 1,
-    };
+    let payload = vec![0x90, 0x50, 0x07, 0xFF];
 
-    let result = parse_visca_response(&packet, Some(ResponseType::Luminance));
+    let result = parse_response(&payload, &ResponseType::Luminance);
     assert!(
         result.is_ok(),
         "Failed to parse luminance response: {:?}",
@@ -313,12 +274,9 @@ fn test_luminance_inquiry() {
 #[test]
 fn test_resolution_inquiry() {
     // Test resolution inquiry response parsing
-    let packet = ViscaResponsePacket {
-        payload: vec![0x90, 0x50, 0x01, 0xFF], // 1080p60
-        socket: 1,
-    };
+    let payload = vec![0x90, 0x50, 0x01, 0xFF]; // 1080p60
 
-    let result = parse_visca_response(&packet, Some(ResponseType::Resolution));
+    let result = parse_response(&payload, &ResponseType::Resolution);
     assert!(
         result.is_ok(),
         "Failed to parse resolution response: {:?}",
@@ -336,14 +294,11 @@ fn test_resolution_inquiry() {
 #[test]
 fn test_negative_pan_tilt_values() {
     // Test parsing negative values in pan/tilt response
-    let packet = ViscaResponsePacket {
-        payload: vec![
-            0x90, 0x50, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0E, 0x0D, 0xFF,
-        ],
-        socket: 1,
-    };
+    let payload = vec![
+        0x90, 0x50, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0E, 0x0D, 0xFF,
+    ];
 
-    let result = parse_visca_response(&packet, Some(ResponseType::PanTiltPosition));
+    let result = parse_response(&payload, &ResponseType::PanTiltPosition);
     assert!(
         result.is_ok(),
         "Failed to parse negative pan/tilt: {:?}",
@@ -361,15 +316,14 @@ fn test_negative_pan_tilt_values() {
 
 #[test]
 fn test_unknown_inquiry_response() {
-    // Test handling of an unknown response format
-    let packet = ViscaResponsePacket {
-        payload: vec![0x90, 0x50, 0xFF, 0xFF, 0xFF, 0xFF],
-        socket: 1,
-    };
+    // Test handling of an unknown response format - this will likely error
+    // since parse_response requires a specific ResponseType
+    let payload = vec![0x90, 0x50, 0xFF, 0xFF, 0xFF, 0xFF];
 
-    // Should still parse as a generic inquiry response
-    let result = parse_visca_response(&packet, None);
-    assert!(result.is_ok(), "Should handle unknown inquiry format");
+    // Try parsing with a known type to see if it handles invalid data gracefully
+    let result = parse_response(&payload, &ResponseType::Power);
+    // We expect this to error since 0xFF is not a valid power state
+    assert!(result.is_err(), "Should error on invalid power state");
 }
 
 #[test]
@@ -377,21 +331,15 @@ fn test_inquiry_response_length_validation() {
     // Test various response lengths for different inquiry types
 
     // Power response should be 4 bytes total
-    let packet = ViscaResponsePacket {
-        payload: vec![0x90, 0x50, 0x02], // Missing terminator
-        socket: 1,
-    };
+    let payload = vec![0x90, 0x50, 0x02]; // Missing terminator
 
-    let result = parse_visca_response(&packet, Some(ResponseType::Power));
+    let result = parse_response(&payload, &ResponseType::Power);
     assert!(result.is_err(), "Should fail without terminator");
 
     // Pan/Tilt response should be 11 bytes total
-    let packet = ViscaResponsePacket {
-        payload: vec![0x90, 0x50, 0x00, 0x01, 0xFF], // Too short for pan/tilt
-        socket: 1,
-    };
+    let payload = vec![0x90, 0x50, 0x00, 0x01, 0xFF]; // Too short for pan/tilt
 
-    let result = parse_visca_response(&packet, Some(ResponseType::PanTiltPosition));
+    let result = parse_response(&payload, &ResponseType::PanTiltPosition);
     assert!(result.is_err(), "Should fail with insufficient data");
 }
 
@@ -400,12 +348,9 @@ fn test_inquiry_nibble_parsing() {
     // Test parsing of nibble-encoded values
 
     // Zoom position with max nibbles
-    let packet = ViscaResponsePacket {
-        payload: vec![0x90, 0x50, 0x0F, 0x0F, 0x0F, 0x0F, 0xFF],
-        socket: 1,
-    };
+    let payload = vec![0x90, 0x50, 0x0F, 0x0F, 0x0F, 0x0F, 0xFF];
 
-    let result = parse_visca_response(&packet, Some(ResponseType::ZoomPosition));
+    let result = parse_response(&payload, &ResponseType::ZoomPosition);
     assert!(result.is_ok(), "Should parse nibbles");
 
     match result.unwrap() {
