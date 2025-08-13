@@ -13,6 +13,7 @@ use grafton_visca::transport::AsyncTransport;
 #[allow(dead_code)]
 struct MockTransport {
     response_count: std::sync::Mutex<usize>,
+    pending_responses: std::sync::Mutex<std::collections::VecDeque<Vec<u8>>>,
 }
 
 impl MockTransport {
@@ -20,32 +21,37 @@ impl MockTransport {
     fn new() -> Self {
         Self {
             response_count: std::sync::Mutex::new(0),
+            pending_responses: std::sync::Mutex::new(std::collections::VecDeque::new()),
         }
     }
 }
 
 impl AsyncTransport for MockTransport {
-    async fn send(&self, bytes: &[u8]) -> Result<(), grafton_visca::Error> {
-        // Check if this is an inquiry command (has 0x09 in the command byte)
-        // VISCA inquiry commands have the format: 0x8X 0x09 ...
-        if bytes.len() > 1 && bytes[1] == 0x09 {
-            // This is an inquiry, we'll return inquiry responses
-        }
+    async fn send(&self, _bytes: &[u8]) -> Result<(), grafton_visca::Error> {
+        // When a command is sent, queue up appropriate responses
+        let mut responses = self.pending_responses.lock().unwrap();
+
+        // For action commands, add ACK and Completion
+        responses.push_back(vec![0x90, 0x41, 0xFF]); // ACK
+        responses.push_back(vec![0x90, 0x51, 0xFF]); // Completion
+
         Ok(())
     }
 
     async fn recv(&self) -> Result<Bytes, grafton_visca::Error> {
-        let mut count = self.response_count.lock().unwrap();
-        *count += 1;
+        // Check if we have pending responses
+        loop {
+            {
+                let mut responses = self.pending_responses.lock().unwrap();
+                if let Some(response) = responses.pop_front() {
+                    let mut count = self.response_count.lock().unwrap();
+                    *count += 1;
+                    return Ok(Bytes::from(response));
+                }
+            } // Lock is dropped here
 
-        // Simple logic: ACK for odd counts, Completion for even counts
-        // This works for basic action commands like zoom_stop
-        if *count % 2 == 1 {
-            // Return ACK
-            Ok(Bytes::from_static(&[0x90, 0x41, 0xFF]))
-        } else {
-            // Return Completion
-            Ok(Bytes::from_static(&[0x90, 0x51, 0xFF]))
+            // Sleep briefly to avoid busy-waiting
+            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
         }
     }
 }
@@ -79,16 +85,20 @@ impl AsyncTransport for MockTransportWithResponses {
     }
 
     async fn recv(&self) -> Result<Bytes, grafton_visca::Error> {
-        let mut index = self.index.lock().unwrap();
-        let responses = self.responses.lock().unwrap();
+        loop {
+            {
+                let mut index = self.index.lock().unwrap();
+                let responses = self.responses.lock().unwrap();
 
-        if *index < responses.len() {
-            let response = responses[*index].clone();
-            *index += 1;
-            Ok(Bytes::from(response))
-        } else {
-            // Return completion if we run out of responses
-            Ok(Bytes::from_static(&[0x90, 0x51, 0xFF]))
+                if *index < responses.len() {
+                    let response = responses[*index].clone();
+                    *index += 1;
+                    return Ok(Bytes::from(response));
+                }
+            } // Locks are dropped here
+
+            // Sleep to avoid busy-waiting when no responses are available
+            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
         }
     }
 }
@@ -113,10 +123,8 @@ async fn test_operations_work_with_default_runtime() {
     assert!(result.is_ok(), "pan_tilt_stop failed: {:?}", result);
 
     // Gracefully shutdown the socket manager to ensure clean test execution
+    let mut camera = camera; // Make mutable for shutdown
     camera.shutdown_socket_manager().await.ok();
-    
-    // Give a small delay for background tasks to complete
-    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
     // Explicitly drop camera to ensure cleanup
     drop(camera);
@@ -138,10 +146,8 @@ async fn test_operations_succeed_with_explicit_runtime() {
     assert!(result.is_ok());
 
     // Gracefully shutdown the socket manager to ensure clean test execution
+    let mut camera = camera; // Make mutable for shutdown
     camera.shutdown_socket_manager().await.ok();
-    
-    // Give a small delay for background tasks to complete
-    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
     // Explicitly drop camera to ensure cleanup
     drop(camera);
@@ -181,10 +187,8 @@ async fn test_movement_detection_works_with_default_runtime() {
     assert!(result.is_ok(), "pan_tilt_stop failed: {:?}", result);
 
     // Gracefully shutdown the socket manager to ensure clean test execution
+    let mut camera = camera; // Make mutable for shutdown
     camera.shutdown_socket_manager().await.ok();
-    
-    // Give a small delay for background tasks to complete
-    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
     // Explicitly drop camera to ensure cleanup
     drop(camera);
@@ -208,10 +212,8 @@ async fn test_power_operations_work_with_default_runtime() {
     assert!(result.is_ok(), "focus_stop failed: {:?}", result);
 
     // Gracefully shutdown the socket manager to ensure clean test execution
+    let mut camera = camera; // Make mutable for shutdown
     camera.shutdown_socket_manager().await.ok();
-    
-    // Give a small delay for background tasks to complete
-    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
     // Explicitly drop camera to ensure cleanup
     drop(camera);

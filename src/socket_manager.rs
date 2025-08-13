@@ -270,7 +270,10 @@ pub(crate) enum SocketManagerCommand {
     /// Shutdown the socket manager gracefully.
     /// This is primarily for testing and internal use.
     #[doc(hidden)]
-    Shutdown,
+    Shutdown {
+        /// Channel to send confirmation when shutdown is complete.
+        confirmation: OneshotSender<()>,
+    },
 }
 
 /// Handle to communicate with the socket manager actor.
@@ -361,15 +364,23 @@ impl SocketManagerHandle {
     }
 
     /// Shutdown the socket manager gracefully.
-    /// This method sends a shutdown command to the actor and returns immediately.
+    /// This method sends a shutdown command to the actor and waits for it to confirm shutdown.
     /// The actor will complete any in-flight commands before shutting down.
     ///
     /// This is primarily intended for testing to ensure clean shutdown of background tasks.
     #[doc(hidden)]
     pub async fn shutdown(&self) -> Result<()> {
+        let (confirmation_sender, confirmation_receiver) = channels::oneshot();
+
         #[allow(unreachable_patterns)]
-        match self.command_sender.send(SocketManagerCommand::Shutdown) {
-            Ok(_) => Ok(()),
+        match self.command_sender.send(SocketManagerCommand::Shutdown {
+            confirmation: confirmation_sender,
+        }) {
+            Ok(_) => {
+                // Wait for the actor to confirm shutdown
+                let _ = confirmation_receiver.recv().await;
+                Ok(())
+            }
             Err(_) => Err(Error::SocketManagerChannelClosed),
         }
     }
@@ -562,8 +573,9 @@ where
                                 self.inner.completion_waiters.push_back(response_sender);
                                 debug!("Added completion waiter, {} waiters now", self.inner.completion_waiters.len());
                             }
-                            Some(SocketManagerCommand::Shutdown) => {
+                            Some(SocketManagerCommand::Shutdown { confirmation }) => {
                                 debug!("Socket manager received shutdown command");
+                                let _ = confirmation.send(());
                                 break;
                             }
                             None => {
@@ -613,8 +625,9 @@ where
                                 self.inner.completion_waiters.len()
                             );
                         }
-                        SocketManagerCommand::Shutdown => {
+                        SocketManagerCommand::Shutdown { confirmation } => {
                             debug!("Socket manager received shutdown command");
+                            let _ = confirmation.send(());
                             return Ok(());
                         }
                     }
@@ -654,8 +667,9 @@ where
                                             self.inner.completion_waiters.len()
                                         );
                                     }
-                                    SocketManagerCommand::Shutdown => {
+                                    SocketManagerCommand::Shutdown { confirmation } => {
                                         debug!("Socket manager received shutdown command");
+                                        let _ = confirmation.send(());
                                         return Ok(());
                                     }
                                 }

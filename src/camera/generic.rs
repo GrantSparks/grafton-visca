@@ -312,10 +312,15 @@ where
     /// the Camera is dropped, but in tests it can be useful to explicitly
     /// trigger shutdown to avoid resource leaks or test interference.
     #[doc(hidden)]
-    pub async fn shutdown_socket_manager(&self) -> Result<(), Error> {
+    pub async fn shutdown_socket_manager(&mut self) -> Result<(), Error> {
+        // Send shutdown command and wait for confirmation
         if let Some(socket_manager) = &self.socket_manager {
             socket_manager.shutdown().await?;
         }
+
+        // Clear the socket manager
+        self.socket_manager = None;
+
         Ok(())
     }
 
@@ -543,14 +548,16 @@ where
             }
         };
 
-        // Get runtime for timeout operations
-        let runtime = if let Some(ref runtime) = self.runtime {
-            Arc::clone(runtime)
+        // If runtime is available, use it for timeout operations
+        if let Some(ref runtime) = self.runtime {
+            let runtime = Arc::clone(runtime);
+            crate::runtime::timeout_with_runtime(runtime.as_ref(), timeout_duration, recv_fut)
+                .await?
         } else {
-            return Err(Error::MissingRuntime);
-        };
-
-        crate::runtime::timeout_with_runtime(runtime.as_ref(), timeout_duration, recv_fut).await?
+            // No runtime available - just wait without timeout
+            // This allows the camera to work without runtime configuration
+            recv_fut.await
+        }
     }
 
     /// Wait for a specific type of response with timeout.
@@ -600,14 +607,16 @@ where
             }
         };
 
-        // Get runtime for timeout operations
-        let runtime = if let Some(ref runtime) = self.runtime {
-            Arc::clone(runtime)
+        // If runtime is available, use it for timeout operations
+        if let Some(ref runtime) = self.runtime {
+            let runtime = Arc::clone(runtime);
+            crate::runtime::timeout_with_runtime(runtime.as_ref(), timeout_duration, recv_loop)
+                .await?
         } else {
-            return Err(Error::MissingRuntime);
-        };
-
-        crate::runtime::timeout_with_runtime(runtime.as_ref(), timeout_duration, recv_loop).await?
+            // No runtime available - just wait without timeout
+            // This allows the camera to work without runtime configuration
+            recv_loop.await
+        }
     }
 
     /// Wait for a completion message from the camera.
@@ -726,14 +735,17 @@ where
         use crate::command::PowerCommand;
         let command = PowerCommand::On;
         self.send_action_command(&command).await?;
-        // Wait for camera to be ready
-        let runtime = if let Some(ref runtime) = self.runtime {
-            Arc::clone(runtime)
+        // Wait for camera to be ready (if runtime is available)
+        if let Some(ref runtime) = self.runtime {
+            let runtime = Arc::clone(runtime);
+            runtime.sleep(P::POWER_ON_TIME).await;
         } else {
-            return Err(Error::MissingRuntime);
-        };
-
-        runtime.sleep(P::POWER_ON_TIME).await;
+            // Without runtime, we can't enforce the power-on delay
+            // The caller should handle their own delay if needed
+            log::warn!(
+                "No runtime available for power-on delay; camera may not be ready immediately"
+            );
+        }
         Ok(())
     }
 
@@ -742,14 +754,14 @@ where
         use crate::command::PowerCommand;
         let command = PowerCommand::Standby;
         self.send_action_command(&command).await?;
-        // Wait for standby/off
-        let runtime = if let Some(ref runtime) = self.runtime {
-            Arc::clone(runtime)
+        // Wait for standby/off (if runtime is available)
+        if let Some(ref runtime) = self.runtime {
+            let runtime = Arc::clone(runtime);
+            runtime.sleep(P::STANDBY_TIME).await;
         } else {
-            return Err(Error::MissingRuntime);
-        };
-
-        runtime.sleep(P::STANDBY_TIME).await;
+            // Without runtime, we can't enforce the standby delay
+            log::warn!("No runtime available for standby delay");
+        }
         Ok(())
     }
 
