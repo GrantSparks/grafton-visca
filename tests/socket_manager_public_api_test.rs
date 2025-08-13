@@ -110,21 +110,27 @@ mod tokio_tests {
 
     #[tokio::test]
     async fn test_socket_manager_initialization() {
-        let transport = MockTransport::new();
+        // Use auto-respond to ensure proper VISCA responses
+        let transport = MockTransport::with_auto_respond();
         let handle = tokio::runtime::Handle::current();
         let runtime = Arc::new(TokioRuntime);
-        let mut inner_camera = Camera::<PTZOpticsG2, _>::from_transport(transport)
+        let inner_camera = Camera::<PTZOpticsG2, _>::from_transport(transport)
             .with_spawner(handle)
             .with_runtime(runtime);
 
-        // Test initialization through public API
-        let result = inner_camera.initialize_socket_manager();
+        // Socket manager is now automatically initialized on first use
+        // Test that an operation works, which will trigger auto-initialization
+        let result = inner_camera.power_inquiry().await;
+
+        // With auto-respond, this should succeed (or fail with UnexpectedResponseType
+        // since we're not providing a proper inquiry response, just ACK/completion)
         assert!(
-            result.is_ok(),
-            "Socket manager should initialize successfully"
+            result.is_ok() || matches!(result, Err(Error::UnexpectedResponseType)),
+            "Operation should succeed or fail with UnexpectedResponseType, got: {:?}",
+            result
         );
 
-        // Camera is now ready with socket manager initialized
+        // Camera now has socket manager initialized
         drop(inner_camera);
     }
 
@@ -198,33 +204,40 @@ mod tokio_tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn test_command_without_socket_manager() {
-        // Use auto-respond for automatic ACK and completion
+    async fn test_auto_initialization_behavior() {
+        // This test verifies that with rt-tokio feature enabled,
+        // the socket manager is auto-initialized on first command
         let transport = MockTransport::with_auto_respond();
-
         let camera = Camera::<PTZOpticsG2, _>::from_transport(transport.clone());
 
-        // Socket manager is now mandatory for async mode
-        // Expecting an error when trying to send commands without initializing socket manager
+        // First command should trigger auto-initialization of socket manager
         let result = camera.power_on().await;
         assert!(
-            result.is_err(),
-            "Command should fail without socket manager"
+            result.is_ok(),
+            "First command should succeed with auto-initialized socket manager, got: {:?}",
+            result
         );
 
-        if let Err(e) = result {
-            assert!(
-                matches!(e, Error::InvalidState(_)),
-                "Should return InvalidState error, got: {:?}",
-                e
-            );
-        }
-
+        // Verify that command was actually sent (socket manager is working)
         let sent_commands = transport.get_sent_commands();
-        assert_eq!(
-            sent_commands.len(),
-            0,
-            "No commands should be sent without socket manager"
+        assert!(
+            !sent_commands.is_empty(),
+            "Commands should be sent after auto-initialization"
+        );
+
+        // Subsequent commands should also work
+        let result2 = camera.power_off().await;
+        assert!(
+            result2.is_ok(),
+            "Subsequent commands should also succeed, got: {:?}",
+            result2
+        );
+
+        // Verify multiple commands were sent
+        let final_commands = transport.get_sent_commands();
+        assert!(
+            final_commands.len() > sent_commands.len(),
+            "Additional commands should be sent"
         );
     }
 
@@ -233,13 +246,11 @@ mod tokio_tests {
         let transport = MockTransport::new(); // No auto-respond
         let handle = tokio::runtime::Handle::current();
         let runtime = Arc::new(TokioRuntime);
-        let mut inner_camera = Camera::<PTZOpticsG2, _>::from_transport(transport)
+        let inner_camera = Camera::<PTZOpticsG2, _>::from_transport(transport)
             .with_spawner(handle)
             .with_runtime(runtime);
 
-        inner_camera
-            .initialize_socket_manager()
-            .expect("Failed to initialize socket manager");
+        // Socket manager is now automatically initialized on first use
 
         let camera = inner_camera;
 

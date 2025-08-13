@@ -18,7 +18,7 @@
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::{helpers::MovementOpsBlocking, profiles::PTZOpticsG2},
+    camera::profiles::PTZOpticsG2,
     command::{focus::FocusSpeed, preset::PresetNumber},
     types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed},
     units::{Degrees, Normalized},
@@ -152,12 +152,7 @@ fn main() -> Result<(), Error> {
     println!("═══ Advanced Movement Detection ═══");
 
     println!("Using move_to helper (combines movement + wait)...");
-    MovementOpsBlocking::move_to(
-        &camera,
-        Degrees(-30.0),
-        Degrees(10.0),
-        Duration::from_secs(30),
-    )?;
+    camera.move_to(Degrees(-30.0), Degrees(10.0), Duration::from_secs(30))?;
     println!("✓ move_to completed");
 
     println!("Initiating multiple movements...");
@@ -170,7 +165,7 @@ fn main() -> Result<(), Error> {
     camera.zoom_absolute(Normalized(0.3))?;
 
     println!("Waiting for all movements to complete...");
-    MovementOpsBlocking::await_idle(&camera, Duration::from_secs(30))?;
+    camera.await_idle(Duration::from_secs(30))?;
     println!("✓ All movements completed");
     println!();
 
@@ -185,17 +180,17 @@ fn main() -> Result<(), Error> {
     camera.focus_near_with_speed(FocusSpeed::new(4)?)?;
     sleep(Duration::from_millis(100));
     camera.focus_stop()?;
-    MovementOpsBlocking::await_focus_idle(&camera, Duration::from_secs(5))?;
+    camera.await_focus_idle(Duration::from_secs(5))?;
 
     camera.focus_far_with_speed(FocusSpeed::new(4)?)?;
     sleep(Duration::from_millis(100));
     camera.focus_stop()?;
-    MovementOpsBlocking::await_focus_idle(&camera, Duration::from_secs(5))?;
+    camera.await_focus_idle(Duration::from_secs(5))?;
     println!("✓ Manual focus complete");
 
     println!("Triggering one-push auto focus...");
     camera.focus_one_push()?;
-    MovementOpsBlocking::await_focus_idle(&camera, Duration::from_secs(5))?;
+    camera.await_focus_idle(Duration::from_secs(5))?;
     println!("✓ One-push focus complete");
     camera.focus_auto()?;
     println!();
@@ -266,7 +261,7 @@ fn main() -> Result<(), Error> {
         TiltSpeed::new(12)?,
     )?;
     camera.zoom_absolute(Normalized(0.0))?;
-    MovementOpsBlocking::await_idle(&camera, Duration::from_secs(5))?;
+    camera.await_idle(Duration::from_secs(5))?;
     camera.preset_set(PresetNumber::new(1)?)?;
     println!("  ✓ Preset 1 (Wide Overview) saved");
 
@@ -277,7 +272,7 @@ fn main() -> Result<(), Error> {
         TiltSpeed::new(12)?,
     )?;
     camera.zoom_absolute(Normalized(0.3))?;
-    MovementOpsBlocking::await_idle(&camera, Duration::from_secs(5))?;
+    camera.await_idle(Duration::from_secs(5))?;
     camera.preset_set(PresetNumber::new(2)?)?;
     println!("  ✓ Preset 2 (Right View) saved");
 
@@ -288,7 +283,7 @@ fn main() -> Result<(), Error> {
         TiltSpeed::new(12)?,
     )?;
     camera.zoom_absolute(Normalized(0.3))?;
-    MovementOpsBlocking::await_idle(&camera, Duration::from_secs(5))?;
+    camera.await_idle(Duration::from_secs(5))?;
     camera.preset_set(PresetNumber::new(3)?)?;
     println!("  ✓ Preset 3 (Left View) saved");
 
@@ -296,7 +291,7 @@ fn main() -> Result<(), Error> {
     for i in 1..=3 {
         println!("  Recalling Preset {i}...");
         camera.preset_recall(PresetNumber::new(i)?)?;
-        MovementOpsBlocking::await_idle(&camera, Duration::from_secs(5))?;
+        camera.await_idle(Duration::from_secs(5))?;
         if let Ok((pan, tilt)) = camera.pan_tilt_position_inquiry() {
             println!("    Position: Pan={}, Tilt={}", pan.value(), tilt.value());
         }
@@ -314,17 +309,17 @@ fn main() -> Result<(), Error> {
     match (&initial_position, &initial_zoom) {
         (Ok((pan, tilt)), Ok(zoom)) => {
             camera.pan_tilt_absolute(*pan, *tilt, PanSpeed::new(18)?, TiltSpeed::new(18)?)?;
-            MovementOpsBlocking::await_pan_tilt_idle(&camera, Duration::from_secs(30))?;
+            camera.await_pan_tilt_idle(Duration::from_secs(30))?;
 
             let normalized_zoom = (zoom.value() as f32) / 16384.0;
             camera.zoom_absolute(Normalized(normalized_zoom))?;
-            MovementOpsBlocking::await_zoom_idle(&camera, Duration::from_secs(5))?;
+            camera.await_zoom_idle(Duration::from_secs(5))?;
 
             println!("✓ Camera restored to initial state");
         }
         _ => {
             camera.pan_tilt_home()?;
-            MovementOpsBlocking::await_pan_tilt_idle(&camera, Duration::from_secs(30))?;
+            camera.await_pan_tilt_idle(Duration::from_secs(30))?;
             camera.zoom_absolute(Normalized(0.0))?;
             // TODO: await_zoom_idle not yet implemented
             sleep(Duration::from_secs(2));

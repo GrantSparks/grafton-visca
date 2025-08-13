@@ -53,7 +53,7 @@ where
     /// Restore camera to a previously saved state with custom speed
     #[allow(clippy::expect_used)]
     pub fn restore_state_with_speed(&self, state: &CameraState, speed: SpeedLevel) -> Result<()> {
-        use crate::camera::helpers::MovementOpsBlocking;
+        // MovementOps methods are now inherent on Camera, no import needed
         use crate::types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed};
 
         let pan_pos = PanPosition::from_degrees(state.pan)?;
@@ -69,11 +69,11 @@ where
         let tilt_speed = TiltSpeed::new(speed_val).expect("speed_val is valid");
 
         self.pan_tilt_absolute(pan_pos, tilt_pos, pan_speed, tilt_speed)?;
-        MovementOpsBlocking::await_idle(self, Duration::from_secs(30))?;
+        self.await_idle(Duration::from_secs(30))?;
 
         let normalized_zoom = state.zoom_normalized();
         self.zoom_absolute(Normalized(normalized_zoom))?;
-        MovementOpsBlocking::await_idle(self, Duration::from_secs(10))?;
+        self.await_idle(Duration::from_secs(10))?;
 
         Ok(())
     }
@@ -89,11 +89,7 @@ where
     #[cfg(feature = "async")]
     pub async fn save_state_async(&self) -> Result<CameraState> {
         // Use runtime for sleep
-        let runtime = if let Some(runtime) = self.runtime() {
-            std::sync::Arc::clone(runtime)
-        } else {
-            return Err(Error::MissingRuntime);
-        };
+        let runtime = self.runtime().ok_or(Error::MissingRuntime)?;
 
         runtime.sleep(Duration::from_millis(500)).await;
 
@@ -125,8 +121,7 @@ where
         state: &CameraState,
         speed: SpeedLevel,
     ) -> Result<()> {
-        use crate::camera::helpers::MovementOps;
-
+        // MovementOps methods are now inherent on Camera, no import needed
         use crate::types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed};
         let pan_pos = PanPosition::from_degrees(state.pan)?;
         let tilt_pos = TiltPosition::from_degrees(state.tilt)?;
@@ -141,11 +136,11 @@ where
         let tilt_speed = TiltSpeed::new(speed_val).expect("speed_val is valid");
         self.pan_tilt_absolute(pan_pos, tilt_pos, pan_speed, tilt_speed)
             .await?;
-        MovementOps::await_idle(self, Duration::from_secs(30)).await?;
+        self.await_idle(Duration::from_secs(30)).await?;
 
         let normalized_zoom = state.zoom_normalized();
         self.zoom_absolute(Normalized(normalized_zoom)).await?;
-        MovementOps::await_idle(self, Duration::from_secs(10)).await?;
+        self.await_idle(Duration::from_secs(10)).await?;
 
         Ok(())
     }

@@ -12,6 +12,9 @@ use crate::camera::BlockingMode;
 #[cfg(feature = "async")]
 use crate::{executor::Spawner, runtime::RuntimeSpawner, socket_manager::SocketManagerHandle};
 
+#[cfg(feature = "async")]
+use std::sync::Mutex;
+
 use crate::{
     camera_id::CameraId,
     capabilities::Profile,
@@ -60,12 +63,12 @@ where
     transport: Arc<T>,
     camera_id: CameraId,
     #[cfg(feature = "async")]
-    socket_manager: Option<SocketManagerHandle>,
+    socket_manager: Arc<Mutex<Option<SocketManagerHandle>>>,
     envelope: TransportEnvelope,
     #[cfg(feature = "async")]
-    spawner: Option<Arc<dyn Spawner>>,
+    spawner: Arc<Mutex<Option<Arc<dyn Spawner>>>>,
     #[cfg(feature = "async")]
-    runtime: Option<crate::runtime::SharedRuntime>,
+    runtime: Arc<Mutex<Option<crate::runtime::SharedRuntime>>>,
     timeout_config: TimeoutConfig,
     _mode: PhantomData<M>,
     _profile: PhantomData<P>,
@@ -93,6 +96,33 @@ where
     }
 }
 
+// Implement Drop for Camera to ensure graceful shutdown for async mode
+impl<M, P, T> Drop for Camera<M, P, T>
+where
+    P: Profile,
+{
+    fn drop(&mut self) {
+        // Only handle socket manager shutdown for async mode
+        #[cfg(feature = "async")]
+        {
+            // Check if this is an async camera by trying to get the socket manager
+            // Since socket_manager is only populated for async cameras, this is safe
+            if let Ok(mut socket_manager_lock) = self.socket_manager.try_lock() {
+                if let Some(socket_manager) = socket_manager_lock.take() {
+                    // Send shutdown signal without waiting for completion
+                    // The actor will handle the shutdown gracefully
+                    socket_manager.shutdown_nowait();
+                    log::debug!("Sent shutdown signal to socket manager during Camera drop");
+                }
+            } else {
+                // If we can't get the lock, the socket manager is likely in use
+                // It will be dropped when the lock is released
+                log::debug!("Could not acquire socket manager lock during Camera drop");
+            }
+        }
+    }
+}
+
 impl<M, P, T> std::fmt::Debug for Camera<M, P, T>
 where
     P: Profile,
@@ -104,7 +134,13 @@ where
             .field("camera_id", &self.camera_id)
             .field("transport", &"<Transport>");
         #[cfg(feature = "async")]
-        debug.field("socket_manager", &self.socket_manager.is_some());
+        {
+            if let Ok(sm) = self.socket_manager.try_lock() {
+                debug.field("socket_manager", &sm.is_some());
+            } else {
+                debug.field("socket_manager", &"<locked>");
+            }
+        }
         debug.finish()
     }
 }
@@ -288,9 +324,13 @@ where
 
         // Update socket manager's timeout config if it's initialized
         #[cfg(feature = "async")]
-        if let Some(ref socket_manager) = self.socket_manager {
-            if let Err(e) = socket_manager.update_timeout_config(config) {
-                log::warn!("Failed to update socket manager timeout config: {}", e);
+        {
+            if let Ok(socket_manager_lock) = self.socket_manager.lock() {
+                if let Some(ref socket_manager) = *socket_manager_lock {
+                    if let Err(e) = socket_manager.update_timeout_config(config) {
+                        log::warn!("Failed to update socket manager timeout config: {}", e);
+                    }
+                }
             }
         }
     }
@@ -310,27 +350,7 @@ where
     P: Profile,
     T: AsyncTransport + 'static,
 {
-    /// Shutdown the socket manager gracefully.
-    ///
-    /// This ensures all background tasks are properly terminated. It's primarily
-    /// intended for testing scenarios where you need to ensure clean shutdown
-    /// of the socket manager actor.
-    ///
-    /// In normal usage, the socket manager will automatically shut down when
-    /// the Camera is dropped, but in tests it can be useful to explicitly
-    /// trigger shutdown to avoid resource leaks or test interference.
-    #[doc(hidden)]
-    pub async fn shutdown_socket_manager(&mut self) -> Result<(), Error> {
-        // Send shutdown command and wait for confirmation
-        if let Some(socket_manager) = &self.socket_manager {
-            socket_manager.shutdown().await?;
-        }
-
-        // Clear the socket manager
-        self.socket_manager = None;
-
-        Ok(())
-    }
+    // Note: shutdown_socket_manager was removed since Drop now handles cleanup automatically
 
     /// Create a new async camera from an async transport.
     pub fn from_transport(transport: T) -> Self {
@@ -340,9 +360,9 @@ where
             envelope: TransportEnvelope::new(P::PROTOCOL_STYLE),
             transport: Arc::new(transport),
             camera_id,
-            socket_manager: None,
-            spawner: None,
-            runtime: None,
+            socket_manager: Arc::new(Mutex::new(None)),
+            spawner: Arc::new(Mutex::new(None)),
+            runtime: Arc::new(Mutex::new(None)),
             timeout_config: TimeoutConfig::default(),
             _mode: PhantomData,
             _profile: PhantomData,
@@ -350,42 +370,53 @@ where
     }
 
     /// Set a spawner for async operations.
-    pub fn with_spawner<S>(mut self, spawner: S) -> Self
+    pub fn with_spawner<S>(self, spawner: S) -> Self
     where
         S: Spawner,
     {
-        self.spawner = Some(Arc::new(spawner));
-
-        // Initialize socket manager automatically for better reliability
-        if let Err(e) = self.initialize_socket_manager() {
-            log::warn!("Failed to initialize socket manager: {e}");
+        {
+            let mut spawner_lock = self.spawner.lock().unwrap_or_else(|e| e.into_inner());
+            *spawner_lock = Some(Arc::new(spawner));
         }
+
+        // Note: We can't initialize socket manager here anymore since we need async context
+        // It will be initialized lazily on first command
 
         self
     }
 
     /// Set a runtime for async operations.
-    pub fn with_runtime(mut self, runtime: crate::runtime::SharedRuntime) -> Self {
-        self.spawner = Some(Arc::new(RuntimeSpawner::new(Arc::clone(&runtime))));
-        self.runtime = Some(runtime);
+    pub fn with_runtime(self, runtime: crate::runtime::SharedRuntime) -> Self {
+        {
+            let mut spawner_lock = self.spawner.lock().unwrap_or_else(|e| e.into_inner());
+            *spawner_lock = Some(Arc::new(RuntimeSpawner::new(Arc::clone(&runtime))));
 
-        // Initialize socket manager automatically for better reliability
-        if let Err(e) = self.initialize_socket_manager() {
-            log::warn!("Failed to initialize socket manager: {e}");
+            let mut runtime_lock = self.runtime.lock().unwrap_or_else(|e| e.into_inner());
+            *runtime_lock = Some(runtime);
         }
+
+        // Note: We can't initialize socket manager here anymore since we need async context
+        // It will be initialized lazily on first command
 
         self
     }
 
     /// Get the runtime if configured.
     #[cfg(feature = "async")]
-    pub(crate) fn runtime(&self) -> Option<&crate::runtime::SharedRuntime> {
-        self.runtime.as_ref()
+    pub(crate) fn runtime(&self) -> Option<crate::runtime::SharedRuntime> {
+        let runtime_lock = self.runtime.lock().unwrap_or_else(|e| e.into_inner());
+        runtime_lock.clone()
     }
 
-    /// Initialize the socket manager for this camera.
-    pub fn initialize_socket_manager(&mut self) -> Result<(), Error> {
-        if self.socket_manager.is_some() {
+    /// Initialize the socket manager for this camera (internal use only).
+    /// This requires holding locks, so it should be called carefully.
+    fn initialize_socket_manager_internal(
+        &self,
+        socket_manager: &mut Option<SocketManagerHandle>,
+        spawner: &Option<Arc<dyn Spawner>>,
+        runtime: &Option<crate::runtime::SharedRuntime>,
+    ) -> Result<(), Error> {
+        if socket_manager.is_some() {
             return Ok(());
         }
 
@@ -394,14 +425,14 @@ where
 
         // Store the handle
         let handle = SocketManagerHandle::new(command_sender);
-        self.socket_manager = Some(handle);
+        *socket_manager = Some(handle);
 
         // Start the socket manager actor with camera's timeout config
         let transport = Arc::clone(&self.transport);
         let timeout_config = self.timeout_config;
 
         // Get runtime (required for socket manager)
-        let runtime = if let Some(ref runtime) = self.runtime {
+        let runtime = if let Some(ref runtime) = runtime {
             Arc::clone(runtime)
         } else {
             return Err(Error::MissingRuntime);
@@ -415,7 +446,7 @@ where
             runtime,
         );
 
-        if let Some(spawner) = &self.spawner {
+        if let Some(spawner) = spawner {
             // Use the provided spawner
             let future = Box::pin(async move {
                 if let Err(e) = actor.run().await {
@@ -433,20 +464,88 @@ where
         Ok(())
     }
 
+    /// Automatically initialize the socket manager if needed.
+    #[cfg(feature = "async")]
+    pub(crate) async fn auto_init_orchestrator_if_needed(&self) -> Result<(), Error> {
+        // Check if already initialized without holding the lock too long
+        {
+            let socket_manager_lock = self
+                .socket_manager
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if socket_manager_lock.is_some() {
+                return Ok(());
+            }
+        }
+
+        // Acquire all locks we need
+        let mut socket_manager_lock = self
+            .socket_manager
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
+        // Double-check after acquiring locks
+        if socket_manager_lock.is_some() {
+            return Ok(());
+        }
+
+        // If rt-tokio feature is enabled and no runtime is set, use default tokio runtime
+        #[cfg(feature = "rt-tokio")]
+        {
+            let spawner_lock = self.spawner.lock().unwrap_or_else(|e| e.into_inner());
+            let runtime_lock = self.runtime.lock().unwrap_or_else(|e| e.into_inner());
+
+            if runtime_lock.is_none() {
+                let default_runtime: crate::runtime::SharedRuntime =
+                    Arc::new(crate::runtime::TokioRuntime);
+
+                // Need mutable access - drop and re-acquire
+                drop(runtime_lock);
+                drop(spawner_lock);
+
+                let mut runtime_lock_mut = self.runtime.lock().unwrap_or_else(|e| e.into_inner());
+                let mut spawner_lock_mut = self.spawner.lock().unwrap_or_else(|e| e.into_inner());
+
+                *runtime_lock_mut = Some(default_runtime.clone());
+                *spawner_lock_mut = Some(Arc::new(RuntimeSpawner::new(default_runtime)));
+            }
+        }
+
+        // Get the locks for initialization
+        let spawner_lock = self.spawner.lock().unwrap_or_else(|e| e.into_inner());
+        let runtime_lock = self.runtime.lock().unwrap_or_else(|e| e.into_inner());
+
+        // Now try to initialize the socket manager
+        self.initialize_socket_manager_internal(
+            &mut socket_manager_lock,
+            &spawner_lock,
+            &runtime_lock,
+        )
+    }
+
     /// Send a command asynchronously and wait for response.
     pub async fn send_command<C>(&self, command: &C) -> Result<Response, Error>
     where
         C: EncodeVisca,
     {
-        // Socket manager is mandatory for async mode
-        let socket_manager =
-            self.socket_manager
+        // Auto-initialize socket manager if needed
+        self.auto_init_orchestrator_if_needed().await?;
+
+        // Get socket manager handle
+        let socket_manager = {
+            let socket_manager_lock = self
+                .socket_manager
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            socket_manager_lock
                 .as_ref()
                 .ok_or(Error::InvalidState(Cow::Borrowed(
-                    "Socket manager not initialized. Call initialize_socket_manager() first.",
-                )))?;
+                    "Failed to initialize socket manager.",
+                )))?
+                .clone()
+        };
 
-        self.send_command_via_socket_manager(command, socket_manager)
+        self.send_command_via_socket_manager(command, &socket_manager)
             .await
     }
 
@@ -499,14 +598,26 @@ where
     #[cfg(feature = "async")]
     #[cfg_attr(not(feature = "rt-tokio"), allow(unused_variables))]
     pub(crate) async fn wait_for_completion(&self, timeout: Duration) -> Result<(), Error> {
+        // Auto-initialize socket manager if needed
+        self.auto_init_orchestrator_if_needed().await?;
+
+        // Get socket manager handle
+        let socket_manager = {
+            let socket_manager_lock = self
+                .socket_manager
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            socket_manager_lock.clone()
+        };
+
         // Check if socket manager is available
-        if let Some(socket_manager) = &self.socket_manager {
+        if let Some(socket_manager) = socket_manager {
             log::debug!("wait_for_completion: using socket manager to wait for completion message");
 
             let wait_fut = socket_manager.wait_for_completion();
 
             // Try to get runtime for timeout
-            let runtime = self.runtime.as_ref().map(Arc::clone);
+            let runtime = self.runtime();
 
             if let Some(runtime) = runtime.as_ref() {
                 match crate::runtime::timeout_with_runtime(runtime.as_ref(), timeout, wait_fut)
@@ -586,8 +697,7 @@ where
         let command = PowerCommand::On;
         self.send_action_command(&command).await?;
         // Wait for camera to be ready (if runtime is available)
-        if let Some(ref runtime) = self.runtime {
-            let runtime = Arc::clone(runtime);
+        if let Some(runtime) = self.runtime() {
             runtime.sleep(P::POWER_ON_TIME).await;
         } else {
             // Without runtime, we can't enforce the power-on delay
@@ -605,8 +715,7 @@ where
         let command = PowerCommand::Standby;
         self.send_action_command(&command).await?;
         // Wait for standby/off (if runtime is available)
-        if let Some(ref runtime) = self.runtime {
-            let runtime = Arc::clone(runtime);
+        if let Some(runtime) = self.runtime() {
             runtime.sleep(P::STANDBY_TIME).await;
         } else {
             // Without runtime, we can't enforce the standby delay
@@ -1867,6 +1976,74 @@ where
     }
 }
 
+// Movement helper methods for async mode (require ProfileMetadata)
+#[cfg(feature = "async")]
+impl<P, T> Camera<AsyncMode, P, T>
+where
+    P: Profile + crate::capabilities::ProfileMetadata,
+    T: AsyncTransport + 'static,
+{
+    /// Wait for all movements to complete.
+    ///
+    /// This waits for pan/tilt, zoom, and focus movements to finish.
+    pub async fn await_idle(&self, timeout: impl Into<Duration>) -> Result<(), Error> {
+        let config = super::MovementConfig::with_timeout(timeout.into());
+        self.wait_for_movement_async(&config).await
+    }
+
+    /// Wait for pan/tilt movement to complete.
+    ///
+    /// Note: This now waits for all movements, not just pan/tilt.
+    /// Use `await_idle` for clarity in new code.
+    pub async fn await_pan_tilt_idle(&self, timeout: impl Into<Duration>) -> Result<(), Error> {
+        self.await_idle(timeout).await
+    }
+
+    /// Wait for zoom movement to complete.
+    ///
+    /// Note: This now waits for all movements, not just zoom.
+    /// Use `await_idle` for clarity in new code.
+    pub async fn await_zoom_idle(&self, timeout: impl Into<Duration>) -> Result<(), Error> {
+        self.await_idle(timeout).await
+    }
+
+    /// Wait for focus movement to complete.
+    ///
+    /// Note: This now waits for all movements, not just focus.
+    /// Use `await_idle` for clarity in new code.
+    pub async fn await_focus_idle(&self, timeout: impl Into<Duration>) -> Result<(), Error> {
+        self.await_idle(timeout).await
+    }
+
+    /// Move to a position and wait for completion.
+    ///
+    /// This sends an absolute pan/tilt command and waits for the movement to finish.
+    #[allow(clippy::expect_used)]
+    pub async fn move_to(
+        &self,
+        pan: crate::units::Degrees,
+        tilt: crate::units::Degrees,
+        timeout: impl Into<Duration>,
+    ) -> Result<(), Error> {
+        use crate::types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed};
+
+        let pan_pos = PanPosition::from_degrees(pan.0)?;
+        let tilt_pos = TiltPosition::from_degrees(tilt.0)?;
+        let pan_speed = PanSpeed::new(18).expect("18 is valid speed"); // Fast speed
+        let tilt_speed = TiltSpeed::new(18).expect("18 is valid speed"); // Fast speed
+        self.pan_tilt_absolute(pan_pos, tilt_pos, pan_speed, tilt_speed)
+            .await?;
+        self.await_idle(timeout).await
+    }
+
+    /// Check if the camera is currently moving.
+    ///
+    /// Returns true if any axis (pan/tilt/zoom/focus) is in motion.
+    pub async fn is_moving(&self) -> Result<bool, Error> {
+        self.is_moving_async().await
+    }
+}
+
 // Blocking mode implementation
 impl<P, T> Camera<BlockingMode, P, T>
 where
@@ -1882,11 +2059,11 @@ where
             transport: Arc::new(transport),
             camera_id,
             #[cfg(feature = "async")]
-            socket_manager: None,
+            socket_manager: Arc::new(Mutex::new(None)),
             #[cfg(feature = "async")]
-            spawner: None,
+            spawner: Arc::new(Mutex::new(None)),
             #[cfg(feature = "async")]
-            runtime: None,
+            runtime: Arc::new(Mutex::new(None)),
             timeout_config: TimeoutConfig::default(),
             _mode: PhantomData,
             _profile: PhantomData,
@@ -3238,6 +3415,67 @@ where
             }),
         }
     }
+}
+
+// Movement helper methods for blocking mode (require ProfileMetadata)
+impl<P, T> Camera<BlockingMode, P, T>
+where
+    P: Profile + crate::capabilities::ProfileMetadata,
+    T: BlockingTransport,
+{
+    /// Wait for all movements to complete.
+    ///
+    /// This waits for pan/tilt, zoom, and focus movements to finish.
+    pub fn await_idle(&self, timeout: impl Into<Duration>) -> Result<(), Error> {
+        let config = super::MovementConfig::with_timeout(timeout.into());
+        self.wait_for_movement(&config)
+    }
+
+    /// Wait for pan/tilt movement to complete.
+    ///
+    /// Note: This now waits for all movements, not just pan/tilt.
+    /// Use `await_idle` for clarity in new code.
+    pub fn await_pan_tilt_idle(&self, timeout: impl Into<Duration>) -> Result<(), Error> {
+        self.await_idle(timeout)
+    }
+
+    /// Wait for zoom movement to complete.
+    ///
+    /// Note: This now waits for all movements, not just zoom.
+    /// Use `await_idle` for clarity in new code.
+    pub fn await_zoom_idle(&self, timeout: impl Into<Duration>) -> Result<(), Error> {
+        self.await_idle(timeout)
+    }
+
+    /// Wait for focus movement to complete.
+    ///
+    /// Note: This now waits for all movements, not just focus.
+    /// Use `await_idle` for clarity in new code.
+    pub fn await_focus_idle(&self, timeout: impl Into<Duration>) -> Result<(), Error> {
+        self.await_idle(timeout)
+    }
+
+    /// Move to a position and wait for completion.
+    ///
+    /// This sends an absolute pan/tilt command and waits for the movement to finish.
+    #[allow(clippy::expect_used)]
+    pub fn move_to(
+        &self,
+        pan: crate::units::Degrees,
+        tilt: crate::units::Degrees,
+        timeout: impl Into<Duration>,
+    ) -> Result<(), Error> {
+        use crate::types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed};
+
+        let pan_pos = PanPosition::from_degrees(pan.0)?;
+        let tilt_pos = TiltPosition::from_degrees(tilt.0)?;
+        let pan_speed = PanSpeed::new(18).expect("18 is valid speed"); // Fast speed
+        let tilt_speed = TiltSpeed::new(18).expect("18 is valid speed"); // Fast speed
+        self.pan_tilt_absolute(pan_pos, tilt_pos, pan_speed, tilt_speed)?;
+        self.await_idle(timeout)
+    }
+
+    // Note: is_moving is already defined as an inherent method in movement_detection.rs
 }
 
 // Legacy impl block removed - use CameraAsync::from_transport() or CameraBlocking::from_transport() instead
