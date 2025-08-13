@@ -204,17 +204,19 @@ mod tokio_tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn test_auto_initialization_behavior() {
-        // This test verifies that with rt-tokio feature enabled,
-        // the socket manager is auto-initialized on first command
+    async fn test_lazy_initialization_with_explicit_runtime() {
+        // This test verifies that with explicit runtime configuration,
+        // the socket manager is lazily initialized on first command
         let transport = MockTransport::with_auto_respond();
-        let camera = Camera::<PTZOpticsG2, _>::from_transport(transport.clone());
+        let runtime = Arc::new(TokioRuntime);
+        let camera = Camera::<PTZOpticsG2, _>::from_transport(transport.clone())
+            .with_runtime(runtime);
 
-        // First command should trigger auto-initialization of socket manager
+        // First command should trigger lazy initialization of socket manager
         let result = camera.power_on().await;
         assert!(
             result.is_ok(),
-            "First command should succeed with auto-initialized socket manager, got: {:?}",
+            "First command should succeed with lazily initialized socket manager, got: {:?}",
             result
         );
 
@@ -222,7 +224,7 @@ mod tokio_tests {
         let sent_commands = transport.get_sent_commands();
         assert!(
             !sent_commands.is_empty(),
-            "Commands should be sent after auto-initialization"
+            "Commands should be sent after lazy initialization"
         );
 
         // Subsequent commands should also work

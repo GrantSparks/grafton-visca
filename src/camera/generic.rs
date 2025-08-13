@@ -401,6 +401,14 @@ where
         self
     }
 
+    /// Convenience method to attach the Tokio runtime.
+    /// This is equivalent to calling `.with_runtime(Arc::new(TokioRuntime))`.
+    #[cfg(feature = "rt-tokio")]
+    pub fn with_tokio(self) -> Self {
+        let runtime: crate::runtime::SharedRuntime = Arc::new(crate::runtime::TokioRuntime);
+        self.with_runtime(runtime)
+    }
+
     /// Get the runtime if configured.
     #[cfg(feature = "async")]
     pub(crate) fn runtime(&self) -> Option<crate::runtime::SharedRuntime> {
@@ -464,9 +472,10 @@ where
         Ok(())
     }
 
-    /// Automatically initialize the socket manager if needed.
+    /// Initialize the socket manager if needed.
+    /// Returns an error if the runtime or spawner is not set.
     #[cfg(feature = "async")]
-    pub(crate) async fn auto_init_orchestrator_if_needed(&self) -> Result<(), Error> {
+    pub(crate) async fn ensure_orchestrator_initialized(&self) -> Result<(), Error> {
         // Check if already initialized without holding the lock too long
         {
             let socket_manager_lock = self
@@ -489,31 +498,20 @@ where
             return Ok(());
         }
 
-        // If rt-tokio feature is enabled and no runtime is set, use default tokio runtime
-        #[cfg(feature = "rt-tokio")]
-        {
-            let spawner_lock = self.spawner.lock().unwrap_or_else(|e| e.into_inner());
-            let runtime_lock = self.runtime.lock().unwrap_or_else(|e| e.into_inner());
-
-            if runtime_lock.is_none() {
-                let default_runtime: crate::runtime::SharedRuntime =
-                    Arc::new(crate::runtime::TokioRuntime);
-
-                // Need mutable access - drop and re-acquire
-                drop(runtime_lock);
-                drop(spawner_lock);
-
-                let mut runtime_lock_mut = self.runtime.lock().unwrap_or_else(|e| e.into_inner());
-                let mut spawner_lock_mut = self.spawner.lock().unwrap_or_else(|e| e.into_inner());
-
-                *runtime_lock_mut = Some(default_runtime.clone());
-                *spawner_lock_mut = Some(Arc::new(RuntimeSpawner::new(default_runtime)));
-            }
-        }
-
-        // Get the locks for initialization
+        // Get the locks for initialization - no implicit runtime creation
         let spawner_lock = self.spawner.lock().unwrap_or_else(|e| e.into_inner());
         let runtime_lock = self.runtime.lock().unwrap_or_else(|e| e.into_inner());
+
+        // Check if runtime and spawner are available
+        if runtime_lock.is_none() {
+            return Err(Error::MissingRuntime);
+        }
+
+        if spawner_lock.is_none() {
+            return Err(Error::InvalidState(Cow::Borrowed(
+                "No spawner configured. This should be set automatically with the runtime.",
+            )));
+        }
 
         // Now try to initialize the socket manager
         self.initialize_socket_manager_internal(
@@ -528,8 +526,8 @@ where
     where
         C: EncodeVisca,
     {
-        // Auto-initialize socket manager if needed
-        self.auto_init_orchestrator_if_needed().await?;
+        // Ensure socket manager is initialized
+        self.ensure_orchestrator_initialized().await?;
 
         // Get socket manager handle
         let socket_manager = {
@@ -598,8 +596,8 @@ where
     #[cfg(feature = "async")]
     #[cfg_attr(not(feature = "rt-tokio"), allow(unused_variables))]
     pub(crate) async fn wait_for_completion(&self, timeout: Duration) -> Result<(), Error> {
-        // Auto-initialize socket manager if needed
-        self.auto_init_orchestrator_if_needed().await?;
+        // Ensure socket manager is initialized
+        self.ensure_orchestrator_initialized().await?;
 
         // Get socket manager handle
         let socket_manager = {
