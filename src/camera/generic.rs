@@ -517,28 +517,9 @@ where
                     Err(e) => Err(e),
                 }
             } else {
-                // Fallback to tokio if available
-                #[cfg(feature = "rt-tokio")]
-                {
-                    if tokio::runtime::Handle::try_current().is_ok() {
-                        match tokio::time::timeout(timeout, wait_fut).await {
-                            Ok(Ok(())) => Ok(()),
-                            Ok(Err(e)) => Err(e),
-                            Err(_) => Err(Error::Timeout),
-                        }
-                    } else {
-                        // No runtime available
-                        log::warn!("No runtime available for timeout");
-                        wait_fut.await
-                    }
-                }
-
-                #[cfg(not(feature = "rt-tokio"))]
-                {
-                    // For non-tokio, we need a different timeout mechanism
-                    // For now, just call the method without timeout wrapper
-                    wait_fut.await
-                }
+                // No runtime configured - this is an error for async operations that require timeouts
+                log::error!("No runtime configured for async timeout operation. Configure a runtime using CameraBuilder::runtime()");
+                Err(Error::MissingRuntime)
             }
         } else {
             // No socket manager, can't wait for completion
