@@ -105,8 +105,6 @@ pub struct PendingCmd {
     pub is_inquiry: bool,
     /// Expected response type for inquiry commands.
     pub response_type: Option<crate::command::response::ResponseType>,
-    /// When this command was first enqueued.
-    pub enqueued_at: Instant,
     /// Number of retry attempts made for this command.
     pub retry_attempt: u32,
 }
@@ -128,7 +126,6 @@ impl PendingCmd {
             response_sender,
             is_inquiry,
             response_type,
-            enqueued_at: Instant::now(),
             retry_attempt: 0,
         }
     }
@@ -153,8 +150,6 @@ pub struct SocketManagerInner {
     pub next_command_id: u32,
     /// Commands currently being executed on each socket.
     pub active_commands: [Option<PendingCmd>; 2],
-    /// Inquiry command waiting for response (only one allowed at a time).
-    pub pending_inquiry: Option<PendingCmd>,
     /// Camera ID for addressing commands.
     pub camera_id: CameraId,
     /// List of waiters for completion messages.
@@ -168,7 +163,6 @@ impl Default for SocketManagerInner {
             command_queue: VecDeque::new(),
             next_command_id: 1,
             active_commands: [None, None],
-            pending_inquiry: None,
             camera_id: CameraId::CAMERA_1,
             completion_waiters: VecDeque::new(),
         }
@@ -242,16 +236,6 @@ impl SocketManagerInner {
     pub fn get_active_command(&self, socket: Socket) -> Option<&PendingCmd> {
         let index = socket.as_index();
         self.active_commands[index].as_ref()
-    }
-
-    /// Set the pending inquiry command.
-    pub fn set_pending_inquiry(&mut self, command: PendingCmd) {
-        self.pending_inquiry = Some(command);
-    }
-
-    /// Take the pending inquiry command, leaving None in its place.
-    pub fn take_pending_inquiry(&mut self) -> Option<PendingCmd> {
-        self.pending_inquiry.take()
     }
 }
 
@@ -654,35 +638,8 @@ where
             response_type,
         );
 
-        if is_inquiry {
-            self.handle_inquiry_command(pending_cmd).await;
-        } else {
-            self.handle_action_command(pending_cmd).await;
-        }
-    }
-
-    async fn handle_inquiry_command(&mut self, pending_cmd: PendingCmd) {
-        let id = pending_cmd.id;
-        trace!("Handling inquiry command {id}");
-
-        if self.inner.pending_inquiry.is_some() {
-            warn!("Inquiry already in progress, completing with error");
-            pending_cmd.complete(Err(Error::CommandBufferFull));
-            return;
-        }
-
-        match self.transport.send(&pending_cmd.bytes).await {
-            Ok(()) => {
-                trace!("Inquiry command {} sent successfully", pending_cmd.id);
-                self.inner.set_pending_inquiry(pending_cmd);
-            }
-            Err(e) => {
-                let id = pending_cmd.id;
-                let err: Error = e;
-                error!("Failed to send inquiry command {id}: {err}");
-                pending_cmd.complete(Err(err));
-            }
-        }
+        // Treat inquiries the same as regular commands - use socket allocation
+        self.handle_action_command(pending_cmd).await;
     }
 
     async fn handle_action_command(&mut self, pending_cmd: PendingCmd) {
@@ -791,19 +748,31 @@ where
             }
             Err(_e) if bytes.len() > 3 && bytes[0] == 0x90 && bytes[1] == 0x50 => {
                 // This looks like an inquiry response but couldn't be parsed without type info
-                // First, try to use the pending inquiry's response type if available
-                let response_type = if let Some(ref pending) = self.inner.pending_inquiry {
-                    pending.response_type
-                } else {
-                    // If no pending inquiry, try to determine based on payload length as fallback
-                    let payload_len = bytes.len() - 3; // Subtract header (0x90, 0x50) and terminator (0xFF)
-                    match payload_len {
-                        1 => Some(crate::command::response::ResponseType::Power), // Single byte responses
-                        4 => Some(crate::command::response::ResponseType::ZoomPosition), // 4-byte responses
-                        8 => Some(crate::command::response::ResponseType::PanTiltPosition), // 8-byte responses
-                        _ => {
-                            warn!("Received inquiry response but no pending inquiry and cannot determine type from payload length {}", payload_len);
-                            None
+                // Check active commands for inquiries with response types to determine type
+                let response_type = {
+                    let mut found_type = None;
+                    for socket in [Socket::Socket1, Socket::Socket2] {
+                        if let Some(command) = self.inner.get_active_command(socket) {
+                            if command.is_inquiry && command.response_type.is_some() {
+                                found_type = command.response_type;
+                                break;
+                            }
+                        }
+                    }
+
+                    if let Some(found) = found_type {
+                        Some(found)
+                    } else {
+                        // If no active inquiry found, try to determine based on payload length as fallback
+                        let payload_len = bytes.len() - 3; // Subtract header (0x90, 0x50) and terminator (0xFF)
+                        match payload_len {
+                            1 => Some(crate::command::response::ResponseType::Power), // Single byte responses
+                            4 => Some(crate::command::response::ResponseType::ZoomPosition), // 4-byte responses
+                            8 => Some(crate::command::response::ResponseType::PanTiltPosition), // 8-byte responses
+                            _ => {
+                                warn!("Received inquiry response but no active inquiry and cannot determine type from payload length {}", payload_len);
+                                None
+                            }
                         }
                     }
                 };
@@ -926,13 +895,25 @@ where
 
     async fn handle_inquiry_response(&mut self, data: crate::command::InquiryResponse) {
         trace!("Received inquiry response: {data:?}");
-        if let Some(command) = self.inner.take_pending_inquiry() {
-            let id = command.id;
-            debug!("Inquiry response received for command {id}");
-            command.complete(Ok(Response::Inquiry(data)));
-        } else {
-            warn!("Received inquiry response but no pending inquiry");
+
+        // Check active commands on both sockets for inquiries
+        for socket in [Socket::Socket1, Socket::Socket2] {
+            if let Some(command) = self.inner.get_active_command(socket) {
+                if command.is_inquiry {
+                    // Found an active inquiry command, complete it
+                    if let Some(command) = self.inner.take_active_command(socket) {
+                        let id = command.id;
+                        debug!("Inquiry response received for command {id} on {socket:?}");
+                        command.complete(Ok(Response::Inquiry(data)));
+                        self.inner.mark_socket_free(socket);
+                        self.try_dispatch_next_command().await;
+                        return;
+                    }
+                }
+            }
         }
+
+        warn!("Received inquiry response but no active inquiry command found");
     }
 
     async fn try_dispatch_next_command(&mut self) {
@@ -975,16 +956,6 @@ where
                 warn!("Command timeout on {socket:?}, sending cancel command");
             }
             self.handle_command_timeout(socket).await;
-        }
-
-        if let Some(ref inquiry) = self.inner.pending_inquiry {
-            // Use the appropriate timeout for inquiry commands
-            let timeout_duration = self.timeout_config.get_timeout(inquiry.category);
-            if now.duration_since(inquiry.enqueued_at) > timeout_duration {
-                let id = inquiry.id;
-                warn!("Inquiry command timeout for command {id}");
-                self.handle_inquiry_timeout().await;
-            }
         }
     }
 
@@ -1036,19 +1007,6 @@ where
         self.try_dispatch_next_command().await;
     }
 
-    async fn handle_inquiry_timeout(&mut self) {
-        if let Some(inquiry) = self.inner.take_pending_inquiry() {
-            let id = inquiry.id;
-            let category = inquiry.category;
-            let timeout_duration = self.timeout_config.get_timeout(category);
-            let timeout_error = Error::CommandTimeout {
-                duration: timeout_duration,
-                command: Cow::Owned(format!("Inquiry command {id}")),
-            };
-            inquiry.complete(Err(timeout_error));
-        }
-    }
-
     async fn schedule_retry(&mut self, command: PendingCmd, delay: std::time::Duration) {
         log::debug!(
             "Scheduling retry for command {} (attempt {}) with delay {:?}",
@@ -1059,11 +1017,7 @@ where
 
         self.runtime.sleep(delay).await;
 
-        if command.is_inquiry {
-            self.inner.set_pending_inquiry(command);
-        } else {
-            self.inner.enqueue_command(command);
-        }
+        self.inner.enqueue_command(command);
     }
 }
 
@@ -1111,7 +1065,6 @@ mod tests {
         assert_eq!(manager.active_commands.len(), 2);
         assert!(manager.active_commands[0].is_none());
         assert!(manager.active_commands[1].is_none());
-        assert!(manager.pending_inquiry.is_none());
     }
 
     #[test]
@@ -1499,37 +1452,6 @@ mod tests {
             }
 
             assert!(manager.dequeue_command().is_none());
-        }
-    }
-
-    #[test]
-    fn test_pending_inquiry_management() {
-        #[cfg(feature = "rt-tokio")]
-        {
-            let mut manager = SocketManagerInner::new();
-
-            // Initially no pending inquiry
-            assert!(manager.pending_inquiry.is_none());
-
-            // Set pending inquiry
-            let (tx, _rx) = channels::oneshot();
-            let inquiry = PendingCmd::new(
-                1,
-                Bytes::from(vec![0x81, 0x09]),
-                CommandCategory::Quick,
-                tx,
-                true,
-                Some(crate::command::response::ResponseType::Power),
-            );
-            manager.set_pending_inquiry(inquiry);
-
-            assert!(manager.pending_inquiry.is_some());
-
-            // Take pending inquiry
-            let taken = manager.take_pending_inquiry();
-            assert!(taken.is_some());
-            assert_eq!(taken.expect("should take pending inquiry").id, 1);
-            assert!(manager.pending_inquiry.is_none());
         }
     }
 

@@ -97,10 +97,21 @@ async fn test_simulator_exposure_compensation_inquiry() {
     let response = simulator.recv().await.expect("should receive response");
 
     // Verify it's a data reply (0x90 0x50)
+    // Exposure compensation response format: 0x90 0x50 0x00 0x00 high_nibble low_nibble 0xFF
+    // Default value is 0, which gets adjusted to 7 (0 + 7), so nibbles are 0x00 and 0x07
     assert_eq!(response[0], 0x90, "Should be response header");
     assert_eq!(response[1], 0x50, "Should be data reply");
-    assert_eq!(response[2], 0x00, "Exposure compensation should be 0");
-    assert_eq!(response[3], 0xFF, "Should have terminator");
+    assert_eq!(response[2], 0x00, "First padding byte");
+    assert_eq!(response[3], 0x00, "Second padding byte");
+    assert_eq!(
+        response[4], 0x00,
+        "High nibble of adjusted value (7 >> 4 = 0)"
+    );
+    assert_eq!(
+        response[5], 0x07,
+        "Low nibble of adjusted value (7 & 0x0F = 7)"
+    );
+    assert_eq!(response[6], 0xFF, "Should have terminator");
 }
 
 #[tokio::test]
