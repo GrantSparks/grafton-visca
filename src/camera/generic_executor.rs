@@ -128,14 +128,41 @@ where
         // Send command
         self.transport.send_blocking(&request)?;
 
-        // Receive response
-        let response_bytes = self.transport.recv_blocking()?;
+        // For non-inquiry commands, we need to handle ACK/Completion sequence
+        if !is_inquiry {
+            // Read first response (should be ACK or error)
+            let first_response_bytes = self.transport.recv_blocking()?;
+            let first_visca = self.envelope.extract_response(&first_response_bytes)?;
+            let first_response = Response::parse(&first_visca)?;
 
-        // Unwrap from envelope
-        let visca_response = self.envelope.extract_response(&response_bytes)?;
+            match first_response {
+                Response::Error(e) => Err(e),
+                Response::CmdAck => {
+                    // Got ACK, now wait for completion
+                    let second_response_bytes = self.transport.recv_blocking()?;
+                    let second_visca = self.envelope.extract_response(&second_response_bytes)?;
+                    let second_response = Response::parse(&second_visca)?;
 
-        // Parse response
-        Response::parse(&visca_response)
+                    match second_response {
+                        Response::Error(e) => Err(e),
+                        _ => Ok(second_response),
+                    }
+                }
+                // If first response is already completion (some cameras skip ACK)
+                Response::Completion => Ok(first_response),
+                _ => Ok(first_response),
+            }
+        } else {
+            // For inquiry commands, just read one response
+            let response_bytes = self.transport.recv_blocking()?;
+            let visca_response = self.envelope.extract_response(&response_bytes)?;
+            let response = Response::parse(&visca_response)?;
+
+            match response {
+                Response::Error(e) => Err(e),
+                _ => Ok(response),
+            }
+        }
     }
 }
 
