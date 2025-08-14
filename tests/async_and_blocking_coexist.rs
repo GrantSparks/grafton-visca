@@ -70,14 +70,13 @@ fn test_both_preludes_available() {
     // Blocking prelude should always be available
     use grafton_visca::prelude::blocking as blocking_prelude;
 
-    // Async prelude only when async feature is enabled
-    #[cfg(feature = "async")]
-    use grafton_visca::prelude::r#async as async_prelude;
-
     // Use types from blocking prelude
     type _BlockingG2 = blocking_prelude::PTZOpticsG2Cam<BlockingTcp>;
 
     // Use types from async prelude when available
     #[cfg(all(feature = "async", feature = "rt-tokio"))]
-    type _AsyncG2 = async_prelude::PTZOpticsG2Cam<AsyncTcp>;
+    {
+        use grafton_visca::prelude::r#async as async_prelude;
+        type _AsyncG2 = async_prelude::PTZOpticsG2Cam<AsyncTcp>;
+    }
 }
