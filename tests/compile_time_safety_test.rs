@@ -8,7 +8,14 @@ const VISCA_TERMINATOR: u8 = 0xFF;
 
 use grafton_visca::prelude::blocking::{GenericViscaCam, PTZOpticsG2Cam, SonyFR7Cam};
 use grafton_visca::transport::BlockingTransport;
-use grafton_visca::{capabilities::*, Error, PresetNumber};
+use grafton_visca::{
+    camera::methods::{
+        focus::FocusOpsBlocking, pan_tilt::PanTiltOpsBlocking, power::PowerOpsBlocking,
+        presets::PresetsOpsBlocking, zoom::ZoomOpsBlocking,
+    },
+    capabilities::*,
+    Error, PresetNumber,
+};
 use std::sync::Mutex;
 
 // Mock transport that returns proper VISCA responses

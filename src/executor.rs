@@ -12,9 +12,6 @@ use core::task::{Context, Poll, Waker};
 #[cfg(feature = "async")]
 use std::pin::Pin;
 
-#[cfg(any(feature = "async", test, feature = "test-utils"))]
-use crate::Error;
-
 /// Type alias for a boxed future that can be spawned.
 ///
 /// This type is only available when the `async` feature is enabled.
@@ -276,54 +273,6 @@ pub fn block_on<F: Future>(fut: F) -> F::Output {
     }
 }
 
-/// Execute a future with a timeout using a deadline-based polling loop.
-///
-/// This function polls the future repeatedly until it completes or the deadline is reached.
-/// For blocking transports (which return immediately-ready futures), this typically
-/// completes on the first poll. For truly async futures, it uses a polling loop with
-/// brief sleeps to avoid busy-waiting.
-///
-/// **Note:** This function is only intended for test utilities and should not be used
-/// in production code. Production code should use proper async runtimes with their timeout facilities.
-#[cfg(any(test, feature = "test-utils"))]
-pub fn timeout<F: Future>(duration: core::time::Duration, fut: F) -> Result<F::Output, Error> {
-    use std::time::Instant;
-
-    let deadline = Instant::now() + duration;
-    #[allow(unused_qualifications)]
-    let mut fut = std::boxed::Box::pin(fut);
-    let waker = noop_waker();
-    let mut cx = Context::from_waker(&waker);
-
-    // First poll - for blocking transports this will complete immediately
-    match fut.as_mut().poll(&mut cx) {
-        Poll::Ready(val) => return Ok(val),
-        Poll::Pending => {
-            // Only enter the loop if the future is truly pending
-            if Instant::now() >= deadline {
-                return Err(Error::Timeout);
-            }
-        }
-    }
-
-    // Polling loop for async futures that are actually pending
-    loop {
-        // Brief sleep to avoid busy-waiting
-        std::thread::sleep(std::time::Duration::from_millis(1));
-
-        // Check deadline before polling
-        if Instant::now() >= deadline {
-            return Err(Error::Timeout);
-        }
-
-        // Poll the future
-        match fut.as_mut().poll(&mut cx) {
-            Poll::Ready(val) => return Ok(val),
-            Poll::Pending => continue,
-        }
-    }
-}
-
 /// Runtime-agnostic sleep trait.
 ///
 /// This trait abstracts over different async runtime sleep implementations,
@@ -423,50 +372,5 @@ impl Sleep for BlockingSleep {
         std::boxed::Box::pin(async move {
             std::thread::sleep(duration);
         })
-    }
-}
-
-/// Execute an async future with a timeout using a runtime-agnostic sleep implementation.
-///
-/// This function races the given future against a sleep timer, returning an error
-/// if the timeout is reached before the future completes.
-///
-/// # Examples
-///
-/// ```no_run
-/// # #[cfg(feature = "async")]
-/// # {
-/// use grafton_visca::executor::{timeout_with_sleep, NoopSleep};
-/// use std::time::Duration;
-///
-/// # futures::executor::block_on(async {
-/// let sleep_impl = NoopSleep;
-/// let result = timeout_with_sleep(&sleep_impl, Duration::from_secs(1), async {
-///     // Some async operation
-///     42
-/// }).await;
-/// assert_eq!(result.unwrap(), 42);
-/// # });
-/// # }
-/// ```
-#[cfg(feature = "async")]
-pub async fn timeout_with_sleep<S, F, T>(
-    sleep_impl: &S,
-    duration: core::time::Duration,
-    fut: F,
-) -> Result<T, Error>
-where
-    S: Sleep + ?Sized,
-    F: Future<Output = T>,
-{
-    use futures::future::{select, Either};
-    use std::pin::pin;
-
-    let sleep_fut = sleep_impl.sleep(duration);
-    let work_fut = pin!(fut);
-
-    match select(work_fut, sleep_fut).await {
-        Either::Left((result, _)) => Ok(result),
-        Either::Right(((), _)) => Err(Error::Timeout),
     }
 }

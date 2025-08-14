@@ -8,7 +8,7 @@
 #[cfg(feature = "rt-tokio")]
 use grafton_visca::{
     camera::{AsyncMode, Camera},
-    Error, TokioExecutor,
+    Error, PowerOps, TokioExecutor,
 };
 
 #[cfg(not(feature = "rt-tokio"))]

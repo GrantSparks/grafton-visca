@@ -20,15 +20,14 @@
 use grafton_visca::{
     camera::methods::{
         exposure::ExposureOps, focus::FocusOps, image_processing::ImageProcessingOps,
-        pan_tilt::PanTiltOps, power::PowerOps, presets::PresetsOps, white_balance::WhiteBalanceOps,
-        zoom::ZoomOps,
+        pan_tilt::PanTiltOps, presets::PresetsOps, white_balance::WhiteBalanceOps, zoom::ZoomOps,
     },
-    camera::{profiles::PTZOpticsG2, Camera},
+    camera::profiles::PTZOpticsG2,
     command::preset::PresetNumber,
     transport::tokio::tcp::Tcp,
-    types::{PanPosition, PanSpeed, SpeedLevel, TiltPosition, TiltSpeed},
+    types::{PanSpeed, SpeedLevel, TiltSpeed},
     units::{Degrees, Normalized},
-    Error, PanTiltDirection, TokioExecutor,
+    CameraBuilder, Error, PanTiltDirection,
 };
 
 #[cfg(feature = "rt-tokio")]
@@ -55,8 +54,7 @@ async fn main() -> Result<(), Error> {
 
     // Create camera using the new executor-based API
     let transport = Tcp::connect(&camera_addr).await?;
-    let executor = TokioExecutor::from_current()?;
-    let camera = Camera::<_, PTZOpticsG2, _, _>::with_executor(transport, executor);
+    let camera = CameraBuilder::tokio()?.build_async::<PTZOpticsG2, _>(transport)?;
 
     println!("✅ Connected successfully!");
     println!();
@@ -66,8 +64,8 @@ async fn main() -> Result<(), Error> {
 
     // Store initial values for later restoration
     // In a real application, you'd query these from the camera
-    let _initial_pan = Degrees::new(0.0);
-    let _initial_tilt = Degrees::new(0.0);
+    let _initial_pan = Degrees(0.0);
+    let _initial_tilt = Degrees(0.0);
 
     println!("✓ Initial state saved (will return to home at end)");
     println!();
@@ -135,12 +133,7 @@ async fn main() -> Result<(), Error> {
     // Relative movement with simplified API
     println!("Moving relative (+10°, +5°)...");
     camera
-        .pan_tilt_relative(
-            PanPosition::from_degrees(10.0)?,
-            TiltPosition::from_degrees(5.0)?,
-            PanSpeed::new(12)?,
-            TiltSpeed::new(12)?,
-        )
+        .pan_tilt_relative(Degrees(10.0), Degrees(5.0), SpeedLevel::Medium)
         .await?;
     camera.await_pan_tilt_idle(Duration::from_secs(30)).await?;
     println!("✓ Relative movement complete");
@@ -154,11 +147,12 @@ async fn main() -> Result<(), Error> {
     // === DEMONSTRATE NEW MOVEMENT DETECTION ===
     println!("═══ Advanced Movement Detection ═══");
 
-    println!("Using move_to helper (combines movement + wait)...");
+    println!("Moving to absolute position with await...");
     camera
-        .move_to(Degrees(-30.0), Degrees(10.0), Duration::from_secs(30))
+        .pan_tilt_absolute(Degrees(-30.0), Degrees(10.0), SpeedLevel::Medium)
         .await?;
-    println!("✓ move_to completed");
+    camera.await_pan_tilt_idle(Duration::from_secs(30)).await?;
+    println!("✓ Movement completed");
 
     println!("Initiating multiple movements...");
     camera
@@ -174,8 +168,7 @@ async fn main() -> Result<(), Error> {
     use tokio::join;
 
     // Start multiple movements simultaneously
-    let pan_tilt =
-        camera.pan_tilt_absolute(Degrees::new(20.0), Degrees::new(-5.0), SpeedLevel::Fast);
+    let pan_tilt = camera.pan_tilt_absolute(Degrees(20.0), Degrees(-5.0), SpeedLevel::Fast);
     let zoom = camera.zoom_absolute(Normalized(0.6));
 
     // Execute them concurrently

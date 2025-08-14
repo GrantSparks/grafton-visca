@@ -3,11 +3,10 @@
 #[cfg(feature = "rt-tokio")]
 mod tokio_tests {
     use bytes::Bytes;
-    use grafton_visca::runtime::TokioRuntime;
     use grafton_visca::transport::AsyncTransport;
     use grafton_visca::{
-        camera::{profiles::PTZOpticsG2, CameraAsync as Camera},
-        Error,
+        camera::{profiles::PTZOpticsG2, AsyncMode, Camera},
+        Error, PowerOps, TokioExecutor, ZoomOps,
     };
     use std::collections::VecDeque;
     use std::sync::{Arc, Mutex};
@@ -112,11 +111,10 @@ mod tokio_tests {
     async fn test_socket_manager_initialization() {
         // Use auto-respond to ensure proper VISCA responses
         let transport = MockTransport::with_auto_respond();
-        let handle = tokio::runtime::Handle::current();
-        let runtime = Arc::new(TokioRuntime);
-        let inner_camera = Camera::<PTZOpticsG2, _>::from_transport(transport)
-            .with_spawner(handle)
-            .with_runtime(runtime);
+        let _handle = tokio::runtime::Handle::current();
+        let executor = TokioExecutor::from_current().unwrap();
+        let inner_camera =
+            Camera::<AsyncMode, PTZOpticsG2, _, _>::with_executor(transport, executor);
 
         // Socket manager is now automatically initialized on first use
         // Test that an operation works, which will trigger auto-initialization
@@ -137,9 +135,11 @@ mod tokio_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_socket_manager_with_commands() {
         let transport = MockTransport::with_auto_respond();
-        let runtime = Arc::new(TokioRuntime);
-        let camera =
-            Camera::<PTZOpticsG2, _>::from_transport(transport.clone()).with_runtime(runtime);
+        let executor = Arc::new(TokioExecutor::from_current().unwrap());
+        let camera = Camera::<grafton_visca::camera::AsyncMode, PTZOpticsG2, _, _>::with_executor(
+            transport.clone(),
+            executor.as_ref().clone(),
+        );
 
         // Give the actor time to start
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -183,9 +183,11 @@ mod tokio_tests {
         // Testing true concurrency with a mock is complex and timing-dependent
         // The important thing is that the socket manager can handle multiple commands
         let transport = MockTransport::with_auto_respond();
-        let runtime = Arc::new(TokioRuntime);
-        let camera =
-            Camera::<PTZOpticsG2, _>::from_transport(transport.clone()).with_runtime(runtime);
+        let executor = Arc::new(TokioExecutor::from_current().unwrap());
+        let camera = Camera::<grafton_visca::camera::AsyncMode, PTZOpticsG2, _, _>::with_executor(
+            transport.clone(),
+            executor.as_ref().clone(),
+        );
 
         tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -208,12 +210,14 @@ mod tokio_tests {
         // This test verifies that with explicit runtime configuration,
         // the socket manager is lazily initialized on first command
         let transport = MockTransport::with_auto_respond();
-        let runtime = Arc::new(TokioRuntime);
-        let camera =
-            Camera::<PTZOpticsG2, _>::from_transport(transport.clone()).with_runtime(runtime);
+        let executor = Arc::new(TokioExecutor::from_current().unwrap());
+        let camera = Camera::<grafton_visca::camera::AsyncMode, PTZOpticsG2, _, _>::with_executor(
+            transport.clone(),
+            executor.as_ref().clone(),
+        );
 
         // First command should trigger lazy initialization of socket manager
-        let result = camera.power_on().await;
+        let result = camera.power_off().await;
         assert!(
             result.is_ok(),
             "First command should succeed with lazily initialized socket manager, got: {:?}",
@@ -228,7 +232,7 @@ mod tokio_tests {
         );
 
         // Subsequent commands should also work
-        let result2 = camera.power_off().await;
+        let result2 = camera.power_on().await;
         assert!(
             result2.is_ok(),
             "Subsequent commands should also succeed, got: {:?}",
@@ -246,11 +250,10 @@ mod tokio_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_socket_manager_timeout_handling() {
         let transport = MockTransport::new(); // No auto-respond
-        let handle = tokio::runtime::Handle::current();
-        let runtime = Arc::new(TokioRuntime);
-        let inner_camera = Camera::<PTZOpticsG2, _>::from_transport(transport)
-            .with_spawner(handle)
-            .with_runtime(runtime);
+        let _handle = tokio::runtime::Handle::current();
+        let executor = TokioExecutor::from_current().unwrap();
+        let inner_camera =
+            Camera::<AsyncMode, PTZOpticsG2, _, _>::with_executor(transport, executor);
 
         // Socket manager is now automatically initialized on first use
 

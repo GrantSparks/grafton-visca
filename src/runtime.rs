@@ -52,17 +52,6 @@ pub struct GenericRuntime<S: Sleep, P: Spawner> {
 }
 
 #[cfg(feature = "async")]
-impl<S: Sleep, P: Spawner> GenericRuntime<S, P> {
-    /// Create a new generic runtime from sleep and spawner implementations.
-    pub fn new(sleep_impl: S, spawner: P) -> Self {
-        Self {
-            sleep_impl,
-            spawner,
-        }
-    }
-}
-
-#[cfg(feature = "async")]
 impl<S: Sleep + std::fmt::Debug + 'static, P: Spawner + std::fmt::Debug + 'static> Runtime
     for GenericRuntime<S, P>
 {
@@ -78,16 +67,6 @@ impl<S: Sleep + std::fmt::Debug + 'static, P: Spawner + std::fmt::Debug + 'stati
 /// Type alias for a shared runtime.
 #[cfg(feature = "async")]
 pub type SharedRuntime = Arc<dyn Runtime>;
-
-/// Get the default runtime based on enabled features.
-///
-/// This function no longer automatically creates a runtime. Users must explicitly
-/// provide a runtime via `.with_runtime()` when constructing async cameras.
-/// This ensures explicit runtime configuration and avoids silent fallbacks.
-#[cfg(feature = "async")]
-pub fn default_runtime() -> Result<SharedRuntime, Error> {
-    Err(Error::MissingRuntime)
-}
 
 /// Execute a future with a timeout using the provided runtime.
 #[cfg(feature = "async")]
@@ -130,14 +109,6 @@ impl std::fmt::Debug for RuntimeSleep {
 }
 
 #[cfg(feature = "async")]
-impl RuntimeSleep {
-    /// Create a new RuntimeSleep wrapping a runtime.
-    pub fn new(runtime: SharedRuntime) -> Self {
-        Self { runtime }
-    }
-}
-
-#[cfg(feature = "async")]
 impl Sleep for RuntimeSleep {
     fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
         self.runtime.sleep(duration)
@@ -157,14 +128,6 @@ impl std::fmt::Debug for RuntimeSpawner {
         f.debug_struct("RuntimeSpawner")
             .field("runtime", &"<Runtime>")
             .finish()
-    }
-}
-
-#[cfg(feature = "async")]
-impl RuntimeSpawner {
-    /// Create a new RuntimeSpawner wrapping a runtime.
-    pub fn new(runtime: SharedRuntime) -> Self {
-        Self { runtime }
     }
 }
 

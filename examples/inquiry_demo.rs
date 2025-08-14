@@ -205,7 +205,11 @@ fn main() -> grafton_visca::Result<()> {
 #[cfg(feature = "rt-tokio")]
 #[tokio::main]
 async fn main() -> grafton_visca::Result<()> {
-    use grafton_visca::CameraBuilder;
+    use grafton_visca::{
+        camera::methods::inquiry::{InquiryOps, PanTiltInquiryOps},
+        transport::tokio::tcp::Tcp,
+        CameraBuilder,
+    };
     use tokio::time::{Duration, Instant};
 
     env_logger::init();
@@ -218,10 +222,9 @@ async fn main() -> grafton_visca::Result<()> {
         .unwrap_or_else(|| "192.168.0.110".to_string());
 
     println!("Connecting to camera at {camera_addr}...");
-    let camera = CameraBuilder::tokio_tcp(&camera_addr)
-        .profile::<grafton_visca::camera::profiles::GenericVisca>()
-        .build()
-        .await?;
+    let transport = Tcp::connect(&camera_addr).await?;
+    let camera = CameraBuilder::tokio()?
+        .build_async::<grafton_visca::camera::profiles::GenericVisca, _>(transport)?;
 
     println!("\n⚡ Executing all inquiries concurrently...\n");
 
@@ -257,33 +260,33 @@ async fn main() -> grafton_visca::Result<()> {
         nr_2d,
         nr_3d,
     ) = tokio::join!(
-        camera.power_inquiry(),
-        camera.version_inquiry(),
-        camera.resolution_inquiry(),
-        camera.pan_tilt_position_inquiry(),
-        camera.zoom_position_inquiry(),
-        camera.focus_mode_inquiry(),
+        camera.get_power_state(),
+        camera.get_version(),
+        camera.get_resolution(),
+        camera.get_pan_tilt_position(),
+        camera.get_zoom_position(),
+        camera.get_focus_mode(),
         // camera.auto_focus_inquiry(), // Not documented in VISCA specs
-        camera.focus_position_inquiry(),
-        camera.focus_near_limit_inquiry(),
-        camera.exposure_mode_inquiry(),
-        camera.iris_inquiry(),
-        camera.shutter_inquiry(),
-        camera.gain_inquiry(),
-        camera.gain_limit_inquiry(),
-        camera.brightness_inquiry(),
-        camera.exposure_compensation_inquiry(),
-        camera.exposure_compensation_mode_inquiry(),
-        camera.backlight_inquiry(),
-        camera.white_balance_mode_inquiry(),
-        camera.color_temperature_inquiry(),
+        camera.get_focus_position(),
+        camera.get_focus_near_limit(),
+        camera.get_exposure_mode(),
+        camera.get_iris(),
+        camera.get_shutter(),
+        camera.get_gain(),
+        camera.get_gain_limit(),
+        camera.get_brightness(),
+        camera.get_exposure_compensation(),
+        camera.get_exposure_compensation_enabled(),
+        camera.get_backlight_enabled(),
+        camera.get_white_balance_mode(),
+        camera.get_color_temperature(),
         // camera.sharpness_inquiry(), // Not documented in VISCA specs
         // camera.contrast_inquiry(),  // Not documented in VISCA specs
-        camera.saturation_inquiry(),
-        camera.hue_inquiry(),
-        camera.image_flip_inquiry(),
-        camera.noise_reduction_2d_inquiry(),
-        camera.noise_reduction_3d_inquiry(),
+        camera.get_saturation(),
+        camera.get_hue(),
+        camera.get_flip_mode(),
+        camera.get_noise_reduction_2d(),
+        camera.get_noise_reduction_3d(),
     );
 
     let elapsed = start.elapsed();

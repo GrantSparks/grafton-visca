@@ -3,11 +3,12 @@
 //! This module provides a builder pattern for constructing cameras with
 //! the new unified Executor trait, preventing runtime/spawner mismatches.
 
-use crate::{camera_id::CameraId, capabilities::Profile, error::Error, timeout::TimeoutConfig};
+use crate::{camera_id::CameraId, capabilities::Profile, timeout::TimeoutConfig};
 
 #[cfg(feature = "async")]
 use crate::{
     camera::{generic_executor::Camera as GenericCamera, AsyncMode},
+    error::Error,
     executor_unified::Executor,
     transport::AsyncTransport,
 };

@@ -55,10 +55,7 @@ where
         let inquiry = PowerInquiry {};
         let response = self.send_command(&inquiry).await?;
         match response {
-            Response::Inquiry(inquiry_response) => match inquiry_response {
-                InquiryResponse::Power { on } => Ok(on),
-                _ => Err(Error::UnexpectedResponseType),
-            },
+            Response::Inquiry(InquiryResponse::Power { on }) => Ok(on),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -90,10 +87,7 @@ where
         let inquiry = PowerInquiry {};
         let response = self.send_command(&inquiry)?;
         match response {
-            Response::Inquiry(inquiry_response) => match inquiry_response {
-                InquiryResponse::Power { on } => Ok(on),
-                _ => Err(Error::UnexpectedResponseType),
-            },
+            Response::Inquiry(InquiryResponse::Power { on }) => Ok(on),
             _ => Err(Error::UnexpectedResponseType),
         }
     }

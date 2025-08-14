@@ -6,13 +6,14 @@ fn test_blocking_wrapper_api() {
     use grafton_visca::camera::{BlockingMode, Camera};
     use grafton_visca::capabilities::Profile;
     use grafton_visca::transport::BlockingTransport;
+    use grafton_visca::ZoomOpsBlocking;
 
     // This test just verifies the API compiles correctly
     // In a real test, you'd use a mock transport
 
     // The blocking wrapper should expose methods without _blocking suffix
     fn _example<P: Profile, T>(
-        camera: &Camera<BlockingMode, P, T>,
+        camera: &Camera<BlockingMode, P, T, ()>,
     ) -> Result<(), grafton_visca::Error>
     where
         T: BlockingTransport + Send + Sync + 'static,
@@ -34,14 +35,19 @@ async fn test_async_wrapper_api() {
     use grafton_visca::camera::{AsyncMode, Camera};
     use grafton_visca::capabilities::Profile;
     use grafton_visca::transport::AsyncTransport;
+    use grafton_visca::ZoomOps;
 
     // This test just verifies the API compiles correctly
     // In a real test, you'd use a mock transport
 
     // The async wrapper should expose async methods
     #[allow(dead_code)]
-    async fn example<P: Profile, T: AsyncTransport + Send + Sync + 'static>(
-        camera: &Camera<AsyncMode, P, T>,
+    async fn example<
+        P: Profile,
+        T: AsyncTransport + Send + Sync + 'static,
+        E: grafton_visca::Executor,
+    >(
+        camera: &Camera<AsyncMode, P, T, E>,
     ) -> Result<(), grafton_visca::Error> {
         camera.zoom_stop().await?;
         camera.zoom_tele_std().await?;
