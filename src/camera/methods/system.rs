@@ -17,7 +17,6 @@ pub trait SystemOps: Sized {
 }
 
 /// System operations (blocking).
-#[cfg(not(feature = "async"))]
 pub trait SystemOpsBlocking: Sized {
     /// Trigger automatic address assignment (broadcast command for serial bus).
     /// Note: This doesn't set a specific address but triggers the auto-addressing process.

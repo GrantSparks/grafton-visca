@@ -89,7 +89,6 @@ pub trait ImageProcessingOps: Sized {
 }
 
 /// Image processing operations (blocking).
-#[cfg(not(feature = "async"))]
 pub trait ImageProcessingOpsBlocking: Sized {
     /// Enable image flip.
     fn enable_flip(&self) -> Result<(), Error>;
@@ -367,7 +366,6 @@ where
 }
 
 // Blocking implementation
-#[cfg(not(feature = "async"))]
 impl<P, T> ImageProcessingOpsBlocking
     for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where

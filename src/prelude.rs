@@ -102,14 +102,10 @@ pub mod r#async {
 /// - Camera profiles and type aliases
 /// - Common types and error handling
 ///
-/// **Note:** This module is only available when the `async` feature is not enabled.
-/// You must choose either async or blocking API, not both.
-///
 /// # Example
 /// ```no_run
 /// use grafton_visca::prelude::blocking::*;
 /// ```
-#[cfg(not(feature = "async"))]
 pub mod blocking {
     // MovementOps trait has been removed - movement methods are now inherent methods on Camera
     pub use crate::camera::profiles::{

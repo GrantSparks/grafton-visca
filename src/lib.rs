@@ -395,6 +395,7 @@ pub use camera_id::CameraId;
 pub use error::{Error, Result};
 
 // Re-export method traits for convenient access
+// Async traits are available when async feature is enabled
 #[cfg(feature = "async")]
 pub use camera::methods::{
     focus::FocusOps,
@@ -405,7 +406,7 @@ pub use camera::methods::{
     zoom::ZoomOps,
 };
 
-#[cfg(not(feature = "async"))]
+// Blocking traits are always available
 pub use camera::methods::{
     focus::FocusOpsBlocking,
     inquiry::{InquiryOpsBlocking, PanTiltInquiryOpsBlocking},

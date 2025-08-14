@@ -16,7 +16,6 @@ pub trait PresetsOps: Sized {
 }
 
 /// Presets operations (blocking).
-#[cfg(not(feature = "async"))]
 pub trait PresetsOpsBlocking: Sized {
     /// Recall a preset position.
     fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error>;
@@ -68,7 +67,6 @@ where
 }
 
 // Blocking implementation for Camera with BlockingMode
-#[cfg(not(feature = "async"))]
 impl<P, T> PresetsOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile,

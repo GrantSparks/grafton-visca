@@ -315,7 +315,6 @@ where
 }
 
 /// Exposure operations (blocking).
-#[cfg(not(feature = "async"))]
 pub trait ExposureOpsBlocking: Sized {
     /// Set exposure mode to any supported mode.
     fn set_exposure_mode(&self, mode: crate::command::exposure::ExposureMode) -> Result<(), Error>;
@@ -419,7 +418,6 @@ pub trait ExposureOpsBlocking: Sized {
 }
 
 // Blocking implementation for Camera with BlockingMode
-#[cfg(not(feature = "async"))]
 impl<P, T> ExposureOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile,
@@ -636,7 +634,6 @@ pub trait ExposureCompensationOps: Sized {
 /// Exposure compensation operations (blocking).
 ///
 /// These methods are only available for cameras that support exposure compensation.
-#[cfg(not(feature = "async"))]
 pub trait ExposureCompensationOpsBlocking: Sized {
     /// Enable exposure compensation.
     fn enable_exposure_compensation(&self) -> Result<(), Error>;
@@ -895,7 +892,6 @@ pub trait ExposureCompensationOpsBlocking: Sized {
 // // }
 //
 // // Blocking implementation
-// #[cfg(not(feature = "async"))]
 // // impl<
 // //         P: crate::capabilities::Profile,
 // //         T: crate::transport::Transport
@@ -1191,7 +1187,6 @@ pub trait ExposureCompensationOpsBlocking: Sized {
 
 // Blocking implementation for exposure compensation - requires HasExposureCompensation marker trait
 // Temporarily disabled during refactor
-// #[cfg(not(feature = "async"))]
 // impl<P, T> ExposureCompensationOpsBlocking for crate::camera::generic::Camera<P, T>
 // where
 //     P: crate::capabilities::Profile

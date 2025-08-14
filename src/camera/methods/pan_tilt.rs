@@ -56,7 +56,6 @@ pub trait PanTiltOps: Sized {
 }
 
 /// Pan/Tilt operations (blocking).
-#[cfg(not(feature = "async"))]
 pub trait PanTiltOpsBlocking: Sized {
     /// Stop all pan/tilt movement.
     fn pan_tilt_stop(&self) -> Result<(), Error>;
@@ -217,7 +216,6 @@ where
 }
 
 // Blocking implementation for Camera with BlockingMode
-#[cfg(not(feature = "async"))]
 impl<P, T> PanTiltOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile,

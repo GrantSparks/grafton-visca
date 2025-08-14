@@ -47,7 +47,6 @@ pub trait ColorOps: Sized {
 }
 
 /// Color operations (blocking).
-#[cfg(not(feature = "async"))]
 pub trait ColorOpsBlocking: Sized {
     /// Trigger one-push white balance.
     fn one_push_trigger(&self) -> Result<(), Error>;
@@ -170,7 +169,6 @@ where
 }
 
 // Blocking implementation for Camera with BlockingMode
-#[cfg(not(feature = "async"))]
 impl<P, T> ColorOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile,
