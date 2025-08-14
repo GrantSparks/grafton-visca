@@ -10,8 +10,10 @@
 mod timeout_tests {
     use bytes::Bytes;
     use grafton_visca::{
-        camera::profiles::GenericVisca, camera::CameraAsync, timeout::TimeoutConfig,
-        transport::AsyncTransport, Error,
+        camera::{profiles::GenericVisca, AsyncMode, Camera},
+        timeout::TimeoutConfig,
+        transport::AsyncTransport,
+        Error, PanTiltOps, PowerOps, PresetsOps, TokioExecutor,
     };
     use std::{
         sync::{Arc, Mutex},
@@ -138,8 +140,9 @@ mod timeout_tests {
         transport.add_response(vec![0x90, 0x41, 0xFF]); // ACK
 
         // Create camera with custom timeout config
-        let mut camera: CameraAsync<GenericVisca, _> =
-            CameraAsync::from_transport(transport.clone());
+        let executor = TokioExecutor::from_current().expect("Failed to get current runtime");
+        let mut camera: Camera<AsyncMode, GenericVisca, _, _> =
+            Camera::with_executor(transport.clone(), executor);
 
         // Set very short timeout for quick commands
         let config = TimeoutConfig {
@@ -148,9 +151,7 @@ mod timeout_tests {
         };
         camera.set_timeout_config(config);
 
-        // Initialize socket manager with runtime
-        let runtime = std::sync::Arc::new(grafton_visca::runtime::TokioRuntime);
-        camera = camera.with_runtime(runtime);
+        // Socket manager is automatically initialized on first use
 
         // Try a quick command (power inquiry)
         let start = Instant::now();
@@ -175,8 +176,9 @@ mod timeout_tests {
         transport.add_response(vec![0x90, 0x41, 0xFF]); // ACK
 
         // Create camera with custom timeout config
-        let mut camera: CameraAsync<GenericVisca, _> =
-            CameraAsync::from_transport(transport.clone());
+        let executor = TokioExecutor::from_current().expect("Failed to get current runtime");
+        let mut camera: Camera<AsyncMode, GenericVisca, _, _> =
+            Camera::with_executor(transport.clone(), executor);
 
         // Set 1 second timeout for movement commands
         let config = TimeoutConfig {
@@ -185,9 +187,7 @@ mod timeout_tests {
         };
         camera.set_timeout_config(config);
 
-        // Initialize socket manager with runtime
-        let runtime = std::sync::Arc::new(grafton_visca::runtime::TokioRuntime);
-        camera = camera.with_runtime(runtime);
+        // Socket manager is automatically initialized on first use
 
         // Try a movement command (pan_tilt_home)
         let start = Instant::now();
@@ -212,8 +212,9 @@ mod timeout_tests {
         transport.add_response(vec![0x90, 0x41, 0xFF]); // ACK
 
         // Create camera with custom timeout config
-        let mut camera: CameraAsync<GenericVisca, _> =
-            CameraAsync::from_transport(transport.clone());
+        let executor = TokioExecutor::from_current().expect("Failed to get current runtime");
+        let mut camera: Camera<AsyncMode, GenericVisca, _, _> =
+            Camera::with_executor(transport.clone(), executor);
 
         // Set 2 second timeout for preset commands
         let config = TimeoutConfig {
@@ -222,9 +223,7 @@ mod timeout_tests {
         };
         camera.set_timeout_config(config);
 
-        // Initialize socket manager with runtime
-        let runtime = std::sync::Arc::new(grafton_visca::runtime::TokioRuntime);
-        camera = camera.with_runtime(runtime);
+        // Socket manager is automatically initialized on first use
 
         // Try a preset command
         let start = Instant::now();

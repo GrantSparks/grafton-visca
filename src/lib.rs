@@ -114,22 +114,22 @@
 //!
 //! ## Transport Implementation
 //!
-//! The library provides a `ViscaProtocol` struct that you can implement for any communication method:
+//! The library provides transport traits that you can implement for any communication method:
 //!
 //! ```ignore
-//! use grafton_visca::{Command, Response, Error};
+//! use grafton_visca::{transport::BlockingTransport, Error};
 //!
 //! struct MyTransport {
 //!     // Your transport state
 //! }
 //!
 //! impl BlockingTransport for MyTransport {
-//!     fn send(&mut self, data: &[u8]) -> Result<(), Error> {
+//!     fn send_blocking(&self, data: &[u8]) -> Result<(), Error> {
 //!         // Send data over your transport
 //!         Ok(())
 //!     }
 //!     
-//!     fn receive(&mut self) -> Result<Vec<u8>, Error> {
+//!     fn recv_blocking(&self) -> Result<Vec<u8>, Error> {
 //!         // Receive response from your transport
 //!         Ok(vec![])
 //!     }
@@ -197,50 +197,60 @@
 //!
 //! #### Option 2: Provide your own runtime (Advanced)
 //!
-//! For complete runtime independence, implement the `Runtime` trait or use `GenericRuntime`:
+//! For complete runtime independence, use the unified Executor trait:
 //!
 //! ```ignore
 //! use grafton_visca::{
-//!     Camera, CameraBuilder,
-//!     runtime::{GenericRuntime, SharedRuntime},
-//!     executor::{Sleep, Spawner, SpawnableFuture},
+//!     Camera, CameraBuilder, Executor,
 //!     prelude::r#async::*,
 //! };
-//! use std::{pin::Pin, sync::Arc, time::Duration, future::Future};
+//! use std::{pin::Pin, time::Duration, future::Future};
 //!
-//! // Example: Using async-std instead of tokio
+//! // Example: Custom executor implementation for async-std
 //! #[derive(Debug, Clone)]
-//! struct AsyncStdSleep;
+//! struct AsyncStdExecutor;
 //!
-//! impl Sleep for AsyncStdSleep {
+//! impl Executor for AsyncStdExecutor {
+//!     type Join<T> = Pin<Box<dyn Future<Output = Result<T, ExecError>> + Send + 'static>>
+//!     where T: Send + 'static;
+//!
+//!     fn spawn<F>(&self, fut: F) -> Self::Join<F::Output>
+//!     where
+//!         F: Future + Send + 'static,
+//!         F::Output: Send + 'static,
+//!     {
+//!         // Implementation using async-std
+//!         // ...
+//!     }
+//!
+//!     fn block_on<F: Future>(&self, fut: F) -> F::Output {
+//!         async_std::task::block_on(fut)
+//!     }
+//!
 //!     fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
 //!         Box::pin(async_std::task::sleep(duration))
 //!     }
-//! }
 //!
-//! #[derive(Debug, Clone)]
-//! struct AsyncStdSpawner;
-//!
-//! impl Spawner for AsyncStdSpawner {
-//!     fn spawn(&self, task: SpawnableFuture) {
-//!         async_std::task::spawn(task);
+//!     fn timeout<'a, F, T>(
+//!         &'a self,
+//!         duration: Duration,
+//!         fut: F,
+//!     ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'a>>
+//!     where
+//!         F: Future<Output = T> + Send + 'a,
+//!         T: Send + 'a,
+//!     {
+//!         // Implementation using async-std timeout
+//!         // ...
 //!     }
 //! }
 //!
 //! #[async_std::main]
 //! async fn main() -> Result<(), Error> {
-//!     // Create your custom runtime
-//!     let runtime: SharedRuntime = Arc::new(GenericRuntime::new(
-//!         AsyncStdSleep,
-//!         AsyncStdSpawner,
-//!     ));
-//!
-//!     // Build camera with your transport
-//!     let camera = CameraBuilder::tcp("192.168.0.110:52381")
-//!         .profile::<PTZOpticsG2>()
-//!         .with_runtime(runtime)  // Provide your runtime
-//!         .build()
-//!         .await?;
+//!     // Create camera with custom executor
+//!     let executor = AsyncStdExecutor;
+//!     let camera = CameraBuilder::with_executor(executor)
+//!         .build_async::<PTZOpticsG2, _>(transport)?;
 //!
 //!     // All async operations now use async-std
 //!     camera.power_on().await?;
@@ -338,16 +348,16 @@ pub mod command;
 /// Error types
 mod error;
 
-/// Transport layer (most users won't need direct access)
+/// Transport layer for implementing custom transports
 pub mod transport;
 
 #[cfg(feature = "async")]
-mod channels;
+pub(crate) mod channels;
 
 /// Constants for VISCA protocol including default ports
 pub mod constants;
 
-mod macros;
+pub(crate) mod macros;
 
 /// Type definitions and abstractions
 pub mod types;
@@ -360,8 +370,9 @@ pub mod timeout;
 #[cfg(feature = "async")]
 pub(crate) mod socket_manager;
 
-pub mod executor;
-pub mod runtime;
+// Internal modules for async support
+#[cfg(feature = "async")]
+pub(crate) mod executor_unified;
 
 // Removed async and blocking wrappers - using mode markers instead
 
@@ -376,6 +387,36 @@ pub mod testing;
 pub use camera::{Camera, CameraBuilder};
 pub use camera_id::CameraId;
 pub use error::{Error, Result};
+
+// Re-export method traits for convenient access
+// Async traits are available when async feature is enabled
+#[cfg(feature = "async")]
+pub use camera::methods::{
+    focus::FocusOps,
+    inquiry::{InquiryOps, PanTiltInquiryOps},
+    pan_tilt::PanTiltOps,
+    power::PowerOps,
+    presets::PresetsOps,
+    zoom::ZoomOps,
+};
+
+// Blocking traits are always available
+pub use camera::methods::{
+    focus::FocusOpsBlocking,
+    inquiry::{InquiryOpsBlocking, PanTiltInquiryOpsBlocking},
+    pan_tilt::PanTiltOpsBlocking,
+    power::PowerOpsBlocking,
+    presets::PresetsOpsBlocking,
+    zoom::ZoomOpsBlocking,
+};
+
+// Re-export the new executor trait for async users
+#[cfg(feature = "async")]
+pub use executor_unified::{ExecError, Executor};
+
+// Re-export TokioExecutor only when rt-tokio feature is enabled
+#[cfg(all(feature = "async", feature = "rt-tokio"))]
+pub use executor_unified::TokioExecutor;
 
 // Re-export commonly used enums that users need directly
 // These are used in method arguments and are part of the primary API

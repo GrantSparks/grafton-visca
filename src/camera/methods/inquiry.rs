@@ -1,7 +1,10 @@
 //! Inquiry methods for querying camera state using the new GAT architecture.
 
 use crate::{
-    command::{AutoFocusSensitivity, ExposureMode, FocusZone, SharpnessMode, WhiteBalanceMode},
+    command::{
+        inquiry::*, response::Response, AutoFocusSensitivity, ExposureMode, FocusMode, FocusZone,
+        InquiryResponse, SharpnessMode, WhiteBalanceMode,
+    },
     Error,
 };
 
@@ -69,14 +72,8 @@ pub trait InquiryOps: Sized {
     /// Get the gamma level.
     async fn get_gamma(&self) -> Result<u8, Error>;
 
-    /// Get the contrast level.
-    async fn get_contrast(&self) -> Result<u8, Error>;
-
     /// Get the brightness level.
     async fn get_brightness(&self) -> Result<u8, Error>;
-
-    /// Get the sharpness level.
-    async fn get_sharpness(&self) -> Result<u8, Error>;
 
     /// Get the sharpness mode.
     async fn get_sharpness_mode(&self) -> Result<SharpnessMode, Error>;
@@ -112,9 +109,6 @@ pub trait InquiryOps: Sized {
     /// Get the camera version information.
     async fn get_version(&self) -> Result<crate::command::Version, Error>;
 
-    /// Get the luminance level.
-    async fn get_luminance(&self) -> Result<u8, Error>;
-
     /// Check if backlight compensation is enabled.
     async fn get_backlight_enabled(&self) -> Result<bool, Error>;
 
@@ -125,7 +119,7 @@ pub trait InquiryOps: Sized {
     async fn get_dynamic_range(&self) -> Result<u8, Error>;
 
     /// Get the current focus mode (Auto/Manual).
-    async fn get_focus_mode(&self) -> Result<crate::command::FocusMode, Error>;
+    async fn get_focus_mode(&self) -> Result<FocusMode, Error>;
 
     /// Get the menu open/close status.
     async fn get_menu_status(&self) -> Result<bool, Error>;
@@ -212,7 +206,6 @@ pub trait InquiryOps: Sized {
 }
 
 /// Inquiry operations (blocking).
-#[cfg(not(feature = "async"))]
 pub trait InquiryOpsBlocking: Sized {
     /// Get the current power state of the camera.
     /// Returns `true` if powered on, `false` if in standby.
@@ -275,14 +268,8 @@ pub trait InquiryOpsBlocking: Sized {
     /// Get the gamma level.
     fn get_gamma(&self) -> Result<u8, Error>;
 
-    /// Get the contrast level.
-    fn get_contrast(&self) -> Result<u8, Error>;
-
     /// Get the brightness level.
     fn get_brightness(&self) -> Result<u8, Error>;
-
-    /// Get the sharpness level.
-    fn get_sharpness(&self) -> Result<u8, Error>;
 
     /// Get the sharpness mode.
     fn get_sharpness_mode(&self) -> Result<SharpnessMode, Error>;
@@ -315,9 +302,6 @@ pub trait InquiryOpsBlocking: Sized {
     /// Get the camera version information.
     fn get_version(&self) -> Result<crate::command::Version, Error>;
 
-    /// Get the luminance level.
-    fn get_luminance(&self) -> Result<u8, Error>;
-
     /// Check if backlight compensation is enabled.
     fn get_backlight_enabled(&self) -> Result<bool, Error>;
 
@@ -328,7 +312,7 @@ pub trait InquiryOpsBlocking: Sized {
     fn get_dynamic_range(&self) -> Result<u8, Error>;
 
     /// Get the current focus mode (Auto/Manual).
-    fn get_focus_mode(&self) -> Result<crate::command::FocusMode, Error>;
+    fn get_focus_mode(&self) -> Result<FocusMode, Error>;
 
     /// Get the menu open/close status.
     fn get_menu_status(&self) -> Result<bool, Error>;
@@ -414,22 +398,13 @@ pub trait InquiryOpsBlocking: Sized {
     fn get_tally_green_enabled(&self) -> Result<bool, Error>;
 }
 
-// TODO: Update for new Camera<M, P, T> mode marker architecture
-// The InquiryOps trait implementations are temporarily disabled because they
-// reference the old Transport trait and Camera<P, T> structure. These need to be
-// updated to work with the new Camera<M, P, T> mode marker system where:
-// - M is the mode marker (AsyncMode or BlockingMode)
-// - T implements either AsyncTransport or BlockingTransport
-
-/*
-// Async implementation
+// Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
-    InquiryOps for crate::camera::generic::Camera<P, T>
+impl<P, T, E> InquiryOps for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
 where
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+    P: crate::capabilities::Profile,
+    T: crate::transport::AsyncTransport + Send + Sync + 'static,
+    E: crate::executor_unified::Executor,
 {
     async fn get_power_state(&self) -> Result<bool, Error> {
         let cmd = PowerInquiry;
@@ -633,31 +608,11 @@ where
         }
     }
 
-    async fn get_contrast(&self) -> Result<u8, Error> {
-        let cmd = ContrastInquiry;
-        let response = self.send_command(&cmd).await?;
-        match response {
-            Response::Inquiry(InquiryResponse::Contrast(value)) => Ok(value),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
     async fn get_brightness(&self) -> Result<u8, Error> {
         let cmd = BrightInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
             Response::Inquiry(InquiryResponse::Bright { position }) => Ok(position as u8),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
-    async fn get_sharpness(&self) -> Result<u8, Error> {
-        let cmd = SharpnessInquiry;
-        let response = self.send_command(&cmd).await?;
-        match response {
-            Response::Inquiry(InquiryResponse::Sharpness { value }) => Ok(value),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -783,16 +738,6 @@ where
         }
     }
 
-    async fn get_luminance(&self) -> Result<u8, Error> {
-        let cmd = LuminanceInquiry;
-        let response = self.send_command(&cmd).await?;
-        match response {
-            Response::Inquiry(InquiryResponse::Luminance(value)) => Ok(value),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
     async fn get_backlight_enabled(&self) -> Result<bool, Error> {
         let cmd = BacklightInquiry;
         let response = self.send_command(&cmd).await?;
@@ -829,7 +774,7 @@ where
         }
     }
 
-    async fn get_focus_mode(&self) -> Result<crate::command::FocusMode, Error> {
+    async fn get_focus_mode(&self) -> Result<FocusMode, Error> {
         let cmd = FocusModeInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
@@ -850,10 +795,12 @@ where
     }
 
     async fn get_auto_focus_enabled(&self) -> Result<bool, Error> {
-        let cmd = AutoFocusInquiry;
+        // TODO: AutoFocusInquiry struct is not available in inquiry_structs.rs
+        // We can derive this from FocusModeInquiry instead
+        let cmd = FocusModeInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::AutoFocus { enabled }) => Ok(enabled),
+            Response::Inquiry(InquiryResponse::FocusMode { mode }) => Ok(mode == FocusMode::Auto),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -1133,23 +1080,14 @@ where
 }
 
 // Blocking implementation
-#[cfg(not(feature = "async"))]
-impl<
-        P: crate::capabilities::Profile,
-        T: crate::transport::Transport
-            + Send
-            + Sync
-            + 'static
-            + crate::transport::core::BlockingTransport,
-    > InquiryOpsBlocking for crate::camera::generic::Camera<P, T>
+impl<P, T> InquiryOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+    P: crate::capabilities::Profile,
+    T: crate::transport::BlockingTransport,
 {
     fn get_power_state(&self) -> Result<bool, Error> {
         let cmd = PowerInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::Power { on }) => Ok(on),
             Response::Error(e) => Err(e),
@@ -1159,7 +1097,7 @@ where
 
     fn get_zoom_position(&self) -> Result<u16, Error> {
         let cmd = ZoomPositionInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::ZoomPosition { position }) => Ok(position),
             Response::Error(e) => Err(e),
@@ -1169,7 +1107,7 @@ where
 
     fn get_focus_position(&self) -> Result<u16, Error> {
         let cmd = FocusPositionInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::FocusPosition { position }) => Ok(position),
             Response::Error(e) => Err(e),
@@ -1179,7 +1117,7 @@ where
 
     fn get_focus_near_limit(&self) -> Result<u16, Error> {
         let cmd = FocusNearLimitInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::FocusNearLimit { position }) => Ok(position),
             Response::Error(e) => Err(e),
@@ -1189,7 +1127,7 @@ where
 
     fn get_focus_zone(&self) -> Result<FocusZone, Error> {
         let cmd = FocusZoneInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::FocusZone { zone }) => Ok(zone),
             Response::Error(e) => Err(e),
@@ -1199,7 +1137,7 @@ where
 
     fn get_auto_focus_sensitivity(&self) -> Result<AutoFocusSensitivity, Error> {
         let cmd = AutoFocusSensitivityInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::AutoFocusSensitivity { sensitivity }) => {
                 Ok(sensitivity)
@@ -1211,7 +1149,7 @@ where
 
     fn get_exposure_mode(&self) -> Result<ExposureMode, Error> {
         let cmd = ExposureModeInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::ExposureMode { mode }) => Ok(mode),
             Response::Error(e) => Err(e),
@@ -1221,7 +1159,7 @@ where
 
     fn get_exposure_compensation(&self) -> Result<i8, Error> {
         let cmd = ExposureCompensationInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::ExposureCompensation { value }) => Ok(value),
             Response::Error(e) => Err(e),
@@ -1231,7 +1169,7 @@ where
 
     fn get_exposure_compensation_enabled(&self) -> Result<bool, Error> {
         let cmd = ExposureCompensationModeInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::ExposureCompensationMode { on }) => Ok(on),
             Response::Error(e) => Err(e),
@@ -1241,7 +1179,7 @@ where
 
     fn get_iris(&self) -> Result<u8, Error> {
         let cmd = IrisInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::Iris { position }) => Ok(position),
             Response::Error(e) => Err(e),
@@ -1251,7 +1189,7 @@ where
 
     fn get_shutter(&self) -> Result<u16, Error> {
         let cmd = ShutterInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::Shutter { position }) => Ok(position),
             Response::Error(e) => Err(e),
@@ -1261,7 +1199,7 @@ where
 
     fn get_gain(&self) -> Result<u8, Error> {
         let cmd = GainInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::GainLevel { gain }) => Ok(gain),
             Response::Error(e) => Err(e),
@@ -1271,7 +1209,7 @@ where
 
     fn get_gain_limit(&self) -> Result<u8, Error> {
         let cmd = GainLimitInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::GainLimit { limit }) => Ok(limit),
             Response::Error(e) => Err(e),
@@ -1281,7 +1219,7 @@ where
 
     fn get_white_balance_mode(&self) -> Result<WhiteBalanceMode, Error> {
         let cmd = WhiteBalanceModeInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::WhiteBalanceMode { mode }) => Ok(mode),
             Response::Error(e) => Err(e),
@@ -1291,7 +1229,7 @@ where
 
     fn get_red_gain(&self) -> Result<u8, Error> {
         let cmd = RedGainInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::RedChannel { gain }) => Ok(gain as u8),
             Response::Error(e) => Err(e),
@@ -1301,7 +1239,7 @@ where
 
     fn get_blue_gain(&self) -> Result<u8, Error> {
         let cmd = BlueGainInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::BlueChannel { gain }) => Ok(gain as u8),
             Response::Error(e) => Err(e),
@@ -1311,7 +1249,7 @@ where
 
     fn get_red_tuning(&self) -> Result<u8, Error> {
         let cmd = RedTuningInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::RedTuning { level }) => Ok(level),
             Response::Error(e) => Err(e),
@@ -1321,7 +1259,7 @@ where
 
     fn get_blue_tuning(&self) -> Result<u8, Error> {
         let cmd = BlueTuningInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::BlueTuning { level }) => Ok(level),
             Response::Error(e) => Err(e),
@@ -1331,7 +1269,7 @@ where
 
     fn get_color_temperature(&self) -> Result<u16, Error> {
         let cmd = ColorTemperatureInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::ColorTemperature { temperature }) => Ok(temperature),
             Response::Error(e) => Err(e),
@@ -1341,7 +1279,7 @@ where
 
     fn get_gamma(&self) -> Result<u8, Error> {
         let cmd = GammaInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::Gamma { value }) => Ok(value),
             Response::Error(e) => Err(e),
@@ -1349,19 +1287,9 @@ where
         }
     }
 
-    fn get_contrast(&self) -> Result<u8, Error> {
-        let cmd = ContrastInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::Inquiry(InquiryResponse::Contrast(value)) => Ok(value),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
     fn get_brightness(&self) -> Result<u8, Error> {
         let cmd = BrightInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::Bright { position }) => Ok(position as u8),
             Response::Error(e) => Err(e),
@@ -1369,19 +1297,9 @@ where
         }
     }
 
-    fn get_sharpness(&self) -> Result<u8, Error> {
-        let cmd = SharpnessInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::Inquiry(InquiryResponse::Sharpness { value }) => Ok(value),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
     fn get_sharpness_mode(&self) -> Result<SharpnessMode, Error> {
         let cmd = SharpnessModeInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::SharpnessMode { mode }) => Ok(mode),
             Response::Error(e) => Err(e),
@@ -1391,7 +1309,7 @@ where
 
     fn get_saturation(&self) -> Result<u8, Error> {
         let cmd = SaturationInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::Saturation { level }) => Ok(level),
             Response::Error(e) => Err(e),
@@ -1401,7 +1319,7 @@ where
 
     fn get_hue(&self) -> Result<u8, Error> {
         let cmd = HueInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::Hue { hue }) => Ok(hue),
             Response::Error(e) => Err(e),
@@ -1411,7 +1329,7 @@ where
 
     fn get_noise_reduction_2d(&self) -> Result<u8, Error> {
         let cmd = NoiseReduction2DInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::NoiseReduction2D { level }) => Ok(level),
             Response::Error(e) => Err(e),
@@ -1421,7 +1339,7 @@ where
 
     fn get_noise_reduction_3d(&self) -> Result<u8, Error> {
         let cmd = NoiseReduction3DInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::NoiseReduction3D { level }) => Ok(level),
             Response::Error(e) => Err(e),
@@ -1431,7 +1349,7 @@ where
 
     fn get_black_white(&self) -> Result<bool, Error> {
         let cmd = BlackWhiteInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::BlackWhite { on }) => Ok(on),
             Response::Error(e) => Err(e),
@@ -1441,7 +1359,7 @@ where
 
     fn get_resolution(&self) -> Result<crate::command::resolution::ResolutionMode, Error> {
         let cmd = ResolutionInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::Resolution(mode_byte)) => Ok(
                 crate::command::resolution::ResolutionMode::from_byte(mode_byte),
@@ -1453,7 +1371,7 @@ where
 
     fn get_picture_effect(&self) -> Result<crate::command::resolution::PictureEffectMode, Error> {
         let cmd = PictureEffectInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::PictureEffect { effect }) => Ok(
                 crate::command::resolution::PictureEffectMode::from_byte(effect),
@@ -1467,7 +1385,7 @@ where
         &self,
     ) -> Result<crate::command::resolution::NDFilterPosition, Error> {
         let cmd = NdFilterInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::NdFilter { position }) => Ok(
                 crate::command::resolution::NDFilterPosition::from_byte(position),
@@ -1479,7 +1397,7 @@ where
 
     fn get_version(&self) -> Result<crate::command::Version, Error> {
         let cmd = VersionInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::Version {
                 vendor,
@@ -1497,19 +1415,9 @@ where
         }
     }
 
-    fn get_luminance(&self) -> Result<u8, Error> {
-        let cmd = LuminanceInquiry;
-        let response = self.send_command_blocking(&cmd)?;
-        match response {
-            Response::Inquiry(InquiryResponse::Luminance(value)) => Ok(value),
-            Response::Error(e) => Err(e),
-            _ => Err(Error::UnexpectedResponseType),
-        }
-    }
-
     fn get_backlight_enabled(&self) -> Result<bool, Error> {
         let cmd = BacklightInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::Backlight { status }) => Ok(status),
             Response::Error(e) => Err(e),
@@ -1519,7 +1427,7 @@ where
 
     fn get_image_flip(&self) -> Result<crate::command::ImageFlipStatus, Error> {
         let cmd = ImageFlipInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::ImageFlip {
                 vertical,
@@ -1535,7 +1443,7 @@ where
 
     fn get_dynamic_range(&self) -> Result<u8, Error> {
         let cmd = DynamicRangeInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::DynamicRange { level }) => Ok(level),
             Response::Error(e) => Err(e),
@@ -1543,9 +1451,9 @@ where
         }
     }
 
-    fn get_focus_mode(&self) -> Result<crate::command::FocusMode, Error> {
+    fn get_focus_mode(&self) -> Result<FocusMode, Error> {
         let cmd = FocusModeInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::FocusMode { mode }) => Ok(mode),
             Response::Error(e) => Err(e),
@@ -1555,7 +1463,7 @@ where
 
     fn get_menu_status(&self) -> Result<bool, Error> {
         let cmd = MenuOpenCloseInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::MenuOpenClose { is_open }) => Ok(is_open),
             Response::Error(e) => Err(e),
@@ -1564,10 +1472,12 @@ where
     }
 
     fn get_auto_focus_enabled(&self) -> Result<bool, Error> {
-        let cmd = AutoFocusInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        // TODO: AutoFocusInquiry struct is not available in inquiry_structs.rs
+        // We can derive this from FocusModeInquiry instead
+        let cmd = FocusModeInquiry;
+        let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::AutoFocus { enabled }) => Ok(enabled),
+            Response::Inquiry(InquiryResponse::FocusMode { mode }) => Ok(mode == FocusMode::Auto),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -1575,7 +1485,7 @@ where
 
     fn get_tally_light_status(&self) -> Result<crate::command::TallyStatus, Error> {
         let cmd = TallyStatusInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::TallyStatus { red_on, green_on }) => {
                 Ok(crate::command::TallyStatus { red_on, green_on })
@@ -1587,7 +1497,7 @@ where
 
     fn get_night_day_mode(&self) -> Result<crate::command::NightDayMode, Error> {
         let cmd = NightDayModeInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::NightDayMode { is_night }) => Ok(if is_night {
                 crate::command::NightDayMode::Night
@@ -1601,7 +1511,7 @@ where
 
     fn get_flip_mode(&self) -> Result<crate::command::FlipMode, Error> {
         let cmd = FlipModeInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::FlipMode {
                 horizontal,
@@ -1617,7 +1527,7 @@ where
 
     fn get_standby_enabled(&self) -> Result<bool, Error> {
         let cmd = StandbyInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::Standby { in_standby }) => Ok(in_standby),
             Response::Error(e) => Err(e),
@@ -1627,7 +1537,7 @@ where
 
     fn get_focus_range(&self) -> Result<crate::command::FocusRange, Error> {
         let cmd = FocusRangeInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::FocusRange { range }) => Ok(range),
             Response::Error(e) => Err(e),
@@ -1637,7 +1547,7 @@ where
 
     fn get_iris_control(&self) -> Result<crate::command::IrisControl, Error> {
         let cmd = IrisControlInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::IrisControl { auto }) => Ok(if auto {
                 crate::command::IrisControl::Auto
@@ -1651,7 +1561,7 @@ where
 
     fn get_defog_mode(&self) -> Result<bool, Error> {
         let cmd = DefogModeInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::DefogMode { enabled }) => Ok(enabled),
             Response::Error(e) => Err(e),
@@ -1661,7 +1571,7 @@ where
 
     fn get_defog_level(&self) -> Result<u8, Error> {
         let cmd = DefogLevelInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::DefogLevel { level }) => Ok(level),
             Response::Error(e) => Err(e),
@@ -1671,7 +1581,7 @@ where
 
     fn get_digital_ptz_enabled(&self) -> Result<bool, Error> {
         let cmd = DigitalPtzInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::DigitalPtz { enabled }) => Ok(enabled),
             Response::Error(e) => Err(e),
@@ -1683,7 +1593,7 @@ where
         &self,
     ) -> Result<crate::command::AutoWhiteBalanceSensitivity, Error> {
         let cmd = AutoWhiteBalanceSensitivityInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::AutoWhiteBalanceSensitivity { sensitivity }) => {
                 Ok(sensitivity)
@@ -1695,7 +1605,7 @@ where
 
     fn get_exposure_compensation_position(&self) -> Result<u16, Error> {
         let cmd = ExposureCompensationPositionInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::ExposureCompensationPosition { position }) => {
                 Ok(position)
@@ -1707,7 +1617,7 @@ where
 
     fn get_auto_trace_enabled(&self) -> Result<bool, Error> {
         let cmd = AutoTraceInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::AutoTrace { enabled }) => Ok(enabled),
             Response::Error(e) => Err(e),
@@ -1717,7 +1627,7 @@ where
 
     fn get_focus_unlock(&self) -> Result<bool, Error> {
         let cmd = FocusUnlockInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::FocusUnlock { unlocked }) => Ok(unlocked),
             Response::Error(e) => Err(e),
@@ -1727,7 +1637,7 @@ where
 
     fn get_sharpness_position(&self) -> Result<u16, Error> {
         let cmd = SharpnessPositionInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::SharpnessPosition { position }) => Ok(position),
             Response::Error(e) => Err(e),
@@ -1737,7 +1647,7 @@ where
 
     fn get_noise_reduction_level(&self) -> Result<u8, Error> {
         let cmd = NrLevelInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::NrLevel(level)) => Ok(level),
             Response::Error(e) => Err(e),
@@ -1747,7 +1657,7 @@ where
 
     fn get_broadcast_domain(&self) -> Result<u8, Error> {
         let cmd = BroadcastDomainInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::BroadcastDomain(domain)) => Ok(domain),
             Response::Error(e) => Err(e),
@@ -1757,7 +1667,7 @@ where
 
     fn get_noise_reduction_mode(&self) -> Result<crate::command::NrMode, Error> {
         let cmd = NrModeInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::NrMode { mode }) => Ok(mode),
             Response::Error(e) => Err(e),
@@ -1767,7 +1677,7 @@ where
 
     fn get_noise_reduction_speed(&self) -> Result<crate::command::NrSpeed, Error> {
         let cmd = NrSpeedInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::NrSpeed { speed }) => Ok(speed),
             Response::Error(e) => Err(e),
@@ -1777,7 +1687,7 @@ where
 
     fn get_black_white_mode(&self) -> Result<crate::command::BlackWhiteMode, Error> {
         let cmd = BlackWhiteModeInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::BlackWhiteMode { mode }) => Ok(mode),
             Response::Error(e) => Err(e),
@@ -1787,7 +1697,7 @@ where
 
     fn get_usb_audio_enabled(&self) -> Result<bool, Error> {
         let cmd = UsbAudioInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::UsbAudio { on }) => Ok(on),
             Response::Error(e) => Err(e),
@@ -1797,7 +1707,7 @@ where
 
     fn get_two_tone_mode_enabled(&self) -> Result<bool, Error> {
         let cmd = TwoToneModeInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::TwoToneMode { on }) => Ok(on),
             Response::Error(e) => Err(e),
@@ -1807,7 +1717,7 @@ where
 
     fn get_nd_filter_preset(&self) -> Result<u8, Error> {
         let cmd = NdFilterPresetInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::NdFilterPreset { preset }) => Ok(preset),
             Response::Error(e) => Err(e),
@@ -1817,7 +1727,7 @@ where
 
     fn get_digital_mode_enabled(&self) -> Result<bool, Error> {
         let cmd = DigitalInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::Digital { on }) => Ok(on),
             Response::Error(e) => Err(e),
@@ -1827,7 +1737,7 @@ where
 
     fn get_tally_auto_adjust_enabled(&self) -> Result<bool, Error> {
         let cmd = TallyAutoAdjustInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::TallyAutoAdjust { on }) => Ok(on),
             Response::Error(e) => Err(e),
@@ -1837,7 +1747,7 @@ where
 
     fn get_tally_green_enabled(&self) -> Result<bool, Error> {
         let cmd = TallyGreenInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::TallyGreen { on }) => Ok(on),
             Response::Error(e) => Err(e),
@@ -1851,29 +1761,21 @@ where
 pub trait PanTiltInquiryOps: Sized {
     /// Get the current pan and tilt position.
     async fn get_pan_tilt_position(&self) -> Result<(i16, i16), Error>;
-
-    /// Get the current pan and tilt position in degrees.
-    async fn get_pan_tilt_degrees(&self) -> Result<(Degrees, Degrees), Error>;
 }
 
 /// Pan/Tilt-specific inquiry operations (blocking).
-#[cfg(not(feature = "async"))]
 pub trait PanTiltInquiryOpsBlocking: Sized {
     /// Get the current pan and tilt position.
     fn get_pan_tilt_position(&self) -> Result<(i16, i16), Error>;
-
-    /// Get the current pan and tilt position in degrees.
-    fn get_pan_tilt_degrees(&self) -> Result<(Degrees, Degrees), Error>;
 }
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P: crate::capabilities::Profile, T: crate::transport::Transport + Send + Sync + 'static>
-    PanTiltInquiryOps for crate::camera::generic::Camera<P, T>
+impl<P, T, E> PanTiltInquiryOps for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
 where
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+    P: crate::capabilities::Profile,
+    T: crate::transport::AsyncTransport + Send + Sync + 'static,
+    E: crate::executor_unified::Executor,
 {
     async fn get_pan_tilt_position(&self) -> Result<(i16, i16), Error> {
         let cmd = PanTiltPositionInquiry;
@@ -1884,43 +1786,22 @@ where
             _ => Err(Error::UnexpectedResponseType),
         }
     }
-
-    async fn get_pan_tilt_degrees(&self) -> Result<(Degrees, Degrees), Error> {
-        let (pan_units, tilt_units) = PanTiltInquiryOps::get_pan_tilt_position(self).await?;
-        let (pan_deg, tilt_deg) = self.units_to_degrees(pan_units, tilt_units);
-        Ok((pan_deg, tilt_deg))
-    }
 }
 
 // Blocking implementation
-#[cfg(not(feature = "async"))]
-impl<
-        P: crate::capabilities::Profile,
-        T: crate::transport::Transport
-            + Send
-            + Sync
-            + 'static
-            + crate::transport::core::BlockingTransport,
-    > PanTiltInquiryOpsBlocking for crate::camera::generic::Camera<P, T>
+impl<P, T> PanTiltInquiryOpsBlocking
+    for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
-    T::Error: Into<Error> + Send,
-    for<'a> T::SendFut<'a>: Send,
-    for<'a> T::RecvFut<'a>: Send,
+    P: crate::capabilities::Profile,
+    T: crate::transport::BlockingTransport,
 {
     fn get_pan_tilt_position(&self) -> Result<(i16, i16), Error> {
         let cmd = PanTiltPositionInquiry;
-        let response = self.send_command_blocking(&cmd)?;
+        let response = self.send_command(&cmd)?;
         match response {
             Response::Inquiry(InquiryResponse::PanTiltPosition { pan, tilt }) => Ok((pan, tilt)),
             Response::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
-
-    fn get_pan_tilt_degrees(&self) -> Result<(Degrees, Degrees), Error> {
-        let (pan_units, tilt_units) = Self::get_pan_tilt_position(self)?;
-        let (pan_deg, tilt_deg) = self.units_to_degrees(pan_units, tilt_units);
-        Ok((pan_deg, tilt_deg))
-    }
 }
-*/

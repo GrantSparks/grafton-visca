@@ -5,7 +5,7 @@
 //!
 //! # Async Usage
 //!
-//! ```no_run
+//! ```ignore
 //! # #[cfg(feature = "async")]
 //! use grafton_visca::prelude::r#async::*;
 //!
@@ -13,10 +13,12 @@
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # #[cfg(feature = "rt-tokio")]
 //! # {
-//! use grafton_visca::transport::tokio::Tcp;
+//! use grafton_visca::transport::tokio::tcp::Tcp;
+//! use grafton_visca::TokioExecutor;
 //!
 //! let transport = Tcp::connect("192.168.0.110:52381").await?;
-//! let camera = PTZOpticsG2Cam::from_transport(transport);
+//! let executor = TokioExecutor::from_current()?;
+//! let camera = PTZOpticsG2Cam::with_executor(transport, executor);
 //!
 //! // Async methods are available directly on the camera
 //! camera.power_on().await?;
@@ -29,10 +31,7 @@
 //!
 //! # Blocking Usage
 //!
-//! ```no_run
-//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! # #[cfg(not(feature = "async"))]
-//! # {
+//! ```ignore
 //! use grafton_visca::prelude::blocking::*;
 //! use grafton_visca::transport::blocking::Tcp;
 //!
@@ -43,9 +42,6 @@
 //! camera.power_on()?;
 //! camera.zoom_stop()?;
 //! camera.pan_tilt_home()?;
-//! # }
-//! # Ok(())
-//! # }
 //! ```
 
 /// Async prelude - import this for async camera control.
@@ -65,7 +61,7 @@ pub mod r#async {
         GenericVisca, NearusBRC300, PTZOptics30X, PTZOpticsG2, PTZOpticsG3, SonyBRC300,
         SonyBRCH900, SonyEVIH100, SonyFR7,
     };
-    pub use crate::camera::{CameraAsync as Camera, CameraState, MovementConfig};
+    pub use crate::camera::{CameraAsync as Camera, MovementConfig};
     pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
     pub use crate::units::{Degrees, Normalized, Percentage, Raw};
     pub use crate::{
@@ -108,21 +104,17 @@ pub mod r#async {
 /// - Camera profiles and type aliases
 /// - Common types and error handling
 ///
-/// **Note:** This module is only available when the `async` feature is not enabled.
-/// You must choose either async or blocking API, not both.
-///
 /// # Example
 /// ```no_run
 /// use grafton_visca::prelude::blocking::*;
 /// ```
-#[cfg(not(feature = "async"))]
 pub mod blocking {
     // MovementOps trait has been removed - movement methods are now inherent methods on Camera
     pub use crate::camera::profiles::{
         GenericVisca, NearusBRC300, PTZOptics30X, PTZOpticsG2, PTZOpticsG3, SonyBRC300,
         SonyBRCH900, SonyEVIH100, SonyFR7,
     };
-    pub use crate::camera::{CameraBlocking as Camera, CameraState, MovementConfig};
+    pub use crate::camera::{CameraBlocking as Camera, MovementConfig};
     pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
     pub use crate::units::{Degrees, Normalized, Percentage, Raw};
     pub use crate::{

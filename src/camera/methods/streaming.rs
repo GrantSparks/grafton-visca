@@ -5,6 +5,7 @@
 use crate::{types::NDIQuality, Result};
 
 /// Operations for controlling network and streaming features (async).
+#[cfg(feature = "async")]
 pub trait StreamingOps: Sized {
     /// Enable multicast streaming for NDI cameras.
     ///
@@ -63,7 +64,6 @@ pub trait StreamingOps: Sized {
 }
 
 /// Operations for controlling network and streaming features (blocking).
-#[cfg(not(feature = "async"))]
 pub trait StreamingOpsBlocking: Sized {
     /// Enable multicast streaming for NDI cameras.
     ///

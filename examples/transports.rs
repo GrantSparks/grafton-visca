@@ -23,8 +23,10 @@ use std::{
 use grafton_visca::prelude::blocking::*;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed},
-    CameraBuilder, Error,
+    camera::methods::{pan_tilt::PanTiltOpsBlocking, zoom::ZoomOpsBlocking},
+    camera::{BlockingMode, Camera},
+    transport::blocking::{Tcp, Udp},
+    Error,
 };
 
 #[cfg(not(feature = "async"))]
@@ -48,35 +50,25 @@ fn main() -> Result<(), Error> {
     println!();
 
     println!("Connecting via TCP (default port 5678)...");
-    let tcp_camera = CameraBuilder::tcp(&camera_addr)
-        .profile::<PTZOpticsG2>()
-        .build()?;
+    let tcp_transport = Tcp::connect(&format!("{camera_addr}:5678"))?;
+    let tcp_camera: Camera<BlockingMode, PTZOpticsG2, _, ()> = Camera::new(tcp_transport);
 
     println!("✓ TCP connection established");
-
-    // Save initial state
-    let initial_state = tcp_camera.save_state()?;
 
     // Test TCP connection with a simple command
     println!("Testing TCP transport with zoom command...");
     tcp_camera.zoom_absolute(Normalized(0.3))?;
     tcp_camera.await_zoom_idle(Duration::from_secs(5))?;
     println!("✓ Command sent successfully via TCP");
-
-    // Restore original state
-    tcp_camera.restore_state(&initial_state)?;
     println!();
 
     // === TCP WITH CUSTOM PORT ===
     println!("═══ TCP with Custom Port ═══");
     println!("Connecting via TCP on custom port 1259...");
 
-    let tcp_custom = CameraBuilder::tcp(format!("{camera_addr}:1259"))
-        .profile::<PTZOpticsG2>()
-        .build();
-
-    match tcp_custom {
-        Ok(camera) => {
+    match Tcp::connect(&format!("{camera_addr}:1259")) {
+        Ok(transport) => {
+            let camera: Camera<BlockingMode, PTZOpticsG2, _, ()> = Camera::new(transport);
             println!("✓ TCP connection established on port 1259");
 
             // Test connection
@@ -97,26 +89,18 @@ fn main() -> Result<(), Error> {
     println!("Best for: Real-time control, streaming operations");
     println!();
 
-    println!("Connecting via UDP (auto-selects port 1259 for PTZOptics)...");
-    // The builder automatically selects the correct port based on the profile:
-    // - PTZOptics: UDP port 1259 (raw VISCA)
-    // - Sony: UDP port 52381 (encapsulated VISCA)
-    let udp_camera = CameraBuilder::udp(&camera_addr)
-        .profile::<PTZOpticsG2>()
-        .build();
+    println!("Connecting via UDP port 1259 (raw VISCA for PTZOptics)...");
+    // PTZOptics uses UDP port 1259 for raw VISCA
+    // Sony cameras typically use UDP port 52381 with encapsulation
 
-    match udp_camera {
-        Ok(camera) => {
+    match Udp::connect(&format!("{camera_addr}:1259")) {
+        Ok(transport) => {
+            let camera: Camera<BlockingMode, PTZOpticsG2, _, ()> = Camera::new(transport);
             println!("✓ UDP transport initialized");
 
             // Test UDP connection
             println!("Testing UDP transport with pan/tilt command...");
-            camera.pan_tilt_absolute(
-                PanPosition::from_degrees(45.0)?,
-                TiltPosition::from_degrees(0.0)?,
-                PanSpeed::new(12)?,
-                TiltSpeed::new(12)?,
-            )?;
+            camera.pan_tilt_absolute(Degrees(45.0), Degrees(0.0), SpeedLevel::Medium)?;
             camera.await_pan_tilt_idle(Duration::from_secs(5))?;
             println!("✓ Command sent successfully via UDP");
 
@@ -139,9 +123,7 @@ fn main() -> Result<(), Error> {
     println!("Attempting to connect to non-existent camera (192.168.255.255)...");
     let start = Instant::now();
 
-    let timeout_result = CameraBuilder::tcp("192.168.255.255")
-        .profile::<PTZOpticsG2>()
-        .build();
+    let timeout_result = Tcp::connect_timeout("192.168.255.255:5678", Duration::from_secs(2));
 
     let elapsed = start.elapsed();
 
@@ -193,10 +175,8 @@ fn main() -> Result<(), Error> {
     tcp_camera.zoom_absolute(Normalized(0.0))?;
 
     // If UDP is available, compare performance
-    if let Ok(udp_camera) = CameraBuilder::udp(format!("{camera_addr}:52381"))
-        .profile::<PTZOpticsG2>()
-        .build()
-    {
+    if let Ok(udp_transport) = Udp::connect(&format!("{camera_addr}:52381")) {
+        let udp_camera: Camera<BlockingMode, PTZOpticsG2, _, ()> = Camera::new(udp_transport);
         println!("Sending 10 commands via UDP...");
 
         let udp_start = Instant::now();

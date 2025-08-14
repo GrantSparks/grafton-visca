@@ -61,10 +61,8 @@ pub mod blocking;
 // Re-export transport implementations
 pub use blocking::{Tcp as BlockingTcp, Udp as BlockingUdp};
 
-// VISCA protocol and envelope
-pub mod visca_protocol;
+// Transport envelope for VISCA framing
 pub use envelope::TransportEnvelope;
-pub use visca_protocol::ViscaProtocol;
 
 // Tokio implementations
 #[cfg(feature = "rt-tokio")]
