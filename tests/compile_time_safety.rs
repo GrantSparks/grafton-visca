@@ -3,10 +3,16 @@
 use grafton_visca::{
     camera::{
         profiles::{GenericVisca, PTZOpticsG2, SonyFR7},
-        AsyncMode, Camera,
+        Camera,
     },
     capabilities::{PanTilt, Profile, ProfileMetadata, Zoom},
 };
+
+#[cfg(feature = "async")]
+use grafton_visca::camera::AsyncMode;
+
+#[cfg(not(feature = "async"))]
+use grafton_visca::camera::BlockingMode;
 
 // Import type aliases from prelude for testing
 // Using cfg to conditionally import based on features
