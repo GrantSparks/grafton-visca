@@ -155,11 +155,10 @@ impl CameraBuilder<crate::executor_unified::TokioExecutor> {
 }
 
 /// Type aliases for common camera configurations with executors.
-#[cfg(feature = "async")]
+#[cfg(all(feature = "async", feature = "rt-tokio"))]
 pub mod async_cameras {
-    use super::*;
+    use crate::camera::{generic_executor::Camera as GenericCamera, AsyncMode};
 
-    #[cfg(feature = "rt-tokio")]
     /// A camera using the Tokio executor.
     pub type TokioCamera<P, T> =
         GenericCamera<AsyncMode, P, T, crate::executor_unified::TokioExecutor>;
@@ -167,7 +166,7 @@ pub mod async_cameras {
 
 /// Type aliases for blocking cameras.
 pub mod blocking_cameras {
-    use super::*;
+    use crate::camera::{generic_executor::Camera as GenericCamera, BlockingMode};
 
     /// A blocking camera (no executor needed).
     pub type BlockingCamera<P, T> = GenericCamera<BlockingMode, P, T, ()>;

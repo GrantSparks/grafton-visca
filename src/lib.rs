@@ -418,7 +418,11 @@ pub use camera::methods::{
 
 // Re-export the new executor trait for async users
 #[cfg(feature = "async")]
-pub use executor_unified::{ExecError, Executor, TokioExecutor};
+pub use executor_unified::{ExecError, Executor};
+
+// Re-export TokioExecutor only when rt-tokio feature is enabled
+#[cfg(all(feature = "async", feature = "rt-tokio"))]
+pub use executor_unified::TokioExecutor;
 
 // Re-export commonly used enums that users need directly
 // These are used in method arguments and are part of the primary API
