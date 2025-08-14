@@ -29,6 +29,7 @@ readme = "README.md"
 default = []
 async = ["dep:futures", "dep:async-channel"]
 rt-tokio = ["async", "dep:tokio"]
+test-utils = []  # Feature for exposing test utilities
 
 [dependencies]
 async-channel = { version = "2.1", optional = true }

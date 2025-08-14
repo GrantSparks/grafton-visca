@@ -216,7 +216,7 @@ impl<P: Profile> CameraBuilder<TokioTcpMarker, P> {
 
         // Pre-warm the socket manager to make the camera immediately ready
         // This ensures the first command doesn't have initialization delay
-        camera.auto_init_orchestrator_if_needed().await?;
+        camera.ensure_orchestrator_initialized().await?;
 
         Ok(camera)
     }
@@ -251,7 +251,7 @@ impl<P: Profile> CameraBuilder<TokioUdpMarker, P> {
 
         // Pre-warm the socket manager to make the camera immediately ready
         // This ensures the first command doesn't have initialization delay
-        camera.auto_init_orchestrator_if_needed().await?;
+        camera.ensure_orchestrator_initialized().await?;
 
         Ok(camera)
     }
