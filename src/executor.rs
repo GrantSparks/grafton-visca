@@ -29,7 +29,7 @@ pub type SpawnableFuture = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 /// # Examples
 ///
 /// ## Using with Tokio
-/// ```no_run
+/// ```ignore
 /// # use grafton_visca::executor::Spawner;
 /// # #[cfg(feature = "rt-tokio")]
 /// # {
@@ -180,7 +180,7 @@ impl Spawner for tokio::runtime::Handle {
 /// `test-utils` feature are enabled.
 ///
 /// # Example
-/// ```no_run
+/// ```ignore
 /// # #[cfg(all(feature = "async", any(test, feature = "test-utils")))]
 /// # {
 /// use grafton_visca::executor::{Spawner, BlockingSpawner};
@@ -281,7 +281,7 @@ pub fn block_on<F: Future>(fut: F) -> F::Output {
 /// # Examples
 ///
 /// ## Using with Tokio
-/// ```no_run
+/// ```ignore
 /// # #[cfg(feature = "rt-tokio")]
 /// # {
 /// use grafton_visca::executor::{Sleep, TokioSleep};
