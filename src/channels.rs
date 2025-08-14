@@ -201,7 +201,6 @@ impl<T> OneshotReceiver<T> {
             }),
         }
     }
-
 }
 
 #[cfg(test)]
@@ -272,6 +271,5 @@ mod tests {
             assert!(tx.send(42).is_ok());
             assert_eq!(rx.recv().await.expect("recv should succeed"), 42);
         }
-
     }
 }

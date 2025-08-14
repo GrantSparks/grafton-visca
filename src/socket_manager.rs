@@ -346,7 +346,6 @@ impl SocketManagerHandle {
         response_receiver.recv().await?
     }
 
-
     /// Send a shutdown signal without waiting for confirmation.
     ///
     /// This is used internally by the Camera's Drop implementation to ensure
