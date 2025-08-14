@@ -77,11 +77,11 @@ name = "transports"
 
 [[example]]
 name = "builder_api"
-# Builder patterns - no features required for blocking
+required-features = ["rt-tokio"]
 
 [[example]]
 name = "camera_inquiry"
-# Supports both blocking and async modes
+required-features = ["rt-tokio"]
 
 [[example]]
 name = "concurrent_control"
@@ -89,7 +89,7 @@ required-features = ["rt-tokio"]
 
 [[example]]
 name = "error_handling"
-# Error handling patterns - no features required
+required-features = ["rt-tokio"]
 
 [[example]]
 name = "preset_demo"
@@ -101,6 +101,12 @@ name = "type_safe_commands"
 
 [[example]]
 name = "runtime_agnostic"
+required-features = ["rt-tokio"]
 
 [[example]]
 name = "sony_encapsulation"
+required-features = ["rt-tokio"]
+
+[[example]]
+name = "inquiry_demo"
+required-features = ["rt-tokio"]
