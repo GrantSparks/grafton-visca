@@ -4,12 +4,11 @@
 //! - Blocking vs async transports
 //! - TCP vs UDP protocols
 //! - Different camera profiles
-//! - Automatic port selection
 //! - Custom configurations
 //!
 //! Run with:
 //! - Blocking: cargo run --example builder_api
-//! - Async: cargo run --example builder_api --features tokio
+//! - Async: cargo run --example builder_api --features rt-tokio
 
 use grafton_visca::{
     camera::profiles::{PTZOpticsG2, SonyBRC300, SonyFR7},
@@ -18,51 +17,47 @@ use grafton_visca::{
 
 #[cfg(not(feature = "rt-tokio"))]
 fn main() -> Result<()> {
+    use grafton_visca::transport::{BlockingTcp, BlockingUdp};
+
     env_logger::init();
 
     println!("=== CameraBuilder API Demo (Blocking) ===\n");
 
-    println!("--- Example 1: Simple TCP with Auto Port ---");
-    let _camera = CameraBuilder::tcp("192.168.0.110")
-        .profile::<PTZOpticsG2>()
-        .build()?;
+    println!("--- Example 1: Simple TCP with Default Port ---");
+    let transport = BlockingTcp::connect("192.168.0.110:5678")?;
+    let _camera = CameraBuilder::new().build_blocking::<PTZOpticsG2, _>(transport);
     println!("✓ Created PTZOptics G2 camera on TCP port 5678");
 
-    println!("\n--- Example 2: Explicit Port ---");
-    let _camera = CameraBuilder::tcp("192.168.0.110:5678")
-        .profile::<PTZOpticsG2>()
-        .build()?;
-    println!("✓ Created camera with explicit port 5678");
+    println!("\n--- Example 2: TCP with Custom Port ---");
+    let transport = BlockingTcp::connect("192.168.0.110:52381")?;
+    let _camera = CameraBuilder::new().build_blocking::<PTZOpticsG2, _>(transport);
+    println!("✓ Created camera with custom port 52381");
 
     println!("\n--- Example 3: UDP Transport ---");
-    let _camera = CameraBuilder::udp("192.168.0.110")
-        .profile::<PTZOpticsG2>()
-        .build()?;
+    let transport = BlockingUdp::connect("192.168.0.110:1259")?;
+    let _camera = CameraBuilder::new().build_blocking::<PTZOpticsG2, _>(transport);
     println!("✓ Created camera on UDP port 1259");
 
     println!("\n--- Example 4: Camera Profiles ---");
 
-    let _generic = CameraBuilder::tcp("192.168.1.100")
-        .profile::<PTZOpticsG2>()
-        .build()?;
+    let transport = BlockingTcp::connect("192.168.1.100:5678")?;
+    let _generic = CameraBuilder::new().build_blocking::<PTZOpticsG2, _>(transport);
     println!("✓ PTZOptics G2 camera (used as generic example)");
 
-    let _sony_brc = CameraBuilder::tcp("192.168.1.101:52381")
-        .profile::<SonyBRC300>()
-        .build()?;
+    let transport = BlockingTcp::connect("192.168.1.101:52381")?;
+    let _sony_brc = CameraBuilder::new().build_blocking::<SonyBRC300, _>(transport);
     println!("✓ Sony BRC-300 camera (encapsulated protocol)");
 
-    let _sony_fr7 = CameraBuilder::tcp("192.168.1.102")
-        .profile::<SonyFR7>()
-        .build()?;
+    let transport = BlockingTcp::connect("192.168.1.102:5678")?;
+    let _sony_fr7 = CameraBuilder::new().build_blocking::<SonyFR7, _>(transport);
     println!("✓ Sony FR7 camera (ND filter support)");
 
     println!("\n--- Example 5: Type Safety ---");
     println!("The builder enforces correct usage at compile time:");
-    println!("- Must call .profile() before .build()");
-    println!("- Cannot call .profile() twice");
+    println!("- Transport must match the mode (blocking/async)");
     println!("- Profile must implement the Profile trait");
-    println!("- Strongly typed path prevents transport mismatches");
+    println!("- Executor required for async, not for blocking");
+    println!("- Strongly typed to prevent runtime mismatches");
 
     println!("\n✓ All builder examples completed successfully!");
 
@@ -72,37 +67,35 @@ fn main() -> Result<()> {
 #[cfg(feature = "rt-tokio")]
 #[tokio::main]
 async fn main() -> Result<()> {
+    use grafton_visca::transport::tokio::{Tcp, Udp};
+
     env_logger::init();
 
     println!("=== CameraBuilder API Demo (Async) ===\n");
 
     println!("--- Example 1: Tokio TCP ---");
-    let _camera = CameraBuilder::tokio_tcp("192.168.0.110")
-        .profile::<PTZOpticsG2>()
-        .build()
-        .await?;
+    let transport = Tcp::connect("192.168.0.110:5678").await?;
+    let _camera = CameraBuilder::tokio()?.build_async::<PTZOpticsG2, _>(transport)?;
     println!("✓ Created async TCP camera with tokio");
 
     println!("\n--- Example 2: Tokio UDP ---");
-    let _camera = CameraBuilder::tokio_udp("192.168.0.110")
-        .profile::<PTZOpticsG2>()
-        .build()
-        .await?;
+    let transport = Udp::connect("192.168.0.110:1259").await?;
+    let _camera = CameraBuilder::tokio()?.build_async::<PTZOpticsG2, _>(transport)?;
     println!("✓ Created async UDP camera with tokio");
 
     println!("\n--- Example 3: Concurrent Creation ---");
     use tokio::join;
 
+    async fn create_camera<P: grafton_visca::capabilities::Profile>(addr: &str) -> Result<()> {
+        let transport = Tcp::connect(addr).await?;
+        let _camera = CameraBuilder::tokio()?.build_async::<P, _>(transport)?;
+        Ok(())
+    }
+
     let (cam1, cam2, cam3) = join!(
-        CameraBuilder::tokio_tcp("192.168.0.110")
-            .profile::<PTZOpticsG2>()
-            .build(),
-        CameraBuilder::tokio_tcp("192.168.1.101")
-            .profile::<SonyBRC300>()
-            .build(),
-        CameraBuilder::tokio_tcp("192.168.1.102")
-            .profile::<SonyFR7>()
-            .build()
+        create_camera::<PTZOpticsG2>("192.168.0.110:5678"),
+        create_camera::<SonyBRC300>("192.168.1.101:52381"),
+        create_camera::<SonyFR7>("192.168.1.102:5678")
     );
 
     let mut created = 0;
@@ -118,12 +111,11 @@ async fn main() -> Result<()> {
     println!("✓ Created {created}/3 cameras concurrently");
 
     println!("\n--- Example 4: Connection Error Handling ---");
-    match CameraBuilder::tokio_tcp("invalid.host:5678")
-        .profile::<PTZOpticsG2>()
-        .build()
-        .await
-    {
-        Ok(_) => println!("Unexpected success"),
+    match Tcp::connect("invalid.host:5678").await {
+        Ok(transport) => match CameraBuilder::tokio()?.build_async::<PTZOpticsG2, _>(transport) {
+            Ok(_) => println!("Unexpected success"),
+            Err(e) => println!("✓ Handled camera build error: {e}"),
+        },
         Err(e) => println!("✓ Handled connection error: {e}"),
     }
 

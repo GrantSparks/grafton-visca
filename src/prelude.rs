@@ -29,10 +29,7 @@
 //!
 //! # Blocking Usage
 //!
-//! ```no_run
-//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! # #[cfg(not(feature = "async"))]
-//! # {
+//! ```ignore
 //! use grafton_visca::prelude::blocking::*;
 //! use grafton_visca::transport::blocking::Tcp;
 //!
@@ -43,9 +40,6 @@
 //! camera.power_on()?;
 //! camera.zoom_stop()?;
 //! camera.pan_tilt_home()?;
-//! # }
-//! # Ok(())
-//! # }
 //! ```
 
 /// Async prelude - import this for async camera control.

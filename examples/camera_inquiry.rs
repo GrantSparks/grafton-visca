@@ -15,7 +15,14 @@
 
 #[cfg(not(feature = "async"))]
 fn main() -> grafton_visca::Result<()> {
-    use grafton_visca::{camera::profiles::PTZOpticsG2, CameraBuilder};
+    use grafton_visca::{
+        camera::{
+            methods::inquiry::{InquiryOpsBlocking, PanTiltInquiryOpsBlocking},
+            profiles::PTZOpticsG2,
+        },
+        transport::BlockingTcp,
+        CameraBuilder,
+    };
 
     env_logger::init();
 
@@ -24,16 +31,15 @@ fn main() -> grafton_visca::Result<()> {
     // Get camera address from command line or use default
     let camera_addr = std::env::args()
         .nth(1)
-        .unwrap_or_else(|| "192.168.0.110".to_string());
+        .unwrap_or_else(|| "192.168.0.110:5678".to_string());
 
     println!("Connecting to camera at {camera_addr}...");
-    let camera = CameraBuilder::tcp(&camera_addr)
-        .profile::<PTZOpticsG2>()
-        .build()?;
+    let transport = BlockingTcp::connect(&camera_addr)?;
+    let camera = CameraBuilder::new().build_blocking::<PTZOpticsG2, _>(transport);
 
     // Query power state
     println!("\n--- Power State ---");
-    match camera.power_inquiry() {
+    match camera.get_power_state() {
         Ok(is_on) => {
             let state = if is_on { "ON" } else { "OFF" };
             println!("Power: {state}");
@@ -43,7 +49,7 @@ fn main() -> grafton_visca::Result<()> {
 
     // Query position
     println!("\n--- Position ---");
-    match camera.pan_tilt_position_inquiry() {
+    match camera.get_pan_tilt_position() {
         Ok((pan, tilt)) => {
             println!("Pan: {:?}", pan);
             println!("Tilt: {:?}", tilt);
@@ -57,7 +63,7 @@ fn main() -> grafton_visca::Result<()> {
 
     // Query zoom
     println!("\n--- Zoom ---");
-    match camera.zoom_position_inquiry() {
+    match camera.get_zoom_position() {
         Ok(zoom) => {
             println!("Zoom: {:?}", zoom);
             // Note: The inner value is not publicly accessible,
@@ -68,53 +74,53 @@ fn main() -> grafton_visca::Result<()> {
 
     // Query focus
     println!("\n--- Focus ---");
-    match camera.focus_mode_inquiry() {
+    match camera.get_focus_mode() {
         Ok(mode) => println!("Focus Mode: {mode:?}"),
         Err(e) => println!("Failed to get focus mode: {e}"),
     }
 
-    match camera.focus_position_inquiry() {
+    match camera.get_focus_position() {
         Ok(focus) => println!("Focus Position: {:?}", focus),
         Err(e) => println!("Failed to get focus position: {e}"),
     }
 
     // Query exposure
     println!("\n--- Exposure ---");
-    match camera.exposure_mode_inquiry() {
+    match camera.get_exposure_mode() {
         Ok(mode) => println!("Exposure Mode: {mode:?}"),
         Err(e) => println!("Failed to get exposure mode: {e}"),
     }
 
-    match camera.iris_inquiry() {
+    match camera.get_iris() {
         Ok(iris) => println!("Iris: {:?}", iris),
         Err(e) => println!("Failed to get iris: {e}"),
     }
 
-    match camera.shutter_inquiry() {
+    match camera.get_shutter() {
         Ok(speed) => println!("Shutter: {:?}", speed),
         Err(e) => println!("Failed to get shutter: {e}"),
     }
 
-    match camera.gain_inquiry() {
+    match camera.get_gain() {
         Ok(gain) => println!("Gain: {:?}", gain),
         Err(e) => println!("Failed to get gain: {e}"),
     }
 
     // Query white balance
     println!("\n--- White Balance ---");
-    match camera.white_balance_mode_inquiry() {
+    match camera.get_white_balance_mode() {
         Ok(mode) => println!("WB Mode: {mode:?}"),
         Err(e) => println!("Failed to get WB mode: {e}"),
     }
 
-    match camera.color_temperature_inquiry() {
+    match camera.get_color_temperature() {
         Ok(temp) => println!("Color Temp: {temp}K"),
         Err(e) => println!("Failed to get color temp: {e}"),
     }
 
     // Query image adjustments
     println!("\n--- Image Adjustments ---");
-    match camera.brightness_inquiry() {
+    match camera.get_brightness() {
         Ok(val) => println!("Brightness: {:?}", val),
         Err(e) => println!("Failed to get brightness: {e}"),
     }
@@ -136,14 +142,14 @@ fn main() -> grafton_visca::Result<()> {
     //     Err(e) => println!("Failed to get sharpness: {e}"),
     // }
 
-    match camera.hue_inquiry() {
+    match camera.get_hue() {
         Ok(val) => println!("Hue: {:?}", val),
         Err(e) => println!("Failed to get hue: {e}"),
     }
 
     // Query flip status
     println!("\n--- Image Orientation ---");
-    match camera.image_flip_inquiry() {
+    match camera.get_image_flip() {
         Ok(mode) => println!("Flip Mode: {mode:?}"),
         Err(e) => println!("Failed to get flip mode: {e}"),
     }
@@ -156,7 +162,14 @@ fn main() -> grafton_visca::Result<()> {
 #[cfg(feature = "rt-tokio")]
 #[tokio::main]
 async fn main() -> grafton_visca::Result<()> {
-    use grafton_visca::{camera::profiles::PTZOpticsG2, CameraBuilder};
+    use grafton_visca::{
+        camera::{
+            methods::inquiry::{InquiryOps, PanTiltInquiryOps},
+            profiles::PTZOpticsG2,
+        },
+        transport::tokio::Tcp,
+        CameraBuilder,
+    };
 
     env_logger::init();
 
@@ -165,13 +178,11 @@ async fn main() -> grafton_visca::Result<()> {
     // Get camera address from command line or use default
     let camera_addr = std::env::args()
         .nth(1)
-        .unwrap_or_else(|| "192.168.0.110".to_string());
+        .unwrap_or_else(|| "192.168.0.110:5678".to_string());
 
     println!("Connecting to camera at {camera_addr}...");
-    let camera = CameraBuilder::tokio_tcp(&camera_addr)
-        .profile::<PTZOpticsG2>()
-        .build()
-        .await?;
+    let transport = Tcp::connect(&camera_addr).await?;
+    let camera = CameraBuilder::tokio()?.build_async::<PTZOpticsG2, _>(transport)?;
 
     println!("\n--- Querying All States Concurrently ---");
 
@@ -197,23 +208,23 @@ async fn main() -> grafton_visca::Result<()> {
         hue,
         flip,
     ) = join!(
-        camera.power_inquiry(),
-        camera.pan_tilt_position_inquiry(),
-        camera.zoom_position_inquiry(),
-        camera.focus_mode_inquiry(),
-        camera.focus_position_inquiry(),
-        camera.exposure_mode_inquiry(),
-        camera.iris_inquiry(),
-        camera.shutter_inquiry(),
-        camera.gain_inquiry(),
-        camera.white_balance_mode_inquiry(),
-        camera.color_temperature_inquiry(),
-        camera.brightness_inquiry(),
+        camera.get_power_state(),
+        camera.get_pan_tilt_position(),
+        camera.get_zoom_position(),
+        camera.get_focus_mode(),
+        camera.get_focus_position(),
+        camera.get_exposure_mode(),
+        camera.get_iris(),
+        camera.get_shutter(),
+        camera.get_gain(),
+        camera.get_white_balance_mode(),
+        camera.get_color_temperature(),
+        camera.get_brightness(),
         // camera.contrast_inquiry(),  // Not documented in VISCA specs
         // camera.sharpness_inquiry(), // Not documented in VISCA specs
-        camera.saturation_inquiry(),
-        camera.hue_inquiry(),
-        camera.image_flip_inquiry(),
+        camera.get_saturation(),
+        camera.get_hue(),
+        camera.get_image_flip(),
     );
 
     println!("\n--- Power State ---");
@@ -225,11 +236,10 @@ async fn main() -> grafton_visca::Result<()> {
     println!("\n--- Position ---");
     match position {
         Ok((pan, tilt)) => {
-            println!("Pan: {:?}", pan);
-            println!("Tilt: {:?}", tilt);
-            // Convert to degrees using the built-in methods
-            println!("Pan: {:.2}°", pan.to_degrees());
-            println!("Tilt: {:.2}°", tilt.to_degrees());
+            println!("Pan raw value: 0x{:04X}", pan as u16);
+            println!("Tilt raw value: 0x{:04X}", tilt as u16);
+            // Note: Pan/tilt units vary by camera model
+            // Some use signed values (0x0000 = center), others use unsigned (0x8000 = center)
         }
         Err(e) => println!("Failed: {e}"),
     }

@@ -16,7 +16,7 @@ use crate::{executor_unified::Executor, socket_manager::SocketManagerHandle};
 use std::sync::Mutex;
 
 use crate::{
-    camera_id::CameraId, capabilities::Profile,
+    camera_id::CameraId, capabilities::Profile, command::const_encoding::VISCA_TERMINATOR,
     command::EncodeVisca, error::Error, timeout::TimeoutConfig, transport::TransportEnvelope,
 };
 
@@ -46,7 +46,8 @@ use crate::command::response::Response;
 ///
 /// ```ignore
 /// use grafton_visca::{CameraBuilder, camera::profiles::PTZOpticsG2};
-/// use grafton_visca::executor_unified::TokioExecutor;
+/// # #[cfg(feature = "rt-tokio")]
+/// use grafton_visca::TokioExecutor;
 ///
 /// // Async camera with explicit executor
 /// let executor = TokioExecutor::from_current()?;
@@ -66,7 +67,7 @@ where
     socket_manager: Arc<Mutex<Option<SocketManagerHandle>>>,
     envelope: TransportEnvelope,
     #[cfg(feature = "async")]
-    executor: Option<Arc<E>>,
+    executor: Arc<E>,
     timeout_config: TimeoutConfig,
     _mode: PhantomData<M>,
     _profile: PhantomData<P>,
@@ -88,7 +89,7 @@ where
             socket_manager: Arc::new(Mutex::new(None)),
             envelope: TransportEnvelope::new(P::PROTOCOL_STYLE),
             #[cfg(feature = "async")]
-            executor: None,
+            executor: Arc::new(()),
             timeout_config: TimeoutConfig::default(),
             _mode: PhantomData,
             _profile: PhantomData,
@@ -115,7 +116,6 @@ where
 
         // Add VISCA terminator if not present
         let mut cmd_vec = cmd_bytes.to_vec();
-        const VISCA_TERMINATOR: u8 = 0xFF;
         if !cmd_vec.ends_with(&[VISCA_TERMINATOR]) {
             cmd_vec.push(VISCA_TERMINATOR);
         }
@@ -157,7 +157,7 @@ where
             camera_id: CameraId::default(),
             socket_manager: Arc::new(Mutex::new(None)),
             envelope: TransportEnvelope::new(P::PROTOCOL_STYLE),
-            executor: Some(Arc::new(executor)),
+            executor: Arc::new(executor),
             timeout_config: TimeoutConfig::default(),
             _mode: PhantomData,
             _profile: PhantomData,
@@ -166,11 +166,8 @@ where
     }
 
     /// Get a reference to the executor.
-    ///
-    /// Returns an error if no executor is configured (should never happen
-    /// with this design, but kept for API compatibility).
-    pub(crate) fn executor(&self) -> Result<&Arc<E>, Error> {
-        self.executor.as_ref().ok_or_else(|| Error::MissingRuntime)
+    pub(crate) fn executor(&self) -> &Arc<E> {
+        &self.executor
     }
 }
 
@@ -222,7 +219,7 @@ where
             socket_manager: self.socket_manager.clone(),
             envelope: TransportEnvelope::new(P::PROTOCOL_STYLE),
             #[cfg(feature = "async")]
-            executor: self.executor.clone(),
+            executor: Arc::clone(&self.executor),
             timeout_config: self.timeout_config,
             _mode: PhantomData,
             _profile: PhantomData,
@@ -264,7 +261,7 @@ where
             .field("transport", &"<Transport>");
         #[cfg(feature = "async")]
         {
-            debug.field("executor", &self.executor.is_some());
+            debug.field("executor", &"<Executor>");
             if let Ok(sm) = self.socket_manager.try_lock() {
                 debug.field("socket_manager", &sm.is_some());
             } else {
@@ -333,7 +330,7 @@ where
         *socket_manager_lock = Some(handle);
 
         // Get the executor
-        let executor = self.executor()?;
+        let executor = self.executor();
         let transport = Arc::clone(&self.transport);
         let timeout_config = self.timeout_config;
         let camera_id = self.camera_id;
@@ -392,8 +389,6 @@ where
     where
         C: EncodeVisca,
     {
-        use bytes::Bytes;
-
         // Encode the command
         let command_bytes = command.try_into_vec(self.camera_id)?;
         let response_type = command.response_type();
@@ -403,7 +398,6 @@ where
 
         // Frame the command
         let framed_bytes = self.envelope.frame_command(&command_bytes, is_inquiry);
-        let framed_bytes = Bytes::from(framed_bytes);
 
         // Determine the command category for timeout
         let category = command.timeout_kind();
@@ -445,13 +439,12 @@ where
         let wait_fut = socket_manager.wait_for_completion();
 
         // Get executor for timeout
-        let executor = self.executor()?;
+        let executor = self.executor();
         let timeout_duration = self
             .timeout_config
             .get_timeout(crate::timeout::CommandCategory::Movement);
 
         // Apply timeout using executor
-        let result = executor.timeout(timeout_duration, wait_fut).await?;
-        result
+        executor.timeout(timeout_duration, wait_fut).await?
     }
 }

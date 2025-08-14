@@ -10,10 +10,6 @@ use std::pin::Pin;
 
 use crate::Error;
 
-/// Type alias for a join handle that returns a result.
-#[cfg(feature = "async")]
-pub type JoinHandle<T> = Pin<Box<dyn Future<Output = Result<T, ExecError>> + Send + 'static>>;
-
 /// Error type for executor operations.
 #[derive(Debug, thiserror::Error)]
 pub enum ExecError {
@@ -177,10 +173,3 @@ mod tokio_impl {
 
 #[cfg(feature = "rt-tokio")]
 pub use tokio_impl::TokioExecutor;
-
-/// Type alias for a shared executor that can be passed between threads.
-///
-/// This type erases the specific executor implementation, allowing different
-/// parts of the application to work with any executor.
-#[cfg(feature = "async")]
-pub type SharedExecutor = std::sync::Arc<dyn Executor<Join<()> = JoinHandle<()>>>;

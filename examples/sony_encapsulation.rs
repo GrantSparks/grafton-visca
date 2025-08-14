@@ -70,7 +70,7 @@ fn main() -> Result<(), Error> {
     println!("Getting current camera position...");
     match camera.get_pan_tilt_degrees() {
         Ok((pan, tilt)) => {
-            println!("  Current position: Pan={:?}°, Tilt={:?}°", pan, tilt);
+            println!("  Current position: Pan={}, Tilt={}", pan, tilt);
         }
         Err(e) => println!("  Could not get position: {}", e),
     }
@@ -133,8 +133,16 @@ fn main() -> Result<(), Error> {
 
 #[cfg(feature = "rt-tokio")]
 use grafton_visca::{
+    camera::methods::{
+        inquiry::{InquiryOps, PanTiltInquiryOps},
+        pan_tilt::PanTiltOps,
+        power::PowerOps,
+        zoom::ZoomOps,
+    },
     camera::profiles::SonyFR7,
-    types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed},
+    transport::tokio::tcp::Tcp,
+    types::SpeedLevel,
+    units::Degrees,
     CameraBuilder, Error,
 };
 
@@ -163,10 +171,8 @@ async fn main() -> Result<(), Error> {
 
     // Build camera with Sony FR7 profile
     // This automatically configures the transport to use Sony encapsulation
-    let camera = CameraBuilder::tokio_tcp(&camera_addr)
-        .profile::<SonyFR7>() // Sony FR7 uses encapsulation with sequence numbers
-        .build()
-        .await?;
+    let transport = Tcp::connect(&camera_addr).await?;
+    let camera = CameraBuilder::tokio()?.build_async::<SonyFR7, _>(transport)?;
 
     println!("✅ Connected successfully!");
     println!("Protocol: Sony Encapsulated (8-byte header with sequence tracking)\n");
@@ -192,9 +198,9 @@ async fn main() -> Result<(), Error> {
 
     // Get current position
     println!("Getting current camera position...");
-    match camera.get_pan_tilt_degrees().await {
+    match camera.get_pan_tilt_position().await {
         Ok((pan, tilt)) => {
-            println!("  Current position: Pan={:?}°, Tilt={:?}°", pan, tilt);
+            println!("  Current position: Pan={}, Tilt={}", pan, tilt);
         }
         Err(e) => println!("  Could not get position: {}", e),
     }
@@ -217,12 +223,7 @@ async fn main() -> Result<(), Error> {
 
     println!("Testing pan/tilt movement...");
     camera
-        .pan_tilt_absolute(
-            PanPosition::from_degrees(30.0)?,
-            TiltPosition::from_degrees(10.0)?,
-            PanSpeed::new(18)?,
-            TiltSpeed::new(18)?,
-        )
+        .pan_tilt_absolute(Degrees(30.0), Degrees(10.0), SpeedLevel::Fast)
         .await?;
     camera.await_idle(Duration::from_secs(10)).await?;
     println!("  ✓ Moved to Pan=30°, Tilt=10°");
@@ -239,12 +240,7 @@ async fn main() -> Result<(), Error> {
     println!("Executing pan and zoom simultaneously...");
 
     let (pan_result, zoom_result): (Result<(), Error>, Result<(), Error>) = tokio::join!(
-        camera.pan_tilt_absolute(
-            PanPosition::from_degrees(0.0)?,
-            TiltPosition::from_degrees(0.0)?,
-            PanSpeed::new(18)?,
-            TiltSpeed::new(18)?
-        ),
+        camera.pan_tilt_absolute(Degrees(0.0), Degrees(0.0), SpeedLevel::Fast),
         async {
             camera.zoom_wide_std().await?;
             sleep(Duration::from_millis(500)).await;

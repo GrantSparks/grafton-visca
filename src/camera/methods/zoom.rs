@@ -122,14 +122,9 @@ where
         let inquiry = ZoomPositionInquiry {};
         let response = self.send_command(&inquiry).await?;
         match response {
-            Response::Inquiry(inquiry_response) => {
-                match inquiry_response {
-                    InquiryResponse::ZoomPosition { position } => {
-                        // The InquiryResponse contains a raw u16 value
-                        Ok(crate::types::ZoomPosition::new(position)?)
-                    }
-                    _ => Err(Error::UnexpectedResponseType),
-                }
+            Response::Inquiry(InquiryResponse::ZoomPosition { position }) => {
+                // The InquiryResponse contains a raw u16 value
+                Ok(crate::types::ZoomPosition::new(position)?)
             }
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -199,14 +194,9 @@ where
         let inquiry = ZoomPositionInquiry {};
         let response = self.send_command(&inquiry)?;
         match response {
-            Response::Inquiry(inquiry_response) => {
-                match inquiry_response {
-                    InquiryResponse::ZoomPosition { position } => {
-                        // The InquiryResponse contains a raw u16 value
-                        Ok(crate::types::ZoomPosition::new(position)?)
-                    }
-                    _ => Err(Error::UnexpectedResponseType),
-                }
+            Response::Inquiry(InquiryResponse::ZoomPosition { position }) => {
+                // The InquiryResponse contains a raw u16 value
+                Ok(crate::types::ZoomPosition::new(position)?)
             }
             _ => Err(Error::UnexpectedResponseType),
         }

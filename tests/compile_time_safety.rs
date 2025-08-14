@@ -2,8 +2,8 @@
 
 use grafton_visca::{
     camera::{
-        generic::Camera,
         profiles::{GenericVisca, PTZOpticsG2, SonyFR7},
+        AsyncMode, Camera,
     },
     capabilities::{PanTilt, Profile, ProfileMetadata, Zoom},
 };
@@ -46,14 +46,14 @@ fn test_profile_constants() {
 fn test_generic_camera_methods() {
     // We can't actually create a camera without a transport, but we can test the types compile
     #[cfg(feature = "async")]
-    type _G2Camera<T> = Camera<grafton_visca::camera::AsyncMode, PTZOpticsG2, T>;
+    type _G2Camera<T, E> = Camera<AsyncMode, PTZOpticsG2, T, E>;
     #[cfg(not(feature = "async"))]
-    type _G2Camera<T> = Camera<grafton_visca::camera::BlockingMode, PTZOpticsG2, T>;
+    type _G2Camera<T> = Camera<BlockingMode, PTZOpticsG2, T, ()>;
 
     #[cfg(feature = "async")]
-    type _FR7Camera<T> = Camera<grafton_visca::camera::AsyncMode, SonyFR7, T>;
+    type _FR7Camera<T, E> = Camera<AsyncMode, SonyFR7, T, E>;
     #[cfg(not(feature = "async"))]
-    type _FR7Camera<T> = Camera<grafton_visca::camera::BlockingMode, SonyFR7, T>;
+    type _FR7Camera<T> = Camera<BlockingMode, SonyFR7, T, ()>;
 
     // Test that type aliases work
     type _G2Alias<T> = PTZOpticsG2Cam<T>;

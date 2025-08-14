@@ -263,11 +263,6 @@ pub(crate) enum SocketManagerCommand {
         /// Channel to send the result when a completion message is received.
         response_sender: OneshotSender<Result<()>>,
     },
-    /// Update the timeout configuration.
-    UpdateTimeoutConfig {
-        /// New timeout configuration to use.
-        config: TimeoutConfig,
-    },
     /// Shutdown the socket manager gracefully.
     /// This is primarily for testing and internal use.
     #[doc(hidden)]
@@ -364,16 +359,6 @@ impl SocketManagerHandle {
             .map_err(|_| Error::SocketManagerChannelClosed)?;
 
         Ok(response_receiver)
-    }
-
-    /// Update the timeout configuration.
-    ///
-    /// This method sends a new timeout configuration to the socket manager actor.
-    /// The new configuration will be used for all subsequent commands.
-    pub fn update_timeout_config(&self, config: TimeoutConfig) -> Result<()> {
-        self.command_sender
-            .send(SocketManagerCommand::UpdateTimeoutConfig { config })
-            .map_err(|_| Error::SocketManagerChannelClosed)
     }
 
     /// Send a shutdown signal without waiting for confirmation.
@@ -507,7 +492,7 @@ pub(crate) struct SocketManagerActor<T, E = ()> {
     command_receiver: UnboundedReceiver<SocketManagerCommand>,
     timeout_config: TimeoutConfig,
     #[cfg(feature = "async")]
-    executor: Option<Arc<E>>,
+    executor: Arc<E>,
     retry_hook: Box<dyn RetryHook + Send + Sync>,
 }
 
@@ -519,33 +504,8 @@ impl<T, E> std::fmt::Debug for SocketManagerActor<T, E> {
             .field("transport", &"Arc<T>")
             .field("timeout_config", &self.timeout_config);
         #[cfg(feature = "async")]
-        builder.field("executor", &"Option<Arc<E>>");
+        builder.field("executor", &"<Executor>");
         builder.field("retry_hook", &"Box<dyn RetryHook>").finish()
-    }
-}
-
-impl<T, E> SocketManagerActor<T, E>
-where
-    T: AsyncTransport + Send + Sync + 'static,
-{
-    /// Create a new socket manager actor for blocking mode (no executor).
-    pub fn new_blocking(
-        transport: Arc<T>,
-        command_receiver: UnboundedReceiver<SocketManagerCommand>,
-        timeout_config: TimeoutConfig,
-        camera_id: CameraId,
-    ) -> Self {
-        let mut inner = SocketManagerInner::new();
-        inner.camera_id = camera_id;
-        Self {
-            inner,
-            transport,
-            command_receiver,
-            timeout_config,
-            #[cfg(feature = "async")]
-            executor: None,
-            retry_hook: Box::new(DefaultRetryHook::new()),
-        }
     }
 }
 
@@ -570,7 +530,7 @@ where
             transport,
             command_receiver,
             timeout_config,
-            executor: Some(executor),
+            executor,
             retry_hook: Box::new(DefaultRetryHook::new()),
         }
     }
@@ -580,16 +540,7 @@ where
         &self,
         duration: std::time::Duration,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
-        if let Some(ref executor) = self.executor {
-            executor.sleep(duration)
-        } else {
-            // Fallback for cases where executor is somehow not set
-            // This shouldn't happen with proper initialization
-            #[cfg(feature = "rt-tokio")]
-            return Box::pin(tokio::time::sleep(duration));
-            #[cfg(not(feature = "rt-tokio"))]
-            return Box::pin(futures::future::ready(()));
-        }
+        self.executor.sleep(duration)
     }
 
     /// Run the socket manager actor event loop.
@@ -603,18 +554,7 @@ where
             self.check_timeouts().await;
 
             // Create sleep future using executor directly to avoid borrow issues
-            let sleep_fut = if let Some(ref executor) = self.executor {
-                executor.sleep(std::time::Duration::from_millis(10))
-            } else {
-                #[cfg(feature = "rt-tokio")]
-                {
-                    Box::pin(tokio::time::sleep(std::time::Duration::from_millis(10)))
-                }
-                #[cfg(not(feature = "rt-tokio"))]
-                {
-                    Box::pin(futures::future::ready(()))
-                }
-            };
+            let sleep_fut = self.executor.sleep(std::time::Duration::from_millis(10));
 
             // Use futures::select for runtime-agnostic event handling
             select_biased! {
@@ -635,10 +575,6 @@ where
                             }) => {
                                 self.inner.completion_waiters.push_back(response_sender);
                                 debug!("Added completion waiter, {} waiters now", self.inner.completion_waiters.len());
-                            }
-                            Some(SocketManagerCommand::UpdateTimeoutConfig { config }) => {
-                                debug!("Updating timeout configuration");
-                                self.timeout_config = config;
                             }
                             Some(SocketManagerCommand::Shutdown { confirmation }) => {
                                 debug!("Socket manager received shutdown command");

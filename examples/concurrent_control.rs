@@ -17,12 +17,17 @@ fn main() {
 
 #[cfg(feature = "rt-tokio")]
 use grafton_visca::{
-    camera::methods::{pan_tilt::PanTiltOps, power::PowerOps, presets::PresetsOps, zoom::ZoomOps},
-    camera::{profiles::PTZOpticsG2, AsyncMode, Camera},
+    camera::methods::{
+        inquiry::{InquiryOps, PanTiltInquiryOps},
+        pan_tilt::PanTiltOps,
+        presets::PresetsOps,
+        zoom::ZoomOps,
+    },
+    camera::profiles::PTZOpticsG2,
     prelude::r#async::*,
-    transport::tokio::Tcp,
+    transport::tokio::tcp::Tcp,
     types::SpeedLevel,
-    CameraBuilder, PanTiltDirection, PresetNumber, Result, TokioExecutor,
+    CameraBuilder, PanTiltDirection, PresetNumber, Result,
 };
 
 #[cfg(feature = "rt-tokio")]
@@ -143,7 +148,7 @@ async fn multi_camera_control() -> Result<()> {
 
     // Return cameras to home position
     println!("Returning cameras to home position...");
-    tokio::join!(
+    let _ = tokio::join!(
         cam1.pan_tilt_home(),
         cam2.pan_tilt_home(),
         cam3.pan_tilt_home(),
@@ -171,7 +176,7 @@ async fn parallel_single_camera() -> Result<()> {
 
     let (power, pan_tilt, zoom, focus) = tokio::join!(
         camera.get_power_state(),
-        camera.get_pan_tilt_degrees(),
+        camera.get_pan_tilt_position(),
         camera.get_zoom_position(),
         camera.get_focus_position()
     );
@@ -228,7 +233,8 @@ async fn producer_consumer_pattern() -> Result<()> {
 
     use tokio::sync::mpsc;
 
-    let camera = Arc::new(CameraBuilder::tokio_tcp("192.168.0.110").build().await?);
+    let transport = Tcp::connect("192.168.0.110").await?;
+    let camera = Arc::new(CameraBuilder::tokio()?.build_async::<PTZOpticsG2, _>(transport)?);
 
     // Save initial state
     let (tx, mut rx) = mpsc::channel(10);
@@ -305,14 +311,19 @@ async fn synchronized_movement() -> Result<()> {
     use tokio::sync::Barrier;
 
     // Create cameras
-    let cameras = vec![
-        Arc::new(CameraBuilder::tokio_tcp("192.168.0.109").build().await?),
-        Arc::new(CameraBuilder::tokio_tcp("192.168.0.110").build().await?),
-        Arc::new(CameraBuilder::tokio_tcp("192.168.0.111").build().await?),
-    ];
+    let camera_addrs = vec!["192.168.0.109", "192.168.0.110", "192.168.0.111"];
+    let mut cameras = vec![];
+    let mut initial_states = vec![];
 
-    // Save initial states for all cameras
-    for camera in &cameras {}
+    for addr in camera_addrs {
+        let transport = Tcp::connect(addr).await?;
+        let camera = Arc::new(CameraBuilder::tokio()?.build_async::<PTZOpticsG2, _>(transport)?);
+
+        // Save initial state
+        let state = camera.get_pan_tilt_position().await.ok();
+        initial_states.push(state);
+        cameras.push(camera);
+    }
 
     let barrier = Arc::new(Barrier::new(cameras.len()));
 
@@ -363,8 +374,9 @@ async fn synchronized_movement() -> Result<()> {
         let cam = camera.clone();
         let state = *state;
         let handle = tokio::spawn(async move {
-            if let Some(s) = state {
-                // Restore camera state here
+            if let Some((_pan, _tilt)) = state {
+                // Move back to initial position
+                cam.pan_tilt_home().await?;
             }
             Ok::<(), grafton_visca::Error>(())
         });

@@ -87,7 +87,10 @@ where
         // Keep checking until pan/tilt stops moving
         let start = Instant::now();
         if config.debug {
-            log::debug!("Waiting for pan/tilt movement to complete (timeout: {:?})", config.timeout);
+            log::debug!(
+                "Waiting for pan/tilt movement to complete (timeout: {:?})",
+                config.timeout
+            );
         }
         loop {
             if start.elapsed() > config.timeout {
@@ -140,7 +143,10 @@ where
         // Keep checking until zoom stops moving
         let start = Instant::now();
         if config.debug {
-            log::debug!("Waiting for zoom movement to complete (timeout: {:?})", config.timeout);
+            log::debug!(
+                "Waiting for zoom movement to complete (timeout: {:?})",
+                config.timeout
+            );
         }
         loop {
             if start.elapsed() > config.timeout {
@@ -185,7 +191,10 @@ where
         // Keep checking until focus stops moving
         let start = Instant::now();
         if config.debug {
-            log::debug!("Waiting for focus movement to complete (timeout: {:?})", config.timeout);
+            log::debug!(
+                "Waiting for focus movement to complete (timeout: {:?})",
+                config.timeout
+            );
         }
         loop {
             if start.elapsed() > config.timeout {
@@ -398,7 +407,7 @@ where
             }
 
             // Yield to scheduler using executor
-            let executor = self.executor()?;;
+            let executor = self.executor();
             executor.sleep(Duration::from_millis(1)).await;
         }
     }
@@ -415,9 +424,12 @@ where
         // Keep checking until pan/tilt stops moving
         let start = Instant::now();
         if config.debug {
-            log::debug!("Waiting for pan/tilt movement to complete (timeout: {:?})", config.timeout);
+            log::debug!(
+                "Waiting for pan/tilt movement to complete (timeout: {:?})",
+                config.timeout
+            );
         }
-        let executor = self.executor()?;
+        let executor = self.executor();
 
         loop {
             if start.elapsed() > config.timeout {
@@ -470,9 +482,12 @@ where
         // Keep checking until zoom stops moving
         let start = Instant::now();
         if config.debug {
-            log::debug!("Waiting for zoom movement to complete (timeout: {:?})", config.timeout);
+            log::debug!(
+                "Waiting for zoom movement to complete (timeout: {:?})",
+                config.timeout
+            );
         }
-        let executor = self.executor()?;
+        let executor = self.executor();
 
         loop {
             if start.elapsed() > config.timeout {
@@ -517,9 +532,12 @@ where
         // Keep checking until focus stops moving
         let start = Instant::now();
         if config.debug {
-            log::debug!("Waiting for focus movement to complete (timeout: {:?})", config.timeout);
+            log::debug!(
+                "Waiting for focus movement to complete (timeout: {:?})",
+                config.timeout
+            );
         }
-        let executor = self.executor()?;
+        let executor = self.executor();
 
         loop {
             if start.elapsed() > config.timeout {
@@ -595,7 +613,7 @@ where
         };
 
         // Yield to scheduler using executor
-        let executor = self.executor()?;;
+        let executor = self.executor();
         executor.sleep(Duration::from_millis(1)).await;
 
         // Get second reading

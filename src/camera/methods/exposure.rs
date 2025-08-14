@@ -506,31 +506,31 @@ where
     }
 
     fn set_gain(&self, gain: crate::types::GainLevel) -> Result<(), Error> {
-        let cmd = crate::command::gain::GainCommand::SetValue(gain);
+        let cmd = crate::command::gain::Gain::SetValue(gain);
         self.send_command(&cmd)?;
         Ok(())
     }
 
     fn reset_gain(&self) -> Result<(), Error> {
-        let cmd = crate::command::gain::GainCommand::Reset;
+        let cmd = crate::command::gain::Gain::Reset;
         self.send_command(&cmd)?;
         Ok(())
     }
 
     fn increase_gain(&self) -> Result<(), Error> {
-        let cmd = crate::command::gain::GainCommand::Up;
+        let cmd = crate::command::gain::Gain::Up;
         self.send_command(&cmd)?;
         Ok(())
     }
 
     fn decrease_gain(&self) -> Result<(), Error> {
-        let cmd = crate::command::gain::GainCommand::Down;
+        let cmd = crate::command::gain::Gain::Down;
         self.send_command(&cmd)?;
         Ok(())
     }
 
     fn set_gain_limit(&self, limit: crate::types::GainLimit) -> Result<(), Error> {
-        let cmd = crate::command::gain::GainCommand::SetLimit(limit);
+        let cmd = crate::command::gain::GainLimitCommand::new(limit);
         self.send_command(&cmd)?;
         Ok(())
     }

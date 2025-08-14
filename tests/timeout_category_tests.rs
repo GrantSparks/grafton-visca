@@ -13,7 +13,7 @@ mod timeout_tests {
         camera::{profiles::GenericVisca, AsyncMode, Camera},
         timeout::TimeoutConfig,
         transport::AsyncTransport,
-        Error, TokioExecutor,
+        Error, PanTiltOps, PowerOps, PresetsOps, TokioExecutor,
     };
     use std::{
         sync::{Arc, Mutex},
@@ -151,9 +151,7 @@ mod timeout_tests {
         };
         camera.set_timeout_config(config);
 
-        // Initialize socket manager with runtime
-        let runtime = std::sync::Arc::new(grafton_visca::runtime::TokioRuntime);
-        camera = camera.with_runtime(runtime);
+        // Socket manager is automatically initialized on first use
 
         // Try a quick command (power inquiry)
         let start = Instant::now();
@@ -189,9 +187,7 @@ mod timeout_tests {
         };
         camera.set_timeout_config(config);
 
-        // Initialize socket manager with runtime
-        let runtime = std::sync::Arc::new(grafton_visca::runtime::TokioRuntime);
-        camera = camera.with_runtime(runtime);
+        // Socket manager is automatically initialized on first use
 
         // Try a movement command (pan_tilt_home)
         let start = Instant::now();
@@ -227,9 +223,7 @@ mod timeout_tests {
         };
         camera.set_timeout_config(config);
 
-        // Initialize socket manager with runtime
-        let runtime = std::sync::Arc::new(grafton_visca::runtime::TokioRuntime);
-        camera = camera.with_runtime(runtime);
+        // Socket manager is automatically initialized on first use
 
         // Try a preset command
         let start = Instant::now();
