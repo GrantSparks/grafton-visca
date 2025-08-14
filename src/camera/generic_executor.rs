@@ -16,7 +16,7 @@ use crate::{executor_unified::Executor, socket_manager::SocketManagerHandle};
 use std::sync::Mutex;
 
 use crate::{
-    camera_id::CameraId, capabilities::Profile, command::response::ResponseType,
+    camera_id::CameraId, capabilities::Profile,
     command::EncodeVisca, error::Error, timeout::TimeoutConfig, transport::TransportEnvelope,
 };
 
