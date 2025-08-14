@@ -372,13 +372,7 @@ pub(crate) mod socket_manager;
 
 // Internal modules for async support
 #[cfg(feature = "async")]
-pub(crate) mod executor;
-
-#[cfg(feature = "async")]
 pub(crate) mod executor_unified;
-
-#[cfg(feature = "async")]
-pub(crate) mod runtime;
 
 // Removed async and blocking wrappers - using mode markers instead
 

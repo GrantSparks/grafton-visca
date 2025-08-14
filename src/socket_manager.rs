@@ -346,20 +346,6 @@ impl SocketManagerHandle {
         response_receiver.recv().await?
     }
 
-    /// Send a WaitForCompletion command to the socket manager (for blocking mode).
-    ///
-    /// This returns the receiver that can be used to wait for the completion
-    /// message with a timeout.
-    #[allow(dead_code)]
-    pub fn send_wait_for_completion(&self) -> Result<channels::OneshotReceiver<Result<()>>> {
-        let (response_sender, response_receiver) = channels::oneshot();
-
-        self.command_sender
-            .send(SocketManagerCommand::WaitForCompletion { response_sender })
-            .map_err(|_| Error::SocketManagerChannelClosed)?;
-
-        Ok(response_receiver)
-    }
 
     /// Send a shutdown signal without waiting for confirmation.
     ///
