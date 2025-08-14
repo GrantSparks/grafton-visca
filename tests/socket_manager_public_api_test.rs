@@ -209,8 +209,8 @@ mod tokio_tests {
         // the socket manager is lazily initialized on first command
         let transport = MockTransport::with_auto_respond();
         let runtime = Arc::new(TokioRuntime);
-        let camera = Camera::<PTZOpticsG2, _>::from_transport(transport.clone())
-            .with_runtime(runtime);
+        let camera =
+            Camera::<PTZOpticsG2, _>::from_transport(transport.clone()).with_runtime(runtime);
 
         // First command should trigger lazy initialization of socket manager
         let result = camera.power_on().await;
