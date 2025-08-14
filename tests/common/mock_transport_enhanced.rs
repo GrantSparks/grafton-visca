@@ -117,7 +117,7 @@ impl MockTransport {
     pub fn send(&mut self, data: &[u8]) -> Result<()> {
         // Use futures::executor to block on the future
         use grafton_visca::transport::async_transport::AsyncTransport;
-        grafton_visca::executor::block_on(AsyncTransport::send(self, data))
+        futures::executor::block_on(AsyncTransport::send(self, data))
     }
 
     #[cfg(not(feature = "async"))]
@@ -131,7 +131,7 @@ impl MockTransport {
     pub fn receive(&mut self, _timeout: Duration) -> Result<Vec<u8>> {
         // Just use the recv method which already handles everything
         use grafton_visca::transport::async_transport::AsyncTransport;
-        match grafton_visca::executor::block_on(AsyncTransport::recv(self)) {
+        match futures::executor::block_on(AsyncTransport::recv(self)) {
             Ok(bytes) => Ok(bytes.to_vec()),
             Err(e) => Err(e),
         }
@@ -550,7 +550,7 @@ mod tests {
         #[cfg(feature = "async")]
         {
             use grafton_visca::transport::async_transport::AsyncTransport;
-            grafton_visca::executor::block_on(AsyncTransport::send(
+            futures::executor::block_on(AsyncTransport::send(
                 &mock,
                 &[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
             ))

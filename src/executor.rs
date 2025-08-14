@@ -4,7 +4,7 @@
 //! It includes a minimal blocking executor for synchronous operation and a `Spawner` trait
 //! that allows users to provide their own async runtime integration.
 
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(any(feature = "async", test, feature = "test-utils"))]
 use core::future::Future;
 #[cfg(any(test, feature = "test-utils"))]
 use core::task::{Context, Poll, Waker};
@@ -12,7 +12,7 @@ use core::task::{Context, Poll, Waker};
 #[cfg(feature = "async")]
 use std::pin::Pin;
 
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(any(feature = "async", test, feature = "test-utils"))]
 use crate::Error;
 
 /// Type alias for a boxed future that can be spawned.
@@ -189,7 +189,7 @@ impl Spawner for tokio::runtime::Handle {
 /// use grafton_visca::executor::{Spawner, BlockingSpawner};
 ///
 /// let spawner = BlockingSpawner::new();
-/// spawner.spawn(Box::pin(async {
+/// spawner.spawn(std::boxed::Box::pin(async {
 ///     println!("Task running in background thread");
 /// }));
 /// # }
@@ -261,7 +261,8 @@ fn noop_waker() -> Waker {
 /// in production code. Production code should use proper async runtimes.
 #[cfg(any(test, feature = "test-utils"))]
 pub fn block_on<F: Future>(fut: F) -> F::Output {
-    let mut fut = Box::pin(fut);
+    #[allow(unused_qualifications)]
+    let mut fut = std::boxed::Box::pin(fut);
 
     // Create a no-op waker without depending on futures crate
     let waker = noop_waker();
@@ -289,7 +290,8 @@ pub fn timeout<F: Future>(duration: core::time::Duration, fut: F) -> Result<F::O
     use std::time::Instant;
 
     let deadline = Instant::now() + duration;
-    let mut fut = Box::pin(fut);
+    #[allow(unused_qualifications)]
+    let mut fut = std::boxed::Box::pin(fut);
     let waker = noop_waker();
     let mut cx = Context::from_waker(&waker);
 
@@ -379,7 +381,8 @@ impl Sleep for TokioSleep {
         &self,
         duration: core::time::Duration,
     ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-        Box::pin(tokio::time::sleep(duration))
+        #[allow(unused_qualifications)]
+        std::boxed::Box::pin(tokio::time::sleep(duration))
     }
 }
 
@@ -397,7 +400,8 @@ impl Sleep for NoopSleep {
         &self,
         _duration: core::time::Duration,
     ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-        Box::pin(async {})
+        #[allow(unused_qualifications)]
+        std::boxed::Box::pin(async {})
     }
 }
 
@@ -415,7 +419,8 @@ impl Sleep for BlockingSleep {
         &self,
         duration: core::time::Duration,
     ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-        Box::pin(async move {
+        #[allow(unused_qualifications)]
+        std::boxed::Box::pin(async move {
             std::thread::sleep(duration);
         })
     }
