@@ -40,7 +40,6 @@ pub trait WhiteBalanceOps: Sized {
 }
 
 /// White balance operations (blocking).
-#[cfg(not(feature = "async"))]
 pub trait WhiteBalanceOpsBlocking: Sized {
     /// Set white balance mode to any supported mode.
     fn set_white_balance_mode(&self, mode: WhiteBalanceMode) -> Result<(), Error>;
@@ -126,7 +125,6 @@ where
 }
 
 // Blocking implementation for Camera with BlockingMode
-#[cfg(not(feature = "async"))]
 impl<P, T> WhiteBalanceOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile,

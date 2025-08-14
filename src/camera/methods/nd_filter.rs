@@ -30,7 +30,6 @@ pub trait NDFilterOps: Sized {
 }
 
 /// ND filter operations (blocking).
-#[cfg(not(feature = "async"))]
 pub trait NDFilterOpsBlocking: Sized {
     /// Set ND filter mode (preset or variable).
     fn set_nd_filter_mode(&self, mode: CommandNDFilterMode) -> Result<(), Error>;

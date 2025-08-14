@@ -206,7 +206,6 @@ pub trait InquiryOps: Sized {
 }
 
 /// Inquiry operations (blocking).
-#[cfg(not(feature = "async"))]
 pub trait InquiryOpsBlocking: Sized {
     /// Get the current power state of the camera.
     /// Returns `true` if powered on, `false` if in standby.
@@ -1081,7 +1080,6 @@ where
 }
 
 // Blocking implementation
-#[cfg(not(feature = "async"))]
 impl<P, T> InquiryOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile,
@@ -1766,7 +1764,6 @@ pub trait PanTiltInquiryOps: Sized {
 }
 
 /// Pan/Tilt-specific inquiry operations (blocking).
-#[cfg(not(feature = "async"))]
 pub trait PanTiltInquiryOpsBlocking: Sized {
     /// Get the current pan and tilt position.
     fn get_pan_tilt_position(&self) -> Result<(i16, i16), Error>;
@@ -1792,7 +1789,6 @@ where
 }
 
 // Blocking implementation
-#[cfg(not(feature = "async"))]
 impl<P, T> PanTiltInquiryOpsBlocking
     for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where

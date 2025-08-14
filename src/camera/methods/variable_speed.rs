@@ -46,7 +46,6 @@ where
 }
 
 /// Blocking methods for variable speed mode control.
-#[cfg(not(feature = "async"))]
 pub trait VariableSpeedOpsBlocking {
     /// Set the variable speed mode (24-step or 50-step).
     ///
@@ -61,7 +60,6 @@ pub trait VariableSpeedOpsBlocking {
 }
 
 // Blocking implementation for Camera with BlockingMode
-#[cfg(not(feature = "async"))]
 impl<P, T> VariableSpeedOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile

@@ -66,7 +66,6 @@ pub trait FocusOps: Sized {
 }
 
 /// Focus operations (blocking).
-#[cfg(not(feature = "async"))]
 pub trait FocusOpsBlocking: Sized {
     /// Set auto focus mode.
     fn focus_auto(&self) -> Result<(), Error>;
@@ -246,7 +245,6 @@ where
 }
 
 // Blocking implementation for Camera with BlockingMode
-#[cfg(not(feature = "async"))]
 impl<P, T> FocusOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile,

@@ -16,7 +16,6 @@ pub trait PowerOps: Sized {
 }
 
 /// Power operations (blocking).
-#[cfg(not(feature = "async"))]
 pub trait PowerOpsBlocking: Sized {
     /// Power on the camera.
     fn power_on(&self) -> Result<(), Error>;
@@ -62,7 +61,6 @@ where
 }
 
 // Blocking implementation for Camera with BlockingMode
-#[cfg(not(feature = "async"))]
 impl<P, T> PowerOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile,

@@ -31,7 +31,6 @@ pub trait ZoomOps: Sized {
 }
 
 /// Zoom operations (blocking).
-#[cfg(not(feature = "async"))]
 pub trait ZoomOpsBlocking: Sized {
     /// Stop zooming.
     fn zoom_stop(&self) -> Result<(), Error>;
@@ -132,7 +131,6 @@ where
 }
 
 // Blocking implementation for Camera with BlockingMode
-#[cfg(not(feature = "async"))]
 impl<P, T> ZoomOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile,
