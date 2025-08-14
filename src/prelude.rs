@@ -65,7 +65,7 @@ pub mod r#async {
         GenericVisca, NearusBRC300, PTZOptics30X, PTZOpticsG2, PTZOpticsG3, SonyBRC300,
         SonyBRCH900, SonyEVIH100, SonyFR7,
     };
-    pub use crate::camera::{CameraAsync as Camera, CameraState, MovementConfig};
+    pub use crate::camera::{CameraAsync as Camera, MovementConfig};
     pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
     pub use crate::units::{Degrees, Normalized, Percentage, Raw};
     pub use crate::{
@@ -122,7 +122,7 @@ pub mod blocking {
         GenericVisca, NearusBRC300, PTZOptics30X, PTZOpticsG2, PTZOpticsG3, SonyBRC300,
         SonyBRCH900, SonyEVIH100, SonyFR7,
     };
-    pub use crate::camera::{CameraBlocking as Camera, CameraState, MovementConfig};
+    pub use crate::camera::{CameraBlocking as Camera, MovementConfig};
     pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
     pub use crate::units::{Degrees, Normalized, Percentage, Raw};
     pub use crate::{

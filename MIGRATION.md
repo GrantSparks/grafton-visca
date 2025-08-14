@@ -1,3 +1,55 @@
+# Migration Guide
+
+## Executor-Based API Changes (Issue #235)
+
+### Overview
+The library now uses a unified `Executor` trait to prevent runtime/spawner mismatches. The Camera type has been updated from 3 to 4 type parameters to include the executor type.
+
+### Key Changes
+
+**Old API (could mismatch runtime/spawner):**
+```rust
+let camera = CameraBuilder::new()
+    .runtime(tokio_runtime)      // From Tokio
+    .spawner(async_std_spawner)  // From async-std - MISMATCH!
+    .build()?;
+```
+
+**New API (mismatch impossible):**
+```rust
+// Option 1: Convenience constructor
+let camera = Camera::<_, PTZOpticsG2, _, _>::tokio(transport)?;
+
+// Option 2: Explicit executor
+let executor = TokioExecutor::from_current()?;
+let camera = Camera::with_executor(transport, executor);
+```
+
+### Camera Type Changes
+- Old: `Camera<M, P, T>` (mode, profile, transport)
+- New: `Camera<M, P, T, E>` (mode, profile, transport, executor)
+
+### For Blocking Mode
+```rust
+// Still works
+let camera = Camera::from_transport(transport);
+
+// Or explicitly
+let camera = Camera::<BlockingMode, PTZOpticsG2, _, ()>::new(transport);
+```
+
+### For Async Mode
+```rust
+// Must provide executor
+let executor = TokioExecutor::from_current()?;
+let camera = Camera::with_executor(transport, executor);
+
+// Or use convenience methods
+let camera = Camera::tokio(transport)?;
+```
+
+---
+
 # Migration Guide: v0.6.x to v0.7.0
 
 This guide helps you migrate from grafton-visca v0.6.x to v0.7.0, which introduces significant architectural improvements for better performance and type safety.

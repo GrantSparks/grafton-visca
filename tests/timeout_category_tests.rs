@@ -10,8 +10,10 @@
 mod timeout_tests {
     use bytes::Bytes;
     use grafton_visca::{
-        camera::profiles::GenericVisca, camera::CameraAsync, timeout::TimeoutConfig,
-        transport::AsyncTransport, Error,
+        camera::{profiles::GenericVisca, AsyncMode, Camera},
+        timeout::TimeoutConfig,
+        transport::AsyncTransport,
+        Error, TokioExecutor,
     };
     use std::{
         sync::{Arc, Mutex},
@@ -138,8 +140,9 @@ mod timeout_tests {
         transport.add_response(vec![0x90, 0x41, 0xFF]); // ACK
 
         // Create camera with custom timeout config
-        let mut camera: CameraAsync<GenericVisca, _> =
-            CameraAsync::from_transport(transport.clone());
+        let executor = TokioExecutor::from_current().expect("Failed to get current runtime");
+        let mut camera: Camera<AsyncMode, GenericVisca, _, _> =
+            Camera::with_executor(transport.clone(), executor);
 
         // Set very short timeout for quick commands
         let config = TimeoutConfig {
@@ -175,8 +178,9 @@ mod timeout_tests {
         transport.add_response(vec![0x90, 0x41, 0xFF]); // ACK
 
         // Create camera with custom timeout config
-        let mut camera: CameraAsync<GenericVisca, _> =
-            CameraAsync::from_transport(transport.clone());
+        let executor = TokioExecutor::from_current().expect("Failed to get current runtime");
+        let mut camera: Camera<AsyncMode, GenericVisca, _, _> =
+            Camera::with_executor(transport.clone(), executor);
 
         // Set 1 second timeout for movement commands
         let config = TimeoutConfig {
@@ -212,8 +216,9 @@ mod timeout_tests {
         transport.add_response(vec![0x90, 0x41, 0xFF]); // ACK
 
         // Create camera with custom timeout config
-        let mut camera: CameraAsync<GenericVisca, _> =
-            CameraAsync::from_transport(transport.clone());
+        let executor = TokioExecutor::from_current().expect("Failed to get current runtime");
+        let mut camera: Camera<AsyncMode, GenericVisca, _, _> =
+            Camera::with_executor(transport.clone(), executor);
 
         // Set 2 second timeout for preset commands
         let config = TimeoutConfig {

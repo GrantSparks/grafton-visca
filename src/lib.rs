@@ -338,16 +338,16 @@ pub mod command;
 /// Error types
 mod error;
 
-/// Transport layer (most users won't need direct access)
+/// Transport layer for implementing custom transports
 pub mod transport;
 
 #[cfg(feature = "async")]
-mod channels;
+pub(crate) mod channels;
 
 /// Constants for VISCA protocol including default ports
 pub mod constants;
 
-mod macros;
+pub(crate) mod macros;
 
 /// Type definitions and abstractions
 pub mod types;
@@ -360,8 +360,15 @@ pub mod timeout;
 #[cfg(feature = "async")]
 pub(crate) mod socket_manager;
 
-pub mod executor;
-pub mod runtime;
+// Internal modules for async support
+#[cfg(feature = "async")]
+pub(crate) mod executor;
+
+#[cfg(feature = "async")]
+pub(crate) mod executor_unified;
+
+#[cfg(feature = "async")]
+pub(crate) mod runtime;
 
 // Removed async and blocking wrappers - using mode markers instead
 
@@ -376,6 +383,10 @@ pub mod testing;
 pub use camera::{Camera, CameraBuilder};
 pub use camera_id::CameraId;
 pub use error::{Error, Result};
+
+// Re-export the new executor trait for async users
+#[cfg(feature = "async")]
+pub use executor_unified::{ExecError, Executor, TokioExecutor};
 
 // Re-export commonly used enums that users need directly
 // These are used in method arguments and are part of the primary API

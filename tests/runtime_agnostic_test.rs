@@ -1,12 +1,15 @@
 //! Test that the library's runtime behavior with rt-tokio feature.
 //!
-//! When rt-tokio feature is enabled, the camera requires explicit runtime configuration
+//! When rt-tokio feature is enabled, the camera requires explicit executor configuration
 //! to ensure predictable behavior and avoid hidden runtime initialization.
 
 #![cfg(feature = "async")]
 
 #[cfg(feature = "rt-tokio")]
-use grafton_visca::Error;
+use grafton_visca::{
+    camera::{AsyncMode, Camera},
+    Error, TokioExecutor,
+};
 
 #[cfg(not(feature = "rt-tokio"))]
 #[test]
@@ -65,47 +68,20 @@ mod async_tests {
     }
 
     #[tokio::test]
-    async fn test_missing_runtime_error() {
-        // When no runtime is configured, operations should fail with MissingRuntime error
-        // This ensures explicit runtime configuration is required.
-        let transport = TestTransport::new();
-        let camera = grafton_visca::camera::CameraAsync::<
-            grafton_visca::camera::profiles::PTZOpticsG2,
-            TestTransport,
-        >::from_transport(transport);
+    async fn test_executor_required_for_async_operations() {
+        // With the new API, you must provide an executor at construction time
+        // This test verifies that the executor is properly integrated
 
-        // Try to perform an operation without configuring a runtime
-        // This should fail with MissingRuntime error
+        let transport = TestTransport::new();
+        let executor = TokioExecutor::from_current().expect("Failed to get current runtime");
+
+        let camera: Camera<AsyncMode, grafton_visca::camera::profiles::PTZOpticsG2, _, _> =
+            Camera::with_executor(transport, executor);
+
+        // Operations should work with the configured executor
         let result = camera.power_inquiry().await;
 
-        // The operation should fail with MissingRuntime error
-        assert!(
-            matches!(result, Err(Error::MissingRuntime)),
-            "Expected MissingRuntime error, got: {:?}",
-            result
-        );
-    }
-
-    #[tokio::test]
-    async fn test_operations_succeed_with_configured_runtime() {
-        use grafton_visca::runtime::{SharedRuntime, TokioRuntime};
-        use std::sync::Arc;
-
-        // Create a camera with a properly configured runtime
-        let transport = TestTransport::new();
-        let runtime: SharedRuntime = Arc::new(TokioRuntime);
-
-        let camera = grafton_visca::camera::CameraAsync::<
-            grafton_visca::camera::profiles::PTZOpticsG2,
-            TestTransport,
-        >::from_transport(transport)
-        .with_runtime(runtime);
-
-        // Operations should work with the configured runtime
-        // The socket manager will be automatically initialized on first use
-        let result = camera.power_inquiry().await;
-
-        // Should succeed with configured runtime
+        // Should succeed or fail with a response-related error (not a runtime error)
         assert!(
             result.is_ok() || matches!(result, Err(Error::UnexpectedResponseType)),
             "Operation failed with unexpected error: {:?}",
@@ -114,24 +90,39 @@ mod async_tests {
     }
 
     #[tokio::test]
-    async fn test_power_on_with_explicit_runtime() {
-        use grafton_visca::runtime::{SharedRuntime, TokioRuntime};
-        use std::sync::Arc;
-
-        // Create a camera with explicitly configured runtime
+    async fn test_operations_with_executor() {
+        // Create a camera with the new executor-based API
         let transport = TestTransport::new();
-        let runtime: SharedRuntime = Arc::new(TokioRuntime);
+        let executor = TokioExecutor::from_current().expect("Failed to get current runtime");
 
-        let camera = grafton_visca::camera::CameraAsync::<
-            grafton_visca::camera::profiles::PTZOpticsG2,
-            TestTransport,
-        >::from_transport(transport)
-        .with_runtime(runtime);
+        let camera: Camera<AsyncMode, grafton_visca::camera::profiles::PTZOpticsG2, _, _> =
+            Camera::with_executor(transport, executor);
 
-        // Try to power on - should succeed with configured runtime
+        // Operations should work with the configured executor
+        // The socket manager will be automatically initialized on first use
+        let result = camera.power_inquiry().await;
+
+        // Should succeed with configured executor
+        assert!(
+            result.is_ok() || matches!(result, Err(Error::UnexpectedResponseType)),
+            "Operation failed with unexpected error: {:?}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_power_on_with_explicit_executor() {
+        // Create a camera with explicitly configured executor
+        let transport = TestTransport::new();
+        let executor = TokioExecutor::from_current().expect("Failed to get current runtime");
+
+        let camera: Camera<AsyncMode, grafton_visca::camera::profiles::PTZOpticsG2, _, _> =
+            Camera::with_executor(transport, executor);
+
+        // Try to power on - should succeed with configured executor
         let result = camera.power_on().await;
 
-        // With explicit runtime configuration, this should work
+        // With explicit executor configuration, this should work
         assert!(
             result.is_ok() || matches!(result, Err(Error::UnexpectedResponseType)),
             "Power on failed with unexpected error: {:?}",
@@ -140,19 +131,19 @@ mod async_tests {
     }
 
     #[tokio::test]
-    async fn test_with_tokio_convenience_method() {
-        // Test the convenience method for attaching Tokio runtime
-        let transport = TestTransport::new();
-        let camera = grafton_visca::camera::CameraAsync::<
-            grafton_visca::camera::profiles::PTZOpticsG2,
-            TestTransport,
-        >::from_transport(transport)
-        .with_tokio(); // Use the convenience method
+    async fn test_executor_from_handle() {
+        // Test creating executor from a runtime handle
+        let handle = tokio::runtime::Handle::current();
+        let executor = TokioExecutor::from_handle(handle);
 
-        // Operations should work with the Tokio runtime attached via convenience method
+        let transport = TestTransport::new();
+        let camera: Camera<AsyncMode, grafton_visca::camera::profiles::PTZOpticsG2, _, _> =
+            Camera::with_executor(transport, executor);
+
+        // Operations should work with the executor created from handle
         let result = camera.power_inquiry().await;
 
-        // Should succeed with the tokio runtime
+        // Should succeed with the executor
         assert!(
             result.is_ok() || matches!(result, Err(Error::UnexpectedResponseType)),
             "Operation failed with unexpected error: {:?}",

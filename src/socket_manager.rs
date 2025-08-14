@@ -16,6 +16,9 @@ use crate::{
     transport::AsyncTransport,
 };
 
+#[cfg(feature = "async")]
+use crate::executor_unified::Executor;
+
 // Import futures select for runtime-agnostic event loop
 use futures::{select_biased, FutureExt};
 
@@ -498,39 +501,39 @@ impl RetryHook for NoRetryHook {
 ///
 /// The actor is generic over the transport type to allow both concrete
 /// types (for performance) and boxed types (for flexibility).
-pub(crate) struct SocketManagerActor<T> {
+pub(crate) struct SocketManagerActor<T, E = ()> {
     inner: SocketManagerInner,
     transport: Arc<T>,
     command_receiver: UnboundedReceiver<SocketManagerCommand>,
     timeout_config: TimeoutConfig,
-    runtime: crate::runtime::SharedRuntime,
+    #[cfg(feature = "async")]
+    executor: Option<Arc<E>>,
     retry_hook: Box<dyn RetryHook + Send + Sync>,
 }
 
-impl<T> std::fmt::Debug for SocketManagerActor<T> {
+impl<T, E> std::fmt::Debug for SocketManagerActor<T, E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut builder = f.debug_struct("SocketManagerActor");
         builder
             .field("inner", &self.inner)
             .field("transport", &"Arc<T>")
-            .field("timeout_config", &self.timeout_config)
-            .field("runtime", &"SharedRuntime")
-            .field("retry_hook", &"Box<dyn RetryHook>")
-            .finish()
+            .field("timeout_config", &self.timeout_config);
+        #[cfg(feature = "async")]
+        builder.field("executor", &"Option<Arc<E>>");
+        builder.field("retry_hook", &"Box<dyn RetryHook>").finish()
     }
 }
 
-impl<T> SocketManagerActor<T>
+impl<T, E> SocketManagerActor<T, E>
 where
     T: AsyncTransport + Send + Sync + 'static,
 {
-    /// Create a new socket manager actor.
-    pub fn new(
+    /// Create a new socket manager actor for blocking mode (no executor).
+    pub fn new_blocking(
         transport: Arc<T>,
         command_receiver: UnboundedReceiver<SocketManagerCommand>,
         timeout_config: TimeoutConfig,
         camera_id: CameraId,
-        runtime: crate::runtime::SharedRuntime,
     ) -> Self {
         let mut inner = SocketManagerInner::new();
         inner.camera_id = camera_id;
@@ -539,8 +542,53 @@ where
             transport,
             command_receiver,
             timeout_config,
-            runtime,
+            #[cfg(feature = "async")]
+            executor: None,
             retry_hook: Box::new(DefaultRetryHook::new()),
+        }
+    }
+}
+
+#[cfg(feature = "async")]
+impl<T, E> SocketManagerActor<T, E>
+where
+    T: AsyncTransport + Send + Sync + 'static,
+    E: Executor,
+{
+    /// Create a new socket manager actor with an executor.
+    pub fn with_executor(
+        transport: Arc<T>,
+        command_receiver: UnboundedReceiver<SocketManagerCommand>,
+        timeout_config: TimeoutConfig,
+        camera_id: CameraId,
+        executor: Arc<E>,
+    ) -> Self {
+        let mut inner = SocketManagerInner::new();
+        inner.camera_id = camera_id;
+        Self {
+            inner,
+            transport,
+            command_receiver,
+            timeout_config,
+            executor: Some(executor),
+            retry_hook: Box::new(DefaultRetryHook::new()),
+        }
+    }
+
+    /// Helper method for sleeping using the executor.
+    fn sleep_impl(
+        &self,
+        duration: std::time::Duration,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
+        if let Some(ref executor) = self.executor {
+            executor.sleep(duration)
+        } else {
+            // Fallback for cases where executor is somehow not set
+            // This shouldn't happen with proper initialization
+            #[cfg(feature = "rt-tokio")]
+            return Box::pin(tokio::time::sleep(duration));
+            #[cfg(not(feature = "rt-tokio"))]
+            return Box::pin(futures::future::ready(()));
         }
     }
 
@@ -553,6 +601,20 @@ where
         loop {
             // Check for timeouts before processing new commands
             self.check_timeouts().await;
+
+            // Create sleep future using executor directly to avoid borrow issues
+            let sleep_fut = if let Some(ref executor) = self.executor {
+                executor.sleep(std::time::Duration::from_millis(10))
+            } else {
+                #[cfg(feature = "rt-tokio")]
+                {
+                    Box::pin(tokio::time::sleep(std::time::Duration::from_millis(10)))
+                }
+                #[cfg(not(feature = "rt-tokio"))]
+                {
+                    Box::pin(futures::future::ready(()))
+                }
+            };
 
             // Use futures::select for runtime-agnostic event handling
             select_biased! {
@@ -603,7 +665,7 @@ where
                         }
                     }
                 // Sleep to prevent busy-waiting
-                _ = self.runtime.sleep(std::time::Duration::from_millis(10)).fuse() => {
+                _ = sleep_fut.fuse() => {
                     // Just continue the loop after a short sleep
                 }
             }
@@ -1008,7 +1070,7 @@ where
             delay
         );
 
-        self.runtime.sleep(delay).await;
+        self.sleep_impl(delay).await;
 
         self.inner.enqueue_command(command);
     }
