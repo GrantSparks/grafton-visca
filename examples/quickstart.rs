@@ -20,13 +20,12 @@
 use grafton_visca::{
     camera::methods::{
         exposure::ExposureOpsBlocking, focus::FocusOpsBlocking, pan_tilt::PanTiltOpsBlocking,
-        power::PowerOpsBlocking, presets::PresetsOpsBlocking,
-        white_balance::WhiteBalanceOpsBlocking, zoom::ZoomOpsBlocking,
+        presets::PresetsOpsBlocking, white_balance::WhiteBalanceOpsBlocking, zoom::ZoomOpsBlocking,
     },
     camera::{profiles::PTZOpticsG2, Camera},
     command::preset::PresetNumber,
     transport::blocking::tcp::Tcp,
-    types::{PanPosition, PanSpeed, SpeedLevel, TiltPosition, TiltSpeed},
+    types::{PanSpeed, SpeedLevel, TiltSpeed},
     units::{Degrees, Normalized},
     Error, PanTiltDirection,
 };

@@ -26,7 +26,6 @@ use grafton_visca::{
     camera::methods::{pan_tilt::PanTiltOpsBlocking, zoom::ZoomOpsBlocking},
     camera::{BlockingMode, Camera},
     transport::blocking::{Tcp, Udp},
-    types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed},
     Error,
 };
 
@@ -101,12 +100,7 @@ fn main() -> Result<(), Error> {
 
             // Test UDP connection
             println!("Testing UDP transport with pan/tilt command...");
-            camera.pan_tilt_absolute(
-                PanPosition::from_degrees(45.0)?,
-                TiltPosition::from_degrees(0.0)?,
-                PanSpeed::new(12)?,
-                TiltSpeed::new(12)?,
-            )?;
+            camera.pan_tilt_absolute(Degrees(45.0), Degrees(0.0), SpeedLevel::Medium)?;
             camera.await_pan_tilt_idle(Duration::from_secs(5))?;
             println!("✓ Command sent successfully via UDP");
 

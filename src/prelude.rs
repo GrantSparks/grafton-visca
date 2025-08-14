@@ -5,7 +5,7 @@
 //!
 //! # Async Usage
 //!
-//! ```no_run
+//! ```ignore
 //! # #[cfg(feature = "async")]
 //! use grafton_visca::prelude::r#async::*;
 //!
@@ -13,10 +13,12 @@
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # #[cfg(feature = "rt-tokio")]
 //! # {
-//! use grafton_visca::transport::tokio::Tcp;
+//! use grafton_visca::transport::tokio::tcp::Tcp;
+//! use grafton_visca::TokioExecutor;
 //!
 //! let transport = Tcp::connect("192.168.0.110:52381").await?;
-//! let camera = PTZOpticsG2Cam::from_transport(transport);
+//! let executor = TokioExecutor::from_current()?;
+//! let camera = PTZOpticsG2Cam::with_executor(transport, executor);
 //!
 //! // Async methods are available directly on the camera
 //! camera.power_on().await?;
