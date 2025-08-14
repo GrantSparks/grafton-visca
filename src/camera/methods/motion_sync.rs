@@ -51,7 +51,6 @@ pub trait MotionSyncControl {
 }
 
 /// Blocking version of motion sync control methods.
-#[cfg(not(feature = "async"))]
 pub trait MotionSyncControlBlocking {
     /// Sets the motion sync mode (on/off).
     fn set_motion_sync_mode(&self, mode: MotionSyncMode) -> Result<(), Error>;

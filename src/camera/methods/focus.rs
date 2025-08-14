@@ -66,7 +66,6 @@ pub trait FocusOps: Sized {
 }
 
 /// Focus operations (blocking).
-#[cfg(not(feature = "async"))]
 pub trait FocusOpsBlocking: Sized {
     /// Set auto focus mode.
     fn focus_auto(&self) -> Result<(), Error>;
@@ -123,55 +122,78 @@ pub trait FocusOpsBlocking: Sized {
 
 // Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P, T> FocusOps for crate::camera::Camera<crate::camera::AsyncMode, P, T>
+impl<P, T, E> FocusOps for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
 where
     P: crate::capabilities::Profile,
     T: crate::transport::AsyncTransport + Send + Sync + 'static,
+    E: crate::executor_unified::Executor,
 {
     async fn focus_auto(&self) -> Result<(), Error> {
-        self.focus_auto().await
+        use crate::command::focus::Focus;
+        let cmd = Focus::Auto;
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     async fn focus_manual(&self) -> Result<(), Error> {
-        self.focus_manual().await
+        use crate::command::focus::Focus;
+        let cmd = Focus::Manual;
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     async fn focus_near(&self, speed: SpeedLevel) -> Result<(), Error> {
-        use crate::command::focus::FocusSpeed;
+        use crate::command::focus::{Focus, FocusSpeed};
         let focus_speed_val = speed.to_focus_speed();
-        if focus_speed_val == 0 {
-            self.focus_near().await
+        let cmd = if focus_speed_val == 0 {
+            Focus::Near
         } else {
             let focus_speed = FocusSpeed::new(focus_speed_val.min(7))?;
-            self.focus_near_with_speed(focus_speed).await
-        }
+            Focus::NearWithSpeed(focus_speed)
+        };
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     async fn focus_far(&self, speed: SpeedLevel) -> Result<(), Error> {
-        use crate::command::focus::FocusSpeed;
+        use crate::command::focus::{Focus, FocusSpeed};
         let focus_speed_val = speed.to_focus_speed();
-        if focus_speed_val == 0 {
-            self.focus_far().await
+        let cmd = if focus_speed_val == 0 {
+            Focus::Far
         } else {
             let focus_speed = FocusSpeed::new(focus_speed_val.min(7))?;
-            self.focus_far_with_speed(focus_speed).await
-        }
+            Focus::FarWithSpeed(focus_speed)
+        };
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     async fn focus_stop(&self) -> Result<(), Error> {
-        self.focus_stop().await
+        use crate::command::focus::Focus;
+        let cmd = Focus::Stop;
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     async fn focus_one_push(&self) -> Result<(), Error> {
-        self.focus_one_push().await
+        use crate::command::focus::Focus;
+        let cmd = Focus::OnePushTrigger;
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     async fn set_focus(&self, position: FocusPosition) -> Result<(), Error> {
-        self.focus_position(position).await
+        use crate::command::focus::Focus;
+        let cmd = Focus::Position(position);
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     async fn focus_infinity(&self) -> Result<(), Error> {
-        self.focus_infinity().await
+        use crate::command::focus::Focus;
+        let cmd = Focus::Infinity;
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     async fn enable_focus_lock(&self) -> Result<(), Error> {
@@ -223,56 +245,77 @@ where
 }
 
 // Blocking implementation for Camera with BlockingMode
-#[cfg(not(feature = "async"))]
-impl<P, T> FocusOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T>
+impl<P, T> FocusOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile,
     T: crate::transport::BlockingTransport + Send + Sync + 'static,
 {
     fn focus_auto(&self) -> Result<(), Error> {
-        self.focus_auto()
+        use crate::command::focus::Focus;
+        let cmd = Focus::Auto;
+        self.send_command(&cmd)?;
+        Ok(())
     }
 
     fn focus_manual(&self) -> Result<(), Error> {
-        self.focus_manual()
+        use crate::command::focus::Focus;
+        let cmd = Focus::Manual;
+        self.send_command(&cmd)?;
+        Ok(())
     }
 
     fn focus_near(&self, speed: SpeedLevel) -> Result<(), Error> {
-        use crate::command::focus::FocusSpeed;
+        use crate::command::focus::{Focus, FocusSpeed};
         let focus_speed_val = speed.to_focus_speed();
-        if focus_speed_val == 0 {
-            self.focus_near()
+        let cmd = if focus_speed_val == 0 {
+            Focus::Near
         } else {
             let focus_speed = FocusSpeed::new(focus_speed_val.min(7))?;
-            self.focus_near_with_speed(focus_speed)
-        }
+            Focus::NearWithSpeed(focus_speed)
+        };
+        self.send_command(&cmd)?;
+        Ok(())
     }
 
     fn focus_far(&self, speed: SpeedLevel) -> Result<(), Error> {
-        use crate::command::focus::FocusSpeed;
+        use crate::command::focus::{Focus, FocusSpeed};
         let focus_speed_val = speed.to_focus_speed();
-        if focus_speed_val == 0 {
-            self.focus_far()
+        let cmd = if focus_speed_val == 0 {
+            Focus::Far
         } else {
             let focus_speed = FocusSpeed::new(focus_speed_val.min(7))?;
-            self.focus_far_with_speed(focus_speed)
-        }
+            Focus::FarWithSpeed(focus_speed)
+        };
+        self.send_command(&cmd)?;
+        Ok(())
     }
 
     fn focus_stop(&self) -> Result<(), Error> {
-        self.focus_stop()
+        use crate::command::focus::Focus;
+        let cmd = Focus::Stop;
+        self.send_command(&cmd)?;
+        Ok(())
     }
 
     fn focus_one_push(&self) -> Result<(), Error> {
-        self.focus_one_push()
+        use crate::command::focus::Focus;
+        let cmd = Focus::OnePushTrigger;
+        self.send_command(&cmd)?;
+        Ok(())
     }
 
     fn set_focus(&self, position: FocusPosition) -> Result<(), Error> {
-        self.focus_position(position)
+        use crate::command::focus::Focus;
+        let cmd = Focus::Position(position);
+        self.send_command(&cmd)?;
+        Ok(())
     }
 
     fn focus_infinity(&self) -> Result<(), Error> {
-        self.focus_infinity()
+        use crate::command::focus::Focus;
+        let cmd = Focus::Infinity;
+        self.send_command(&cmd)?;
+        Ok(())
     }
 
     fn enable_focus_lock(&self) -> Result<(), Error> {

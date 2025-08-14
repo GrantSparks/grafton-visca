@@ -14,7 +14,13 @@
 use grafton_visca::prelude::blocking::*;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed},
+    camera::methods::{
+        inquiry::{InquiryOpsBlocking, PanTiltInquiryOpsBlocking},
+        pan_tilt::PanTiltOpsBlocking,
+        presets::PresetsOpsBlocking,
+        zoom::ZoomOpsBlocking,
+    },
+    transport::blocking::Tcp,
     CameraBuilder, Error,
 };
 
@@ -33,14 +39,16 @@ fn main() -> Result<(), Error> {
     println!("========================");
     println!("Connecting to camera at {camera_addr}\n");
 
-    let camera = CameraBuilder::tcp(&camera_addr)
-        .profile::<PTZOpticsG2>()
-        .build()?;
+    // Create transport with proper error handling
+    let transport = Tcp::connect(&format!("{camera_addr}:5678")).map_err(|e| {
+        eprintln!("Failed to connect to camera at {camera_addr}: {e}");
+        e
+    })?;
+
+    // Build camera using the builder pattern for clarity and extensibility
+    let camera = CameraBuilder::new().build_blocking::<PTZOpticsG2, _>(transport);
 
     println!("✅ Connected successfully!\n");
-
-    // Save initial state
-    let initial_state = camera.save_state()?;
 
     // Start from home position
     println!("Moving to home position...");
@@ -94,20 +102,19 @@ fn main() -> Result<(), Error> {
         );
 
         // Move to position
-        camera.pan_tilt_absolute(
-            PanPosition::new((preset.pan.0 * 614.4) as i16)?, // Convert degrees to units
-            TiltPosition::new((preset.tilt.0 * 614.4) as i16)?, // Convert degrees to units
-            PanSpeed::from(SpeedLevel::Medium),
-            TiltSpeed::from(SpeedLevel::Medium),
-        )?;
+        camera.pan_tilt_absolute(preset.pan, preset.tilt, SpeedLevel::Medium)?;
         camera.zoom_absolute(preset.zoom)?;
 
         // Wait for movement
         camera.await_idle(Duration::from_secs(10))?;
 
         // Verify position
-        if let Ok((pan, tilt)) = camera.get_pan_tilt_degrees() {
-            println!("  At position: Pan={:.1}°, Tilt={:.1}°", pan.0, tilt.0);
+        if let Ok((pan, tilt)) = camera.get_pan_tilt_position() {
+            println!(
+                "  At position: Pan={:.1}°, Tilt={:.1}°",
+                pan as f32 / 614.4,
+                tilt as f32 / 614.4
+            );
         }
 
         // Save preset
@@ -123,17 +130,16 @@ fn main() -> Result<(), Error> {
 
     // Go to a different position first
     println!("Moving to test position (60°, -15°)...");
-    camera.pan_tilt_absolute(
-        PanPosition::from_degrees(60.0)?,
-        TiltPosition::from_degrees(-15.0)?,
-        PanSpeed::new(18)?,
-        TiltSpeed::new(18)?,
-    )?;
+    camera.pan_tilt_absolute(Degrees(60.0), Degrees(-15.0), SpeedLevel::Fast)?;
     camera.zoom_absolute(Normalized(0.7))?;
     camera.await_idle(Duration::from_secs(10))?;
 
-    if let Ok((pan, tilt)) = camera.get_pan_tilt_degrees() {
-        println!("Current position: Pan={:.1}°, Tilt={:.1}°\n", pan.0, tilt.0);
+    if let Ok((pan, tilt)) = camera.get_pan_tilt_position() {
+        println!(
+            "Current position: Pan={:.1}°, Tilt={:.1}°\n",
+            pan as f32 / 614.4,
+            tilt as f32 / 614.4
+        );
     }
 
     // Now recall each preset
@@ -141,7 +147,7 @@ fn main() -> Result<(), Error> {
         println!("Recalling Preset {} - '{}'", preset.number, preset.name);
 
         // Get position before
-        let before = camera.get_pan_tilt_degrees();
+        let before = camera.get_pan_tilt_position();
         let before_zoom = camera.get_zoom_position();
 
         // Recall preset
@@ -151,23 +157,28 @@ fn main() -> Result<(), Error> {
         camera.await_idle(Duration::from_secs(10))?;
 
         // Get position after
-        let after = camera.get_pan_tilt_degrees();
+        let after = camera.get_pan_tilt_position();
         let after_zoom = camera.get_zoom_position();
 
         // Show movement
         if let (Ok((before_pan, before_tilt)), Ok((after_pan, after_tilt))) = (before, after) {
+            let before_pan_deg = before_pan as f32 / 614.4;
+            let before_tilt_deg = before_tilt as f32 / 614.4;
+            let after_pan_deg = after_pan as f32 / 614.4;
+            let after_tilt_deg = after_tilt as f32 / 614.4;
+
             println!(
                 "  Pan: {:.1}° → {:.1}° (expected {:.1}°)",
-                before_pan.0, after_pan.0, preset.pan.0
+                before_pan_deg, after_pan_deg, preset.pan.0
             );
             println!(
                 "  Tilt: {:.1}° → {:.1}° (expected {:.1}°)",
-                before_tilt.0, after_tilt.0, preset.tilt.0
+                before_tilt_deg, after_tilt_deg, preset.tilt.0
             );
 
             // Check if we reached the expected position
-            let pan_diff = (after_pan.0 - preset.pan.0).abs();
-            let tilt_diff = (after_tilt.0 - preset.tilt.0).abs();
+            let pan_diff = (after_pan_deg - preset.pan.0).abs();
+            let tilt_diff = (after_tilt_deg - preset.tilt.0).abs();
 
             if pan_diff < 1.0 && tilt_diff < 1.0 {
                 println!("  ✓ Preset recalled successfully!");
@@ -185,10 +196,6 @@ fn main() -> Result<(), Error> {
 
         println!();
     }
-
-    // Restore initial state
-    println!("Restoring initial camera state...");
-    camera.restore_state(&initial_state)?;
 
     println!("✨ Preset demo complete!");
 

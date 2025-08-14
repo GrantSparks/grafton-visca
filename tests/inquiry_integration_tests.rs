@@ -13,6 +13,7 @@ use grafton_visca::{
     },
     profiles::GenericVisca,
     testing::camera_simulator::ViscaCameraSimulator,
+    InquiryOps, PanTiltInquiryOps, PowerOps, PresetsOps,
 };
 use std::time::Duration;
 use tokio::time::timeout;
@@ -20,17 +21,16 @@ use tokio::time::timeout;
 /// Test basic power inquiry through the full stack
 #[tokio::test]
 async fn test_power_inquiry_integration() {
-    use grafton_visca::runtime::TokioRuntime;
+    use grafton_visca::TokioExecutor;
 
-    let runtime = std::sync::Arc::new(TokioRuntime);
+    let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera =
-        Camera::<AsyncMode, GenericVisca, _>::from_transport(simulator).with_runtime(runtime);
+    let camera = Camera::<AsyncMode, GenericVisca, _, _>::with_executor(simulator, executor);
     // Socket manager is now automatically initialized on first use
 
     // Query power status
     let power_on = camera
-        .power_inquiry()
+        .get_power_state()
         .await
         .expect("power inquiry should succeed");
     assert!(power_on, "Camera should be powered on by default");
@@ -39,55 +39,54 @@ async fn test_power_inquiry_integration() {
 /// Test position inquiries (pan/tilt, zoom, focus)
 #[tokio::test]
 async fn test_position_inquiries_integration() {
-    use grafton_visca::runtime::TokioRuntime;
+    use grafton_visca::TokioExecutor;
 
-    let runtime = std::sync::Arc::new(TokioRuntime);
+    let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera =
-        Camera::<AsyncMode, GenericVisca, _>::from_transport(simulator).with_runtime(runtime);
+    let camera = Camera::<AsyncMode, GenericVisca, _, _>::with_executor(simulator, executor);
     // Socket manager is now automatically initialized on first use
 
     // Test pan/tilt position inquiry
     let (pan, tilt) = camera
-        .pan_tilt_position_inquiry()
+        .get_pan_tilt_position()
         .await
         .expect("pan/tilt inquiry should succeed");
     assert_eq!(
         pan,
-        grafton_visca::types::PanPosition::CENTER,
+        0, // CENTER position is 0
         "Pan should be at center"
     );
     assert_eq!(
         tilt,
-        grafton_visca::types::TiltPosition::CENTER,
+        0, // CENTER position is 0
         "Tilt should be at center"
     );
 
     // Test zoom position inquiry
     let zoom_pos = camera
-        .zoom_position_inquiry()
+        .get_zoom_position()
         .await
         .expect("zoom inquiry should succeed");
     assert_eq!(
         zoom_pos,
-        grafton_visca::types::ZoomPosition::MIN,
+        0, // MIN position is 0
         "Zoom should be at minimum"
     );
 
     // Test focus position inquiry
     let focus_pos = camera
-        .focus_position_inquiry()
+        .get_focus_position()
         .await
         .expect("focus inquiry should succeed");
     assert_eq!(
         focus_pos,
-        grafton_visca::types::FocusPosition::new(0x1000).unwrap(),
+        0x1000, // Default focus position
         "Focus should be at default position"
     );
 
     // Test focus near limit inquiry
     let near_limit = camera
-        .focus_near_limit_inquiry()
+        .get_focus_near_limit()
         .await
         .expect("focus near limit inquiry should succeed");
     assert_eq!(near_limit, 0x1000, "Focus near limit should be at default");
@@ -97,73 +96,72 @@ async fn test_position_inquiries_integration() {
 #[tokio::test]
 async fn test_exposure_inquiries_integration() {
     let _ = env_logger::builder().is_test(true).try_init();
-    use grafton_visca::runtime::TokioRuntime;
+    use grafton_visca::TokioExecutor;
 
-    let runtime = std::sync::Arc::new(TokioRuntime);
+    let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera =
-        Camera::<AsyncMode, GenericVisca, _>::from_transport(simulator).with_runtime(runtime);
+    let camera = Camera::<AsyncMode, GenericVisca, _, _>::with_executor(simulator, executor);
     // Socket manager is now automatically initialized on first use
 
     // Test exposure mode inquiry
     let mode = camera
-        .exposure_mode_inquiry()
+        .get_exposure_mode()
         .await
         .expect("exposure mode inquiry should succeed");
     assert_eq!(mode, ExposureMode::Auto, "Exposure mode should be Auto");
 
     // Test exposure compensation inquiry
     let comp = camera
-        .exposure_compensation_inquiry()
+        .get_exposure_compensation()
         .await
         .expect("exposure compensation inquiry should succeed");
     assert_eq!(comp, 0, "Exposure compensation should be 0");
 
     // Test exposure compensation mode inquiry
     let comp_enabled = camera
-        .exposure_compensation_mode_inquiry()
+        .get_exposure_compensation_enabled()
         .await
         .expect("exposure compensation mode inquiry should succeed");
     assert!(!comp_enabled, "Exposure compensation should be disabled");
 
     // Test iris inquiry
     let iris = camera
-        .iris_inquiry()
+        .get_iris()
         .await
         .expect("iris inquiry should succeed");
     assert_eq!(iris, 0x0000, "Iris should be at minimum");
 
     // Test shutter inquiry
     let shutter = camera
-        .shutter_inquiry()
+        .get_shutter()
         .await
         .expect("shutter inquiry should succeed");
     assert_eq!(shutter, 0x00, "Shutter should be at default");
 
     // Test brightness inquiry
     let brightness = camera
-        .brightness_inquiry()
+        .get_brightness()
         .await
         .expect("brightness inquiry should succeed");
     assert_eq!(brightness, 0x07, "Brightness should be at default");
 
     // Test gain inquiry
     let gain = camera
-        .gain_inquiry()
+        .get_gain()
         .await
         .expect("gain inquiry should succeed");
     assert_eq!(gain, 0x00, "Gain should be at minimum");
 
     // Test gain limit inquiry
     let gain_limit = camera
-        .gain_limit_inquiry()
+        .get_gain_limit()
         .await
         .expect("gain limit inquiry should succeed");
     assert_eq!(gain_limit, 0x07, "Gain limit should be at default");
 
     // Test backlight inquiry
     let backlight = camera
-        .backlight_inquiry()
+        .get_backlight_enabled()
         .await
         .expect("backlight inquiry should succeed");
     assert!(!backlight, "Backlight should be disabled");
@@ -172,17 +170,16 @@ async fn test_exposure_inquiries_integration() {
 /// Test white balance and color inquiries
 #[tokio::test]
 async fn test_white_balance_color_inquiries_integration() {
-    use grafton_visca::runtime::TokioRuntime;
+    use grafton_visca::TokioExecutor;
 
-    let runtime = std::sync::Arc::new(TokioRuntime);
+    let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera =
-        Camera::<AsyncMode, GenericVisca, _>::from_transport(simulator).with_runtime(runtime);
+    let camera = Camera::<AsyncMode, GenericVisca, _, _>::with_executor(simulator, executor);
     // Socket manager is now automatically initialized on first use
 
     // Test white balance mode inquiry
     let wb_mode = camera
-        .white_balance_mode_inquiry()
+        .get_white_balance_mode()
         .await
         .expect("white balance mode inquiry should succeed");
     assert_eq!(
@@ -193,7 +190,7 @@ async fn test_white_balance_color_inquiries_integration() {
 
     // Test color temperature inquiry
     let color_temp = camera
-        .color_temperature_inquiry()
+        .get_color_temperature()
         .await
         .expect("color temperature inquiry should succeed");
     assert_eq!(color_temp, 2800, "Color temperature should be 2800K");
@@ -202,12 +199,11 @@ async fn test_white_balance_color_inquiries_integration() {
 /// Test image adjustment inquiries
 #[tokio::test]
 async fn test_image_adjustment_inquiries_integration() {
-    use grafton_visca::runtime::TokioRuntime;
+    use grafton_visca::TokioExecutor;
 
-    let runtime = std::sync::Arc::new(TokioRuntime);
+    let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera =
-        Camera::<AsyncMode, GenericVisca, _>::from_transport(simulator).with_runtime(runtime);
+    let camera = Camera::<AsyncMode, GenericVisca, _, _>::with_executor(simulator, executor);
     // Socket manager is now automatically initialized on first use
 
     // NOTE: Sharpness and contrast inquiries are not documented in VISCA specs
@@ -229,48 +225,44 @@ async fn test_image_adjustment_inquiries_integration() {
 
     // Test saturation inquiry
     let saturation = camera
-        .saturation_inquiry()
+        .get_saturation()
         .await
         .expect("saturation inquiry should succeed");
     assert_eq!(saturation, 0x07, "Saturation should be at default");
 
     // Test hue inquiry
-    let hue = camera
-        .hue_inquiry()
-        .await
-        .expect("hue inquiry should succeed");
+    let hue = camera.get_hue().await.expect("hue inquiry should succeed");
     assert_eq!(hue, 0x07, "Hue should be at default");
 
     // Test image flip inquiry
-    let (flip_v, flip_h) = camera
-        .image_flip_inquiry()
+    let flip_status = camera
+        .get_image_flip()
         .await
         .expect("image flip inquiry should succeed");
-    assert!(!flip_v, "Vertical flip should be off");
-    assert!(!flip_h, "Horizontal flip should be off");
+    assert!(!flip_status.vertical, "Vertical flip should be off");
+    assert!(!flip_status.horizontal, "Horizontal flip should be off");
 }
 
 /// Test noise reduction inquiries
 #[tokio::test]
 async fn test_noise_reduction_inquiries_integration() {
-    use grafton_visca::runtime::TokioRuntime;
+    use grafton_visca::TokioExecutor;
 
-    let runtime = std::sync::Arc::new(TokioRuntime);
+    let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera =
-        Camera::<AsyncMode, GenericVisca, _>::from_transport(simulator).with_runtime(runtime);
+    let camera = Camera::<AsyncMode, GenericVisca, _, _>::with_executor(simulator, executor);
     // Socket manager is now automatically initialized on first use
 
     // Test noise reduction 2D inquiry
     let nr_2d = camera
-        .noise_reduction_2d_inquiry()
+        .get_noise_reduction_2d()
         .await
         .expect("noise reduction 2D inquiry should succeed");
     assert_eq!(nr_2d, 0x01, "Noise reduction 2D should be at level 1");
 
     // Test noise reduction 3D inquiry
     let nr_3d = camera
-        .noise_reduction_3d_inquiry()
+        .get_noise_reduction_3d()
         .await
         .expect("noise reduction 3D inquiry should succeed");
     assert_eq!(nr_3d, 0x01, "Noise reduction 3D should be at level 1");
@@ -279,17 +271,16 @@ async fn test_noise_reduction_inquiries_integration() {
 /// Test focus mode inquiries
 #[tokio::test]
 async fn test_focus_mode_inquiries_integration() {
-    use grafton_visca::runtime::TokioRuntime;
+    use grafton_visca::TokioExecutor;
 
-    let runtime = std::sync::Arc::new(TokioRuntime);
+    let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera =
-        Camera::<AsyncMode, GenericVisca, _>::from_transport(simulator).with_runtime(runtime);
+    let camera = Camera::<AsyncMode, GenericVisca, _, _>::with_executor(simulator, executor);
     // Socket manager is now automatically initialized on first use
 
     // Test focus mode inquiry
     let focus_mode = camera
-        .focus_mode_inquiry()
+        .get_focus_mode()
         .await
         .expect("focus mode inquiry should succeed");
     assert_eq!(focus_mode, FocusMode::Auto, "Focus mode should be Auto");
@@ -308,38 +299,42 @@ async fn test_focus_mode_inquiries_integration() {
 /// Test resolution inquiry
 #[tokio::test]
 async fn test_resolution_inquiry_integration() {
-    use grafton_visca::runtime::TokioRuntime;
+    use grafton_visca::TokioExecutor;
 
-    let runtime = std::sync::Arc::new(TokioRuntime);
+    let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera =
-        Camera::<AsyncMode, GenericVisca, _>::from_transport(simulator).with_runtime(runtime);
+    let camera = Camera::<AsyncMode, GenericVisca, _, _>::with_executor(simulator, executor);
     // Socket manager is now automatically initialized on first use
 
     // Test resolution inquiry
     let resolution = camera
-        .resolution_inquiry()
+        .get_resolution()
         .await
         .expect("resolution inquiry should succeed");
-    assert_eq!(resolution, 0x00, "Resolution should be 1080p (0x00)");
+    // The simulator returns FullHD60 by default
+    use grafton_visca::command::resolution::ResolutionMode;
+    assert_eq!(
+        resolution,
+        ResolutionMode::FullHD60,
+        "Resolution should be FullHD60"
+    );
 }
 
 /// Test concurrent inquiries to verify socket manager handles them properly
 #[tokio::test]
 async fn test_concurrent_inquiries_integration() {
-    use grafton_visca::runtime::TokioRuntime;
+    use grafton_visca::TokioExecutor;
 
-    let runtime = std::sync::Arc::new(TokioRuntime);
+    let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera =
-        Camera::<AsyncMode, GenericVisca, _>::from_transport(simulator).with_runtime(runtime);
+    let camera = Camera::<AsyncMode, GenericVisca, _, _>::with_executor(simulator, executor);
     // Socket manager is now automatically initialized on first use
 
     // Launch multiple inquiries concurrently
     let futures = vec![
-        camera.power_inquiry(),
-        camera.power_inquiry(), // Duplicate to test queuing
-        camera.power_inquiry(),
+        camera.get_power_state(),
+        camera.get_power_state(), // Duplicate to test queuing
+        camera.get_power_state(),
     ];
 
     // All should complete successfully
@@ -358,23 +353,22 @@ async fn test_concurrent_inquiries_integration() {
 /// Test sequential inquiry commands
 #[tokio::test]
 async fn test_sequential_inquiries() {
-    use grafton_visca::runtime::TokioRuntime;
+    use grafton_visca::TokioExecutor;
 
-    let runtime = std::sync::Arc::new(TokioRuntime);
+    let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera =
-        Camera::<AsyncMode, GenericVisca, _>::from_transport(simulator).with_runtime(runtime);
+    let camera = Camera::<AsyncMode, GenericVisca, _, _>::with_executor(simulator, executor);
     // Socket manager is now automatically initialized on first use
 
     // Test the failing sequence: exposure mode then exposure compensation
     let mode = camera
-        .exposure_mode_inquiry()
+        .get_exposure_mode()
         .await
         .expect("exposure mode inquiry should succeed");
     assert_eq!(mode, ExposureMode::Auto, "Exposure mode should be Auto");
 
     let comp = camera
-        .exposure_compensation_inquiry()
+        .get_exposure_compensation()
         .await
         .expect("exposure compensation inquiry should succeed");
     assert_eq!(comp, 0, "Exposure compensation should be 0");
@@ -393,13 +387,12 @@ async fn test_inquiry_timeout_behavior() {
         )
         .build();
 
-    let runtime = std::sync::Arc::new(grafton_visca::runtime::TokioRuntime);
-    let camera =
-        Camera::<AsyncMode, GenericVisca, _>::from_transport(simulator).with_runtime(runtime);
+    let executor = grafton_visca::TokioExecutor::from_current().unwrap();
+    let camera = Camera::<AsyncMode, GenericVisca, _, _>::with_executor(simulator, executor);
     // Socket manager is now automatically initialized on first use
 
     // Query should complete within reasonable time
-    let result = timeout(Duration::from_millis(200), camera.power_inquiry()).await;
+    let result = timeout(Duration::from_millis(200), camera.get_power_state()).await;
     assert!(result.is_ok(), "Inquiry should complete within timeout");
     assert!(
         result.unwrap().is_ok(),
@@ -410,12 +403,12 @@ async fn test_inquiry_timeout_behavior() {
 /// Test mixed command and inquiry execution
 #[tokio::test]
 async fn test_mixed_commands_and_inquiries() {
-    use grafton_visca::runtime::TokioRuntime;
+    use grafton_visca::TokioExecutor;
 
-    let runtime = std::sync::Arc::new(TokioRuntime);
+    let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera = Camera::<AsyncMode, GenericVisca, _>::from_transport(simulator.clone())
-        .with_runtime(runtime);
+    let camera =
+        Camera::<AsyncMode, GenericVisca, _, _>::with_executor(simulator.clone(), executor);
     // Socket manager is now automatically initialized on first use
 
     // Execute a preset recall command
@@ -433,12 +426,12 @@ async fn test_mixed_commands_and_inquiries() {
 
     // Query zoom position while preset is potentially still executing
     let zoom_pos = camera
-        .zoom_position_inquiry()
+        .get_zoom_position()
         .await
         .expect("zoom inquiry should succeed");
     assert_eq!(
         zoom_pos,
-        grafton_visca::types::ZoomPosition::MIN,
+        0, // MIN position is 0
         "Zoom position should be readable"
     );
 }

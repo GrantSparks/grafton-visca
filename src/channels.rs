@@ -201,25 +201,6 @@ impl<T> OneshotReceiver<T> {
             }),
         }
     }
-
-    /// Receives a value from this channel with a timeout using runtime.
-    ///
-    /// This method requires a runtime to be configured for timeout support.
-    #[cfg(feature = "async")]
-    #[allow(dead_code)]
-    pub async fn recv_with_timeout(
-        self,
-        runtime: &dyn crate::runtime::Runtime,
-        timeout: std::time::Duration,
-    ) -> Result<T> {
-        match self {
-            OneshotReceiver::Async(rx) => {
-                crate::runtime::timeout_with_runtime(runtime, timeout, rx)
-                    .await?
-                    .map_err(|_| Error::ResponseChannelClosed)
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -289,22 +270,6 @@ mod tests {
 
             assert!(tx.send(42).is_ok());
             assert_eq!(rx.recv().await.expect("recv should succeed"), 42);
-        }
-
-        #[cfg(feature = "rt-tokio")]
-        #[tokio::test]
-        async fn test_async_oneshot_with_timeout() {
-            use crate::runtime::TokioRuntime;
-            use std::time::Duration;
-
-            let runtime = TokioRuntime;
-            let (_tx, rx) = oneshot::<i32>();
-
-            // Should timeout
-            let result = rx
-                .recv_with_timeout(&runtime, Duration::from_millis(100))
-                .await;
-            assert!(matches!(result, Err(Error::Timeout)));
         }
     }
 }

@@ -16,6 +16,9 @@ use crate::{
     transport::AsyncTransport,
 };
 
+#[cfg(feature = "async")]
+use crate::executor_unified::Executor;
+
 // Import futures select for runtime-agnostic event loop
 use futures::{select_biased, FutureExt};
 
@@ -260,11 +263,6 @@ pub(crate) enum SocketManagerCommand {
         /// Channel to send the result when a completion message is received.
         response_sender: OneshotSender<Result<()>>,
     },
-    /// Update the timeout configuration.
-    UpdateTimeoutConfig {
-        /// New timeout configuration to use.
-        config: TimeoutConfig,
-    },
     /// Shutdown the socket manager gracefully.
     /// This is primarily for testing and internal use.
     #[doc(hidden)]
@@ -346,31 +344,6 @@ impl SocketManagerHandle {
         send_result.map_err(|_| Error::SocketManagerChannelClosed)?;
 
         response_receiver.recv().await?
-    }
-
-    /// Send a WaitForCompletion command to the socket manager (for blocking mode).
-    ///
-    /// This returns the receiver that can be used to wait for the completion
-    /// message with a timeout.
-    #[allow(dead_code)]
-    pub fn send_wait_for_completion(&self) -> Result<channels::OneshotReceiver<Result<()>>> {
-        let (response_sender, response_receiver) = channels::oneshot();
-
-        self.command_sender
-            .send(SocketManagerCommand::WaitForCompletion { response_sender })
-            .map_err(|_| Error::SocketManagerChannelClosed)?;
-
-        Ok(response_receiver)
-    }
-
-    /// Update the timeout configuration.
-    ///
-    /// This method sends a new timeout configuration to the socket manager actor.
-    /// The new configuration will be used for all subsequent commands.
-    pub fn update_timeout_config(&self, config: TimeoutConfig) -> Result<()> {
-        self.command_sender
-            .send(SocketManagerCommand::UpdateTimeoutConfig { config })
-            .map_err(|_| Error::SocketManagerChannelClosed)
     }
 
     /// Send a shutdown signal without waiting for confirmation.
@@ -498,39 +471,42 @@ impl RetryHook for NoRetryHook {
 ///
 /// The actor is generic over the transport type to allow both concrete
 /// types (for performance) and boxed types (for flexibility).
-pub(crate) struct SocketManagerActor<T> {
+pub(crate) struct SocketManagerActor<T, E = ()> {
     inner: SocketManagerInner,
     transport: Arc<T>,
     command_receiver: UnboundedReceiver<SocketManagerCommand>,
     timeout_config: TimeoutConfig,
-    runtime: crate::runtime::SharedRuntime,
+    #[cfg(feature = "async")]
+    executor: Arc<E>,
     retry_hook: Box<dyn RetryHook + Send + Sync>,
 }
 
-impl<T> std::fmt::Debug for SocketManagerActor<T> {
+impl<T, E> std::fmt::Debug for SocketManagerActor<T, E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut builder = f.debug_struct("SocketManagerActor");
         builder
             .field("inner", &self.inner)
             .field("transport", &"Arc<T>")
-            .field("timeout_config", &self.timeout_config)
-            .field("runtime", &"SharedRuntime")
-            .field("retry_hook", &"Box<dyn RetryHook>")
-            .finish()
+            .field("timeout_config", &self.timeout_config);
+        #[cfg(feature = "async")]
+        builder.field("executor", &"<Executor>");
+        builder.field("retry_hook", &"Box<dyn RetryHook>").finish()
     }
 }
 
-impl<T> SocketManagerActor<T>
+#[cfg(feature = "async")]
+impl<T, E> SocketManagerActor<T, E>
 where
     T: AsyncTransport + Send + Sync + 'static,
+    E: Executor,
 {
-    /// Create a new socket manager actor.
-    pub fn new(
+    /// Create a new socket manager actor with an executor.
+    pub fn with_executor(
         transport: Arc<T>,
         command_receiver: UnboundedReceiver<SocketManagerCommand>,
         timeout_config: TimeoutConfig,
         camera_id: CameraId,
-        runtime: crate::runtime::SharedRuntime,
+        executor: Arc<E>,
     ) -> Self {
         let mut inner = SocketManagerInner::new();
         inner.camera_id = camera_id;
@@ -539,9 +515,17 @@ where
             transport,
             command_receiver,
             timeout_config,
-            runtime,
+            executor,
             retry_hook: Box::new(DefaultRetryHook::new()),
         }
+    }
+
+    /// Helper method for sleeping using the executor.
+    fn sleep_impl(
+        &self,
+        duration: std::time::Duration,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
+        self.executor.sleep(duration)
     }
 
     /// Run the socket manager actor event loop.
@@ -553,6 +537,9 @@ where
         loop {
             // Check for timeouts before processing new commands
             self.check_timeouts().await;
+
+            // Create sleep future using executor directly to avoid borrow issues
+            let sleep_fut = self.executor.sleep(std::time::Duration::from_millis(10));
 
             // Use futures::select for runtime-agnostic event handling
             select_biased! {
@@ -573,10 +560,6 @@ where
                             }) => {
                                 self.inner.completion_waiters.push_back(response_sender);
                                 debug!("Added completion waiter, {} waiters now", self.inner.completion_waiters.len());
-                            }
-                            Some(SocketManagerCommand::UpdateTimeoutConfig { config }) => {
-                                debug!("Updating timeout configuration");
-                                self.timeout_config = config;
                             }
                             Some(SocketManagerCommand::Shutdown { confirmation }) => {
                                 debug!("Socket manager received shutdown command");
@@ -603,7 +586,7 @@ where
                         }
                     }
                 // Sleep to prevent busy-waiting
-                _ = self.runtime.sleep(std::time::Duration::from_millis(10)).fuse() => {
+                _ = sleep_fut.fuse() => {
                     // Just continue the loop after a short sleep
                 }
             }
@@ -1008,7 +991,7 @@ where
             delay
         );
 
-        self.runtime.sleep(delay).await;
+        self.sleep_impl(delay).await;
 
         self.inner.enqueue_command(command);
     }

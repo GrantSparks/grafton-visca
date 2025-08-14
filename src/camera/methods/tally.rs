@@ -43,7 +43,6 @@ pub trait TallyOps: Sized {
 }
 
 /// Tally light control operations (blocking).
-#[cfg(not(feature = "async"))]
 pub trait TallyOpsBlocking: Sized {
     /// Turn red tally light on.
     fn tally_red_on(&self) -> Result<(), Error>;

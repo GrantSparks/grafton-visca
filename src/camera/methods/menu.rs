@@ -29,7 +29,6 @@ pub trait DirectMenuControlOps: MenuControlOps {
 }
 
 /// Blocking menu control methods for cameras that support menu navigation.
-#[cfg(not(feature = "async"))]
 pub trait MenuControlOpsBlocking {
     /// Show or hide the on-screen menu.
     fn set_menu_display(&self, display: bool) -> Result<(), Error>;
@@ -42,7 +41,6 @@ pub trait MenuControlOpsBlocking {
 }
 
 /// Blocking direct menu control methods for cameras that support advanced menu control.
-#[cfg(not(feature = "async"))]
 pub trait DirectMenuControlOpsBlocking: MenuControlOpsBlocking {
     /// Send a direct menu control command.
     fn direct_menu_control(&self, control1: u8, control2: u8) -> Result<(), Error>;
