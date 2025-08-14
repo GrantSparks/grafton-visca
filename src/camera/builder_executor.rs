@@ -30,6 +30,17 @@ pub struct CameraBuilder<E = ()> {
     _phantom: std::marker::PhantomData<E>,
 }
 
+impl<E> std::fmt::Debug for CameraBuilder<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut builder = f.debug_struct("CameraBuilder");
+        builder.field("camera_id", &self.camera_id);
+        builder.field("timeout_config", &self.timeout_config);
+        #[cfg(feature = "async")]
+        builder.field("executor", &self.executor.is_some());
+        builder.finish()
+    }
+}
+
 impl CameraBuilder<()> {
     /// Create a new camera builder for blocking mode.
     pub fn new() -> Self {
