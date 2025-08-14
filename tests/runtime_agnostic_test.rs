@@ -121,7 +121,7 @@ mod async_tests {
         // Create a camera with explicitly configured runtime
         let transport = TestTransport::new();
         let runtime: SharedRuntime = Arc::new(TokioRuntime);
-        
+
         let camera = grafton_visca::camera::CameraAsync::<
             grafton_visca::camera::profiles::PTZOpticsG2,
             TestTransport,
@@ -147,7 +147,7 @@ mod async_tests {
             grafton_visca::camera::profiles::PTZOpticsG2,
             TestTransport,
         >::from_transport(transport)
-        .with_tokio();  // Use the convenience method
+        .with_tokio(); // Use the convenience method
 
         // Operations should work with the Tokio runtime attached via convenience method
         let result = camera.power_inquiry().await;
