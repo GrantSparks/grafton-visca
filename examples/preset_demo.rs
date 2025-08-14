@@ -14,6 +14,10 @@
 use grafton_visca::prelude::blocking::*;
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
+    camera::methods::{
+        pan_tilt::PanTiltOpsBlocking, presets::PresetsOpsBlocking, zoom::ZoomOpsBlocking,
+    },
+    transport::blocking::Tcp,
     types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed},
     CameraBuilder, Error,
 };
@@ -33,14 +37,16 @@ fn main() -> Result<(), Error> {
     println!("========================");
     println!("Connecting to camera at {camera_addr}\n");
 
-    let camera = CameraBuilder::tcp(&camera_addr)
-        .profile::<PTZOpticsG2>()
-        .build()?;
+    // Create transport with proper error handling
+    let transport = Tcp::connect(&format!("{camera_addr}:5678")).map_err(|e| {
+        eprintln!("Failed to connect to camera at {camera_addr}: {e}");
+        e
+    })?;
+
+    // Build camera using the builder pattern for clarity and extensibility
+    let camera = CameraBuilder::new().build_blocking::<PTZOpticsG2, _>(transport);
 
     println!("✅ Connected successfully!\n");
-
-    // Save initial state
-    let initial_state = camera.save_state()?;
 
     // Start from home position
     println!("Moving to home position...");
@@ -185,10 +191,6 @@ fn main() -> Result<(), Error> {
 
         println!();
     }
-
-    // Restore initial state
-    println!("Restoring initial camera state...");
-    camera.restore_state(&initial_state)?;
 
     println!("✨ Preset demo complete!");
 

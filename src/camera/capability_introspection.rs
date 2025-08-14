@@ -6,12 +6,12 @@
 //! are provided by their respective trait modules in `src/camera/methods/`.
 
 use crate::{
-    camera::generic::Camera,
+    camera::generic_executor::Camera,
     capabilities::{MotionSync, NDFilter, NDFilterMode as CapabilityNDFilterMode, Profile},
 };
 
 // These methods are available for both async and blocking modes
-impl<M, P, T> Camera<M, P, T>
+impl<M, P, T, E> Camera<M, P, T, E>
 where
     P: Profile + NDFilter,
 {
@@ -31,7 +31,7 @@ where
     }
 }
 
-impl<M, P, T> Camera<M, P, T>
+impl<M, P, T, E> Camera<M, P, T, E>
 where
     P: Profile + MotionSync,
 {

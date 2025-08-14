@@ -9,19 +9,24 @@ use std::time::Duration;
 use std::time::Instant;
 
 use grafton_visca::Error;
-#[cfg(not(feature = "async"))]
-use grafton_visca::{
-    camera::profiles::G2PresetId,
-    prelude::blocking::*,
-    transport::blocking::Tcp,
-    types::{PanSpeed, TiltSpeed},
-    PanTiltDirection, PresetNumber,
-};
 #[cfg(feature = "rt-tokio")]
 use grafton_visca::{
-    camera::profiles::G2PresetId,
+    camera::methods::{pan_tilt::PanTiltOps, power::PowerOps, presets::PresetsOps, zoom::ZoomOps},
+    camera::{profiles::G2PresetId, AsyncMode, Camera},
     prelude::r#async::*,
     transport::tokio::Tcp,
+    types::{PanSpeed, TiltSpeed},
+    PanTiltDirection, PresetNumber, TokioExecutor,
+};
+#[cfg(not(feature = "async"))]
+use grafton_visca::{
+    camera::methods::{
+        pan_tilt::PanTiltOpsBlocking, power::PowerOpsBlocking, presets::PresetsOpsBlocking,
+        zoom::ZoomOpsBlocking,
+    },
+    camera::{profiles::G2PresetId, BlockingMode, Camera},
+    prelude::blocking::*,
+    transport::blocking::Tcp,
     types::{PanSpeed, TiltSpeed},
     PanTiltDirection, PresetNumber,
 };
@@ -174,10 +179,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         }
     };
 
-    let camera = GenericViscaCam::from_transport(transport);
-
-    // Save initial state
-    let initial_state = camera.save_state().ok();
+    let camera: Camera<BlockingMode, GenericVisca, _, ()> = Camera::new(transport);
 
     // Demonstrate retry pattern
     println!("\n3. Retry Pattern Implementation:");
@@ -309,11 +311,6 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("     Preset count: 128");
     println!("   💡 These are based on the camera profile, not runtime queries");
 
-    // Restore initial state if we saved it
-    if let Some(state) = initial_state {
-        let _ = camera.restore_state(&state);
-    }
-
     Ok(())
 }
 
@@ -334,10 +331,8 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         }
     };
 
-    let camera = PTZOpticsG2Cam::from_transport(transport);
-
-    // Save initial state
-    let initial_state = camera.save_state_async().await.ok();
+    let executor = TokioExecutor::from_current().expect("Failed to get current runtime");
+    let camera: Camera<AsyncMode, PTZOpticsG2, _, _> = Camera::with_executor(transport, executor);
 
     // Demonstrate retry pattern
     println!("\n3. Retry Pattern Implementation:");
@@ -462,11 +457,6 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("     Tilt range: -30 to +90 degrees");
     println!("     Preset count: 128");
     println!("   💡 These are based on the camera profile, not runtime queries");
-
-    // Restore initial state if we saved it
-    if let Some(state) = initial_state {
-        let _ = camera.restore_state_async(&state).await;
-    }
 
     Ok(())
 }

@@ -114,140 +114,193 @@ pub trait ExposureOps: Sized {
 
 // Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P, T> ExposureOps for crate::camera::Camera<crate::camera::AsyncMode, P, T>
+impl<P, T, E> ExposureOps for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
 where
     P: crate::capabilities::Profile,
     T: crate::transport::AsyncTransport + Send + Sync + 'static,
+    E: crate::executor_unified::Executor,
 {
     async fn set_exposure_mode(
         &self,
         mode: crate::command::exposure::ExposureMode,
     ) -> Result<(), Error> {
-        self.set_exposure_mode(mode).await
+        let cmd = crate::command::exposure::ExposureCommand { mode };
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     async fn exposure_auto(&self) -> Result<(), Error> {
-        self.exposure_auto().await
+        self.set_exposure_mode(crate::command::exposure::ExposureMode::Auto)
+            .await
     }
 
     async fn exposure_manual(&self) -> Result<(), Error> {
-        self.exposure_manual().await
+        self.set_exposure_mode(crate::command::exposure::ExposureMode::Manual)
+            .await
     }
 
     async fn exposure_shutter_priority(&self) -> Result<(), Error> {
-        self.exposure_shutter_priority().await
+        self.set_exposure_mode(crate::command::exposure::ExposureMode::Shutter)
+            .await
     }
 
     async fn exposure_iris_priority(&self) -> Result<(), Error> {
-        self.exposure_iris_priority().await
+        self.set_exposure_mode(crate::command::exposure::ExposureMode::Iris)
+            .await
     }
 
     async fn exposure_bright_mode(&self) -> Result<(), Error> {
-        self.exposure_bright_mode().await
+        self.set_exposure_mode(crate::command::exposure::ExposureMode::Bright)
+            .await
     }
 
     async fn set_iris(&self, level: crate::types::IrisLevel) -> Result<(), Error> {
-        self.set_iris(level).await
+        let cmd = crate::command::exposure::Iris::SetAperture(level);
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     async fn reset_iris(&self) -> Result<(), Error> {
-        self.reset_iris().await
+        let cmd = crate::command::exposure::Iris::Reset;
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     async fn increase_iris(&self) -> Result<(), Error> {
-        self.increase_iris().await
+        let cmd = crate::command::exposure::Iris::Up;
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     async fn decrease_iris(&self) -> Result<(), Error> {
-        self.decrease_iris().await
+        let cmd = crate::command::exposure::Iris::Down;
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     async fn set_brightness(&self, level: crate::types::BrightnessLevel) -> Result<(), Error> {
-        self.set_brightness(level).await
+        let cmd = crate::command::exposure::Bright::SetLevel(level);
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     async fn reset_brightness(&self) -> Result<(), Error> {
-        self.reset_brightness().await
+        let cmd = crate::command::exposure::Bright::Reset;
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     async fn increase_brightness(&self) -> Result<(), Error> {
-        self.increase_brightness().await
+        let cmd = crate::command::exposure::Bright::Up;
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     async fn decrease_brightness(&self) -> Result<(), Error> {
-        self.decrease_brightness().await
+        let cmd = crate::command::exposure::Bright::Down;
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     async fn set_backlight(&self, enabled: bool) -> Result<(), Error> {
-        self.set_backlight(enabled).await
+        // Backlight command not yet implemented - would need to create a BacklightCommand
+        Err(Error::Unsupported)
     }
 
     async fn set_gain(&self, gain: crate::types::GainLevel) -> Result<(), Error> {
-        self.set_gain(gain).await
+        let cmd = crate::command::gain::Gain::SetValue(gain);
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     async fn reset_gain(&self) -> Result<(), Error> {
-        self.reset_gain().await
+        let cmd = crate::command::gain::Gain::Reset;
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     async fn increase_gain(&self) -> Result<(), Error> {
-        self.increase_gain().await
+        let cmd = crate::command::gain::Gain::Up;
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     async fn decrease_gain(&self) -> Result<(), Error> {
-        self.decrease_gain().await
+        let cmd = crate::command::gain::Gain::Down;
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     async fn set_gain_limit(&self, limit: crate::types::GainLimit) -> Result<(), Error> {
-        self.set_gain_limit(limit).await
+        let cmd = crate::command::gain::GainLimitCommand { limit };
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     async fn set_dynamic_range(&self, level: crate::types::DynamicRangeLevel) -> Result<(), Error> {
-        // DynamicRange command not yet implemented
-        self.set_dynamic_range(level).await
+        // DynamicRange command exists in exposure module
+        let cmd = crate::command::exposure::DynamicRange { level };
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     async fn set_color_temperature(&self, temp: crate::types::ColorTemp) -> Result<(), Error> {
-        self.set_color_temperature(temp.value()).await
+        // TODO: Implement ColorTemperature command
+        _ = temp;
+        Err(Error::Unsupported)
     }
 
     async fn set_shutter_speed(&self, speed: crate::types::ShutterSpeed) -> Result<(), Error> {
-        self.set_shutter_speed(speed).await
+        let cmd = crate::command::exposure::Shutter::SetSpeed(speed);
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     async fn reset_shutter_speed(&self) -> Result<(), Error> {
-        self.reset_shutter_speed().await
+        let cmd = crate::command::exposure::Shutter::Reset;
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     async fn increase_shutter_speed(&self) -> Result<(), Error> {
-        self.increase_shutter_speed().await
+        let cmd = crate::command::exposure::Shutter::Up;
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     async fn decrease_shutter_speed(&self) -> Result<(), Error> {
-        self.decrease_shutter_speed().await
+        let cmd = crate::command::exposure::Shutter::Down;
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
     async fn enable_spotlight(&self) -> Result<(), Error> {
-        self.enable_spotlight().await
+        // Spotlight command not yet implemented
+        Err(Error::Unsupported)
     }
 
     async fn disable_spotlight(&self) -> Result<(), Error> {
-        self.disable_spotlight().await
+        // Spotlight command not yet implemented
+        Err(Error::Unsupported)
     }
 
     async fn enable_auto_slow_shutter(&self) -> Result<(), Error> {
-        self.enable_auto_slow_shutter().await
+        // Auto slow shutter command not yet implemented
+        Err(Error::Unsupported)
     }
 
     async fn disable_auto_slow_shutter(&self) -> Result<(), Error> {
-        self.disable_auto_slow_shutter().await
+        // Auto slow shutter command not yet implemented
+        Err(Error::Unsupported)
     }
 
     async fn set_brightness_direct(
         &self,
         level: crate::types::BrightnessLevel,
     ) -> Result<(), Error> {
-        self.set_brightness_direct(level).await
+        let cmd = crate::command::exposure::Bright::Direct(level);
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 }
 
@@ -357,7 +410,7 @@ pub trait ExposureOpsBlocking: Sized {
 
 // Blocking implementation for Camera with BlockingMode
 #[cfg(not(feature = "async"))]
-impl<P, T> ExposureOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T>
+impl<P, T> ExposureOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile,
     T: crate::transport::BlockingTransport + Send + Sync + 'static,

@@ -3,7 +3,7 @@
 //! This module provides efficient movement detection using VISCA completion
 //! messages when available, with automatic fallback to state querying.
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::{
     capabilities::{Profile, ProfileMetadata},
@@ -16,8 +16,11 @@ use super::BlockingMode;
 
 use super::{Camera, MovementConfig, PanTiltPosition};
 
+// Import inquiry commands
+use crate::command::inquiry::{FocusPositionInquiry, PanTiltPositionInquiry, ZoomPositionInquiry};
+
 // Blocking mode implementation is always available
-impl<P, T> Camera<BlockingMode, P, T>
+impl<P, T> Camera<BlockingMode, P, T, ()>
 where
     P: Profile + ProfileMetadata,
     T: BlockingTransport,
@@ -72,38 +75,231 @@ where
         }
     }
 
+    /// Wait for pan/tilt movement to complete.
+    ///
+    /// Convenience method that waits for pan and tilt motors to stop moving.
+    pub fn await_pan_tilt_idle(&self, timeout: Duration) -> Result<(), Error> {
+        let config = MovementConfig {
+            timeout,
+            debug: false,
+        };
+
+        // Keep checking until pan/tilt stops moving
+        let start = Instant::now();
+        loop {
+            if start.elapsed() > timeout {
+                return Err(Error::Timeout);
+            }
+
+            // Check only pan/tilt movement
+            let pos1_response = self.send_command(&PanTiltPositionInquiry)?;
+            let (pos1_pan, pos1_tilt) = match pos1_response {
+                crate::command::Response::Inquiry(
+                    crate::command::InquiryResponse::PanTiltPosition { pan, tilt },
+                ) => (pan, tilt),
+                _ => {
+                    return Err(Error::ParseError(
+                        "Expected PanTiltPosition response".into(),
+                    ))
+                }
+            };
+
+            std::thread::sleep(Duration::from_millis(50));
+
+            let pos2_response = self.send_command(&PanTiltPositionInquiry)?;
+            let (pos2_pan, pos2_tilt) = match pos2_response {
+                crate::command::Response::Inquiry(
+                    crate::command::InquiryResponse::PanTiltPosition { pan, tilt },
+                ) => (pan, tilt),
+                _ => {
+                    return Err(Error::ParseError(
+                        "Expected PanTiltPosition response".into(),
+                    ))
+                }
+            };
+
+            // Check if position is stable (not moving)
+            if (pos1_pan - pos2_pan).abs() <= 2 && (pos1_tilt - pos2_tilt).abs() <= 2 {
+                return Ok(());
+            }
+        }
+    }
+
+    /// Wait for zoom movement to complete.
+    ///
+    /// Convenience method that waits for zoom motor to stop moving.
+    pub fn await_zoom_idle(&self, timeout: Duration) -> Result<(), Error> {
+        let config = MovementConfig {
+            timeout,
+            debug: false,
+        };
+
+        // Keep checking until zoom stops moving
+        let start = Instant::now();
+        loop {
+            if start.elapsed() > timeout {
+                return Err(Error::Timeout);
+            }
+
+            // Check only zoom movement
+            let pos1_response = self.send_command(&ZoomPositionInquiry)?;
+            let pos1_zoom = match pos1_response {
+                crate::command::Response::Inquiry(
+                    crate::command::InquiryResponse::ZoomPosition { position },
+                ) => position,
+                _ => return Err(Error::ParseError("Expected ZoomPosition response".into())),
+            };
+
+            std::thread::sleep(Duration::from_millis(50));
+
+            let pos2_response = self.send_command(&ZoomPositionInquiry)?;
+            let pos2_zoom = match pos2_response {
+                crate::command::Response::Inquiry(
+                    crate::command::InquiryResponse::ZoomPosition { position },
+                ) => position,
+                _ => return Err(Error::ParseError("Expected ZoomPosition response".into())),
+            };
+
+            // Check if position is stable (not moving)
+            if (pos1_zoom as i32 - pos2_zoom as i32).abs() <= 10 {
+                return Ok(());
+            }
+        }
+    }
+
+    /// Wait for focus movement to complete.
+    ///
+    /// Convenience method that waits for focus motor to stop moving.
+    pub fn await_focus_idle(&self, timeout: Duration) -> Result<(), Error> {
+        let config = MovementConfig {
+            timeout,
+            debug: false,
+        };
+
+        // Keep checking until focus stops moving
+        let start = Instant::now();
+        loop {
+            if start.elapsed() > timeout {
+                return Err(Error::Timeout);
+            }
+
+            // Check only focus movement
+            let pos1_response = self.send_command(&FocusPositionInquiry)?;
+            let pos1_focus = match pos1_response {
+                crate::command::Response::Inquiry(
+                    crate::command::InquiryResponse::FocusPosition { position },
+                ) => position,
+                _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
+            };
+
+            std::thread::sleep(Duration::from_millis(50));
+
+            let pos2_response = self.send_command(&FocusPositionInquiry)?;
+            let pos2_focus = match pos2_response {
+                crate::command::Response::Inquiry(
+                    crate::command::InquiryResponse::FocusPosition { position },
+                ) => position,
+                _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
+            };
+
+            // Check if position is stable (not moving)
+            if (pos1_focus as i32 - pos2_focus as i32).abs() <= 5 {
+                return Ok(());
+            }
+        }
+    }
+
+    /// Wait for all movements to complete.
+    ///
+    /// Convenience method that waits for all motors (pan/tilt, zoom, focus) to stop.
+    pub fn await_idle(&self, timeout: Duration) -> Result<(), Error> {
+        let config = MovementConfig {
+            timeout,
+            debug: false,
+        };
+        self.wait_for_movement(&config)
+    }
+
     /// Check if the camera is currently moving.
     ///
     /// This checks pan/tilt, zoom, and focus positions to detect movement.
     pub fn is_moving(&self) -> Result<bool, Error> {
-        // Get first reading
-        let pos1_pt = self.pan_tilt_position_inquiry()?;
-        let pos1_zoom = self.zoom_position_inquiry()?;
-        let pos1_focus = self.focus_position_inquiry()?;
+        // Get first reading using inquiry commands
+        let pos1_pt_response = self.send_command(&PanTiltPositionInquiry)?;
+        let (pos1_pan, pos1_tilt) = match pos1_pt_response {
+            crate::command::Response::Inquiry(
+                crate::command::InquiryResponse::PanTiltPosition { pan, tilt },
+            ) => (pan, tilt),
+            _ => {
+                return Err(Error::ParseError(
+                    "Expected PanTiltPosition response".into(),
+                ))
+            }
+        };
+
+        let pos1_zoom_response = self.send_command(&ZoomPositionInquiry)?;
+        let pos1_zoom = match pos1_zoom_response {
+            crate::command::Response::Inquiry(crate::command::InquiryResponse::ZoomPosition {
+                position,
+            }) => position,
+            _ => return Err(Error::ParseError("Expected ZoomPosition response".into())),
+        };
+
+        let pos1_focus_response = self.send_command(&FocusPositionInquiry)?;
+        let pos1_focus = match pos1_focus_response {
+            crate::command::Response::Inquiry(crate::command::InquiryResponse::FocusPosition {
+                position,
+            }) => position,
+            _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
+        };
 
         // Yield to scheduler
         std::thread::yield_now();
 
         // Get second reading
-        let pos2_pt = self.pan_tilt_position_inquiry()?;
-        let pos2_zoom = self.zoom_position_inquiry()?;
-        let pos2_focus = self.focus_position_inquiry()?;
+        let pos2_pt_response = self.send_command(&PanTiltPositionInquiry)?;
+        let (pos2_pan, pos2_tilt) = match pos2_pt_response {
+            crate::command::Response::Inquiry(
+                crate::command::InquiryResponse::PanTiltPosition { pan, tilt },
+            ) => (pan, tilt),
+            _ => {
+                return Err(Error::ParseError(
+                    "Expected PanTiltPosition response".into(),
+                ))
+            }
+        };
+
+        let pos2_zoom_response = self.send_command(&ZoomPositionInquiry)?;
+        let pos2_zoom = match pos2_zoom_response {
+            crate::command::Response::Inquiry(crate::command::InquiryResponse::ZoomPosition {
+                position,
+            }) => position,
+            _ => return Err(Error::ParseError("Expected ZoomPosition response".into())),
+        };
+
+        let pos2_focus_response = self.send_command(&FocusPositionInquiry)?;
+        let pos2_focus = match pos2_focus_response {
+            crate::command::Response::Inquiry(crate::command::InquiryResponse::FocusPosition {
+                position,
+            }) => position,
+            _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
+        };
 
         // Check for movement with reasonable tolerances
         let pt_moving = !positions_equal_within_tolerance(
             PanTiltPosition {
-                pan: pos1_pt.0.value(),
-                tilt: pos1_pt.1.value(),
+                pan: pos1_pan,
+                tilt: pos1_tilt,
             },
             PanTiltPosition {
-                pan: pos2_pt.0.value(),
-                tilt: pos2_pt.1.value(),
+                pan: pos2_pan,
+                tilt: pos2_tilt,
             },
             2, // 2 units tolerance for pan/tilt
         );
 
-        let zoom_moving = (pos1_zoom.value() as i32 - pos2_zoom.value() as i32).abs() > 10; // 10 units tolerance for zoom
-        let focus_moving = (pos1_focus.value() as i32 - pos2_focus.value() as i32).abs() > 5; // 5 units tolerance for focus
+        let zoom_moving = (pos1_zoom as i32 - pos2_zoom as i32).abs() > 10; // 10 units tolerance for zoom
+        let focus_moving = (pos1_focus as i32 - pos2_focus as i32).abs() > 5; // 5 units tolerance for focus
 
         Ok(pt_moving || zoom_moving || focus_moving)
     }
@@ -112,13 +308,16 @@ where
 #[cfg(feature = "async")]
 use super::AsyncMode;
 #[cfg(feature = "async")]
+use crate::executor_unified::Executor;
+#[cfg(feature = "async")]
 use crate::transport::AsyncTransport;
 
 #[cfg(feature = "async")]
-impl<P, T> Camera<AsyncMode, P, T>
+impl<P, T, E> Camera<AsyncMode, P, T, E>
 where
     P: Profile + ProfileMetadata,
     T: AsyncTransport + 'static,
+    E: Executor,
 {
     /// Wait for any movement operation to complete (async version).
     ///
@@ -135,7 +334,7 @@ where
             }
 
             // Try to wait for completion message
-            match self.wait_for_completion(config.timeout).await {
+            match self.wait_for_completion().await {
                 Ok(()) => {
                     if config.debug {
                         log::debug!("Movement completed (received operation complete message)");
@@ -189,43 +388,242 @@ where
                 return Ok(());
             }
 
-            // Yield to scheduler using runtime abstraction
-            let runtime = self.runtime().ok_or(Error::MissingRuntime)?;
-            runtime.sleep(std::time::Duration::from_millis(1)).await;
+            // Yield to scheduler using executor
+            let executor = self.executor()?;
+            executor.sleep(std::time::Duration::from_millis(1)).await;
         }
+    }
+
+    /// Wait for pan/tilt movement to complete (async version).
+    ///
+    /// Convenience method that waits for pan and tilt motors to stop moving.
+    pub async fn await_pan_tilt_idle(&self, timeout: Duration) -> Result<(), Error> {
+        let config = MovementConfig {
+            timeout,
+            debug: false,
+        };
+
+        // Keep checking until pan/tilt stops moving
+        let start = Instant::now();
+        let executor = self.executor()?;
+
+        loop {
+            if start.elapsed() > timeout {
+                return Err(Error::Timeout);
+            }
+
+            // Check only pan/tilt movement
+            let pos1_response = self.send_command(&PanTiltPositionInquiry).await?;
+            let (pos1_pan, pos1_tilt) = match pos1_response {
+                crate::command::Response::Inquiry(
+                    crate::command::InquiryResponse::PanTiltPosition { pan, tilt },
+                ) => (pan, tilt),
+                _ => {
+                    return Err(Error::ParseError(
+                        "Expected PanTiltPosition response".into(),
+                    ))
+                }
+            };
+
+            executor.sleep(Duration::from_millis(50)).await;
+
+            let pos2_response = self.send_command(&PanTiltPositionInquiry).await?;
+            let (pos2_pan, pos2_tilt) = match pos2_response {
+                crate::command::Response::Inquiry(
+                    crate::command::InquiryResponse::PanTiltPosition { pan, tilt },
+                ) => (pan, tilt),
+                _ => {
+                    return Err(Error::ParseError(
+                        "Expected PanTiltPosition response".into(),
+                    ))
+                }
+            };
+
+            // Check if position is stable (not moving)
+            if (pos1_pan - pos2_pan).abs() <= 2 && (pos1_tilt - pos2_tilt).abs() <= 2 {
+                return Ok(());
+            }
+        }
+    }
+
+    /// Wait for zoom movement to complete (async version).
+    ///
+    /// Convenience method that waits for zoom motor to stop moving.
+    pub async fn await_zoom_idle(&self, timeout: Duration) -> Result<(), Error> {
+        let config = MovementConfig {
+            timeout,
+            debug: false,
+        };
+
+        // Keep checking until zoom stops moving
+        let start = Instant::now();
+        let executor = self.executor()?;
+
+        loop {
+            if start.elapsed() > timeout {
+                return Err(Error::Timeout);
+            }
+
+            // Check only zoom movement
+            let pos1_response = self.send_command(&ZoomPositionInquiry).await?;
+            let pos1_zoom = match pos1_response {
+                crate::command::Response::Inquiry(
+                    crate::command::InquiryResponse::ZoomPosition { position },
+                ) => position,
+                _ => return Err(Error::ParseError("Expected ZoomPosition response".into())),
+            };
+
+            executor.sleep(Duration::from_millis(50)).await;
+
+            let pos2_response = self.send_command(&ZoomPositionInquiry).await?;
+            let pos2_zoom = match pos2_response {
+                crate::command::Response::Inquiry(
+                    crate::command::InquiryResponse::ZoomPosition { position },
+                ) => position,
+                _ => return Err(Error::ParseError("Expected ZoomPosition response".into())),
+            };
+
+            // Check if position is stable (not moving)
+            if (pos1_zoom as i32 - pos2_zoom as i32).abs() <= 10 {
+                return Ok(());
+            }
+        }
+    }
+
+    /// Wait for focus movement to complete (async version).
+    ///
+    /// Convenience method that waits for focus motor to stop moving.
+    pub async fn await_focus_idle(&self, timeout: Duration) -> Result<(), Error> {
+        let config = MovementConfig {
+            timeout,
+            debug: false,
+        };
+
+        // Keep checking until focus stops moving
+        let start = Instant::now();
+        let executor = self.executor()?;
+
+        loop {
+            if start.elapsed() > timeout {
+                return Err(Error::Timeout);
+            }
+
+            // Check only focus movement
+            let pos1_response = self.send_command(&FocusPositionInquiry).await?;
+            let pos1_focus = match pos1_response {
+                crate::command::Response::Inquiry(
+                    crate::command::InquiryResponse::FocusPosition { position },
+                ) => position,
+                _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
+            };
+
+            executor.sleep(Duration::from_millis(50)).await;
+
+            let pos2_response = self.send_command(&FocusPositionInquiry).await?;
+            let pos2_focus = match pos2_response {
+                crate::command::Response::Inquiry(
+                    crate::command::InquiryResponse::FocusPosition { position },
+                ) => position,
+                _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
+            };
+
+            // Check if position is stable (not moving)
+            if (pos1_focus as i32 - pos2_focus as i32).abs() <= 5 {
+                return Ok(());
+            }
+        }
+    }
+
+    /// Wait for all movements to complete (async version).
+    ///
+    /// Convenience method that waits for all motors (pan/tilt, zoom, focus) to stop.
+    pub async fn await_idle(&self, timeout: Duration) -> Result<(), Error> {
+        let config = MovementConfig {
+            timeout,
+            debug: false,
+        };
+        self.wait_for_movement_async(&config).await
     }
 
     /// Check if the camera is currently moving (async version).
     pub async fn is_moving_async(&self) -> Result<bool, Error> {
-        // Get first reading
-        let pos1_pt = self.pan_tilt_position_inquiry().await?;
-        let pos1_zoom = self.zoom_position_inquiry().await?;
-        let pos1_focus = self.focus_position_inquiry().await?;
+        // Get first reading using inquiry commands
+        let pos1_pt_response = self.send_command(&PanTiltPositionInquiry).await?;
+        let (pos1_pan, pos1_tilt) = match pos1_pt_response {
+            crate::command::Response::Inquiry(
+                crate::command::InquiryResponse::PanTiltPosition { pan, tilt },
+            ) => (pan, tilt),
+            _ => {
+                return Err(Error::ParseError(
+                    "Expected PanTiltPosition response".into(),
+                ))
+            }
+        };
 
-        // Yield to scheduler using runtime abstraction
-        let runtime = self.runtime().ok_or(Error::MissingRuntime)?;
-        runtime.sleep(std::time::Duration::from_millis(1)).await;
+        let pos1_zoom_response = self.send_command(&ZoomPositionInquiry).await?;
+        let pos1_zoom = match pos1_zoom_response {
+            crate::command::Response::Inquiry(crate::command::InquiryResponse::ZoomPosition {
+                position,
+            }) => position,
+            _ => return Err(Error::ParseError("Expected ZoomPosition response".into())),
+        };
+
+        let pos1_focus_response = self.send_command(&FocusPositionInquiry).await?;
+        let pos1_focus = match pos1_focus_response {
+            crate::command::Response::Inquiry(crate::command::InquiryResponse::FocusPosition {
+                position,
+            }) => position,
+            _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
+        };
+
+        // Yield to scheduler using executor
+        let executor = self.executor()?;
+        executor.sleep(std::time::Duration::from_millis(1)).await;
 
         // Get second reading
-        let pos2_pt = self.pan_tilt_position_inquiry().await?;
-        let pos2_zoom = self.zoom_position_inquiry().await?;
-        let pos2_focus = self.focus_position_inquiry().await?;
+        let pos2_pt_response = self.send_command(&PanTiltPositionInquiry).await?;
+        let (pos2_pan, pos2_tilt) = match pos2_pt_response {
+            crate::command::Response::Inquiry(
+                crate::command::InquiryResponse::PanTiltPosition { pan, tilt },
+            ) => (pan, tilt),
+            _ => {
+                return Err(Error::ParseError(
+                    "Expected PanTiltPosition response".into(),
+                ))
+            }
+        };
+
+        let pos2_zoom_response = self.send_command(&ZoomPositionInquiry).await?;
+        let pos2_zoom = match pos2_zoom_response {
+            crate::command::Response::Inquiry(crate::command::InquiryResponse::ZoomPosition {
+                position,
+            }) => position,
+            _ => return Err(Error::ParseError("Expected ZoomPosition response".into())),
+        };
+
+        let pos2_focus_response = self.send_command(&FocusPositionInquiry).await?;
+        let pos2_focus = match pos2_focus_response {
+            crate::command::Response::Inquiry(crate::command::InquiryResponse::FocusPosition {
+                position,
+            }) => position,
+            _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
+        };
 
         // Check for movement with reasonable tolerances
         let pt_moving = !positions_equal_within_tolerance(
             PanTiltPosition {
-                pan: pos1_pt.0.value(),
-                tilt: pos1_pt.1.value(),
+                pan: pos1_pan,
+                tilt: pos1_tilt,
             },
             PanTiltPosition {
-                pan: pos2_pt.0.value(),
-                tilt: pos2_pt.1.value(),
+                pan: pos2_pan,
+                tilt: pos2_tilt,
             },
             2, // 2 units tolerance for pan/tilt
         );
 
-        let zoom_moving = (pos1_zoom.value() as i32 - pos2_zoom.value() as i32).abs() > 10; // 10 units tolerance for zoom
-        let focus_moving = (pos1_focus.value() as i32 - pos2_focus.value() as i32).abs() > 5; // 5 units tolerance for focus
+        let zoom_moving = (pos1_zoom as i32 - pos2_zoom as i32).abs() > 10; // 10 units tolerance for zoom
+        let focus_moving = (pos1_focus as i32 - pos2_focus as i32).abs() > 5; // 5 units tolerance for focus
 
         Ok(pt_moving || zoom_moving || focus_moving)
     }

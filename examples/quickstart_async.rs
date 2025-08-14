@@ -18,10 +18,23 @@
 
 #[cfg(feature = "rt-tokio")]
 use grafton_visca::{
-    camera::profiles::PTZOpticsG2,
-    prelude::r#async::*,
+    camera::methods::{
+        exposure::ExposureOps,
+        focus::FocusOps,
+        inquiry::{InquiryOps, PanTiltInquiryOps},
+        pan_tilt::PanTiltOps,
+        power::PowerOps,
+        presets::PresetsOps,
+        white_balance::WhiteBalanceOps,
+        zoom::ZoomOps,
+    },
+    camera::{profiles::PTZOpticsG2, Camera},
+    command::{focus::FocusSpeed, preset::PresetNumber},
+    executor_unified::TokioExecutor,
+    transport::tokio::tcp::Tcp,
     types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed},
-    CameraBuilder, Error, PanTiltDirection,
+    units::{Degrees, Normalized},
+    Error, PanTiltDirection,
 };
 
 #[cfg(feature = "rt-tokio")]
@@ -39,18 +52,17 @@ async fn main() -> Result<(), Error> {
     // Get camera address from command line or use default
     let camera_addr = env::args()
         .nth(1)
-        .unwrap_or_else(|| "192.168.0.110".to_string());
+        .unwrap_or_else(|| "192.168.0.110:52381".to_string());
 
     println!("🎥 Comprehensive Async Camera Control Demo");
     println!("==========================================");
     println!("Connecting to camera at {camera_addr}");
     println!();
 
-    // Create camera using the async builder pattern
-    let camera = CameraBuilder::tokio_tcp(&camera_addr)
-        .profile::<PTZOpticsG2>()
-        .build()
-        .await?;
+    // Create camera using the new executor-based API
+    let transport = Tcp::connect(&camera_addr).await?;
+    let executor = TokioExecutor::from_current()?;
+    let camera = Camera::<_, PTZOpticsG2, _, _>::with_executor(transport, executor);
 
     println!("✅ Connected successfully!");
     println!();
@@ -59,15 +71,16 @@ async fn main() -> Result<(), Error> {
     println!("═══ Saving Initial Camera State ═══");
 
     let initial_position = camera.get_pan_tilt_degrees().await;
-    let initial_zoom = camera.get_zoom_position().await;
+    let initial_zoom = camera.zoom_position_inquiry().await;
 
     match (&initial_position, &initial_zoom) {
         (Ok((pan, tilt)), Ok(zoom)) => {
             println!(
                 "✓ Saved initial position: Pan={:.1}°, Tilt={:.1}°",
-                pan.0, tilt.0
+                pan.value(),
+                tilt.value()
             );
-            println!("✓ Saved initial zoom: {zoom}");
+            println!("✓ Saved initial zoom: {}", zoom.value());
         }
         _ => {
             println!("⚠ Could not save initial position/zoom, will return to home at end");
