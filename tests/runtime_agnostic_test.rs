@@ -1,7 +1,7 @@
 //! Test that the library's runtime behavior with rt-tokio feature.
 //!
-//! When rt-tokio feature is enabled, the library auto-initializes a Tokio runtime
-//! if none is configured. This is intentional behavior to improve usability.
+//! When rt-tokio feature is enabled, the camera requires explicit runtime configuration
+//! to ensure predictable behavior and avoid hidden runtime initialization.
 
 #![cfg(feature = "async")]
 
@@ -65,23 +65,23 @@ mod async_tests {
     }
 
     #[tokio::test]
-    async fn test_auto_runtime_initialization() {
-        // When rt-tokio feature is enabled, the camera auto-initializes a Tokio runtime
-        // if none is configured. This test verifies that behavior works correctly.
+    async fn test_missing_runtime_error() {
+        // When no runtime is configured, operations should fail with MissingRuntime error
+        // This ensures explicit runtime configuration is required.
         let transport = TestTransport::new();
         let camera = grafton_visca::camera::CameraAsync::<
             grafton_visca::camera::profiles::PTZOpticsG2,
             TestTransport,
         >::from_transport(transport);
 
-        // Try to perform an operation without explicitly configuring a runtime
-        // With rt-tokio feature, this should auto-initialize the runtime and succeed
+        // Try to perform an operation without configuring a runtime
+        // This should fail with MissingRuntime error
         let result = camera.power_inquiry().await;
 
-        // The operation should succeed with auto-initialized runtime
+        // The operation should fail with MissingRuntime error
         assert!(
-            result.is_ok() || matches!(result, Err(Error::UnexpectedResponseType)),
-            "Operation failed with unexpected error: {:?}",
+            matches!(result, Err(Error::MissingRuntime)),
+            "Expected MissingRuntime error, got: {:?}",
             result
         );
     }
@@ -114,21 +114,48 @@ mod async_tests {
     }
 
     #[tokio::test]
-    async fn test_power_on_with_auto_runtime() {
-        // Create a camera - with rt-tokio feature, runtime will be auto-initialized
+    async fn test_power_on_with_explicit_runtime() {
+        use grafton_visca::runtime::{SharedRuntime, TokioRuntime};
+        use std::sync::Arc;
+
+        // Create a camera with explicitly configured runtime
+        let transport = TestTransport::new();
+        let runtime: SharedRuntime = Arc::new(TokioRuntime);
+
+        let camera = grafton_visca::camera::CameraAsync::<
+            grafton_visca::camera::profiles::PTZOpticsG2,
+            TestTransport,
+        >::from_transport(transport)
+        .with_runtime(runtime);
+
+        // Try to power on - should succeed with configured runtime
+        let result = camera.power_on().await;
+
+        // With explicit runtime configuration, this should work
+        assert!(
+            result.is_ok() || matches!(result, Err(Error::UnexpectedResponseType)),
+            "Power on failed with unexpected error: {:?}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_with_tokio_convenience_method() {
+        // Test the convenience method for attaching Tokio runtime
         let transport = TestTransport::new();
         let camera = grafton_visca::camera::CameraAsync::<
             grafton_visca::camera::profiles::PTZOpticsG2,
             TestTransport,
-        >::from_transport(transport);
+        >::from_transport(transport)
+        .with_tokio(); // Use the convenience method
 
-        // Try to power on - should succeed with auto-initialized runtime
-        let result = camera.power_on().await;
+        // Operations should work with the Tokio runtime attached via convenience method
+        let result = camera.power_inquiry().await;
 
-        // With rt-tokio feature, the runtime is auto-initialized so this should work
+        // Should succeed with the tokio runtime
         assert!(
             result.is_ok() || matches!(result, Err(Error::UnexpectedResponseType)),
-            "Power on failed with unexpected error: {:?}",
+            "Operation failed with unexpected error: {:?}",
             result
         );
     }
