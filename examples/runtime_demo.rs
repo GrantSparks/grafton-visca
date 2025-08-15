@@ -2,14 +2,24 @@
 //!
 //! This example shows how to use the new Camera runtime with the EncodeVisca trait.
 
+#[cfg(not(all(feature = "async", feature = "rt-tokio")))]
+fn main() {
+    eprintln!("This example requires the 'async' and 'rt-tokio' features to be enabled.");
+    eprintln!("Run with: cargo run --example runtime_demo --features async,rt-tokio");
+}
+
+#[cfg(all(feature = "async", feature = "rt-tokio"))]
 use grafton_visca::{
     camera_id::CameraId,
     command::{power::PowerCommand, zoom::Zoom, InquiryResponse, Response},
     runtime::{Priority, RuntimeHandle},
     TokioExecutor,
 };
+
+#[cfg(all(feature = "async", feature = "rt-tokio"))]
 use std::sync::Arc;
 
+#[cfg(all(feature = "async", feature = "rt-tokio"))]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
