@@ -24,12 +24,13 @@ use crate::{
     transport::async_transport::AsyncTransport,
 };
 
-/// VISCA camera runtime.
+/// VISCA runtime handle.
 ///
 /// This struct provides the main interface for communicating with a VISCA camera,
 /// handling command submission, response processing, and protocol compliance.
+/// Renamed from Camera to RuntimeHandle to avoid confusion with the main Camera type.
 #[derive(Debug)]
-pub struct Camera {
+pub struct RuntimeHandle {
     /// Channel for submitting commands and inquiries.
     submit: Sender<TxItem>,
     /// Channel for receiving events from the runtime.
@@ -42,7 +43,7 @@ pub struct Camera {
     metrics_tx: Sender<Sender<MetricsSummary>>,
 }
 
-impl Camera {
+impl RuntimeHandle {
     /// Create a new camera runtime with the given transport.
     ///
     /// This spawns a background task to handle communication with the camera.
@@ -51,12 +52,35 @@ impl Camera {
         transport: T,
         executor: Arc<E>,
     ) -> Result<Self> {
+        Self::with_tick_interval(transport, executor, None).await
+    }
+
+    /// Create a new camera runtime with a custom tick interval.
+    ///
+    /// The tick interval controls how often the runtime checks for timeouts
+    /// and processes retries. Default is 50ms.
+    ///
+    /// # Arguments
+    /// * `transport` - The transport to use for communication
+    /// * `executor` - The async executor to spawn tasks on
+    /// * `tick_interval_ms` - Optional tick interval in milliseconds (default: 50ms)
+    #[cfg(feature = "async")]
+    pub async fn with_tick_interval<
+        T: AsyncTransport + 'static,
+        E: crate::executor_unified::Executor,
+    >(
+        transport: T,
+        executor: Arc<E>,
+        tick_interval_ms: Option<u64>,
+    ) -> Result<Self> {
         let (submit_tx, submit_rx) = flume::unbounded();
-        let (event_tx, event_rx) = flume::unbounded();
+        // Make event channel bounded to avoid unbounded memory growth
+        let (event_tx, event_rx) = flume::bounded(1000);
         let (metrics_tx, metrics_rx) = flume::unbounded();
 
-        // Spawn the runtime task
-        let runtime_task = runtime_loop(transport, submit_rx, event_tx, metrics_rx);
+        // Spawn the runtime task with configured tick interval
+        let runtime_task =
+            runtime_loop_with_config(transport, submit_rx, event_tx, metrics_rx, tick_interval_ms);
 
         // Use the executor to spawn the task
         let _handle = executor.spawn(runtime_task);
@@ -300,18 +324,24 @@ impl Camera {
     }
 }
 
-/// Main runtime loop that processes commands and responses.
+/// Main runtime loop with configurable tick interval.
 #[cfg(feature = "async")]
-async fn runtime_loop<T: AsyncTransport>(
+async fn runtime_loop_with_config<T: AsyncTransport>(
     transport: T,
     submit_rx: Receiver<TxItem>,
     event_tx: Sender<RxEvent>,
     metrics_rx: Receiver<Sender<MetricsSummary>>,
+    tick_interval_ms: Option<u64>,
 ) -> Result<()> {
     let mut scheduler = Scheduler::new(submit_rx.clone(), event_tx.clone());
     let mut response_buffer = Vec::new();
 
     debug!("VISCA runtime started");
+
+    // Create a timer interval for periodic checks
+    let tick_ms = tick_interval_ms.unwrap_or(50);
+    #[cfg(feature = "rt-tokio")]
+    let mut tick_interval = tokio::time::interval(std::time::Duration::from_millis(tick_ms));
 
     loop {
         // Use tokio::select! or futures::select! to handle multiple async operations
@@ -365,15 +395,15 @@ async fn runtime_loop<T: AsyncTransport>(
                 }
 
                 // Check for timeouts and retries periodically
-                _ = tokio::time::sleep(std::time::Duration::from_millis(50)) => {
+                _ = tick_interval.tick() => {
                     // First check for timeouts
                     let timed_out = scheduler.check_timeouts();
                     for (socket, cmd_id) in timed_out {
-                        let _ = event_tx.send(RxEvent::Error {
+                        let _ = event_tx.send_async(RxEvent::Error {
                             code: ViscaError::Timeout,
                             socket: Some(socket),
                             id: Some(cmd_id),
-                        });
+                        }).await;
                         scheduler.free_socket(socket);
                     }
 
@@ -384,38 +414,31 @@ async fn runtime_loop<T: AsyncTransport>(
                             scheduler.retry_queue.iter().map(|r| r.id).collect::<Vec<_>>());
                     }
                     if scheduler.has_free_socket() && scheduler.has_retries() {
+                        // get_next_retry() now handles exhausted retries internally
                         if let Some(retry_cmd) = scheduler.get_next_retry() {
                             debug!("Retrying command {} (attempt {})", retry_cmd.id, retry_cmd.attempt);
 
-                            // Check if we've exceeded max retries
-                            if retry_cmd.attempt > retry_cmd.max_retries {
-                                warn!("Command {} exceeded max retries", retry_cmd.id);
-                                if let Some(response_tx) = scheduler.get_response_channel(retry_cmd.id) {
-                                    let _ = response_tx.send(Err(Error::MaxRetriesExceeded));
-                                }
+                            // Re-submit the command for retry
+                            let response_tx = if let Some(tx) = scheduler.peek_response_channel(retry_cmd.id) {
+                                debug!("Using existing response channel for retry of command {}", retry_cmd.id);
+                                tx.clone()
                             } else {
-                                // Re-submit the command for retry
-                                let response_tx = if let Some(tx) = scheduler.peek_response_channel(retry_cmd.id) {
-                                    debug!("Using existing response channel for retry of command {}", retry_cmd.id);
-                                    tx.clone()
-                                } else {
-                                    warn!("No response channel found for retry of command {}, creating new one", retry_cmd.id);
-                                    let (tx, _rx) = flume::bounded(1);
-                                    tx
-                                };
+                                warn!("No response channel found for retry of command {}, creating new one", retry_cmd.id);
+                                let (tx, _rx) = flume::bounded(1);
+                                tx
+                            };
 
-                                let item = TxItem::Command {
-                                    id: retry_cmd.id,
-                                    bytes: retry_cmd.bytes.clone(),
-                                    priority: retry_cmd.priority,
-                                    category: retry_cmd.category,
-                                    deadline: std::time::Instant::now() + std::time::Duration::from_secs(30),
-                                    response_tx,
-                                };
+                            let item = TxItem::Command {
+                                id: retry_cmd.id,
+                                bytes: retry_cmd.bytes.clone(),
+                                priority: retry_cmd.priority,
+                                category: retry_cmd.category,
+                                deadline: std::time::Instant::now() + std::time::Duration::from_secs(30),
+                                response_tx,
+                            };
 
-                                if let Err(e) = handle_tx_item(&transport, &mut scheduler, item, &event_tx).await {
-                                    error!("Error retrying command {}: {}", retry_cmd.id, e);
-                                }
+                            if let Err(e) = handle_tx_item(&transport, &mut scheduler, item, &event_tx).await {
+                                error!("Error retrying command {}: {}", retry_cmd.id, e);
                             }
                         }
                     }
@@ -471,7 +494,22 @@ async fn process_command_queue<T: AsyncTransport>(
     event_tx: &Sender<RxEvent>,
 ) -> Result<()> {
     // Process commands from the priority queue while we have free sockets
+    // But check if there's a higher priority retry ready first
     while scheduler.has_free_socket() && !scheduler.is_queue_empty() {
+        // Check if there's a retry ready that has higher or equal priority than the next queued command
+        if let Some(next_queue_priority) = scheduler.peek_queue_priority() {
+            if let Some(retry_priority) = scheduler.peek_ready_retry_priority() {
+                // If retry has higher or equal priority, don't process queue yet
+                if retry_priority >= next_queue_priority {
+                    debug!(
+                        "Deferring queue processing - retry with priority {:?} waiting (queue has {:?})",
+                        retry_priority, next_queue_priority
+                    );
+                    return Ok(());
+                }
+            }
+        }
+
         if let Some(item) = scheduler.dequeue_command() {
             debug!(
                 "Processing queued command from priority queue (remaining: {})",
@@ -616,11 +654,13 @@ async fn handle_tx_item<T: AsyncTransport>(
             // Free the socket and notify
             if let Some(cmd_id) = scheduler.socket_command(socket) {
                 scheduler.free_socket(socket);
-                let _ = event_tx.send(RxEvent::Error {
-                    code: ViscaError::CommandCancelled,
-                    socket: Some(socket),
-                    id: Some(cmd_id),
-                });
+                let _ = event_tx
+                    .send_async(RxEvent::Error {
+                        code: ViscaError::CommandCancelled,
+                        socket: Some(socket),
+                        id: Some(cmd_id),
+                    })
+                    .await;
             }
         }
     }
@@ -645,7 +685,9 @@ async fn handle_response<T: AsyncTransport>(
         ViscaResponse::Ack { socket } => {
             if let Some(cmd_id) = scheduler.socket_command(socket) {
                 debug!("ACK received for command {} on {:?}", cmd_id, socket);
-                let _ = event_tx.send(RxEvent::Ack { socket, id: cmd_id });
+                let _ = event_tx
+                    .send_async(RxEvent::Ack { socket, id: cmd_id })
+                    .await;
 
                 // Don't send ACK to the response channel - wait for Completion
                 // The response channel is expecting the final result, not intermediate ACKs
@@ -657,13 +699,18 @@ async fn handle_response<T: AsyncTransport>(
         ViscaResponse::Completion { socket } => {
             if let Some(cmd_id) = scheduler.socket_command(socket) {
                 debug!("Completion received for command {} on {:?}", cmd_id, socket);
-                let _ = event_tx.send(RxEvent::Completion { socket, id: cmd_id });
+                let _ = event_tx
+                    .send_async(RxEvent::Completion { socket, id: cmd_id })
+                    .await;
 
                 // Track successful completion
                 scheduler
                     .metrics
                     .commands_completed
                     .fetch_add(1, Ordering::Relaxed);
+
+                // Remove from retry queue if it was being retried
+                scheduler.remove_from_retry_queue(cmd_id);
 
                 // Notify the waiting command and free the socket
                 if let Some(response_tx) = scheduler.get_response_channel(cmd_id) {
@@ -702,10 +749,12 @@ async fn handle_response<T: AsyncTransport>(
             // For now, assume the most recent inquiry is the one being responded to
             if let Some((inquiry_id, response_tx, response_type)) = scheduler.get_pending_inquiry()
             {
-                let _ = event_tx.send(RxEvent::DataReply {
-                    id: inquiry_id,
-                    data: data.clone(),
-                });
+                let _ = event_tx
+                    .send_async(RxEvent::DataReply {
+                        id: inquiry_id,
+                        data: data.clone(),
+                    })
+                    .await;
 
                 // Parse the response based on the expected type
                 let response = if let Some(response_type) = response_type {
@@ -759,8 +808,14 @@ async fn handle_response<T: AsyncTransport>(
                                 "Queueing command {} for retry with priority {:?}",
                                 cmd_id, priority
                             );
-                            // Queue the command for retry
-                            scheduler.queue_for_retry(cmd_id, bytes, priority, category);
+                            // Queue the command for retry (returns false if exhausted)
+                            let queued =
+                                scheduler.queue_for_retry(cmd_id, bytes, priority, category);
+
+                            if !queued {
+                                debug!("Command {} exhausted retries, not queuing", cmd_id);
+                                // The queue_for_retry method has already sent the error response
+                            }
                         } else {
                             warn!("No metadata found for command {} to retry", cmd_id);
                         }
@@ -769,7 +824,7 @@ async fn handle_response<T: AsyncTransport>(
                         // The free_socket method will check if command is queued for retry
                         scheduler.free_socket(sock);
 
-                        // Don't send error to response channel yet
+                        // Don't send error to response channel if queued for retry
                         // The command will be retried automatically when a socket becomes available
                         // The response channel remains stored in the scheduler
 
@@ -791,11 +846,15 @@ async fn handle_response<T: AsyncTransport>(
 
                 if let Some(sock) = socket {
                     if let Some(cmd_id) = scheduler.socket_command(sock) {
-                        let _ = event_tx.send(RxEvent::Error {
-                            code: error,
-                            socket: Some(sock),
-                            id: Some(cmd_id),
-                        });
+                        // Remove from retry queue if it was being retried
+                        scheduler.remove_from_retry_queue(cmd_id);
+                        let _ = event_tx
+                            .send_async(RxEvent::Error {
+                                code: error,
+                                socket: Some(sock),
+                                id: Some(cmd_id),
+                            })
+                            .await;
 
                         // Notify the waiting command and free the socket
                         if let Some(response_tx) = scheduler.get_response_channel(cmd_id) {
@@ -821,11 +880,13 @@ async fn handle_response<T: AsyncTransport>(
 
                     if let Some(cmd_id) = recent_cmd_id {
                         debug!("Routing broadcast error to command {}", cmd_id);
-                        let _ = event_tx.send(RxEvent::Error {
-                            code: error,
-                            socket: None,
-                            id: Some(cmd_id),
-                        });
+                        let _ = event_tx
+                            .send_async(RxEvent::Error {
+                                code: error,
+                                socket: None,
+                                id: Some(cmd_id),
+                            })
+                            .await;
 
                         // Notify the waiting command
                         if let Some(response_tx) = scheduler.get_response_channel(cmd_id) {
@@ -837,11 +898,13 @@ async fn handle_response<T: AsyncTransport>(
                         scheduler.free_command_socket(cmd_id);
                     } else {
                         // No pending commands, just broadcast the error
-                        let _ = event_tx.send(RxEvent::Error {
-                            code: error,
-                            socket: None,
-                            id: None,
-                        });
+                        let _ = event_tx
+                            .send_async(RxEvent::Error {
+                                code: error,
+                                socket: None,
+                                id: None,
+                            })
+                            .await;
                     }
                 }
             }
@@ -934,7 +997,8 @@ mod tests {
         let (_metrics_tx, metrics_rx) = flume::unbounded();
 
         // Start runtime loop
-        let runtime_task = runtime_loop(MockTransport, submit_rx, event_tx, metrics_rx);
+        let runtime_task =
+            runtime_loop_with_config(MockTransport, submit_rx, event_tx, metrics_rx, None);
 
         // Spawn the runtime
         let handle = tokio::spawn(runtime_task);

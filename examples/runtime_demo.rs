@@ -5,7 +5,7 @@
 use grafton_visca::{
     camera_id::CameraId,
     command::{power::PowerCommand, zoom::Zoom, InquiryResponse, Response},
-    runtime::{Camera, Priority},
+    runtime::{Priority, RuntimeHandle},
     TokioExecutor,
 };
 use std::sync::Arc;
@@ -22,14 +22,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create a runtime with raw TCP transport (PTZOptics style)
     let executor = Arc::new(TokioExecutor::from_current()?);
-    let camera = Camera::new_tcp_raw(&camera_address, executor).await?;
+    let runtime = RuntimeHandle::new_tcp_raw(&camera_address, executor).await?;
 
     println!("Connected! Demonstrating new runtime API...");
 
     // Power on the camera
     println!("\n1. Sending power on command...");
     let power_on = PowerCommand::On;
-    let response = camera
+    let response = runtime
         .send_command(&power_on, CameraId::default(), Some(Priority::High))
         .await?;
     match response {
@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Send zoom in command
     println!("\n2. Sending zoom in command...");
     let zoom_in = Zoom::TeleStd;
-    let response = camera
+    let response = runtime
         .send_command(&zoom_in, CameraId::default(), None)
         .await?;
     match response {
@@ -59,7 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Stop zoom
     println!("\n3. Sending zoom stop command...");
     let zoom_stop = Zoom::Stop;
-    let response = camera
+    let response = runtime
         .send_command(&zoom_stop, CameraId::default(), None)
         .await?;
     match response {
@@ -71,7 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Send power inquiry
     println!("\n4. Sending power inquiry...");
     let power_inquiry = grafton_visca::command::inquiry::PowerInquiry;
-    let response = camera
+    let response = runtime
         .send_inquiry(&power_inquiry, CameraId::default())
         .await?;
     match response {
@@ -84,7 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Get runtime metrics
     println!("\n5. Getting runtime metrics...");
-    let metrics = camera.metrics().await?;
+    let metrics = runtime.metrics().await?;
     println!("   Commands submitted: {}", metrics.commands_submitted);
     println!("   Commands completed: {}", metrics.commands_completed);
     println!("   Inquiries submitted: {}", metrics.inquiries_submitted);
@@ -95,12 +95,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   Sending low priority zoom command...");
     let zoom_wide = Zoom::WideStd;
     let low_priority_future =
-        camera.send_command(&zoom_wide, CameraId::default(), Some(Priority::Low));
+        runtime.send_command(&zoom_wide, CameraId::default(), Some(Priority::Low));
 
     println!("   Sending high priority zoom stop command...");
     let zoom_stop = Zoom::Stop;
     let high_priority_future =
-        camera.send_command(&zoom_stop, CameraId::default(), Some(Priority::High));
+        runtime.send_command(&zoom_stop, CameraId::default(), Some(Priority::High));
 
     // High priority should complete first even though it was sent second
     let (high_result, low_result) = tokio::join!(high_priority_future, low_priority_future);
@@ -119,7 +119,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Shutdown the runtime
     println!("\n7. Shutting down runtime...");
-    camera.shutdown().await;
+    runtime.shutdown().await;
     println!("   ✓ Runtime shutdown complete");
 
     Ok(())

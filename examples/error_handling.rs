@@ -332,7 +332,8 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     };
 
     let executor = TokioExecutor::from_current().expect("Failed to get current runtime");
-    let camera: Camera<AsyncMode, PTZOpticsG2, _, _> = Camera::with_executor(transport, executor);
+    let camera: Camera<AsyncMode, PTZOpticsG2, _, _> =
+        Camera::with_executor(transport, executor).await?;
 
     // Demonstrate retry pattern
     println!("\n3. Retry Pattern Implementation:");

@@ -76,7 +76,9 @@ mod async_tests {
         let executor = TokioExecutor::from_current().expect("Failed to get current runtime");
 
         let camera: Camera<AsyncMode, grafton_visca::camera::profiles::PTZOpticsG2, _, _> =
-            Camera::with_executor(transport, executor);
+            Camera::with_executor(transport, executor)
+                .await
+                .expect("Failed to create camera");
 
         // Operations should work with the configured executor
         let result = camera.power_inquiry().await;
@@ -96,7 +98,9 @@ mod async_tests {
         let executor = TokioExecutor::from_current().expect("Failed to get current runtime");
 
         let camera: Camera<AsyncMode, grafton_visca::camera::profiles::PTZOpticsG2, _, _> =
-            Camera::with_executor(transport, executor);
+            Camera::with_executor(transport, executor)
+                .await
+                .expect("Failed to create camera");
 
         // Operations should work with the configured executor
         // The socket manager will be automatically initialized on first use
@@ -117,7 +121,9 @@ mod async_tests {
         let executor = TokioExecutor::from_current().expect("Failed to get current runtime");
 
         let camera: Camera<AsyncMode, grafton_visca::camera::profiles::PTZOpticsG2, _, _> =
-            Camera::with_executor(transport, executor);
+            Camera::with_executor(transport, executor)
+                .await
+                .expect("Failed to create camera");
 
         // Try to power on - should succeed with configured executor
         let result = camera.power_on().await;
@@ -138,7 +144,9 @@ mod async_tests {
 
         let transport = TestTransport::new();
         let camera: Camera<AsyncMode, grafton_visca::camera::profiles::PTZOpticsG2, _, _> =
-            Camera::with_executor(transport, executor);
+            Camera::with_executor(transport, executor)
+                .await
+                .expect("Failed to create camera");
 
         // Operations should work with the executor created from handle
         let result = camera.power_inquiry().await;

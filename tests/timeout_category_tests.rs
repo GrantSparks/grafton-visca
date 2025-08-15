@@ -142,7 +142,9 @@ mod timeout_tests {
         // Create camera with custom timeout config
         let executor = TokioExecutor::from_current().expect("Failed to get current runtime");
         let mut camera: Camera<AsyncMode, GenericVisca, _, _> =
-            Camera::with_executor(transport.clone(), executor);
+            Camera::with_executor(transport.clone(), executor)
+                .await
+                .unwrap();
 
         // Set very short timeout for quick commands
         let config = TimeoutConfig {
@@ -178,7 +180,9 @@ mod timeout_tests {
         // Create camera with custom timeout config
         let executor = TokioExecutor::from_current().expect("Failed to get current runtime");
         let mut camera: Camera<AsyncMode, GenericVisca, _, _> =
-            Camera::with_executor(transport.clone(), executor);
+            Camera::with_executor(transport.clone(), executor)
+                .await
+                .unwrap();
 
         // Set 1 second timeout for movement commands
         let config = TimeoutConfig {
@@ -214,7 +218,9 @@ mod timeout_tests {
         // Create camera with custom timeout config
         let executor = TokioExecutor::from_current().expect("Failed to get current runtime");
         let mut camera: Camera<AsyncMode, GenericVisca, _, _> =
-            Camera::with_executor(transport.clone(), executor);
+            Camera::with_executor(transport.clone(), executor)
+                .await
+                .unwrap();
 
         // Set 2 second timeout for preset commands
         let config = TimeoutConfig {

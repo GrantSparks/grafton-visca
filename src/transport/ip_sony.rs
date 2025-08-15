@@ -215,25 +215,30 @@ impl SonyTcpTransport {
     }
 
     /// Handle retries for a command.
-    fn handle_retry(&self, sequence: u32) -> Result<()> {
+    fn handle_retry(&self, old_sequence: u32) -> Result<()> {
         let mut pending = self.pending.lock().unwrap();
 
-        if let Some(cmd) = pending.get_mut(&sequence) {
+        if let Some(mut cmd) = pending.remove(&old_sequence) {
             if cmd.retries < self.config.max_retries {
                 cmd.retries += 1;
                 let retry_count = cmd.retries;
                 cmd.sent_at = Instant::now();
                 let bytes = cmd.bytes.clone();
+
+                // For UDP retries, allocate a new sequence number as per VISCA spec
+                let new_sequence = self.sequence.fetch_add(1, Ordering::SeqCst);
+
+                // Insert command with new sequence
+                pending.insert(new_sequence, cmd);
                 drop(pending); // Release lock before sending
 
                 warn!(
-                    "Retrying command seq {} (attempt {})",
-                    sequence, retry_count
+                    "Retrying command (old seq: {}, new seq: {}, attempt {})",
+                    old_sequence, new_sequence, retry_count
                 );
-                self.send_with_header(&bytes, sequence)?;
+                self.send_with_header(&bytes, new_sequence)?;
             } else {
-                error!("Max retries exceeded for seq {}", sequence);
-                pending.remove(&sequence);
+                error!("Max retries exceeded for seq {}", old_sequence);
                 return Err(Error::MaxRetriesExceeded);
             }
         }
@@ -537,15 +542,26 @@ impl BlockingTransport for SonyUdpTransport {
                         .collect();
                     drop(pending);
 
-                    // Retry commands
-                    for (seq, mut cmd) in to_retry {
+                    // Retry commands with new sequence numbers (per Sony spec)
+                    for (old_seq, mut cmd) in to_retry {
                         cmd.retries += 1;
-                        warn!("Retrying UDP command seq {} (attempt {})", seq, cmd.retries);
-                        self.send_with_header(&cmd.bytes, seq)?;
+
+                        // Allocate new sequence number for retry (Sony requirement)
+                        let new_seq = self.sequence.fetch_add(1, Ordering::SeqCst);
+
+                        warn!(
+                            "Retrying UDP command (old seq {}, new seq {}, attempt {})",
+                            old_seq, new_seq, cmd.retries
+                        );
+
+                        self.send_with_header(&cmd.bytes, new_seq)?;
 
                         let mut pending = self.pending.lock().unwrap();
+                        // Remove old sequence entry
+                        pending.remove(&old_seq);
+                        // Insert with new sequence
                         cmd.sent_at = Instant::now();
-                        pending.insert(seq, cmd);
+                        pending.insert(new_seq, cmd);
                     }
 
                     // Continue waiting for response

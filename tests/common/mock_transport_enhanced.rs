@@ -113,11 +113,18 @@ impl MockTransport {
     }
 
     /// Convenience method for tests - send data synchronously
-    #[cfg(feature = "async")]
+    #[cfg(all(feature = "async", feature = "rt-tokio"))]
     pub fn send(&mut self, data: &[u8]) -> Result<()> {
-        // Use futures::executor to block on the future
-        use grafton_visca::transport::async_transport::AsyncTransport;
-        futures::executor::block_on(AsyncTransport::send(self, data))
+        // For tests with tokio, use tokio's block_on
+        use grafton_visca::transport::AsyncTransport;
+        let handle = tokio::runtime::Handle::try_current()
+            .expect("MockTransportEnhanced::send requires a tokio runtime");
+        handle.block_on(AsyncTransport::send(self, data))
+    }
+
+    #[cfg(all(feature = "async", not(feature = "rt-tokio")))]
+    pub fn send(&mut self, _data: &[u8]) -> Result<()> {
+        panic!("MockTransportEnhanced::send requires rt-tokio feature for blocking operations")
     }
 
     #[cfg(not(feature = "async"))]
@@ -127,14 +134,21 @@ impl MockTransport {
     }
 
     /// Convenience method for tests - receive data with timeout
-    #[cfg(feature = "async")]
+    #[cfg(all(feature = "async", feature = "rt-tokio"))]
     pub fn receive(&mut self, _timeout: Duration) -> Result<Vec<u8>> {
-        // Just use the recv method which already handles everything
-        use grafton_visca::transport::async_transport::AsyncTransport;
-        match futures::executor::block_on(AsyncTransport::recv(self)) {
+        // For tests with tokio, use tokio's block_on
+        use grafton_visca::transport::AsyncTransport;
+        let handle = tokio::runtime::Handle::try_current()
+            .expect("MockTransportEnhanced::receive requires a tokio runtime");
+        match handle.block_on(AsyncTransport::recv(self)) {
             Ok(bytes) => Ok(bytes.to_vec()),
             Err(e) => Err(e),
         }
+    }
+
+    #[cfg(all(feature = "async", not(feature = "rt-tokio")))]
+    pub fn receive(&mut self, _timeout: Duration) -> Result<Vec<u8>> {
+        panic!("MockTransportEnhanced::receive requires rt-tokio feature for blocking operations")
     }
 
     #[cfg(not(feature = "async"))]
@@ -537,8 +551,9 @@ impl MockTransportBuilder {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_basic_mock_transport() {
+    #[cfg(all(feature = "async", feature = "rt-tokio"))]
+    #[tokio::test]
+    async fn test_basic_mock_transport_async() {
         let mut mock = MockTransport::new();
 
         // Set up expectation
@@ -547,33 +562,45 @@ mod tests {
             .then_complete(1);
 
         // Send the expected command
-        #[cfg(feature = "async")]
-        {
-            use grafton_visca::transport::async_transport::AsyncTransport;
-            futures::executor::block_on(AsyncTransport::send(
-                &mock,
-                &[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
-            ))
+        use grafton_visca::transport::AsyncTransport;
+        AsyncTransport::send(&mock, &[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR])
+            .await
             .unwrap();
-        }
-        #[cfg(not(feature = "async"))]
-        {
-            use grafton_visca::transport::BlockingTransport;
-            BlockingTransport::send_blocking(
-                &mock,
-                &[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
-            )
+
+        // Receive the responses using async recv directly
+        let ack = AsyncTransport::recv(&mock).await.unwrap();
+        assert_eq!(ack.to_vec(), vec![0x90, 0x41, VISCA_TERMINATOR]);
+
+        let complete = AsyncTransport::recv(&mock).await.unwrap();
+        assert_eq!(complete.to_vec(), vec![0x90, 0x51, VISCA_TERMINATOR]);
+
+        // Verify expectations met
+        mock.verify().unwrap();
+    }
+
+    #[cfg(not(feature = "async"))]
+    #[test]
+    fn test_basic_mock_transport_blocking() {
+        let mut mock = MockTransport::new();
+
+        // Set up expectation
+        mock.expect_command(&[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR])
+            .will_ack(1)
+            .then_complete(1);
+
+        // Send the expected command
+        use grafton_visca::transport::BlockingTransport;
+        BlockingTransport::send_blocking(&mock, &[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR])
             .unwrap();
-        }
 
         // Receive the responses
         let ack = mock.receive(Duration::from_millis(100)).unwrap();
         assert_eq!(ack, vec![0x90, 0x41, VISCA_TERMINATOR]);
 
-        let complete = mock.receive(Duration::from_millis(100)).unwrap();
-        assert_eq!(complete, vec![0x90, 0x51, VISCA_TERMINATOR]);
+        let completion = mock.receive(Duration::from_millis(100)).unwrap();
+        assert_eq!(completion, vec![0x90, 0x51, VISCA_TERMINATOR]);
 
-        // Verify expectations met
+        // Verify all expectations were met
         mock.verify().unwrap();
     }
 

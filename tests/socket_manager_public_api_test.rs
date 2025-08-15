@@ -114,7 +114,9 @@ mod tokio_tests {
         let _handle = tokio::runtime::Handle::current();
         let executor = TokioExecutor::from_current().unwrap();
         let inner_camera =
-            Camera::<AsyncMode, PTZOpticsG2, _, _>::with_executor(transport, executor);
+            Camera::<AsyncMode, PTZOpticsG2, _, _>::with_executor(transport, executor)
+                .await
+                .unwrap();
 
         // Socket manager is now automatically initialized on first use
         // Test that an operation works, which will trigger auto-initialization
@@ -139,7 +141,9 @@ mod tokio_tests {
         let camera = Camera::<grafton_visca::camera::AsyncMode, PTZOpticsG2, _, _>::with_executor(
             transport.clone(),
             executor.as_ref().clone(),
-        );
+        )
+        .await
+        .unwrap();
 
         // Give the actor time to start
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -187,7 +191,9 @@ mod tokio_tests {
         let camera = Camera::<grafton_visca::camera::AsyncMode, PTZOpticsG2, _, _>::with_executor(
             transport.clone(),
             executor.as_ref().clone(),
-        );
+        )
+        .await
+        .unwrap();
 
         tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -214,7 +220,9 @@ mod tokio_tests {
         let camera = Camera::<grafton_visca::camera::AsyncMode, PTZOpticsG2, _, _>::with_executor(
             transport.clone(),
             executor.as_ref().clone(),
-        );
+        )
+        .await
+        .unwrap();
 
         // First command should trigger lazy initialization of socket manager
         let result = camera.power_off().await;
@@ -253,7 +261,9 @@ mod tokio_tests {
         let _handle = tokio::runtime::Handle::current();
         let executor = TokioExecutor::from_current().unwrap();
         let inner_camera =
-            Camera::<AsyncMode, PTZOpticsG2, _, _>::with_executor(transport, executor);
+            Camera::<AsyncMode, PTZOpticsG2, _, _>::with_executor(transport, executor)
+                .await
+                .unwrap();
 
         // Socket manager is now automatically initialized on first use
 

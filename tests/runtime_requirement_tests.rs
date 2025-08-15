@@ -112,7 +112,9 @@ async fn test_operations_work_with_default_runtime() {
     // Create camera with mock transport and explicit runtime
     let transport = MockTransport::new();
     let executor = grafton_visca::TokioExecutor::from_current().unwrap();
-    let camera = Camera::<AsyncMode, PTZOpticsG2, _, _>::with_executor(transport, executor);
+    let camera = Camera::<AsyncMode, PTZOpticsG2, _, _>::with_executor(transport, executor)
+        .await
+        .unwrap();
 
     // Simple operations should work with explicit runtime
     // We'll just test zoom_stop which is a simple action command
@@ -139,7 +141,9 @@ async fn test_operations_succeed_with_explicit_runtime() {
     let transport = MockTransportWithResponses::new();
     // Provide explicit runtime as required by the new API
     let executor = grafton_visca::TokioExecutor::from_current().unwrap();
-    let camera = Camera::<AsyncMode, PTZOpticsG2, _, _>::with_executor(transport, executor);
+    let camera = Camera::<AsyncMode, PTZOpticsG2, _, _>::with_executor(transport, executor)
+        .await
+        .unwrap();
 
     // Operations should succeed with proper mock responses
     let result = camera.zoom_stop().await;
@@ -175,7 +179,9 @@ async fn test_movement_detection_works_with_default_runtime() {
     // Create camera with mock transport and explicit runtime
     let transport = MockTransport::new();
     let executor = grafton_visca::TokioExecutor::from_current().unwrap();
-    let camera = Camera::<AsyncMode, PTZOpticsG2, _, _>::with_executor(transport, executor);
+    let camera = Camera::<AsyncMode, PTZOpticsG2, _, _>::with_executor(transport, executor)
+        .await
+        .unwrap();
 
     // Simple operations should work with explicit runtime
     // Just test basic commands that don't require complex inquiry responses
@@ -200,7 +206,9 @@ async fn test_power_operations_work_with_default_runtime() {
     // Create camera with mock transport and explicit runtime
     let transport = MockTransport::new();
     let executor = grafton_visca::TokioExecutor::from_current().unwrap();
-    let camera = Camera::<AsyncMode, PTZOpticsG2, _, _>::with_executor(transport, executor);
+    let camera = Camera::<AsyncMode, PTZOpticsG2, _, _>::with_executor(transport, executor)
+        .await
+        .unwrap();
 
     // Just test that basic operations work, not power operations which have long delays
     let result = camera.zoom_stop().await;

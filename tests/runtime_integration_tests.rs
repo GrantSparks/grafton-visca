@@ -13,7 +13,7 @@ use bytes::Bytes;
 use flume::{Receiver, Sender};
 use grafton_visca::{
     command::response::{Response, ResponseType},
-    runtime::{Camera, Priority, TxItem},
+    runtime::{Priority, RuntimeHandle, TxItem},
     timeout::CommandCategory,
     transport::AsyncTransport,
     Error, Result,
@@ -177,7 +177,9 @@ mod runtime_tests {
             vec![0x90, 0x51, 0xFF], // Completion
         ]);
 
-        let camera = Camera::new(transport.clone(), executor).await.unwrap();
+        let runtime = RuntimeHandle::new(transport.clone(), executor)
+            .await
+            .unwrap();
 
         // Send a command
         let (response_tx, response_rx): (Sender<Result<Response>>, Receiver<Result<Response>>) =
@@ -191,7 +193,7 @@ mod runtime_tests {
             deadline: std::time::Instant::now() + Duration::from_secs(30),
         };
 
-        camera.command(command).await.unwrap();
+        runtime.command(command).await.unwrap();
 
         // Wait for response
         let response = response_rx.recv_async().await.unwrap();
@@ -213,7 +215,9 @@ mod runtime_tests {
         // Queue inquiry response
         transport.queue_response(vec![0x90, 0x50, 0x02, 0xFF]); // Power on response
 
-        let camera = Camera::new(transport.clone(), executor).await.unwrap();
+        let runtime = RuntimeHandle::new(transport.clone(), executor)
+            .await
+            .unwrap();
 
         // Send an inquiry
         let (response_tx, response_rx): (Sender<Result<Response>>, Receiver<Result<Response>>) =
@@ -226,7 +230,7 @@ mod runtime_tests {
             deadline: std::time::Instant::now() + Duration::from_secs(5),
         };
 
-        camera.inquire(inquiry).await.unwrap();
+        runtime.inquire(inquiry).await.unwrap();
 
         // Wait for response
         let response = response_rx.recv_async().await.unwrap();
@@ -257,7 +261,9 @@ mod runtime_tests {
         // Queue error response
         transport.queue_response(vec![0x90, 0x60, 0x02, 0xFF]); // Syntax error
 
-        let camera = Camera::new(transport.clone(), executor).await.unwrap();
+        let runtime = RuntimeHandle::new(transport.clone(), executor)
+            .await
+            .unwrap();
 
         // Send a command
         let (response_tx, response_rx): (Sender<Result<Response>>, Receiver<Result<Response>>) =
@@ -271,7 +277,7 @@ mod runtime_tests {
             deadline: std::time::Instant::now() + Duration::from_secs(30),
         };
 
-        camera.command(command).await.unwrap();
+        runtime.command(command).await.unwrap();
 
         // Wait for response
         println!("Waiting for error response...");
@@ -310,7 +316,9 @@ mod runtime_tests {
 
         println!("Queued 5 responses for busy retry test");
 
-        let camera = Camera::new(transport.clone(), executor).await.unwrap();
+        let runtime = RuntimeHandle::new(transport.clone(), executor)
+            .await
+            .unwrap();
 
         // Send a command
         let (response_tx, _response_rx): (Sender<Result<Response>>, Receiver<Result<Response>>) =
@@ -324,7 +332,7 @@ mod runtime_tests {
             deadline: std::time::Instant::now() + Duration::from_secs(30),
         };
 
-        camera.command(command).await.unwrap();
+        runtime.command(command).await.unwrap();
 
         // Wait a bit for retry to happen
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -358,14 +366,16 @@ mod runtime_tests {
             vec![0x90, 0x51, 0xFF], // Completion for third command
         ]);
 
-        let camera = Camera::new(transport.clone(), executor).await.unwrap();
+        let runtime = RuntimeHandle::new(transport.clone(), executor)
+            .await
+            .unwrap();
 
         // Send commands with different priorities
         let mut receivers = Vec::new();
 
         // Low priority
         let (tx1, rx1): (Sender<Result<Response>>, Receiver<Result<Response>>) = flume::bounded(1);
-        camera
+        runtime
             .command(TxItem::Command {
                 id: 1,
                 bytes: vec![0x81, 0x01, 0x04, 0x00, 0x03, 0xFF], // Command 1
@@ -380,7 +390,7 @@ mod runtime_tests {
 
         // High priority
         let (tx2, rx2): (Sender<Result<Response>>, Receiver<Result<Response>>) = flume::bounded(1);
-        camera
+        runtime
             .command(TxItem::Command {
                 id: 2,
                 bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF], // Command 2
@@ -395,7 +405,7 @@ mod runtime_tests {
 
         // Normal priority
         let (tx3, rx3): (Sender<Result<Response>>, Receiver<Result<Response>>) = flume::bounded(1);
-        camera
+        runtime
             .command(TxItem::Command {
                 id: 3,
                 bytes: vec![0x81, 0x01, 0x04, 0x00, 0x01, 0xFF], // Command 3
@@ -467,7 +477,9 @@ mod runtime_tests {
         let executor = Arc::new(TokioExecutor::from_current().unwrap());
 
         // Don't queue any responses initially
-        let camera = Camera::new(transport.clone(), executor).await.unwrap();
+        let runtime = RuntimeHandle::new(transport.clone(), executor)
+            .await
+            .unwrap();
 
         // Send a command
         let (response_tx, response_rx): (Sender<Result<Response>>, Receiver<Result<Response>>) =
@@ -481,10 +493,10 @@ mod runtime_tests {
             deadline: std::time::Instant::now() + Duration::from_secs(30),
         };
 
-        camera.command(command).await.unwrap();
+        runtime.command(command).await.unwrap();
 
         // Cancel the command
-        camera.cancel(42).await.unwrap();
+        runtime.cancel(42).await.unwrap();
 
         // The command should be cancelled
         let result =
@@ -514,13 +526,13 @@ mod runtime_tests {
         mock_transport.queue_response(vec![0x90, 0x41, 0xFF]); // ACK socket 1
         mock_transport.queue_response(vec![0x90, 0x51, 0xFF]); // Completion socket 1
 
-        let camera = Camera::new(mock_transport, executor.clone())
+        let runtime = RuntimeHandle::new(mock_transport, executor.clone())
             .await
             .expect("Failed to create camera");
 
         // Send a normal command
         let (response_tx1, response_rx1) = flume::bounded(1);
-        camera
+        runtime
             .command(TxItem::Command {
                 id: 1,
                 bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF],
@@ -544,7 +556,7 @@ mod runtime_tests {
         }
 
         // Get metrics
-        let metrics = camera.metrics().await.expect("Failed to get metrics");
+        let metrics = runtime.metrics().await.expect("Failed to get metrics");
 
         // Verify basic metrics
         assert!(
@@ -560,7 +572,7 @@ mod runtime_tests {
             "Should have 1 Normal priority command"
         );
 
-        camera.shutdown().await;
+        runtime.shutdown().await;
     }
 
     #[tokio::test]
@@ -569,10 +581,12 @@ mod runtime_tests {
         let transport = MockRuntimeTransport::new();
         let executor = Arc::new(TokioExecutor::from_current().unwrap());
 
-        let camera = Camera::new(transport.clone(), executor).await.unwrap();
+        let runtime = RuntimeHandle::new(transport.clone(), executor)
+            .await
+            .unwrap();
 
         // Shutdown the runtime
-        camera.shutdown().await;
+        runtime.shutdown().await;
 
         // Trying to send commands should fail
         let (response_tx, _response_rx) = flume::bounded(1);
@@ -585,7 +599,7 @@ mod runtime_tests {
             deadline: std::time::Instant::now() + Duration::from_secs(30),
         };
 
-        let result = camera.command(command).await;
+        let result = runtime.command(command).await;
         assert!(
             result.is_err(),
             "Should fail to send command after shutdown"
