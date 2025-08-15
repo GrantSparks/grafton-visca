@@ -21,6 +21,7 @@ mod tokio_tests {
         sent_commands: Arc<Mutex<Vec<Vec<u8>>>>,
         responses: Arc<Mutex<VecDeque<Result<Bytes, Error>>>>,
         auto_respond: bool,
+        shutdown_flag: Arc<std::sync::atomic::AtomicBool>,
     }
 
     impl MockTransport {
@@ -29,6 +30,7 @@ mod tokio_tests {
                 sent_commands: Arc::new(Mutex::new(Vec::new())),
                 responses: Arc::new(Mutex::new(VecDeque::new())),
                 auto_respond: false,
+                shutdown_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             }
         }
 
@@ -37,7 +39,13 @@ mod tokio_tests {
                 sent_commands: Arc::new(Mutex::new(Vec::new())),
                 responses: Arc::new(Mutex::new(VecDeque::new())),
                 auto_respond: true,
+                shutdown_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             }
+        }
+
+        fn shutdown(&self) {
+            self.shutdown_flag
+                .store(true, std::sync::atomic::Ordering::Relaxed);
         }
 
         fn get_sent_commands(&self) -> Vec<Vec<u8>> {
@@ -57,10 +65,28 @@ mod tokio_tests {
             // they're testing that commands work through the socket manager
             let socket_num = 1;
 
-            // Generate ACK and Completion with the assigned socket
-            let ack = Bytes::from(vec![0x90, 0x40 | socket_num, VISCA_TERMINATOR]);
-            let completion = Bytes::from(vec![0x90, 0x50 | socket_num, VISCA_TERMINATOR]);
-            (ack, completion)
+            // Check if this is an inquiry command (0x09 in second byte)
+            if command.len() >= 4 && command[1] == 0x09 {
+                // This is an inquiry command - generate a data response
+                let ack = Bytes::from(vec![0x90, 0x40 | socket_num, VISCA_TERMINATOR]);
+
+                // Generate appropriate inquiry response based on command
+                let data_response =
+                    if command.len() == 5 && &command[0..4] == &[0x81, 0x09, 0x04, 0x00] {
+                        // Power inquiry - respond with "power on"
+                        Bytes::from(vec![0x90, 0x50, 0x02, VISCA_TERMINATOR])
+                    } else {
+                        // Generic inquiry response with dummy data
+                        Bytes::from(vec![0x90, 0x50, 0x01, VISCA_TERMINATOR])
+                    };
+
+                (ack, data_response)
+            } else {
+                // Regular command - generate ACK and completion
+                let ack = Bytes::from(vec![0x90, 0x40 | socket_num, VISCA_TERMINATOR]);
+                let completion = Bytes::from(vec![0x90, 0x50 | socket_num, VISCA_TERMINATOR]);
+                (ack, completion)
+            }
         }
     }
 
@@ -85,11 +111,19 @@ mod tokio_tests {
 
         async fn recv(&self) -> Result<Bytes, Error> {
             let responses = self.responses.clone();
+            let shutdown_flag = self.shutdown_flag.clone();
 
             // The socket manager will continuously call recv() in its event loop.
             // We need to wait indefinitely for responses to avoid returning errors
             // that would disrupt the socket manager.
             loop {
+                // Check for shutdown first
+                if shutdown_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                    return Err(Error::ConnectionLost {
+                        reason: "MockTransport shut down".into(),
+                    });
+                }
+
                 // Check if response is available
                 {
                     let mut responses = responses.lock().unwrap();
@@ -98,9 +132,21 @@ mod tokio_tests {
                     }
                 }
 
-                // Wait a short time before checking again
-                // This prevents busy-waiting while allowing the socket manager to work
-                tokio::time::sleep(Duration::from_millis(10)).await;
+                // Use a select statement to make cancellation more responsive
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_millis(100)) => {
+                        // Continue loop after sleep
+                    }
+                    // This branch helps with graceful shutdown when the future is dropped
+                    _ = tokio::task::yield_now() => {
+                        // Check shutdown flag again immediately after yielding
+                        if shutdown_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                            return Err(Error::ConnectionLost {
+                                reason: "MockTransport shut down".into()
+                            });
+                        }
+                    }
+                }
             }
         }
     }
@@ -114,24 +160,40 @@ mod tokio_tests {
         let _handle = tokio::runtime::Handle::current();
         let executor = TokioExecutor::from_current().unwrap();
         let inner_camera =
-            Camera::<AsyncMode, PTZOpticsG2, _, _>::with_executor(transport, executor)
+            Camera::<AsyncMode, PTZOpticsG2, _, _>::with_executor(transport.clone(), executor)
                 .await
                 .unwrap();
 
         // Socket manager is now automatically initialized on first use
         // Test that an operation works, which will trigger auto-initialization
-        let result = inner_camera.power_inquiry().await;
+        // Add timeout to prevent hanging on CI
+        let result =
+            tokio::time::timeout(Duration::from_secs(5), inner_camera.power_inquiry()).await;
 
-        // With auto-respond, this should succeed (or fail with UnexpectedResponseType
-        // since we're not providing a proper inquiry response, just ACK/completion)
+        // Should complete within timeout
         assert!(
-            result.is_ok() || matches!(result, Err(Error::UnexpectedResponseType)),
-            "Operation should succeed or fail with UnexpectedResponseType, got: {:?}",
+            result.is_ok(),
+            "Operation should complete within timeout, got: {:?}",
             result
         );
 
+        let inner_result = result.unwrap();
+        // With auto-respond, this should succeed (or fail with UnexpectedResponseType
+        // since we're not providing a proper inquiry response, just ACK/completion)
+        assert!(
+            inner_result.is_ok() || matches!(inner_result, Err(Error::UnexpectedResponseType)),
+            "Operation should succeed or fail with UnexpectedResponseType, got: {:?}",
+            inner_result
+        );
+
+        // Signal shutdown to the transport to help with cleanup
+        transport.shutdown();
+
         // Camera now has socket manager initialized
         drop(inner_camera);
+
+        // Give the runtime a moment to shut down cleanly
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -179,6 +241,9 @@ mod tokio_tests {
             final_commands.len() >= 2,
             "Multiple commands should be sent"
         );
+
+        // Signal shutdown to help with cleanup
+        transport.shutdown();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -209,6 +274,9 @@ mod tokio_tests {
         // Verify both commands were sent
         let sent_commands = transport.get_sent_commands();
         assert!(sent_commands.len() >= 2, "Both commands should be sent");
+
+        // Signal shutdown to help with cleanup
+        transport.shutdown();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -253,6 +321,9 @@ mod tokio_tests {
             final_commands.len() > sent_commands.len(),
             "Additional commands should be sent"
         );
+
+        // Signal shutdown to help with cleanup
+        transport.shutdown();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
