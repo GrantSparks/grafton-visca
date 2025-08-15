@@ -4,7 +4,7 @@
 //! which adds an 8-byte header containing sequence numbers for request/response
 //! matching and automatic retry on network errors.
 
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::{Bytes, BytesMut};
 use log::{debug, error, trace, warn};
 use std::collections::HashMap;
 use std::net::ToSocketAddrs;
@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use crate::error::{Error, Result};
 use crate::protocol::encode::{PayloadType, SonyHeader};
-use crate::transport::{async_transport::AsyncTransport, BlockingTransport};
+use crate::transport::BlockingTransport;
 
 /// Configuration for Sony encapsulated IP transport.
 #[derive(Debug, Clone)]
@@ -112,13 +112,17 @@ impl SonyTcpTransport {
     fn send_with_header(&self, bytes: &[u8], sequence: u32) -> Result<()> {
         use std::io::Write;
 
-        let header = SonyHeader::new_command(bytes.len(), sequence);
+        // Check if this is an inquiry (second byte is 0x09)
+        let is_inquiry = bytes.len() >= 2 && bytes[1] == 0x09;
+        let header = if is_inquiry {
+            SonyHeader::new_inquiry(bytes.len(), sequence)
+        } else {
+            SonyHeader::new_command(bytes.len(), sequence)
+        };
         let mut packet = BytesMut::with_capacity(SonyHeader::SIZE + bytes.len());
 
-        // Encode header
-        packet.put_u16(header.payload_type as u16);
-        packet.put_u16(header.payload_length);
-        packet.put_u32(header.sequence_number);
+        // Use the header's encode method for consistency
+        packet.extend_from_slice(&header.encode());
 
         // Add payload
         packet.extend_from_slice(bytes);
@@ -154,38 +158,34 @@ impl SonyTcpTransport {
             // Check if we have a complete header
             if buffer.len() >= SonyHeader::SIZE {
                 // Parse header
-                let payload_type = u16::from_be_bytes([buffer[0], buffer[1]]);
+                let _payload_type = u16::from_be_bytes([buffer[0], buffer[1]]);
                 let payload_length = u16::from_be_bytes([buffer[2], buffer[3]]) as usize;
-                let sequence_number =
+                let _sequence_number =
                     u32::from_be_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]);
 
                 // Check if we have the complete payload
                 if buffer.len() >= SonyHeader::SIZE + payload_length {
-                    // Extract frame - skip header and take payload
-                    let _ = buffer.split_to(SonyHeader::SIZE);
+                    // Extract frame - use decode method for consistency
+                    let header_bytes = buffer.split_to(SonyHeader::SIZE);
                     let payload = buffer.split_to(payload_length);
 
-                    let header = SonyHeader {
-                        payload_type: match payload_type {
-                            0x01 => PayloadType::ViscaCommand,
-                            0x11 => PayloadType::ViscaReply,
-                            0x02 => PayloadType::ViscaDeviceSetting,
-                            0x20 => PayloadType::ControlCommand,
-                            0x21 => PayloadType::ControlReply,
-                            _ => {
-                                warn!("Unknown payload type: 0x{:04X}", payload_type);
-                                PayloadType::ViscaReply
-                            }
-                        },
-                        payload_length: payload_length as u16,
-                        sequence_number,
+                    let header = match SonyHeader::decode(&header_bytes) {
+                        Some(h) => h,
+                        None => {
+                            warn!("Failed to decode Sony header: {:02X?}", header_bytes);
+                            return Err(Error::InvalidResponse {
+                                expected: "Valid Sony header".into(),
+                                actual: format!("Invalid header bytes: {:02X?}", header_bytes)
+                                    .into(),
+                            });
+                        }
                     };
 
                     trace!(
                         "Received Sony frame: seq={} type={:?} len={} payload={:02X?}",
-                        sequence_number,
+                        header.sequence_number,
                         header.payload_type,
-                        payload_length,
+                        header.payload_length,
                         payload
                     );
 
@@ -293,10 +293,17 @@ impl BlockingTransport for SonyTcpTransport {
         loop {
             match self.recv_sony_frame() {
                 Ok((header, payload)) => {
-                    // Remove from pending if this is a response
+                    // Only accept replies that match a pending command
                     if header.payload_type == PayloadType::ViscaReply {
                         let mut pending = self.pending.lock().unwrap();
-                        pending.remove(&header.sequence_number);
+                        if pending.remove(&header.sequence_number).is_none() {
+                            // Late or duplicate reply - discard it
+                            warn!(
+                                "TCP: Discarding late/duplicate reply with seq {} (not in pending)",
+                                header.sequence_number
+                            );
+                            continue; // Keep waiting for a valid response
+                        }
                     }
 
                     return Ok(payload);
@@ -404,13 +411,17 @@ impl SonyUdpTransport {
 
     /// Send a command with Sony header.
     fn send_with_header(&self, bytes: &[u8], sequence: u32) -> Result<()> {
-        let header = SonyHeader::new_command(bytes.len(), sequence);
+        // Check if this is an inquiry (second byte is 0x09)
+        let is_inquiry = bytes.len() >= 2 && bytes[1] == 0x09;
+        let header = if is_inquiry {
+            SonyHeader::new_inquiry(bytes.len(), sequence)
+        } else {
+            SonyHeader::new_command(bytes.len(), sequence)
+        };
         let mut packet = BytesMut::with_capacity(SonyHeader::SIZE + bytes.len());
 
-        // Encode header
-        packet.put_u16(header.payload_type as u16);
-        packet.put_u16(header.payload_length);
-        packet.put_u32(header.sequence_number);
+        // Use the header's encode method for consistency
+        packet.extend_from_slice(&header.encode());
 
         // Add payload
         packet.extend_from_slice(bytes);
@@ -432,26 +443,25 @@ impl SonyUdpTransport {
         match self.socket.recv(&mut temp_buf) {
             Ok(n) if n >= SonyHeader::SIZE => {
                 // Parse header
-                let payload_type = u16::from_be_bytes([temp_buf[0], temp_buf[1]]);
+                let _payload_type = u16::from_be_bytes([temp_buf[0], temp_buf[1]]);
                 let payload_length = u16::from_be_bytes([temp_buf[2], temp_buf[3]]) as usize;
-                let sequence_number =
+                let _sequence_number =
                     u32::from_be_bytes([temp_buf[4], temp_buf[5], temp_buf[6], temp_buf[7]]);
 
                 if n >= SonyHeader::SIZE + payload_length {
-                    let header = SonyHeader {
-                        payload_type: match payload_type {
-                            0x01 => PayloadType::ViscaCommand,
-                            0x11 => PayloadType::ViscaReply,
-                            0x02 => PayloadType::ViscaDeviceSetting,
-                            0x20 => PayloadType::ControlCommand,
-                            0x21 => PayloadType::ControlReply,
-                            _ => {
-                                warn!("Unknown payload type: 0x{:04X}", payload_type);
-                                PayloadType::ViscaReply
-                            }
-                        },
-                        payload_length: payload_length as u16,
-                        sequence_number,
+                    // Use decode method for consistency
+                    let header = match SonyHeader::decode(&temp_buf[..SonyHeader::SIZE]) {
+                        Some(h) => h,
+                        None => {
+                            warn!(
+                                "Failed to decode Sony header from UDP: {:02X?}",
+                                &temp_buf[..SonyHeader::SIZE]
+                            );
+                            return Err(Error::InvalidResponse {
+                                expected: "Valid Sony header".into(),
+                                actual: format!("Invalid header bytes").into(),
+                            });
+                        }
                     };
 
                     let payload = Bytes::copy_from_slice(
@@ -460,7 +470,7 @@ impl SonyUdpTransport {
 
                     trace!(
                         "Received UDP frame: seq={} type={:?} payload={:02X?}",
-                        sequence_number,
+                        header.sequence_number,
                         header.payload_type,
                         payload
                     );
@@ -518,10 +528,17 @@ impl BlockingTransport for SonyUdpTransport {
         loop {
             match self.recv_sony_frame() {
                 Ok((header, payload)) => {
-                    // Remove from pending if this is a response
+                    // Only accept replies that match a pending command
                     if header.payload_type == PayloadType::ViscaReply {
                         let mut pending = self.pending.lock().unwrap();
-                        pending.remove(&header.sequence_number);
+                        if pending.remove(&header.sequence_number).is_none() {
+                            // Late or duplicate reply - discard it
+                            warn!(
+                                "UDP: Discarding late/duplicate reply with seq {} (not in pending)",
+                                header.sequence_number
+                            );
+                            continue; // Keep waiting for a valid response
+                        }
                     }
 
                     return Ok(payload);
@@ -652,7 +669,7 @@ impl AsyncSonyTcpTransport {
 }
 
 #[cfg(feature = "rt-tokio")]
-impl AsyncTransport for AsyncSonyTcpTransport {
+impl crate::transport::AsyncTransport for AsyncSonyTcpTransport {
     async fn send(&self, bytes: &[u8]) -> Result<()> {
         let inner = self.inner.clone();
         let bytes = bytes.to_vec();
@@ -696,7 +713,7 @@ impl AsyncSonyUdpTransport {
 }
 
 #[cfg(feature = "rt-tokio")]
-impl AsyncTransport for AsyncSonyUdpTransport {
+impl crate::transport::AsyncTransport for AsyncSonyUdpTransport {
     async fn send(&self, bytes: &[u8]) -> Result<()> {
         let inner = self.inner.clone();
         let bytes = bytes.to_vec();

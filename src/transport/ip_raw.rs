@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use crate::error::{Error, Result};
 use crate::protocol::encode::VISCA_TERMINATOR;
-use crate::transport::{async_transport::AsyncTransport, BlockingTransport};
+use crate::transport::BlockingTransport;
 
 /// Configuration for raw IP transport.
 #[derive(Debug, Clone)]
@@ -344,7 +344,7 @@ impl AsyncRawTcpTransport {
 }
 
 #[cfg(feature = "rt-tokio")]
-impl AsyncTransport for AsyncRawTcpTransport {
+impl crate::transport::AsyncTransport for AsyncRawTcpTransport {
     async fn send(&self, bytes: &[u8]) -> Result<()> {
         use tokio::io::AsyncWriteExt;
 
@@ -435,7 +435,7 @@ impl AsyncRawUdpTransport {
 }
 
 #[cfg(feature = "rt-tokio")]
-impl AsyncTransport for AsyncRawUdpTransport {
+impl crate::transport::AsyncTransport for AsyncRawUdpTransport {
     async fn send(&self, bytes: &[u8]) -> Result<()> {
         self.socket
             .send(bytes)

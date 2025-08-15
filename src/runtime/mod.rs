@@ -10,18 +10,22 @@ pub use scheduler::{
     ViscaError,
 };
 
+#[cfg(feature = "async")]
 use flume::{Receiver, Sender};
-use log::{debug, error, trace, warn};
+#[cfg(feature = "async")]
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
 
+#[cfg(feature = "async")]
+use log::{debug, error, trace, warn};
+
+#[cfg(feature = "async")]
 use crate::{
     command::response::Response,
     error::{Error, Result},
-    protocol::encode::VISCA_TERMINATOR,
-    transport::async_transport::AsyncTransport,
+    transport::AsyncTransport,
 };
 
 /// VISCA runtime handle.
@@ -29,6 +33,10 @@ use crate::{
 /// This struct provides the main interface for communicating with a VISCA camera,
 /// handling command submission, response processing, and protocol compliance.
 /// Renamed from Camera to RuntimeHandle to avoid confusion with the main Camera type.
+///
+/// Note: This type is only available when the "async" feature is enabled,
+/// as it requires async runtime support for communication.
+#[cfg(feature = "async")]
 #[derive(Debug)]
 pub struct RuntimeHandle {
     /// Channel for submitting commands and inquiries.
@@ -43,6 +51,7 @@ pub struct RuntimeHandle {
     metrics_tx: Sender<Sender<MetricsSummary>>,
 }
 
+#[cfg(feature = "async")]
 impl RuntimeHandle {
     /// Create a new camera runtime with the given transport.
     ///
@@ -94,7 +103,9 @@ impl RuntimeHandle {
     }
 
     /// Create a new camera runtime with raw TCP transport (PTZOptics style).
-    #[cfg(feature = "async")]
+    ///
+    /// Note: This method requires the "rt-tokio" feature as it uses tokio-specific async transports.
+    #[cfg(feature = "rt-tokio")]
     pub async fn new_tcp_raw<E: crate::executor_unified::Executor>(
         address: impl AsRef<str>,
         executor: Arc<E>,
@@ -108,7 +119,9 @@ impl RuntimeHandle {
     }
 
     /// Create a new camera runtime with raw UDP transport (PTZOptics style).
-    #[cfg(feature = "async")]
+    ///
+    /// Note: This method requires the "rt-tokio" feature as it uses tokio-specific async transports.
+    #[cfg(feature = "rt-tokio")]
     pub async fn new_udp_raw<E: crate::executor_unified::Executor>(
         address: impl AsRef<str>,
         executor: Arc<E>,
@@ -339,7 +352,10 @@ async fn runtime_loop_with_config<T: AsyncTransport>(
     debug!("VISCA runtime started");
 
     // Create a timer interval for periodic checks
+    #[cfg(feature = "rt-tokio")]
     let tick_ms = tick_interval_ms.unwrap_or(50);
+    #[cfg(not(feature = "rt-tokio"))]
+    let _tick_ms = tick_interval_ms.unwrap_or(50); // Currently unused in non-tokio implementation
     #[cfg(feature = "rt-tokio")]
     let mut tick_interval = tokio::time::interval(std::time::Duration::from_millis(tick_ms));
 
@@ -482,6 +498,7 @@ async fn runtime_loop_with_config<T: AsyncTransport>(
         }
     }
 
+    #[allow(unreachable_code)] // The loop above never exits normally
     debug!("VISCA runtime stopped");
     Ok(())
 }
@@ -532,6 +549,7 @@ async fn handle_tx_item<T: AsyncTransport>(
     item: TxItem,
     event_tx: &Sender<RxEvent>,
 ) -> Result<()> {
+    use crate::protocol::encode::VISCA_TERMINATOR;
     use scheduler::ViscaError;
 
     match item {
@@ -677,6 +695,7 @@ async fn handle_response<T: AsyncTransport>(
     event_tx: &Sender<RxEvent>,
 ) -> Result<()> {
     use crate::protocol::decode::{parse_response, ViscaResponse};
+    use crate::protocol::encode::VISCA_TERMINATOR;
 
     let response = parse_response(frame);
     trace!("Parsed response: {:?}", response);
@@ -927,6 +946,7 @@ async fn handle_response<T: AsyncTransport>(
 mod tests {
     use super::*;
     use crate::protocol::decode::{parse_response, ViscaResponse};
+    use crate::protocol::encode::VISCA_TERMINATOR;
 
     #[test]
     fn test_socket_id() {

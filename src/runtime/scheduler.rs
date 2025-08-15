@@ -14,7 +14,7 @@ use std::{
 use tracing::{info_span, instrument};
 
 use crate::{
-    command::{const_encoding::VISCA_TERMINATOR, response::Response},
+    command::response::Response,
     error::Result,
     timeout::{CommandCategory, TimeoutConfig},
 };
@@ -1063,6 +1063,7 @@ impl Scheduler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocol::encode::VISCA_TERMINATOR;
 
     #[test]
     fn test_socket_id_conversion() {
