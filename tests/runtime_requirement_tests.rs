@@ -39,7 +39,10 @@ impl AsyncTransport for MockTransport {
     }
 
     async fn recv(&self) -> Result<Bytes, grafton_visca::Error> {
-        // Check if we have pending responses
+        // Check if we have pending responses with timeout for CI robustness
+        let timeout_duration = tokio::time::Duration::from_secs(2);
+        let start_time = tokio::time::Instant::now();
+
         loop {
             {
                 let mut responses = self.pending_responses.lock().unwrap();
@@ -50,8 +53,13 @@ impl AsyncTransport for MockTransport {
                 }
             } // Lock is dropped here
 
+            // Check for timeout to avoid hanging in CI environments
+            if start_time.elapsed() > timeout_duration {
+                return Err(grafton_visca::Error::Timeout);
+            }
+
             // Sleep briefly to avoid busy-waiting
-            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
         }
     }
 }
@@ -60,45 +68,54 @@ impl AsyncTransport for MockTransport {
 #[derive(Debug)]
 #[allow(dead_code)]
 struct MockTransportWithResponses {
-    responses: std::sync::Mutex<Vec<Vec<u8>>>,
-    index: std::sync::Mutex<usize>,
+    pending_responses: std::sync::Mutex<std::collections::VecDeque<Vec<u8>>>,
+    send_count: std::sync::Mutex<usize>,
 }
 
 impl MockTransportWithResponses {
     #[allow(dead_code)]
     fn new() -> Self {
         Self {
-            responses: std::sync::Mutex::new(vec![
-                vec![0x90, 0x41, 0xFF], // ACK for first command
-                vec![0x90, 0x51, 0xFF], // Completion for first command
-                vec![0x90, 0x41, 0xFF], // ACK for second command
-                vec![0x90, 0x51, 0xFF], // Completion for second command
-            ]),
-            index: std::sync::Mutex::new(0),
+            pending_responses: std::sync::Mutex::new(std::collections::VecDeque::new()),
+            send_count: std::sync::Mutex::new(0),
         }
     }
 }
 
 impl AsyncTransport for MockTransportWithResponses {
     async fn send(&self, _data: &[u8]) -> Result<(), grafton_visca::Error> {
+        // When a command is sent, immediately queue the expected responses
+        let mut responses = self.pending_responses.lock().unwrap();
+        let mut count = self.send_count.lock().unwrap();
+        *count += 1;
+
+        // Queue ACK and Completion for each command
+        responses.push_back(vec![0x90, 0x41, 0xFF]); // ACK
+        responses.push_back(vec![0x90, 0x51, 0xFF]); // Completion
+
         Ok(())
     }
 
     async fn recv(&self) -> Result<Bytes, grafton_visca::Error> {
+        // Wait for responses to be available, with timeout for robustness
+        let timeout_duration = tokio::time::Duration::from_secs(2);
+        let start_time = tokio::time::Instant::now();
+
         loop {
             {
-                let mut index = self.index.lock().unwrap();
-                let responses = self.responses.lock().unwrap();
-
-                if *index < responses.len() {
-                    let response = responses[*index].clone();
-                    *index += 1;
+                let mut responses = self.pending_responses.lock().unwrap();
+                if let Some(response) = responses.pop_front() {
                     return Ok(Bytes::from(response));
                 }
-            } // Locks are dropped here
+            } // Lock is dropped here
 
-            // Sleep to avoid busy-waiting when no responses are available
-            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+            // Check for timeout to avoid hanging in CI environments
+            if start_time.elapsed() > timeout_duration {
+                return Err(grafton_visca::Error::Timeout);
+            }
+
+            // Sleep briefly to avoid busy-waiting
+            tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
         }
     }
 }
@@ -147,7 +164,11 @@ async fn test_operations_succeed_with_explicit_runtime() {
 
     // Operations should succeed with proper mock responses
     let result = camera.zoom_stop().await;
-    assert!(result.is_ok());
+    assert!(
+        result.is_ok(),
+        "zoom_stop failed with error: {:?}",
+        result.err()
+    );
 
     // Socket manager cleanup is now handled automatically by Drop
 
