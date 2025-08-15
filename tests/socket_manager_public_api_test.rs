@@ -72,7 +72,7 @@ mod tokio_tests {
 
                 // Generate appropriate inquiry response based on command
                 let data_response =
-                    if command.len() == 5 && &command[0..4] == &[0x81, 0x09, 0x04, 0x00] {
+                    if command.len() == 5 && command[0..4] == [0x81, 0x09, 0x04, 0x00] {
                         // Power inquiry - respond with "power on"
                         Bytes::from(vec![0x90, 0x50, 0x02, VISCA_TERMINATOR])
                     } else {
