@@ -68,6 +68,16 @@ impl MockRuntimeTransport {
         }
     }
 
+    /// Reset the transport state for a fresh test
+    pub fn reset(&self) {
+        self.sent_commands.lock().unwrap().clear();
+        self.response_queue.lock().unwrap().clear();
+        *self.response_delay.lock().unwrap() = None;
+        *self.next_error.lock().unwrap() = None;
+        *self.recv_timeout.lock().unwrap() = Duration::from_secs(5);
+        *self.responses_returned.lock().unwrap() = 0;
+    }
+
     /// Queue a response to be returned.
     pub fn queue_response(&self, response: Vec<u8>) {
         self.response_queue.lock().unwrap().push_back(response);
@@ -131,39 +141,21 @@ impl AsyncTransport for MockRuntimeTransport {
         let start = Instant::now();
 
         loop {
-            let commands_sent = self.sent_commands.lock().unwrap().len();
-            let responses_returned = *self.responses_returned.lock().unwrap();
-            log::trace!(
-                "Mock transport: sent={}, returned={}",
-                commands_sent,
-                responses_returned
-            );
-
-            // For busy retry test:
-            // - Command 1: gets busy response (1 response)
-            // - Command 2 (retry): gets ACK and completion (2 responses)
-            // So we can return more responses than commands sent
             let response_to_return = {
                 let mut queue = self.response_queue.lock().unwrap();
-                if !queue.is_empty() {
-                    // Always return if we have responses and at least one command sent
-                    if commands_sent > 0 {
-                        Some(queue.pop_front().unwrap())
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
+                queue.pop_front()
             };
 
             if let Some(response) = response_to_return {
                 *self.responses_returned.lock().unwrap() += 1;
-                eprintln!(
-                    "Mock transport returning response #{}: {:02X?}",
-                    *self.responses_returned.lock().unwrap(),
-                    response
-                );
+                // Only print for debug mode to reduce noise
+                if std::env::var("RUST_LOG").map_or(false, |s| s.contains("debug")) {
+                    eprintln!(
+                        "Mock transport returning response #{}: {:02X?}",
+                        *self.responses_returned.lock().unwrap(),
+                        response
+                    );
+                }
 
                 // Small delay to simulate network latency
                 tokio::time::sleep(Duration::from_millis(5)).await;
@@ -193,15 +185,18 @@ mod runtime_tests {
         let transport = MockRuntimeTransport::new();
         let executor = Arc::new(TokioExecutor::from_current().unwrap());
 
+        let runtime = RuntimeHandle::new(transport.clone(), executor)
+            .await
+            .unwrap();
+
+        // Give the runtime a moment to start its receive loop
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
         // Queue ACK and completion responses
         transport.queue_responses(&[
             vec![0x90, 0x41, 0xFF], // ACK
             vec![0x90, 0x51, 0xFF], // Completion
         ]);
-
-        let runtime = RuntimeHandle::new(transport.clone(), executor)
-            .await
-            .unwrap();
 
         // Send a command
         let (response_tx, response_rx): (Sender<Result<Response>>, Receiver<Result<Response>>) =
@@ -233,12 +228,15 @@ mod runtime_tests {
         let transport = MockRuntimeTransport::new();
         let executor = Arc::new(TokioExecutor::from_current().unwrap());
 
-        // Queue inquiry response
-        transport.queue_response(vec![0x90, 0x50, 0x02, 0xFF]); // Power on response
-
         let runtime = RuntimeHandle::new(transport.clone(), executor)
             .await
             .unwrap();
+
+        // Give the runtime a moment to start its receive loop
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        // Queue inquiry response
+        transport.queue_response(vec![0x90, 0x50, 0x02, 0xFF]); // Power on response
 
         // Send an inquiry
         let (response_tx, response_rx): (Sender<Result<Response>>, Receiver<Result<Response>>) =
@@ -279,12 +277,15 @@ mod runtime_tests {
         let transport = MockRuntimeTransport::new();
         let executor = Arc::new(TokioExecutor::from_current().unwrap());
 
-        // Queue error response
-        transport.queue_response(vec![0x90, 0x60, 0x02, 0xFF]); // Syntax error
-
         let runtime = RuntimeHandle::new(transport.clone(), executor)
             .await
             .unwrap();
+
+        // Give the runtime a moment to start its receive loop
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        // Queue error response
+        transport.queue_response(vec![0x90, 0x60, 0x02, 0xFF]); // Syntax error
 
         // Send a command
         let (response_tx, response_rx): (Sender<Result<Response>>, Receiver<Result<Response>>) =
@@ -317,26 +318,25 @@ mod runtime_tests {
         // Initialize logging for debugging
         let _ = env_logger::builder().is_test(true).try_init();
 
+        // Enable verbose tracing for this test
+        eprintln!("=== Starting busy retry test ===");
+
         // Create mock transport and runtime
         let transport = MockRuntimeTransport::new();
         let executor = Arc::new(TokioExecutor::from_current().unwrap());
-
-        // Queue responses: busy for first attempt, then ACK and completion for retry
-        // Note: We need to queue ACK+Completion twice because the mock returns them all immediately
-        transport.queue_responses(&[
-            vec![0x90, 0x61, 0x01, 0xFF], // Socket 1 busy for first command
-            vec![0x90, 0x41, 0xFF],       // These will be consumed as "no pending command"
-            vec![0x90, 0x51, 0xFF],       // These will be consumed as "no pending command"
-            vec![0x90, 0x41, 0xFF],       // ACK for retry
-            vec![0x90, 0x51, 0xFF],       // Completion for retry
-        ]);
 
         let runtime = RuntimeHandle::new(transport.clone(), executor)
             .await
             .unwrap();
 
+        // Give the runtime a moment to start its receive loop
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        // Queue busy response first - it should trigger a retry
+        transport.queue_response(vec![0x90, 0x61, 0x01, 0xFF]); // Socket 1 busy for first command
+
         // Send a command
-        let (response_tx, _response_rx): (Sender<Result<Response>>, Receiver<Result<Response>>) =
+        let (response_tx, response_rx): (Sender<Result<Response>>, Receiver<Result<Response>>) =
             flume::bounded(1);
         let command = TxItem::Command {
             id: 1,
@@ -349,8 +349,26 @@ mod runtime_tests {
 
         runtime.command(command).await.unwrap();
 
-        // Wait a bit for retry to happen
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        // Wait a moment for the busy response to be processed and retry to start
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        // Now queue responses for the retry - need enough for all retry attempts
+        transport.queue_responses(&[
+            vec![0x90, 0x41, 0xFF], // ACK for 1st retry (Socket1)
+            vec![0x90, 0x51, 0xFF], // Completion for 1st retry (Socket1)
+        ]);
+
+        // Wait for the command to complete (busy -> retry -> completion)
+        let response = tokio::time::timeout(Duration::from_secs(5), response_rx.recv_async())
+            .await
+            .expect("Command should complete within timeout")
+            .expect("Channel should not be closed");
+
+        assert!(
+            matches!(response, Ok(Response::Completion)),
+            "Expected completion, got: {:?}",
+            response
+        );
 
         // Verify command was sent twice (initial + retry)
         let sent = transport.get_sent_commands();
@@ -367,23 +385,12 @@ mod runtime_tests {
         let transport = MockRuntimeTransport::new();
         let executor = Arc::new(TokioExecutor::from_current().unwrap());
 
-        // Set a small delay to allow commands to queue but not timeout
-        transport.set_response_delay(Duration::from_millis(10));
-
-        // Queue responses for multiple commands
-        // Since we have 2 sockets and 3 commands, they'll need to be processed serially
-        transport.queue_responses(&[
-            vec![0x90, 0x41, 0xFF], // ACK for first command sent
-            vec![0x90, 0x42, 0xFF], // ACK for second command sent (socket 2)
-            vec![0x90, 0x51, 0xFF], // Completion for first command (frees socket 1)
-            vec![0x90, 0x41, 0xFF], // ACK for third command (now socket 1 is free)
-            vec![0x90, 0x52, 0xFF], // Completion for second command (frees socket 2)
-            vec![0x90, 0x51, 0xFF], // Completion for third command
-        ]);
-
         let runtime = RuntimeHandle::new(transport.clone(), executor)
             .await
             .unwrap();
+
+        // Give the runtime a moment to start its receive loop
+        tokio::time::sleep(Duration::from_millis(10)).await;
 
         // Send commands with different priorities
         let mut receivers = Vec::new();
@@ -432,6 +439,16 @@ mod runtime_tests {
             .await
             .unwrap();
         receivers.push(rx3);
+
+        // Now queue responses after commands are sent
+        transport.queue_responses(&[
+            vec![0x90, 0x41, 0xFF], // ACK for first command sent
+            vec![0x90, 0x42, 0xFF], // ACK for second command sent (socket 2)
+            vec![0x90, 0x51, 0xFF], // Completion for first command (frees socket 1)
+            vec![0x90, 0x41, 0xFF], // ACK for third command (now socket 1 is free)
+            vec![0x90, 0x52, 0xFF], // Completion for second command (frees socket 2)
+            vec![0x90, 0x51, 0xFF], // Completion for third command
+        ]);
 
         // Wait for all commands to complete
         // Give some time for the runtime to process commands and apply priority scheduling
@@ -537,13 +554,16 @@ mod runtime_tests {
         let executor = Arc::new(TokioExecutor::from_current().unwrap());
         let mock_transport = MockRuntimeTransport::new();
 
+        let runtime = RuntimeHandle::new(mock_transport.clone(), executor.clone())
+            .await
+            .expect("Failed to create camera");
+
+        // Give the runtime a moment to start its receive loop
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
         // Queue responses for a simple command
         mock_transport.queue_response(vec![0x90, 0x41, 0xFF]); // ACK socket 1
         mock_transport.queue_response(vec![0x90, 0x51, 0xFF]); // Completion socket 1
-
-        let runtime = RuntimeHandle::new(mock_transport, executor.clone())
-            .await
-            .expect("Failed to create camera");
 
         // Send a normal command
         let (response_tx1, response_rx1) = flume::bounded(1);
