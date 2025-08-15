@@ -350,7 +350,7 @@ where
         }
 
         // Create channels for communication
-        let (command_sender, command_receiver) = crate::channels::unbounded();
+        let (command_sender, command_receiver) = flume::unbounded();
 
         // Store the handle
         let handle = SocketManagerHandle::new(command_sender);

@@ -351,8 +351,15 @@ mod error;
 /// Transport layer for implementing custom transports
 pub mod transport;
 
-#[cfg(feature = "async")]
-pub(crate) mod channels;
+// Replaced by flume-based runtime
+// #[cfg(feature = "async")]
+// pub(crate) mod channels;
+
+/// Protocol encoding and decoding utilities
+pub mod protocol;
+
+/// VISCA runtime with flume-based scheduling
+pub mod runtime;
 
 /// Constants for VISCA protocol including default ports
 pub mod constants;
