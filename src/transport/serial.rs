@@ -426,7 +426,7 @@ mod tests {
         }
     }
 
-    impl std::io::Read for MockSerialPort {
+    impl Read for MockSerialPort {
         fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
             let len = std::cmp::min(buf.len(), self.read_data.len());
             buf[..len].copy_from_slice(&self.read_data[..len]);
@@ -435,7 +435,7 @@ mod tests {
         }
     }
 
-    impl std::io::Write for MockSerialPort {
+    impl Write for MockSerialPort {
         fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
             self.write_data.extend_from_slice(buf);
             Ok(buf.len())
