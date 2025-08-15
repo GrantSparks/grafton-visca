@@ -5,8 +5,11 @@
 
 use bytes::{Bytes, BytesMut};
 use log::{debug, trace};
+
 use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpStream, ToSocketAddrs, UdpSocket};
+#[cfg(feature = "rt-tokio")]
+use std::net::SocketAddr;
+use std::net::{TcpStream, ToSocketAddrs, UdpSocket};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -82,8 +85,14 @@ impl RawTcpTransport {
 
     /// Receive a complete VISCA frame.
     fn recv_frame(&self) -> Result<Bytes> {
-        let mut buffer = self.read_buffer.lock().unwrap();
-        let mut stream = self.stream.lock().unwrap();
+        let mut buffer = self
+            .read_buffer
+            .lock()
+            .map_err(|_| Error::LockPoisoned("transport mutex"))?;
+        let mut stream = self
+            .stream
+            .lock()
+            .map_err(|_| Error::LockPoisoned("transport mutex"))?;
         let mut temp_buf = [0u8; 256];
 
         loop {
@@ -118,7 +127,10 @@ impl RawTcpTransport {
 
 impl BlockingTransport for RawTcpTransport {
     fn send_blocking(&self, bytes: &[u8]) -> Result<()> {
-        let mut stream = self.stream.lock().unwrap();
+        let mut stream = self
+            .stream
+            .lock()
+            .map_err(|_| Error::LockPoisoned("transport mutex"))?;
         stream
             .write_all(bytes)
             .map_err(|e| Error::TransportError(format!("TCP write error: {}", e).into()))?;
@@ -135,7 +147,10 @@ impl BlockingTransport for RawTcpTransport {
 
     fn recv_blocking_with_timeout(&self, timeout: Duration) -> Result<Bytes> {
         // Temporarily set the timeout on the stream
-        let stream = self.stream.lock().unwrap();
+        let stream = self
+            .stream
+            .lock()
+            .map_err(|_| Error::LockPoisoned("transport mutex"))?;
         let original_read_timeout = stream
             .read_timeout()
             .map_err(|e| Error::TransportError(format!("Failed to get timeout: {}", e).into()))?;
@@ -147,7 +162,10 @@ impl BlockingTransport for RawTcpTransport {
         let result = self.recv_frame();
 
         // Restore original timeout
-        let stream = self.stream.lock().unwrap();
+        let stream = self
+            .stream
+            .lock()
+            .map_err(|_| Error::LockPoisoned("transport mutex"))?;
         stream
             .set_read_timeout(original_read_timeout)
             .map_err(|e| {
@@ -181,7 +199,7 @@ impl RawUdpTransport {
             .map_err(|e| Error::TransportError(format!("UDP bind failed: {}", e).into()))?;
 
         socket
-            .connect(&addr)
+            .connect(addr)
             .map_err(|e| Error::TransportError(format!("UDP connect failed: {}", e).into()))?;
 
         socket
@@ -206,7 +224,10 @@ impl RawUdpTransport {
 
     /// Receive a complete VISCA frame.
     fn recv_frame(&self) -> Result<Bytes> {
-        let mut buffer = self.read_buffer.lock().unwrap();
+        let mut buffer = self
+            .read_buffer
+            .lock()
+            .map_err(|_| Error::LockPoisoned("transport mutex"))?;
         let mut temp_buf = [0u8; 1500]; // UDP MTU
 
         loop {
@@ -390,7 +411,7 @@ impl AsyncRawUdpTransport {
             .map_err(|e| Error::TransportError(format!("UDP bind failed: {}", e).into()))?;
 
         socket
-            .connect(&addr)
+            .connect(addr)
             .await
             .map_err(|e| Error::TransportError(format!("UDP connect failed: {}", e).into()))?;
 

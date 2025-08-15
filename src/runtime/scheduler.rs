@@ -5,13 +5,14 @@
 
 use flume::{Receiver, Sender};
 use log::{debug, trace, warn};
+use tracing::{info_span, instrument};
+
 use std::{
     cmp::Ordering as CmpOrdering,
     collections::{BinaryHeap, HashMap},
     sync::atomic::{AtomicU32, AtomicU64, Ordering},
     time::{Duration, Instant},
 };
-use tracing::{info_span, instrument};
 
 use crate::{
     command::response::Response,
@@ -1061,6 +1062,7 @@ impl Scheduler {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::protocol::encode::VISCA_TERMINATOR;
