@@ -326,7 +326,7 @@
 //!     Ok(_) => println!("Position set successfully"),
 //!     Err(Error::SyntaxError) => println!("Position out of range"),
 //!     Err(Error::CommandNotExecutable) => println!("Camera busy or powered off"),
-//!     Err(e) => println!("Other error: {}", e),
+//!     Err(e) => println!("Other error: {e}"),
 //! }
 //! ```
 
@@ -351,10 +351,6 @@ mod error;
 /// Transport layer for implementing custom transports
 pub mod transport;
 
-// Replaced by flume-based runtime
-// #[cfg(feature = "async")]
-// pub(crate) mod channels;
-
 /// Protocol encoding and decoding utilities
 pub mod protocol;
 
@@ -375,11 +371,7 @@ pub mod units;
 pub mod timeout;
 
 #[cfg(feature = "async")]
-// Internal modules for async support
-#[cfg(feature = "async")]
 pub(crate) mod executor_unified;
-
-// Removed async and blocking wrappers - using mode markers instead
 
 pub mod prelude;
 
@@ -388,13 +380,13 @@ pub mod prelude;
 #[doc(hidden)]
 pub mod testing;
 
-// Core exports - only the essentials at root level
+// External crates
+pub use grafton_visca_macros::{InquiryCommand, ViscaEncode, ViscaEnum, ViscaValue};
+
+// Local modules
 pub use camera::{Camera, CameraBuilder};
 pub use camera_id::CameraId;
-pub use error::{Error, Result};
 
-// Re-export method traits for convenient access
-// Async traits are available when async feature is enabled
 #[cfg(feature = "async")]
 pub use camera::methods::{
     focus::FocusOps,
@@ -405,7 +397,6 @@ pub use camera::methods::{
     zoom::ZoomOps,
 };
 
-// Blocking traits are always available
 pub use camera::methods::{
     focus::FocusOpsBlocking,
     inquiry::{InquiryOpsBlocking, PanTiltInquiryOpsBlocking},
@@ -415,16 +406,6 @@ pub use camera::methods::{
     zoom::ZoomOpsBlocking,
 };
 
-// Re-export the new executor trait for async users
-#[cfg(feature = "async")]
-pub use executor_unified::{ExecError, Executor};
-
-// Re-export TokioExecutor only when rt-tokio feature is enabled
-#[cfg(all(feature = "async", feature = "rt-tokio"))]
-pub use executor_unified::TokioExecutor;
-
-// Re-export commonly used enums that users need directly
-// These are used in method arguments and are part of the primary API
 pub use command::{
     exposure::ExposureMode,
     focus::{AutoFocusSensitivity, FocusMode},
@@ -436,8 +417,13 @@ pub use command::{
     white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode},
 };
 
-// Derive macros for extending the library
-pub use grafton_visca_macros::{InquiryCommand, ViscaEncode, ViscaEnum, ViscaValue};
+pub use error::{Error, Result};
+
+#[cfg(feature = "async")]
+pub use executor_unified::{ExecError, Executor};
+
+#[cfg(all(feature = "async", feature = "rt-tokio"))]
+pub use executor_unified::TokioExecutor;
 
 /// Camera profiles with compositional capabilities
 pub mod profiles {
