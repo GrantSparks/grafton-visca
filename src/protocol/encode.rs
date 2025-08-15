@@ -4,6 +4,7 @@
 //! different transport encapsulation formats (raw, Sony header).
 
 use bytes::{BufMut, BytesMut};
+
 use std::sync::atomic::{AtomicU32, Ordering};
 
 /// VISCA frame terminator byte.
@@ -218,17 +219,17 @@ impl CommandBuilder {
 
     /// Add a nibble-encoded value (0x0p 0x0q for value pq).
     pub fn nibbles(mut self, value: u8) -> Self {
-        self.buffer.put_u8(0x00 | (value >> 4));
-        self.buffer.put_u8(0x00 | (value & 0x0F));
+        self.buffer.put_u8(value >> 4);
+        self.buffer.put_u8(value & 0x0F);
         self
     }
 
     /// Add a 4-nibble encoded value (0x0p 0x0q 0x0r 0x0s for value pqrs).
     pub fn nibbles_u16(mut self, value: u16) -> Self {
-        self.buffer.put_u8(0x00 | ((value >> 12) as u8));
-        self.buffer.put_u8(0x00 | ((value >> 8) as u8 & 0x0F));
-        self.buffer.put_u8(0x00 | ((value >> 4) as u8 & 0x0F));
-        self.buffer.put_u8(0x00 | (value as u8 & 0x0F));
+        self.buffer.put_u8((value >> 12) as u8);
+        self.buffer.put_u8((value >> 8) as u8 & 0x0F);
+        self.buffer.put_u8((value >> 4) as u8 & 0x0F);
+        self.buffer.put_u8(value as u8 & 0x0F);
         self
     }
 
@@ -263,6 +264,7 @@ pub fn encode_address_set() -> Vec<u8> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

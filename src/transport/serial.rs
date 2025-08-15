@@ -6,6 +6,7 @@
 
 use bytes::{Bytes, BytesMut};
 use log::{debug, trace, warn};
+
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -102,7 +103,10 @@ impl SerialTransport {
         // Read responses from devices
         // Each device will respond with its address
         let mut buffer = [0u8; 16];
-        let mut port = self.port.lock().unwrap();
+        let mut port = self
+            .port
+            .lock()
+            .map_err(|_| Error::LockPoisoned("serial port mutex"))?;
 
         loop {
             match port.read(&mut buffer) {
@@ -131,7 +135,10 @@ impl SerialTransport {
 
     /// Send raw bytes to the serial port.
     fn send_raw(&self, bytes: &[u8]) -> Result<()> {
-        let mut port = self.port.lock().unwrap();
+        let mut port = self
+            .port
+            .lock()
+            .map_err(|_| Error::LockPoisoned("serial port mutex"))?;
         port.write_all(bytes)
             .map_err(|e| Error::TransportError(format!("Serial write error: {}", e).into()))?;
         port.flush()
@@ -142,8 +149,14 @@ impl SerialTransport {
 
     /// Receive a complete VISCA frame from the serial port.
     fn recv_frame(&self) -> Result<Bytes> {
-        let mut buffer = self.read_buffer.lock().unwrap();
-        let mut port = self.port.lock().unwrap();
+        let mut buffer = self
+            .read_buffer
+            .lock()
+            .map_err(|_| Error::LockPoisoned("serial port mutex"))?;
+        let mut port = self
+            .port
+            .lock()
+            .map_err(|_| Error::LockPoisoned("serial port mutex"))?;
         let mut temp_buf = [0u8; 256];
 
         loop {
@@ -201,7 +214,10 @@ impl BlockingTransport for SerialTransport {
 
     fn recv_blocking_with_timeout(&self, timeout: Duration) -> Result<Bytes> {
         // Temporarily set the timeout on the port
-        let mut port = self.port.lock().unwrap();
+        let mut port = self
+            .port
+            .lock()
+            .map_err(|_| Error::LockPoisoned("serial port mutex"))?;
         let original_timeout = port.timeout();
         port.set_timeout(timeout)
             .map_err(|e| Error::TransportError(format!("Failed to set timeout: {}", e).into()))?;
@@ -210,7 +226,10 @@ impl BlockingTransport for SerialTransport {
         let result = self.recv_frame();
 
         // Restore original timeout
-        let mut port = self.port.lock().unwrap();
+        let mut port = self
+            .port
+            .lock()
+            .map_err(|_| Error::LockPoisoned("serial port mutex"))?;
         port.set_timeout(original_timeout).map_err(|e| {
             Error::TransportError(format!("Failed to restore timeout: {}", e).into())
         })?;

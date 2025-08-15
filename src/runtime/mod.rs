@@ -498,8 +498,11 @@ async fn runtime_loop_with_config<T: AsyncTransport>(
         }
     }
 
-    #[allow(unreachable_code)] // The loop above never exits normally
-    debug!("VISCA runtime stopped");
+    // The loop above never exits normally
+    #[allow(unreachable_code)]
+    {
+        debug!("VISCA runtime stopped");
+    }
     Ok(())
 }
 
