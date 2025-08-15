@@ -9,8 +9,11 @@
 
 #![cfg(feature = "async")]
 
+#[cfg(feature = "rt-tokio")]
 use bytes::Bytes;
+#[cfg(feature = "rt-tokio")]
 use flume::{Receiver, Sender};
+#[cfg(feature = "rt-tokio")]
 use grafton_visca::{
     command::response::{Response, ResponseType},
     runtime::{Priority, RuntimeHandle, TxItem},
@@ -18,11 +21,16 @@ use grafton_visca::{
     transport::AsyncTransport,
     Error, Result,
 };
-use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+
+#[cfg(feature = "rt-tokio")]
+use std::{
+    collections::VecDeque,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
 /// Mock transport for testing the runtime.
+#[cfg(feature = "rt-tokio")]
 #[derive(Clone)]
 pub struct MockRuntimeTransport {
     /// Commands sent by the runtime.
@@ -39,6 +47,14 @@ pub struct MockRuntimeTransport {
     responses_returned: Arc<Mutex<usize>>,
 }
 
+#[cfg(feature = "rt-tokio")]
+impl Default for MockRuntimeTransport {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "rt-tokio")]
 impl MockRuntimeTransport {
     /// Create a new mock transport.
     pub fn new() -> Self {
@@ -112,11 +128,16 @@ impl AsyncTransport for MockRuntimeTransport {
 
         // Wait for a response to be available with timeout
         let timeout = *self.recv_timeout.lock().unwrap();
-        let start = std::time::Instant::now();
+        let start = Instant::now();
 
         loop {
             let commands_sent = self.sent_commands.lock().unwrap().len();
-            let _responses_returned = *self.responses_returned.lock().unwrap();
+            let responses_returned = *self.responses_returned.lock().unwrap();
+            log::trace!(
+                "Mock transport: sent={}, returned={}",
+                commands_sent,
+                responses_returned
+            );
 
             // For busy retry test:
             // - Command 1: gets busy response (1 response)
@@ -162,8 +183,9 @@ impl AsyncTransport for MockRuntimeTransport {
 
 #[cfg(feature = "rt-tokio")]
 mod runtime_tests {
-    use super::*;
     use grafton_visca::TokioExecutor;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_runtime_sends_command() {
@@ -189,15 +211,14 @@ mod runtime_tests {
             bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF], // Power on
             priority: Priority::Normal,
             response_tx,
-            category: grafton_visca::timeout::CommandCategory::Quick,
-            deadline: std::time::Instant::now() + Duration::from_secs(30),
+            category: CommandCategory::Quick,
+            deadline: Instant::now() + Duration::from_secs(30),
         };
 
         runtime.command(command).await.unwrap();
 
         // Wait for response
         let response = response_rx.recv_async().await.unwrap();
-        println!("Received response: {:?}", response);
         assert!(matches!(response, Ok(Response::Completion)));
 
         // Verify command was sent
@@ -227,7 +248,7 @@ mod runtime_tests {
             bytes: vec![0x81, 0x09, 0x04, 0x00, 0xFF], // Power inquiry
             response_tx,
             response_type: Some(ResponseType::Power),
-            deadline: std::time::Instant::now() + Duration::from_secs(5),
+            deadline: Instant::now() + Duration::from_secs(5),
         };
 
         runtime.inquire(inquiry).await.unwrap();
@@ -273,18 +294,14 @@ mod runtime_tests {
             bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF],
             priority: Priority::Normal,
             response_tx,
-            category: grafton_visca::timeout::CommandCategory::Quick,
-            deadline: std::time::Instant::now() + Duration::from_secs(30),
+            category: CommandCategory::Quick,
+            deadline: Instant::now() + Duration::from_secs(30),
         };
 
         runtime.command(command).await.unwrap();
 
         // Wait for response
-        println!("Waiting for error response...");
-        let response = response_rx.recv_async().await;
-        println!("Got response: {:?}", response);
-
-        let response = response.unwrap();
+        let response = response_rx.recv_async().await.unwrap();
 
         // Should receive error
         match response {
@@ -314,8 +331,6 @@ mod runtime_tests {
             vec![0x90, 0x51, 0xFF],       // Completion for retry
         ]);
 
-        println!("Queued 5 responses for busy retry test");
-
         let runtime = RuntimeHandle::new(transport.clone(), executor)
             .await
             .unwrap();
@@ -328,8 +343,8 @@ mod runtime_tests {
             bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF],
             priority: Priority::Normal,
             response_tx,
-            category: grafton_visca::timeout::CommandCategory::Quick,
-            deadline: std::time::Instant::now() + Duration::from_secs(30),
+            category: CommandCategory::Quick,
+            deadline: Instant::now() + Duration::from_secs(30),
         };
 
         runtime.command(command).await.unwrap();
@@ -381,8 +396,8 @@ mod runtime_tests {
                 bytes: vec![0x81, 0x01, 0x04, 0x00, 0x03, 0xFF], // Command 1
                 priority: Priority::Low,
                 response_tx: tx1,
-                category: grafton_visca::timeout::CommandCategory::Quick,
-                deadline: std::time::Instant::now() + Duration::from_secs(30),
+                category: CommandCategory::Quick,
+                deadline: Instant::now() + Duration::from_secs(30),
             })
             .await
             .unwrap();
@@ -396,8 +411,8 @@ mod runtime_tests {
                 bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF], // Command 2
                 priority: Priority::High,
                 response_tx: tx2,
-                category: grafton_visca::timeout::CommandCategory::Quick,
-                deadline: std::time::Instant::now() + Duration::from_secs(30),
+                category: CommandCategory::Quick,
+                deadline: Instant::now() + Duration::from_secs(30),
             })
             .await
             .unwrap();
@@ -411,8 +426,8 @@ mod runtime_tests {
                 bytes: vec![0x81, 0x01, 0x04, 0x00, 0x01, 0xFF], // Command 3
                 priority: Priority::Normal,
                 response_tx: tx3,
-                category: grafton_visca::timeout::CommandCategory::Quick,
-                deadline: std::time::Instant::now() + Duration::from_secs(30),
+                category: CommandCategory::Quick,
+                deadline: Instant::now() + Duration::from_secs(30),
             })
             .await
             .unwrap();
@@ -489,8 +504,8 @@ mod runtime_tests {
             bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF],
             priority: Priority::Normal,
             response_tx,
-            category: grafton_visca::timeout::CommandCategory::Movement,
-            deadline: std::time::Instant::now() + Duration::from_secs(30),
+            category: CommandCategory::Movement,
+            deadline: Instant::now() + Duration::from_secs(30),
         };
 
         runtime.command(command).await.unwrap();
@@ -595,8 +610,8 @@ mod runtime_tests {
             bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF],
             priority: Priority::Normal,
             response_tx,
-            category: grafton_visca::timeout::CommandCategory::Quick,
-            deadline: std::time::Instant::now() + Duration::from_secs(30),
+            category: CommandCategory::Quick,
+            deadline: Instant::now() + Duration::from_secs(30),
         };
 
         let result = runtime.command(command).await;
