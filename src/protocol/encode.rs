@@ -12,16 +12,18 @@ pub const VISCA_TERMINATOR: u8 = 0xFF;
 /// Sony encapsulated header payload types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PayloadType {
-    /// VISCA command payload.
-    ViscaCommand = 0x01,
-    /// VISCA reply payload.
-    ViscaReply = 0x11,
-    /// VISCA device setting command.
-    ViscaDeviceSetting = 0x02,
-    /// Control command.
-    ControlCommand = 0x20,
-    /// Control reply.
-    ControlReply = 0x21,
+    /// VISCA command payload (0x01 0x00).
+    ViscaCommand,
+    /// VISCA inquiry payload (0x01 0x10).
+    ViscaInquiry,
+    /// VISCA reply payload (0x01 0x11).
+    ViscaReply,
+    /// VISCA device setting command (0x01 0x02).
+    ViscaDeviceSetting,
+    /// Control command (0x01 0x20).
+    ControlCommand,
+    /// Control reply (0x01 0x21).
+    ControlReply,
 }
 
 /// Sony encapsulated header for VISCA over IP.
@@ -48,6 +50,15 @@ impl SonyHeader {
         }
     }
 
+    /// Create a new inquiry header with the given sequence.
+    pub fn new_inquiry(payload_len: usize, sequence: u32) -> Self {
+        Self {
+            payload_type: PayloadType::ViscaInquiry,
+            payload_length: payload_len as u16,
+            sequence_number: sequence,
+        }
+    }
+
     /// Create a new reply header with the given sequence.
     pub fn new_reply(payload_len: usize, sequence: u32) -> Self {
         Self {
@@ -60,8 +71,33 @@ impl SonyHeader {
     /// Encode header to bytes.
     pub fn encode(&self) -> [u8; 8] {
         let mut header = [0u8; 8];
-        header[0] = self.payload_type as u8;
-        header[1] = 0x00; // Reserved
+        // Encode payload type as two bytes to match Sony spec
+        match self.payload_type {
+            PayloadType::ViscaCommand => {
+                header[0] = 0x01;
+                header[1] = 0x00;
+            }
+            PayloadType::ViscaInquiry => {
+                header[0] = 0x01;
+                header[1] = 0x10;
+            }
+            PayloadType::ViscaReply => {
+                header[0] = 0x01;
+                header[1] = 0x11;
+            }
+            PayloadType::ViscaDeviceSetting => {
+                header[0] = 0x01;
+                header[1] = 0x02;
+            }
+            PayloadType::ControlCommand => {
+                header[0] = 0x01;
+                header[1] = 0x20;
+            }
+            PayloadType::ControlReply => {
+                header[0] = 0x01;
+                header[1] = 0x21;
+            }
+        }
         header[2..4].copy_from_slice(&self.payload_length.to_be_bytes());
         header[4..8].copy_from_slice(&self.sequence_number.to_be_bytes());
         header
@@ -73,12 +109,14 @@ impl SonyHeader {
             return None;
         }
 
-        let payload_type = match bytes[0] {
-            0x01 => PayloadType::ViscaCommand,
-            0x11 => PayloadType::ViscaReply,
-            0x02 => PayloadType::ViscaDeviceSetting,
-            0x20 => PayloadType::ControlCommand,
-            0x21 => PayloadType::ControlReply,
+        // Decode two-byte payload type
+        let payload_type = match (bytes[0], bytes[1]) {
+            (0x01, 0x00) => PayloadType::ViscaCommand,
+            (0x01, 0x10) => PayloadType::ViscaInquiry,
+            (0x01, 0x11) => PayloadType::ViscaReply,
+            (0x01, 0x02) => PayloadType::ViscaDeviceSetting,
+            (0x01, 0x20) => PayloadType::ControlCommand,
+            (0x01, 0x21) => PayloadType::ControlReply,
             _ => return None,
         };
 

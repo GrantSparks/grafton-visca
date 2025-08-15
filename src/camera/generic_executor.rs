@@ -6,30 +6,19 @@
 use std::{marker::PhantomData, sync::Arc};
 
 #[cfg(feature = "async")]
-use crate::camera::AsyncMode;
-use crate::camera::BlockingMode;
-
-#[cfg(feature = "async")]
-use crate::executor_unified::Executor;
-
-// Use the runtime Camera instead of socket manager
-#[cfg(feature = "async")]
-use crate::runtime;
-
-#[cfg(feature = "async")]
 use std::sync::Mutex;
 
-use crate::{
-    camera_id::CameraId, capabilities::Profile, command::const_encoding::VISCA_TERMINATOR,
-    command::EncodeVisca, error::Error, timeout::TimeoutConfig, transport::TransportEnvelope,
-};
-
 #[cfg(feature = "async")]
-use crate::transport::AsyncTransport;
-
-use crate::transport::BlockingTransport;
-
-use crate::command::response::Response;
+use crate::{camera::AsyncMode, executor_unified::Executor, runtime, transport::AsyncTransport};
+use crate::{
+    camera::BlockingMode,
+    camera_id::CameraId,
+    capabilities::Profile,
+    command::{const_encoding::VISCA_TERMINATOR, response::Response, EncodeVisca},
+    error::Error,
+    timeout::TimeoutConfig,
+    transport::{BlockingTransport, TransportEnvelope},
+};
 
 /// Generic camera client with compile-time mode and profile selection.
 ///
