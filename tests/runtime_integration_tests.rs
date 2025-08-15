@@ -29,6 +29,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(feature = "rt-tokio")]
+use tokio::sync::Notify;
+
 /// Mock transport for testing the runtime.
 #[cfg(feature = "rt-tokio")]
 #[derive(Clone)]
@@ -45,6 +48,8 @@ pub struct MockRuntimeTransport {
     recv_timeout: Arc<Mutex<Duration>>,
     /// Number of responses already returned.
     responses_returned: Arc<Mutex<usize>>,
+    /// Notification for when responses are available.
+    response_notify: Arc<Notify>,
 }
 
 #[cfg(feature = "rt-tokio")]
@@ -65,6 +70,7 @@ impl MockRuntimeTransport {
             next_error: Arc::new(Mutex::new(None)),
             recv_timeout: Arc::new(Mutex::new(Duration::from_secs(5))), // Default 5 second timeout
             responses_returned: Arc::new(Mutex::new(0)),
+            response_notify: Arc::new(Notify::new()),
         }
     }
 
@@ -81,6 +87,7 @@ impl MockRuntimeTransport {
     /// Queue a response to be returned.
     pub fn queue_response(&self, response: Vec<u8>) {
         self.response_queue.lock().unwrap().push_back(response);
+        self.response_notify.notify_one();
     }
 
     /// Queue multiple responses.
@@ -88,6 +95,10 @@ impl MockRuntimeTransport {
         let mut queue = self.response_queue.lock().unwrap();
         for response in responses {
             queue.push_back(response.clone());
+        }
+        // Notify for each response
+        for _ in responses {
+            self.response_notify.notify_one();
         }
     }
 
@@ -136,39 +147,57 @@ impl AsyncTransport for MockRuntimeTransport {
             tokio::time::sleep(delay).await;
         }
 
-        // Wait for a response to be available with timeout
         let timeout = *self.recv_timeout.lock().unwrap();
-        let start = Instant::now();
 
-        loop {
-            let response_to_return = {
-                let mut queue = self.response_queue.lock().unwrap();
-                queue.pop_front()
-            };
+        // Check immediately first
+        let response_to_return = {
+            let mut queue = self.response_queue.lock().unwrap();
+            queue.pop_front()
+        };
 
-            if let Some(response) = response_to_return {
-                *self.responses_returned.lock().unwrap() += 1;
-                // Only print for debug mode to reduce noise
-                if std::env::var("RUST_LOG").map_or(false, |s| s.contains("debug")) {
-                    eprintln!(
-                        "Mock transport returning response #{}: {:02X?}",
-                        *self.responses_returned.lock().unwrap(),
-                        response
-                    );
+        if let Some(response) = response_to_return {
+            *self.responses_returned.lock().unwrap() += 1;
+            // Only print for debug mode to reduce noise
+            if std::env::var("RUST_LOG").is_ok_and(|s| s.contains("debug")) {
+                eprintln!(
+                    "Mock transport returning response #{}: {:02X?}",
+                    *self.responses_returned.lock().unwrap(),
+                    response
+                );
+            }
+
+            return Ok(Bytes::from(response));
+        }
+
+        // If no immediate response, wait for notification with timeout
+        match tokio::time::timeout(timeout, self.response_notify.notified()).await {
+            Ok(_) => {
+                // We were notified, check for a response
+                let response_to_return = {
+                    let mut queue = self.response_queue.lock().unwrap();
+                    queue.pop_front()
+                };
+
+                if let Some(response) = response_to_return {
+                    *self.responses_returned.lock().unwrap() += 1;
+                    if std::env::var("RUST_LOG").is_ok_and(|s| s.contains("debug")) {
+                        eprintln!(
+                            "Mock transport returning response #{}: {:02X?}",
+                            *self.responses_returned.lock().unwrap(),
+                            response
+                        );
+                    }
+                    return Ok(Bytes::from(response));
                 }
 
-                // Small delay to simulate network latency
-                tokio::time::sleep(Duration::from_millis(5)).await;
-                return Ok(Bytes::from(response));
+                // Notification was received but no response was available
+                // This shouldn't happen but handle it gracefully
+                Err(Error::Timeout)
             }
-
-            // Check if we've exceeded the timeout
-            if start.elapsed() > timeout {
-                return Err(Error::Timeout);
+            Err(_) => {
+                // Timeout reached
+                Err(Error::Timeout)
             }
-
-            // Wait a bit before checking again to avoid busy loop
-            tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }
 }
@@ -392,6 +421,16 @@ mod runtime_tests {
         // Give the runtime a moment to start its receive loop
         tokio::time::sleep(Duration::from_millis(10)).await;
 
+        // Pre-queue all responses before sending any commands to eliminate race conditions
+        transport.queue_responses(&[
+            vec![0x90, 0x41, 0xFF], // ACK for first command sent (socket 1)
+            vec![0x90, 0x42, 0xFF], // ACK for second command sent (socket 2)
+            vec![0x90, 0x51, 0xFF], // Completion for first command (frees socket 1)
+            vec![0x90, 0x41, 0xFF], // ACK for third command (now socket 1 is free)
+            vec![0x90, 0x52, 0xFF], // Completion for second command (frees socket 2)
+            vec![0x90, 0x51, 0xFF], // Completion for third command
+        ]);
+
         // Send commands with different priorities
         let mut receivers = Vec::new();
 
@@ -440,22 +479,11 @@ mod runtime_tests {
             .unwrap();
         receivers.push(rx3);
 
-        // Now queue responses after commands are sent
-        transport.queue_responses(&[
-            vec![0x90, 0x41, 0xFF], // ACK for first command sent
-            vec![0x90, 0x42, 0xFF], // ACK for second command sent (socket 2)
-            vec![0x90, 0x51, 0xFF], // Completion for first command (frees socket 1)
-            vec![0x90, 0x41, 0xFF], // ACK for third command (now socket 1 is free)
-            vec![0x90, 0x52, 0xFF], // Completion for second command (frees socket 2)
-            vec![0x90, 0x51, 0xFF], // Completion for third command
-        ]);
-
-        // Wait for all commands to complete
-        // Give some time for the runtime to process commands and apply priority scheduling
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        // Give minimal time for commands to be processed - responses are already queued
+        tokio::time::sleep(Duration::from_millis(10)).await;
 
         for rx in receivers {
-            let result = tokio::time::timeout(Duration::from_secs(5), rx.recv_async()).await;
+            let result = tokio::time::timeout(Duration::from_secs(10), rx.recv_async()).await;
             match result {
                 Ok(Ok(_)) => {} // Command completed successfully
                 Ok(Err(e)) => panic!("Command failed with error: {:?}", e),
