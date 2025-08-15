@@ -224,7 +224,8 @@ async fn main() -> grafton_visca::Result<()> {
     println!("Connecting to camera at {camera_addr}...");
     let transport = Tcp::connect(&camera_addr).await?;
     let camera = CameraBuilder::tokio()?
-        .build_async::<grafton_visca::camera::profiles::GenericVisca, _>(transport)?;
+        .build_async::<grafton_visca::camera::profiles::GenericVisca, _>(transport)
+        .await?;
 
     println!("\n⚡ Executing all inquiries concurrently...\n");
 

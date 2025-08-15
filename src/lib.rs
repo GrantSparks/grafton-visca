@@ -375,8 +375,6 @@ pub mod units;
 pub mod timeout;
 
 #[cfg(feature = "async")]
-pub(crate) mod socket_manager;
-
 // Internal modules for async support
 #[cfg(feature = "async")]
 pub(crate) mod executor_unified;

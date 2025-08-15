@@ -94,16 +94,19 @@ where
     /// Build an async camera with the specified profile and transport.
     ///
     /// The executor must have been set via `with_executor()`.
-    pub fn build_async<P, T>(self, transport: T) -> Result<GenericCamera<AsyncMode, P, T, E>, Error>
+    pub async fn build_async<P, T>(
+        self,
+        transport: T,
+    ) -> Result<GenericCamera<AsyncMode, P, T, E>, Error>
     where
         P: Profile,
-        T: AsyncTransport,
+        T: AsyncTransport + 'static,
     {
         let executor = self.executor.ok_or_else(|| {
             Error::InvalidState("Executor not configured for async camera".into())
         })?;
 
-        let mut camera = GenericCamera::with_executor(transport, executor);
+        let mut camera = GenericCamera::with_executor(transport, executor).await?;
         camera.set_camera_id(self.camera_id);
         camera.set_timeout_config(self.timeout_config);
 

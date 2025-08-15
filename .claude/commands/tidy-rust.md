@@ -100,7 +100,7 @@ Delete comments that add no enduring value and are clearly obsolete, while keepi
 * Tooling directives embedded in comments (e.g., `cbindgen:`, `tarpaulin:`, `coverage:`, `rust-analyzer:`) and “generated code” guards (`// @generated`, `// DO NOT EDIT`).
 * Comments tied to attributes or configuration, or that are the only record of non-obvious behavior.
 
-> **Conservatism rule:** If unsure whether a comment is valuable, **keep it**.
+> **Conservatism rule:** If unsure whether a comment is valuable, **keep it**.  Explanations of large code blocks, complex logic, or unusual patterns are often helpful for future maintainers.
 
 ---
 
@@ -208,9 +208,22 @@ use std::fmt::{self, Display};
 
 ---
 
+## Inline Formatting
+
+When formatting strings, prefer named/inline formatting to positional formatting for clarity and maintainability.
+
+For our codebase, please use named/inline formatting in strings:
+
+✅ Do: format!("Config loaded: {config_name}")
+❌ Avoid: format!("Config loaded: {}", config_name)
+
+This applies to *all* formatting macros (format!, println!, eprintln!, log macros, etc.)
+
+---
+
 ## Non‑Goals
 
-* No refactors, no renaming, no code movement beyond import blocks.
+* No refactors, no renaming, no code movement beyond import blocks (other than formatting strings).
 * Don’t expand or collapse glob imports.
 * Don’t change visibility (`pub`), edition, features, or attributes.
 * Don’t modify strings, literals, or macro invocations.

@@ -14,7 +14,7 @@ use std::{
 use tracing::{info_span, instrument};
 
 use crate::{
-    command::response::Response,
+    command::{const_encoding::VISCA_TERMINATOR, response::Response},
     error::Result,
     timeout::{CommandCategory, TimeoutConfig},
 };
@@ -801,37 +801,73 @@ impl Scheduler {
     /// Add a command to the retry queue.
     ///
     /// This is called when a command receives a busy response.
+    /// Returns true if the command was queued for retry, false if it has exhausted retries.
     pub fn queue_for_retry(
         &mut self,
         id: u32,
         bytes: Vec<u8>,
         priority: Priority,
         category: CommandCategory,
-    ) {
+    ) -> bool {
         // Track retry metrics
         self.metrics.retry_attempts.fetch_add(1, Ordering::Relaxed);
         let cat_idx = SchedulerMetrics::category_index(category);
         self.metrics.retry_by_category[cat_idx].fetch_add(1, Ordering::Relaxed);
 
+        let max_retries = self
+            .max_retries_per_category
+            .get(&category)
+            .copied()
+            .unwrap_or(3);
+
         // Check if this command is already in the retry queue
-        if let Some(cmd) = self.retry_queue.iter_mut().find(|c| c.id == id) {
-            // Increment retry attempt
+        let existing_idx = self.retry_queue.iter().position(|c| c.id == id);
+
+        if let Some(idx) = existing_idx {
+            // Get the command and increment retry attempt
+            let cmd = &mut self.retry_queue[idx];
             cmd.attempt += 1;
+            let attempt = cmd.attempt;
+
+            // Check if we've exhausted retries
+            if attempt > max_retries {
+                // Remove from retry queue
+                self.retry_queue.swap_remove(idx);
+
+                self.metrics
+                    .retries_exhausted
+                    .fetch_add(1, Ordering::Relaxed);
+                debug!(
+                    "Command {} exhausted retries after {} attempts (max: {})",
+                    id, attempt, max_retries
+                );
+
+                // Send error to the waiting command
+                if let Some(response_tx) = self.get_response_channel(id) {
+                    let _ = response_tx.send(Err(crate::Error::MaxRetriesExceeded));
+                }
+
+                // Clean up command metadata
+                self.command_metadata.remove(&id);
+
+                // Update retry queue depth metrics
+                let new_depth = self.retry_queue.len() as u32;
+                self.metrics.update_retry_queue_depth(new_depth);
+
+                return false;
+            }
+
             // Calculate exponential backoff: 100ms * 2^(attempt-1)
-            let backoff_ms = 100 * (1 << (cmd.attempt - 1).min(5)); // Cap at 3.2 seconds
+            let backoff_ms = 100 * (1 << (attempt - 1).min(5)); // Cap at 3.2 seconds
+            let cmd = &mut self.retry_queue[idx];
             cmd.retry_at = Instant::now() + Duration::from_millis(backoff_ms);
             debug!(
                 "Command {} queued for retry attempt {} with {}ms backoff",
-                id, cmd.attempt, backoff_ms
+                id, attempt, backoff_ms
             );
         } else {
             // Add new retry command with initial backoff
             let backoff_ms = 100; // Initial backoff is 100ms
-            let max_retries = self
-                .max_retries_per_category
-                .get(&category)
-                .copied()
-                .unwrap_or(3);
             self.retry_queue.push(RetryCommand {
                 id,
                 bytes,
@@ -850,11 +886,14 @@ impl Scheduler {
         // Update retry queue depth metrics
         let new_depth = self.retry_queue.len() as u32;
         self.metrics.update_retry_queue_depth(new_depth);
+
+        true
     }
 
     /// Get the next command to retry.
     ///
     /// Returns the highest priority command from the retry queue that is ready to be retried.
+    /// Returns None if no commands are ready or if all ready commands have exhausted retries.
     pub fn get_next_retry(&mut self) -> Option<RetryCommand> {
         if self.retry_queue.is_empty() {
             return None;
@@ -862,13 +901,20 @@ impl Scheduler {
 
         let now = Instant::now();
 
-        // Find the highest priority command that is ready to retry
+        // Find the highest priority command that is ready to retry and hasn't exhausted retries
         let mut best_idx = None;
         let mut best_priority = Priority::Low;
+        let mut exhausted_commands = Vec::new();
 
         for (idx, cmd) in self.retry_queue.iter().enumerate() {
             // Skip commands that aren't ready yet
             if cmd.retry_at > now {
+                continue;
+            }
+
+            // Check if this command has exhausted retries
+            if cmd.attempt > cmd.max_retries {
+                exhausted_commands.push(idx);
                 continue;
             }
 
@@ -879,27 +925,41 @@ impl Scheduler {
             }
         }
 
-        // Remove and return the selected command if found
-        if let Some(idx) = best_idx {
-            let cmd = self.retry_queue.swap_remove(idx);
+        // Remove exhausted commands from the retry queue (in reverse order to maintain indices)
+        for idx in exhausted_commands.into_iter().rev() {
+            let exhausted_cmd = self.retry_queue.swap_remove(idx);
+            self.metrics
+                .retries_exhausted
+                .fetch_add(1, Ordering::Relaxed);
+            debug!(
+                "Command {} exhausted retries (attempt {} of {}), removing from retry queue",
+                exhausted_cmd.id, exhausted_cmd.attempt, exhausted_cmd.max_retries
+            );
 
-            // Update retry queue depth metrics
+            // Send error to the waiting command
+            if let Some(response_tx) = self.get_response_channel(exhausted_cmd.id) {
+                let _ = response_tx.send(Err(crate::Error::MaxRetriesExceeded));
+            }
+
+            // Clean up command metadata
+            self.command_metadata.remove(&exhausted_cmd.id);
+        }
+
+        // Return a clone of the selected command if found (don't remove it yet)
+        if let Some(idx) = best_idx {
+            // Clone the command but keep it in the retry queue
+            // It will be removed when it succeeds or exhausts retries
+            let cmd = self.retry_queue[idx].clone();
+
+            // Update retry queue depth metrics after removing exhausted commands
             let new_depth = self.retry_queue.len() as u32;
             self.metrics.update_retry_queue_depth(new_depth);
 
-            // Check if this command has exhausted retries
-            if cmd.attempt >= cmd.max_retries {
-                self.metrics
-                    .retries_exhausted
-                    .fetch_add(1, Ordering::Relaxed);
-                debug!(
-                    "Command {} exhausted retries (attempt {} of {})",
-                    cmd.id, cmd.attempt, cmd.max_retries
-                );
-            }
-
             Some(cmd)
         } else {
+            // Update retry queue depth metrics after removing exhausted commands
+            let new_depth = self.retry_queue.len() as u32;
+            self.metrics.update_retry_queue_depth(new_depth);
             None
         }
     }
@@ -965,6 +1025,38 @@ impl Scheduler {
     /// Get the size of the command queue.
     pub fn queue_size(&self) -> usize {
         self.command_queue.len()
+    }
+
+    /// Peek at the priority of the next command in the queue without removing it.
+    pub fn peek_queue_priority(&self) -> Option<Priority> {
+        self.command_queue.peek().map(|item| item.priority())
+    }
+
+    /// Peek at the highest priority retry that is ready to be sent.
+    pub fn peek_ready_retry_priority(&self) -> Option<Priority> {
+        let now = Instant::now();
+
+        // Find the highest priority retry that is ready
+        self.retry_queue
+            .iter()
+            .filter(|cmd| cmd.retry_at <= now)
+            .map(|cmd| cmd.priority)
+            .max()
+    }
+
+    /// Remove a command from the retry queue if it exists.
+    ///
+    /// This is called when a command completes successfully or when we receive
+    /// a non-BUSY error for it.
+    pub fn remove_from_retry_queue(&mut self, cmd_id: u32) {
+        if let Some(idx) = self.retry_queue.iter().position(|c| c.id == cmd_id) {
+            self.retry_queue.swap_remove(idx);
+            debug!("Removed command {} from retry queue", cmd_id);
+
+            // Update retry queue depth metrics
+            let new_depth = self.retry_queue.len() as u32;
+            self.metrics.update_retry_queue_depth(new_depth);
+        }
     }
 }
 
@@ -1097,5 +1189,48 @@ mod tests {
         // Channel should be removed when socket is freed
         let retrieved = scheduler.get_response_channel(cmd_id);
         assert!(retrieved.is_none());
+    }
+
+    #[test]
+    fn test_retry_exhaustion() {
+        let (_submit_tx, submit_rx) = flume::unbounded();
+        let (event_tx, _event_rx) = flume::unbounded();
+        let mut scheduler = Scheduler::new(submit_rx, event_tx);
+
+        // Set max retries to 2 for Quick commands
+        scheduler.set_max_retries(CommandCategory::Quick, 2);
+
+        let cmd_id = 456;
+        let bytes = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
+        let priority = Priority::Normal;
+        let category = CommandCategory::Quick;
+
+        // Store response channel
+        let (response_tx, response_rx) = flume::bounded(1);
+        scheduler.store_command_channel(cmd_id, response_tx);
+        scheduler.store_command_metadata(cmd_id, bytes.clone(), priority, category);
+
+        // First retry (attempt 1)
+        let queued = scheduler.queue_for_retry(cmd_id, bytes.clone(), priority, category);
+        assert!(queued, "First retry should be queued");
+        assert_eq!(scheduler.retry_queue.len(), 1);
+
+        // Second retry (attempt 2)
+        let queued = scheduler.queue_for_retry(cmd_id, bytes.clone(), priority, category);
+        assert!(queued, "Second retry should be queued");
+        assert_eq!(scheduler.retry_queue.len(), 1); // Still 1, same command
+
+        // Third retry (attempt 3) - should exceed max retries of 2
+        let queued = scheduler.queue_for_retry(cmd_id, bytes.clone(), priority, category);
+        assert!(!queued, "Third retry should NOT be queued (exhausted)");
+        assert_eq!(scheduler.retry_queue.len(), 0); // Should be removed
+
+        // Check that error was sent
+        let result = response_rx.try_recv();
+        assert!(result.is_ok(), "Should have received response");
+        assert!(matches!(
+            result.unwrap(),
+            Err(crate::Error::MaxRetriesExceeded)
+        ));
     }
 }
