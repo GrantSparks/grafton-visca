@@ -30,6 +30,7 @@ Use `gh issue view $ARGUMENTS --comments` to read the issue and all comments. Do
      - Proper input validation
      - Complete test coverage
    - Verify code quality, naming conventions, and documentation
+   - Look for any remaining TODO comments relating to the issue
 
 2. **Functionality Testing**:
    - Run all relevant tests with `Bash(cargo test:*)`

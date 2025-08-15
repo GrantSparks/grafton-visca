@@ -64,6 +64,14 @@ pub use blocking::{Tcp as BlockingTcp, Udp as BlockingUdp};
 // Transport envelope for VISCA framing
 pub use envelope::TransportEnvelope;
 
+// Serial transport
+#[cfg(feature = "serial")]
+pub mod serial;
+
+// IP transport implementations
+pub mod ip_raw;
+pub mod ip_sony;
+
 // Tokio implementations
 #[cfg(feature = "rt-tokio")]
 pub mod tokio;

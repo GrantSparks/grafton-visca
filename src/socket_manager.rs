@@ -5,7 +5,6 @@ use std::{borrow::Cow, collections::VecDeque, sync::Arc, time::Instant};
 
 use crate::{
     camera_id::CameraId,
-    channels::{self, OneshotSender, UnboundedReceiver, UnboundedSender},
     command::{
         response::Response,
         system::{CommandCancelCommand, Socket},
@@ -15,6 +14,7 @@ use crate::{
     timeout::{CommandCategory, TimeoutConfig},
     transport::AsyncTransport,
 };
+use flume::{Receiver, Sender};
 
 #[cfg(feature = "async")]
 use crate::executor_unified::Executor;
@@ -103,7 +103,7 @@ pub struct PendingCmd {
     /// Category of the command for timeout and retry logic.
     pub category: CommandCategory,
     /// Channel to send the response back to the caller.
-    pub response_sender: OneshotSender<Result<Response>>,
+    pub response_sender: Sender<Result<Response>>,
     /// Whether this is an inquiry command (query) or action command.
     pub is_inquiry: bool,
     /// Expected response type for inquiry commands.
@@ -118,7 +118,7 @@ impl PendingCmd {
         id: u32,
         bytes: Bytes,
         category: CommandCategory,
-        response_sender: OneshotSender<Result<Response>>,
+        response_sender: Sender<Result<Response>>,
         is_inquiry: bool,
         response_type: Option<crate::command::response::ResponseType>,
     ) -> Self {
@@ -135,7 +135,8 @@ impl PendingCmd {
 
     /// Complete this command by sending the result through the response channel.
     pub fn complete(self, result: Result<Response>) {
-        let _ = self.response_sender.send(result);
+        // Using try_send since we don't want to block here
+        let _ = self.response_sender.try_send(result);
     }
 }
 
@@ -156,7 +157,7 @@ pub struct SocketManagerInner {
     /// Camera ID for addressing commands.
     pub camera_id: CameraId,
     /// List of waiters for completion messages.
-    pub completion_waiters: VecDeque<OneshotSender<Result<()>>>,
+    pub completion_waiters: VecDeque<Sender<Result<()>>>,
 }
 
 impl Default for SocketManagerInner {
@@ -256,19 +257,19 @@ pub(crate) enum SocketManagerCommand {
         /// Expected response type for inquiry commands.
         response_type: Option<crate::command::response::ResponseType>,
         /// Channel to send the response back to the caller.
-        response_sender: OneshotSender<Result<Response>>,
+        response_sender: Sender<Result<Response>>,
     },
     /// Wait for a completion message (0x51) on any socket.
     WaitForCompletion {
         /// Channel to send the result when a completion message is received.
-        response_sender: OneshotSender<Result<()>>,
+        response_sender: Sender<Result<()>>,
     },
     /// Shutdown the socket manager gracefully.
     /// This is primarily for testing and internal use.
     #[doc(hidden)]
     Shutdown {
         /// Channel to send confirmation when shutdown is complete.
-        confirmation: OneshotSender<()>,
+        confirmation: Sender<()>,
     },
 }
 
@@ -278,7 +279,7 @@ pub(crate) enum SocketManagerCommand {
 /// to the socket manager from multiple locations.
 #[derive(Debug)]
 pub(crate) struct SocketManagerHandle {
-    command_sender: UnboundedSender<SocketManagerCommand>,
+    command_sender: Sender<SocketManagerCommand>,
 }
 
 impl Clone for SocketManagerHandle {
@@ -291,7 +292,7 @@ impl Clone for SocketManagerHandle {
 
 impl SocketManagerHandle {
     /// Create a new socket manager handle.
-    pub fn new(command_sender: UnboundedSender<SocketManagerCommand>) -> Self {
+    pub fn new(command_sender: Sender<SocketManagerCommand>) -> Self {
         Self { command_sender }
     }
 
@@ -306,22 +307,26 @@ impl SocketManagerHandle {
         is_inquiry: bool,
         response_type: Option<crate::command::response::ResponseType>,
     ) -> Result<Response> {
-        let (response_sender, response_receiver) = channels::oneshot();
+        let (response_sender, response_receiver) = flume::bounded(1);
 
         let send_result = self
             .command_sender
-            .send(SocketManagerCommand::SendCommand {
+            .send_async(SocketManagerCommand::SendCommand {
                 bytes,
                 category,
                 is_inquiry,
                 response_type,
                 response_sender,
             })
+            .await
             .map_err(|_| Error::SocketManagerUnavailable);
 
         send_result?;
 
-        response_receiver.recv().await?
+        response_receiver
+            .recv_async()
+            .await
+            .map_err(|_| Error::ResponseChannelClosed)?
     }
 
     /// Wait for a completion message from any socket.
@@ -329,21 +334,19 @@ impl SocketManagerHandle {
     /// This is used for event-driven movement detection to wait for
     /// operation complete (0x51) messages.
     pub async fn wait_for_completion(&self) -> Result<()> {
-        let (response_sender, response_receiver) = channels::oneshot();
+        let (response_sender, response_receiver) = flume::bounded(1);
 
-        #[cfg(feature = "rt-tokio")]
         let send_result = self
             .command_sender
-            .send(SocketManagerCommand::WaitForCompletion { response_sender });
-
-        #[cfg(not(feature = "rt-tokio"))]
-        let send_result = self
-            .command_sender
-            .send(SocketManagerCommand::WaitForCompletion { response_sender });
+            .send_async(SocketManagerCommand::WaitForCompletion { response_sender })
+            .await;
 
         send_result.map_err(|_| Error::SocketManagerChannelClosed)?;
 
-        response_receiver.recv().await?
+        response_receiver
+            .recv_async()
+            .await
+            .map_err(|_| Error::ResponseChannelClosed)?
     }
 
     /// Send a shutdown signal without waiting for confirmation.
@@ -353,12 +356,14 @@ impl SocketManagerHandle {
     /// Unlike `shutdown()`, this method doesn't wait for confirmation and can
     /// be called from synchronous contexts like Drop.
     pub(crate) fn shutdown_nowait(&self) {
-        let (confirmation_sender, _confirmation_receiver) = channels::oneshot();
+        let (confirmation_sender, _confirmation_receiver) = flume::bounded(1);
 
         // Send shutdown command - ignore result as this is best-effort
-        let _ = self.command_sender.send(SocketManagerCommand::Shutdown {
-            confirmation: confirmation_sender,
-        });
+        let _ = self
+            .command_sender
+            .try_send(SocketManagerCommand::Shutdown {
+                confirmation: confirmation_sender,
+            });
     }
 }
 
@@ -474,7 +479,7 @@ impl RetryHook for NoRetryHook {
 pub(crate) struct SocketManagerActor<T, E = ()> {
     inner: SocketManagerInner,
     transport: Arc<T>,
-    command_receiver: UnboundedReceiver<SocketManagerCommand>,
+    command_receiver: Receiver<SocketManagerCommand>,
     timeout_config: TimeoutConfig,
     #[cfg(feature = "async")]
     executor: Arc<E>,
@@ -503,7 +508,7 @@ where
     /// Create a new socket manager actor with an executor.
     pub fn with_executor(
         transport: Arc<T>,
-        command_receiver: UnboundedReceiver<SocketManagerCommand>,
+        command_receiver: Receiver<SocketManagerCommand>,
         timeout_config: TimeoutConfig,
         camera_id: CameraId,
         executor: Arc<E>,
@@ -544,9 +549,9 @@ where
             // Use futures::select for runtime-agnostic event handling
             select_biased! {
                 // Process commands from the channel
-                command = self.command_receiver.recv().fuse() => {
+                command = self.command_receiver.recv_async().fuse() => {
                         match command {
-                            Some(SocketManagerCommand::SendCommand {
+                            Ok(SocketManagerCommand::SendCommand {
                                 bytes,
                                 category,
                                 is_inquiry,
@@ -555,18 +560,18 @@ where
                             }) => {
                                 self.handle_send_command(bytes, category, is_inquiry, response_type, response_sender).await;
                             }
-                            Some(SocketManagerCommand::WaitForCompletion {
+                            Ok(SocketManagerCommand::WaitForCompletion {
                                 response_sender,
                             }) => {
                                 self.inner.completion_waiters.push_back(response_sender);
                                 debug!("Added completion waiter, {} waiters now", self.inner.completion_waiters.len());
                             }
-                            Some(SocketManagerCommand::Shutdown { confirmation }) => {
+                            Ok(SocketManagerCommand::Shutdown { confirmation }) => {
                                 debug!("Socket manager received shutdown command");
-                                let _ = confirmation.send(());
+                                let _ = confirmation.try_send(());
                                 break;
                             }
-                            None => {
+                            Err(_) => {
                                 debug!("Socket manager command channel closed");
                                 break;
                             }
@@ -602,7 +607,7 @@ where
         category: CommandCategory,
         is_inquiry: bool,
         response_type: Option<crate::command::response::ResponseType>,
-        response_sender: OneshotSender<Result<Response>>,
+        response_sender: Sender<Result<Response>>,
     ) {
         let command_id = self.inner.get_next_command_id();
         let pending_cmd = PendingCmd::new(
@@ -800,7 +805,7 @@ where
         // Notify any waiters for completion messages
         if let Some(waiter) = self.inner.completion_waiters.pop_front() {
             debug!("Notifying completion waiter");
-            let _ = waiter.send(Ok(()));
+            let _ = waiter.try_send(Ok(()));
         }
 
         // Check if socket is still busy with a command (not already timed out)
@@ -1097,7 +1102,7 @@ mod tests {
     #[cfg(feature = "rt-tokio")]
     #[test]
     fn test_pending_cmd_creation() {
-        let (tx, _rx) = channels::oneshot();
+        let (tx, _rx) = flume::bounded(1);
         let bytes = Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
         let cmd = PendingCmd::new(1, bytes.clone(), CommandCategory::Movement, tx, false, None);
 
@@ -1195,7 +1200,7 @@ mod tests {
     fn test_pending_cmd_retry_tracking() {
         #[cfg(feature = "rt-tokio")]
         {
-            let (tx, _rx) = channels::oneshot();
+            let (tx, _rx) = flume::bounded(1);
             let mut cmd = PendingCmd::new(
                 1,
                 Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]),
@@ -1354,7 +1359,7 @@ mod tests {
             let mut manager = SocketManagerInner::new();
 
             // Create test commands
-            let (tx1, _rx1) = channels::oneshot();
+            let (tx1, _rx1) = flume::bounded(1);
             let cmd1 = PendingCmd::new(
                 1,
                 Bytes::from(vec![0x81, 0x01]),
@@ -1364,7 +1369,7 @@ mod tests {
                 None,
             );
 
-            let (tx2, _rx2) = channels::oneshot();
+            let (tx2, _rx2) = flume::bounded(1);
             let cmd2 = PendingCmd::new(
                 2,
                 Bytes::from(vec![0x81, 0x02]),
@@ -1408,7 +1413,7 @@ mod tests {
 
             // Enqueue multiple commands
             for i in 1..=10 {
-                let (tx, _rx) = channels::oneshot();
+                let (tx, _rx) = flume::bounded(1);
                 let cmd = PendingCmd::new(
                     i,
                     Bytes::from(vec![0x81, i as u8]),
@@ -1549,7 +1554,7 @@ mod tests {
             let mut manager = SocketManagerInner::new();
 
             // Create test commands
-            let (tx1, _rx1) = channels::oneshot();
+            let (tx1, _rx1) = flume::bounded(1);
             let cmd1 = PendingCmd::new(
                 1,
                 Bytes::from(vec![0x81, 0x01]),
@@ -1559,7 +1564,7 @@ mod tests {
                 None,
             );
 
-            let (tx2, _rx2) = channels::oneshot();
+            let (tx2, _rx2) = flume::bounded(1);
             let cmd2 = PendingCmd::new(
                 2,
                 Bytes::from(vec![0x81, 0x02]),

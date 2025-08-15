@@ -195,6 +195,14 @@ pub enum Error {
     #[error("Operation timed out")]
     Timeout,
 
+    /// Maximum retry attempts exceeded.
+    #[error("Maximum retries exceeded")]
+    MaxRetriesExceeded,
+
+    /// Connection was closed unexpectedly.
+    #[error("Connection closed")]
+    ConnectionClosed,
+
     /// Operation is not supported by this implementation.
     #[error("Operation not supported")]
     Unsupported,
@@ -221,6 +229,10 @@ pub enum Error {
     /// Channel has been closed.
     #[error("Channel closed")]
     ChannelClosed,
+
+    /// Runtime has been shutdown.
+    #[error("Runtime has been shutdown")]
+    RuntimeShutdown,
 
     /// Validation error from capability traits.
     #[error("Validation error: {0}")]
@@ -289,7 +301,7 @@ impl Error {
     #[must_use]
     pub const fn from_code(code: u8) -> Self {
         match code {
-            0x01 => Self::MessageLengthError,
+            0x01 => Self::CameraBusy, // Changed from MessageLengthError - 0x01 is busy in VISCA
             0x02 => Self::SyntaxError,
             0x03 => Self::CommandBufferFull,
             0x04 => Self::CommandCanceled,
@@ -323,6 +335,7 @@ impl Error {
             Self::CommandTimeout { .. } => Some(Duration::from_secs(1)),
             Self::CommandBufferFull => Some(Duration::from_millis(200)),
             Self::Timeout => Some(Duration::from_secs(2)),
+            Self::MaxRetriesExceeded => None,
             _ => None,
         }
     }
