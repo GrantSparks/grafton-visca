@@ -300,7 +300,11 @@ impl DeterministicExecutor {
 
     /// Fire any timers that are due and return true if any were fired.
     fn fire_due_timers(&self) -> bool {
-        let mut inner = self.clock.inner.lock().expect("VirtualClock mutex poisoned");
+        let mut inner = self
+            .clock
+            .inner
+            .lock()
+            .expect("VirtualClock mutex poisoned");
         let now = inner.now;
         let mut fired = false;
 
@@ -322,7 +326,11 @@ impl DeterministicExecutor {
 
     /// Check if there are any pending timers/deadlines that might benefit from time advancement.
     fn has_pending_deadlines(&self) -> bool {
-        let inner = self.clock.inner.lock().expect("VirtualClock mutex poisoned");
+        let inner = self
+            .clock
+            .inner
+            .lock()
+            .expect("VirtualClock mutex poisoned");
         !inner.sleepers.is_empty()
     }
 
@@ -370,7 +378,11 @@ impl DeterministicExecutor {
     ///
     /// Returns true if time was advanced, false if there were no pending deadlines.
     pub fn advance_to_next_deadline(&self) -> bool {
-        let mut inner = self.clock.inner.lock().expect("VirtualClock mutex poisoned");
+        let mut inner = self
+            .clock
+            .inner
+            .lock()
+            .expect("VirtualClock mutex poisoned");
 
         if let Some(next_deadline) = inner.sleepers.iter().map(|s| s.at).min() {
             if next_deadline > inner.now {
@@ -503,7 +515,11 @@ impl DeterministicClock {
 
     /// Check if there are any pending deadlines/timers.
     pub fn has_pending_deadlines(&self) -> bool {
-        let inner = self.clock.inner.lock().expect("VirtualClock mutex poisoned");
+        let inner = self
+            .clock
+            .inner
+            .lock()
+            .expect("VirtualClock mutex poisoned");
         !inner.sleepers.is_empty()
     }
 }

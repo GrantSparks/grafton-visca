@@ -4,9 +4,9 @@
 //! command scheduling, and protocol-compliant timing.
 
 use flume::{Receiver, Sender};
-use log::{debug, warn};
 #[cfg(feature = "async")]
 use log::trace;
+use log::{debug, warn};
 
 use std::{
     cmp::Ordering as CmpOrdering,
