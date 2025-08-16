@@ -12,7 +12,7 @@ pub fn now_from_executor_arc<E: crate::executor_unified::Executor>(
     executor: &std::sync::Arc<E>,
 ) -> Instant {
     // Try to downcast to DeterministicExecutor
-    #[cfg(any(feature = "rt-tokio", feature = "test-utils"))]
+    #[cfg(feature = "test-utils")]
     {
         use std::any::Any;
 
@@ -25,7 +25,7 @@ pub fn now_from_executor_arc<E: crate::executor_unified::Executor>(
         }
     }
 
-    #[cfg(not(any(feature = "rt-tokio", feature = "test-utils")))]
+    #[cfg(not(feature = "test-utils"))]
     let _ = executor;
 
     // Fall back to wall-clock time for all other executors
@@ -39,7 +39,7 @@ pub fn now_from_executor_arc<E: crate::executor_unified::Executor>(
 #[cfg(feature = "async")]
 pub fn now_from_executor<E: crate::executor_unified::Executor>(executor: &E) -> Instant {
     // Try to downcast to DeterministicExecutor
-    #[cfg(any(feature = "rt-tokio", feature = "test-utils"))]
+    #[cfg(feature = "test-utils")]
     {
         use std::any::Any;
 
@@ -58,7 +58,7 @@ pub fn now_from_executor<E: crate::executor_unified::Executor>(executor: &E) -> 
         }
     }
 
-    #[cfg(not(any(feature = "rt-tokio", feature = "test-utils")))]
+    #[cfg(not(feature = "test-utils"))]
     let _ = executor;
 
     // Fall back to wall-clock time for all other executors
