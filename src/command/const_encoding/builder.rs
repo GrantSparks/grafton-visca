@@ -259,7 +259,6 @@ impl<const N: usize> CommandBuilder<N, Terminated> {
     /// This method is part of the type-state API but not currently used.
     /// It's retained for API completeness and will be used when migrating
     /// commands to the type-safe pattern.
-    #[allow(dead_code)]
     pub fn as_bytes(&self) -> &[u8] {
         &self.buffer[..self.position]
     }

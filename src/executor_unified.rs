@@ -3,13 +3,12 @@
 //! This module provides a single `Executor` trait that combines all async runtime
 //! operations into one coherent interface, preventing runtime/spawner mismatches.
 
+use crate::Error;
+
 #[cfg(feature = "async")]
 use core::future::Future;
-
 #[cfg(feature = "async")]
 use std::pin::Pin;
-
-use crate::Error;
 
 /// Error type for executor operations.
 #[derive(Debug, thiserror::Error)]

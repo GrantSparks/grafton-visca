@@ -251,12 +251,6 @@ impl Default for SocketState {
 /// Manages command scheduling, socket allocation, and protocol timing.
 #[derive(Debug)]
 pub struct Scheduler {
-    /// Channel for receiving submitted commands/inquiries.
-    #[allow(dead_code)]
-    submit_rx: Receiver<TxItem>,
-    /// Channel for sending events.
-    #[allow(dead_code)]
-    event_tx: Sender<RxEvent>,
     /// Socket states.
     sockets: [SocketState; 2],
     /// Command ID generator.
@@ -536,7 +530,7 @@ impl PriorityQueueItem {
 
 impl Scheduler {
     /// Create a new scheduler with given channels.
-    pub fn new(submit_rx: Receiver<TxItem>, event_tx: Sender<RxEvent>) -> Self {
+    pub fn new(_submit_rx: Receiver<TxItem>, _event_tx: Sender<RxEvent>) -> Self {
         // Set default max retries per category
         let mut max_retries = HashMap::new();
         max_retries.insert(CommandCategory::Quick, 5); // Quick commands can retry more
@@ -547,8 +541,6 @@ impl Scheduler {
         max_retries.insert(CommandCategory::Custom, 3); // Custom commands use default
 
         Self {
-            submit_rx,
-            event_tx,
             sockets: Default::default(),
             next_id: AtomicU32::new(1),
             timeout_config: TimeoutConfig::default(),

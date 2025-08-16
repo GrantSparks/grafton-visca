@@ -4,10 +4,9 @@
 //! including brightness, contrast, sharpness, saturation, and hue adjustments.
 
 // Crate imports
-use crate::macros::internal::*;
-
 use crate::{
-    command::const_encoding::constants,
+    command::{const_encoding::constants, resolution::PictureEffectMode},
+    macros::internal::*,
     types::{NoiseReduction2DLevel, NoiseReduction3DLevel},
 };
 
@@ -69,17 +68,6 @@ visca_command! {
     }
 }
 
-visca_bool_command! {
-    /// Black and White Mode command.
-    ///
-    /// Switches the camera output between color and monochrome (black and white) modes.
-    struct BlackWhiteCommand {
-        prefix: constants::image::BLACK_WHITE_PREFIX,
-        on: 0x04,
-        off: 0x00,
-    }
-}
-
 /// Combined Image Flip modes.
 ///
 /// Allows flipping the image horizontally, vertically, or both.
@@ -100,7 +88,6 @@ visca_param_command! {
     /// Command to set the combined image flip mode.
     ///
     /// TODO: Connect to camera API for image flip functionality
-    #[allow(dead_code)]
     pub(crate) struct ImageFlipCombinedCommand {
         mode: ImageFlipMode,
     }
@@ -116,14 +103,10 @@ visca_param_command! {
 
 impl ImageFlipCombinedCommand {
     /// Create a new image flip combined command.
-    #[allow(dead_code)]
     pub fn new(mode: ImageFlipMode) -> Self {
         Self { mode }
     }
 }
-
-// Import PictureEffectMode from resolution module
-use crate::command::resolution::PictureEffectMode;
 
 visca_param_command! {
     /// Command to set picture effect mode.
@@ -132,7 +115,6 @@ visca_param_command! {
     /// Note that not all effects are supported on all camera models.
     ///
     /// TODO: Connect to camera API for picture effects functionality
-    #[allow(dead_code)]
     pub(crate) struct PictureEffectCommand {
         mode: PictureEffectMode,
     }
@@ -256,35 +238,12 @@ mod tests {
         assert!(matches!(cmd.timeout_kind(), CommandCategory::Custom));
     }
 
-    // Test black and white on
-    visca_test!(
-        BlackWhiteCommand,
-        test_black_white_on,
-        BlackWhiteCommand::new(true),
-        &[0x81, 0x01, 0x04, 0x01, 0x04, VISCA_TERMINATOR]
-    );
-
-    // Test black and white off (color mode)
-    visca_test!(
-        BlackWhiteCommand,
-        test_black_white_off,
-        BlackWhiteCommand::new(false),
-        &[0x81, 0x01, 0x04, 0x01, 0x00, VISCA_TERMINATOR]
-    );
-
-    #[test]
-    fn test_black_white_properties() {
-        let cmd = BlackWhiteCommand::new(true);
-        assert!(cmd.response_type().is_none());
-        assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
-    }
-
     // Test Off
     visca_test!(
         ImageFlipCombinedCommand,
         test_image_flip_off,
         ImageFlipCombinedCommand::new(ImageFlipMode::Off),
-        &[0x81, 0x01, 0x04, 0x61, 0x00, VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x04, 0xA4, 0x00, VISCA_TERMINATOR]
     );
 
     // Test Horizontal
@@ -292,7 +251,7 @@ mod tests {
         ImageFlipCombinedCommand,
         test_image_flip_horizontal,
         ImageFlipCombinedCommand::new(ImageFlipMode::Horizontal),
-        &[0x81, 0x01, 0x04, 0x61, 0x01, VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x04, 0xA4, 0x01, VISCA_TERMINATOR]
     );
 
     // Test Vertical
@@ -300,7 +259,7 @@ mod tests {
         ImageFlipCombinedCommand,
         test_image_flip_vertical,
         ImageFlipCombinedCommand::new(ImageFlipMode::Vertical),
-        &[0x81, 0x01, 0x04, 0x61, 0x02, VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x04, 0xA4, 0x02, VISCA_TERMINATOR]
     );
 
     // Test Both
@@ -308,7 +267,7 @@ mod tests {
         ImageFlipCombinedCommand,
         test_image_flip_both,
         ImageFlipCombinedCommand::new(ImageFlipMode::Both),
-        &[0x81, 0x01, 0x04, 0x61, 0x03, VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x04, 0xA4, 0x03, VISCA_TERMINATOR]
     );
 
     #[test]
@@ -325,7 +284,6 @@ mod tests {
             Box::new(BacklightCommand::new(true)),
             Box::new(NoiseReduction2D::Off),
             Box::new(NoiseReduction3D::Off),
-            Box::new(BlackWhiteCommand::new(true)),
             Box::new(ImageFlipCombinedCommand::new(ImageFlipMode::Off)),
         ];
 
@@ -353,7 +311,7 @@ mod tests {
             flip_cmd2
                 .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                 .unwrap(),
-            vec![0x81, 0x01, 0x04, 0x61, 0x01, VISCA_TERMINATOR]
+            vec![0x81, 0x01, 0x04, 0xA4, 0x01, VISCA_TERMINATOR]
         );
     }
 
@@ -363,7 +321,6 @@ mod tests {
         assert!(BacklightCommand::new(true).response_type().is_none());
         assert!(NoiseReduction2D::Off.response_type().is_none());
         assert!(NoiseReduction3D::Off.response_type().is_none());
-        assert!(BlackWhiteCommand::new(true).response_type().is_none());
         assert!(ImageFlipCombinedCommand::new(ImageFlipMode::Off)
             .response_type()
             .is_none());
@@ -452,9 +409,6 @@ mod tests {
         let cmd = BacklightCommand::new(true);
         assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
 
-        let cmd = BlackWhiteCommand::new(true);
-        assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
-
         // Test that noise reduction and flip commands use Custom category
         let cmd = NoiseReduction2D::Off;
         assert!(matches!(cmd.timeout_kind(), CommandCategory::Custom));
@@ -477,19 +431,6 @@ mod tests {
         let cmd = BacklightCommand::new(false);
         let debug_str = format!("{cmd:?}");
         assert!(debug_str.contains("BacklightCommand"));
-    }
-
-    #[test]
-    fn test_black_white_command_debug() {
-        let cmd = BlackWhiteCommand::new(true);
-        let debug_str = format!("{cmd:?}");
-        assert!(debug_str.contains("BlackWhiteCommand"));
-        // The debug output will show the field name
-        assert!(debug_str.contains("enabled"));
-
-        let cmd = BlackWhiteCommand::new(false);
-        let debug_str = format!("{cmd:?}");
-        assert!(debug_str.contains("BlackWhiteCommand"));
     }
 
     // Test Off (normal) mode

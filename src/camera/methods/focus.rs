@@ -1,7 +1,10 @@
 //! Focus methods for cameras using mode markers.
 
 use crate::{
-    command::focus::{AutoFocusSensitivity, FocusZone},
+    command::focus::{
+        AutoFocusSensitivity, AutoFocusSensitivityCommand, Focus, FocusLock, FocusNearLimitCommand,
+        FocusSpeed, FocusZone, FocusZoneCommand, PushAF,
+    },
     types::{FocusPosition, SpeedLevel},
     Error,
 };
@@ -129,21 +132,18 @@ where
     E: crate::executor_unified::Executor,
 {
     async fn focus_auto(&self) -> Result<(), Error> {
-        use crate::command::focus::Focus;
         let cmd = Focus::Auto;
         self.send_command(&cmd).await?;
         Ok(())
     }
 
     async fn focus_manual(&self) -> Result<(), Error> {
-        use crate::command::focus::Focus;
         let cmd = Focus::Manual;
         self.send_command(&cmd).await?;
         Ok(())
     }
 
     async fn focus_near(&self, speed: SpeedLevel) -> Result<(), Error> {
-        use crate::command::focus::{Focus, FocusSpeed};
         let focus_speed_val = speed.to_focus_speed();
         let cmd = if focus_speed_val == 0 {
             Focus::Near
@@ -156,7 +156,6 @@ where
     }
 
     async fn focus_far(&self, speed: SpeedLevel) -> Result<(), Error> {
-        use crate::command::focus::{Focus, FocusSpeed};
         let focus_speed_val = speed.to_focus_speed();
         let cmd = if focus_speed_val == 0 {
             Focus::Far
@@ -169,59 +168,50 @@ where
     }
 
     async fn focus_stop(&self) -> Result<(), Error> {
-        use crate::command::focus::Focus;
         let cmd = Focus::Stop;
         self.send_command(&cmd).await?;
         Ok(())
     }
 
     async fn focus_one_push(&self) -> Result<(), Error> {
-        use crate::command::focus::Focus;
         let cmd = Focus::OnePushTrigger;
         self.send_command(&cmd).await?;
         Ok(())
     }
 
     async fn set_focus(&self, position: FocusPosition) -> Result<(), Error> {
-        use crate::command::focus::Focus;
         let cmd = Focus::Position(position);
         self.send_command(&cmd).await?;
         Ok(())
     }
 
     async fn focus_infinity(&self) -> Result<(), Error> {
-        use crate::command::focus::Focus;
         let cmd = Focus::Infinity;
         self.send_command(&cmd).await?;
         Ok(())
     }
 
     async fn enable_focus_lock(&self) -> Result<(), Error> {
-        use crate::command::focus::FocusLock;
         self.send_command(&FocusLock::On).await?;
         Ok(())
     }
 
     async fn disable_focus_lock(&self) -> Result<(), Error> {
-        use crate::command::focus::FocusLock;
         self.send_command(&FocusLock::Off).await?;
         Ok(())
     }
 
     async fn push_af_press(&self) -> Result<(), Error> {
-        use crate::command::focus::PushAF;
         self.send_command(&PushAF::Press).await?;
         Ok(())
     }
 
     async fn push_af_release(&self) -> Result<(), Error> {
-        use crate::command::focus::PushAF;
         self.send_command(&PushAF::Release).await?;
         Ok(())
     }
 
     async fn set_focus_zone(&self, zone: FocusZone) -> Result<(), Error> {
-        use crate::command::focus::FocusZoneCommand;
         self.send_command(&FocusZoneCommand { zone }).await?;
         Ok(())
     }
@@ -230,14 +220,12 @@ where
         &self,
         sensitivity: AutoFocusSensitivity,
     ) -> Result<(), Error> {
-        use crate::command::focus::AutoFocusSensitivityCommand;
         self.send_command(&AutoFocusSensitivityCommand { sensitivity })
             .await?;
         Ok(())
     }
 
     async fn set_focus_near_limit(&self, position: FocusPosition) -> Result<(), Error> {
-        use crate::command::focus::FocusNearLimitCommand;
         self.send_command(&FocusNearLimitCommand { position })
             .await?;
         Ok(())
@@ -251,21 +239,18 @@ where
     T: crate::transport::BlockingTransport + Send + Sync + 'static,
 {
     fn focus_auto(&self) -> Result<(), Error> {
-        use crate::command::focus::Focus;
         let cmd = Focus::Auto;
         self.send_command(&cmd)?;
         Ok(())
     }
 
     fn focus_manual(&self) -> Result<(), Error> {
-        use crate::command::focus::Focus;
         let cmd = Focus::Manual;
         self.send_command(&cmd)?;
         Ok(())
     }
 
     fn focus_near(&self, speed: SpeedLevel) -> Result<(), Error> {
-        use crate::command::focus::{Focus, FocusSpeed};
         let focus_speed_val = speed.to_focus_speed();
         let cmd = if focus_speed_val == 0 {
             Focus::Near
@@ -278,7 +263,6 @@ where
     }
 
     fn focus_far(&self, speed: SpeedLevel) -> Result<(), Error> {
-        use crate::command::focus::{Focus, FocusSpeed};
         let focus_speed_val = speed.to_focus_speed();
         let cmd = if focus_speed_val == 0 {
             Focus::Far
@@ -291,71 +275,60 @@ where
     }
 
     fn focus_stop(&self) -> Result<(), Error> {
-        use crate::command::focus::Focus;
         let cmd = Focus::Stop;
         self.send_command(&cmd)?;
         Ok(())
     }
 
     fn focus_one_push(&self) -> Result<(), Error> {
-        use crate::command::focus::Focus;
         let cmd = Focus::OnePushTrigger;
         self.send_command(&cmd)?;
         Ok(())
     }
 
     fn set_focus(&self, position: FocusPosition) -> Result<(), Error> {
-        use crate::command::focus::Focus;
         let cmd = Focus::Position(position);
         self.send_command(&cmd)?;
         Ok(())
     }
 
     fn focus_infinity(&self) -> Result<(), Error> {
-        use crate::command::focus::Focus;
         let cmd = Focus::Infinity;
         self.send_command(&cmd)?;
         Ok(())
     }
 
     fn enable_focus_lock(&self) -> Result<(), Error> {
-        use crate::command::focus::FocusLock;
         self.send_command(&FocusLock::On)?;
         Ok(())
     }
 
     fn disable_focus_lock(&self) -> Result<(), Error> {
-        use crate::command::focus::FocusLock;
         self.send_command(&FocusLock::Off)?;
         Ok(())
     }
 
     fn push_af_press(&self) -> Result<(), Error> {
-        use crate::command::focus::PushAF;
         self.send_command(&PushAF::Press)?;
         Ok(())
     }
 
     fn push_af_release(&self) -> Result<(), Error> {
-        use crate::command::focus::PushAF;
         self.send_command(&PushAF::Release)?;
         Ok(())
     }
 
     fn set_focus_zone(&self, zone: FocusZone) -> Result<(), Error> {
-        use crate::command::focus::FocusZoneCommand;
         self.send_command(&FocusZoneCommand { zone })?;
         Ok(())
     }
 
     fn set_auto_focus_sensitivity(&self, sensitivity: AutoFocusSensitivity) -> Result<(), Error> {
-        use crate::command::focus::AutoFocusSensitivityCommand;
         self.send_command(&AutoFocusSensitivityCommand { sensitivity })?;
         Ok(())
     }
 
     fn set_focus_near_limit(&self, position: FocusPosition) -> Result<(), Error> {
-        use crate::command::focus::FocusNearLimitCommand;
         self.send_command(&FocusNearLimitCommand { position })?;
         Ok(())
     }

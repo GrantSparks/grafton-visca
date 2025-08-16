@@ -3,8 +3,10 @@
 //! This module provides functions for encoding VISCA commands and handling
 //! different transport encapsulation formats (raw, Sony header).
 
+// External crates
 use bytes::{BufMut, BytesMut};
 
+// Standard library
 use std::sync::atomic::{AtomicU32, Ordering};
 
 /// VISCA frame terminator byte.

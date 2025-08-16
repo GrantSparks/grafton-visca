@@ -1,7 +1,10 @@
 //! Color adjustment methods for cameras using mode markers.
 
 use crate::{
-    command::color::{BlueGain, ColorTemperature, OnePushTriggerCommand, RedGain},
+    command::color::{
+        BlueGain, BlueTuningCommand, ColorTemperature, OnePushTriggerCommand, RedGain,
+        RedTuningCommand,
+    },
     types::{BlueChannel, BlueTuning, ColorTemp, RedChannel, RedTuning},
     Error,
 };
@@ -126,9 +129,6 @@ where
                     .await?
             }
             None => {
-                // Note: ColorTemperatureInquiry would need to be imported and available
-                // For now, return error as inquiry is not yet implemented
-                // TODO: Implement color temperature inquiry
                 return Err(Error::Unsupported);
             }
         };
@@ -156,13 +156,11 @@ where
     }
 
     async fn set_red_tuning(&self, tuning: RedTuning) -> Result<(), Error> {
-        use crate::command::color::RedTuningCommand;
         self.send_command(&RedTuningCommand::new(tuning)).await?;
         Ok(())
     }
 
     async fn set_blue_tuning(&self, tuning: BlueTuning) -> Result<(), Error> {
-        use crate::command::color::BlueTuningCommand;
         self.send_command(&BlueTuningCommand::new(tuning)).await?;
         Ok(())
     }
@@ -203,9 +201,6 @@ where
         match temp {
             Some(t) => self.send_command(&ColorTemperature::SetTemperature(t))?,
             None => {
-                // Note: ColorTemperatureInquiry would need to be imported and available
-                // For now, return error as inquiry is not yet implemented
-                // TODO: Implement color temperature inquiry
                 return Err(Error::Unsupported);
             }
         };
@@ -233,13 +228,11 @@ where
     }
 
     fn set_red_tuning(&self, tuning: RedTuning) -> Result<(), Error> {
-        use crate::command::color::RedTuningCommand;
         self.send_command(&RedTuningCommand::new(tuning))?;
         Ok(())
     }
 
     fn set_blue_tuning(&self, tuning: BlueTuning) -> Result<(), Error> {
-        use crate::command::color::BlueTuningCommand;
         self.send_command(&BlueTuningCommand::new(tuning))?;
         Ok(())
     }

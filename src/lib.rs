@@ -380,25 +380,10 @@ pub mod prelude;
 #[doc(hidden)]
 pub mod testing;
 
+// External crates
 pub use grafton_visca_macros::{InquiryCommand, ViscaEncode, ViscaEnum, ViscaValue};
 
-#[cfg(feature = "async")]
-pub use camera::methods::{
-    focus::FocusOps,
-    inquiry::{InquiryOps, PanTiltInquiryOps},
-    pan_tilt::PanTiltOps,
-    power::PowerOps,
-    presets::PresetsOps,
-    zoom::ZoomOps,
-};
-pub use camera::methods::{
-    focus::FocusOpsBlocking,
-    inquiry::{InquiryOpsBlocking, PanTiltInquiryOpsBlocking},
-    pan_tilt::PanTiltOpsBlocking,
-    power::PowerOpsBlocking,
-    presets::PresetsOpsBlocking,
-    zoom::ZoomOpsBlocking,
-};
+// Local re-exports
 pub use camera::{Camera, CameraBuilder};
 pub use camera_id::CameraId;
 pub use command::{
@@ -412,10 +397,31 @@ pub use command::{
     white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode},
 };
 pub use error::{Error, Result};
+
+// Async-only re-exports
+#[cfg(feature = "async")]
+pub use camera::methods::{
+    focus::FocusOps,
+    inquiry::{InquiryOps, PanTiltInquiryOps},
+    pan_tilt::PanTiltOps,
+    power::PowerOps,
+    presets::PresetsOps,
+    zoom::ZoomOps,
+};
 #[cfg(all(feature = "async", feature = "rt-tokio"))]
 pub use executor_unified::TokioExecutor;
 #[cfg(feature = "async")]
 pub use executor_unified::{ExecError, Executor};
+
+// Blocking re-exports
+pub use camera::methods::{
+    focus::FocusOpsBlocking,
+    inquiry::{InquiryOpsBlocking, PanTiltInquiryOpsBlocking},
+    pan_tilt::PanTiltOpsBlocking,
+    power::PowerOpsBlocking,
+    presets::PresetsOpsBlocking,
+    zoom::ZoomOpsBlocking,
+};
 
 /// Camera profiles with compositional capabilities
 pub mod profiles {

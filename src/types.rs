@@ -1,7 +1,9 @@
 //! Type-safe wrappers for VISCA protocol values.
 
+// Standard library
 use std::{borrow::Cow, fmt};
 
+// Local imports
 use crate::{error::Error, units::Percentage, ViscaValue};
 
 /// Socket identifier for VISCA command execution slots.

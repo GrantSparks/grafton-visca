@@ -8,16 +8,17 @@ use std::marker::PhantomData;
 
 #[cfg(not(feature = "async"))]
 use crate::camera::generic_executor::Camera as GenericCamera;
-use crate::{
-    camera::BlockingMode, camera_id::CameraId, capabilities::Profile, timeout::TimeoutConfig,
-    transport::BlockingTransport,
-};
 #[cfg(feature = "async")]
 use crate::{
     camera::{generic_executor::Camera as GenericCamera, AsyncMode},
     error::Error,
     executor_unified::Executor,
     transport::AsyncTransport,
+};
+
+use crate::{
+    camera::BlockingMode, camera_id::CameraId, capabilities::Profile, timeout::TimeoutConfig,
+    transport::BlockingTransport,
 };
 
 /// Builder for creating cameras with explicit executor configuration.

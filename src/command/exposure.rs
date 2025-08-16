@@ -3,15 +3,11 @@
 //! This module provides commands for controlling various exposure-related settings
 //! including exposure mode, exposure compensation, iris, shutter, and brightness.
 
-// Standard library imports
-// (none)
+// External crates
+use grafton_visca_macros::ViscaEnum;
 
-// Third-party crate imports
-// (none)
-
-// Workspace / local-crate imports
+// Local imports
 use crate::macros::internal::*;
-
 use crate::{
     command::{const_encoding::constants, encode_visca::EncodeVisca, response::ResponseType},
     error::Error,
@@ -20,7 +16,6 @@ use crate::{
         BrightnessLevel, DynamicRangeLevel, ExposureCompensationLevel, IrisLevel, ShutterSpeed,
     },
 };
-use grafton_visca_macros::ViscaEnum;
 
 /// Camera exposure control modes.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]

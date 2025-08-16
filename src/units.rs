@@ -547,9 +547,9 @@ impl From<Raw<u8>> for crate::types::HueLevel {
 
 #[cfg(test)]
 mod tests {
-    use crate::types::FStop;
-
     use super::*;
+
+    use crate::types::FStop;
 
     #[test]
     #[allow(clippy::unwrap_used)]
