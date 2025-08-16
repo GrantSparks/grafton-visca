@@ -8,7 +8,7 @@
 //!
 //! ## Vendor-Specific Features
 //! - `ATW` (Auto Tracking White Balance) - Sony FR7 specific
-//! - `AWBSensitivity` - PTZOptics specific
+//! - `AWBSensitivity` - PtzOptics specific
 
 use grafton_visca_macros::ViscaEnum;
 

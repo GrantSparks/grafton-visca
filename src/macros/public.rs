@@ -112,23 +112,23 @@ macro_rules! visca_bounded_param {
 /// # Example
 ///
 /// ```ignore
-/// use grafton_visca::forward_facade;
+/// use grafton_visca::delegate_methods;
 ///
 /// // For blocking APIs
-/// forward_facade!(Camera, blocking,
-///     ZoomOps:
+/// delegate_methods!(Camera, blocking,
+///     ZoomControl:
 ///         zoom_stop() -> crate::Result<()>,
 ///         zoom_in() -> crate::Result<()>,
 ///         zoom_out() -> crate::Result<()>,
 ///         zoom_absolute(position: crate::units::Normalized) -> crate::Result<()>;
-///     InquiryOps:
+///     InquiryControl:
 ///         get_power_state() -> crate::Result<bool>,
 ///         get_zoom_position() -> crate::Result<u16>;
 /// );
 ///
 /// // For async APIs
-/// forward_facade!(AsyncCamera, async,
-///     ZoomOps:
+/// delegate_methods!(AsyncCamera, async,
+///     ZoomControl:
 ///         zoom_stop() -> crate::Result<()>,
 ///         zoom_in() -> crate::Result<()>;
 /// );
@@ -145,14 +145,14 @@ macro_rules! visca_bounded_param {
 /// When forwarding methods that might have naming conflicts, you can use the `@` syntax:
 ///
 /// ```ignore
-/// forward_facade!(Camera, blocking,
-///     PowerOps:
+/// delegate_methods!(Camera, blocking,
+///     PowerControl:
 ///         power_on() -> crate::Result<()>,
-///         get_state @ PowerOps() -> crate::Result<PowerState>;
+///         get_state @ PowerControl() -> crate::Result<PowerState>;
 /// );
 /// ```
 #[macro_export]
-macro_rules! forward_facade {
+macro_rules! delegate_methods {
     // Blocking variant with optional trait disambiguation
     ($wrapper:ident, blocking, $($trait_name:ident : $($method:ident $(@ $disambiguate_trait:ident)? $(($($param:ident : $ptype:ty),* $(,)?))? -> $ret:ty),+ ;)+) => {
         $(
@@ -164,7 +164,7 @@ macro_rules! forward_facade {
             {
                 $(
                     fn $method(&self $(, $($param: $ptype),*)?) -> $ret {
-                        forward_facade!(@call $($disambiguate_trait)?, $method, self.0, $($($param),*)?)
+                        delegate_methods!(@call $($disambiguate_trait)?, $method, self.0, $($($param),*)?)
                     }
                 )+
             }
@@ -182,7 +182,7 @@ macro_rules! forward_facade {
             {
                 $(
                     async fn $method(&self $(, $($param: $ptype),*)?) -> $ret {
-                        forward_facade!(@call_async $($disambiguate_trait)?, $method, self.0, $($($param),*)?)
+                        delegate_methods!(@call_async $($disambiguate_trait)?, $method, self.0, $($($param),*)?)
                     }
                 )+
             }
@@ -218,7 +218,7 @@ macro_rules! forward_facade {
 /// # Example Usage
 ///
 /// ```rust,ignore
-/// impl_camera_ops!(async, PowerOps,
+/// impl_camera_ops!(async, PowerControl,
 ///     async fn power_on(&self) -> Result<(), Error>;
 ///     async fn power_off(&self) -> Result<(), Error>;
 ///     async fn power_inquiry(&self) -> Result<bool, Error>;
@@ -227,7 +227,7 @@ macro_rules! forward_facade {
 ///
 /// This generates:
 /// ```rust,ignore
-/// impl<P, T> PowerOps for Camera<AsyncMode, P, T>
+/// impl<P, T> PowerControl for Camera<AsyncMode, P, T>
 /// where
 ///     P: Profile,
 ///     T: AsyncTransport + Send + Sync + 'static,

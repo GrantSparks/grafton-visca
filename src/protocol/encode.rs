@@ -189,11 +189,11 @@ pub fn encode_sony_frame(command: &[u8], sequence: u32) -> Vec<u8> {
 
 /// Builder for VISCA commands.
 #[derive(Debug)]
-pub struct CommandBuilder {
+pub struct FrameBuilder {
     buffer: BytesMut,
 }
 
-impl CommandBuilder {
+impl FrameBuilder {
     /// Create a new command builder.
     pub fn new() -> Self {
         Self {
@@ -244,7 +244,7 @@ impl CommandBuilder {
     }
 }
 
-impl Default for CommandBuilder {
+impl Default for FrameBuilder {
     fn default() -> Self {
         Self::new()
     }
@@ -312,7 +312,7 @@ mod tests {
 
     #[test]
     fn test_command_builder() {
-        let cmd = CommandBuilder::new()
+        let cmd = FrameBuilder::new()
             .device(1)
             .byte(0x01)
             .byte(0x04)
@@ -323,7 +323,7 @@ mod tests {
         assert_eq!(cmd, vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
 
         // Test nibbles
-        let cmd = CommandBuilder::new()
+        let cmd = FrameBuilder::new()
             .device(1)
             .byte(0x01)
             .nibbles(0x23)
@@ -332,7 +332,7 @@ mod tests {
         assert_eq!(cmd, vec![0x81, 0x01, 0x02, 0x03, VISCA_TERMINATOR]);
 
         // Test nibbles_u16
-        let cmd = CommandBuilder::new().device(1).nibbles_u16(0x1234).build();
+        let cmd = FrameBuilder::new().device(1).nibbles_u16(0x1234).build();
 
         assert_eq!(cmd, vec![0x81, 0x01, 0x02, 0x03, 0x04, VISCA_TERMINATOR]);
     }

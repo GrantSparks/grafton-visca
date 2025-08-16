@@ -17,8 +17,8 @@
 fn main() -> grafton_visca::Result<()> {
     use grafton_visca::{
         camera::{
-            methods::inquiry::{InquiryOpsBlocking, PanTiltInquiryOpsBlocking},
-            profiles::PTZOpticsG2,
+            methods::inquiry::{InquiryControlBlocking, PanTiltInquiryControlBlocking},
+            profiles::PtzOpticsG2,
         },
         transport::BlockingTcp,
         CameraBuilder,
@@ -35,7 +35,7 @@ fn main() -> grafton_visca::Result<()> {
 
     println!("Connecting to camera at {camera_addr}...");
     let transport = BlockingTcp::connect(&camera_addr)?;
-    let camera = CameraBuilder::new().build_blocking::<PTZOpticsG2, _>(transport);
+    let camera = CameraBuilder::new().build_blocking::<PtzOpticsG2, _>(transport);
 
     // Query power state
     println!("\n--- Power State ---");
@@ -147,8 +147,8 @@ fn main() -> grafton_visca::Result<()> {
 async fn main() -> grafton_visca::Result<()> {
     use grafton_visca::{
         camera::{
-            methods::inquiry::{InquiryOps, PanTiltInquiryOps},
-            profiles::PTZOpticsG2,
+            methods::inquiry::{InquiryControl, PanTiltInquiryControl},
+            profiles::PtzOpticsG2,
         },
         transport::tokio::Tcp,
         CameraBuilder,
@@ -166,7 +166,7 @@ async fn main() -> grafton_visca::Result<()> {
     println!("Connecting to camera at {camera_addr}...");
     let transport = Tcp::connect(&camera_addr).await?;
     let camera = CameraBuilder::tokio()?
-        .build_async::<PTZOpticsG2, _>(transport)
+        .build_async::<PtzOpticsG2, _>(transport)
         .await?;
 
     println!("\n--- Querying All States Concurrently ---");

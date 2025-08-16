@@ -13,7 +13,7 @@ use grafton_visca::{
     },
     profiles::GenericVisca,
     testing::camera_simulator::ViscaCameraSimulator,
-    InquiryOps, PanTiltInquiryOps, PowerOps, PresetsOps,
+    InquiryControl, PanTiltInquiryControl, PowerControl, PresetsControl,
 };
 use std::time::Duration;
 

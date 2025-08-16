@@ -5,9 +5,9 @@
 
 use crate::{
     command::{
-        const_encoding::{CommandBuilder, VISCA_TERMINATOR},
+        const_encoding::{ConstCommandBuilder, VISCA_TERMINATOR},
         encode_visca::EncodeVisca,
-        response::ResponseType,
+        response::ViscaResponseType,
     },
     error::Error,
     macros::internal::*,
@@ -162,7 +162,7 @@ pub enum ColorTemperature {
 }
 
 impl EncodeVisca for ColorTemperature {
-    type Response = ();
+    type ViscaResponse = ();
     const MAX_SIZE: usize = 8;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -173,7 +173,7 @@ impl EncodeVisca for ColorTemperature {
     ) -> Result<usize, Error> {
         match self {
             ColorTemperature::Reset => {
-                let builder = CommandBuilder::<6>::from_prefix(
+                let builder = ConstCommandBuilder::<6>::from_prefix(
                     crate::command::const_encoding::constants::color::TEMPERATURE_PREFIX,
                 )
                 .with_camera_id(camera_id)
@@ -181,7 +181,7 @@ impl EncodeVisca for ColorTemperature {
                 builder.build_into(buffer)
             }
             ColorTemperature::Up => {
-                let builder = CommandBuilder::<6>::from_prefix(
+                let builder = ConstCommandBuilder::<6>::from_prefix(
                     crate::command::const_encoding::constants::color::TEMPERATURE_PREFIX,
                 )
                 .with_camera_id(camera_id)
@@ -189,7 +189,7 @@ impl EncodeVisca for ColorTemperature {
                 builder.build_into(buffer)
             }
             ColorTemperature::Down => {
-                let builder = CommandBuilder::<6>::from_prefix(
+                let builder = ConstCommandBuilder::<6>::from_prefix(
                     crate::command::const_encoding::constants::color::TEMPERATURE_PREFIX,
                 )
                 .with_camera_id(camera_id)
@@ -197,7 +197,7 @@ impl EncodeVisca for ColorTemperature {
                 builder.build_into(buffer)
             }
             ColorTemperature::SetTemperature(temp) => {
-                let builder = CommandBuilder::<7>::from_prefix(
+                let builder = ConstCommandBuilder::<7>::from_prefix(
                     crate::command::const_encoding::constants::color::TEMPERATURE_PREFIX,
                 )
                 .with_camera_id(camera_id)
@@ -207,7 +207,7 @@ impl EncodeVisca for ColorTemperature {
         }
     }
 
-    fn response_type(&self) -> Option<ResponseType> {
+    fn response_type(&self) -> Option<ViscaResponseType> {
         None
     }
 }
@@ -231,7 +231,7 @@ pub enum RedGain {
 }
 
 impl EncodeVisca for RedGain {
-    type Response = ();
+    type ViscaResponse = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -242,21 +242,21 @@ impl EncodeVisca for RedGain {
     ) -> Result<usize, Error> {
         match self {
             RedGain::Reset => {
-                let mut builder = CommandBuilder::<6>::from_prefix(
+                let mut builder = ConstCommandBuilder::<6>::from_prefix(
                     crate::command::const_encoding::constants::color::RED_GAIN_CONTROL_PREFIX,
                 );
                 builder = builder.with_camera_id(camera_id).push(0x00);
                 builder.build_into(buffer)
             }
             RedGain::Up => {
-                let mut builder = CommandBuilder::<6>::from_prefix(
+                let mut builder = ConstCommandBuilder::<6>::from_prefix(
                     crate::command::const_encoding::constants::color::RED_GAIN_CONTROL_PREFIX,
                 );
                 builder = builder.with_camera_id(camera_id).push(0x02);
                 builder.build_into(buffer)
             }
             RedGain::Down => {
-                let mut builder = CommandBuilder::<6>::from_prefix(
+                let mut builder = ConstCommandBuilder::<6>::from_prefix(
                     crate::command::const_encoding::constants::color::RED_GAIN_CONTROL_PREFIX,
                 );
                 builder = builder.with_camera_id(camera_id).push(0x03);
@@ -264,7 +264,7 @@ impl EncodeVisca for RedGain {
             }
             RedGain::SetValue(value) => {
                 // Note: different command byte 0x43 for direct setting
-                let builder = CommandBuilder::<9>::from_prefix(
+                let builder = ConstCommandBuilder::<9>::from_prefix(
                     crate::command::const_encoding::constants::color::RED_GAIN_DIRECT_PREFIX,
                 )
                 .with_camera_id(camera_id)
@@ -274,7 +274,7 @@ impl EncodeVisca for RedGain {
         }
     }
 
-    fn response_type(&self) -> Option<ResponseType> {
+    fn response_type(&self) -> Option<ViscaResponseType> {
         None
     }
 }
@@ -298,7 +298,7 @@ pub enum BlueGain {
 }
 
 impl EncodeVisca for BlueGain {
-    type Response = ();
+    type ViscaResponse = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -309,7 +309,7 @@ impl EncodeVisca for BlueGain {
     ) -> Result<usize, Error> {
         match self {
             BlueGain::Reset => {
-                let builder = CommandBuilder::<6>::from_prefix(
+                let builder = ConstCommandBuilder::<6>::from_prefix(
                     crate::command::const_encoding::constants::color::BLUE_GAIN_CONTROL_PREFIX,
                 )
                 .with_camera_id(camera_id)
@@ -317,7 +317,7 @@ impl EncodeVisca for BlueGain {
                 builder.build_into(buffer)
             }
             BlueGain::Up => {
-                let builder = CommandBuilder::<6>::from_prefix(
+                let builder = ConstCommandBuilder::<6>::from_prefix(
                     crate::command::const_encoding::constants::color::BLUE_GAIN_CONTROL_PREFIX,
                 )
                 .with_camera_id(camera_id)
@@ -325,7 +325,7 @@ impl EncodeVisca for BlueGain {
                 builder.build_into(buffer)
             }
             BlueGain::Down => {
-                let builder = CommandBuilder::<6>::from_prefix(
+                let builder = ConstCommandBuilder::<6>::from_prefix(
                     crate::command::const_encoding::constants::color::BLUE_GAIN_CONTROL_PREFIX,
                 )
                 .with_camera_id(camera_id)
@@ -334,7 +334,7 @@ impl EncodeVisca for BlueGain {
             }
             BlueGain::SetValue(value) => {
                 // Note: different command byte 0x44 for direct setting
-                let builder = CommandBuilder::<9>::from_prefix(
+                let builder = ConstCommandBuilder::<9>::from_prefix(
                     crate::command::const_encoding::constants::color::BLUE_GAIN_DIRECT_PREFIX,
                 )
                 .with_camera_id(camera_id)
@@ -344,7 +344,7 @@ impl EncodeVisca for BlueGain {
         }
     }
 
-    fn response_type(&self) -> Option<ResponseType> {
+    fn response_type(&self) -> Option<ViscaResponseType> {
         None
     }
 }
@@ -397,7 +397,7 @@ mod tests {
         for level in -10..=10 {
             let tuning = RedTuning::new(level).unwrap();
             let cmd = RedTuningCommand::new(tuning);
-            assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
+            assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
         }
 
         // Invalid values can't be created with RedTuning type
@@ -432,7 +432,7 @@ mod tests {
         for level in -10..=10 {
             let tuning = BlueTuning::new(level).unwrap();
             let cmd = BlueTuningCommand::new(tuning);
-            assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
+            assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
         }
 
         // Invalid values can't be created with BlueTuning type
@@ -475,7 +475,7 @@ mod tests {
         for level in 0x00..=0x0E {
             let sat_level = SaturationLevel::new(level).unwrap();
             let cmd = SaturationCommand::new(sat_level);
-            assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
+            assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
         }
 
         // Invalid values can't be created with SaturationLevel type
@@ -518,7 +518,7 @@ mod tests {
         for level in 0x00..=0x0E {
             let hue_level = HueLevel::new(level).unwrap();
             let cmd = HueCommand::new(hue_level);
-            assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
+            assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
         }
 
         // Invalid values can't be created with HueLevel type

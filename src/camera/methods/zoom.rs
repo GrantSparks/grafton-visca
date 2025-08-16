@@ -4,7 +4,7 @@ use crate::{command::zoom::ZoomSpeed, units::Normalized, Error};
 
 /// Zoom operations (async).
 #[cfg(feature = "async")]
-pub trait ZoomOps: Sized {
+pub trait ZoomControl: Sized {
     /// Stop zooming.
     async fn zoom_stop(&self) -> Result<(), Error>;
 
@@ -31,7 +31,7 @@ pub trait ZoomOps: Sized {
 }
 
 /// Zoom operations (blocking).
-pub trait ZoomOpsBlocking: Sized {
+pub trait ZoomControlBlocking: Sized {
     /// Stop zooming.
     fn zoom_stop(&self) -> Result<(), Error>;
 
@@ -59,11 +59,11 @@ pub trait ZoomOpsBlocking: Sized {
 
 // Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P, T, E> ZoomOps for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
+impl<P, T, E> ZoomControl for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
 where
     P: crate::capabilities::Profile,
     T: crate::transport::AsyncTransport + Send + Sync + 'static,
-    E: crate::executor_unified::Executor,
+    E: crate::executor::Executor,
 {
     async fn zoom_stop(&self) -> Result<(), Error> {
         use crate::command::zoom::Zoom;
@@ -117,11 +117,13 @@ where
     }
 
     async fn zoom_position_inquiry(&self) -> Result<crate::types::ZoomPosition, Error> {
-        use crate::command::{inquiry::ZoomPositionInquiry, response::Response, InquiryResponse};
+        use crate::command::{
+            inquiry::ZoomPositionInquiry, response::ViscaResponse, InquiryResponse,
+        };
         let inquiry = ZoomPositionInquiry {};
         let response = self.send_command(&inquiry).await?;
         match response {
-            Response::Inquiry(InquiryResponse::ZoomPosition { position }) => {
+            ViscaResponse::Inquiry(InquiryResponse::ZoomPosition { position }) => {
                 // The InquiryResponse contains a raw u16 value
                 Ok(crate::types::ZoomPosition::new(position)?)
             }
@@ -131,7 +133,7 @@ where
 }
 
 // Blocking implementation for Camera with BlockingMode
-impl<P, T> ZoomOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
+impl<P, T> ZoomControlBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile,
     T: crate::transport::BlockingTransport + Send + Sync + 'static,
@@ -188,11 +190,13 @@ where
     }
 
     fn zoom_position_inquiry(&self) -> Result<crate::types::ZoomPosition, Error> {
-        use crate::command::{inquiry::ZoomPositionInquiry, response::Response, InquiryResponse};
+        use crate::command::{
+            inquiry::ZoomPositionInquiry, response::ViscaResponse, InquiryResponse,
+        };
         let inquiry = ZoomPositionInquiry {};
         let response = self.send_command(&inquiry)?;
         match response {
-            Response::Inquiry(InquiryResponse::ZoomPosition { position }) => {
+            ViscaResponse::Inquiry(InquiryResponse::ZoomPosition { position }) => {
                 // The InquiryResponse contains a raw u16 value
                 Ok(crate::types::ZoomPosition::new(position)?)
             }

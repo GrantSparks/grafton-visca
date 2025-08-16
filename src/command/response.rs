@@ -21,12 +21,12 @@ use crate::{
     error::Error,
 };
 
-/// Response from a VISCA command.
+/// ViscaResponse from a VISCA command.
 ///
 /// Represents all possible responses from the camera including acknowledgments,
 /// completions, errors, and inquiry data.
 #[derive(Debug)]
-pub enum Response {
+pub enum ViscaResponse {
     /// Acknowledgment that the command was received and is being processed
     CmdAck,
     /// Command completed successfully (no data returned)
@@ -38,13 +38,13 @@ pub enum Response {
     /// Unknown response format with type information and raw data
     Unknown {
         /// The response type that could not be parsed
-        response_type: Option<ResponseType>,
+        response_type: Option<ViscaResponseType>,
         /// Raw response data for debugging
         data: Vec<u8>,
     },
 }
 
-impl Response {
+impl ViscaResponse {
     /// Convert response to a Result, treating Completion as Ok and Error as Err.
     ///
     /// Note: ACK responses are treated as an error because they only indicate
@@ -52,11 +52,11 @@ impl Response {
     /// subsequent Completion response.
     pub fn into_result(self) -> Result<(), Error> {
         match self {
-            Response::Completion => Ok(()),
-            Response::CmdAck => Err(Error::CommandPending), // ACK means command is queued, not completed
-            Response::Error(e) => Err(e),
-            Response::Inquiry(_) => Ok(()), // Inquiry responses are success
-            Response::Unknown { data, .. } => Err(Error::InvalidResponse {
+            ViscaResponse::Completion => Ok(()),
+            ViscaResponse::CmdAck => Err(Error::CommandPending), // ACK means command is queued, not completed
+            ViscaResponse::Error(e) => Err(e),
+            ViscaResponse::Inquiry(_) => Ok(()), // Inquiry responses are success
+            ViscaResponse::Unknown { data, .. } => Err(Error::InvalidResponse {
                 expected: Cow::Borrowed("Known response type"),
                 actual: data,
             }),
@@ -82,7 +82,7 @@ impl Response {
             && (bytes[1] & 0xF0) == 0x40
             && bytes[2] == 0xFF
         {
-            return Ok(Response::CmdAck);
+            return Ok(ViscaResponse::CmdAck);
         }
 
         // Completion: 9x 5y FF (where x = socket, y = completion type)
@@ -91,12 +91,12 @@ impl Response {
             && (bytes[1] & 0xF0) == 0x50
             && bytes[2] == 0xFF
         {
-            return Ok(Response::Completion);
+            return Ok(ViscaResponse::Completion);
         }
 
         // Error: 9x 6y zz FF (where x = socket, y = error type, zz = error code)
         if bytes.len() >= 4 && (bytes[0] & 0xF0) == 0x90 && (bytes[1] & 0xF0) == 0x60 {
-            return Ok(Response::Error(Error::from_code(bytes[2])));
+            return Ok(ViscaResponse::Error(Error::from_code(bytes[2])));
         }
 
         // If it's an inquiry response (9x 50 ...), it needs a specific type
@@ -108,14 +108,14 @@ impl Response {
         }
 
         // Unknown response format
-        Ok(Response::Unknown {
+        Ok(ViscaResponse::Unknown {
             response_type: None,
             data: bytes.to_vec(),
         })
     }
 
     /// Parse an inquiry response with a specific expected type.
-    pub fn parse_with_type(bytes: &[u8], response_type: &ResponseType) -> Result<Self, Error> {
+    pub fn parse_with_type(bytes: &[u8], response_type: &ViscaResponseType) -> Result<Self, Error> {
         parse_response(bytes, response_type)
     }
 }
@@ -124,7 +124,7 @@ impl Response {
 ///
 /// Used to indicate what kind of data parser should expect in the response payload.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ResponseType {
+pub enum ViscaResponseType {
     /// Power state inquiry response (On/Off).
     Power,
     /// Pan and tilt position inquiry response.
@@ -267,7 +267,7 @@ pub enum ResponseType {
     ZoomTeleWide,
     /// Standby state inquiry response.
     Standby,
-    /// Digital PTZ state inquiry response.
+    /// Digital Ptz state inquiry response.
     DigitalPtz,
     /// Digital mode inquiry response.
     Digital,
@@ -285,8 +285,11 @@ pub enum ResponseType {
     TallyAutoAdjust,
 }
 
-/// Parse a raw VISCA response into a structured Response.
-pub fn parse_response(data: &[u8], expected_type: &ResponseType) -> Result<Response, Error> {
+/// Parse a raw VISCA response into a structured ViscaResponse.
+pub fn parse_response(
+    data: &[u8],
+    expected_type: &ViscaResponseType,
+) -> Result<ViscaResponse, Error> {
     // Basic format validation
     if data.is_empty() || data.len() < 3 {
         return Err(Error::InvalidResponseFormat);
@@ -304,11 +307,11 @@ pub fn parse_response(data: &[u8], expected_type: &ResponseType) -> Result<Respo
 
     // Parse based on second byte
     match second_byte & 0xF0 {
-        0x40 => Ok(Response::CmdAck), // ACK responses
+        0x40 => Ok(ViscaResponse::CmdAck), // ACK responses
         0x50 => {
             // Completion or inquiry data response
             if data.len() == 3 {
-                Ok(Response::Completion)
+                Ok(ViscaResponse::Completion)
             } else {
                 // Debug logging for inquiry responses
                 log::debug!(
@@ -327,30 +330,33 @@ pub fn parse_response(data: &[u8], expected_type: &ResponseType) -> Result<Respo
             }
             Err(Error::from_code(data[2]))
         }
-        _ => Ok(Response::Unknown {
+        _ => Ok(ViscaResponse::Unknown {
             response_type: None,
             data: data.to_vec(),
         }),
     }
 }
 
-fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Result<Response, Error> {
+fn parse_inquiry_response(
+    payload: &[u8],
+    expected_type: &ViscaResponseType,
+) -> Result<ViscaResponse, Error> {
     match expected_type {
-        ResponseType::Power => {
+        ViscaResponseType::Power => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::Inquiry(InquiryResponse::Power {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::Power {
                 on: payload[0] == 0x02,
             }))
         }
-        ResponseType::ZoomPosition => {
+        ViscaResponseType::ZoomPosition => {
             // Standard VISCA expects 4 bytes for zoom position
             // But some cameras may return 8 bytes (possibly including digital zoom info)
             if payload.len() == 4 {
                 // Standard format: 0p 0q 0r 0s
                 let position = combine_nibbles_u16(&payload[0..4]);
-                Ok(Response::Inquiry(InquiryResponse::ZoomPosition {
+                Ok(ViscaResponse::Inquiry(InquiryResponse::ZoomPosition {
                     position,
                 }))
             } else if payload.len() == 8 {
@@ -361,7 +367,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     "ZoomPosition: Received extended format (8 bytes). Payload: {payload:02X?}. Using first 4 bytes."
                 );
                 let position = combine_nibbles_u16(&payload[0..4]);
-                Ok(Response::Inquiry(InquiryResponse::ZoomPosition {
+                Ok(ViscaResponse::Inquiry(InquiryResponse::ZoomPosition {
                     position,
                 }))
             } else {
@@ -373,14 +379,14 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 Err(Error::InvalidResponseLength)
             }
         }
-        ResponseType::PanTiltPosition => {
+        ViscaResponseType::PanTiltPosition => {
             // Standard VISCA expects 8 bytes (4 for pan, 4 for tilt)
             // But some cameras may return 4 bytes with combined values
             if payload.len() == 8 {
                 // Standard format: PP PP PP PP TT TT TT TT
                 let pan = combine_nibbles_i16(&payload[0..4]);
                 let tilt = combine_nibbles_i16(&payload[4..8]);
-                Ok(Response::Inquiry(InquiryResponse::PanTiltPosition {
+                Ok(ViscaResponse::Inquiry(InquiryResponse::PanTiltPosition {
                     pan,
                     tilt,
                 }))
@@ -402,7 +408,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 } else {
                     0
                 };
-                Ok(Response::Inquiry(InquiryResponse::PanTiltPosition {
+                Ok(ViscaResponse::Inquiry(InquiryResponse::PanTiltPosition {
                     pan,
                     tilt,
                 }))
@@ -415,25 +421,25 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                 Err(Error::InvalidResponseLength)
             }
         }
-        ResponseType::FocusPosition => {
+        ViscaResponseType::FocusPosition => {
             if payload.len() != 4 {
                 return Err(Error::InvalidResponseLength);
             }
             let position = combine_nibbles_u16(&payload[0..4]);
-            Ok(Response::Inquiry(InquiryResponse::FocusPosition {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::FocusPosition {
                 position,
             }))
         }
-        ResponseType::FocusNearLimit => {
+        ViscaResponseType::FocusNearLimit => {
             if payload.len() != 4 {
                 return Err(Error::InvalidResponseLength);
             }
             let position = combine_nibbles_u16(&payload[0..4]);
-            Ok(Response::Inquiry(InquiryResponse::FocusNearLimit {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::FocusNearLimit {
                 position,
             }))
         }
-        ResponseType::ExposureMode => {
+        ViscaResponseType::ExposureMode => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
@@ -451,9 +457,11 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::Inquiry(InquiryResponse::ExposureMode { mode }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::ExposureMode {
+                mode,
+            }))
         }
-        ResponseType::WhiteBalanceMode => {
+        ViscaResponseType::WhiteBalanceMode => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
@@ -472,11 +480,11 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::Inquiry(InquiryResponse::WhiteBalanceMode {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::WhiteBalanceMode {
                 mode,
             }))
         }
-        ResponseType::FocusZone => {
+        ViscaResponseType::FocusZone => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
@@ -492,9 +500,9 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::Inquiry(InquiryResponse::FocusZone { zone }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::FocusZone { zone }))
         }
-        ResponseType::AutoFocusSensitivity => {
+        ViscaResponseType::AutoFocusSensitivity => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
@@ -510,21 +518,21 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::Inquiry(InquiryResponse::AutoFocusSensitivity {
-                sensitivity,
-            }))
+            Ok(ViscaResponse::Inquiry(
+                InquiryResponse::AutoFocusSensitivity { sensitivity },
+            ))
         }
-        ResponseType::ExposureCompensationMode => {
+        ViscaResponseType::ExposureCompensationMode => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::Inquiry(
+            Ok(ViscaResponse::Inquiry(
                 InquiryResponse::ExposureCompensationMode {
                     on: payload[0] == 0x02,
                 },
             ))
         }
-        ResponseType::SharpnessMode => {
+        ViscaResponseType::SharpnessMode => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
@@ -539,159 +547,171 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::Inquiry(InquiryResponse::SharpnessMode { mode }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::SharpnessMode {
+                mode,
+            }))
         }
-        ResponseType::BlackWhite => {
+        ViscaResponseType::BlackWhite => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::Inquiry(InquiryResponse::BlackWhite {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::BlackWhite {
                 on: payload[0] == 0x04,
             }))
         }
-        ResponseType::GainLimit => {
+        ViscaResponseType::GainLimit => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::Inquiry(InquiryResponse::GainLimit {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::GainLimit {
                 limit: payload[0],
             }))
         }
-        ResponseType::RedChannel => {
+        ViscaResponseType::RedChannel => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::Inquiry(InquiryResponse::RedChannel {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::RedChannel {
                 gain: payload[0] as i8 - 10,
             }))
         }
-        ResponseType::BlueChannel => {
+        ViscaResponseType::BlueChannel => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::Inquiry(InquiryResponse::BlueChannel {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::BlueChannel {
                 gain: payload[0] as i8 - 10,
             }))
         }
-        ResponseType::Sharpness => {
+        ViscaResponseType::Sharpness => {
             if payload.len() != 4 {
                 return Err(Error::InvalidResponseLength);
             }
             let value = combine_nibbles_u8(&payload[2..4]);
-            Ok(Response::Inquiry(InquiryResponse::Sharpness { value }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::Sharpness { value }))
         }
-        ResponseType::ExposureCompensation => {
+        ViscaResponseType::ExposureCompensation => {
             if payload.len() != 4 {
                 return Err(Error::InvalidResponseLength);
             }
             let raw_value = combine_nibbles_u8(&payload[2..4]);
-            Ok(Response::Inquiry(InquiryResponse::ExposureCompensation {
-                value: raw_value as i8 - 7,
-            }))
+            Ok(ViscaResponse::Inquiry(
+                InquiryResponse::ExposureCompensation {
+                    value: raw_value as i8 - 7,
+                },
+            ))
         }
-        ResponseType::Shutter => {
+        ViscaResponseType::Shutter => {
             if payload.len() != 4 {
                 return Err(Error::InvalidResponseLength);
             }
             let position = combine_nibbles_u8(&payload[2..4]) as u16;
-            Ok(Response::Inquiry(InquiryResponse::Shutter { position }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::Shutter {
+                position,
+            }))
         }
-        ResponseType::ImageFlip => {
+        ViscaResponseType::ImageFlip => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
             let value = payload[0];
-            Ok(Response::Inquiry(InquiryResponse::ImageFlip {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::ImageFlip {
                 horizontal: (value & 0x01) != 0,
                 vertical: (value & 0x02) != 0,
             }))
         }
-        ResponseType::Backlight => {
+        ViscaResponseType::Backlight => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::Inquiry(InquiryResponse::Backlight {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::Backlight {
                 status: payload[0] == 0x02,
             }))
         }
-        ResponseType::Luminance => {
+        ViscaResponseType::Luminance => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::Inquiry(InquiryResponse::Luminance(payload[0])))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::Luminance(
+                payload[0],
+            )))
         }
-        ResponseType::Contrast => {
+        ViscaResponseType::Contrast => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::Inquiry(InquiryResponse::Contrast(payload[0])))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::Contrast(
+                payload[0],
+            )))
         }
-        ResponseType::TallyRed => {
+        ViscaResponseType::TallyRed => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::Inquiry(InquiryResponse::TallyRed {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::TallyRed {
                 on: payload[0] == 0x02,
             }))
         }
-        ResponseType::TallyGreen => {
+        ViscaResponseType::TallyGreen => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::Inquiry(InquiryResponse::TallyGreen {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::TallyGreen {
                 on: payload[0] == 0x02,
             }))
         }
-        ResponseType::Bright => {
+        ViscaResponseType::Bright => {
             if payload.len() != 4 {
                 return Err(Error::InvalidResponseLength);
             }
             let position = combine_nibbles_u16(&payload[0..4]);
-            Ok(Response::Inquiry(InquiryResponse::Bright { position }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::Bright { position }))
         }
-        ResponseType::Gain => {
+        ViscaResponseType::Gain => {
             if payload.len() != 4 {
                 return Err(Error::InvalidResponseLength);
             }
             // Extract the gain value from the last nibble
             let gain = payload[3];
-            Ok(Response::Inquiry(InquiryResponse::GainLevel { gain }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::GainLevel { gain }))
         }
-        ResponseType::Iris => {
+        ViscaResponseType::Iris => {
             if payload.len() != 4 {
                 return Err(Error::InvalidResponseLength);
             }
             // Extract the iris position from the last nibble
             let position = payload[3];
-            Ok(Response::Inquiry(InquiryResponse::Iris { position }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::Iris { position }))
         }
-        ResponseType::Saturation => {
+        ViscaResponseType::Saturation => {
             if payload.len() != 4 {
                 return Err(Error::InvalidResponseLength);
             }
             // Extract the saturation level from the last nibble
             let level = payload[3];
-            Ok(Response::Inquiry(InquiryResponse::Saturation { level }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::Saturation {
+                level,
+            }))
         }
-        ResponseType::ColorTemperature => {
+        ViscaResponseType::ColorTemperature => {
             if payload.len() != 4 {
                 return Err(Error::InvalidResponseLength);
             }
             // Extract the color temperature from nibbles 2 and 3
             let temperature = ((payload[2] as u16) << 4) | (payload[3] as u16);
-            Ok(Response::Inquiry(InquiryResponse::ColorTemperature {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::ColorTemperature {
                 temperature,
             }))
         }
-        ResponseType::Hue => {
+        ViscaResponseType::Hue => {
             if payload.len() != 4 {
                 return Err(Error::InvalidResponseLength);
             }
             // Extract the hue value from the last nibble
             let hue = payload[3];
-            Ok(Response::Inquiry(InquiryResponse::Hue { hue }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::Hue { hue }))
         }
-        ResponseType::Version => {
+        ViscaResponseType::Version => {
             // Version response format: VV VV MM MM FF FF KK
             // VV VV = Vendor ID (2 bytes)
             // MM MM = Model ID (2 bytes)
@@ -704,14 +724,14 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             let model = ((payload[2] as u16) << 8) | (payload[3] as u16);
             let rom_version = ((payload[4] as u32) << 8) | (payload[5] as u32);
             let max_socket = payload[6];
-            Ok(Response::Inquiry(InquiryResponse::Version {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::Version {
                 vendor,
                 model,
                 rom_version,
                 max_socket,
             }))
         }
-        ResponseType::FocusMode => {
+        ViscaResponseType::FocusMode => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
@@ -726,40 +746,42 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::Inquiry(InquiryResponse::FocusMode { mode }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::FocusMode { mode }))
         }
-        ResponseType::DynamicRange => {
+        ViscaResponseType::DynamicRange => {
             // Dynamic range level response
             // Single byte level value (0x0=0 to 0x8=8)
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
             let level = payload[0];
-            Ok(Response::Inquiry(InquiryResponse::DynamicRange { level }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::DynamicRange {
+                level,
+            }))
         }
-        ResponseType::NoiseReduction2D => {
+        ViscaResponseType::NoiseReduction2D => {
             // 2D noise reduction level response
             // Based on common VISCA patterns, expecting single byte level value
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
             let level = payload[0];
-            Ok(Response::Inquiry(InquiryResponse::NoiseReduction2D {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::NoiseReduction2D {
                 level,
             }))
         }
-        ResponseType::NoiseReduction3D => {
+        ViscaResponseType::NoiseReduction3D => {
             // 3D noise reduction level response
             // Based on common VISCA patterns, expecting single byte level value
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
             let level = payload[0];
-            Ok(Response::Inquiry(InquiryResponse::NoiseReduction3D {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::NoiseReduction3D {
                 level,
             }))
         }
-        ResponseType::MenuOpenClose => {
+        ViscaResponseType::MenuOpenClose => {
             // Menu open/close status response
             // Single byte: 0x02 = closed, 0x03 = open
             if payload.len() != 1 {
@@ -778,11 +800,11 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::Inquiry(InquiryResponse::MenuOpenClose {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::MenuOpenClose {
                 is_open,
             }))
         }
-        ResponseType::AutoFocus => {
+        ViscaResponseType::AutoFocus => {
             // AutoFocus on/off status response
             // Single byte: 0x02 = off, 0x03 = on
             if payload.len() != 1 {
@@ -801,9 +823,11 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::Inquiry(InquiryResponse::AutoFocus { enabled }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::AutoFocus {
+                enabled,
+            }))
         }
-        ResponseType::TallyStatus => {
+        ViscaResponseType::TallyStatus => {
             // Tally light status response
             // Two bytes: first for red, second for green
             // Each byte: 0x02 = off, 0x03 = on
@@ -836,25 +860,25 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::Inquiry(InquiryResponse::TallyStatus {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::TallyStatus {
                 red_on,
                 green_on,
             }))
         }
-        ResponseType::Resolution => {
+        ViscaResponseType::Resolution => {
             // Resolution inquiry response
             // Single byte indicating resolution mode
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            // Resolution values based on common PTZ camera patterns:
+            // Resolution values based on common Ptz camera patterns:
             // 0x00 = 1080p60, 0x01 = 1080p30, 0x02 = 720p60, 0x03 = 720p30, etc.
             let resolution_mode = payload[0];
-            Ok(Response::Inquiry(InquiryResponse::Resolution(
+            Ok(ViscaResponse::Inquiry(InquiryResponse::Resolution(
                 resolution_mode,
             )))
         }
-        ResponseType::NightDayMode => {
+        ViscaResponseType::NightDayMode => {
             // Night/Day mode inquiry response
             // Single byte: 0x02 = Day mode, 0x03 = Night mode
             if payload.len() != 1 {
@@ -873,11 +897,11 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::Inquiry(InquiryResponse::NightDayMode {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::NightDayMode {
                 is_night,
             }))
         }
-        ResponseType::NdFilter => {
+        ViscaResponseType::NdFilter => {
             // ND filter position inquiry response
             // Single byte indicating filter position
             if payload.len() != 1 {
@@ -891,9 +915,11 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             // 0x04 = 1/32 ND
             // 0x05 = 1/64 ND
             let position = payload[0];
-            Ok(Response::Inquiry(InquiryResponse::NdFilter { position }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::NdFilter {
+                position,
+            }))
         }
-        ResponseType::PictureEffect => {
+        ViscaResponseType::PictureEffect => {
             // Picture effect inquiry response
             // Single byte indicating current effect
             if payload.len() != 1 {
@@ -905,9 +931,11 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             // 0x02 = B&W
             // Other values are camera-specific effects
             let effect = payload[0];
-            Ok(Response::Inquiry(InquiryResponse::PictureEffect { effect }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::PictureEffect {
+                effect,
+            }))
         }
-        ResponseType::FlipMode => {
+        ViscaResponseType::FlipMode => {
             // Combined flip mode inquiry response
             // Single byte encoding both horizontal and vertical flip
             if payload.len() != 1 {
@@ -921,12 +949,12 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
             let mode = payload[0];
             let horizontal = (mode & 0x01) != 0;
             let vertical = (mode & 0x02) != 0;
-            Ok(Response::Inquiry(InquiryResponse::FlipMode {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::FlipMode {
                 horizontal,
                 vertical,
             }))
         }
-        ResponseType::Standby => {
+        ViscaResponseType::Standby => {
             // Standby mode inquiry response
             // Single byte: 0x02 = Active, 0x03 = Standby
             if payload.len() != 1 {
@@ -944,18 +972,20 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                         ),
                     }),
                 };
-            Ok(Response::Inquiry(InquiryResponse::Standby { in_standby }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::Standby {
+                in_standby,
+            }))
         }
-        ResponseType::FocusRange => {
+        ViscaResponseType::FocusRange => {
             // Focus range inquiry response
             // Single byte indicating focus range mode
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
             // Parse custom focus range response
-            parse_focus_range(payload).map(Response::Inquiry)
+            parse_focus_range(payload).map(ViscaResponse::Inquiry)
         }
-        ResponseType::IrisControl => {
+        ViscaResponseType::IrisControl => {
             // Iris control inquiry response
             // Single byte: 0x02 = Manual control, 0x03 = Auto control
             if payload.len() != 1 {
@@ -974,9 +1004,11 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::Inquiry(InquiryResponse::IrisControl { auto }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::IrisControl {
+                auto,
+            }))
         }
-        ResponseType::DefogMode => {
+        ViscaResponseType::DefogMode => {
             // Defog mode inquiry response
             // Single byte: 0x02 = Off, 0x03 = On
             if payload.len() != 1 {
@@ -995,40 +1027,44 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::Inquiry(InquiryResponse::DefogMode { enabled }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::DefogMode {
+                enabled,
+            }))
         }
-        ResponseType::DefogLevel => {
+        ViscaResponseType::DefogLevel => {
             // Defog level inquiry response
             // Single byte indicating defog strength level
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::Inquiry(InquiryResponse::DefogLevel {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::DefogLevel {
                 level: payload[0],
             }))
         }
-        ResponseType::DigitalPtz => {
-            // Digital PTZ enable/disable inquiry response
+        ViscaResponseType::DigitalPtz => {
+            // Digital Ptz enable/disable inquiry response
             // Single byte: 0x02 = Off, 0x03 = On
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
             let enabled = match payload[0] {
-                0x02 => false, // Digital PTZ off
-                0x03 => true,  // Digital PTZ on
+                0x02 => false, // Digital Ptz off
+                0x03 => true,  // Digital Ptz on
                 _ => {
                     return Err(Error::InvalidParameter {
                         parameter: "digital_ptz",
                         value: Cow::Owned(format!("{:02X}", payload[0])),
                         reason: Cow::Borrowed(
-                            "Invalid digital PTZ value. Expected 0x02 (off) or 0x03 (on)",
+                            "Invalid digital Ptz value. Expected 0x02 (off) or 0x03 (on)",
                         ),
                     })
                 }
             };
-            Ok(Response::Inquiry(InquiryResponse::DigitalPtz { enabled }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::DigitalPtz {
+                enabled,
+            }))
         }
-        ResponseType::AutoWhiteBalanceSensitivity => {
+        ViscaResponseType::AutoWhiteBalanceSensitivity => {
             // Auto white balance sensitivity inquiry response
             // Single byte: 0x00 = Low, 0x01 = Normal, 0x02 = High
             if payload.len() != 1 {
@@ -1046,52 +1082,52 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::Inquiry(
+            Ok(ViscaResponse::Inquiry(
                 InquiryResponse::AutoWhiteBalanceSensitivity { sensitivity },
             ))
         }
-        ResponseType::ExposureCompensationPosition => {
+        ViscaResponseType::ExposureCompensationPosition => {
             // Exposure compensation position inquiry response
             // 4 bytes: PP PP (position as nibbles)
             if payload.len() != 4 {
                 return Err(Error::InvalidResponseLength);
             }
             let position = combine_nibbles_u16(&payload[0..4]);
-            Ok(Response::Inquiry(
+            Ok(ViscaResponse::Inquiry(
                 InquiryResponse::ExposureCompensationPosition { position },
             ))
         }
-        ResponseType::RedTuning => {
+        ViscaResponseType::RedTuning => {
             // Red channel tuning inquiry response
             // Single byte: tuning level
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::Inquiry(InquiryResponse::RedTuning {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::RedTuning {
                 level: payload[0],
             }))
         }
-        ResponseType::BlueTuning => {
+        ViscaResponseType::BlueTuning => {
             // Blue channel tuning inquiry response
             // Single byte: tuning level
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::Inquiry(InquiryResponse::BlueTuning {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::BlueTuning {
                 level: payload[0],
             }))
         }
-        ResponseType::Gamma => {
+        ViscaResponseType::Gamma => {
             // Gamma curve setting inquiry response
             // Single byte: gamma setting (0=Standard, 1-4=different curves)
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::Inquiry(InquiryResponse::Gamma {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::Gamma {
                 value: payload[0],
             }))
         }
-        ResponseType::AutoTrace => {
+        ViscaResponseType::AutoTrace => {
             // Auto trace mode inquiry response
             // Single byte: 0x02 = Off, 0x03 = On
             if payload.len() != 1 {
@@ -1110,9 +1146,11 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::Inquiry(InquiryResponse::AutoTrace { enabled }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::AutoTrace {
+                enabled,
+            }))
         }
-        ResponseType::FocusUnlock => {
+        ViscaResponseType::FocusUnlock => {
             // Focus unlock state inquiry response
             // Single byte: 0x02 = Locked, 0x03 = Unlocked
             if payload.len() != 1 {
@@ -1130,69 +1168,75 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                         ),
                     }),
                 };
-            Ok(Response::Inquiry(InquiryResponse::FocusUnlock { unlocked }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::FocusUnlock {
+                unlocked,
+            }))
         }
-        ResponseType::SharpnessPosition => {
+        ViscaResponseType::SharpnessPosition => {
             if payload.len() != 4 {
                 return Err(Error::InvalidResponseLength);
             }
             let position = combine_nibbles_u16(&payload[0..4]);
-            Ok(Response::Inquiry(InquiryResponse::SharpnessPosition {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::SharpnessPosition {
                 position,
             }))
         }
-        ResponseType::NrLevel => {
+        ViscaResponseType::NrLevel => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::Inquiry(InquiryResponse::NrLevel(payload[0])))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::NrLevel(payload[0])))
         }
-        ResponseType::BroadcastDomain => {
+        ViscaResponseType::BroadcastDomain => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::Inquiry(InquiryResponse::BroadcastDomain(
+            Ok(ViscaResponse::Inquiry(InquiryResponse::BroadcastDomain(
                 payload[0],
             )))
         }
-        ResponseType::MotionSyncMode => {
+        ViscaResponseType::MotionSyncMode => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
             let mode = MotionSyncMode::try_from(payload[0])?;
-            Ok(Response::Inquiry(InquiryResponse::MotionSyncMode { mode }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::MotionSyncMode {
+                mode,
+            }))
         }
-        ResponseType::MotionSyncSpeed => {
+        ViscaResponseType::MotionSyncSpeed => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
             let speed = MotionSyncSpeed::try_from(payload[0])?;
-            Ok(Response::Inquiry(InquiryResponse::MotionSyncSpeed {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::MotionSyncSpeed {
                 speed,
             }))
         }
-        ResponseType::NrMode => {
+        ViscaResponseType::NrMode => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
             let mode = NrMode::try_from(payload[0])?;
-            Ok(Response::Inquiry(InquiryResponse::NrMode { mode }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::NrMode { mode }))
         }
-        ResponseType::NrSpeed => {
+        ViscaResponseType::NrSpeed => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
             let speed = NrSpeed::try_from(payload[0])?;
-            Ok(Response::Inquiry(InquiryResponse::NrSpeed { speed }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::NrSpeed { speed }))
         }
-        ResponseType::BlackWhiteMode => {
+        ViscaResponseType::BlackWhiteMode => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
             let mode = BlackWhiteMode::try_from(payload[0])?;
-            Ok(Response::Inquiry(InquiryResponse::BlackWhiteMode { mode }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::BlackWhiteMode {
+                mode,
+            }))
         }
-        ResponseType::UsbAudio => {
+        ViscaResponseType::UsbAudio => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
@@ -1207,9 +1251,9 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::Inquiry(InquiryResponse::UsbAudio { on }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::UsbAudio { on }))
         }
-        ResponseType::TwoToneMode => {
+        ViscaResponseType::TwoToneMode => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
@@ -1224,17 +1268,17 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::Inquiry(InquiryResponse::TwoToneMode { on }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::TwoToneMode { on }))
         }
-        ResponseType::NdFilterPreset => {
+        ViscaResponseType::NdFilterPreset => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
-            Ok(Response::Inquiry(InquiryResponse::NdFilterPreset {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::NdFilterPreset {
                 preset: payload[0],
             }))
         }
-        ResponseType::Digital => {
+        ViscaResponseType::Digital => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
@@ -1249,9 +1293,9 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::Inquiry(InquiryResponse::Digital { on }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::Digital { on }))
         }
-        ResponseType::TallyAutoAdjust => {
+        ViscaResponseType::TallyAutoAdjust => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
@@ -1266,9 +1310,11 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::Inquiry(InquiryResponse::TallyAutoAdjust { on }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::TallyAutoAdjust {
+                on,
+            }))
         }
-        ResponseType::Rtmp => {
+        ViscaResponseType::Rtmp => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
@@ -1283,9 +1329,9 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::Inquiry(InquiryResponse::Rtmp { on }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::Rtmp { on }))
         }
-        ResponseType::ZoomOut => {
+        ViscaResponseType::ZoomOut => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
@@ -1300,9 +1346,9 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::Inquiry(InquiryResponse::ZoomOut { active }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::ZoomOut { active }))
         }
-        ResponseType::ZoomIn => {
+        ViscaResponseType::ZoomIn => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
@@ -1317,9 +1363,9 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::Inquiry(InquiryResponse::ZoomIn { active }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::ZoomIn { active }))
         }
-        ResponseType::IrisUp => {
+        ViscaResponseType::IrisUp => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
@@ -1334,9 +1380,9 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::Inquiry(InquiryResponse::IrisUp { active }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::IrisUp { active }))
         }
-        ResponseType::IrisDown => {
+        ViscaResponseType::IrisDown => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
@@ -1351,18 +1397,18 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::Inquiry(InquiryResponse::IrisDown { active }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::IrisDown { active }))
         }
-        ResponseType::NightDayPosition => {
+        ViscaResponseType::NightDayPosition => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
             let position = payload[0];
-            Ok(Response::Inquiry(InquiryResponse::NightDayPosition {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::NightDayPosition {
                 position,
             }))
         }
-        ResponseType::FocusNearFar => {
+        ViscaResponseType::FocusNearFar => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
@@ -1377,9 +1423,11 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::Inquiry(InquiryResponse::FocusNearFar { near }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::FocusNearFar {
+                near,
+            }))
         }
-        ResponseType::ZoomTeleWide => {
+        ViscaResponseType::ZoomTeleWide => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
@@ -1394,9 +1442,11 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::Inquiry(InquiryResponse::ZoomTeleWide { tele }))
+            Ok(ViscaResponse::Inquiry(InquiryResponse::ZoomTeleWide {
+                tele,
+            }))
         }
-        ResponseType::NightDaySwitch => {
+        ViscaResponseType::NightDaySwitch => {
             if payload.len() != 1 {
                 return Err(Error::InvalidResponseLength);
             }
@@ -1411,7 +1461,7 @@ fn parse_inquiry_response(payload: &[u8], expected_type: &ResponseType) -> Resul
                     })
                 }
             };
-            Ok(Response::Inquiry(InquiryResponse::NightDaySwitch {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::NightDaySwitch {
                 enabled,
             }))
         }
@@ -1752,20 +1802,20 @@ pub fn parse_defog_mode(data: &[u8]) -> Result<InquiryResponse, Error> {
     Ok(InquiryResponse::DefogMode { enabled })
 }
 
-/// Parse digital PTZ mode
+/// Parse digital Ptz mode
 pub fn parse_digital_ptz(data: &[u8]) -> Result<InquiryResponse, Error> {
     if data.is_empty() {
         return Err(Error::InvalidResponseLength);
     }
     let enabled = match data[0] {
-        0x02 => false, // Digital PTZ off
-        0x03 => true,  // Digital PTZ on
+        0x02 => false, // Digital Ptz off
+        0x03 => true,  // Digital Ptz on
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "digital_ptz",
                 value: Cow::Owned(format!("{:02X}", data[0])),
                 reason: Cow::Borrowed(
-                    "Invalid digital PTZ value. Expected 0x02 (off) or 0x03 (on)",
+                    "Invalid digital Ptz value. Expected 0x02 (off) or 0x03 (on)",
                 ),
             })
         }
@@ -1896,37 +1946,37 @@ mod tests {
 
     #[test]
     fn test_response_debug() {
-        let ack = Response::CmdAck;
+        let ack = ViscaResponse::CmdAck;
         assert_eq!(format!("{ack:?}"), "CmdAck");
 
-        let completion = Response::Completion;
+        let completion = ViscaResponse::Completion;
         assert_eq!(format!("{completion:?}"), "Completion");
     }
 
     #[test]
     fn test_response_type_equality() {
-        assert_eq!(ResponseType::Power, ResponseType::Power);
-        assert_ne!(ResponseType::Power, ResponseType::ZoomPosition);
+        assert_eq!(ViscaResponseType::Power, ViscaResponseType::Power);
+        assert_ne!(ViscaResponseType::Power, ViscaResponseType::ZoomPosition);
     }
 
     #[test]
     fn test_basic_ack_parsing() {
         let response = vec![0x90, 0x41, VISCA_TERMINATOR];
-        let result = parse_response(&response, &ResponseType::Power).unwrap();
-        assert!(matches!(result, Response::CmdAck));
+        let result = parse_response(&response, &ViscaResponseType::Power).unwrap();
+        assert!(matches!(result, ViscaResponse::CmdAck));
     }
 
     #[test]
     fn test_basic_completion_parsing() {
         let response = vec![0x90, 0x51, VISCA_TERMINATOR];
-        let result = parse_response(&response, &ResponseType::Power).unwrap();
-        assert!(matches!(result, Response::Completion));
+        let result = parse_response(&response, &ViscaResponseType::Power).unwrap();
+        assert!(matches!(result, ViscaResponse::Completion));
     }
 
     #[test]
     fn test_basic_error_parsing() {
         let response = vec![0x90, 0x60, 0x02, VISCA_TERMINATOR];
-        let result = parse_response(&response, &ResponseType::Power);
+        let result = parse_response(&response, &ViscaResponseType::Power);
         assert!(result.is_err());
     }
 
@@ -1934,12 +1984,12 @@ mod tests {
     fn test_invalid_format() {
         // Empty response
         let response = vec![];
-        let result = parse_response(&response, &ResponseType::Power);
+        let result = parse_response(&response, &ViscaResponseType::Power);
         assert!(matches!(result, Err(Error::InvalidResponseFormat)));
 
         // Too short
         let response = vec![0x90, VISCA_TERMINATOR];
-        let result = parse_response(&response, &ResponseType::Power);
+        let result = parse_response(&response, &ViscaResponseType::Power);
         assert!(matches!(result, Err(Error::InvalidResponseFormat)));
     }
 
@@ -1947,17 +1997,17 @@ mod tests {
     fn test_simple_power_response() {
         // Power On
         let response = vec![0x90, 0x50, 0x02, VISCA_TERMINATOR];
-        let result = parse_response(&response, &ResponseType::Power).unwrap();
+        let result = parse_response(&response, &ViscaResponseType::Power).unwrap();
         match result {
-            Response::Inquiry(InquiryResponse::Power { on }) => assert!(on),
+            ViscaResponse::Inquiry(InquiryResponse::Power { on }) => assert!(on),
             _ => panic!("Expected Power inquiry response"),
         }
 
         // Power Off
         let response = vec![0x90, 0x50, 0x03, VISCA_TERMINATOR];
-        let result = parse_response(&response, &ResponseType::Power).unwrap();
+        let result = parse_response(&response, &ViscaResponseType::Power).unwrap();
         match result {
-            Response::Inquiry(InquiryResponse::Power { on }) => assert!(!on),
+            ViscaResponse::Inquiry(InquiryResponse::Power { on }) => assert!(!on),
             _ => panic!("Expected Power inquiry response"),
         }
     }
@@ -1977,43 +2027,43 @@ mod tests {
     fn test_parse_ack_response() {
         // ACK for socket 0
         let ack_bytes = &[0x90, 0x40, VISCA_TERMINATOR];
-        let response = parse_response(ack_bytes, &ResponseType::PanTiltPosition);
-        assert!(matches!(response, Ok(Response::CmdAck)));
+        let response = parse_response(ack_bytes, &ViscaResponseType::PanTiltPosition);
+        assert!(matches!(response, Ok(ViscaResponse::CmdAck)));
 
         // ACK for socket 1
         let ack_bytes = &[0x90, 0x41, VISCA_TERMINATOR];
-        let response = parse_response(ack_bytes, &ResponseType::ZoomPosition);
-        assert!(matches!(response, Ok(Response::CmdAck)));
+        let response = parse_response(ack_bytes, &ViscaResponseType::ZoomPosition);
+        assert!(matches!(response, Ok(ViscaResponse::CmdAck)));
     }
 
     #[test]
     fn test_parse_completion_response() {
         // Completion for socket 0
         let completion_bytes = &[0x90, 0x50, VISCA_TERMINATOR];
-        let response = parse_response(completion_bytes, &ResponseType::PanTiltPosition);
-        assert!(matches!(response, Ok(Response::Completion)));
+        let response = parse_response(completion_bytes, &ViscaResponseType::PanTiltPosition);
+        assert!(matches!(response, Ok(ViscaResponse::Completion)));
 
         // Completion for socket 1
         let completion_bytes = &[0x90, 0x51, VISCA_TERMINATOR];
-        let response = parse_response(completion_bytes, &ResponseType::ZoomPosition);
-        assert!(matches!(response, Ok(Response::Completion)));
+        let response = parse_response(completion_bytes, &ViscaResponseType::ZoomPosition);
+        assert!(matches!(response, Ok(ViscaResponse::Completion)));
     }
 
     #[test]
     fn test_parse_error_responses() {
         // Test Syntax Error
         let error_bytes = &[0x90, 0x60, 0x02, VISCA_TERMINATOR];
-        let response = parse_response(error_bytes, &ResponseType::PanTiltPosition);
+        let response = parse_response(error_bytes, &ViscaResponseType::PanTiltPosition);
         assert!(matches!(response, Err(Error::SyntaxError)));
 
         // Test Command Buffer Full
         let error_bytes = &[0x90, 0x60, 0x03, VISCA_TERMINATOR];
-        let response = parse_response(error_bytes, &ResponseType::PanTiltPosition);
+        let response = parse_response(error_bytes, &ViscaResponseType::PanTiltPosition);
         assert!(matches!(response, Err(Error::CommandBufferFull)));
 
         // Test Command Not Executable (0x41 now maps to CameraBusy for retry logic)
         let error_bytes = &[0x90, 0x61, 0x41, VISCA_TERMINATOR];
-        let response = parse_response(error_bytes, &ResponseType::PanTiltPosition);
+        let response = parse_response(error_bytes, &ViscaResponseType::PanTiltPosition);
         assert!(matches!(response, Err(Error::CameraBusy)));
     }
 
@@ -2022,9 +2072,9 @@ mod tests {
         let pt_response_bytes = &[
             0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0xFF,
         ];
-        let response = parse_response(pt_response_bytes, &ResponseType::PanTiltPosition);
+        let response = parse_response(pt_response_bytes, &ViscaResponseType::PanTiltPosition);
         match response {
-            Ok(Response::Inquiry(InquiryResponse::PanTiltPosition { pan, tilt })) => {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::PanTiltPosition { pan, tilt })) => {
                 assert_eq!(pan, 0x1234);
                 assert_eq!(tilt, 0x5678);
             }
@@ -2035,9 +2085,9 @@ mod tests {
     #[test]
     fn test_parse_zoom_position_response() {
         let zoom_response_bytes = &[0x90, 0x50, 0x0A, 0x0B, 0x0C, 0x0D, VISCA_TERMINATOR];
-        let response = parse_response(zoom_response_bytes, &ResponseType::ZoomPosition);
+        let response = parse_response(zoom_response_bytes, &ViscaResponseType::ZoomPosition);
         match response {
-            Ok(Response::Inquiry(InquiryResponse::ZoomPosition { position })) => {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::ZoomPosition { position })) => {
                 assert_eq!(position, 0xABCD);
             }
             _ => panic!("Expected ZoomPosition inquiry response"),
@@ -2047,9 +2097,9 @@ mod tests {
     #[test]
     fn test_parse_focus_position_response() {
         let focus_response_bytes = &[0x90, 0x50, 0x01, 0x02, 0x03, 0x04, VISCA_TERMINATOR];
-        let response = parse_response(focus_response_bytes, &ResponseType::FocusPosition);
+        let response = parse_response(focus_response_bytes, &ViscaResponseType::FocusPosition);
         match response {
-            Ok(Response::Inquiry(InquiryResponse::FocusPosition { position })) => {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::FocusPosition { position })) => {
                 assert_eq!(position, 0x1234);
             }
             _ => panic!("Expected FocusPosition inquiry response"),
@@ -2060,9 +2110,9 @@ mod tests {
     fn test_parse_exposure_mode_response() {
         // Auto exposure mode
         let exposure_response_bytes = &[0x90, 0x50, 0x00, VISCA_TERMINATOR];
-        let response = parse_response(exposure_response_bytes, &ResponseType::ExposureMode);
+        let response = parse_response(exposure_response_bytes, &ViscaResponseType::ExposureMode);
         match response {
-            Ok(Response::Inquiry(InquiryResponse::ExposureMode { mode })) => {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::ExposureMode { mode })) => {
                 assert_eq!(mode as u8, 0x00); // Auto mode
             }
             _ => panic!("Expected ExposureMode inquiry response"),
@@ -2070,9 +2120,9 @@ mod tests {
 
         // Manual exposure mode
         let exposure_response_bytes = &[0x90, 0x50, 0x03, VISCA_TERMINATOR];
-        let response = parse_response(exposure_response_bytes, &ResponseType::ExposureMode);
+        let response = parse_response(exposure_response_bytes, &ViscaResponseType::ExposureMode);
         match response {
-            Ok(Response::Inquiry(InquiryResponse::ExposureMode { mode })) => {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::ExposureMode { mode })) => {
                 assert_eq!(mode as u8, 0x03); // Manual mode
             }
             _ => panic!("Expected ExposureMode inquiry response"),
@@ -2083,9 +2133,9 @@ mod tests {
     fn test_parse_luminance_response() {
         // Test minimum luminance value (0)
         let luminance_response_bytes = &[0x90, 0x50, 0x00, VISCA_TERMINATOR];
-        let response = parse_response(luminance_response_bytes, &ResponseType::Luminance);
+        let response = parse_response(luminance_response_bytes, &ViscaResponseType::Luminance);
         match response {
-            Ok(Response::Inquiry(InquiryResponse::Luminance(value))) => {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::Luminance(value))) => {
                 assert_eq!(value, 0x00);
             }
             _ => panic!("Expected Luminance inquiry response"),
@@ -2093,9 +2143,9 @@ mod tests {
 
         // Test middle luminance value (7)
         let luminance_response_bytes = &[0x90, 0x50, 0x07, VISCA_TERMINATOR];
-        let response = parse_response(luminance_response_bytes, &ResponseType::Luminance);
+        let response = parse_response(luminance_response_bytes, &ViscaResponseType::Luminance);
         match response {
-            Ok(Response::Inquiry(InquiryResponse::Luminance(value))) => {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::Luminance(value))) => {
                 assert_eq!(value, 0x07);
             }
             _ => panic!("Expected Luminance inquiry response"),
@@ -2103,9 +2153,9 @@ mod tests {
 
         // Test maximum luminance value (14)
         let luminance_response_bytes = &[0x90, 0x50, 0x0E, VISCA_TERMINATOR];
-        let response = parse_response(luminance_response_bytes, &ResponseType::Luminance);
+        let response = parse_response(luminance_response_bytes, &ViscaResponseType::Luminance);
         match response {
-            Ok(Response::Inquiry(InquiryResponse::Luminance(value))) => {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::Luminance(value))) => {
                 assert_eq!(value, 0x0E);
             }
             _ => panic!("Expected Luminance inquiry response"),
@@ -2116,9 +2166,9 @@ mod tests {
     fn test_parse_contrast_response() {
         // Test minimum contrast value (0)
         let contrast_response_bytes = &[0x90, 0x50, 0x00, VISCA_TERMINATOR];
-        let response = parse_response(contrast_response_bytes, &ResponseType::Contrast);
+        let response = parse_response(contrast_response_bytes, &ViscaResponseType::Contrast);
         match response {
-            Ok(Response::Inquiry(InquiryResponse::Contrast(value))) => {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::Contrast(value))) => {
                 assert_eq!(value, 0x00);
             }
             _ => panic!("Expected Contrast inquiry response"),
@@ -2126,9 +2176,9 @@ mod tests {
 
         // Test middle contrast value (7)
         let contrast_response_bytes = &[0x90, 0x50, 0x07, VISCA_TERMINATOR];
-        let response = parse_response(contrast_response_bytes, &ResponseType::Contrast);
+        let response = parse_response(contrast_response_bytes, &ViscaResponseType::Contrast);
         match response {
-            Ok(Response::Inquiry(InquiryResponse::Contrast(value))) => {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::Contrast(value))) => {
                 assert_eq!(value, 0x07);
             }
             _ => panic!("Expected Contrast inquiry response"),
@@ -2136,9 +2186,9 @@ mod tests {
 
         // Test maximum contrast value (14)
         let contrast_response_bytes = &[0x90, 0x50, 0x0E, VISCA_TERMINATOR];
-        let response = parse_response(contrast_response_bytes, &ResponseType::Contrast);
+        let response = parse_response(contrast_response_bytes, &ViscaResponseType::Contrast);
         match response {
-            Ok(Response::Inquiry(InquiryResponse::Contrast(value))) => {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::Contrast(value))) => {
                 assert_eq!(value, 0x0E);
             }
             _ => panic!("Expected Contrast inquiry response"),
@@ -2149,17 +2199,17 @@ mod tests {
     fn test_parse_invalid_response() {
         // Test response that doesn't start with 0x90
         let invalid_bytes = &[0x80, 0x50, VISCA_TERMINATOR];
-        let response = parse_response(invalid_bytes, &ResponseType::PanTiltPosition);
+        let response = parse_response(invalid_bytes, &ViscaResponseType::PanTiltPosition);
         assert!(response.is_err());
 
         // Test response that doesn't end with 0xFF
         let invalid_bytes = &[0x90, 0x50, 0x00];
-        let response = parse_response(invalid_bytes, &ResponseType::PanTiltPosition);
+        let response = parse_response(invalid_bytes, &ViscaResponseType::PanTiltPosition);
         assert!(response.is_err());
 
         // Test empty response
         let invalid_bytes = &[];
-        let response = parse_response(invalid_bytes, &ResponseType::PanTiltPosition);
+        let response = parse_response(invalid_bytes, &ViscaResponseType::PanTiltPosition);
         assert!(response.is_err());
     }
 
@@ -2167,18 +2217,18 @@ mod tests {
     fn test_parse_response_with_wrong_type() {
         // Try to parse an ACK as a data response
         let ack_bytes = &[0x90, 0x40, VISCA_TERMINATOR];
-        let response = parse_response(ack_bytes, &ResponseType::PanTiltPosition);
+        let response = parse_response(ack_bytes, &ViscaResponseType::PanTiltPosition);
         // ACK is still recognized regardless of expected response type
-        assert!(matches!(response, Ok(Response::CmdAck)));
+        assert!(matches!(response, Ok(ViscaResponse::CmdAck)));
     }
 
     #[test]
     fn test_parse_sharpness_response() {
         // Test Sharpness response
         let sharpness_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x0B, VISCA_TERMINATOR];
-        let response = parse_response(sharpness_bytes, &ResponseType::Sharpness);
+        let response = parse_response(sharpness_bytes, &ViscaResponseType::Sharpness);
         match response {
-            Ok(Response::Inquiry(InquiryResponse::Sharpness { value })) => {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::Sharpness { value })) => {
                 assert_eq!(value, 0x0B);
             }
             _ => panic!("Expected Sharpness inquiry response"),
@@ -2189,9 +2239,9 @@ mod tests {
     fn test_parse_exposure_compensation_responses() {
         // Test Exposure Compensation value -7
         let exp_comp_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x00, VISCA_TERMINATOR];
-        let response = parse_response(exp_comp_bytes, &ResponseType::ExposureCompensation);
+        let response = parse_response(exp_comp_bytes, &ViscaResponseType::ExposureCompensation);
         match response {
-            Ok(Response::Inquiry(InquiryResponse::ExposureCompensation { value })) => {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::ExposureCompensation { value })) => {
                 assert_eq!(value, -7);
             }
             _ => panic!("Expected ExposureCompensation inquiry response"),
@@ -2199,9 +2249,9 @@ mod tests {
 
         // Test Exposure Compensation value 0
         let exp_comp_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x07, VISCA_TERMINATOR];
-        let response = parse_response(exp_comp_bytes, &ResponseType::ExposureCompensation);
+        let response = parse_response(exp_comp_bytes, &ViscaResponseType::ExposureCompensation);
         match response {
-            Ok(Response::Inquiry(InquiryResponse::ExposureCompensation { value })) => {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::ExposureCompensation { value })) => {
                 assert_eq!(value, 0);
             }
             _ => panic!("Expected ExposureCompensation inquiry response"),
@@ -2209,9 +2259,9 @@ mod tests {
 
         // Test Exposure Compensation value +7
         let exp_comp_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x0E, VISCA_TERMINATOR];
-        let response = parse_response(exp_comp_bytes, &ResponseType::ExposureCompensation);
+        let response = parse_response(exp_comp_bytes, &ViscaResponseType::ExposureCompensation);
         match response {
-            Ok(Response::Inquiry(InquiryResponse::ExposureCompensation { value })) => {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::ExposureCompensation { value })) => {
                 assert_eq!(value, 7);
             }
             _ => panic!("Expected ExposureCompensation inquiry response"),
@@ -2219,9 +2269,12 @@ mod tests {
 
         // Test Exposure Compensation Mode On
         let exp_comp_mode_bytes = &[0x90, 0x50, 0x02, VISCA_TERMINATOR];
-        let response = parse_response(exp_comp_mode_bytes, &ResponseType::ExposureCompensationMode);
+        let response = parse_response(
+            exp_comp_mode_bytes,
+            &ViscaResponseType::ExposureCompensationMode,
+        );
         match response {
-            Ok(Response::Inquiry(InquiryResponse::ExposureCompensationMode { on })) => {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::ExposureCompensationMode { on })) => {
                 assert!(on);
             }
             _ => panic!("Expected ExposureCompensationMode inquiry response"),
@@ -2229,9 +2282,12 @@ mod tests {
 
         // Test Exposure Compensation Mode Off
         let exp_comp_mode_bytes = &[0x90, 0x50, 0x03, VISCA_TERMINATOR];
-        let response = parse_response(exp_comp_mode_bytes, &ResponseType::ExposureCompensationMode);
+        let response = parse_response(
+            exp_comp_mode_bytes,
+            &ViscaResponseType::ExposureCompensationMode,
+        );
         match response {
-            Ok(Response::Inquiry(InquiryResponse::ExposureCompensationMode { on })) => {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::ExposureCompensationMode { on })) => {
                 assert!(!on);
             }
             _ => panic!("Expected ExposureCompensationMode inquiry response"),
@@ -2242,9 +2298,9 @@ mod tests {
     fn test_parse_iris_responses() {
         // Test Iris Close (0x00)
         let iris_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x00, VISCA_TERMINATOR];
-        let response = parse_response(iris_bytes, &ResponseType::Iris);
+        let response = parse_response(iris_bytes, &ViscaResponseType::Iris);
         match response {
-            Ok(Response::Inquiry(InquiryResponse::Iris { position })) => {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::Iris { position })) => {
                 assert_eq!(position, 0x00);
             }
             _ => panic!("Expected Iris inquiry response"),
@@ -2252,9 +2308,9 @@ mod tests {
 
         // Test Iris F1.8 (0x0C)
         let iris_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x0C, VISCA_TERMINATOR];
-        let response = parse_response(iris_bytes, &ResponseType::Iris);
+        let response = parse_response(iris_bytes, &ViscaResponseType::Iris);
         match response {
-            Ok(Response::Inquiry(InquiryResponse::Iris { position })) => {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::Iris { position })) => {
                 assert_eq!(position, 0x0C);
             }
             _ => panic!("Expected Iris inquiry response"),
@@ -2265,9 +2321,9 @@ mod tests {
     fn test_parse_shutter_responses() {
         // Test Shutter 1/30 (0x01)
         let shutter_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x01, VISCA_TERMINATOR];
-        let response = parse_response(shutter_bytes, &ResponseType::Shutter);
+        let response = parse_response(shutter_bytes, &ViscaResponseType::Shutter);
         match response {
-            Ok(Response::Inquiry(InquiryResponse::Shutter { position })) => {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::Shutter { position })) => {
                 assert_eq!(position, 0x01);
             }
             _ => panic!("Expected Shutter inquiry response"),
@@ -2275,9 +2331,9 @@ mod tests {
 
         // Test Shutter 1/10000 (0x11)
         let shutter_bytes = &[0x90, 0x50, 0x00, 0x00, 0x01, 0x01, VISCA_TERMINATOR];
-        let response = parse_response(shutter_bytes, &ResponseType::Shutter);
+        let response = parse_response(shutter_bytes, &ViscaResponseType::Shutter);
         match response {
-            Ok(Response::Inquiry(InquiryResponse::Shutter { position })) => {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::Shutter { position })) => {
                 assert_eq!(position, 0x11);
             }
             _ => panic!("Expected Shutter inquiry response"),
@@ -2288,9 +2344,9 @@ mod tests {
     fn test_parse_gain_responses() {
         // Test Gain response
         let gain_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x07, VISCA_TERMINATOR];
-        let response = parse_response(gain_bytes, &ResponseType::Gain);
+        let response = parse_response(gain_bytes, &ViscaResponseType::Gain);
         match response {
-            Ok(Response::Inquiry(InquiryResponse::GainLevel { gain })) => {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::GainLevel { gain })) => {
                 assert_eq!(gain, 0x07);
             }
             _ => panic!("Expected Gain inquiry response"),
@@ -2298,9 +2354,9 @@ mod tests {
 
         // Test GainLimit response
         let gain_limit_bytes = &[0x90, 0x50, 0x0F, VISCA_TERMINATOR];
-        let response = parse_response(gain_limit_bytes, &ResponseType::GainLimit);
+        let response = parse_response(gain_limit_bytes, &ViscaResponseType::GainLimit);
         match response {
-            Ok(Response::Inquiry(InquiryResponse::GainLimit { limit })) => {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::GainLimit { limit })) => {
                 assert_eq!(limit, 0x0F);
             }
             _ => panic!("Expected GainLimit inquiry response"),
@@ -2311,9 +2367,9 @@ mod tests {
     fn test_parse_image_flip_responses() {
         // Test ImageFlip Off (0x00)
         let flip_bytes = &[0x90, 0x50, 0x00, VISCA_TERMINATOR];
-        let response = parse_response(flip_bytes, &ResponseType::ImageFlip);
+        let response = parse_response(flip_bytes, &ViscaResponseType::ImageFlip);
         match response {
-            Ok(Response::Inquiry(InquiryResponse::ImageFlip {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::ImageFlip {
                 vertical,
                 horizontal,
             })) => {
@@ -2325,9 +2381,9 @@ mod tests {
 
         // Test ImageFlip Horizontal only (0x01)
         let flip_bytes = &[0x90, 0x50, 0x01, VISCA_TERMINATOR];
-        let response = parse_response(flip_bytes, &ResponseType::ImageFlip);
+        let response = parse_response(flip_bytes, &ViscaResponseType::ImageFlip);
         match response {
-            Ok(Response::Inquiry(InquiryResponse::ImageFlip {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::ImageFlip {
                 vertical,
                 horizontal,
             })) => {
@@ -2339,9 +2395,9 @@ mod tests {
 
         // Test ImageFlip Vertical only (0x02)
         let flip_bytes = &[0x90, 0x50, 0x02, VISCA_TERMINATOR];
-        let response = parse_response(flip_bytes, &ResponseType::ImageFlip);
+        let response = parse_response(flip_bytes, &ViscaResponseType::ImageFlip);
         match response {
-            Ok(Response::Inquiry(InquiryResponse::ImageFlip {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::ImageFlip {
                 vertical,
                 horizontal,
             })) => {
@@ -2353,9 +2409,9 @@ mod tests {
 
         // Test ImageFlip Both (0x03)
         let flip_bytes = &[0x90, 0x50, 0x03, VISCA_TERMINATOR];
-        let response = parse_response(flip_bytes, &ResponseType::ImageFlip);
+        let response = parse_response(flip_bytes, &ViscaResponseType::ImageFlip);
         match response {
-            Ok(Response::Inquiry(InquiryResponse::ImageFlip {
+            Ok(ViscaResponse::Inquiry(InquiryResponse::ImageFlip {
                 vertical,
                 horizontal,
             })) => {
@@ -2372,12 +2428,12 @@ mod tests {
 
         // Sharpness with wrong length (should be 7 bytes)
         let invalid_sharpness = &[0x90, 0x50, 0x0B, VISCA_TERMINATOR];
-        let response = parse_response(invalid_sharpness, &ResponseType::Sharpness);
+        let response = parse_response(invalid_sharpness, &ViscaResponseType::Sharpness);
         assert!(matches!(response, Err(Error::InvalidResponseLength)));
 
         // Exposure compensation with wrong length (should be 7 bytes)
         let invalid_exp_comp = &[0x90, 0x50, 0x07, VISCA_TERMINATOR];
-        let response = parse_response(invalid_exp_comp, &ResponseType::ExposureCompensation);
+        let response = parse_response(invalid_exp_comp, &ViscaResponseType::ExposureCompensation);
         assert!(matches!(response, Err(Error::InvalidResponseLength)));
     }
 }

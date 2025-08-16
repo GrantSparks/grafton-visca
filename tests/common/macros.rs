@@ -40,9 +40,9 @@ macro_rules! assert_command_bytes {
 ///
 /// # Example
 /// ```no_run
-/// # use grafton_visca::Response;
-/// # let result: Result<Response, grafton_visca::Error> = Ok(Response::CmdAck);
-/// assert_response_ok!(result, Response::CmdAck);
+/// # use grafton_visca::ViscaResponse;
+/// # let result: Result<ViscaResponse, grafton_visca::Error> = Ok(ViscaResponse::CmdAck);
+/// assert_response_ok!(result, ViscaResponse::CmdAck);
 /// ```
 #[macro_export]
 macro_rules! assert_response_ok {
@@ -57,7 +57,7 @@ macro_rules! assert_response_ok {
             Ok(response) => {
                 assert_eq!(
                     response, $expected,
-                    "Response mismatch\nExpected: {:?}\nActual:   {:?}",
+                    "ViscaResponse mismatch\nExpected: {:?}\nActual:   {:?}",
                     $expected, response
                 );
                 response
@@ -77,8 +77,8 @@ macro_rules! assert_response_ok {
 ///
 /// # Example
 /// ```no_run
-/// # use grafton_visca::{Response, Error};
-/// # let result: Result<Response, Error> = Err(Error::Timeout);
+/// # use grafton_visca::{ViscaResponse, Error};
+/// # let result: Result<ViscaResponse, Error> = Err(Error::Timeout);
 /// assert_response_err!(result);
 /// assert_response_err!(result, Error::Timeout);
 /// ```
@@ -107,8 +107,8 @@ macro_rules! assert_response_err {
 ///
 /// # Example
 /// ```no_run
-/// # use grafton_visca::{Response, InquiryResponse};
-/// # let response = Response::InquiryResponse(InquiryResponse::Power { on: true });
+/// # use grafton_visca::{ViscaResponse, InquiryResponse};
+/// # let response = ViscaResponse::InquiryResponse(InquiryResponse::Power { on: true });
 /// let on = assert_inquiry_response!(response, Power { on });
 /// assert!(on);
 /// ```
@@ -116,7 +116,7 @@ macro_rules! assert_response_err {
 macro_rules! assert_inquiry_response {
     ($response:expr, $variant:ident { $($field:ident),+ }) => {{
         match $response {
-            $crate::Response::InquiryResponse($crate::InquiryResponse::$variant { $($field),+ }) => {
+            $crate::ViscaResponse::InquiryResponse($crate::InquiryResponse::$variant { $($field),+ }) => {
                 ($($field),+)
             }
             _ => panic!(
@@ -129,7 +129,7 @@ macro_rules! assert_inquiry_response {
     }};
     ($response:expr, $variant:ident) => {{
         match $response {
-            $crate::Response::InquiryResponse($crate::InquiryResponse::$variant) => {}
+            $crate::ViscaResponse::InquiryResponse($crate::InquiryResponse::$variant) => {}
             _ => panic!(
                 "Expected InquiryResponse::{}, got {:?}",
                 stringify!($variant),
@@ -168,9 +168,9 @@ macro_rules! create_test_client {
 /// ```no_run
 /// # #[cfg(not(feature = "async"))]
 /// # {
-/// # use grafton_visca::{Client, command::PowerCommand, command::power::Power};
+/// # use grafton_visca::{Client, command::Power, command::power::Power};
 /// # let client = Client::connect_udp("127.0.0.1:1234").unwrap();
-/// assert_send_ok!(client, PowerCommand { power: Power::On });
+/// assert_send_ok!(client, Power { power: Power::On });
 /// # }
 /// ```
 #[cfg(not(feature = "async"))]
@@ -210,7 +210,7 @@ mod tests {
     fn test_assert_command_bytes_macro() {
         struct TestCommand;
         impl EncodeVisca for TestCommand {
-            type Response = ();
+            type ViscaResponse = ();
             const MAX_SIZE: usize = 5;
 
             fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
@@ -236,7 +236,7 @@ mod tests {
     fn test_assert_command_bytes_failure() {
         struct TestCommand;
         impl EncodeVisca for TestCommand {
-            type Response = ();
+            type ViscaResponse = ();
             const MAX_SIZE: usize = 5;
 
             fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {

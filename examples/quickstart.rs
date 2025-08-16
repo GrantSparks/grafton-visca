@@ -23,11 +23,11 @@ use std::{env, thread::sleep, time::Duration};
 use grafton_visca::{
     camera::{
         methods::{
-            exposure::ExposureOpsBlocking, focus::FocusOpsBlocking, pan_tilt::PanTiltOpsBlocking,
-            presets::PresetsOpsBlocking, white_balance::WhiteBalanceOpsBlocking,
-            zoom::ZoomOpsBlocking,
+            exposure::ExposureControlBlocking, focus::FocusControlBlocking,
+            pan_tilt::PanTiltControlBlocking, presets::PresetsControlBlocking,
+            white_balance::WhiteBalanceControlBlocking, zoom::ZoomControlBlocking,
         },
-        profiles::PTZOpticsG2,
+        profiles::PtzOpticsG2,
         Camera,
     },
     command::preset::PresetNumber,
@@ -52,7 +52,7 @@ fn main() -> Result<(), Error> {
 
     // Create transport and camera using the new API
     let transport = Tcp::connect(&camera_addr)?;
-    let camera = Camera::<_, PTZOpticsG2, _, _>::new(transport);
+    let camera = Camera::<_, PtzOpticsG2, _, _>::new(transport);
 
     println!("✅ Connected successfully!");
     println!();

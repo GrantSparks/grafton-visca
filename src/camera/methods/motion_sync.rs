@@ -1,4 +1,4 @@
-//! Motion Sync control methods for PTZOptics cameras.
+//! Motion Sync control methods for PtzOptics cameras.
 
 use crate::{error::Error, MotionSyncMode, MotionSyncSpeed};
 
@@ -7,7 +7,7 @@ use crate::{error::Error, MotionSyncMode, MotionSyncSpeed};
 pub trait MotionSyncControl {
     /// Sets the motion sync mode (on/off).
     ///
-    /// This PTZOptics-specific feature coordinates pan, tilt, and zoom movements
+    /// This PtzOptics-specific feature coordinates pan, tilt, and zoom movements
     /// for smoother preset recalls.
     ///
     /// # Arguments
@@ -74,18 +74,18 @@ impl<P, T, E> MotionSyncControl for crate::camera::Camera<crate::camera::AsyncMo
 where
     P: crate::capabilities::Profile + crate::capabilities::motion_sync::MotionSync,
     T: crate::transport::AsyncTransport + Send + Sync + 'static,
-    E: crate::executor_unified::Executor,
+    E: crate::executor::Executor,
 {
     async fn set_motion_sync_mode(&self, mode: MotionSyncMode) -> Result<(), Error> {
-        use crate::command::motion_sync::MotionSyncModeCommand;
-        let cmd = MotionSyncModeCommand::new(mode);
+        use crate::command::motion_sync::MotionSyncModeCmd;
+        let cmd = MotionSyncModeCmd::new(mode);
         self.send_command(&cmd).await?;
         Ok(())
     }
 
     async fn set_motion_sync_speed(&self, speed: u8) -> Result<(), Error> {
-        use crate::command::motion_sync::MotionSyncSpeedCommand;
-        let cmd = MotionSyncSpeedCommand::new(speed).map_err(|_| Error::InvalidParameter {
+        use crate::command::motion_sync::MotionSyncSpeedCmd;
+        let cmd = MotionSyncSpeedCmd::new(speed).map_err(|_| Error::InvalidParameter {
             parameter: "speed",
             value: speed.to_string().into(),
             reason: "must be between 1 and 24".into(),
@@ -95,30 +95,32 @@ where
     }
 
     async fn set_motion_sync_preset_speed(&self, speed: MotionSyncSpeed) -> Result<(), Error> {
-        use crate::command::motion_sync::MotionSyncSpeedCommand;
-        let cmd = MotionSyncSpeedCommand::from_preset(speed);
+        use crate::command::motion_sync::MotionSyncSpeedCmd;
+        let cmd = MotionSyncSpeedCmd::from_preset(speed);
         self.send_command(&cmd).await?;
         Ok(())
     }
 
     async fn get_motion_sync_mode(&self) -> Result<MotionSyncMode, Error> {
-        use crate::command::{inquiry::MotionSyncModeInquiry, response::Response, InquiryResponse};
+        use crate::command::{
+            inquiry::MotionSyncModeInquiry, response::ViscaResponse, InquiryResponse,
+        };
         let inquiry = MotionSyncModeInquiry;
         let response = self.send_command(&inquiry).await?;
         match response {
-            Response::Inquiry(InquiryResponse::MotionSyncMode { mode }) => Ok(mode),
+            ViscaResponse::Inquiry(InquiryResponse::MotionSyncMode { mode }) => Ok(mode),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     async fn get_motion_sync_speed(&self) -> Result<MotionSyncSpeed, Error> {
         use crate::command::{
-            inquiry::MotionSyncSpeedInquiry, response::Response, InquiryResponse,
+            inquiry::MotionSyncSpeedInquiry, response::ViscaResponse, InquiryResponse,
         };
         let inquiry = MotionSyncSpeedInquiry;
         let response = self.send_command(&inquiry).await?;
         match response {
-            Response::Inquiry(InquiryResponse::MotionSyncSpeed { speed }) => Ok(speed),
+            ViscaResponse::Inquiry(InquiryResponse::MotionSyncSpeed { speed }) => Ok(speed),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -132,15 +134,15 @@ where
     T: crate::transport::BlockingTransport + Send + Sync + 'static,
 {
     fn set_motion_sync_mode(&self, mode: MotionSyncMode) -> Result<(), Error> {
-        use crate::command::motion_sync::MotionSyncModeCommand;
-        let cmd = MotionSyncModeCommand::new(mode);
+        use crate::command::motion_sync::MotionSyncModeCmd;
+        let cmd = MotionSyncModeCmd::new(mode);
         self.send_command(&cmd)?;
         Ok(())
     }
 
     fn set_motion_sync_speed(&self, speed: u8) -> Result<(), Error> {
-        use crate::command::motion_sync::MotionSyncSpeedCommand;
-        let cmd = MotionSyncSpeedCommand::new(speed).map_err(|_| Error::InvalidParameter {
+        use crate::command::motion_sync::MotionSyncSpeedCmd;
+        let cmd = MotionSyncSpeedCmd::new(speed).map_err(|_| Error::InvalidParameter {
             parameter: "speed",
             value: speed.to_string().into(),
             reason: "must be between 1 and 24".into(),
@@ -150,30 +152,32 @@ where
     }
 
     fn set_motion_sync_preset_speed(&self, speed: MotionSyncSpeed) -> Result<(), Error> {
-        use crate::command::motion_sync::MotionSyncSpeedCommand;
-        let cmd = MotionSyncSpeedCommand::from_preset(speed);
+        use crate::command::motion_sync::MotionSyncSpeedCmd;
+        let cmd = MotionSyncSpeedCmd::from_preset(speed);
         self.send_command(&cmd)?;
         Ok(())
     }
 
     fn get_motion_sync_mode(&self) -> Result<MotionSyncMode, Error> {
-        use crate::command::{inquiry::MotionSyncModeInquiry, response::Response, InquiryResponse};
+        use crate::command::{
+            inquiry::MotionSyncModeInquiry, response::ViscaResponse, InquiryResponse,
+        };
         let inquiry = MotionSyncModeInquiry;
         let response = self.send_command(&inquiry)?;
         match response {
-            Response::Inquiry(InquiryResponse::MotionSyncMode { mode }) => Ok(mode),
+            ViscaResponse::Inquiry(InquiryResponse::MotionSyncMode { mode }) => Ok(mode),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     fn get_motion_sync_speed(&self) -> Result<MotionSyncSpeed, Error> {
         use crate::command::{
-            inquiry::MotionSyncSpeedInquiry, response::Response, InquiryResponse,
+            inquiry::MotionSyncSpeedInquiry, response::ViscaResponse, InquiryResponse,
         };
         let inquiry = MotionSyncSpeedInquiry;
         let response = self.send_command(&inquiry)?;
         match response {
-            Response::Inquiry(InquiryResponse::MotionSyncSpeed { speed }) => Ok(speed),
+            ViscaResponse::Inquiry(InquiryResponse::MotionSyncSpeed { speed }) => Ok(speed),
             _ => Err(Error::UnexpectedResponseType),
         }
     }

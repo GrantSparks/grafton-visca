@@ -11,7 +11,7 @@
 //! - Async: cargo run --example builder_api --features rt-tokio
 
 use grafton_visca::{
-    camera::profiles::{PTZOpticsG2, SonyBRC300, SonyFR7},
+    camera::profiles::{PtzOpticsG2, SonyBRC300, SonyFR7},
     CameraBuilder, Result,
 };
 
@@ -25,23 +25,23 @@ fn main() -> Result<()> {
 
     println!("--- Example 1: Simple TCP with Default Port ---");
     let transport = BlockingTcp::connect("192.168.0.110:5678")?;
-    let _camera = CameraBuilder::new().build_blocking::<PTZOpticsG2, _>(transport);
+    let _camera = CameraBuilder::new().build_blocking::<PtzOpticsG2, _>(transport);
     println!("✓ Created PTZOptics G2 camera on TCP port 5678");
 
     println!("\n--- Example 2: TCP with Custom Port ---");
     let transport = BlockingTcp::connect("192.168.0.110:52381")?;
-    let _camera = CameraBuilder::new().build_blocking::<PTZOpticsG2, _>(transport);
+    let _camera = CameraBuilder::new().build_blocking::<PtzOpticsG2, _>(transport);
     println!("✓ Created camera with custom port 52381");
 
     println!("\n--- Example 3: UDP Transport ---");
     let transport = BlockingUdp::connect("192.168.0.110:1259")?;
-    let _camera = CameraBuilder::new().build_blocking::<PTZOpticsG2, _>(transport);
+    let _camera = CameraBuilder::new().build_blocking::<PtzOpticsG2, _>(transport);
     println!("✓ Created camera on UDP port 1259");
 
     println!("\n--- Example 4: Camera Profiles ---");
 
     let transport = BlockingTcp::connect("192.168.0.110:5678")?;
-    let _generic = CameraBuilder::new().build_blocking::<PTZOpticsG2, _>(transport);
+    let _generic = CameraBuilder::new().build_blocking::<PtzOpticsG2, _>(transport);
     println!("✓ PTZOptics G2 camera (used as generic example)");
 
     let transport = BlockingTcp::connect("192.168.0.109:52381")?;
@@ -76,14 +76,14 @@ async fn main() -> Result<()> {
     println!("--- Example 1: Tokio TCP ---");
     let transport = Tcp::connect("192.168.0.110:5678").await?;
     let _camera = CameraBuilder::tokio()?
-        .build_async::<PTZOpticsG2, _>(transport)
+        .build_async::<PtzOpticsG2, _>(transport)
         .await?;
     println!("✓ Created async TCP camera with tokio");
 
     println!("\n--- Example 2: Tokio UDP ---");
     let transport = Udp::connect("192.168.0.110:1259").await?;
     let _camera = CameraBuilder::tokio()?
-        .build_async::<PTZOpticsG2, _>(transport)
+        .build_async::<PtzOpticsG2, _>(transport)
         .await?;
     println!("✓ Created async UDP camera with tokio");
 
@@ -99,7 +99,7 @@ async fn main() -> Result<()> {
     }
 
     let (cam1, cam2, cam3) = join!(
-        create_camera::<PTZOpticsG2>("192.168.0.110:5678"),
+        create_camera::<PtzOpticsG2>("192.168.0.110:5678"),
         create_camera::<SonyBRC300>("192.168.0.111:52381"),
         create_camera::<SonyFR7>("192.168.0.112:5678")
     );
@@ -119,7 +119,7 @@ async fn main() -> Result<()> {
     println!("\n--- Example 4: Connection Error Handling ---");
     match Tcp::connect("invalid.host:5678").await {
         Ok(transport) => match CameraBuilder::tokio()?
-            .build_async::<PTZOpticsG2, _>(transport)
+            .build_async::<PtzOpticsG2, _>(transport)
             .await
         {
             Ok(_) => println!("Unexpected success"),

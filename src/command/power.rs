@@ -9,15 +9,15 @@ use crate::command::const_encoding::constants;
 visca_command! {
     /// Command to control camera power state.
     category = "Quick",
-    enum PowerCommand {
+    enum Power {
         /// Power on the camera.
         On => {
-            Ok(CommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<16>::new()
                 .append(constants::power::ON))
         },
         /// Put camera in standby mode.
         Standby => {
-            Ok(CommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<16>::new()
                 .append(constants::power::OFF))
         },
     }
@@ -30,15 +30,15 @@ mod tests {
     use crate::macros::test_utils::visca_test;
 
     visca_test!(
-        PowerCommand,
+        Power,
         test_power_on,
-        PowerCommand::On,
+        Power::On,
         &[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]
     );
     visca_test!(
-        PowerCommand,
+        Power,
         test_power_standby,
-        PowerCommand::Standby,
+        Power::Standby,
         &[0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]
     );
 }

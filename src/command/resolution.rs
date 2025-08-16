@@ -3,9 +3,9 @@
 //! This module provides helper functions for interpreting resolution mode values
 //! returned by cameras in response to resolution inquiry commands.
 
-/// Common video resolution modes for PTZ cameras.
+/// Common video resolution modes for Ptz cameras.
 ///
-/// Note: These mappings are based on common PTZOptics camera patterns.
+/// Note: These mappings are based on common PtzOptics camera patterns.
 /// Actual mappings may vary by camera model and firmware version.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResolutionMode {
@@ -91,7 +91,7 @@ impl ResolutionMode {
     }
 }
 
-/// Picture effect modes for PTZ cameras.
+/// Picture effect modes for Ptz cameras.
 ///
 /// These effects modify the camera's video output for artistic or functional purposes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

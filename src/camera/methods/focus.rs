@@ -11,7 +11,7 @@ use crate::{
 
 /// Focus operations (async).
 #[cfg(feature = "async")]
-pub trait FocusOps: Sized {
+pub trait FocusControl: Sized {
     /// Set auto focus mode.
     async fn focus_auto(&self) -> Result<(), Error>;
 
@@ -69,7 +69,7 @@ pub trait FocusOps: Sized {
 }
 
 /// Focus operations (blocking).
-pub trait FocusOpsBlocking: Sized {
+pub trait FocusControlBlocking: Sized {
     /// Set auto focus mode.
     fn focus_auto(&self) -> Result<(), Error>;
 
@@ -125,11 +125,11 @@ pub trait FocusOpsBlocking: Sized {
 
 // Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P, T, E> FocusOps for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
+impl<P, T, E> FocusControl for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
 where
     P: crate::capabilities::Profile,
     T: crate::transport::AsyncTransport + Send + Sync + 'static,
-    E: crate::executor_unified::Executor,
+    E: crate::executor::Executor,
 {
     async fn focus_auto(&self) -> Result<(), Error> {
         let cmd = Focus::Auto;
@@ -233,7 +233,7 @@ where
 }
 
 // Blocking implementation for Camera with BlockingMode
-impl<P, T> FocusOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
+impl<P, T> FocusControlBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile,
     T: crate::transport::BlockingTransport + Send + Sync + 'static,

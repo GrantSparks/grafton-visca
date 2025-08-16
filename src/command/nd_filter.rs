@@ -39,7 +39,7 @@ visca_param_command! {
     /// Command: `8x 01 7E 04 52 0p FF`
     /// - p = 0 (Preset mode)
     /// - p = 1 (Variable mode)
-    pub struct NDFilterModeCommand {
+    pub struct NdFilterModeCmd {
         mode: NDFilterMode,
     }
     prefix = constants::nd_filter::CONTROL_PREFIX;
@@ -47,7 +47,7 @@ visca_param_command! {
     timeout = Quick;
 }
 
-impl NDFilterModeCommand {
+impl NdFilterModeCmd {
     /// Create a new ND filter mode command.
     pub fn new(mode: NDFilterMode) -> Self {
         Self { mode }
@@ -62,7 +62,7 @@ visca_builder! {
     /// - Value 0x0000 = ND 1/4 (2 stops, minimum ND)
     /// - Value 0x0014 = ND 1/128 (7 stops, maximum density)
     /// - Linear scale for optical density (each increment ~0.5 stop)
-    pub struct NDFilterValueCommand {
+    pub struct NDFilterValue {
         value: u16,
     }
     builder<9> => |builder, value| {
@@ -73,7 +73,7 @@ visca_builder! {
     timeout = Quick;
 }
 
-impl NDFilterValueCommand {
+impl NDFilterValue {
     /// Create a new ND filter value command.
     ///
     /// # Arguments
@@ -133,7 +133,7 @@ visca_param_command! {
     /// - p = 02 (ND Filter Up - increase ND one step)
     /// - p = 03 (ND Filter Down - decrease ND one step)
     ///   Works in Variable mode to bump ND in small increments.
-    pub struct NDFilterStepCommand {
+    pub struct NdFilterStepCmd {
         direction: NDFilterStep,
     }
     prefix = constants::nd_filter::MODE_PREFIX;
@@ -141,7 +141,7 @@ visca_param_command! {
     timeout = Quick;
 }
 
-impl NDFilterStepCommand {
+impl NdFilterStepCmd {
     /// Create a new ND filter step command.
     pub fn new(direction: NDFilterStep) -> Self {
         Self { direction }
@@ -172,24 +172,23 @@ mod tests {
     use crate::macros::test_utils::visca_test;
 
     visca_test!(
-        NDFilterModeCommand,
+        NDFilterMode,
         test_nd_filter_mode_preset,
-        NDFilterModeCommand::new(NDFilterMode::Preset),
+        NdFilterModeCmd::new(NDFilterMode::Preset),
         &[0x81, 0x01, 0x7E, 0x04, 0x52, 0x00, VISCA_TERMINATOR]
     );
 
     visca_test!(
-        NDFilterModeCommand,
+        NDFilterMode,
         test_nd_filter_mode_variable,
-        NDFilterModeCommand::new(NDFilterMode::Variable),
+        NdFilterModeCmd::new(NDFilterMode::Variable),
         &[0x81, 0x01, 0x7E, 0x04, 0x52, 0x01, VISCA_TERMINATOR]
     );
 
     visca_test!(
-        NDFilterValueCommand,
+        NDFilterValue,
         test_nd_filter_value_min,
-        NDFilterValueCommand::new(0x0000)
-            .expect("Failed to create NDFilterValueCommand with valid value"),
+        NDFilterValue::new(0x0000).expect("Failed to create NDFilterValue with valid value"),
         &[
             0x81,
             0x01,
@@ -204,10 +203,9 @@ mod tests {
     );
 
     visca_test!(
-        NDFilterValueCommand,
+        NDFilterValue,
         test_nd_filter_value_max,
-        NDFilterValueCommand::new(0x0014)
-            .expect("Failed to create NDFilterValueCommand with valid value"),
+        NDFilterValue::new(0x0014).expect("Failed to create NDFilterValue with valid value"),
         &[
             0x81,
             0x01,
@@ -224,39 +222,39 @@ mod tests {
     #[test]
     fn test_nd_filter_value_out_of_range() {
         // Test out of range
-        assert!(NDFilterValueCommand::new(0x0015).is_err());
+        assert!(NDFilterValue::new(0x0015).is_err());
     }
 
     #[test]
     fn test_nd_filter_from_stops() {
-        let cmd = NDFilterValueCommand::from_stops(2.0)
-            .expect("Failed to create NDFilterValueCommand from valid stops");
+        let cmd = NDFilterValue::from_stops(2.0)
+            .expect("Failed to create NDFilterValue from valid stops");
         assert_eq!(cmd.value, 0x0000);
 
-        let cmd = NDFilterValueCommand::from_stops(7.0)
-            .expect("Failed to create NDFilterValueCommand from valid stops");
+        let cmd = NDFilterValue::from_stops(7.0)
+            .expect("Failed to create NDFilterValue from valid stops");
         assert_eq!(cmd.value, 0x0014);
 
-        let cmd = NDFilterValueCommand::from_stops(4.5)
-            .expect("Failed to create NDFilterValueCommand from valid stops");
+        let cmd = NDFilterValue::from_stops(4.5)
+            .expect("Failed to create NDFilterValue from valid stops");
         assert_eq!(cmd.value, 0x000A); // (4.5 - 2) * 4 = 10
 
         // Test out of range
-        assert!(NDFilterValueCommand::from_stops(1.5).is_err());
-        assert!(NDFilterValueCommand::from_stops(8.0).is_err());
+        assert!(NDFilterValue::from_stops(1.5).is_err());
+        assert!(NDFilterValue::from_stops(8.0).is_err());
     }
 
     visca_test!(
-        NDFilterStepCommand,
+        NDFilterStep,
         test_nd_filter_step_up,
-        NDFilterStepCommand::new(NDFilterStep::Up),
+        NdFilterStepCmd::new(NDFilterStep::Up),
         &[0x81, 0x01, 0x7E, 0x04, 0x12, 0x02, VISCA_TERMINATOR]
     );
 
     visca_test!(
-        NDFilterStepCommand,
+        NDFilterStep,
         test_nd_filter_step_down,
-        NDFilterStepCommand::new(NDFilterStep::Down),
+        NdFilterStepCmd::new(NDFilterStep::Down),
         &[0x81, 0x01, 0x7E, 0x04, 0x12, 0x03, VISCA_TERMINATOR]
     );
 

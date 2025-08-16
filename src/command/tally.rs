@@ -8,12 +8,14 @@
 //!
 //! ## Vendor-Specific Features
 //! - Green tally light (`GreenOn`, `GreenOff`) - Sony FR7 specific
-//! - Flash/solid modes (`Flash`, `On`, `Off`) - PTZOptics specific
+//! - Flash/solid modes (`Flash`, `On`, `Off`) - PtzOptics specific
 
 use crate::macros::internal::*;
 
 use crate::{
-    command::{const_encoding::builder::CommandBuilder, encode_visca::EncodeVisca, ResponseType},
+    command::{
+        const_encoding::builder::ConstCommandBuilder, encode_visca::EncodeVisca, ViscaResponseType,
+    },
     error::Error,
     timeout::CommandCategory,
 };
@@ -27,55 +29,55 @@ visca_command! {
     enum Tally {
         /// Turn red tally light on
         RedOn => {
-            Ok(CommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<16>::new()
                 .append(crate::command::const_encoding::constants::tally::TALLY_PREFIX)
                 .append(&[0x02]))
         },
         /// Turn red tally light off
         RedOff => {
-            Ok(CommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<16>::new()
                 .append(crate::command::const_encoding::constants::tally::TALLY_PREFIX)
                 .append(&[0x03]))
         },
         /// Set tally brightness to low
         BrightLo => {
-            Ok(CommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<16>::new()
                 .append(crate::command::const_encoding::constants::tally::TALLY_BRIGHT_PREFIX)
                 .append(&[0x04]))
         },
         /// Set tally brightness to high
         BrightHi => {
-            Ok(CommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<16>::new()
                 .append(crate::command::const_encoding::constants::tally::TALLY_BRIGHT_PREFIX)
                 .append(&[0x05]))
         },
         /// Turn green tally light on (FR7 specific)
         GreenOn => {
-            Ok(CommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<16>::new()
                 .append(crate::command::const_encoding::constants::tally::TALLY_GREEN_PREFIX)
                 .append(&[0x02]))
         },
         /// Turn green tally light off (FR7 specific)
         GreenOff => {
-            Ok(CommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<16>::new()
                 .append(crate::command::const_encoding::constants::tally::TALLY_GREEN_PREFIX)
                 .append(&[0x03]))
         },
-        /// Set tally to flash mode (PTZOptics specific)
+        /// Set tally to flash mode (PtzOptics specific)
         Flash => {
-            Ok(CommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<16>::new()
                 .append(crate::command::const_encoding::constants::tally::TALLY_PTZO_PREFIX)
                 .append(&[0x01]))
         },
-        /// Set tally to solid on (PTZOptics specific)
+        /// Set tally to solid on (PtzOptics specific)
         On => {
-            Ok(CommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<16>::new()
                 .append(crate::command::const_encoding::constants::tally::TALLY_PTZO_PREFIX)
                 .append(&[0x02]))
         },
-        /// Turn tally off (PTZOptics specific)
+        /// Turn tally off (PtzOptics specific)
         Off => {
-            Ok(CommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<16>::new()
                 .append(crate::command::const_encoding::constants::tally::TALLY_PTZO_PREFIX)
                 .append(&[0x03]))
         },
@@ -94,7 +96,7 @@ pub enum TallyInquiry {
 }
 
 impl EncodeVisca for TallyInquiry {
-    type Response = ();
+    type ViscaResponse = ();
     const MAX_SIZE: usize = 7;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -106,19 +108,19 @@ impl EncodeVisca for TallyInquiry {
         use crate::command::const_encoding::constants;
 
         match self {
-            Self::Red => CommandBuilder::<7>::from_prefix(constants::inquiry::TALLY_STATUS)
+            Self::Red => ConstCommandBuilder::<7>::from_prefix(constants::inquiry::TALLY_STATUS)
                 .with_camera_id(camera_id)
                 .build_into(buffer),
-            Self::Green => CommandBuilder::<7>::from_prefix(constants::inquiry::TALLY_GREEN)
+            Self::Green => ConstCommandBuilder::<7>::from_prefix(constants::inquiry::TALLY_GREEN)
                 .with_camera_id(camera_id)
                 .build_into(buffer),
         }
     }
 
-    fn response_type(&self) -> Option<ResponseType> {
+    fn response_type(&self) -> Option<ViscaResponseType> {
         Some(match self {
-            Self::Red => ResponseType::TallyRed,
-            Self::Green => ResponseType::TallyGreen,
+            Self::Red => ViscaResponseType::TallyRed,
+            Self::Green => ViscaResponseType::TallyGreen,
         })
     }
 }

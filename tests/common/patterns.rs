@@ -341,7 +341,7 @@ mod tests {
     #[test]
     fn test_response_patterns() {
         // Verify response patterns
-        assert_eq!(responses::ACK_0[0], 0x90); // Response header
+        assert_eq!(responses::ACK_0[0], 0x90); // ViscaResponse header
         assert_eq!(responses::ACK_0[1] & 0xF0, 0x40); // ACK type
 
         assert_eq!(responses::COMPLETE_1[1] & 0xF0, 0x50); // Completion type

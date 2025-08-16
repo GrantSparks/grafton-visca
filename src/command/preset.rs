@@ -1,7 +1,7 @@
 //! Preset position commands for VISCA cameras.
 //!
 //! This module provides commands for storing and recalling camera positions.
-//! `PTZOptics` G2 cameras support up to 90 presets (0-89).
+//! `PtzOptics` G2 cameras support up to 90 presets (0-89).
 
 // Standard library imports
 // (none)
@@ -11,7 +11,9 @@
 
 // Workspace / local-crate imports
 use crate::{
-    command::{const_encoding::builder::CommandBuilder, encode_visca::EncodeVisca, ResponseType},
+    command::{
+        const_encoding::builder::ConstCommandBuilder, encode_visca::EncodeVisca, ViscaResponseType,
+    },
     error::Error,
     timeout::CommandCategory,
 };
@@ -32,8 +34,8 @@ crate::visca_bounded_param! {
     ///
     /// Valid range: 0 to 255 (0x00 to 0xFF).
     /// Note: Actual valid range depends on camera model:
-    /// - PTZOptics G2: 0-89
-    /// - PTZOptics G3: 0-255
+    /// - PtzOptics G2: 0-89
+    /// - PtzOptics G3: 0-255
     /// - Sony FR7: 0-255
     /// - Sony EVI-H100: 0-6
     /// Camera-specific validation is performed when sending commands.
@@ -58,7 +60,7 @@ impl PresetCommand {
 }
 
 impl EncodeVisca for PresetCommand {
-    type Response = ();
+    type ViscaResponse = ();
     const MAX_SIZE: usize = 7;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Preset;
 
@@ -69,14 +71,14 @@ impl EncodeVisca for PresetCommand {
     ) -> Result<usize, Error> {
         use crate::command::const_encoding::constants::preset;
 
-        CommandBuilder::<7>::from_prefix(preset::CONTROL_PREFIX)
+        ConstCommandBuilder::<7>::from_prefix(preset::CONTROL_PREFIX)
             .with_camera_id(camera_id)
             .push(self.action as u8)
             .push(self.preset_number.value())
             .build_into(buffer)
     }
 
-    fn response_type(&self) -> Option<ResponseType> {
+    fn response_type(&self) -> Option<ViscaResponseType> {
         None
     }
 }

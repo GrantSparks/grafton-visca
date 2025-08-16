@@ -80,8 +80,8 @@ pub enum CameraFeature {
     SystemReset,
     /// Command cancel
     CommandCancel,
-    /// NDI streaming features (PTZOptics)
-    NDI,
+    /// Ndi streaming features (PtzOptics)
+    Ndi,
 }
 
 impl CameraFeature {
@@ -118,7 +118,7 @@ impl CameraFeature {
             Self::SystemReset => "System Reset",
             Self::CommandCancel => "Command Cancel",
             Self::PictureEffect => "Picture Effect",
-            Self::NDI => "NDI Streaming",
+            Self::Ndi => "Ndi Streaming",
         }
     }
 
@@ -155,7 +155,7 @@ impl CameraFeature {
             Self::SystemReset => "Reset camera to factory defaults",
             Self::CommandCancel => "Cancel pending commands",
             Self::PictureEffect => "Apply picture effects (negative, sepia, B&W, etc.)",
-            Self::NDI => "Control NDI streaming settings",
+            Self::Ndi => "Control Ndi streaming settings",
         }
     }
 }

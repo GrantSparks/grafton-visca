@@ -6,7 +6,7 @@ fn test_blocking_wrapper_api() {
     use grafton_visca::camera::{BlockingMode, Camera};
     use grafton_visca::capabilities::Profile;
     use grafton_visca::transport::BlockingTransport;
-    use grafton_visca::ZoomOpsBlocking;
+    use grafton_visca::ZoomControlBlocking;
 
     // This test just verifies the API compiles correctly
     // In a real test, you'd use a mock transport
@@ -35,7 +35,7 @@ async fn test_async_wrapper_api() {
     use grafton_visca::camera::{AsyncMode, Camera};
     use grafton_visca::capabilities::Profile;
     use grafton_visca::transport::AsyncTransport;
-    use grafton_visca::ZoomOps;
+    use grafton_visca::ZoomControl;
 
     // This test just verifies the API compiles correctly
     // In a real test, you'd use a mock transport
@@ -63,7 +63,7 @@ async fn test_async_wrapper_api() {
 fn test_wrapper_creation() {
     // This would normally use a real transport
     // Here we just test the type system compiles
-    use grafton_visca::camera::profiles::PTZOpticsG2;
+    use grafton_visca::camera::profiles::PtzOpticsG2;
     #[cfg(feature = "async")]
     use grafton_visca::camera::AsyncMode;
     #[cfg(not(feature = "async"))]
@@ -94,14 +94,14 @@ fn test_wrapper_creation() {
     // Check that specific camera types exist
     #[cfg(feature = "async")]
     fn _check_specific_types<T: AsyncTransport + Send + Sync + 'static>() {
-        let _: Option<Camera<AsyncMode, PTZOpticsG2, T>> = None;
+        let _: Option<Camera<AsyncMode, PtzOpticsG2, T>> = None;
         let _: Option<Camera<AsyncMode, grafton_visca::camera::profiles::SonyFR7, T>> = None;
         let _: Option<Camera<AsyncMode, grafton_visca::camera::profiles::GenericVisca, T>> = None;
     }
 
     #[cfg(not(feature = "async"))]
     fn _check_specific_types<T: BlockingTransport + Send + Sync + 'static>() {
-        let _: Option<Camera<BlockingMode, PTZOpticsG2, T>> = None;
+        let _: Option<Camera<BlockingMode, PtzOpticsG2, T>> = None;
         let _: Option<Camera<BlockingMode, grafton_visca::camera::profiles::SonyFR7, T>> = None;
         let _: Option<Camera<BlockingMode, grafton_visca::camera::profiles::GenericVisca, T>> =
             None;
