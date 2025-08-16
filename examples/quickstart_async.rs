@@ -54,7 +54,9 @@ async fn main() -> Result<(), Error> {
 
     // Create camera using the new executor-based API
     let transport = Tcp::connect(&camera_addr).await?;
-    let camera = CameraBuilder::tokio()?.build_async::<PTZOpticsG2, _>(transport)?;
+    let camera = CameraBuilder::tokio()?
+        .build_async::<PTZOpticsG2, _>(transport)
+        .await?;
 
     println!("✅ Connected successfully!");
     println!();

@@ -86,11 +86,23 @@ async fn multi_camera_control() -> Result<()> {
         })?;
 
     // Build cameras with the Tokio executor using the builder pattern
-    let cam1 = Arc::new(CameraBuilder::tokio()?.build_async::<PTZOpticsG2, _>(transport1)?);
+    let cam1 = Arc::new(
+        CameraBuilder::tokio()?
+            .build_async::<PTZOpticsG2, _>(transport1)
+            .await?,
+    );
 
-    let cam2 = Arc::new(CameraBuilder::tokio()?.build_async::<PTZOpticsG2, _>(transport2)?);
+    let cam2 = Arc::new(
+        CameraBuilder::tokio()?
+            .build_async::<PTZOpticsG2, _>(transport2)
+            .await?,
+    );
 
-    let cam3 = Arc::new(CameraBuilder::tokio()?.build_async::<PTZOpticsG2, _>(transport3)?);
+    let cam3 = Arc::new(
+        CameraBuilder::tokio()?
+            .build_async::<PTZOpticsG2, _>(transport3)
+            .await?,
+    );
 
     // Spawn concurrent tasks for each camera
     let handle1 = {
@@ -170,7 +182,11 @@ async fn parallel_single_camera() -> Result<()> {
             e
         })?;
 
-    let camera = Arc::new(CameraBuilder::tokio()?.build_async::<PTZOpticsG2, _>(transport)?);
+    let camera = Arc::new(
+        CameraBuilder::tokio()?
+            .build_async::<PTZOpticsG2, _>(transport)
+            .await?,
+    );
 
     println!("Querying multiple states in parallel...");
 
@@ -234,7 +250,11 @@ async fn producer_consumer_pattern() -> Result<()> {
     use tokio::sync::mpsc;
 
     let transport = Tcp::connect("192.168.0.110").await?;
-    let camera = Arc::new(CameraBuilder::tokio()?.build_async::<PTZOpticsG2, _>(transport)?);
+    let camera = Arc::new(
+        CameraBuilder::tokio()?
+            .build_async::<PTZOpticsG2, _>(transport)
+            .await?,
+    );
 
     // Save initial state
     let (tx, mut rx) = mpsc::channel(10);
@@ -317,7 +337,11 @@ async fn synchronized_movement() -> Result<()> {
 
     for addr in camera_addrs {
         let transport = Tcp::connect(addr).await?;
-        let camera = Arc::new(CameraBuilder::tokio()?.build_async::<PTZOpticsG2, _>(transport)?);
+        let camera = Arc::new(
+            CameraBuilder::tokio()?
+                .build_async::<PTZOpticsG2, _>(transport)
+                .await?,
+        );
 
         // Save initial state
         let state = camera.get_pan_tilt_position().await.ok();

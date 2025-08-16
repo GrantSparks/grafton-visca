@@ -21,13 +21,6 @@
 //! # }
 //! ```
 
-// Standard library imports
-// (none)
-
-// Third-party crate imports
-// (none)
-
-// Workspace / local-crate imports
 use crate::{
     command::{const_encoding::CommandBuilder, encode_visca::EncodeVisca, ResponseType},
     error::Error,
@@ -76,13 +69,7 @@ pub enum Zoom {
     Position(ZoomPosition),
 }
 
-impl Zoom {
-    // Legacy method - removed in new API
-    // pub fn direct<P: crate::camera::CameraProfile>(position: u16) -> Result<Self, Error> {
-    //     ...
-    //     Ok(Self::Position(ZoomPosition::new(position)?))
-    // }
-}
+impl Zoom {}
 
 impl EncodeVisca for Zoom {
     type Response = ();

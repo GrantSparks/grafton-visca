@@ -4,7 +4,7 @@
 
 use grafton_visca::{testing::camera_simulator::ViscaCameraSimulator, transport::AsyncTransport};
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_simulator_power_inquiry_direct() {
     let simulator = ViscaCameraSimulator::new();
 
@@ -25,7 +25,7 @@ async fn test_simulator_power_inquiry_direct() {
     assert_eq!(response[3], 0xFF, "Should have terminator");
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_simulator_zoom_inquiry_direct() {
     let simulator = ViscaCameraSimulator::new();
 
@@ -52,7 +52,7 @@ async fn test_simulator_zoom_inquiry_direct() {
     assert_eq!(response[6], 0xFF);
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_simulator_pan_tilt_inquiry_direct() {
     let simulator = ViscaCameraSimulator::new();
 
@@ -85,7 +85,7 @@ async fn test_simulator_pan_tilt_inquiry_direct() {
     assert_eq!(response[10], 0xFF);
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_simulator_exposure_compensation_inquiry() {
     let simulator = ViscaCameraSimulator::new();
 
@@ -114,7 +114,7 @@ async fn test_simulator_exposure_compensation_inquiry() {
     assert_eq!(response[6], 0xFF, "Should have terminator");
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_simulator_mixed_commands_and_inquiries() {
     let simulator = ViscaCameraSimulator::new();
 

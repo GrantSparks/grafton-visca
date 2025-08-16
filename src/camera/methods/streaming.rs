@@ -124,4 +124,60 @@ pub trait StreamingOpsBlocking: Sized {
     fn set_ndi_quality(&self, quality: NDIQuality) -> Result<()>;
 }
 
-// Implementation for async Camera
+// Async implementation for Camera with AsyncMode
+#[cfg(feature = "async")]
+impl<P, T, E> StreamingOps for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
+where
+    P: crate::capabilities::Profile,
+    T: crate::transport::AsyncTransport + Send + Sync + 'static,
+    E: crate::executor_unified::Executor,
+{
+    async fn enable_multicast(&self) -> Result<()> {
+        use crate::command::streaming::MulticastStreaming;
+        let cmd = MulticastStreaming::On;
+        self.send_command(&cmd).await?;
+        Ok(())
+    }
+
+    async fn disable_multicast(&self) -> Result<()> {
+        use crate::command::streaming::MulticastStreaming;
+        let cmd = MulticastStreaming::Off;
+        self.send_command(&cmd).await?;
+        Ok(())
+    }
+
+    async fn set_ndi_quality(&self, quality: NDIQuality) -> Result<()> {
+        use crate::command::streaming::NDIQualityCommand;
+        let cmd = NDIQualityCommand::new(quality);
+        self.send_command(&cmd).await?;
+        Ok(())
+    }
+}
+
+// Blocking implementation for Camera with BlockingMode
+impl<P, T> StreamingOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
+where
+    P: crate::capabilities::Profile,
+    T: crate::transport::BlockingTransport + Send + Sync + 'static,
+{
+    fn enable_multicast(&self) -> Result<()> {
+        use crate::command::streaming::MulticastStreaming;
+        let cmd = MulticastStreaming::On;
+        self.send_command(&cmd)?;
+        Ok(())
+    }
+
+    fn disable_multicast(&self) -> Result<()> {
+        use crate::command::streaming::MulticastStreaming;
+        let cmd = MulticastStreaming::Off;
+        self.send_command(&cmd)?;
+        Ok(())
+    }
+
+    fn set_ndi_quality(&self, quality: NDIQuality) -> Result<()> {
+        use crate::command::streaming::NDIQualityCommand;
+        let cmd = NDIQualityCommand::new(quality);
+        self.send_command(&cmd)?;
+        Ok(())
+    }
+}
