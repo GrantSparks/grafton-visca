@@ -17,7 +17,7 @@ pub enum CommandCategory {
     Preset,
     /// Long operations like preset discovery (2-5 minutes).
     LongRunning,
-    /// Network commands like multicast/NDI settings (1-2 seconds).
+    /// Network commands like multicast/Ndi settings (1-2 seconds).
     Network,
     /// Custom timeout for specific commands.
     Custom,
@@ -51,7 +51,7 @@ pub struct TimeoutConfig {
     pub preset_timeout: Duration,
     /// Timeout for long-running operations
     pub long_timeout: Duration,
-    /// Timeout for network commands (multicast, NDI)
+    /// Timeout for network commands (multicast, Ndi)
     pub network_timeout: Duration,
     /// Default timeout for uncategorized commands
     pub default_timeout: Duration,

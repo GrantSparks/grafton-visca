@@ -57,7 +57,7 @@ pub use self::{
     pan_tilt::*,
     power::*,
     preset::*,
-    response::{Response, ResponseType},
+    response::{ViscaResponse, ViscaResponseType},
     system::{MotionSyncMode, MotionSyncSpeed},
     // tally::*,  // Commented out - unused
     variable_speed::*,
@@ -69,10 +69,10 @@ pub use self::{
 
 // Command trait has been replaced by EncodeVisca trait
 
-/// Response data from VISCA inquiry commands.
+/// ViscaResponse data from VISCA inquiry commands.
 ///
 /// Each variant represents a different type of inquiry response with its associated data.
-/// These are returned wrapped in `Response::Inquiry(...)`.
+/// These are returned wrapped in `ViscaResponse::Inquiry(...)`.
 #[derive(Debug, Copy, Clone)]
 pub enum InquiryResponse {
     /// Power status inquiry response.
@@ -326,9 +326,9 @@ pub enum InquiryResponse {
         /// Current defog strength level (0-8).
         level: u8,
     },
-    /// Digital PTZ mode inquiry response.
+    /// Digital Ptz mode inquiry response.
     DigitalPtz {
-        /// Whether digital PTZ is enabled.
+        /// Whether digital Ptz is enabled.
         enabled: bool,
     },
     /// Auto white balance sensitivity inquiry response.
@@ -521,9 +521,9 @@ mod tests {
 
     #[test]
     fn test_power_commands_have_terminator() {
-        use crate::command::power::PowerCommand;
-        assert_command_has_terminator(PowerCommand::On, "PowerOn");
-        assert_command_has_terminator(PowerCommand::Standby, "PowerOff");
+        use crate::command::power::Power;
+        assert_command_has_terminator(Power::On, "PowerOn");
+        assert_command_has_terminator(Power::Standby, "PowerOff");
     }
 
     #[test]
@@ -632,10 +632,10 @@ mod tests {
 
     #[test]
     fn test_type_state_prevents_unterminated_commands() {
-        use crate::command::const_encoding::CommandBuilder;
+        use crate::command::const_encoding::ConstCommandBuilder;
 
         // Create a builder and terminate it
-        let builder = CommandBuilder::<8>::new()
+        let builder = ConstCommandBuilder::<8>::new()
             .push(0x81)
             .push(0x01)
             .push(0x04)
@@ -649,7 +649,7 @@ mod tests {
 
         // Verify we can't access bytes without terminating (compile-time check)
         // The following would not compile:
-        // let unterminated = CommandBuilder::<8>::new().push(0x81);
+        // let unterminated = ConstCommandBuilder::<8>::new().push(0x81);
         // let bytes = unterminated.as_bytes(); // ERROR: method not found
     }
 
@@ -658,7 +658,7 @@ mod tests {
     fn test_all_command_categories_terminate() {
         use crate::command::focus::Focus;
         use crate::command::pan_tilt::PanTilt;
-        use crate::command::power::PowerCommand;
+        use crate::command::power::Power;
         use crate::command::zoom::Zoom;
 
         // Test commands from different categories to ensure
@@ -674,7 +674,7 @@ mod tests {
         let test_cases = vec![
             TestCase {
                 name: "Quick command (Power)",
-                encode: Box::new(|buf| PowerCommand::On.encode_into(CameraId::CAMERA_1, buf)),
+                encode: Box::new(|buf| Power::On.encode_into(CameraId::CAMERA_1, buf)),
             },
             TestCase {
                 name: "Movement command (PanTilt)",

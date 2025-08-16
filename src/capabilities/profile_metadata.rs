@@ -32,7 +32,7 @@ pub trait ProfileMetadata {
 
     /// Whether this camera sends operation complete messages (0x51) after movements.
     ///
-    /// Most VISCA-compliant cameras (Sony, Canon, Panasonic, PTZOptics, etc.)
+    /// Most VISCA-compliant cameras (Sony, Canon, Panasonic, PtzOptics, etc.)
     /// send completion messages when pan/tilt/zoom/focus operations finish.
     /// When true, movement detection can use event-driven completion instead of polling.
     const SUPPORTS_OPERATION_COMPLETE: bool = false;
@@ -47,7 +47,7 @@ pub trait ProfileMetadata {
 /// Protocol style determines how VISCA commands are framed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProtocolStyle {
-    /// Raw VISCA protocol (PTZOptics, generic cameras).
+    /// Raw VISCA protocol (PtzOptics, generic cameras).
     /// Commands are sent as-is without additional framing.
     RawVisca,
 
@@ -273,8 +273,8 @@ impl<T: ProfileMetadata + crate::capabilities::NDFilter> HasNDFilter for T {}
 // doesn't support const equality in trait bounds in stable Rust.
 //
 // Example implementation in camera profiles:
-// impl HasExposureCompensation for PTZOpticsG2 {}
-// impl HasAutoExposure for PTZOpticsG2 {}
+// impl HasExposureCompensation for PtzOpticsG2 {}
+// impl HasAutoExposure for PtzOpticsG2 {}
 
 #[cfg(test)]
 mod tests {

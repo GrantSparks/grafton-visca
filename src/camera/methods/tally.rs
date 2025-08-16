@@ -4,7 +4,7 @@ use crate::Error;
 
 /// Tally light control operations (async).
 #[cfg(feature = "async")]
-pub trait TallyOps: Sized {
+pub trait TallyControl: Sized {
     /// Turn red tally light on.
     async fn tally_red_on(&self) -> Result<(), Error>;
 
@@ -43,7 +43,7 @@ pub trait TallyOps: Sized {
 }
 
 /// Tally light control operations (blocking).
-pub trait TallyOpsBlocking: Sized {
+pub trait TallyControlBlocking: Sized {
     /// Turn red tally light on.
     fn tally_red_on(&self) -> Result<(), Error>;
 
@@ -83,11 +83,11 @@ pub trait TallyOpsBlocking: Sized {
 
 // Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P, T, E> TallyOps for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
+impl<P, T, E> TallyControl for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
 where
     P: crate::capabilities::Profile,
     T: crate::transport::AsyncTransport + Send + Sync + 'static,
-    E: crate::executor_unified::Executor,
+    E: crate::executor::Executor,
 {
     async fn tally_red_on(&self) -> Result<(), Error> {
         use crate::command::tally::Tally;
@@ -153,38 +153,38 @@ where
     }
 
     async fn get_tally_status(&self) -> Result<bool, Error> {
-        use crate::command::{response::Response, tally::TallyInquiry, InquiryResponse};
+        use crate::command::{response::ViscaResponse, tally::TallyInquiry, InquiryResponse};
         let inquiry = TallyInquiry::Red;
         let response = self.send_command(&inquiry).await?;
         match response {
-            Response::Inquiry(InquiryResponse::TallyRed { on }) => Ok(on),
+            ViscaResponse::Inquiry(InquiryResponse::TallyRed { on }) => Ok(on),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     async fn get_red_tally_status(&self) -> Result<bool, Error> {
-        use crate::command::{response::Response, tally::TallyInquiry, InquiryResponse};
+        use crate::command::{response::ViscaResponse, tally::TallyInquiry, InquiryResponse};
         let inquiry = TallyInquiry::Red;
         let response = self.send_command(&inquiry).await?;
         match response {
-            Response::Inquiry(InquiryResponse::TallyRed { on }) => Ok(on),
+            ViscaResponse::Inquiry(InquiryResponse::TallyRed { on }) => Ok(on),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     async fn get_green_tally_status(&self) -> Result<bool, Error> {
-        use crate::command::{response::Response, tally::TallyInquiry, InquiryResponse};
+        use crate::command::{response::ViscaResponse, tally::TallyInquiry, InquiryResponse};
         let inquiry = TallyInquiry::Green;
         let response = self.send_command(&inquiry).await?;
         match response {
-            Response::Inquiry(InquiryResponse::TallyGreen { on }) => Ok(on),
+            ViscaResponse::Inquiry(InquiryResponse::TallyGreen { on }) => Ok(on),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
 }
 
 // Blocking implementation for Camera with BlockingMode
-impl<P, T> TallyOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
+impl<P, T> TallyControlBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile,
     T: crate::transport::BlockingTransport + Send + Sync + 'static,
@@ -253,31 +253,31 @@ where
     }
 
     fn get_tally_status(&self) -> Result<bool, Error> {
-        use crate::command::{response::Response, tally::TallyInquiry, InquiryResponse};
+        use crate::command::{response::ViscaResponse, tally::TallyInquiry, InquiryResponse};
         let inquiry = TallyInquiry::Red;
         let response = self.send_command(&inquiry)?;
         match response {
-            Response::Inquiry(InquiryResponse::TallyRed { on }) => Ok(on),
+            ViscaResponse::Inquiry(InquiryResponse::TallyRed { on }) => Ok(on),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     fn get_red_tally_status(&self) -> Result<bool, Error> {
-        use crate::command::{response::Response, tally::TallyInquiry, InquiryResponse};
+        use crate::command::{response::ViscaResponse, tally::TallyInquiry, InquiryResponse};
         let inquiry = TallyInquiry::Red;
         let response = self.send_command(&inquiry)?;
         match response {
-            Response::Inquiry(InquiryResponse::TallyRed { on }) => Ok(on),
+            ViscaResponse::Inquiry(InquiryResponse::TallyRed { on }) => Ok(on),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
 
     fn get_green_tally_status(&self) -> Result<bool, Error> {
-        use crate::command::{response::Response, tally::TallyInquiry, InquiryResponse};
+        use crate::command::{response::ViscaResponse, tally::TallyInquiry, InquiryResponse};
         let inquiry = TallyInquiry::Green;
         let response = self.send_command(&inquiry)?;
         match response {
-            Response::Inquiry(InquiryResponse::TallyGreen { on }) => Ok(on),
+            ViscaResponse::Inquiry(InquiryResponse::TallyGreen { on }) => Ok(on),
             _ => Err(Error::UnexpectedResponseType),
         }
     }

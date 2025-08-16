@@ -1,8 +1,8 @@
-//! Motion sync capability trait for PTZOptics cameras.
+//! Motion sync capability trait for PtzOptics cameras.
 
 /// Trait for cameras that support Motion Sync functionality.
 ///
-/// Motion Sync is a PTZOptics-specific feature that coordinates pan, tilt, and zoom
+/// Motion Sync is a PtzOptics-specific feature that coordinates pan, tilt, and zoom
 /// movements for smoother preset recalls.
 pub trait MotionSync {
     /// Whether this camera supports motion sync.

@@ -65,7 +65,7 @@ pub enum Error {
     #[error("Camera not initialized")]
     CameraNotReady,
 
-    /// Response from camera doesn't match the expected format.
+    /// ViscaResponse from camera doesn't match the expected format.
     #[error("Invalid response: expected {expected}, got {actual:?}")]
     InvalidResponse {
         /// Description of expected response.
@@ -119,15 +119,15 @@ pub enum Error {
     #[error("Command is not executable")]
     CommandNotExecutable,
 
-    /// Response data doesn't conform to expected VISCA protocol format.
+    /// ViscaResponse data doesn't conform to expected VISCA protocol format.
     #[error("Invalid response format")]
     InvalidResponseFormat,
 
-    /// Response has an unexpected number of bytes.
+    /// ViscaResponse has an unexpected number of bytes.
     #[error("Invalid response length")]
     InvalidResponseLength,
 
-    /// Response type doesn't match what the command should return.
+    /// ViscaResponse type doesn't match what the command should return.
     #[error("Unexpected response type")]
     UnexpectedResponseType,
 
@@ -260,8 +260,8 @@ pub enum Error {
     #[error("Lock poisoned for {0}")]
     LockPoisoned(&'static str),
 
-    /// Response exceeds maximum allowed size.
-    #[error("Response too large: exceeds maximum of {max_size} bytes")]
+    /// ViscaResponse exceeds maximum allowed size.
+    #[error("ViscaResponse too large: exceeds maximum of {max_size} bytes")]
     ResponseTooLarge {
         /// Maximum allowed size.
         max_size: usize,
@@ -275,8 +275,8 @@ pub enum Error {
     #[error("Socket manager channel closed")]
     SocketManagerChannelClosed,
 
-    /// Response channel has been closed unexpectedly.
-    #[error("Response channel closed")]
+    /// ViscaResponse channel has been closed unexpectedly.
+    #[error("ViscaResponse channel closed")]
     ResponseChannelClosed,
 
     /// Invalid network address format.

@@ -14,7 +14,7 @@ use crate::capabilities::ProtocolStyle;
 /// Transport envelope that handles protocol-specific framing.
 ///
 /// Different camera manufacturers use different framing approaches:
-/// - Raw VISCA: Commands sent as-is (PTZOptics, generic cameras)  
+/// - Raw VISCA: Commands sent as-is (PtzOptics, generic cameras)  
 /// - Sony Encapsulated: 8-byte header + VISCA payload (Sony cameras)
 #[derive(Debug)]
 pub struct TransportEnvelope {
@@ -281,7 +281,7 @@ mod tests {
             use_sequence: false,
         });
 
-        // Response too short
+        // ViscaResponse too short
         let short_response = vec![0x01, 0x11, 0x00];
         assert!(envelope.extract_response(&short_response).is_err());
 

@@ -1,7 +1,7 @@
-//! Raw VISCA over IP transport (PTZOptics style).
+//! Raw VISCA over IP transport (PtzOptics style).
 //!
 //! This module provides raw VISCA communication over TCP/UDP without
-//! any additional encapsulation. This is the format used by PTZOptics cameras.
+//! any additional encapsulation. This is the format used by PtzOptics cameras.
 
 use bytes::{Bytes, BytesMut};
 use log::{debug, trace};

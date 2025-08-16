@@ -2,15 +2,15 @@
 
 use crate::{
     command::{
-        inquiry::*, response::Response, AutoFocusSensitivity, ExposureMode, FocusMode, FocusZone,
-        InquiryResponse, SharpnessMode, WhiteBalanceMode,
+        inquiry::*, response::ViscaResponse, AutoFocusSensitivity, ExposureMode, FocusMode,
+        FocusZone, InquiryResponse, SharpnessMode, WhiteBalanceMode,
     },
     Error,
 };
 
 /// Inquiry operations (async).
 #[cfg(feature = "async")]
-pub trait InquiryOps: Sized {
+pub trait InquiryControl: Sized {
     /// Get the current power state of the camera.
     /// Returns `true` if powered on, `false` if in standby.
     async fn get_power_state(&self) -> Result<bool, Error>;
@@ -151,7 +151,7 @@ pub trait InquiryOps: Sized {
     /// Get the defog level.
     async fn get_defog_level(&self) -> Result<u8, Error>;
 
-    /// Get the digital PTZ mode status.
+    /// Get the digital Ptz mode status.
     async fn get_digital_ptz_enabled(&self) -> Result<bool, Error>;
 
     /// Get the auto white balance sensitivity setting.
@@ -206,7 +206,7 @@ pub trait InquiryOps: Sized {
 }
 
 /// Inquiry operations (blocking).
-pub trait InquiryOpsBlocking: Sized {
+pub trait InquiryControlBlocking: Sized {
     /// Get the current power state of the camera.
     /// Returns `true` if powered on, `false` if in standby.
     fn get_power_state(&self) -> Result<bool, Error>;
@@ -344,7 +344,7 @@ pub trait InquiryOpsBlocking: Sized {
     /// Get the defog level.
     fn get_defog_level(&self) -> Result<u8, Error>;
 
-    /// Get the digital PTZ mode status.
+    /// Get the digital Ptz mode status.
     fn get_digital_ptz_enabled(&self) -> Result<bool, Error>;
 
     /// Get the auto white balance sensitivity setting.
@@ -400,18 +400,18 @@ pub trait InquiryOpsBlocking: Sized {
 
 // Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P, T, E> InquiryOps for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
+impl<P, T, E> InquiryControl for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
 where
     P: crate::capabilities::Profile,
     T: crate::transport::AsyncTransport + Send + Sync + 'static,
-    E: crate::executor_unified::Executor,
+    E: crate::executor::Executor,
 {
     async fn get_power_state(&self) -> Result<bool, Error> {
         let cmd = PowerInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::Power { on }) => Ok(on),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::Power { on }) => Ok(on),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -420,8 +420,8 @@ where
         let cmd = ZoomPositionInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::ZoomPosition { position }) => Ok(position),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::ZoomPosition { position }) => Ok(position),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -430,8 +430,8 @@ where
         let cmd = FocusPositionInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::FocusPosition { position }) => Ok(position),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::FocusPosition { position }) => Ok(position),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -440,8 +440,8 @@ where
         let cmd = FocusNearLimitInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::FocusNearLimit { position }) => Ok(position),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::FocusNearLimit { position }) => Ok(position),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -450,8 +450,8 @@ where
         let cmd = FocusZoneInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::FocusZone { zone }) => Ok(zone),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::FocusZone { zone }) => Ok(zone),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -460,10 +460,10 @@ where
         let cmd = AutoFocusSensitivityInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::AutoFocusSensitivity { sensitivity }) => {
+            ViscaResponse::Inquiry(InquiryResponse::AutoFocusSensitivity { sensitivity }) => {
                 Ok(sensitivity)
             }
-            Response::Error(e) => Err(e),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -472,8 +472,8 @@ where
         let cmd = ExposureModeInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::ExposureMode { mode }) => Ok(mode),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::ExposureMode { mode }) => Ok(mode),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -482,8 +482,8 @@ where
         let cmd = ExposureCompensationInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::ExposureCompensation { value }) => Ok(value),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::ExposureCompensation { value }) => Ok(value),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -492,8 +492,8 @@ where
         let cmd = ExposureCompensationModeInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::ExposureCompensationMode { on }) => Ok(on),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::ExposureCompensationMode { on }) => Ok(on),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -502,8 +502,8 @@ where
         let cmd = IrisInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::Iris { position }) => Ok(position),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::Iris { position }) => Ok(position),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -512,8 +512,8 @@ where
         let cmd = ShutterInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::Shutter { position }) => Ok(position),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::Shutter { position }) => Ok(position),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -522,8 +522,8 @@ where
         let cmd = GainInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::GainLevel { gain }) => Ok(gain),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::GainLevel { gain }) => Ok(gain),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -532,8 +532,8 @@ where
         let cmd = GainLimitInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::GainLimit { limit }) => Ok(limit),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::GainLimit { limit }) => Ok(limit),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -542,8 +542,8 @@ where
         let cmd = WhiteBalanceModeInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::WhiteBalanceMode { mode }) => Ok(mode),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::WhiteBalanceMode { mode }) => Ok(mode),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -552,8 +552,8 @@ where
         let cmd = RedGainInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::RedChannel { gain }) => Ok(gain as u8),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::RedChannel { gain }) => Ok(gain as u8),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -562,8 +562,8 @@ where
         let cmd = BlueGainInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::BlueChannel { gain }) => Ok(gain as u8),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::BlueChannel { gain }) => Ok(gain as u8),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -572,8 +572,8 @@ where
         let cmd = RedTuningInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::RedTuning { level }) => Ok(level),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::RedTuning { level }) => Ok(level),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -582,8 +582,8 @@ where
         let cmd = BlueTuningInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::BlueTuning { level }) => Ok(level),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::BlueTuning { level }) => Ok(level),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -592,8 +592,10 @@ where
         let cmd = ColorTemperatureInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::ColorTemperature { temperature }) => Ok(temperature),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::ColorTemperature { temperature }) => {
+                Ok(temperature)
+            }
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -602,8 +604,8 @@ where
         let cmd = GammaInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::Gamma { value }) => Ok(value),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::Gamma { value }) => Ok(value),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -612,8 +614,8 @@ where
         let cmd = BrightInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::Bright { position }) => Ok(position as u8),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::Bright { position }) => Ok(position as u8),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -622,8 +624,8 @@ where
         let cmd = SharpnessModeInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::SharpnessMode { mode }) => Ok(mode),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::SharpnessMode { mode }) => Ok(mode),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -632,8 +634,8 @@ where
         let cmd = SaturationInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::Saturation { level }) => Ok(level),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::Saturation { level }) => Ok(level),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -642,8 +644,8 @@ where
         let cmd = HueInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::Hue { hue }) => Ok(hue),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::Hue { hue }) => Ok(hue),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -652,8 +654,8 @@ where
         let cmd = NoiseReduction2DInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::NoiseReduction2D { level }) => Ok(level),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::NoiseReduction2D { level }) => Ok(level),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -662,8 +664,8 @@ where
         let cmd = NoiseReduction3DInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::NoiseReduction3D { level }) => Ok(level),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::NoiseReduction3D { level }) => Ok(level),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -672,8 +674,8 @@ where
         let cmd = BlackWhiteInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::BlackWhite { on }) => Ok(on),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::BlackWhite { on }) => Ok(on),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -682,10 +684,10 @@ where
         let cmd = ResolutionInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::Resolution(mode_byte)) => Ok(
+            ViscaResponse::Inquiry(InquiryResponse::Resolution(mode_byte)) => Ok(
                 crate::command::resolution::ResolutionMode::from_byte(mode_byte),
             ),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -696,10 +698,10 @@ where
         let cmd = PictureEffectInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::PictureEffect { effect }) => Ok(
+            ViscaResponse::Inquiry(InquiryResponse::PictureEffect { effect }) => Ok(
                 crate::command::resolution::PictureEffectMode::from_byte(effect),
             ),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -710,10 +712,10 @@ where
         let cmd = NdFilterInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::NdFilter { position }) => Ok(
+            ViscaResponse::Inquiry(InquiryResponse::NdFilter { position }) => Ok(
                 crate::command::resolution::NDFilterPosition::from_byte(position),
             ),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -722,7 +724,7 @@ where
         let cmd = VersionInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::Version {
+            ViscaResponse::Inquiry(InquiryResponse::Version {
                 vendor,
                 model,
                 rom_version,
@@ -733,7 +735,7 @@ where
                 rom_version,
                 max_socket,
             }),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -742,8 +744,8 @@ where
         let cmd = BacklightInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::Backlight { status }) => Ok(status),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::Backlight { status }) => Ok(status),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -752,14 +754,14 @@ where
         let cmd = ImageFlipInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::ImageFlip {
+            ViscaResponse::Inquiry(InquiryResponse::ImageFlip {
                 vertical,
                 horizontal,
             }) => Ok(crate::command::ImageFlipStatus {
                 vertical,
                 horizontal,
             }),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -768,8 +770,8 @@ where
         let cmd = DynamicRangeInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::DynamicRange { level }) => Ok(level),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::DynamicRange { level }) => Ok(level),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -778,8 +780,8 @@ where
         let cmd = FocusModeInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::FocusMode { mode }) => Ok(mode),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::FocusMode { mode }) => Ok(mode),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -788,8 +790,8 @@ where
         let cmd = MenuOpenCloseInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::MenuOpenClose { is_open }) => Ok(is_open),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::MenuOpenClose { is_open }) => Ok(is_open),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -800,8 +802,10 @@ where
         let cmd = FocusModeInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::FocusMode { mode }) => Ok(mode == FocusMode::Auto),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::FocusMode { mode }) => {
+                Ok(mode == FocusMode::Auto)
+            }
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -810,10 +814,10 @@ where
         let cmd = TallyStatusInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::TallyStatus { red_on, green_on }) => {
+            ViscaResponse::Inquiry(InquiryResponse::TallyStatus { red_on, green_on }) => {
                 Ok(crate::command::TallyStatus { red_on, green_on })
             }
-            Response::Error(e) => Err(e),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -822,12 +826,12 @@ where
         let cmd = NightDayModeInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::NightDayMode { is_night }) => Ok(if is_night {
+            ViscaResponse::Inquiry(InquiryResponse::NightDayMode { is_night }) => Ok(if is_night {
                 crate::command::NightDayMode::Night
             } else {
                 crate::command::NightDayMode::Day
             }),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -836,14 +840,14 @@ where
         let cmd = FlipModeInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::FlipMode {
+            ViscaResponse::Inquiry(InquiryResponse::FlipMode {
                 horizontal,
                 vertical,
             }) => Ok(crate::command::FlipMode {
                 horizontal,
                 vertical,
             }),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -852,8 +856,8 @@ where
         let cmd = StandbyInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::Standby { in_standby }) => Ok(in_standby),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::Standby { in_standby }) => Ok(in_standby),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -862,8 +866,8 @@ where
         let cmd = FocusRangeInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::FocusRange { range }) => Ok(range),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::FocusRange { range }) => Ok(range),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -872,12 +876,12 @@ where
         let cmd = IrisControlInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::IrisControl { auto }) => Ok(if auto {
+            ViscaResponse::Inquiry(InquiryResponse::IrisControl { auto }) => Ok(if auto {
                 crate::command::IrisControl::Auto
             } else {
                 crate::command::IrisControl::Manual
             }),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -886,8 +890,8 @@ where
         let cmd = DefogModeInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::DefogMode { enabled }) => Ok(enabled),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::DefogMode { enabled }) => Ok(enabled),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -896,8 +900,8 @@ where
         let cmd = DefogLevelInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::DefogLevel { level }) => Ok(level),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::DefogLevel { level }) => Ok(level),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -906,8 +910,8 @@ where
         let cmd = DigitalPtzInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::DigitalPtz { enabled }) => Ok(enabled),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::DigitalPtz { enabled }) => Ok(enabled),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -918,10 +922,10 @@ where
         let cmd = AutoWhiteBalanceSensitivityInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::AutoWhiteBalanceSensitivity { sensitivity }) => {
-                Ok(sensitivity)
-            }
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::AutoWhiteBalanceSensitivity {
+                sensitivity,
+            }) => Ok(sensitivity),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -930,10 +934,10 @@ where
         let cmd = ExposureCompensationPositionInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::ExposureCompensationPosition { position }) => {
+            ViscaResponse::Inquiry(InquiryResponse::ExposureCompensationPosition { position }) => {
                 Ok(position)
             }
-            Response::Error(e) => Err(e),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -942,8 +946,8 @@ where
         let cmd = AutoTraceInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::AutoTrace { enabled }) => Ok(enabled),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::AutoTrace { enabled }) => Ok(enabled),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -952,8 +956,8 @@ where
         let cmd = FocusUnlockInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::FocusUnlock { unlocked }) => Ok(unlocked),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::FocusUnlock { unlocked }) => Ok(unlocked),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -962,8 +966,8 @@ where
         let cmd = SharpnessPositionInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::SharpnessPosition { position }) => Ok(position),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::SharpnessPosition { position }) => Ok(position),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -972,8 +976,8 @@ where
         let cmd = NrLevelInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::NrLevel(level)) => Ok(level),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::NrLevel(level)) => Ok(level),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -982,8 +986,8 @@ where
         let cmd = BroadcastDomainInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::BroadcastDomain(domain)) => Ok(domain),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::BroadcastDomain(domain)) => Ok(domain),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -992,8 +996,8 @@ where
         let cmd = NrModeInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::NrMode { mode }) => Ok(mode),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::NrMode { mode }) => Ok(mode),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1002,8 +1006,8 @@ where
         let cmd = NrSpeedInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::NrSpeed { speed }) => Ok(speed),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::NrSpeed { speed }) => Ok(speed),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1012,8 +1016,8 @@ where
         let cmd = BlackWhiteModeInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::BlackWhiteMode { mode }) => Ok(mode),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::BlackWhiteMode { mode }) => Ok(mode),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1022,8 +1026,8 @@ where
         let cmd = UsbAudioInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::UsbAudio { on }) => Ok(on),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::UsbAudio { on }) => Ok(on),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1032,8 +1036,8 @@ where
         let cmd = TwoToneModeInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::TwoToneMode { on }) => Ok(on),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::TwoToneMode { on }) => Ok(on),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1042,8 +1046,8 @@ where
         let cmd = NdFilterPresetInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::NdFilterPreset { preset }) => Ok(preset),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::NdFilterPreset { preset }) => Ok(preset),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1052,8 +1056,8 @@ where
         let cmd = DigitalInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::Digital { on }) => Ok(on),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::Digital { on }) => Ok(on),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1062,8 +1066,8 @@ where
         let cmd = TallyAutoAdjustInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::TallyAutoAdjust { on }) => Ok(on),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::TallyAutoAdjust { on }) => Ok(on),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1072,15 +1076,15 @@ where
         let cmd = TallyGreenInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::TallyGreen { on }) => Ok(on),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::TallyGreen { on }) => Ok(on),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
 }
 
 // Blocking implementation
-impl<P, T> InquiryOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
+impl<P, T> InquiryControlBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile,
     T: crate::transport::BlockingTransport,
@@ -1089,8 +1093,8 @@ where
         let cmd = PowerInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::Power { on }) => Ok(on),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::Power { on }) => Ok(on),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1099,8 +1103,8 @@ where
         let cmd = ZoomPositionInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::ZoomPosition { position }) => Ok(position),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::ZoomPosition { position }) => Ok(position),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1109,8 +1113,8 @@ where
         let cmd = FocusPositionInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::FocusPosition { position }) => Ok(position),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::FocusPosition { position }) => Ok(position),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1119,8 +1123,8 @@ where
         let cmd = FocusNearLimitInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::FocusNearLimit { position }) => Ok(position),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::FocusNearLimit { position }) => Ok(position),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1129,8 +1133,8 @@ where
         let cmd = FocusZoneInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::FocusZone { zone }) => Ok(zone),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::FocusZone { zone }) => Ok(zone),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1139,10 +1143,10 @@ where
         let cmd = AutoFocusSensitivityInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::AutoFocusSensitivity { sensitivity }) => {
+            ViscaResponse::Inquiry(InquiryResponse::AutoFocusSensitivity { sensitivity }) => {
                 Ok(sensitivity)
             }
-            Response::Error(e) => Err(e),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1151,8 +1155,8 @@ where
         let cmd = ExposureModeInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::ExposureMode { mode }) => Ok(mode),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::ExposureMode { mode }) => Ok(mode),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1161,8 +1165,8 @@ where
         let cmd = ExposureCompensationInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::ExposureCompensation { value }) => Ok(value),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::ExposureCompensation { value }) => Ok(value),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1171,8 +1175,8 @@ where
         let cmd = ExposureCompensationModeInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::ExposureCompensationMode { on }) => Ok(on),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::ExposureCompensationMode { on }) => Ok(on),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1181,8 +1185,8 @@ where
         let cmd = IrisInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::Iris { position }) => Ok(position),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::Iris { position }) => Ok(position),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1191,8 +1195,8 @@ where
         let cmd = ShutterInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::Shutter { position }) => Ok(position),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::Shutter { position }) => Ok(position),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1201,8 +1205,8 @@ where
         let cmd = GainInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::GainLevel { gain }) => Ok(gain),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::GainLevel { gain }) => Ok(gain),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1211,8 +1215,8 @@ where
         let cmd = GainLimitInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::GainLimit { limit }) => Ok(limit),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::GainLimit { limit }) => Ok(limit),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1221,8 +1225,8 @@ where
         let cmd = WhiteBalanceModeInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::WhiteBalanceMode { mode }) => Ok(mode),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::WhiteBalanceMode { mode }) => Ok(mode),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1231,8 +1235,8 @@ where
         let cmd = RedGainInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::RedChannel { gain }) => Ok(gain as u8),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::RedChannel { gain }) => Ok(gain as u8),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1241,8 +1245,8 @@ where
         let cmd = BlueGainInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::BlueChannel { gain }) => Ok(gain as u8),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::BlueChannel { gain }) => Ok(gain as u8),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1251,8 +1255,8 @@ where
         let cmd = RedTuningInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::RedTuning { level }) => Ok(level),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::RedTuning { level }) => Ok(level),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1261,8 +1265,8 @@ where
         let cmd = BlueTuningInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::BlueTuning { level }) => Ok(level),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::BlueTuning { level }) => Ok(level),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1271,8 +1275,10 @@ where
         let cmd = ColorTemperatureInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::ColorTemperature { temperature }) => Ok(temperature),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::ColorTemperature { temperature }) => {
+                Ok(temperature)
+            }
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1281,8 +1287,8 @@ where
         let cmd = GammaInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::Gamma { value }) => Ok(value),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::Gamma { value }) => Ok(value),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1291,8 +1297,8 @@ where
         let cmd = BrightInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::Bright { position }) => Ok(position as u8),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::Bright { position }) => Ok(position as u8),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1301,8 +1307,8 @@ where
         let cmd = SharpnessModeInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::SharpnessMode { mode }) => Ok(mode),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::SharpnessMode { mode }) => Ok(mode),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1311,8 +1317,8 @@ where
         let cmd = SaturationInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::Saturation { level }) => Ok(level),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::Saturation { level }) => Ok(level),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1321,8 +1327,8 @@ where
         let cmd = HueInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::Hue { hue }) => Ok(hue),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::Hue { hue }) => Ok(hue),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1331,8 +1337,8 @@ where
         let cmd = NoiseReduction2DInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::NoiseReduction2D { level }) => Ok(level),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::NoiseReduction2D { level }) => Ok(level),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1341,8 +1347,8 @@ where
         let cmd = NoiseReduction3DInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::NoiseReduction3D { level }) => Ok(level),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::NoiseReduction3D { level }) => Ok(level),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1351,8 +1357,8 @@ where
         let cmd = BlackWhiteInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::BlackWhite { on }) => Ok(on),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::BlackWhite { on }) => Ok(on),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1361,10 +1367,10 @@ where
         let cmd = ResolutionInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::Resolution(mode_byte)) => Ok(
+            ViscaResponse::Inquiry(InquiryResponse::Resolution(mode_byte)) => Ok(
                 crate::command::resolution::ResolutionMode::from_byte(mode_byte),
             ),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1373,10 +1379,10 @@ where
         let cmd = PictureEffectInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::PictureEffect { effect }) => Ok(
+            ViscaResponse::Inquiry(InquiryResponse::PictureEffect { effect }) => Ok(
                 crate::command::resolution::PictureEffectMode::from_byte(effect),
             ),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1387,10 +1393,10 @@ where
         let cmd = NdFilterInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::NdFilter { position }) => Ok(
+            ViscaResponse::Inquiry(InquiryResponse::NdFilter { position }) => Ok(
                 crate::command::resolution::NDFilterPosition::from_byte(position),
             ),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1399,7 +1405,7 @@ where
         let cmd = VersionInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::Version {
+            ViscaResponse::Inquiry(InquiryResponse::Version {
                 vendor,
                 model,
                 rom_version,
@@ -1410,7 +1416,7 @@ where
                 rom_version,
                 max_socket,
             }),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1419,8 +1425,8 @@ where
         let cmd = BacklightInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::Backlight { status }) => Ok(status),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::Backlight { status }) => Ok(status),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1429,14 +1435,14 @@ where
         let cmd = ImageFlipInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::ImageFlip {
+            ViscaResponse::Inquiry(InquiryResponse::ImageFlip {
                 vertical,
                 horizontal,
             }) => Ok(crate::command::ImageFlipStatus {
                 vertical,
                 horizontal,
             }),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1445,8 +1451,8 @@ where
         let cmd = DynamicRangeInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::DynamicRange { level }) => Ok(level),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::DynamicRange { level }) => Ok(level),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1455,8 +1461,8 @@ where
         let cmd = FocusModeInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::FocusMode { mode }) => Ok(mode),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::FocusMode { mode }) => Ok(mode),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1465,8 +1471,8 @@ where
         let cmd = MenuOpenCloseInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::MenuOpenClose { is_open }) => Ok(is_open),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::MenuOpenClose { is_open }) => Ok(is_open),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1477,8 +1483,10 @@ where
         let cmd = FocusModeInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::FocusMode { mode }) => Ok(mode == FocusMode::Auto),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::FocusMode { mode }) => {
+                Ok(mode == FocusMode::Auto)
+            }
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1487,10 +1495,10 @@ where
         let cmd = TallyStatusInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::TallyStatus { red_on, green_on }) => {
+            ViscaResponse::Inquiry(InquiryResponse::TallyStatus { red_on, green_on }) => {
                 Ok(crate::command::TallyStatus { red_on, green_on })
             }
-            Response::Error(e) => Err(e),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1499,12 +1507,12 @@ where
         let cmd = NightDayModeInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::NightDayMode { is_night }) => Ok(if is_night {
+            ViscaResponse::Inquiry(InquiryResponse::NightDayMode { is_night }) => Ok(if is_night {
                 crate::command::NightDayMode::Night
             } else {
                 crate::command::NightDayMode::Day
             }),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1513,14 +1521,14 @@ where
         let cmd = FlipModeInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::FlipMode {
+            ViscaResponse::Inquiry(InquiryResponse::FlipMode {
                 horizontal,
                 vertical,
             }) => Ok(crate::command::FlipMode {
                 horizontal,
                 vertical,
             }),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1529,8 +1537,8 @@ where
         let cmd = StandbyInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::Standby { in_standby }) => Ok(in_standby),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::Standby { in_standby }) => Ok(in_standby),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1539,8 +1547,8 @@ where
         let cmd = FocusRangeInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::FocusRange { range }) => Ok(range),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::FocusRange { range }) => Ok(range),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1549,12 +1557,12 @@ where
         let cmd = IrisControlInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::IrisControl { auto }) => Ok(if auto {
+            ViscaResponse::Inquiry(InquiryResponse::IrisControl { auto }) => Ok(if auto {
                 crate::command::IrisControl::Auto
             } else {
                 crate::command::IrisControl::Manual
             }),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1563,8 +1571,8 @@ where
         let cmd = DefogModeInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::DefogMode { enabled }) => Ok(enabled),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::DefogMode { enabled }) => Ok(enabled),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1573,8 +1581,8 @@ where
         let cmd = DefogLevelInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::DefogLevel { level }) => Ok(level),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::DefogLevel { level }) => Ok(level),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1583,8 +1591,8 @@ where
         let cmd = DigitalPtzInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::DigitalPtz { enabled }) => Ok(enabled),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::DigitalPtz { enabled }) => Ok(enabled),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1595,10 +1603,10 @@ where
         let cmd = AutoWhiteBalanceSensitivityInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::AutoWhiteBalanceSensitivity { sensitivity }) => {
-                Ok(sensitivity)
-            }
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::AutoWhiteBalanceSensitivity {
+                sensitivity,
+            }) => Ok(sensitivity),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1607,10 +1615,10 @@ where
         let cmd = ExposureCompensationPositionInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::ExposureCompensationPosition { position }) => {
+            ViscaResponse::Inquiry(InquiryResponse::ExposureCompensationPosition { position }) => {
                 Ok(position)
             }
-            Response::Error(e) => Err(e),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1619,8 +1627,8 @@ where
         let cmd = AutoTraceInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::AutoTrace { enabled }) => Ok(enabled),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::AutoTrace { enabled }) => Ok(enabled),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1629,8 +1637,8 @@ where
         let cmd = FocusUnlockInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::FocusUnlock { unlocked }) => Ok(unlocked),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::FocusUnlock { unlocked }) => Ok(unlocked),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1639,8 +1647,8 @@ where
         let cmd = SharpnessPositionInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::SharpnessPosition { position }) => Ok(position),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::SharpnessPosition { position }) => Ok(position),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1649,8 +1657,8 @@ where
         let cmd = NrLevelInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::NrLevel(level)) => Ok(level),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::NrLevel(level)) => Ok(level),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1659,8 +1667,8 @@ where
         let cmd = BroadcastDomainInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::BroadcastDomain(domain)) => Ok(domain),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::BroadcastDomain(domain)) => Ok(domain),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1669,8 +1677,8 @@ where
         let cmd = NrModeInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::NrMode { mode }) => Ok(mode),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::NrMode { mode }) => Ok(mode),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1679,8 +1687,8 @@ where
         let cmd = NrSpeedInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::NrSpeed { speed }) => Ok(speed),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::NrSpeed { speed }) => Ok(speed),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1689,8 +1697,8 @@ where
         let cmd = BlackWhiteModeInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::BlackWhiteMode { mode }) => Ok(mode),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::BlackWhiteMode { mode }) => Ok(mode),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1699,8 +1707,8 @@ where
         let cmd = UsbAudioInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::UsbAudio { on }) => Ok(on),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::UsbAudio { on }) => Ok(on),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1709,8 +1717,8 @@ where
         let cmd = TwoToneModeInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::TwoToneMode { on }) => Ok(on),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::TwoToneMode { on }) => Ok(on),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1719,8 +1727,8 @@ where
         let cmd = NdFilterPresetInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::NdFilterPreset { preset }) => Ok(preset),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::NdFilterPreset { preset }) => Ok(preset),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1729,8 +1737,8 @@ where
         let cmd = DigitalInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::Digital { on }) => Ok(on),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::Digital { on }) => Ok(on),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1739,8 +1747,8 @@ where
         let cmd = TallyAutoAdjustInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::TallyAutoAdjust { on }) => Ok(on),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::TallyAutoAdjust { on }) => Ok(on),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1749,8 +1757,8 @@ where
         let cmd = TallyGreenInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::TallyGreen { on }) => Ok(on),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::TallyGreen { on }) => Ok(on),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -1758,38 +1766,40 @@ where
 
 /// Pan/Tilt-specific inquiry operations (async).
 #[cfg(feature = "async")]
-pub trait PanTiltInquiryOps: Sized {
+pub trait PanTiltInquiryControl: Sized {
     /// Get the current pan and tilt position.
     async fn get_pan_tilt_position(&self) -> Result<(i16, i16), Error>;
 }
 
 /// Pan/Tilt-specific inquiry operations (blocking).
-pub trait PanTiltInquiryOpsBlocking: Sized {
+pub trait PanTiltInquiryControlBlocking: Sized {
     /// Get the current pan and tilt position.
     fn get_pan_tilt_position(&self) -> Result<(i16, i16), Error>;
 }
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P, T, E> PanTiltInquiryOps for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
+impl<P, T, E> PanTiltInquiryControl for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
 where
     P: crate::capabilities::Profile,
     T: crate::transport::AsyncTransport + Send + Sync + 'static,
-    E: crate::executor_unified::Executor,
+    E: crate::executor::Executor,
 {
     async fn get_pan_tilt_position(&self) -> Result<(i16, i16), Error> {
         let cmd = PanTiltPositionInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
-            Response::Inquiry(InquiryResponse::PanTiltPosition { pan, tilt }) => Ok((pan, tilt)),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::PanTiltPosition { pan, tilt }) => {
+                Ok((pan, tilt))
+            }
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
 }
 
 // Blocking implementation
-impl<P, T> PanTiltInquiryOpsBlocking
+impl<P, T> PanTiltInquiryControlBlocking
     for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile,
@@ -1799,8 +1809,10 @@ where
         let cmd = PanTiltPositionInquiry;
         let response = self.send_command(&cmd)?;
         match response {
-            Response::Inquiry(InquiryResponse::PanTiltPosition { pan, tilt }) => Ok((pan, tilt)),
-            Response::Error(e) => Err(e),
+            ViscaResponse::Inquiry(InquiryResponse::PanTiltPosition { pan, tilt }) => {
+                Ok((pan, tilt))
+            }
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }

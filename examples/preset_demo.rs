@@ -16,10 +16,10 @@ use std::{env, thread::sleep, time::Duration};
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::methods::{
-        inquiry::{InquiryOpsBlocking, PanTiltInquiryOpsBlocking},
-        pan_tilt::PanTiltOpsBlocking,
-        presets::PresetsOpsBlocking,
-        zoom::ZoomOpsBlocking,
+        inquiry::{InquiryControlBlocking, PanTiltInquiryControlBlocking},
+        pan_tilt::PanTiltControlBlocking,
+        presets::PresetsControlBlocking,
+        zoom::ZoomControlBlocking,
     },
     prelude::blocking::*,
     transport::blocking::Tcp,
@@ -45,7 +45,7 @@ fn main() -> Result<(), Error> {
     })?;
 
     // Build camera using the builder pattern for clarity and extensibility
-    let camera = CameraBuilder::new().build_blocking::<PTZOpticsG2, _>(transport);
+    let camera = CameraBuilder::new().build_blocking::<PtzOpticsG2, _>(transport);
 
     println!("✅ Connected successfully!\n");
 

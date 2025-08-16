@@ -13,10 +13,10 @@ use grafton_visca::{
 
 // Import type aliases based on feature flags
 #[cfg(not(feature = "async"))]
-use grafton_visca::prelude::blocking::{GenericViscaCam, PTZOpticsG2Cam, SonyFR7Cam};
+use grafton_visca::prelude::blocking::{GenericViscaCam, PtzOpticsG2Cam, SonyFR7Cam};
 
 #[cfg(feature = "async")]
-use grafton_visca::prelude::r#async::{GenericViscaCam, PTZOpticsG2Cam, SonyFR7Cam};
+use grafton_visca::prelude::r#async::{GenericViscaCam, PtzOpticsG2Cam, SonyFR7Cam};
 
 #[test]
 fn test_compilation_succeeds() {
@@ -24,7 +24,7 @@ fn test_compilation_succeeds() {
     // These types exist and can be used (would need actual transports in real usage):
 
     // Type aliases exist for common camera models
-    type _G2Camera<T> = PTZOpticsG2Cam<T>;
+    type _G2Camera<T> = PtzOpticsG2Cam<T>;
     type _FR7Camera<T> = SonyFR7Cam<T>;
     type _GenericCamera<T> = GenericViscaCam<T>;
 

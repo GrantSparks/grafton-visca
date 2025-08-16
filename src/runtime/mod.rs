@@ -27,14 +27,14 @@ use std::sync::{
 
 #[cfg(feature = "async")]
 use crate::{
-    command::response::Response,
+    command::response::ViscaResponse,
     error::{Error, Result},
     transport::AsyncTransport,
 };
 
 /// Helper function to spawn runtime tasks properly for different executor types.
 #[cfg(feature = "async")]
-fn spawn_runtime_task_properly<E: crate::executor_unified::Executor>(
+fn spawn_runtime_task_properly<E: crate::executor::Executor>(
     executor: &E,
     runtime_task: impl std::future::Future<Output = Result<(), Error>> + Send + 'static,
 ) {
@@ -128,7 +128,7 @@ impl RuntimeHandle {
     ///
     /// This spawns a background task to handle communication with the camera.
     #[cfg(feature = "async")]
-    pub async fn new<T: AsyncTransport + 'static, E: crate::executor_unified::Executor>(
+    pub async fn new<T: AsyncTransport + 'static, E: crate::executor::Executor>(
         transport: T,
         executor: Arc<E>,
     ) -> Result<Self> {
@@ -145,10 +145,7 @@ impl RuntimeHandle {
     /// * `executor` - The async executor to spawn tasks on
     /// * `tick_interval_ms` - Optional tick interval in milliseconds (default: 50ms)
     #[cfg(feature = "async")]
-    pub async fn with_tick_interval<
-        T: AsyncTransport + 'static,
-        E: crate::executor_unified::Executor,
-    >(
+    pub async fn with_tick_interval<T: AsyncTransport + 'static, E: crate::executor::Executor>(
         transport: T,
         executor: Arc<E>,
         tick_interval_ms: Option<u64>,
@@ -181,11 +178,11 @@ impl RuntimeHandle {
         })
     }
 
-    /// Create a new camera runtime with raw TCP transport (PTZOptics style).
+    /// Create a new camera runtime with raw TCP transport (PtzOptics style).
     ///
     /// Note: This method requires the "rt-tokio" feature as it uses tokio-specific async transports.
     #[cfg(feature = "rt-tokio")]
-    pub async fn new_tcp_raw<E: crate::executor_unified::Executor>(
+    pub async fn new_tcp_raw<E: crate::executor::Executor>(
         address: impl AsRef<str>,
         executor: Arc<E>,
     ) -> Result<Self> {
@@ -197,11 +194,11 @@ impl RuntimeHandle {
         Self::new(transport, executor).await
     }
 
-    /// Create a new camera runtime with raw UDP transport (PTZOptics style).
+    /// Create a new camera runtime with raw UDP transport (PtzOptics style).
     ///
     /// Note: This method requires the "rt-tokio" feature as it uses tokio-specific async transports.
     #[cfg(feature = "rt-tokio")]
-    pub async fn new_udp_raw<E: crate::executor_unified::Executor>(
+    pub async fn new_udp_raw<E: crate::executor::Executor>(
         address: impl AsRef<str>,
         executor: Arc<E>,
     ) -> Result<Self> {
@@ -215,7 +212,7 @@ impl RuntimeHandle {
 
     /// Create a new camera runtime with Sony TCP transport.
     #[cfg(all(feature = "async", feature = "rt-tokio"))]
-    pub async fn new_tcp_sony<E: crate::executor_unified::Executor>(
+    pub async fn new_tcp_sony<E: crate::executor::Executor>(
         address: impl AsRef<str>,
         executor: Arc<E>,
     ) -> Result<Self> {
@@ -230,7 +227,7 @@ impl RuntimeHandle {
 
     /// Create a new camera runtime with Sony UDP transport.
     #[cfg(all(feature = "async", feature = "rt-tokio"))]
-    pub async fn new_udp_sony<E: crate::executor_unified::Executor>(
+    pub async fn new_udp_sony<E: crate::executor::Executor>(
         address: impl AsRef<str>,
         executor: Arc<E>,
     ) -> Result<Self> {
@@ -245,7 +242,7 @@ impl RuntimeHandle {
 
     /// Create a new camera runtime with serial transport.
     #[cfg(all(feature = "async", feature = "serial", feature = "rt-tokio"))]
-    pub async fn new_serial<E: crate::executor_unified::Executor>(
+    pub async fn new_serial<E: crate::executor::Executor>(
         port: impl AsRef<str>,
         camera_address: u8,
         executor: Arc<E>,
@@ -335,7 +332,7 @@ impl RuntimeHandle {
         cmd: &C,
         camera_id: crate::camera_id::CameraId,
         priority: Option<Priority>,
-    ) -> Result<Response>
+    ) -> Result<ViscaResponse>
     where
         C: crate::command::encode_visca::EncodeVisca,
     {
@@ -381,7 +378,7 @@ impl RuntimeHandle {
         &self,
         inquiry: &I,
         camera_id: crate::camera_id::CameraId,
-    ) -> Result<Response>
+    ) -> Result<ViscaResponse>
     where
         I: crate::command::encode_visca::EncodeVisca,
     {
@@ -418,7 +415,7 @@ impl RuntimeHandle {
 
 /// Main runtime loop with configurable tick interval.
 #[cfg(feature = "async")]
-async fn runtime_loop_with_config<T: AsyncTransport, E: crate::executor_unified::Executor>(
+async fn runtime_loop_with_config<T: AsyncTransport, E: crate::executor::Executor>(
     transport: T,
     submit_rx: Receiver<TxItem>,
     event_tx: Sender<RxEvent>,
@@ -724,7 +721,7 @@ async fn runtime_loop_with_config<T: AsyncTransport, E: crate::executor_unified:
 
 /// Process queued commands when a socket becomes available.
 #[cfg(feature = "async")]
-async fn process_command_queue<T: AsyncTransport, E: crate::executor_unified::Executor>(
+async fn process_command_queue<T: AsyncTransport, E: crate::executor::Executor>(
     transport: &T,
     scheduler: &mut Scheduler,
     event_tx: &Sender<RxEvent>,
@@ -767,7 +764,7 @@ async fn process_command_queue<T: AsyncTransport, E: crate::executor_unified::Ex
 
 /// Handle a submitted TX item.
 #[cfg(feature = "async")]
-async fn handle_tx_item<T: AsyncTransport, E: crate::executor_unified::Executor>(
+async fn handle_tx_item<T: AsyncTransport, E: crate::executor::Executor>(
     transport: &T,
     scheduler: &mut Scheduler,
     item: TxItem,
@@ -919,7 +916,7 @@ async fn handle_tx_item<T: AsyncTransport, E: crate::executor_unified::Executor>
 
 /// Handle a VISCA response frame.
 #[cfg(feature = "async")]
-async fn handle_response<T: AsyncTransport, E: crate::executor_unified::Executor>(
+async fn handle_response<T: AsyncTransport, E: crate::executor::Executor>(
     transport: &T,
     scheduler: &mut Scheduler,
     frame: &[u8],
@@ -969,7 +966,9 @@ async fn handle_response<T: AsyncTransport, E: crate::executor_unified::Executor
                         "Sending completion to response channel for command {}",
                         cmd_id
                     );
-                    if let Err(e) = response_tx.send(Ok(Response::Completion)) {
+                    if let Err(e) =
+                        response_tx.send(Ok(crate::command::response::ViscaResponse::Completion))
+                    {
                         warn!("Failed to send completion to response channel: {:?}", e);
                     }
                 } else {
@@ -1017,11 +1016,14 @@ async fn handle_response<T: AsyncTransport, E: crate::executor_unified::Executor
                     full_frame.push(VISCA_TERMINATOR);
 
                     // Parse with the expected response type
-                    match Response::parse_with_type(&full_frame, &response_type) {
+                    match crate::command::response::ViscaResponse::parse_with_type(
+                        &full_frame,
+                        &response_type,
+                    ) {
                         Ok(parsed) => Ok(parsed),
                         Err(e) => {
                             warn!("Failed to parse inquiry response: {}", e);
-                            Ok(Response::Unknown {
+                            Ok(crate::command::response::ViscaResponse::Unknown {
                                 response_type: Some(response_type),
                                 data: data.clone(),
                             })
@@ -1029,7 +1031,7 @@ async fn handle_response<T: AsyncTransport, E: crate::executor_unified::Executor
                     }
                 } else {
                     // No response type stored, return unknown
-                    Ok(Response::Unknown {
+                    Ok(crate::command::response::ViscaResponse::Unknown {
                         response_type: None,
                         data: data.clone(),
                     })
@@ -1266,7 +1268,7 @@ mod tests {
 
         // Start runtime loop
         let executor = Arc::new(
-            crate::executor_unified::TokioExecutor::from_current()
+            crate::executor::TokioExecutor::from_current()
                 .expect("Failed to create TokioExecutor from current runtime"),
         );
         let runtime_task = runtime_loop_with_config(

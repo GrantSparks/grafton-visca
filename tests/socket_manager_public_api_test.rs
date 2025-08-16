@@ -3,9 +3,9 @@
 #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
 mod tokio_tests {
     use grafton_visca::{
-        camera::{profiles::PTZOpticsG2, AsyncMode, Camera},
+        camera::{profiles::PtzOpticsG2, AsyncMode, Camera},
         testing::testkit::{helpers, ScriptedTransport},
-        PowerOps, TokioExecutor, ZoomOps,
+        PowerControl, TokioExecutor, ZoomControl,
     };
     use std::sync::Arc;
 
@@ -44,7 +44,7 @@ mod tokio_tests {
         let transport = create_power_inquiry_transport().with_executor(executor.clone());
 
         let camera =
-            Camera::<AsyncMode, PTZOpticsG2, _, _>::with_executor(transport.clone(), executor)
+            Camera::<AsyncMode, PtzOpticsG2, _, _>::with_executor(transport.clone(), executor)
                 .await
                 .unwrap();
 
@@ -69,7 +69,7 @@ mod tokio_tests {
         let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
         let transport = create_auto_respond_transport().with_executor(executor.clone());
 
-        let camera = Camera::<grafton_visca::camera::AsyncMode, PTZOpticsG2, _, _>::with_executor(
+        let camera = Camera::<grafton_visca::camera::AsyncMode, PtzOpticsG2, _, _>::with_executor(
             transport.clone(),
             executor.clone(),
         )
@@ -108,7 +108,7 @@ mod tokio_tests {
         let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
         let transport = create_auto_respond_transport().with_executor(executor.clone());
 
-        let camera = Camera::<grafton_visca::camera::AsyncMode, PTZOpticsG2, _, _>::with_executor(
+        let camera = Camera::<grafton_visca::camera::AsyncMode, PtzOpticsG2, _, _>::with_executor(
             transport.clone(),
             executor.clone(),
         )
@@ -136,7 +136,7 @@ mod tokio_tests {
         let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
         let transport = create_auto_respond_transport().with_executor(executor.clone());
 
-        let camera = Camera::<grafton_visca::camera::AsyncMode, PTZOpticsG2, _, _>::with_executor(
+        let camera = Camera::<grafton_visca::camera::AsyncMode, PtzOpticsG2, _, _>::with_executor(
             transport.clone(),
             executor.clone(),
         )
@@ -180,7 +180,7 @@ mod tokio_tests {
         // Create transport with no scripted responses - will timeout
         let transport = ScriptedTransport::new(vec![]).with_executor(executor.clone());
 
-        let camera = Camera::<AsyncMode, PTZOpticsG2, _, _>::with_executor(transport, executor)
+        let camera = Camera::<AsyncMode, PtzOpticsG2, _, _>::with_executor(transport, executor)
             .await
             .unwrap();
 

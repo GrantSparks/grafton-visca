@@ -22,7 +22,7 @@
 //! ```
 
 use crate::{
-    command::{const_encoding::CommandBuilder, encode_visca::EncodeVisca, ResponseType},
+    command::{const_encoding::ConstCommandBuilder, encode_visca::EncodeVisca, ViscaResponseType},
     error::Error,
     timeout::CommandCategory,
     types::{SpeedLevel, ZoomPosition},
@@ -72,7 +72,7 @@ pub enum Zoom {
 impl Zoom {}
 
 impl EncodeVisca for Zoom {
-    type Response = ();
+    type ViscaResponse = ();
     const MAX_SIZE: usize = 10;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
 
@@ -85,26 +85,26 @@ impl EncodeVisca for Zoom {
 
         match self {
             Self::Stop => {
-                let builder = CommandBuilder::<6>::from_prefix(zoom::STOP)
+                let builder = ConstCommandBuilder::<6>::from_prefix(zoom::STOP)
                     .with_camera_id(camera_id)
                     .terminate();
                 builder.build_into(buffer)
             }
             Self::TeleStd => {
-                let builder = CommandBuilder::<6>::from_prefix(zoom::TELE_STD)
+                let builder = ConstCommandBuilder::<6>::from_prefix(zoom::TELE_STD)
                     .with_camera_id(camera_id)
                     .terminate();
                 builder.build_into(buffer)
             }
             Self::WideStd => {
-                let builder = CommandBuilder::<6>::from_prefix(zoom::WIDE_STD)
+                let builder = ConstCommandBuilder::<6>::from_prefix(zoom::WIDE_STD)
                     .with_camera_id(camera_id)
                     .terminate();
                 builder.build_into(buffer)
             }
             Self::TeleVariable(speed) => {
                 // Tele variable: 81 01 04 07 2p FF where p is speed
-                let builder = CommandBuilder::<6>::from_prefix(zoom::VARIABLE_PREFIX)
+                let builder = ConstCommandBuilder::<6>::from_prefix(zoom::VARIABLE_PREFIX)
                     .with_camera_id(camera_id)
                     .push(0x20 | (speed.0 & 0x0F))
                     .terminate();
@@ -112,7 +112,7 @@ impl EncodeVisca for Zoom {
             }
             Self::WideVariable(speed) => {
                 // Wide variable: 81 01 04 07 3p FF where p is speed
-                let builder = CommandBuilder::<6>::from_prefix(zoom::VARIABLE_PREFIX)
+                let builder = ConstCommandBuilder::<6>::from_prefix(zoom::VARIABLE_PREFIX)
                     .with_camera_id(camera_id)
                     .push(0x30 | (speed.0 & 0x0F))
                     .terminate();
@@ -120,7 +120,7 @@ impl EncodeVisca for Zoom {
             }
             Self::Position(position) => {
                 // Direct position: 81 01 04 47 0p 0q 0r 0s FF
-                let builder = CommandBuilder::<9>::from_prefix(zoom::POSITION_PREFIX)
+                let builder = ConstCommandBuilder::<9>::from_prefix(zoom::POSITION_PREFIX)
                     .with_camera_id(camera_id)
                     .push_visca_u14(position.value())
                     .terminate();
@@ -129,7 +129,7 @@ impl EncodeVisca for Zoom {
         }
     }
 
-    fn response_type(&self) -> Option<ResponseType> {
+    fn response_type(&self) -> Option<ViscaResponseType> {
         // Zoom movement commands are action commands, not inquiries.
         // They receive ACK + Completion responses like pan-tilt movements.
         // Only dedicated inquiry commands should return specific response types.
@@ -142,19 +142,19 @@ impl EncodeVisca for Zoom {
 /// This command enables or disables digital zoom capability.
 /// When enabled, zoom can continue past the optical zoom limit using digital processing.
 #[derive(Debug, Copy, Clone)]
-pub struct DigitalZoomCommand {
+pub struct DigitalZoom {
     enabled: bool,
 }
 
-impl DigitalZoomCommand {
+impl DigitalZoom {
     /// Create a new digital zoom command.
     pub const fn new(enabled: bool) -> Self {
         Self { enabled }
     }
 }
 
-impl EncodeVisca for DigitalZoomCommand {
-    type Response = ();
+impl EncodeVisca for DigitalZoom {
+    type ViscaResponse = ();
     const MAX_SIZE: usize = 6;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -165,14 +165,14 @@ impl EncodeVisca for DigitalZoomCommand {
     ) -> Result<usize, Error> {
         use crate::command::const_encoding::constants::zoom::DIGITAL_ZOOM_PREFIX;
 
-        let builder = CommandBuilder::<6>::from_prefix(DIGITAL_ZOOM_PREFIX)
+        let builder = ConstCommandBuilder::<6>::from_prefix(DIGITAL_ZOOM_PREFIX)
             .with_camera_id(camera_id)
             .push(if self.enabled { 0x02 } else { 0x03 })
             .terminate();
         builder.build_into(buffer)
     }
 
-    fn response_type(&self) -> Option<ResponseType> {
+    fn response_type(&self) -> Option<ViscaResponseType> {
         None
     }
 }

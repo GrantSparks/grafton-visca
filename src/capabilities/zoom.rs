@@ -11,7 +11,7 @@ use crate::capabilities::ValidationError;
 /// Cameras implementing this trait gain access to zoom methods.
 pub trait Zoom {
     /// Maximum optical zoom position in VISCA units.
-    /// For PTZOptics G2 this is 0x4000 (20x optical zoom).
+    /// For PtzOptics G2 this is 0x4000 (20x optical zoom).
     const OPTICAL_ZOOM_MAX: u16;
 
     /// Maximum digital zoom position if supported.

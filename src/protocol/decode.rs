@@ -22,7 +22,7 @@ pub enum ViscaResponse {
     },
     /// Data reply from inquiry (90 50 ... FF).
     DataReply {
-        /// Response data (excluding header and terminator).
+        /// ViscaResponse data (excluding header and terminator).
         data: Vec<u8>,
     },
     /// Error response (90 6y zz FF).
@@ -49,7 +49,7 @@ pub fn parse_response(frame: &[u8]) -> ViscaResponse {
 
     // Minimum valid response is 3 bytes (e.g., 90 38 FF)
     if frame.len() < 3 {
-        warn!("Response too short: {:02X?}", frame);
+        warn!("ViscaResponse too short: {:02X?}", frame);
         return ViscaResponse::Unknown {
             data: frame.to_vec(),
         };
@@ -57,7 +57,7 @@ pub fn parse_response(frame: &[u8]) -> ViscaResponse {
 
     // Check for terminator
     if frame[frame.len() - 1] != 0xFF {
-        warn!("Response missing terminator: {:02X?}", frame);
+        warn!("ViscaResponse missing terminator: {:02X?}", frame);
         return ViscaResponse::Unknown {
             data: frame.to_vec(),
         };
@@ -72,7 +72,7 @@ pub fn parse_response(frame: &[u8]) -> ViscaResponse {
     }
 
     let source_device = frame[0] & 0x0F;
-    debug!("Response from device {}", source_device);
+    debug!("ViscaResponse from device {}", source_device);
 
     // Parse based on second byte
     match frame[1] {

@@ -143,7 +143,7 @@ impl ProtocolValidator {
         if response.len() < 3 {
             self.errors_detected += 1;
             return Err(ProtocolValidationError {
-                message: "Response too short".to_string(),
+                message: "ViscaResponse too short".to_string(),
                 byte_index: None,
                 expected: None,
                 actual: Some(response.to_vec()),

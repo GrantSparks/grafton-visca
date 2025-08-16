@@ -93,7 +93,7 @@ fn generate_struct_impl(
     let response_type = match &attrs.response_type {
         Some(resp) => {
             let resp_ident = syn::Ident::new(resp, proc_macro2::Span::call_site());
-            quote! { Some(crate::command::ResponseType::#resp_ident) }
+            quote! { Some(crate::command::ViscaResponseType::#resp_ident) }
         }
         None => quote! { None },
     };
@@ -103,7 +103,7 @@ fn generate_struct_impl(
         // If a prefix is provided, use it as the base
         let prefix_bytes = prefix.iter().map(|b| quote! { #b });
         quote! {
-            let mut builder = crate::command::const_encoding::CommandBuilder::<#max_size>::new();
+            let mut builder = crate::command::const_encoding::ConstCommandBuilder::<#max_size>::new();
             #(builder = builder.push(#prefix_bytes);)*
 
             // Add any dynamic fields here
@@ -118,7 +118,7 @@ fn generate_struct_impl(
     };
 
     quote! {
-        type Response = ();
+        type ViscaResponse = ();
         const MAX_SIZE: usize = #max_size;
         const TIMEOUT_CATEGORY: crate::timeout::CommandCategory = #timeout_category;
 
@@ -130,7 +130,7 @@ fn generate_struct_impl(
             #encode_body
         }
 
-        fn response_type(&self) -> Option<crate::command::ResponseType> {
+        fn response_type(&self) -> Option<crate::command::ViscaResponseType> {
             #response_type
         }
     }
@@ -144,7 +144,7 @@ fn generate_struct_encoding(data_struct: &DataStruct) -> TokenStream {
         Fields::Named(_fields) => {
             quote! {
                 // TODO: Generate encoding based on named fields
-                let builder = crate::command::const_encoding::CommandBuilder::<32>::new();
+                let builder = crate::command::const_encoding::ConstCommandBuilder::<32>::new();
                 let terminated = builder.with_camera_id(camera_id).terminate();
                 terminated.build_into(buffer)
             }
@@ -152,7 +152,7 @@ fn generate_struct_encoding(data_struct: &DataStruct) -> TokenStream {
         Fields::Unnamed(_fields) => {
             quote! {
                 // TODO: Generate encoding based on unnamed fields
-                let builder = crate::command::const_encoding::CommandBuilder::<32>::new();
+                let builder = crate::command::const_encoding::ConstCommandBuilder::<32>::new();
                 let terminated = builder.with_camera_id(camera_id).terminate();
                 terminated.build_into(buffer)
             }
@@ -160,7 +160,7 @@ fn generate_struct_encoding(data_struct: &DataStruct) -> TokenStream {
         Fields::Unit => {
             quote! {
                 // Unit struct - just use the prefix if available
-                let builder = crate::command::const_encoding::CommandBuilder::<32>::new();
+                let builder = crate::command::const_encoding::ConstCommandBuilder::<32>::new();
                 let terminated = builder.with_camera_id(camera_id).terminate();
                 terminated.build_into(buffer)
             }
@@ -182,7 +182,7 @@ fn generate_enum_impl(_name: &Ident, data_enum: DataEnum, attrs: &ViscaAttribute
     let response_type = match &attrs.response_type {
         Some(resp) => {
             let resp_ident = syn::Ident::new(resp, proc_macro2::Span::call_site());
-            quote! { Some(crate::command::ResponseType::#resp_ident) }
+            quote! { Some(crate::command::ViscaResponseType::#resp_ident) }
         }
         None => quote! { None },
     };
@@ -200,7 +200,7 @@ fn generate_enum_impl(_name: &Ident, data_enum: DataEnum, attrs: &ViscaAttribute
                     let byte_literals = bytes.iter().map(|b| quote! { #b });
                     quote! {
                         Self::#variant_name => {
-                            let mut builder = crate::command::const_encoding::CommandBuilder::<#max_size>::new();
+                            let mut builder = crate::command::const_encoding::ConstCommandBuilder::<#max_size>::new();
                             // First add the camera ID
                             builder = builder.push(camera_id.to_address_byte());
                             // Then add the command bytes
@@ -232,7 +232,7 @@ fn generate_enum_impl(_name: &Ident, data_enum: DataEnum, attrs: &ViscaAttribute
     });
 
     quote! {
-        type Response = ();
+        type ViscaResponse = ();
         const MAX_SIZE: usize = #max_size;
         const TIMEOUT_CATEGORY: crate::timeout::CommandCategory = #timeout_category;
 
@@ -246,7 +246,7 @@ fn generate_enum_impl(_name: &Ident, data_enum: DataEnum, attrs: &ViscaAttribute
             }
         }
 
-        fn response_type(&self) -> Option<crate::command::ResponseType> {
+        fn response_type(&self) -> Option<crate::command::ViscaResponseType> {
             #response_type
         }
     }

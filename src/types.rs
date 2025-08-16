@@ -36,7 +36,7 @@ impl Default for SocketId {
     valid_values = "[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07]",
     display_format = "hex",
     display_prefix = "Gain Level",
-    model_constraints = "PTZOpticsG2"
+    model_constraints = "PtzOpticsG2"
 )]
 pub struct GainLevel(u8);
 
@@ -46,7 +46,7 @@ pub struct GainLevel(u8);
     valid_values = "[0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xA, 0xB, 0xC, 0xD, 0xE, 0xF]",
     display_format = "hex",
     display_prefix = "Gain Limit",
-    model_constraints = "PTZOpticsG2"
+    model_constraints = "PtzOpticsG2"
 )]
 pub struct GainLimit(u8);
 
@@ -80,7 +80,7 @@ pub trait IntoIrisLevel {
     valid_values = "[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C]",
     display_format = "hex",
     display_prefix = "Iris",
-    model_constraints = "PTZOpticsG2"
+    model_constraints = "PtzOpticsG2"
 )]
 pub struct IrisLevel(u8);
 
@@ -118,7 +118,7 @@ impl From<FStop> for IrisLevel {
     valid_values = "[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11]",
     display_format = "hex",
     display_prefix = "Shutter",
-    model_constraints = "PTZOpticsG2"
+    model_constraints = "PtzOpticsG2"
 )]
 pub struct ShutterSpeed(u16);
 
@@ -128,7 +128,7 @@ pub struct ShutterSpeed(u16);
     valid_values = "[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11]",
     display_format = "hex",
     display_prefix = "Brightness",
-    model_constraints = "PTZOpticsG2"
+    model_constraints = "PtzOpticsG2"
 )]
 pub struct BrightnessLevel(u16);
 
@@ -137,7 +137,7 @@ pub struct BrightnessLevel(u16);
 #[visca_value(
     valid_values = "[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B]",
     display_prefix = "Sharpness",
-    model_constraints = "PTZOpticsG2"
+    model_constraints = "PtzOpticsG2"
 )]
 pub struct SharpnessLevel(u8);
 
@@ -146,7 +146,7 @@ pub struct SharpnessLevel(u8);
 #[visca_value(
     valid_values = "[0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xA, 0xB, 0xC, 0xD, 0xE]",
     display_prefix = "Luminance",
-    model_constraints = "PTZOpticsG2"
+    model_constraints = "PtzOpticsG2"
 )]
 pub struct LuminanceLevel(u8);
 
@@ -155,7 +155,7 @@ pub struct LuminanceLevel(u8);
 #[visca_value(
     valid_values = "[0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xA, 0xB, 0xC, 0xD, 0xE]",
     display_prefix = "Contrast",
-    model_constraints = "PTZOpticsG2"
+    model_constraints = "PtzOpticsG2"
 )]
 pub struct ContrastLevel(u8);
 
@@ -164,7 +164,7 @@ pub struct ContrastLevel(u8);
 #[visca_value(
     valid_values = "[0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8]",
     display_prefix = "Dynamic Range",
-    model_constraints = "PTZOpticsG2"
+    model_constraints = "PtzOpticsG2"
 )]
 pub struct DynamicRangeLevel(u8);
 
@@ -483,19 +483,19 @@ impl TryFrom<NoiseReductionStrength> for NoiseReduction3DLevel {
     }
 }
 
-/// NDI streaming quality settings for PTZOptics cameras.
+/// Ndi streaming quality settings for PtzOptics cameras.
 ///
-/// Controls the bandwidth and quality of NDI HX video streaming.
-/// This is a vendor-specific feature for PTZOptics NDI cameras.
+/// Controls the bandwidth and quality of Ndi HX video streaming.
+/// This is a vendor-specific feature for PtzOptics Ndi cameras.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NDIQuality {
-    /// High quality NDI streaming (highest bandwidth)
+pub enum NdiQuality {
+    /// High quality Ndi streaming (highest bandwidth)
     High,
-    /// Medium quality NDI streaming (balanced bandwidth)
+    /// Medium quality Ndi streaming (balanced bandwidth)
     Medium,
-    /// Low quality NDI streaming (lowest bandwidth)
+    /// Low quality Ndi streaming (lowest bandwidth)
     Low,
-    /// NDI streaming disabled
+    /// Ndi streaming disabled
     Off,
 }
 

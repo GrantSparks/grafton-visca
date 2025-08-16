@@ -40,7 +40,7 @@ fn test_deterministic_executor_with_simple_command() {
         // Send a simple power on command
         let response = runtime
             .send_command(
-                &grafton_visca::command::power::PowerCommand::On,
+                &grafton_visca::command::power::Power::On,
                 grafton_visca::camera_id::CameraId::default(),
                 Some(Priority::Normal),
             )
@@ -49,8 +49,11 @@ fn test_deterministic_executor_with_simple_command() {
         eprintln!("Command sent, got response: {:?}", response);
 
         // Check the response
-        use grafton_visca::command::response::Response;
-        assert!(matches!(response, Response::CmdAck | Response::Completion));
+        use grafton_visca::command::response::ViscaResponse;
+        assert!(matches!(
+            response,
+            ViscaResponse::CmdAck | ViscaResponse::Completion
+        ));
 
         Ok::<(), grafton_visca::Error>(())
     });
@@ -83,15 +86,18 @@ fn test_deterministic_executor_with_sleep() {
         // Start the command (it will be waiting for the delayed response)
         let response = runtime
             .send_command(
-                &grafton_visca::command::power::PowerCommand::On,
+                &grafton_visca::command::power::Power::On,
                 grafton_visca::camera_id::CameraId::default(),
                 Some(Priority::Normal),
             )
             .await?;
 
         // The virtual time should advance automatically in block_on_bg
-        use grafton_visca::command::response::Response;
-        assert!(matches!(response, Response::CmdAck | Response::Completion));
+        use grafton_visca::command::response::ViscaResponse;
+        assert!(matches!(
+            response,
+            ViscaResponse::CmdAck | ViscaResponse::Completion
+        ));
 
         Ok::<(), grafton_visca::Error>(())
     });
@@ -108,7 +114,7 @@ fn test_deterministic_executor_handles_busy_retry() {
     let (executor, _clock) = DeterministicExecutor::new();
 
     // Create a scripted transport that returns BUSY twice then success
-    // PowerCommand uses Quick category which has 5 max retries, so 2 BUSYs followed by success should work
+    // Power uses Quick category which has 5 max retries, so 2 BUSYs followed by success should work
     let steps = vec![
         Step::OnSend {
             matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]),
@@ -138,7 +144,7 @@ fn test_deterministic_executor_handles_busy_retry() {
         // Send command that will get BUSY twice then succeed on retry
         let response = runtime
             .send_command(
-                &grafton_visca::command::power::PowerCommand::On,
+                &grafton_visca::command::power::Power::On,
                 grafton_visca::camera_id::CameraId::default(),
                 Some(Priority::Normal),
             )
@@ -149,8 +155,11 @@ fn test_deterministic_executor_handles_busy_retry() {
         // Should succeed after retry
         match response {
             Ok(resp) => {
-                use grafton_visca::command::response::Response;
-                assert!(matches!(resp, Response::CmdAck | Response::Completion));
+                use grafton_visca::command::response::ViscaResponse;
+                assert!(matches!(
+                    resp,
+                    ViscaResponse::CmdAck | ViscaResponse::Completion
+                ));
                 Ok::<(), grafton_visca::Error>(())
             }
             Err(e) => Err(e),
@@ -169,7 +178,7 @@ fn test_deterministic_executor_handles_busy_exhaustion() {
     let (executor, _clock) = DeterministicExecutor::new();
 
     // Create a scripted transport that returns BUSY 6 times (exhaustion for max_retries=5)
-    // PowerCommand uses Quick category which has 5 max retries
+    // Power uses Quick category which has 5 max retries
     // The runtime sends the initial command (attempt 1), then up to 5 retries (attempts 2-6)
     // On the 6th BUSY (attempt 6), it should exhaust and return MaxRetriesExceeded
     let steps = vec![
@@ -208,7 +217,7 @@ fn test_deterministic_executor_handles_busy_exhaustion() {
         // Send command that will get BUSY 6 times and exhaust retries
         let response = runtime
             .send_command(
-                &grafton_visca::command::power::PowerCommand::On,
+                &grafton_visca::command::power::Power::On,
                 grafton_visca::camera_id::CameraId::default(),
                 Some(Priority::Normal),
             )

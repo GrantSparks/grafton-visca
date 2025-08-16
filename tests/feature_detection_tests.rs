@@ -139,7 +139,7 @@ fn test_basic_features_available_to_all() {
 
 #[test]
 fn test_profile_specific_compile_time_checks() {
-    use grafton_visca::camera::profiles::{GenericVisca, PTZOpticsG2, SonyFR7};
+    use grafton_visca::camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7};
 
     // Functions that demonstrate profile-specific capabilities
 
@@ -158,15 +158,15 @@ fn test_profile_specific_compile_time_checks() {
             requires_var_speed::<SonyFR7>();
         }
 
-        // PTZOpticsG2 has MotionSync
-        fn _ptzoptics_g2_features_async<T>(_camera: &Camera<AsyncMode, PTZOpticsG2, T>)
+        // PtzOpticsG2 has MotionSync
+        fn _ptzoptics_g2_features_async<T>(_camera: &Camera<AsyncMode, PtzOpticsG2, T>)
         where
             T: AsyncTransport + Send + Sync + 'static,
         {
-            // This compiles because PTZOpticsG2 implements MotionSync
+            // This compiles because PtzOpticsG2 implements MotionSync
             fn requires_motion_sync<P: MotionSync>() {}
 
-            requires_motion_sync::<PTZOpticsG2>();
+            requires_motion_sync::<PtzOpticsG2>();
         }
 
         // GenericVisca only has basic features
@@ -196,13 +196,13 @@ fn test_profile_specific_compile_time_checks() {
             requires_var_speed::<SonyFR7>();
         }
 
-        fn _ptzoptics_g2_features_blocking<T>(_camera: &Camera<BlockingMode, PTZOpticsG2, T>)
+        fn _ptzoptics_g2_features_blocking<T>(_camera: &Camera<BlockingMode, PtzOpticsG2, T>)
         where
             T: BlockingTransport + Send + Sync + 'static,
         {
             fn requires_motion_sync<P: MotionSync>() {}
 
-            requires_motion_sync::<PTZOpticsG2>();
+            requires_motion_sync::<PtzOpticsG2>();
         }
 
         fn _generic_visca_features_blocking<T>(_camera: &Camera<BlockingMode, GenericVisca, T>)

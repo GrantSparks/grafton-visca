@@ -7,7 +7,7 @@ use crate::{
 
 /// White balance operations (async).
 #[cfg(feature = "async")]
-pub trait WhiteBalanceOps: Sized {
+pub trait WhiteBalanceControl: Sized {
     /// Set white balance mode to any supported mode.
     async fn set_white_balance_mode(&self, mode: WhiteBalanceMode) -> Result<(), Error>;
 
@@ -32,7 +32,7 @@ pub trait WhiteBalanceOps: Sized {
     /// Set color temperature white balance mode.
     async fn white_balance_color_temperature(&self) -> Result<(), Error>;
 
-    /// Set AWB sensitivity level (PTZOptics specific).
+    /// Set AWB sensitivity level (PtzOptics specific).
     async fn set_awb_sensitivity(
         &self,
         sensitivity: AutoWhiteBalanceSensitivity,
@@ -40,7 +40,7 @@ pub trait WhiteBalanceOps: Sized {
 }
 
 /// White balance operations (blocking).
-pub trait WhiteBalanceOpsBlocking: Sized {
+pub trait WhiteBalanceControlBlocking: Sized {
     /// Set white balance mode to any supported mode.
     fn set_white_balance_mode(&self, mode: WhiteBalanceMode) -> Result<(), Error>;
 
@@ -65,17 +65,17 @@ pub trait WhiteBalanceOpsBlocking: Sized {
     /// Set color temperature white balance mode.
     fn white_balance_color_temperature(&self) -> Result<(), Error>;
 
-    /// Set AWB sensitivity level (PTZOptics specific).
+    /// Set AWB sensitivity level (PtzOptics specific).
     fn set_awb_sensitivity(&self, sensitivity: AutoWhiteBalanceSensitivity) -> Result<(), Error>;
 }
 
 // Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P, T, E> WhiteBalanceOps for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
+impl<P, T, E> WhiteBalanceControl for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
 where
     P: crate::capabilities::Profile,
     T: crate::transport::AsyncTransport + Send + Sync + 'static,
-    E: crate::executor_unified::Executor,
+    E: crate::executor::Executor,
 {
     async fn set_white_balance_mode(&self, mode: WhiteBalanceMode) -> Result<(), Error> {
         use crate::command::white_balance::WhiteBalanceCommand;
@@ -125,7 +125,8 @@ where
 }
 
 // Blocking implementation for Camera with BlockingMode
-impl<P, T> WhiteBalanceOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
+impl<P, T> WhiteBalanceControlBlocking
+    for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile,
     T: crate::transport::BlockingTransport + Send + Sync + 'static,

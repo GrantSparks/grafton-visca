@@ -7,7 +7,7 @@
 //! Core system commands like address setting and interface clearing are baseline VISCA.
 //!
 //! ## Vendor-Specific Features
-//! - `MotionSyncMode` and `MotionSyncSpeed` - PTZOptics specific (firmware 1.1.6+)
+//! - `MotionSyncMode` and `MotionSyncSpeed` - PtzOptics specific (firmware 1.1.6+)
 //!   These features coordinate pan, tilt, and zoom movements for smoother preset recalls.
 
 // Standard library imports

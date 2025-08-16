@@ -25,10 +25,11 @@ use std::env;
 #[cfg(feature = "rt-tokio")]
 use grafton_visca::{
     camera::methods::{
-        exposure::ExposureOps, focus::FocusOps, image_processing::ImageProcessingOps,
-        pan_tilt::PanTiltOps, presets::PresetsOps, white_balance::WhiteBalanceOps, zoom::ZoomOps,
+        exposure::ExposureControl, focus::FocusControl, image_processing::ImageProcessingControl,
+        pan_tilt::PanTiltControl, presets::PresetsControl, white_balance::WhiteBalanceControl,
+        zoom::ZoomControl,
     },
-    camera::profiles::PTZOpticsG2,
+    camera::profiles::PtzOpticsG2,
     command::preset::PresetNumber,
     transport::tokio::tcp::Tcp,
     types::{PanSpeed, SpeedLevel, TiltSpeed},
@@ -55,7 +56,7 @@ async fn main() -> Result<(), Error> {
     // Create camera using the new executor-based API
     let transport = Tcp::connect(&camera_addr).await?;
     let camera = CameraBuilder::tokio()?
-        .build_async::<PTZOpticsG2, _>(transport)
+        .build_async::<PtzOpticsG2, _>(transport)
         .await?;
 
     println!("✅ Connected successfully!");

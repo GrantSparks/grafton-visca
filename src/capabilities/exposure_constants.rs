@@ -2,8 +2,8 @@
 
 use crate::capabilities::exposure::ShutterSpeed;
 
-/// Shutter speeds for PTZOptics G2 cameras.
-pub const PTZOPTICS_G2_SHUTTER_SPEEDS: &[ShutterSpeed] = &[
+/// Shutter speeds for PtzOptics G2 cameras.
+pub const PtzOPTICS_G2_SHUTTER_SPEEDS: &[ShutterSpeed] = &[
     ShutterSpeed::new("1/30", 0x01),
     ShutterSpeed::new("1/60", 0x02),
     ShutterSpeed::new("1/90", 0x03),

@@ -177,7 +177,7 @@ pub mod image {
     /// Backlight compensation prefix.
     pub const BACKLIGHT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x33];
 
-    /// Image flip combined mode prefix (PTZOptics specific).
+    /// Image flip combined mode prefix (PtzOptics specific).
     pub const FLIP_COMBINED_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0xA4];
 
     /// Picture effect mode prefix.
@@ -284,7 +284,7 @@ pub mod tally {
     /// Green tally prefix (Sony FR7).
     pub const TALLY_GREEN_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x7E, 0x04, 0x1A, 0x00];
 
-    /// PTZOptics tally prefix.
+    /// PtzOptics tally prefix.
     pub const TALLY_PTZO_PREFIX: &[u8] = visca_prefix![0x81, 0x0A, 0x02, 0x02];
 
     /// Tally inquiry prefix.
@@ -359,7 +359,7 @@ pub mod inquiry {
     /// Defog level inquiry.
     pub const DEFOG_LEVEL: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0xA0];
 
-    /// Digital PTZ status inquiry.
+    /// Digital Ptz status inquiry.
     pub const DIGITAL_PTZ: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x6B];
 
     // White balance and color inquiries
@@ -432,13 +432,13 @@ pub mod streaming {
     use super::*;
 
     /// Multicast streaming control prefix.
-    /// **Vendor-Specific**: PTZOptics streaming commands.
+    /// **Vendor-Specific**: PtzOptics streaming commands.
     /// Used by: MulticastStreamingInternal in streaming.rs
     pub const MULTICAST_PREFIX: &[u8] = visca_prefix![0x81, 0x0B, 0x01, 0x23];
 
-    /// NDI quality control prefix.
-    /// **Vendor-Specific**: PTZOptics NDI streaming commands.
-    /// Used by: NDIQualityCommandInternal in streaming.rs
+    /// Ndi quality control prefix.
+    /// **Vendor-Specific**: PtzOptics Ndi streaming commands.
+    /// Used by: NdiQualityCommandInternal in streaming.rs
     pub const NDI_QUALITY_PREFIX: &[u8] = visca_prefix![0x81, 0x0B, 0x01, 0x01];
 }
 
@@ -459,7 +459,7 @@ pub mod nd_filter {
     pub const DIRECT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x7E, 0x04, 0x42, 0x00];
 }
 
-/// Motion sync command constants (PTZOptics specific).
+/// Motion sync command constants (PtzOptics specific).
 pub mod motion_sync {
     use super::*;
 
@@ -699,10 +699,9 @@ mod validation_tests {
             .unwrap();
         assert_eq!(&buffer[0..6], gain::DIRECT_PREFIX);
 
-        // Test GainLimitCommand uses GAIN_LIMIT_PREFIX
-        let gain_limit = crate::command::gain::GainLimitCommand::new(
-            crate::types::GainLimit::new(0x03).unwrap(),
-        );
+        // Test GainLimit uses GAIN_LIMIT_PREFIX
+        let gain_limit =
+            crate::command::gain::GainLimitCmd::new(crate::types::GainLimit::new(0x03).unwrap());
         let len = gain_limit
             .encode_into(CameraId::CAMERA_1, &mut buffer)
             .unwrap();

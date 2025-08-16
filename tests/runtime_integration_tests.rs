@@ -13,7 +13,7 @@
 use flume::{Receiver, Sender};
 #[cfg(feature = "rt-tokio")]
 use grafton_visca::{
-    command::response::{Response, ResponseType},
+    command::response::{ViscaResponse, ViscaResponseType},
     runtime::{Priority, RuntimeHandle, TxItem},
     testing::testkit::{ScriptedTransport, Step},
     timeout::CommandCategory,
@@ -49,8 +49,10 @@ mod runtime_tests {
         tokio::time::advance(Duration::from_millis(50)).await;
 
         // Send a command
-        let (response_tx, response_rx): (Sender<Result<Response>>, Receiver<Result<Response>>) =
-            flume::bounded(1);
+        let (response_tx, response_rx): (
+            Sender<Result<ViscaResponse>>,
+            Receiver<Result<ViscaResponse>>,
+        ) = flume::bounded(1);
         let command = TxItem::Command {
             id: 1,
             bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF], // Power on
@@ -67,7 +69,7 @@ mod runtime_tests {
 
         // Wait for response
         let response = response_rx.recv_async().await.unwrap();
-        assert!(matches!(response, Ok(Response::Completion)));
+        assert!(matches!(response, Ok(ViscaResponse::Completion)));
 
         // Verify command was sent
         let sent = transport.sent();
@@ -96,13 +98,15 @@ mod runtime_tests {
         tokio::time::advance(Duration::from_millis(50)).await;
 
         // Send an inquiry
-        let (response_tx, response_rx): (Sender<Result<Response>>, Receiver<Result<Response>>) =
-            flume::bounded(1);
+        let (response_tx, response_rx): (
+            Sender<Result<ViscaResponse>>,
+            Receiver<Result<ViscaResponse>>,
+        ) = flume::bounded(1);
         let inquiry = TxItem::Inquiry {
             id: 1,
             bytes: vec![0x81, 0x09, 0x04, 0x00, 0xFF], // Power inquiry
             response_tx,
-            response_type: Some(ResponseType::Power),
+            response_type: Some(ViscaResponseType::Power),
             deadline: std::time::Instant::now() + Duration::from_secs(5),
         };
 
@@ -116,10 +120,10 @@ mod runtime_tests {
 
         // Should receive inquiry response
         match response {
-            Ok(Response::Inquiry(_)) => {
+            Ok(ViscaResponse::Inquiry(_)) => {
                 // Expected - actual data would be in the InquiryResponse
             }
-            Ok(Response::Unknown { .. }) => {
+            Ok(ViscaResponse::Unknown { .. }) => {
                 // Also acceptable for this test
             }
             _ => panic!("Expected Inquiry or Unknown response, got: {:?}", response),
@@ -152,8 +156,10 @@ mod runtime_tests {
         tokio::time::advance(Duration::from_millis(50)).await;
 
         // Send a command
-        let (response_tx, response_rx): (Sender<Result<Response>>, Receiver<Result<Response>>) =
-            flume::bounded(1);
+        let (response_tx, response_rx): (
+            Sender<Result<ViscaResponse>>,
+            Receiver<Result<ViscaResponse>>,
+        ) = flume::bounded(1);
         let command = TxItem::Command {
             id: 1,
             bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF],
@@ -212,8 +218,10 @@ mod runtime_tests {
         tokio::time::advance(Duration::from_millis(50)).await;
 
         // Send a command
-        let (response_tx, response_rx): (Sender<Result<Response>>, Receiver<Result<Response>>) =
-            flume::bounded(1);
+        let (response_tx, response_rx): (
+            Sender<Result<ViscaResponse>>,
+            Receiver<Result<ViscaResponse>>,
+        ) = flume::bounded(1);
         let command = TxItem::Command {
             id: 1,
             bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF],
@@ -232,7 +240,7 @@ mod runtime_tests {
         let response = response_rx.recv_async().await.unwrap();
 
         assert!(
-            matches!(response, Ok(Response::Completion)),
+            matches!(response, Ok(ViscaResponse::Completion)),
             "Expected completion, got: {:?}",
             response
         );
@@ -288,7 +296,10 @@ mod runtime_tests {
         let mut receivers = Vec::new();
 
         // Low priority
-        let (tx1, rx1): (Sender<Result<Response>>, Receiver<Result<Response>>) = flume::bounded(1);
+        let (tx1, rx1): (
+            Sender<Result<ViscaResponse>>,
+            Receiver<Result<ViscaResponse>>,
+        ) = flume::bounded(1);
         runtime
             .command(TxItem::Command {
                 id: 1,
@@ -303,7 +314,10 @@ mod runtime_tests {
         receivers.push(rx1);
 
         // High priority
-        let (tx2, rx2): (Sender<Result<Response>>, Receiver<Result<Response>>) = flume::bounded(1);
+        let (tx2, rx2): (
+            Sender<Result<ViscaResponse>>,
+            Receiver<Result<ViscaResponse>>,
+        ) = flume::bounded(1);
         runtime
             .command(TxItem::Command {
                 id: 2,
@@ -318,7 +332,10 @@ mod runtime_tests {
         receivers.push(rx2);
 
         // Normal priority
-        let (tx3, rx3): (Sender<Result<Response>>, Receiver<Result<Response>>) = flume::bounded(1);
+        let (tx3, rx3): (
+            Sender<Result<ViscaResponse>>,
+            Receiver<Result<ViscaResponse>>,
+        ) = flume::bounded(1);
         runtime
             .command(TxItem::Command {
                 id: 3,
@@ -373,8 +390,10 @@ mod runtime_tests {
         tokio::time::advance(Duration::from_millis(50)).await;
 
         // Send a command
-        let (response_tx, response_rx): (Sender<Result<Response>>, Receiver<Result<Response>>) =
-            flume::bounded(1);
+        let (response_tx, response_rx): (
+            Sender<Result<ViscaResponse>>,
+            Receiver<Result<ViscaResponse>>,
+        ) = flume::bounded(1);
         let command = TxItem::Command {
             id: 42,
             bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF],

@@ -18,7 +18,7 @@
 //!
 //! let transport = Tcp::connect("192.168.0.110:52381").await?;
 //! let executor = TokioExecutor::from_current()?;
-//! let camera = PTZOpticsG2Cam::with_executor(transport, executor);
+//! let camera = PtzOpticsG2Cam::with_executor(transport, executor);
 //!
 //! // Async methods are available directly on the camera
 //! camera.power_on().await?;
@@ -36,7 +36,7 @@
 //! use grafton_visca::transport::blocking::Tcp;
 //!
 //! let transport = Tcp::connect("192.168.0.110:52381")?;
-//! let camera = PTZOpticsG2Cam::from_transport(transport);
+//! let camera = PtzOpticsG2Cam::from_transport(transport);
 //!
 //! // Blocking methods are available directly on the camera
 //! camera.power_on()?;
@@ -58,7 +58,7 @@
 pub mod r#async {
     // Local imports - camera types and profiles
     pub use crate::camera::profiles::{
-        GenericVisca, NearusBRC300, PTZOptics30X, PTZOpticsG2, PTZOpticsG3, SonyBRC300,
+        GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
         SonyBRCH900, SonyEVIH100, SonyFR7,
     };
     pub use crate::camera::{CameraAsync as Camera, MovementConfig};
@@ -70,14 +70,14 @@ pub mod r#async {
     };
 
     // Ergonomic type aliases for specific camera models
-    /// PTZOptics G2 camera type alias.
-    pub type PTZOpticsG2Cam<T> = Camera<PTZOpticsG2, T>;
+    /// PtzOptics G2 camera type alias.
+    pub type PtzOpticsG2Cam<T> = Camera<PtzOpticsG2, T>;
 
-    /// PTZOptics G3 camera type alias.
-    pub type PTZOpticsG3Cam<T> = Camera<PTZOpticsG3, T>;
+    /// PtzOptics G3 camera type alias.
+    pub type PtzOpticsG3Cam<T> = Camera<PtzOpticsG3, T>;
 
-    /// PTZOptics 30X camera type alias.
-    pub type PTZOptics30XCam<T> = Camera<PTZOptics30X, T>;
+    /// PtzOptics 30X camera type alias.
+    pub type PtzOptics30XCam<T> = Camera<PtzOptics30X, T>;
 
     /// Sony FR7 camera type alias.
     pub type SonyFR7Cam<T> = Camera<SonyFR7, T>;
@@ -111,7 +111,7 @@ pub mod r#async {
 pub mod blocking {
     // Local imports - camera types and profiles
     pub use crate::camera::profiles::{
-        GenericVisca, NearusBRC300, PTZOptics30X, PTZOpticsG2, PTZOpticsG3, SonyBRC300,
+        GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
         SonyBRCH900, SonyEVIH100, SonyFR7,
     };
     pub use crate::camera::{CameraBlocking as Camera, MovementConfig};
@@ -123,14 +123,14 @@ pub mod blocking {
     };
 
     // Ergonomic type aliases for specific camera models
-    /// PTZOptics G2 camera type alias.
-    pub type PTZOpticsG2Cam<T> = Camera<PTZOpticsG2, T>;
+    /// PtzOptics G2 camera type alias.
+    pub type PtzOpticsG2Cam<T> = Camera<PtzOpticsG2, T>;
 
-    /// PTZOptics G3 camera type alias.
-    pub type PTZOpticsG3Cam<T> = Camera<PTZOpticsG3, T>;
+    /// PtzOptics G3 camera type alias.
+    pub type PtzOpticsG3Cam<T> = Camera<PtzOpticsG3, T>;
 
-    /// PTZOptics 30X camera type alias.
-    pub type PTZOptics30XCam<T> = Camera<PTZOptics30X, T>;
+    /// PtzOptics 30X camera type alias.
+    pub type PtzOptics30XCam<T> = Camera<PtzOptics30X, T>;
 
     /// Sony FR7 camera type alias.
     pub type SonyFR7Cam<T> = Camera<SonyFR7, T>;
