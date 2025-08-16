@@ -24,6 +24,9 @@ pub fn now_from_executor_arc<E: crate::executor_unified::Executor>(
             return det_exec.now();
         }
     }
+    
+    #[cfg(not(any(test, feature = "test-utils")))]
+    let _ = executor;
 
     // Fall back to wall-clock time for all other executors
     Instant::now()
@@ -54,6 +57,9 @@ pub fn now_from_executor<E: crate::executor_unified::Executor>(executor: &E) -> 
             return arc_det.now();
         }
     }
+    
+    #[cfg(not(any(test, feature = "test-utils")))]
+    let _ = executor;
 
     // Fall back to wall-clock time for all other executors
     Instant::now()
