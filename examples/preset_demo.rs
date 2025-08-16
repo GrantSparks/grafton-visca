@@ -11,7 +11,8 @@
 //! ```
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::prelude::blocking::*;
+use std::{env, thread::sleep, time::Duration};
+
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::methods::{
@@ -20,12 +21,10 @@ use grafton_visca::{
         presets::PresetsOpsBlocking,
         zoom::ZoomOpsBlocking,
     },
+    prelude::blocking::*,
     transport::blocking::Tcp,
     CameraBuilder, Error,
 };
-
-#[cfg(not(feature = "async"))]
-use std::{env, thread::sleep, time::Duration};
 
 #[cfg(not(feature = "async"))]
 fn main() -> Result<(), Error> {

@@ -17,21 +17,25 @@
 //! ```
 
 #[cfg(not(feature = "async"))]
+use std::{env, thread::sleep, time::Duration};
+
+#[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::methods::{
-        exposure::ExposureOpsBlocking, focus::FocusOpsBlocking, pan_tilt::PanTiltOpsBlocking,
-        presets::PresetsOpsBlocking, white_balance::WhiteBalanceOpsBlocking, zoom::ZoomOpsBlocking,
+    camera::{
+        methods::{
+            exposure::ExposureOpsBlocking, focus::FocusOpsBlocking, pan_tilt::PanTiltOpsBlocking,
+            presets::PresetsOpsBlocking, white_balance::WhiteBalanceOpsBlocking,
+            zoom::ZoomOpsBlocking,
+        },
+        profiles::PTZOpticsG2,
+        Camera,
     },
-    camera::{profiles::PTZOpticsG2, Camera},
     command::preset::PresetNumber,
     transport::blocking::tcp::Tcp,
     types::{PanSpeed, SpeedLevel, TiltSpeed},
     units::{Degrees, Normalized},
     Error, PanTiltDirection,
 };
-
-#[cfg(not(feature = "async"))]
-use std::{env, thread::sleep, time::Duration};
 
 #[cfg(not(feature = "async"))]
 fn main() -> Result<(), Error> {
@@ -88,14 +92,12 @@ fn main() -> Result<(), Error> {
     )?;
     sleep(Duration::from_millis(100));
     camera.pan_tilt_stop()?;
-    // TODO: await_pan_tilt_idle not yet implemented
     sleep(Duration::from_secs(1));
 
     println!("  Tilting up briefly...");
     camera.pan_tilt_move(PanTiltDirection::Up, PanSpeed::new(0)?, TiltSpeed::new(10)?)?;
     sleep(Duration::from_millis(100));
     camera.pan_tilt_stop()?;
-    // TODO: await_pan_tilt_idle not yet implemented
     sleep(Duration::from_secs(1));
     println!("✓ Pan/tilt complete");
     println!();
@@ -104,30 +106,21 @@ fn main() -> Result<(), Error> {
 
     println!("Moving to absolute position (45°, 15°)...");
     camera.pan_tilt_absolute(Degrees(45.0), Degrees(15.0), SpeedLevel::Fast)?;
-    // TODO: await_pan_tilt_idle not yet implemented
     sleep(Duration::from_secs(3));
     println!("✓ Moved to position");
 
     println!("Moving relative (+10°, +5°)...");
     camera.pan_tilt_relative(Degrees(10.0), Degrees(5.0), SpeedLevel::Medium)?;
 
-    // TODO: Movement detection not yet implemented
-    // let custom_config = MovementConfig {
-    //     timeout: Duration::from_secs(30),
-    //     debug: true,
-    // };
-    // camera.wait_for_movement(&custom_config)?;
     sleep(Duration::from_secs(2));
     println!("✓ Relative movement complete");
 
     println!("Setting zoom to 50%...");
     camera.zoom_absolute(Normalized(0.5))?;
-    // TODO: await_zoom_idle not yet implemented
     sleep(Duration::from_secs(2));
     println!("✓ Zoom at 50%");
     println!();
 
-    // Movement detection methods will be added in a future update
     println!();
 
     println!("═══ Focus Control ═══");
@@ -179,7 +172,6 @@ fn main() -> Result<(), Error> {
     camera.white_balance_auto()?;
     println!();
 
-    // Image adjustment methods will be added in a future update
     println!();
 
     println!("═══ Preset Management ═══");

@@ -10,17 +10,16 @@
 //! ```
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::prelude::blocking::*;
+use std::{env, thread::sleep, time::Duration};
+
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::profiles::SonyFR7,
     command::zoom::ZoomSpeed,
+    prelude::blocking::*,
     types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed},
     CameraBuilder, Error,
 };
-
-#[cfg(not(feature = "async"))]
-use std::{env, thread::sleep, time::Duration};
 
 #[cfg(not(feature = "async"))]
 fn main() -> Result<(), Error> {

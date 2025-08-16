@@ -20,11 +20,10 @@ use std::{
 };
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::prelude::blocking::*;
-#[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::methods::{pan_tilt::PanTiltOpsBlocking, zoom::ZoomOpsBlocking},
     camera::{BlockingMode, Camera},
+    prelude::blocking::*,
     transport::blocking::{Tcp, Udp},
     Error,
 };
