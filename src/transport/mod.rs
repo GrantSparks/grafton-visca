@@ -41,29 +41,20 @@
 //! # }
 //! ```
 
-// Transport traits
 pub mod async_transport;
+pub mod blocking;
 pub mod blocking_transport;
-
-// GAT-based Transport trait removed - use AsyncTransport or BlockingTransport
+pub mod envelope;
+pub mod frame_parser;
+pub mod ip_raw;
+pub mod ip_sony;
+#[cfg(feature = "serial")]
+pub mod serial;
+#[cfg(feature = "rt-tokio")]
+pub mod tokio;
 
 #[cfg(feature = "async")]
 pub use async_transport::AsyncTransport;
-pub use blocking_transport::BlockingTransport;
-
-// Transport utilities
-pub mod envelope;
-pub mod frame_parser;
-
-// Blocking transport module (always available)
-pub mod blocking;
-
-// Re-export transport implementations
 pub use blocking::{Tcp as BlockingTcp, Udp as BlockingUdp};
-
-// Transport envelope for VISCA framing
+pub use blocking_transport::BlockingTransport;
 pub use envelope::TransportEnvelope;
-
-// Tokio implementations
-#[cfg(feature = "rt-tokio")]
-pub mod tokio;

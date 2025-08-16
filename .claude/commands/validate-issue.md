@@ -30,6 +30,7 @@ Use `gh issue view $ARGUMENTS --comments` to read the issue and all comments. Do
      - Proper input validation
      - Complete test coverage
    - Verify code quality, naming conventions, and documentation
+   - Look for any remaining TODO comments relating to the issue
 
 2. **Functionality Testing**:
    - Run all relevant tests with `Bash(cargo test:*)`
@@ -77,8 +78,8 @@ Based on your validation:
 1. Final verification:
    - Run `git status` to see uncommitted changes
    - Use `git diff` to review any pending modifications
-   - Run `cargo test` to ensure all tests pass
-   - Run `cargo build --release` to verify release build works
+   - Run `cargo test` to ensure all tests pass.  Test with each feature enabled
+   - Run `cargo build --release` to verify release build works.  Also compile examples
 
 2. Commit and push.
 

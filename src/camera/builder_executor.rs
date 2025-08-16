@@ -3,8 +3,15 @@
 //! This module provides a builder pattern for constructing cameras with
 //! the new unified Executor trait, preventing runtime/spawner mismatches.
 
-use crate::{camera_id::CameraId, capabilities::Profile, timeout::TimeoutConfig};
+#[cfg(not(feature = "async"))]
+use std::marker::PhantomData;
 
+#[cfg(not(feature = "async"))]
+use crate::camera::generic_executor::Camera as GenericCamera;
+use crate::{
+    camera::BlockingMode, camera_id::CameraId, capabilities::Profile, timeout::TimeoutConfig,
+    transport::BlockingTransport,
+};
 #[cfg(feature = "async")]
 use crate::{
     camera::{generic_executor::Camera as GenericCamera, AsyncMode},
@@ -12,11 +19,6 @@ use crate::{
     executor_unified::Executor,
     transport::AsyncTransport,
 };
-
-use crate::{camera::BlockingMode, transport::BlockingTransport};
-
-#[cfg(not(feature = "async"))]
-use crate::camera::generic_executor::Camera as GenericCamera;
 
 /// Builder for creating cameras with explicit executor configuration.
 ///
@@ -28,7 +30,7 @@ pub struct CameraBuilder<E = ()> {
     #[cfg(feature = "async")]
     executor: Option<E>,
     #[cfg(not(feature = "async"))]
-    _phantom: std::marker::PhantomData<E>,
+    _phantom: PhantomData<E>,
 }
 
 impl<E> std::fmt::Debug for CameraBuilder<E> {
@@ -51,7 +53,7 @@ impl CameraBuilder<()> {
             #[cfg(feature = "async")]
             executor: None,
             #[cfg(not(feature = "async"))]
-            _phantom: std::marker::PhantomData,
+            _phantom: PhantomData,
         }
     }
 }
@@ -94,16 +96,19 @@ where
     /// Build an async camera with the specified profile and transport.
     ///
     /// The executor must have been set via `with_executor()`.
-    pub fn build_async<P, T>(self, transport: T) -> Result<GenericCamera<AsyncMode, P, T, E>, Error>
+    pub async fn build_async<P, T>(
+        self,
+        transport: T,
+    ) -> Result<GenericCamera<AsyncMode, P, T, E>, Error>
     where
         P: Profile,
-        T: AsyncTransport,
+        T: AsyncTransport + 'static,
     {
         let executor = self.executor.ok_or_else(|| {
             Error::InvalidState("Executor not configured for async camera".into())
         })?;
 
-        let mut camera = GenericCamera::with_executor(transport, executor);
+        let mut camera = GenericCamera::with_executor(transport, executor).await?;
         camera.set_camera_id(self.camera_id);
         camera.set_timeout_config(self.timeout_config);
 

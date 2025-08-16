@@ -7,17 +7,16 @@ use std::time::{Duration, Instant};
 
 use crate::{
     capabilities::{Profile, ProfileMetadata},
+    command::inquiry::{FocusPositionInquiry, PanTiltPositionInquiry, ZoomPositionInquiry},
     error::Error,
+    transport::BlockingTransport,
 };
+#[cfg(feature = "async")]
+use crate::{executor_unified::Executor, transport::AsyncTransport};
 
-use crate::transport::BlockingTransport;
-
-use super::BlockingMode;
-
-use super::{Camera, MovementConfig, PanTiltPosition};
-
-// Import inquiry commands
-use crate::command::inquiry::{FocusPositionInquiry, PanTiltPositionInquiry, ZoomPositionInquiry};
+#[cfg(feature = "async")]
+use super::AsyncMode;
+use super::{BlockingMode, Camera, MovementConfig, PanTiltPosition};
 
 // Blocking mode implementation is always available
 impl<P, T> Camera<BlockingMode, P, T, ()>
@@ -322,13 +321,6 @@ where
         Ok(pt_moving || zoom_moving || focus_moving)
     }
 }
-
-#[cfg(feature = "async")]
-use super::AsyncMode;
-#[cfg(feature = "async")]
-use crate::executor_unified::Executor;
-#[cfg(feature = "async")]
-use crate::transport::AsyncTransport;
 
 #[cfg(feature = "async")]
 impl<P, T, E> Camera<AsyncMode, P, T, E>

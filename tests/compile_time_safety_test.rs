@@ -3,11 +3,9 @@
 #![allow(clippy::expect_used)]
 #![cfg(not(feature = "async"))]
 
-/// VISCA command terminator byte.
-const VISCA_TERMINATOR: u8 = 0xFF;
-
+#[cfg(feature = "test-utils")]
 use grafton_visca::prelude::blocking::{GenericViscaCam, PTZOpticsG2Cam, SonyFR7Cam};
-use grafton_visca::transport::BlockingTransport;
+#[cfg(feature = "test-utils")]
 use grafton_visca::{
     camera::methods::{
         focus::FocusOpsBlocking, pan_tilt::PanTiltOpsBlocking, power::PowerOpsBlocking,
@@ -16,115 +14,23 @@ use grafton_visca::{
     capabilities::*,
     Error, PresetNumber,
 };
-use std::sync::Mutex;
 
-// Mock transport that returns proper VISCA responses
-#[derive(Debug)]
-struct MockTransport {
-    response_sequence: Mutex<Vec<Vec<u8>>>,
-    response_index: Mutex<usize>,
-}
+#[cfg(feature = "test-utils")]
+use grafton_visca::testing::testkit::{helpers, ScriptedBlockingTransport};
 
-// Remove async Transport impl since we're in blocking mode
-
-impl MockTransport {
-    fn new() -> Self {
-        Self {
-            // Default sequence: ACK followed by Completion for each command
-            // Provide enough responses for multiple commands
-            response_sequence: Mutex::new(vec![
-                vec![0x90, 0x41, VISCA_TERMINATOR], // ACK (socket 1) for power_on
-                vec![0x90, 0x51, VISCA_TERMINATOR], // Completion (socket 1) for power_on
-                vec![0x90, 0x41, VISCA_TERMINATOR], // ACK (socket 1) for pan_tilt_home
-                vec![0x90, 0x51, VISCA_TERMINATOR], // Completion (socket 1) for pan_tilt_home
-                vec![0x90, 0x41, VISCA_TERMINATOR], // ACK (socket 1) for zoom_stop
-                vec![0x90, 0x51, VISCA_TERMINATOR], // Completion (socket 1) for zoom_stop
-                vec![0x90, 0x41, VISCA_TERMINATOR], // ACK (socket 1) for focus_auto
-                vec![0x90, 0x51, VISCA_TERMINATOR], // Completion (socket 1) for focus_auto
-                vec![0x90, 0x41, VISCA_TERMINATOR], // ACK (socket 1) for preset_recall
-                vec![0x90, 0x51, VISCA_TERMINATOR], // Completion (socket 1) for preset_recall
-            ]),
-            response_index: Mutex::new(0),
-        }
-    }
-
-    fn new_with_sony_envelope() -> Self {
-        Self {
-            // Sony encapsulated responses with 8-byte header
-            response_sequence: Mutex::new(vec![
-                // ACK with Sony header for power_on
-                vec![
-                    0x01, 0x11, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x90, 0x41, 0xFF,
-                ],
-                // Completion with Sony header for power_on
-                vec![
-                    0x01, 0x11, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x90, 0x51, 0xFF,
-                ],
-                // ACK for pan_tilt_home
-                vec![
-                    0x01, 0x11, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x90, 0x41, 0xFF,
-                ],
-                // Completion for pan_tilt_home
-                vec![
-                    0x01, 0x11, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x90, 0x51, 0xFF,
-                ],
-                // ACK for zoom_stop
-                vec![
-                    0x01, 0x11, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x90, 0x41, 0xFF,
-                ],
-                // Completion for zoom_stop
-                vec![
-                    0x01, 0x11, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x90, 0x51, 0xFF,
-                ],
-            ]),
-            response_index: Mutex::new(0),
-        }
-    }
-}
-
-// Implement BlockingTransport for MockTransport
-impl BlockingTransport for MockTransport {
-    fn send_blocking(&self, _bytes: &[u8]) -> Result<(), Error> {
-        Ok(())
-    }
-
-    fn recv_blocking(&self) -> Result<bytes::Bytes, Error> {
-        let response_sequence = self.response_sequence.lock().unwrap();
-        let mut response_index = self.response_index.lock().unwrap();
-
-        if *response_index < response_sequence.len() {
-            let response = response_sequence[*response_index].clone();
-            *response_index += 1;
-            Ok(bytes::Bytes::from(response))
-        } else {
-            Err(Error::Timeout)
-        }
-    }
-
-    fn recv_blocking_with_timeout(
-        &self,
-        _duration: core::time::Duration,
-    ) -> Result<bytes::Bytes, Error> {
-        // For testing, just return the next response from the queue
-        let response_sequence = self.response_sequence.lock().unwrap();
-        let mut response_index = self.response_index.lock().unwrap();
-
-        if *response_index < response_sequence.len() {
-            let response = response_sequence[*response_index].clone();
-            *response_index += 1;
-            Ok(bytes::Bytes::from(response))
-        } else {
-            // Return a default ACK response if no more responses
-            Ok(bytes::Bytes::from(vec![
-                0x01, 0x11, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x90, 0x41, 0xFF,
-            ]))
-        }
-    }
-}
-
+#[cfg(feature = "test-utils")]
 #[test]
 fn test_ptzoptics_g2_capabilities() {
-    let camera = PTZOpticsG2Cam::from_transport(MockTransport::new());
+    // Create scripted transport with enough responses for all commands (5 commands total)
+    let transport = ScriptedBlockingTransport::new(vec![
+        helpers::auto_respond_step(), // power_on
+        helpers::auto_respond_step(), // pan_tilt_home
+        helpers::auto_respond_step(), // zoom_stop
+        helpers::auto_respond_step(), // focus_auto
+        helpers::auto_respond_step(), // preset_recall
+    ]);
+
+    let camera = PTZOpticsG2Cam::from_transport(transport);
 
     // These methods exist for PTZOpticsG2 - checked at compile time
     assert!(camera.power_on().is_ok());
@@ -137,9 +43,17 @@ fn test_ptzoptics_g2_capabilities() {
     // camera.set_nd_filter_mode(NDFilterMode::Clear).unwrap(); // COMPILE ERROR!
 }
 
+#[cfg(feature = "test-utils")]
 #[test]
 fn test_sony_fr7_has_nd_filter() {
-    let camera = SonyFR7Cam::from_transport(MockTransport::new_with_sony_envelope());
+    // Create scripted transport with Sony envelope responses (3 commands total)
+    let transport = ScriptedBlockingTransport::new(vec![
+        helpers::sony_auto_respond_step(), // power_on
+        helpers::sony_auto_respond_step(), // pan_tilt_home
+        helpers::sony_auto_respond_step(), // zoom_stop
+    ]);
+
+    let camera = SonyFR7Cam::from_transport(transport);
 
     // FR7 has all standard features
     assert!(camera.power_on().is_ok());
@@ -151,6 +65,7 @@ fn test_sony_fr7_has_nd_filter() {
 }
 
 // This test demonstrates compile-time capability checking
+#[cfg(feature = "test-utils")]
 #[test]
 fn test_compile_time_capability_checking() {
     // This function can only be called with cameras that have ND filter support
@@ -159,14 +74,17 @@ fn test_compile_time_capability_checking() {
     ) -> Result<(), Error>
     where
         P: Profile + NDFilter,
-        T: BlockingTransport + Send + Sync + 'static,
+        T: grafton_visca::transport::BlockingTransport + Send + Sync + 'static,
     {
         // ND filter methods would be available here
         Ok(())
     }
 
-    let fr7 = SonyFR7Cam::from_transport(MockTransport::new_with_sony_envelope());
-    let _g2 = PTZOpticsG2Cam::from_transport(MockTransport::new());
+    let fr7_transport = ScriptedBlockingTransport::new(vec![helpers::auto_respond_step()]);
+    let fr7 = SonyFR7Cam::from_transport(fr7_transport);
+
+    let _g2_transport = ScriptedBlockingTransport::new(vec![helpers::auto_respond_step()]);
+    let _g2 = PTZOpticsG2Cam::from_transport(_g2_transport);
 
     // This compiles - FR7 has NDFilter
     assert!(adjust_nd_filter(&fr7).is_ok());
@@ -177,6 +95,7 @@ fn test_compile_time_capability_checking() {
     // The compiler prevents calling unsupported methods at compile time
 }
 
+#[cfg(feature = "test-utils")]
 #[test]
 fn test_generic_functions_with_trait_bounds() {
     // Function that works with any camera
@@ -184,7 +103,7 @@ fn test_generic_functions_with_trait_bounds() {
         camera: &grafton_visca::camera::Camera<
             grafton_visca::camera::BlockingMode,
             P,
-            MockTransport,
+            ScriptedBlockingTransport,
         >,
     ) -> Result<(), Error>
     where
@@ -201,7 +120,7 @@ fn test_generic_functions_with_trait_bounds() {
         _camera: &grafton_visca::camera::Camera<
             grafton_visca::camera::BlockingMode,
             P,
-            MockTransport,
+            ScriptedBlockingTransport,
         >,
     ) -> Result<(), Error>
     where
@@ -211,9 +130,24 @@ fn test_generic_functions_with_trait_bounds() {
         Ok(())
     }
 
-    let g2 = PTZOpticsG2Cam::from_transport(MockTransport::new());
-    let fr7 = SonyFR7Cam::from_transport(MockTransport::new_with_sony_envelope());
-    let generic = GenericViscaCam::from_transport(MockTransport::new());
+    let g2_transport = ScriptedBlockingTransport::new(vec![
+        helpers::auto_respond_step(), // power_on
+        helpers::auto_respond_step(), // zoom_stop
+        helpers::auto_respond_step(), // for motion_sync_control
+    ]);
+    let g2 = PTZOpticsG2Cam::from_transport(g2_transport);
+
+    let fr7_transport = ScriptedBlockingTransport::new(vec![
+        helpers::sony_auto_respond_step(), // power_on
+        helpers::sony_auto_respond_step(), // zoom_stop
+    ]);
+    let fr7 = SonyFR7Cam::from_transport(fr7_transport);
+
+    let generic_transport = ScriptedBlockingTransport::new(vec![
+        helpers::auto_respond_step(), // power_on
+        helpers::auto_respond_step(), // zoom_stop
+    ]);
+    let generic = GenericViscaCam::from_transport(generic_transport);
 
     // Test each camera individually to isolate the issue
     println!("Testing G2 camera...");

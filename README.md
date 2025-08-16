@@ -196,7 +196,7 @@ let cam = CameraBuilder::tcp("192.168.0.110:52381")
 // cam.set_nd_filter_mode(NDFilterMode::Variable)?;  // ✅ FR7 supports this
 
 // PTZOptics G2 uses port 5678 by default (raw VISCA)
-let b = CameraBuilder::tcp("192.168.1.101")
+let b = CameraBuilder::tcp("192.168.0.111")
     .profile::<PTZOpticsG2>()
     .build()?;
 // b.set_nd_filter_mode(NDFilterMode::Variable)?;     // ❌ compile‑error

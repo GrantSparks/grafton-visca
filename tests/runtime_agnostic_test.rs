@@ -5,10 +5,10 @@
 
 #![cfg(feature = "async")]
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
 use grafton_visca::{
     camera::{AsyncMode, Camera},
-    Error, PowerOps, TokioExecutor,
+    PowerOps, TokioExecutor,
 };
 
 #[cfg(not(feature = "rt-tokio"))]
@@ -24,110 +24,85 @@ fn test_no_tokio_fallback_without_runtime() {
     // it means we're not depending on Tokio implicitly.
 }
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
 mod async_tests {
     use super::*;
-    use bytes::Bytes;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
-
-    // Create a minimal test transport that implements AsyncTransport
-    struct TestTransport {
-        recv_count: Arc<AtomicUsize>,
-    }
-
-    impl TestTransport {
-        fn new() -> Self {
-            Self {
-                recv_count: Arc::new(AtomicUsize::new(0)),
-            }
-        }
-    }
-
-    impl grafton_visca::transport::AsyncTransport for TestTransport {
-        async fn send(&self, _bytes: &[u8]) -> Result<(), Error> {
-            Ok(())
-        }
-
-        async fn recv(&self) -> Result<Bytes, Error> {
-            let count = self.recv_count.fetch_add(1, Ordering::SeqCst);
-
-            // Return different responses based on call count to simulate real camera behavior
-            // Power commands typically require ACK followed by completion
-            match count {
-                0 | 2 | 4 => Ok(Bytes::from_static(&[0x90, 0x41, 0xFF])), // ACK
-                1 | 3 | 5 => Ok(Bytes::from_static(&[0x90, 0x51, 0xFF])), // Completion
-                6 => Ok(Bytes::from_static(&[0x90, 0x50, 0x02, 0xFF])), // Power inquiry response (on)
-                _ => {
-                    // Simulate timeout after initial responses
-                    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-                    Err(Error::Timeout)
-                }
-            }
-        }
-    }
+    use grafton_visca::testing::testkit::{helpers, ScriptedTransport, Step};
 
     #[tokio::test]
     async fn test_executor_required_for_async_operations() {
         // With the new API, you must provide an executor at construction time
         // This test verifies that the executor is properly integrated
+        // Uses TokioExecutor to avoid executor coordination issues
 
-        let transport = TestTransport::new();
-        let executor = TokioExecutor::from_current().expect("Failed to get current runtime");
+        let executor = grafton_visca::TokioExecutor::from_handle(tokio::runtime::Handle::current());
+
+        // Create a scripted transport that responds to power inquiry
+        let transport: ScriptedTransport<grafton_visca::TokioExecutor> =
+            ScriptedTransport::new(vec![Step::OnSend {
+                matches: Some(vec![0x81, 0x09, 0x04, 0x00, 0xFF]), // Power inquiry
+                responses: vec![vec![0x90, 0x50, 0x02, 0xFF]],     // Power on response
+            }]);
 
         let camera: Camera<AsyncMode, grafton_visca::camera::profiles::PTZOpticsG2, _, _> =
-            Camera::with_executor(transport, executor);
+            Camera::with_executor(transport, executor)
+                .await
+                .expect("Failed to create camera");
 
         // Operations should work with the configured executor
         let result = camera.power_inquiry().await;
 
-        // Should succeed or fail with a response-related error (not a runtime error)
-        assert!(
-            result.is_ok() || matches!(result, Err(Error::UnexpectedResponseType)),
-            "Operation failed with unexpected error: {:?}",
-            result
-        );
+        // Should succeed with deterministic response
+        assert!(result.is_ok(), "Operation failed: {:?}", result);
     }
 
     #[tokio::test]
     async fn test_operations_with_executor() {
         // Create a camera with the new executor-based API
-        let transport = TestTransport::new();
-        let executor = TokioExecutor::from_current().expect("Failed to get current runtime");
+        // Uses TokioExecutor to avoid executor coordination issues
+
+        let executor = grafton_visca::TokioExecutor::from_handle(tokio::runtime::Handle::current());
+
+        let transport: ScriptedTransport<grafton_visca::TokioExecutor> =
+            ScriptedTransport::new(vec![Step::OnSend {
+                matches: Some(vec![0x81, 0x09, 0x04, 0x00, 0xFF]), // Power inquiry
+                responses: vec![vec![0x90, 0x50, 0x02, 0xFF]],     // Power on response
+            }]);
 
         let camera: Camera<AsyncMode, grafton_visca::camera::profiles::PTZOpticsG2, _, _> =
-            Camera::with_executor(transport, executor);
+            Camera::with_executor(transport, executor)
+                .await
+                .expect("Failed to create camera");
 
         // Operations should work with the configured executor
         // The socket manager will be automatically initialized on first use
         let result = camera.power_inquiry().await;
 
         // Should succeed with configured executor
-        assert!(
-            result.is_ok() || matches!(result, Err(Error::UnexpectedResponseType)),
-            "Operation failed with unexpected error: {:?}",
-            result
-        );
+        assert!(result.is_ok(), "Operation failed: {:?}", result);
     }
 
     #[tokio::test]
     async fn test_power_on_with_explicit_executor() {
         // Create a camera with explicitly configured executor
-        let transport = TestTransport::new();
-        let executor = TokioExecutor::from_current().expect("Failed to get current runtime");
+        // Uses TokioExecutor to avoid executor coordination issues
+
+        let executor = grafton_visca::TokioExecutor::from_handle(tokio::runtime::Handle::current());
+
+        // Use helpers to create a power command sequence (ACK then completion)
+        let transport: ScriptedTransport<grafton_visca::TokioExecutor> =
+            ScriptedTransport::new(vec![helpers::auto_respond_step()]);
 
         let camera: Camera<AsyncMode, grafton_visca::camera::profiles::PTZOpticsG2, _, _> =
-            Camera::with_executor(transport, executor);
+            Camera::with_executor(transport, executor)
+                .await
+                .expect("Failed to create camera");
 
         // Try to power on - should succeed with configured executor
         let result = camera.power_on().await;
 
         // With explicit executor configuration, this should work
-        assert!(
-            result.is_ok() || matches!(result, Err(Error::UnexpectedResponseType)),
-            "Power on failed with unexpected error: {:?}",
-            result
-        );
+        assert!(result.is_ok(), "Power on failed: {:?}", result);
     }
 
     #[tokio::test]
@@ -136,18 +111,21 @@ mod async_tests {
         let handle = tokio::runtime::Handle::current();
         let executor = TokioExecutor::from_handle(handle);
 
-        let transport = TestTransport::new();
+        let transport: ScriptedTransport<TokioExecutor> =
+            ScriptedTransport::new(vec![Step::OnSend {
+                matches: Some(vec![0x81, 0x09, 0x04, 0x00, 0xFF]), // Power inquiry
+                responses: vec![vec![0x90, 0x50, 0x02, 0xFF]],     // Power on response
+            }]);
+
         let camera: Camera<AsyncMode, grafton_visca::camera::profiles::PTZOpticsG2, _, _> =
-            Camera::with_executor(transport, executor);
+            Camera::with_executor(transport, executor)
+                .await
+                .expect("Failed to create camera");
 
         // Operations should work with the executor created from handle
         let result = camera.power_inquiry().await;
 
         // Should succeed with the executor
-        assert!(
-            result.is_ok() || matches!(result, Err(Error::UnexpectedResponseType)),
-            "Operation failed with unexpected error: {:?}",
-            result
-        );
+        assert!(result.is_ok(), "Operation failed: {:?}", result);
     }
 }
