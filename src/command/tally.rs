@@ -105,9 +105,14 @@ impl EncodeVisca for TallyInquiry {
     ) -> Result<usize, Error> {
         use crate::command::const_encoding::constants;
 
-        CommandBuilder::<7>::from_prefix(constants::tally::TALLY_INQUIRY_PREFIX)
-            .with_camera_id(camera_id)
-            .build_into(buffer)
+        match self {
+            Self::Red => CommandBuilder::<7>::from_prefix(constants::inquiry::TALLY_STATUS)
+                .with_camera_id(camera_id)
+                .build_into(buffer),
+            Self::Green => CommandBuilder::<7>::from_prefix(constants::inquiry::TALLY_GREEN)
+                .with_camera_id(camera_id)
+                .build_into(buffer),
+        }
     }
 
     fn response_type(&self) -> Option<ResponseType> {

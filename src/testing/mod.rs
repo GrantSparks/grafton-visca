@@ -8,3 +8,10 @@ pub mod camera_simulator;
 
 #[cfg(feature = "rt-tokio")]
 pub use camera_simulator::ViscaCameraSimulator;
+
+/// Testing toolkit for deterministic and scriptable transport testing.
+///
+/// This module provides utilities for writing deterministic tests that don't rely
+/// on real wall-clock time or unpredictable timing behavior.
+#[cfg(any(test, feature = "test-utils"))]
+pub mod testkit;
