@@ -12,8 +12,7 @@
 
 use grafton_visca_macros::ViscaEnum;
 
-use crate::command::const_encoding::constants;
-use crate::macros::internal::*;
+use crate::{command::const_encoding::constants, macros::internal::*};
 
 /// White balance modes.
 ///

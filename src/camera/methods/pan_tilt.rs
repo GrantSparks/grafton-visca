@@ -1,5 +1,6 @@
 //! Pan/Tilt methods for cameras using the new GAT architecture.
 
+// Local imports
 use crate::{
     command::pan_tilt::{PanTiltDirection, PanTiltLimitCorner},
     types::{PanPosition, PanSpeed, SpeedLevel, TiltPosition, TiltSpeed},

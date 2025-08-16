@@ -37,9 +37,6 @@ pub mod const_encoding;
 // New unified EncodeVisca trait
 pub mod encode_visca;
 
-// Internal utilities
-pub(crate) mod util;
-
 #[cfg(test)]
 mod test_derive;
 

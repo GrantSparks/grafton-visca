@@ -98,9 +98,6 @@ visca_builder! {
     /// Adjusts the color saturation level of the image.
     /// Lower values produce more muted colors, while higher values
     /// produce more vivid colors.
-    ///
-    /// TODO: Connect to ImageProcessing trait implementation
-    #[allow(dead_code)]
     pub(crate) struct SaturationCommand {
         /// The saturation level to set.
         level: SaturationLevel,
@@ -115,7 +112,6 @@ visca_builder! {
 
 impl SaturationCommand {
     /// Create a new saturation command.
-    #[allow(dead_code)]
     pub fn new(level: SaturationLevel) -> Self {
         Self { level }
     }
@@ -127,9 +123,6 @@ visca_builder! {
     /// Adjusts the hue (color phase) of the image, shifting all colors
     /// around the color wheel. This can be used to correct color casts
     /// or create artistic effects.
-    ///
-    /// TODO: Connect to ImageProcessing trait implementation
-    #[allow(dead_code)]
     pub(crate) struct HueCommand {
         /// The hue level to set.
         level: HueLevel,
@@ -144,7 +137,6 @@ visca_builder! {
 
 impl HueCommand {
     /// Create a new hue command.
-    #[allow(dead_code)]
     pub fn new(level: HueLevel) -> Self {
         Self { level }
     }

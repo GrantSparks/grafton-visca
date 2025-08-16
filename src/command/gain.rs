@@ -3,14 +3,12 @@
 //! This module provides commands for controlling camera gain settings,
 //! including manual gain adjustment, gain limit control, and anti-flicker settings.
 
-// Crate imports
-use crate::macros::internal::*;
-
 use crate::{
     command::{
         const_encoding::builder::CommandBuilder, encode_visca::EncodeVisca, response::ResponseType,
     },
     error::Error,
+    macros::internal::*,
     timeout::CommandCategory,
     types::{GainLevel, GainLimit},
 };
@@ -31,13 +29,6 @@ pub enum Gain {
     Down,
     /// Set gain to specific value.
     SetValue(GainLevel),
-}
-
-impl Gain {
-    // Legacy method - removed in new API
-    // pub fn direct<P: crate::camera::CameraProfile>(gain: P::Gain) -> Result<Self, Error> {
-    //     ...
-    // }
 }
 
 // Manual implementation to add model validation

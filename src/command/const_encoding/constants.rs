@@ -177,11 +177,8 @@ pub mod image {
     /// Backlight compensation prefix.
     pub const BACKLIGHT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x33];
 
-    /// Black and white mode prefix.
-    pub const BLACK_WHITE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x01];
-
-    /// Image flip combined mode prefix.
-    pub const FLIP_COMBINED_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x61];
+    /// Image flip combined mode prefix (PTZOptics specific).
+    pub const FLIP_COMBINED_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0xA4];
 
     /// Picture effect mode prefix.
     pub const PICTURE_EFFECT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x63];

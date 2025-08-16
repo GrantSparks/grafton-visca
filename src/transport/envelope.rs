@@ -3,10 +3,13 @@
 //! This module provides abstraction for protocol envelopes, specifically
 //! handling Sony's 8-byte encapsulated VISCA protocol vs raw VISCA bytes.
 
-use crate::capabilities::ProtocolStyle;
 use bytes::{Bytes, BytesMut};
-use std::borrow::Cow;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::{
+    borrow::Cow,
+    sync::atomic::{AtomicU32, Ordering},
+};
+
+use crate::capabilities::ProtocolStyle;
 
 /// Transport envelope that handles protocol-specific framing.
 ///

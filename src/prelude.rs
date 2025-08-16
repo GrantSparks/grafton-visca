@@ -56,6 +56,7 @@
 /// ```
 #[cfg(feature = "async")]
 pub mod r#async {
+    // Local imports - camera types and profiles
     pub use crate::camera::profiles::{
         GenericVisca, NearusBRC300, PTZOptics30X, PTZOpticsG2, PTZOpticsG3, SonyBRC300,
         SonyBRCH900, SonyEVIH100, SonyFR7,
@@ -108,6 +109,7 @@ pub mod r#async {
 /// use grafton_visca::prelude::blocking::*;
 /// ```
 pub mod blocking {
+    // Local imports - camera types and profiles
     pub use crate::camera::profiles::{
         GenericVisca, NearusBRC300, PTZOptics30X, PTZOpticsG2, PTZOpticsG3, SonyBRC300,
         SonyBRCH900, SonyEVIH100, SonyFR7,

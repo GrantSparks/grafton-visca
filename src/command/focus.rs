@@ -10,22 +10,15 @@
 //! - `FocusLock` - PTZOptics specific
 //! - `PushAF` - Sony FR7 specific
 
-// Standard library imports
-// (none)
-
-// Third-party crate imports
-// (none)
-
-// Workspace / local-crate imports
-use crate::macros::internal::*;
+use grafton_visca_macros::ViscaEnum;
 
 use crate::{
     command::{encode_visca::EncodeVisca, ResponseType},
     error::Error,
+    macros::internal::*,
     timeout::CommandCategory,
     types::{FocusPosition, SpeedLevel},
 };
-use grafton_visca_macros::ViscaEnum;
 
 /// Focus mode setting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
@@ -94,13 +87,6 @@ pub enum Focus {
     OnePushTrigger,
     /// Set focus to infinity.
     Infinity,
-}
-
-impl Focus {
-    // Legacy method - removed in new API
-    // pub fn direct<P: crate::camera::CameraProfile>(position: u16) -> Result<Self, Error> {
-    //     ...
-    // }
 }
 
 impl EncodeVisca for Focus {

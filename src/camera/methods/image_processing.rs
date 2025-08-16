@@ -277,50 +277,10 @@ where
     }
 
     async fn set_image_flip(&self, mode: ImageFlipMode) -> Result<(), Error> {
-        // ImageFlipMode combines both vertical and horizontal flip settings
-        // We need to set them separately using the VISCA protocol
-        match mode {
-            ImageFlipMode::Off => {
-                // Disable both vertical and horizontal flip
-                let cmd =
-                    crate::command::flip::ImageFlipCommand::new(crate::command::flip::Flip::Off);
-                self.send_command(&cmd).await?;
-                let cmd = crate::command::flip::HorizontalFlipCommand::new(
-                    crate::command::flip::HorizontalFlip::Off,
-                );
-                self.send_command(&cmd).await?;
-            }
-            ImageFlipMode::Horizontal => {
-                // Enable horizontal, disable vertical
-                let cmd =
-                    crate::command::flip::ImageFlipCommand::new(crate::command::flip::Flip::Off);
-                self.send_command(&cmd).await?;
-                let cmd = crate::command::flip::HorizontalFlipCommand::new(
-                    crate::command::flip::HorizontalFlip::On,
-                );
-                self.send_command(&cmd).await?;
-            }
-            ImageFlipMode::Vertical => {
-                // Enable vertical, disable horizontal
-                let cmd =
-                    crate::command::flip::ImageFlipCommand::new(crate::command::flip::Flip::On);
-                self.send_command(&cmd).await?;
-                let cmd = crate::command::flip::HorizontalFlipCommand::new(
-                    crate::command::flip::HorizontalFlip::Off,
-                );
-                self.send_command(&cmd).await?;
-            }
-            ImageFlipMode::Both => {
-                // Enable both vertical and horizontal flip
-                let cmd =
-                    crate::command::flip::ImageFlipCommand::new(crate::command::flip::Flip::On);
-                self.send_command(&cmd).await?;
-                let cmd = crate::command::flip::HorizontalFlipCommand::new(
-                    crate::command::flip::HorizontalFlip::On,
-                );
-                self.send_command(&cmd).await?;
-            }
-        }
+        // Use the combined flip command (PTZOptics A4 opcode)
+        // This is more efficient than sending separate vertical and horizontal commands
+        let cmd = crate::command::image::ImageFlipCombinedCommand::new(mode);
+        self.send_command(&cmd).await?;
         Ok(())
     }
 
@@ -475,50 +435,10 @@ where
     }
 
     fn set_image_flip(&self, mode: ImageFlipMode) -> Result<(), Error> {
-        // ImageFlipMode combines both vertical and horizontal flip settings
-        // We need to set them separately using the VISCA protocol
-        match mode {
-            ImageFlipMode::Off => {
-                // Disable both vertical and horizontal flip
-                let cmd =
-                    crate::command::flip::ImageFlipCommand::new(crate::command::flip::Flip::Off);
-                self.send_command(&cmd)?;
-                let cmd = crate::command::flip::HorizontalFlipCommand::new(
-                    crate::command::flip::HorizontalFlip::Off,
-                );
-                self.send_command(&cmd)?;
-            }
-            ImageFlipMode::Horizontal => {
-                // Enable horizontal, disable vertical
-                let cmd =
-                    crate::command::flip::ImageFlipCommand::new(crate::command::flip::Flip::Off);
-                self.send_command(&cmd)?;
-                let cmd = crate::command::flip::HorizontalFlipCommand::new(
-                    crate::command::flip::HorizontalFlip::On,
-                );
-                self.send_command(&cmd)?;
-            }
-            ImageFlipMode::Vertical => {
-                // Enable vertical, disable horizontal
-                let cmd =
-                    crate::command::flip::ImageFlipCommand::new(crate::command::flip::Flip::On);
-                self.send_command(&cmd)?;
-                let cmd = crate::command::flip::HorizontalFlipCommand::new(
-                    crate::command::flip::HorizontalFlip::Off,
-                );
-                self.send_command(&cmd)?;
-            }
-            ImageFlipMode::Both => {
-                // Enable both vertical and horizontal flip
-                let cmd =
-                    crate::command::flip::ImageFlipCommand::new(crate::command::flip::Flip::On);
-                self.send_command(&cmd)?;
-                let cmd = crate::command::flip::HorizontalFlipCommand::new(
-                    crate::command::flip::HorizontalFlip::On,
-                );
-                self.send_command(&cmd)?;
-            }
-        }
+        // Use the combined flip command (PTZOptics A4 opcode)
+        // This is more efficient than sending separate vertical and horizontal commands
+        let cmd = crate::command::image::ImageFlipCombinedCommand::new(mode);
+        self.send_command(&cmd)?;
         Ok(())
     }
 

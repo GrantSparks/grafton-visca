@@ -30,7 +30,6 @@ visca_const_command! {
     /// Note: This is a broadcast command that affects all cameras on the bus.
     ///
     /// TODO: Implement for serial transport support
-    #[allow(dead_code)]
     pub(crate) struct AddressSetCommand;
     bytes = [0x88, 0x30, 0x01,  VISCA_TERMINATOR];
     timeout = Quick;
@@ -43,7 +42,6 @@ visca_const_command! {
     ///
     /// This resets the command buffer and clears any pending commands.
     /// Note: This is a broadcast command that affects all cameras on the bus.
-    #[allow(dead_code)]
     pub(crate) struct InterfaceClearCommand;
     bytes = [0x88, 0x01, 0x00, 0x01,  VISCA_TERMINATOR];
     timeout = Quick;
@@ -103,7 +101,6 @@ visca_param_command! {
 
 impl CommandCancelCommand {
     /// Create a new command cancel command.
-    #[allow(dead_code)]
     pub fn new(socket: Socket) -> Self {
         Self { socket }
     }

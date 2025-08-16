@@ -1,5 +1,7 @@
+// External crates
 use thiserror::Error as ThisError;
 
+// Standard library
 use std::{borrow::Cow, convert::Infallible, io, time::Duration};
 
 /// Custom result type for VISCA operations.

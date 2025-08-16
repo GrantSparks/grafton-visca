@@ -2,13 +2,6 @@
 //!
 //! This module provides commands for controlling image orientation.
 
-// Standard library imports
-// (none)
-
-// Third-party crate imports
-// (none)
-
-// Workspace / local-crate imports
 use crate::macros::internal::*;
 
 /// Image flip state.

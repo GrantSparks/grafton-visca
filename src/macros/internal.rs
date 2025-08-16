@@ -134,7 +134,6 @@ macro_rules! visca_bool_command {
 
         impl $name {
             /// Creates a new instance with the specified enabled state.
-            #[allow(dead_code)]
             pub(crate) fn new(enabled: bool) -> Self {
                 Self { enabled }
             }
@@ -201,7 +200,6 @@ macro_rules! visca_bool_command {
 
         impl $name {
             /// Creates a new instance with the specified enabled state.
-            #[allow(dead_code)]
             pub(crate) fn new(enabled: bool) -> Self {
                 Self { enabled }
             }

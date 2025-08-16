@@ -3,10 +3,9 @@
 //! This module provides the refactored Camera<P, T> struct that uses
 //! the unified Executor trait instead of separate Runtime and Spawner.
 
-use std::{marker::PhantomData, sync::Arc};
-
 #[cfg(feature = "async")]
 use std::sync::Mutex;
+use std::{marker::PhantomData, sync::Arc};
 
 #[cfg(feature = "async")]
 use crate::{camera::AsyncMode, executor_unified::Executor, runtime, transport::AsyncTransport};
