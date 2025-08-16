@@ -8,7 +8,7 @@
 #[cfg(feature = "test-utils")]
 use grafton_visca::testing::testkit::{helpers, ScriptedTransport};
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
 use grafton_visca::TokioExecutor;
 
 #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]

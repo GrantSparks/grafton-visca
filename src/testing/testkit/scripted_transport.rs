@@ -628,6 +628,7 @@ mod tests {
     use crate::testing::testkit::DeterministicExecutor;
 
     #[test]
+    #[allow(clippy::unwrap_used)]
     fn test_scripted_blocking_transport_basic() {
         let transport = ScriptedBlockingTransport::new(vec![Step::OnSend {
             matches: None,
@@ -650,6 +651,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::unwrap_used)]
     fn test_scripted_blocking_transport_no_response() {
         let transport = ScriptedBlockingTransport::new(vec![]);
 
@@ -665,6 +667,7 @@ mod tests {
 
     #[cfg(feature = "async")]
     #[tokio::test]
+    #[allow(clippy::unwrap_used)]
     async fn test_scripted_async_transport_with_executor() {
         let (executor, _clock) = DeterministicExecutor::new();
 
@@ -695,6 +698,7 @@ mod tests {
 
     #[cfg(feature = "async")]
     #[tokio::test]
+    #[allow(clippy::unwrap_used)]
     async fn test_scripted_transport_delayed_response_manual() {
         let (executor, _clock) = DeterministicExecutor::new();
         let transport = ScriptedTransport::new(vec![]).with_executor(executor.clone());

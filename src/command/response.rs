@@ -2011,10 +2011,10 @@ mod tests {
         let response = parse_response(error_bytes, &ResponseType::PanTiltPosition);
         assert!(matches!(response, Err(Error::CommandBufferFull)));
 
-        // Test Command Not Executable
+        // Test Command Not Executable (0x41 now maps to CameraBusy for retry logic)
         let error_bytes = &[0x90, 0x61, 0x41, VISCA_TERMINATOR];
         let response = parse_response(error_bytes, &ResponseType::PanTiltPosition);
-        assert!(matches!(response, Err(Error::CommandNotExecutable)));
+        assert!(matches!(response, Err(Error::CameraBusy)));
     }
 
     #[test]

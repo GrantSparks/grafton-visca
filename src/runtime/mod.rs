@@ -1242,6 +1242,7 @@ mod tests {
 
     #[cfg(feature = "rt-tokio")]
     #[tokio::test]
+    #[allow(clippy::expect_used)]
     async fn test_runtime_loop_shutdown() {
         use bytes::Bytes;
 
@@ -1264,7 +1265,10 @@ mod tests {
         let (_metrics_tx, metrics_rx) = flume::unbounded();
 
         // Start runtime loop
-        let executor = Arc::new(crate::executor_unified::TokioExecutor::from_current().unwrap());
+        let executor = Arc::new(
+            crate::executor_unified::TokioExecutor::from_current()
+                .expect("Failed to create TokioExecutor from current runtime"),
+        );
         let runtime_task = runtime_loop_with_config(
             MockTransport,
             submit_rx,
