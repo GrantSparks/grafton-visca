@@ -1,6 +1,6 @@
 //! Tests for socket manager functionality through the public Camera API
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
 mod tokio_tests {
     use grafton_visca::{
         camera::{profiles::PTZOpticsG2, AsyncMode, Camera},
