@@ -10,14 +10,10 @@
 //! - `ATW` (Auto Tracking White Balance) - Sony FR7 specific
 //! - `AWBSensitivity` - PTZOptics specific
 
-// Standard library imports
-// (none)
-
-// Crate imports
-use crate::macros::internal::*;
+use grafton_visca_macros::ViscaEnum;
 
 use crate::command::const_encoding::constants;
-use grafton_visca_macros::ViscaEnum;
+use crate::macros::internal::*;
 
 /// White balance modes.
 ///
