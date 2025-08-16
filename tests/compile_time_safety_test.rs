@@ -4,12 +4,12 @@
 #![cfg(not(feature = "async"))]
 
 #[cfg(feature = "test-utils")]
-use grafton_visca::prelude::blocking::{GenericViscaCam, PTZOpticsG2Cam, SonyFR7Cam};
+use grafton_visca::prelude::blocking::{GenericViscaCam, PtzOpticsG2Cam, SonyFR7Cam};
 #[cfg(feature = "test-utils")]
 use grafton_visca::{
     camera::methods::{
-        focus::FocusOpsBlocking, pan_tilt::PanTiltOpsBlocking, power::PowerOpsBlocking,
-        presets::PresetsOpsBlocking, zoom::ZoomOpsBlocking,
+        focus::FocusControlBlocking, pan_tilt::PanTiltControlBlocking, power::PowerControlBlocking,
+        presets::PresetsControlBlocking, zoom::ZoomControlBlocking,
     },
     capabilities::*,
     Error, PresetNumber,
@@ -30,9 +30,9 @@ fn test_ptzoptics_g2_capabilities() {
         helpers::auto_respond_step(), // preset_recall
     ]);
 
-    let camera = PTZOpticsG2Cam::from_transport(transport);
+    let camera = PtzOpticsG2Cam::from_transport(transport);
 
-    // These methods exist for PTZOpticsG2 - checked at compile time
+    // These methods exist for PtzOpticsG2 - checked at compile time
     assert!(camera.power_on().is_ok());
     assert!(camera.pan_tilt_home().is_ok());
     assert!(camera.zoom_stop().is_ok());
@@ -84,7 +84,7 @@ fn test_compile_time_capability_checking() {
     let fr7 = SonyFR7Cam::from_transport(fr7_transport);
 
     let _g2_transport = ScriptedBlockingTransport::new(vec![helpers::auto_respond_step()]);
-    let _g2 = PTZOpticsG2Cam::from_transport(_g2_transport);
+    let _g2 = PtzOpticsG2Cam::from_transport(_g2_transport);
 
     // This compiles - FR7 has NDFilter
     assert!(adjust_nd_filter(&fr7).is_ok());
@@ -135,7 +135,7 @@ fn test_generic_functions_with_trait_bounds() {
         helpers::auto_respond_step(), // zoom_stop
         helpers::auto_respond_step(), // for motion_sync_control
     ]);
-    let g2 = PTZOpticsG2Cam::from_transport(g2_transport);
+    let g2 = PtzOpticsG2Cam::from_transport(g2_transport);
 
     let fr7_transport = ScriptedBlockingTransport::new(vec![
         helpers::sony_auto_respond_step(), // power_on

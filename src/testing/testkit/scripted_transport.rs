@@ -17,7 +17,7 @@ use std::{
 use crate::{transport::BlockingTransport, Error, Result};
 
 #[cfg(feature = "async")]
-use crate::{executor_unified::Executor, transport::AsyncTransport};
+use crate::{executor::Executor, transport::AsyncTransport};
 
 #[cfg(feature = "async")]
 use super::deterministic_executor::ExecutorExt;

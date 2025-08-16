@@ -10,7 +10,9 @@ use std::{borrow::Cow, time::Duration};
 use grafton_visca::Error;
 #[cfg(feature = "rt-tokio")]
 use grafton_visca::{
-    camera::methods::{pan_tilt::PanTiltOps, power::PowerOps, presets::PresetsOps, zoom::ZoomOps},
+    camera::methods::{
+        pan_tilt::PanTiltControl, power::PowerControl, presets::PresetsControl, zoom::ZoomControl,
+    },
     camera::{profiles::G2PresetId, AsyncMode, Camera},
     prelude::r#async::*,
     transport::tokio::Tcp,
@@ -20,8 +22,8 @@ use grafton_visca::{
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::methods::{
-        pan_tilt::PanTiltOpsBlocking, power::PowerOpsBlocking, presets::PresetsOpsBlocking,
-        zoom::ZoomOpsBlocking,
+        pan_tilt::PanTiltControlBlocking, power::PowerControlBlocking,
+        presets::PresetsControlBlocking, zoom::ZoomControlBlocking,
     },
     camera::{profiles::G2PresetId, BlockingMode, Camera},
     prelude::blocking::*,
@@ -331,7 +333,7 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     };
 
     let executor = TokioExecutor::from_current().expect("Failed to get current runtime");
-    let camera: Camera<AsyncMode, PTZOpticsG2, _, _> =
+    let camera: Camera<AsyncMode, PtzOpticsG2, _, _> =
         Camera::with_executor(transport, executor).await?;
 
     // Demonstrate retry pattern

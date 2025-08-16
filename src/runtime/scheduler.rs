@@ -16,7 +16,7 @@ use std::{
 };
 
 use crate::{
-    command::response::Response,
+    command::response::ViscaResponse,
     error::Result,
     timeout::{CommandCategory, TimeoutConfig},
 };
@@ -37,7 +37,7 @@ pub enum TxItem {
         /// Category for timeout calculation.
         category: CommandCategory,
         /// Channel to send response back.
-        response_tx: Sender<Result<Response>>,
+        response_tx: Sender<Result<ViscaResponse>>,
     },
     /// An inquiry that doesn't require a socket, expects DataReply.
     Inquiry {
@@ -48,9 +48,9 @@ pub enum TxItem {
         /// Deadline for inquiry response.
         deadline: Instant,
         /// Expected response type.
-        response_type: Option<crate::command::response::ResponseType>,
+        response_type: Option<crate::command::response::ViscaResponseType>,
         /// Channel to send response back.
-        response_tx: Sender<Result<Response>>,
+        response_tx: Sender<Result<ViscaResponse>>,
     },
     /// Cancel a command on a specific socket.
     Cancel {
@@ -80,7 +80,7 @@ pub enum RxEvent {
     DataReply {
         /// Inquiry ID that received data.
         id: u32,
-        /// Response data bytes.
+        /// ViscaResponse data bytes.
         data: Vec<u8>,
     },
     /// Error response from device.
@@ -264,12 +264,12 @@ pub struct Scheduler {
     #[cfg(feature = "async")]
     last_command_time: Option<Instant>,
     /// Track response channels for commands by ID.
-    command_channels: HashMap<u32, Sender<Result<Response>>>,
+    command_channels: HashMap<u32, Sender<Result<ViscaResponse>>>,
     /// Track pending inquiries (ID, response channel, response type).
     pending_inquiries: Vec<(
         u32,
-        Sender<Result<Response>>,
-        Option<crate::command::response::ResponseType>,
+        Sender<Result<ViscaResponse>>,
+        Option<crate::command::response::ViscaResponseType>,
     )>,
     /// Commands waiting to be retried (after busy response).
     pub retry_queue: Vec<RetryCommand>,
@@ -623,7 +623,7 @@ impl Scheduler {
 
     /// Enforce minimum command spacing.
     #[cfg(feature = "async")]
-    pub async fn enforce_spacing_with<E: crate::executor_unified::Executor>(
+    pub async fn enforce_spacing_with<E: crate::executor::Executor>(
         &mut self,
         executor: &E,
         now: Instant,
@@ -700,14 +700,14 @@ impl Scheduler {
     /// Get the response channel for a command ID.
     ///
     /// Returns the channel if the command is still pending.
-    pub fn get_response_channel(&mut self, cmd_id: u32) -> Option<Sender<Result<Response>>> {
+    pub fn get_response_channel(&mut self, cmd_id: u32) -> Option<Sender<Result<ViscaResponse>>> {
         self.command_channels.remove(&cmd_id)
     }
 
     /// Peek at the response channel for a command without removing it.
     ///
     /// Returns the channel if the command is still pending.
-    pub fn peek_response_channel(&self, cmd_id: u32) -> Option<&Sender<Result<Response>>> {
+    pub fn peek_response_channel(&self, cmd_id: u32) -> Option<&Sender<Result<ViscaResponse>>> {
         self.command_channels.get(&cmd_id)
     }
 
@@ -750,7 +750,7 @@ impl Scheduler {
     /// Store response channel for a command.
     ///
     /// This should be called when a command is submitted.
-    pub fn store_command_channel(&mut self, cmd_id: u32, channel: Sender<Result<Response>>) {
+    pub fn store_command_channel(&mut self, cmd_id: u32, channel: Sender<Result<ViscaResponse>>) {
         self.command_channels.insert(cmd_id, channel);
     }
 
@@ -776,8 +776,8 @@ impl Scheduler {
         &mut self,
     ) -> Option<(
         u32,
-        Sender<Result<Response>>,
-        Option<crate::command::response::ResponseType>,
+        Sender<Result<ViscaResponse>>,
+        Option<crate::command::response::ViscaResponseType>,
     )> {
         self.pending_inquiries.pop()
     }
@@ -788,8 +788,8 @@ impl Scheduler {
     pub fn store_pending_inquiry(
         &mut self,
         id: u32,
-        channel: Sender<Result<Response>>,
-        response_type: Option<crate::command::response::ResponseType>,
+        channel: Sender<Result<ViscaResponse>>,
+        response_type: Option<crate::command::response::ViscaResponseType>,
     ) {
         self.pending_inquiries.push((id, channel, response_type));
     }
@@ -800,7 +800,7 @@ impl Scheduler {
     pub fn get_inquiry_response_type(
         &self,
         id: u32,
-    ) -> Option<crate::command::response::ResponseType> {
+    ) -> Option<crate::command::response::ViscaResponseType> {
         self.pending_inquiries
             .iter()
             .find(|(inquiry_id, _, _)| *inquiry_id == id)
@@ -1213,7 +1213,7 @@ mod tests {
         // Test inquiry tracking
         let (inquiry_tx, _inquiry_rx) = flume::bounded(1);
         let inquiry_id = 99;
-        let response_type = Some(crate::command::response::ResponseType::Power);
+        let response_type = Some(crate::command::response::ViscaResponseType::Power);
         scheduler.store_pending_inquiry(inquiry_id, inquiry_tx.clone(), response_type);
 
         // Should be able to get the response type

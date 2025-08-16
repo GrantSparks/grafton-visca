@@ -11,7 +11,7 @@ use crate::{
 
 /// Color operations (async).
 #[cfg(feature = "async")]
-pub trait ColorOps: Sized {
+pub trait ColorControl: Sized {
     /// Trigger one-push white balance.
     async fn one_push_trigger(&self) -> Result<(), Error>;
 
@@ -50,7 +50,7 @@ pub trait ColorOps: Sized {
 }
 
 /// Color operations (blocking).
-pub trait ColorOpsBlocking: Sized {
+pub trait ColorControlBlocking: Sized {
     /// Trigger one-push white balance.
     fn one_push_trigger(&self) -> Result<(), Error>;
 
@@ -90,11 +90,11 @@ pub trait ColorOpsBlocking: Sized {
 
 // Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P, T, E> ColorOps for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
+impl<P, T, E> ColorControl for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
 where
     P: crate::capabilities::Profile,
     T: crate::transport::AsyncTransport + Send + Sync + 'static,
-    E: crate::executor_unified::Executor,
+    E: crate::executor::Executor,
 {
     async fn one_push_trigger(&self) -> Result<(), Error> {
         self.send_command(&OnePushTriggerCommand).await?;
@@ -167,7 +167,7 @@ where
 }
 
 // Blocking implementation for Camera with BlockingMode
-impl<P, T> ColorOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
+impl<P, T> ColorControlBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile,
     T: crate::transport::BlockingTransport + Send + Sync + 'static,

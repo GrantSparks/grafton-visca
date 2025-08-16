@@ -1,6 +1,6 @@
 //! # grafton-visca
 //!
-//! Rust library for VISCA over IP protocol to control PTZ cameras.
+//! Rust library for VISCA over IP protocol to control Ptz cameras.
 
 // Lints configuration
 #![forbid(unsafe_code)]
@@ -24,14 +24,14 @@
 
 //! ## What is VISCA?
 //!
-//! VISCA (Video System Control Architecture) is a protocol developed by Sony for controlling PTZ cameras
+//! VISCA (Video System Control Architecture) is a protocol developed by Sony for controlling Ptz cameras
 //! commonly used in robotics, broadcasting, video conferencing, and surveillance applications. This crate
-//! implements VISCA over IP, allowing you to control networked PTZ cameras from Rust applications.
+//! implements VISCA over IP, allowing you to control networked Ptz cameras from Rust applications.
 //!
 //! ## Features
 //!
 //! - **Type-Safe Camera Profiles**: Compile-time validation with camera-specific profiles
-//! - **Complete Command Coverage**: Full support for PTZOptics G2 and other VISCA cameras
+//! - **Complete Command Coverage**: Full support for PtzOptics G2 and other VISCA cameras
 //! - **Profile-Aware Conversions**: Automatic unit conversions based on camera model
 //! - **Comprehensive Inquiry**: Query camera state for all supported features
 //! - **Transport Abstraction**: Implement your own transport (TCP, UDP, serial, etc.)
@@ -47,11 +47,11 @@
 //! fn main() -> Result<(), Error> {
 //!     // Create camera using the builder pattern
 //!     let camera = CameraBuilder::tcp("192.168.0.110:52381")
-//!         .profile::<PTZOpticsG2>()
+//!         .profile::<PtzOpticsG2>()
 //!         .build()?;
 //!
 //!     // Camera model is known at compile time
-//!     println!("Using PTZOptics G2 camera");
+//!     println!("Using PtzOptics G2 camera");
 //!
 //!     // Send commands with clean API
 //!     camera.power_on()?;
@@ -69,7 +69,7 @@
 //! async fn main() -> Result<(), Error> {
 //!     // Create camera using the builder pattern
 //!     let camera = CameraBuilder::tokio_tcp("192.168.0.110:52381")
-//!         .profile::<PTZOpticsG2>()
+//!         .profile::<PtzOpticsG2>()
 //!         .build()
 //!         .await?;
 //!
@@ -84,7 +84,7 @@
 //! ## Camera Profiles
 //!
 //! The library includes pre-defined profiles with type aliases:
-//! - `PTZOpticsG2Cam<T>` - PTZOptics G2 series cameras  
+//! - `PtzOpticsG2Cam<T>` - PtzOptics G2 series cameras  
 //! - `SonyFR7Cam<T>` - Sony FR7 cameras with ND filter support
 //! - `GenericViscaCam<T>` - Generic VISCA-compatible cameras (conservative feature set)
 //!
@@ -104,11 +104,11 @@
 //!     camera.set_nd_filter_mode(NDFilterMode::Clear)
 //! }
 //!
-//! // This would compile for SonyFR7 but not for PTZOpticsG2
+//! // This would compile for SonyFR7 but not for PtzOpticsG2
 //! let sony = SonyFR7Cam::new(transport);
 //! adjust_nd_filter(&sony)?; // OK - Sony FR7 has ND filter
 //!
-//! let g2 = PTZOpticsG2Cam::new(transport);
+//! let g2 = PtzOpticsG2Cam::new(transport);
 //! // adjust_nd_filter(&g2)?; // Compile error - G2 doesn't have ND filter
 //! ```
 //!
@@ -184,7 +184,7 @@
 //! async fn main() -> Result<(), Error> {
 //!     // The tokio_tcp() method automatically configures the runtime
 //!     let camera = CameraBuilder::tokio_tcp("192.168.0.110:52381")
-//!         .profile::<PTZOpticsG2>()
+//!         .profile::<PtzOpticsG2>()
 //!         .build()
 //!         .await?;
 //!     
@@ -250,7 +250,7 @@
 //!     // Create camera with custom executor
 //!     let executor = AsyncStdExecutor;
 //!     let camera = CameraBuilder::with_executor(executor)
-//!         .build_async::<PTZOpticsG2, _>(transport)?;
+//!         .build_async::<PtzOpticsG2, _>(transport)?;
 //!
 //!     // All async operations now use async-std
 //!     camera.power_on().await?;
@@ -371,7 +371,7 @@ pub mod units;
 pub mod timeout;
 
 #[cfg(feature = "async")]
-pub(crate) mod executor_unified;
+pub(crate) mod executor;
 
 pub mod prelude;
 
@@ -399,30 +399,30 @@ pub use crate::{
 };
 
 #[cfg(all(feature = "async", feature = "rt-tokio"))]
-pub use crate::executor_unified::TokioExecutor;
+pub use crate::executor::TokioExecutor;
 #[cfg(feature = "async")]
 pub use crate::{
     camera::methods::{
-        focus::FocusOps,
-        inquiry::{InquiryOps, PanTiltInquiryOps},
-        pan_tilt::PanTiltOps,
-        power::PowerOps,
-        presets::PresetsOps,
-        zoom::ZoomOps,
+        focus::FocusControl,
+        inquiry::{InquiryControl, PanTiltInquiryControl},
+        pan_tilt::PanTiltControl,
+        power::PowerControl,
+        presets::PresetsControl,
+        zoom::ZoomControl,
     },
-    executor_unified::{ExecError, Executor},
+    executor::{ExecError, Executor},
 };
 
 pub use crate::camera::methods::{
-    focus::FocusOpsBlocking,
-    inquiry::{InquiryOpsBlocking, PanTiltInquiryOpsBlocking},
-    pan_tilt::PanTiltOpsBlocking,
-    power::PowerOpsBlocking,
-    presets::PresetsOpsBlocking,
-    zoom::ZoomOpsBlocking,
+    focus::FocusControlBlocking,
+    inquiry::{InquiryControlBlocking, PanTiltInquiryControlBlocking},
+    pan_tilt::PanTiltControlBlocking,
+    power::PowerControlBlocking,
+    presets::PresetsControlBlocking,
+    zoom::ZoomControlBlocking,
 };
 
 /// Camera profiles with compositional capabilities
 pub mod profiles {
-    pub use crate::camera::profiles::{GenericVisca, PTZOpticsG2, SonyFR7};
+    pub use crate::camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7};
 }

@@ -6,7 +6,7 @@
 //! are provided by their respective trait modules in `src/camera/methods/`.
 
 use crate::{
-    camera::generic_executor::Camera,
+    camera::handle::Camera,
     capabilities::{MotionSync, NDFilter, NDFilterMode as CapabilityNDFilterMode, Profile},
 };
 

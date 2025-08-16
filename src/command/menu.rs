@@ -43,7 +43,7 @@ visca_builder! {
     /// - VV = Pan speed (0x0E for menu)
     /// - WW = Tilt speed (0x0E for menu)
     /// - XX YY = Direction codes
-    pub struct MenuNavigateCommand {
+    pub struct MenuNavigate {
         direction: MenuDirection,
     }
     builder<9> => |builder, direction| {
@@ -58,7 +58,7 @@ visca_builder! {
     timeout = Quick;
 }
 
-impl MenuNavigateCommand {
+impl MenuNavigate {
     /// Create a new menu navigation command.
     pub fn new(direction: MenuDirection) -> Self {
         Self { direction }
@@ -89,7 +89,7 @@ visca_param_command! {
     /// Performs menu selection (Enter) or cancellation (Back) actions.
     ///
     /// VISCA format: `81 01 06 06 0p FF` where p = 5 (Select) or 4 (Cancel)
-    pub struct MenuActionCommand {
+    pub struct MenuActionCmd {
         action: MenuAction,
     }
     prefix = constants::menu::TOGGLE_PREFIX;
@@ -97,7 +97,7 @@ visca_param_command! {
     timeout = Quick;
 }
 
-impl MenuActionCommand {
+impl MenuActionCmd {
     /// Create a new menu action command.
     pub fn new(action: MenuAction) -> Self {
         Self { action }
@@ -111,7 +111,7 @@ visca_builder! {
     /// manufacturer-specific codes for button presses and dial turns.
     ///
     /// VISCA format: `81 01 7E 04 72 pp qq FF`
-    pub struct DirectMenuControlCommand {
+    pub struct DirectMenuControl {
         /// First control byte (pp)
         control1: u8,
         /// Second control byte (qq)
@@ -126,7 +126,7 @@ visca_builder! {
     timeout = Quick;
 }
 
-impl DirectMenuControlCommand {
+impl DirectMenuControl {
     /// Create a new direct menu control command.
     pub fn new(control1: u8, control2: u8) -> Self {
         Self { control1, control2 }
@@ -160,9 +160,9 @@ mod tests {
     );
 
     visca_test!(
-        MenuNavigateCommand,
+        MenuNavigate,
         test_menu_navigate_up,
-        MenuNavigateCommand::new(MenuDirection::Up),
+        MenuNavigate::new(MenuDirection::Up),
         &[
             0x81,
             0x01,
@@ -177,9 +177,9 @@ mod tests {
     );
 
     visca_test!(
-        MenuNavigateCommand,
+        MenuNavigate,
         test_menu_navigate_down,
-        MenuNavigateCommand::new(MenuDirection::Down),
+        MenuNavigate::new(MenuDirection::Down),
         &[
             0x81,
             0x01,
@@ -194,9 +194,9 @@ mod tests {
     );
 
     visca_test!(
-        MenuNavigateCommand,
+        MenuNavigate,
         test_menu_navigate_left,
-        MenuNavigateCommand::new(MenuDirection::Left),
+        MenuNavigate::new(MenuDirection::Left),
         &[
             0x81,
             0x01,
@@ -211,9 +211,9 @@ mod tests {
     );
 
     visca_test!(
-        MenuNavigateCommand,
+        MenuNavigate,
         test_menu_navigate_right,
-        MenuNavigateCommand::new(MenuDirection::Right),
+        MenuNavigate::new(MenuDirection::Right),
         &[
             0x81,
             0x01,
@@ -228,30 +228,30 @@ mod tests {
     );
 
     visca_test!(
-        MenuActionCommand,
+        MenuActionCmd,
         test_menu_select,
-        MenuActionCommand::new(MenuAction::Select),
+        MenuActionCmd::new(MenuAction::Select),
         &[0x81, 0x01, 0x06, 0x06, 0x05, VISCA_TERMINATOR]
     );
 
     visca_test!(
-        MenuActionCommand,
+        MenuActionCmd,
         test_menu_cancel,
-        MenuActionCommand::new(MenuAction::Cancel),
+        MenuActionCmd::new(MenuAction::Cancel),
         &[0x81, 0x01, 0x06, 0x06, 0x04, VISCA_TERMINATOR]
     );
 
     visca_test!(
-        DirectMenuControlCommand,
+        DirectMenuControl,
         test_direct_menu_control,
-        DirectMenuControlCommand::new(0x00, 0x01),
+        DirectMenuControl::new(0x00, 0x01),
         &[0x81, 0x01, 0x7E, 0x04, 0x72, 0x00, 0x01, VISCA_TERMINATOR]
     );
 
     visca_test!(
-        DirectMenuControlCommand,
+        DirectMenuControl,
         test_direct_menu_open_close,
-        DirectMenuControlCommand::open_close(),
+        DirectMenuControl::open_close(),
         &[0x81, 0x01, 0x7E, 0x04, 0x72, 0x00, 0x01, VISCA_TERMINATOR]
     );
 }

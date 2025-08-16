@@ -4,7 +4,7 @@ use crate::Error;
 
 /// Exposure operations (async).
 #[cfg(feature = "async")]
-pub trait ExposureOps: Sized {
+pub trait ExposureControl: Sized {
     /// Set exposure mode to any supported mode.
     async fn set_exposure_mode(
         &self,
@@ -98,7 +98,7 @@ pub trait ExposureOps: Sized {
 
     /// Enable auto slow shutter mode.
     /// Automatically reduces shutter speed in low light conditions.
-    /// Supported on Sony cameras and FR7, PTZOptics only via HTTP API.
+    /// Supported on Sony cameras and FR7, PtzOptics only via HTTP API.
     async fn enable_auto_slow_shutter(&self) -> Result<(), Error>;
 
     /// Disable auto slow shutter mode.
@@ -114,11 +114,11 @@ pub trait ExposureOps: Sized {
 
 // Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P, T, E> ExposureOps for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
+impl<P, T, E> ExposureControl for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
 where
     P: crate::capabilities::Profile,
     T: crate::transport::AsyncTransport + Send + Sync + 'static,
-    E: crate::executor_unified::Executor,
+    E: crate::executor::Executor,
 {
     async fn set_exposure_mode(
         &self,
@@ -233,7 +233,7 @@ where
     }
 
     async fn set_gain_limit(&self, limit: crate::types::GainLimit) -> Result<(), Error> {
-        let cmd = crate::command::gain::GainLimitCommand { limit };
+        let cmd = crate::command::gain::GainLimitCmd { limit };
         self.send_command(&cmd).await?;
         Ok(())
     }
@@ -315,7 +315,7 @@ where
 }
 
 /// Exposure operations (blocking).
-pub trait ExposureOpsBlocking: Sized {
+pub trait ExposureControlBlocking: Sized {
     /// Set exposure mode to any supported mode.
     fn set_exposure_mode(&self, mode: crate::command::exposure::ExposureMode) -> Result<(), Error>;
 
@@ -406,7 +406,7 @@ pub trait ExposureOpsBlocking: Sized {
 
     /// Enable auto slow shutter mode.
     /// Automatically reduces shutter speed in low light conditions.
-    /// Supported on Sony cameras and FR7, PTZOptics only via HTTP API.
+    /// Supported on Sony cameras and FR7, PtzOptics only via HTTP API.
     fn enable_auto_slow_shutter(&self) -> Result<(), Error>;
 
     /// Disable auto slow shutter mode.
@@ -418,7 +418,7 @@ pub trait ExposureOpsBlocking: Sized {
 }
 
 // Blocking implementation for Camera with BlockingMode
-impl<P, T> ExposureOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
+impl<P, T> ExposureControlBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile,
     T: crate::transport::BlockingTransport + Send + Sync + 'static,
@@ -528,7 +528,7 @@ where
     }
 
     fn set_gain_limit(&self, limit: crate::types::GainLimit) -> Result<(), Error> {
-        let cmd = crate::command::gain::GainLimitCommand::new(limit);
+        let cmd = crate::command::gain::GainLimitCmd { limit };
         self.send_command(&cmd)?;
         Ok(())
     }
@@ -611,7 +611,7 @@ where
 ///
 /// These methods are only available for cameras that support exposure compensation.
 #[cfg(feature = "async")]
-pub trait ExposureCompensationOps: Sized {
+pub trait ExposureCompensationControl: Sized {
     /// Enable exposure compensation.
     async fn enable_exposure_compensation(&self) -> Result<(), Error>;
 
@@ -634,7 +634,7 @@ pub trait ExposureCompensationOps: Sized {
 /// Exposure compensation operations (blocking).
 ///
 /// These methods are only available for cameras that support exposure compensation.
-pub trait ExposureCompensationOpsBlocking: Sized {
+pub trait ExposureCompensationControlBlocking: Sized {
     /// Enable exposure compensation.
     fn enable_exposure_compensation(&self) -> Result<(), Error>;
 

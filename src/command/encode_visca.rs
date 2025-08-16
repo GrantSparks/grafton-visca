@@ -8,7 +8,7 @@ use crate::{
     camera_id::CameraId, constants::CameraVariant, error::Error, timeout::CommandCategory,
 };
 
-use super::response::ResponseType;
+use super::response::ViscaResponseType;
 
 /// Validates that a VISCA command buffer has the proper terminator.
 ///
@@ -80,7 +80,7 @@ pub fn validate_command_structure(buffer: &[u8], len: usize) {
 /// struct MyCommand;
 ///
 /// impl EncodeVisca for MyCommand {
-///     type Response = ();
+///     type ViscaResponse = ();
 ///     const MAX_SIZE: usize = 6;
 ///     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 ///
@@ -100,7 +100,7 @@ pub fn validate_command_structure(buffer: &[u8], len: usize) {
 ///         Ok(6)
 ///     }
 ///     
-///     fn response_type(&self) -> Option<ResponseType> {
+///     fn response_type(&self) -> Option<ViscaResponseType> {
 ///         // Return None for action commands, Some(...) for inquiries
 ///         None
 ///     }
@@ -108,7 +108,7 @@ pub fn validate_command_structure(buffer: &[u8], len: usize) {
 /// ```
 pub trait EncodeVisca: Send + Sync {
     /// The type of response expected from this command.
-    type Response;
+    type ViscaResponse;
 
     /// Maximum size in bytes that this command can encode to.
     const MAX_SIZE: usize;
@@ -194,8 +194,8 @@ pub trait EncodeVisca: Send + Sync {
     /// Returns the expected response type for this command.
     ///
     /// - Returns `None` for action commands that only receive ACK/Completion
-    /// - Returns `Some(ResponseType::...)` for inquiry commands that receive data
-    fn response_type(&self) -> Option<ResponseType>;
+    /// - Returns `Some(ViscaResponseType::...)` for inquiry commands that receive data
+    fn response_type(&self) -> Option<ViscaResponseType>;
 
     /// Returns the command category for timeout configuration.
     ///

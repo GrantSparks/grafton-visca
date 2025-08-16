@@ -8,12 +8,12 @@ use std::sync::Mutex;
 use std::{marker::PhantomData, sync::Arc};
 
 #[cfg(feature = "async")]
-use crate::{camera::AsyncMode, executor_unified::Executor, runtime, transport::AsyncTransport};
+use crate::{camera::AsyncMode, executor::Executor, runtime, transport::AsyncTransport};
 use crate::{
     camera::BlockingMode,
     camera_id::CameraId,
     capabilities::Profile,
-    command::{const_encoding::VISCA_TERMINATOR, response::Response, EncodeVisca},
+    command::{const_encoding::VISCA_TERMINATOR, response::ViscaResponse, EncodeVisca},
     error::Error,
     timeout::TimeoutConfig,
     transport::{BlockingTransport, TransportEnvelope},
@@ -37,7 +37,7 @@ use crate::{
 /// # Examples
 ///
 /// ```ignore
-/// use grafton_visca::{CameraBuilder, camera::profiles::PTZOpticsG2};
+/// use grafton_visca::{CameraBuilder, camera::profiles::PtzOpticsG2};
 /// # #[cfg(feature = "rt-tokio")]
 /// use grafton_visca::TokioExecutor;
 ///
@@ -45,7 +45,7 @@ use crate::{
 /// let executor = TokioExecutor::from_current()?;
 /// let camera = CameraBuilder::with_executor(executor)
 ///     .tcp("192.168.0.110:52381")
-///     .profile::<PTZOpticsG2>()
+///     .profile::<PtzOpticsG2>()
 ///     .build()
 ///     .await?;
 /// ```
@@ -100,7 +100,7 @@ where
     }
 
     /// Send a command to the camera and wait for a response (blocking).
-    pub fn send_command<C>(&self, command: &C) -> Result<Response, Error>
+    pub fn send_command<C>(&self, command: &C) -> Result<ViscaResponse, Error>
     where
         C: EncodeVisca,
     {
@@ -136,33 +136,33 @@ where
             // Read first response (should be ACK or error)
             let first_response_bytes = transport.recv_blocking()?;
             let first_visca = self.envelope.extract_response(&first_response_bytes)?;
-            let first_response = Response::parse(&first_visca)?;
+            let first_response = ViscaResponse::parse(&first_visca)?;
 
             match first_response {
-                Response::Error(e) => Err(e),
-                Response::CmdAck => {
+                ViscaResponse::Error(e) => Err(e),
+                ViscaResponse::CmdAck => {
                     // Got ACK, now wait for completion
                     let second_response_bytes = transport.recv_blocking()?;
                     let second_visca = self.envelope.extract_response(&second_response_bytes)?;
-                    let second_response = Response::parse(&second_visca)?;
+                    let second_response = ViscaResponse::parse(&second_visca)?;
 
                     match second_response {
-                        Response::Error(e) => Err(e),
+                        ViscaResponse::Error(e) => Err(e),
                         _ => Ok(second_response),
                     }
                 }
                 // If first response is already completion (some cameras skip ACK)
-                Response::Completion => Ok(first_response),
+                ViscaResponse::Completion => Ok(first_response),
                 _ => Ok(first_response),
             }
         } else {
             // For inquiry commands, just read one response
             let response_bytes = transport.recv_blocking()?;
             let visca_response = self.envelope.extract_response(&response_bytes)?;
-            let response = Response::parse(&visca_response)?;
+            let response = ViscaResponse::parse(&visca_response)?;
 
             match response {
-                Response::Error(e) => Err(e),
+                ViscaResponse::Error(e) => Err(e),
                 _ => Ok(response),
             }
         }
@@ -212,7 +212,7 @@ where
 
 // Convenience constructors for Tokio
 #[cfg(all(feature = "async", feature = "rt-tokio"))]
-impl<P, T> Camera<AsyncMode, P, T, crate::executor_unified::TokioExecutor>
+impl<P, T> Camera<AsyncMode, P, T, crate::executor::TokioExecutor>
 where
     P: Profile,
     T: AsyncTransport + 'static,
@@ -223,10 +223,10 @@ where
     ///
     /// # Example
     /// ```ignore
-    /// let camera = Camera::<_, PTZOpticsG2, _, _>::tokio(transport).await?;
+    /// let camera = Camera::<_, PtzOpticsG2, _, _>::tokio(transport).await?;
     /// ```
     pub async fn tokio(transport: T) -> Result<Self, Error> {
-        let executor = crate::executor_unified::TokioExecutor::from_current()?;
+        let executor = crate::executor::TokioExecutor::from_current()?;
         Self::with_executor(transport, executor).await
     }
 
@@ -237,13 +237,13 @@ where
     /// # Example
     /// ```ignore
     /// let handle = tokio::runtime::Handle::current();
-    /// let camera = Camera::<_, PTZOpticsG2, _, _>::tokio_with_handle(transport, handle).await?;
+    /// let camera = Camera::<_, PtzOpticsG2, _, _>::tokio_with_handle(transport, handle).await?;
     /// ```
     pub async fn tokio_with_handle(
         transport: T,
         handle: tokio::runtime::Handle,
     ) -> Result<Self, Error> {
-        let executor = crate::executor_unified::TokioExecutor::from_handle(handle);
+        let executor = crate::executor::TokioExecutor::from_handle(handle);
         Self::with_executor(transport, executor).await
     }
 }
@@ -356,7 +356,7 @@ where
     E: Executor,
 {
     /// Send a command via the runtime camera.
-    pub async fn send_command<C>(&self, command: &C) -> Result<Response, Error>
+    pub async fn send_command<C>(&self, command: &C) -> Result<ViscaResponse, Error>
     where
         C: EncodeVisca,
     {
@@ -380,7 +380,7 @@ where
         &self,
         command: &C,
         runtime_camera: &Arc<runtime::RuntimeHandle>,
-    ) -> Result<Response, Error>
+    ) -> Result<ViscaResponse, Error>
     where
         C: EncodeVisca,
     {

@@ -59,7 +59,7 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
 
             let expanded = quote! {
                 impl #crate_path::command::EncodeVisca for #struct_name {
-                    type Response = #crate_path::command::InquiryResponse;
+                    type ViscaResponse = #crate_path::command::InquiryResponse;
                     const MAX_SIZE: usize = 5;
 
                     fn encode_into(&self, camera_id: #crate_path::camera_id::CameraId, buffer: &mut [u8]) -> Result<usize, #crate_path::Error> {
@@ -75,8 +75,8 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
                         Ok(len)
                     }
 
-                    fn response_type(&self) -> Option<#crate_path::command::ResponseType> {
-                        Some(#crate_path::command::ResponseType::#response_type)
+                    fn response_type(&self) -> Option<#crate_path::command::ViscaResponseType> {
+                        Some(#crate_path::command::ViscaResponseType::#response_type)
                     }
 
                     fn timeout_kind(&self) -> #crate_path::timeout::CommandCategory {

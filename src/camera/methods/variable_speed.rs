@@ -4,14 +4,14 @@
 //! on cameras that support it (currently only Sony FR7).
 
 use crate::{
-    command::{Response, VariableSpeedMode, VariableSpeedModeCommand},
+    command::{VariableSpeedMode, VariableSpeedModeCmd, ViscaResponse},
     error::Error,
 };
 
 /// Async methods for variable speed mode control.
 #[cfg(feature = "async")]
 #[allow(async_fn_in_trait)]
-pub trait VariableSpeedOps {
+pub trait VariableSpeedControl {
     /// Set the variable speed mode (24-step or 50-step).
     ///
     /// Only available on Sony FR7.
@@ -26,27 +26,27 @@ pub trait VariableSpeedOps {
 
 // Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P, T, E> VariableSpeedOps for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
+impl<P, T, E> VariableSpeedControl for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
 where
     P: crate::capabilities::Profile
         + crate::capabilities::VariableSpeed
         + crate::capabilities::HasVariableSpeed,
     T: crate::transport::AsyncTransport + Send + Sync + 'static,
-    E: crate::executor_unified::Executor,
+    E: crate::executor::Executor,
 {
     async fn set_variable_speed_mode(&self, mode: VariableSpeedMode) -> Result<(), Error> {
         // No runtime check needed - compile-time guarantee via HasVariableSpeed marker trait
-        let cmd = VariableSpeedModeCommand::new(mode);
+        let cmd = VariableSpeedModeCmd::new(mode);
         match self.send_command(&cmd).await? {
-            Response::CmdAck | Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
+            ViscaResponse::CmdAck | ViscaResponse::Completion => Ok(()),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
 }
 
 /// Blocking methods for variable speed mode control.
-pub trait VariableSpeedOpsBlocking {
+pub trait VariableSpeedControlBlocking {
     /// Set the variable speed mode (24-step or 50-step).
     ///
     /// Only available on Sony FR7.
@@ -60,7 +60,8 @@ pub trait VariableSpeedOpsBlocking {
 }
 
 // Blocking implementation for Camera with BlockingMode
-impl<P, T> VariableSpeedOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
+impl<P, T> VariableSpeedControlBlocking
+    for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile
         + crate::capabilities::VariableSpeed
@@ -69,10 +70,10 @@ where
 {
     fn set_variable_speed_mode(&self, mode: VariableSpeedMode) -> Result<(), Error> {
         // No runtime check needed - compile-time guarantee via HasVariableSpeed marker trait
-        let cmd = VariableSpeedModeCommand::new(mode);
+        let cmd = VariableSpeedModeCmd::new(mode);
         match self.send_command(&cmd)? {
-            Response::CmdAck | Response::Completion => Ok(()),
-            Response::Error(e) => Err(e),
+            ViscaResponse::CmdAck | ViscaResponse::Completion => Ok(()),
+            ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
@@ -85,10 +86,10 @@ mod tests {
     #[test]
     fn test_variable_speed_mode_command_creation() {
         // Test that commands can be created correctly
-        let cmd = VariableSpeedModeCommand::new(VariableSpeedMode::Standard24);
+        let cmd = VariableSpeedModeCmd::new(VariableSpeedMode::Standard24);
         assert!(matches!(cmd.mode, VariableSpeedMode::Standard24));
 
-        let cmd = VariableSpeedModeCommand::new(VariableSpeedMode::Fine50);
+        let cmd = VariableSpeedModeCmd::new(VariableSpeedMode::Fine50);
         assert!(matches!(cmd.mode, VariableSpeedMode::Fine50));
     }
 }

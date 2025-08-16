@@ -133,10 +133,10 @@ fn main() -> Result<(), Error> {
 #[cfg(feature = "rt-tokio")]
 use grafton_visca::{
     camera::methods::{
-        inquiry::{InquiryOps, PanTiltInquiryOps},
-        pan_tilt::PanTiltOps,
-        power::PowerOps,
-        zoom::ZoomOps,
+        inquiry::{InquiryControl, PanTiltInquiryControl},
+        pan_tilt::PanTiltControl,
+        power::PowerControl,
+        zoom::ZoomControl,
     },
     camera::profiles::SonyFR7,
     transport::tokio::tcp::Tcp,

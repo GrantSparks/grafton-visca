@@ -9,7 +9,7 @@ use crate::{
 
 /// ND filter operations (async).
 #[cfg(feature = "async")]
-pub trait NDFilterOps: Sized {
+pub trait NdFilterControl: Sized {
     /// Set ND filter mode (preset or variable).
     async fn set_nd_filter_mode(&self, mode: CommandNDFilterMode) -> Result<(), Error>;
 
@@ -30,7 +30,7 @@ pub trait NDFilterOps: Sized {
 }
 
 /// ND filter operations (blocking).
-pub trait NDFilterOpsBlocking: Sized {
+pub trait NdFilterControlBlocking: Sized {
     /// Set ND filter mode (preset or variable).
     fn set_nd_filter_mode(&self, mode: CommandNDFilterMode) -> Result<(), Error>;
 
@@ -52,22 +52,22 @@ pub trait NDFilterOpsBlocking: Sized {
 
 // Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P, T, E> NDFilterOps for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
+impl<P, T, E> NdFilterControl for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
 where
     P: crate::capabilities::Profile + crate::capabilities::nd_filter::NDFilter,
     T: crate::transport::AsyncTransport + Send + Sync + 'static,
-    E: crate::executor_unified::Executor,
+    E: crate::executor::Executor,
 {
     async fn set_nd_filter_mode(&self, mode: CommandNDFilterMode) -> Result<(), Error> {
-        use crate::command::nd_filter::NDFilterModeCommand;
-        let cmd = NDFilterModeCommand::new(mode);
+        use crate::command::nd_filter::NdFilterModeCmd;
+        let cmd = NdFilterModeCmd::new(mode);
         self.send_command(&cmd).await?;
         Ok(())
     }
 
     async fn set_nd_filter_value(&self, value: u16) -> Result<(), Error> {
-        use crate::command::nd_filter::NDFilterValueCommand;
-        let cmd = NDFilterValueCommand::new(value).map_err(|_| Error::InvalidParameter {
+        use crate::command::nd_filter::NDFilterValue;
+        let cmd = NDFilterValue::new(value).map_err(|_| Error::InvalidParameter {
             parameter: "value",
             value: value.to_string().into(),
             reason: "ND filter value out of range".into(),
@@ -77,8 +77,8 @@ where
     }
 
     async fn set_nd_filter_stops(&self, stops: f32) -> Result<(), Error> {
-        use crate::command::nd_filter::NDFilterValueCommand;
-        let cmd = NDFilterValueCommand::from_stops(stops).map_err(|_| Error::InvalidParameter {
+        use crate::command::nd_filter::NDFilterValue;
+        let cmd = NDFilterValue::from_stops(stops).map_err(|_| Error::InvalidParameter {
             parameter: "stops",
             value: stops.to_string().into(),
             reason: "ND filter stops must be between 2.0 and 7.0".into(),
@@ -88,8 +88,8 @@ where
     }
 
     async fn step_nd_filter(&self, direction: NDFilterStep) -> Result<(), Error> {
-        use crate::command::nd_filter::NDFilterStepCommand;
-        let cmd = NDFilterStepCommand::new(direction);
+        use crate::command::nd_filter::NdFilterStepCmd;
+        let cmd = NdFilterStepCmd::new(direction);
         self.send_command(&cmd).await?;
         Ok(())
     }
@@ -102,32 +102,32 @@ where
     }
 
     async fn get_nd_filter(&self) -> Result<u8, Error> {
-        use crate::command::{inquiry::NdFilterInquiry, response::Response, InquiryResponse};
+        use crate::command::{inquiry::NdFilterInquiry, response::ViscaResponse, InquiryResponse};
         let inquiry = NdFilterInquiry;
         let response = self.send_command(&inquiry).await?;
         match response {
-            Response::Inquiry(InquiryResponse::NdFilter { position }) => Ok(position),
+            ViscaResponse::Inquiry(InquiryResponse::NdFilter { position }) => Ok(position),
             _ => Err(Error::UnexpectedResponseType),
         }
     }
 }
 
 // Blocking implementation for Camera with BlockingMode
-impl<P, T> NDFilterOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
+impl<P, T> NdFilterControlBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile + crate::capabilities::nd_filter::NDFilter,
     T: crate::transport::BlockingTransport + Send + Sync + 'static,
 {
     fn set_nd_filter_mode(&self, mode: CommandNDFilterMode) -> Result<(), Error> {
-        use crate::command::nd_filter::NDFilterModeCommand;
-        let cmd = NDFilterModeCommand::new(mode);
+        use crate::command::nd_filter::NdFilterModeCmd;
+        let cmd = NdFilterModeCmd::new(mode);
         self.send_command(&cmd)?;
         Ok(())
     }
 
     fn set_nd_filter_value(&self, value: u16) -> Result<(), Error> {
-        use crate::command::nd_filter::NDFilterValueCommand;
-        let cmd = NDFilterValueCommand::new(value).map_err(|_| Error::InvalidParameter {
+        use crate::command::nd_filter::NDFilterValue;
+        let cmd = NDFilterValue::new(value).map_err(|_| Error::InvalidParameter {
             parameter: "value",
             value: value.to_string().into(),
             reason: "ND filter value out of range".into(),
@@ -137,8 +137,8 @@ where
     }
 
     fn set_nd_filter_stops(&self, stops: f32) -> Result<(), Error> {
-        use crate::command::nd_filter::NDFilterValueCommand;
-        let cmd = NDFilterValueCommand::from_stops(stops).map_err(|_| Error::InvalidParameter {
+        use crate::command::nd_filter::NDFilterValue;
+        let cmd = NDFilterValue::from_stops(stops).map_err(|_| Error::InvalidParameter {
             parameter: "stops",
             value: stops.to_string().into(),
             reason: "ND filter stops must be between 2.0 and 7.0".into(),
@@ -148,8 +148,8 @@ where
     }
 
     fn step_nd_filter(&self, direction: NDFilterStep) -> Result<(), Error> {
-        use crate::command::nd_filter::NDFilterStepCommand;
-        let cmd = NDFilterStepCommand::new(direction);
+        use crate::command::nd_filter::NdFilterStepCmd;
+        let cmd = NdFilterStepCmd::new(direction);
         self.send_command(&cmd)?;
         Ok(())
     }
@@ -162,11 +162,11 @@ where
     }
 
     fn get_nd_filter(&self) -> Result<u8, Error> {
-        use crate::command::{inquiry::NdFilterInquiry, response::Response, InquiryResponse};
+        use crate::command::{inquiry::NdFilterInquiry, response::ViscaResponse, InquiryResponse};
         let inquiry = NdFilterInquiry;
         let response = self.send_command(&inquiry)?;
         match response {
-            Response::Inquiry(InquiryResponse::NdFilter { position }) => Ok(position),
+            ViscaResponse::Inquiry(InquiryResponse::NdFilter { position }) => Ok(position),
             _ => Err(Error::UnexpectedResponseType),
         }
     }

@@ -29,19 +29,19 @@ pub struct Terminated;
 ///
 /// ```ignore
 /// // Commands must be terminated before use
-/// let builder = CommandBuilder::<9>::from_prefix(&[0x81, 0x01, 0x04, 0x47]);
+/// let builder = ConstCommandBuilder::<9>::from_prefix(&[0x81, 0x01, 0x04, 0x47]);
 /// let terminated = builder.terminate(); // Moves to Terminated state
 /// let bytes = terminated.as_bytes();    // Only available on Terminated
 /// ```
 #[derive(Debug, Clone, Copy)]
-pub struct CommandBuilder<const N: usize, State = Incomplete> {
+pub struct ConstCommandBuilder<const N: usize, State = Incomplete> {
     buffer: [u8; N],
     position: usize,
     _state: PhantomData<State>,
 }
 
 // Methods available only in Incomplete state
-impl<const N: usize> CommandBuilder<N, Incomplete> {
+impl<const N: usize> ConstCommandBuilder<N, Incomplete> {
     /// Create a new builder from a const prefix.
     ///
     /// # Example
@@ -49,7 +49,7 @@ impl<const N: usize> CommandBuilder<N, Incomplete> {
     /// // Internal API - not part of public interface
     ///
     /// const PREFIX: &[u8] = &[0x81, 0x01, 0x04, 0x47];
-    /// let builder = CommandBuilder::<9>::from_prefix(PREFIX);
+    /// let builder = ConstCommandBuilder::<9>::from_prefix(PREFIX);
     /// let terminated = builder.terminate();
     /// let bytes = terminated.as_bytes();
     ///
@@ -192,7 +192,7 @@ impl<const N: usize> CommandBuilder<N, Incomplete> {
 
     /// Terminate the command by adding the VISCA terminator byte.
     /// This consumes the builder and returns a terminated version.
-    pub fn terminate(mut self) -> CommandBuilder<N, Terminated> {
+    pub fn terminate(mut self) -> ConstCommandBuilder<N, Terminated> {
         if self.position < N {
             self.buffer[self.position] = VISCA_TERMINATOR;
             self.position += 1;
@@ -201,7 +201,7 @@ impl<const N: usize> CommandBuilder<N, Incomplete> {
         // Validate terminator in debug builds
         crate::command::encode_visca::validate_terminator(&self.buffer, self.position);
 
-        CommandBuilder {
+        ConstCommandBuilder {
             buffer: self.buffer,
             position: self.position,
             _state: PhantomData,
@@ -252,7 +252,7 @@ impl<const N: usize> CommandBuilder<N, Incomplete> {
 }
 
 // Methods available only in Terminated state
-impl<const N: usize> CommandBuilder<N, Terminated> {
+impl<const N: usize> ConstCommandBuilder<N, Terminated> {
     /// Get the command bytes as a slice.
     /// This is only available after the command has been terminated.
     ///
@@ -294,7 +294,7 @@ impl<const N: usize> CommandBuilder<N, Terminated> {
     }
 }
 
-impl<const N: usize> Default for CommandBuilder<N, Incomplete> {
+impl<const N: usize> Default for ConstCommandBuilder<N, Incomplete> {
     fn default() -> Self {
         Self::new()
     }
@@ -307,7 +307,7 @@ mod tests {
     #[test]
     fn test_type_state_enforces_termination() {
         // Create an incomplete builder
-        let builder = CommandBuilder::<10>::new()
+        let builder = ConstCommandBuilder::<10>::new()
             .push(0x81)
             .push(0x01)
             .push(0x04)
@@ -326,7 +326,7 @@ mod tests {
 
     #[test]
     fn test_terminated_builder_provides_access() {
-        let builder = CommandBuilder::<10>::from_prefix(&[0x81, 0x01, 0x04, 0x47]);
+        let builder = ConstCommandBuilder::<10>::from_prefix(&[0x81, 0x01, 0x04, 0x47]);
         let terminated = builder.terminate();
 
         // Can access bytes
@@ -343,12 +343,12 @@ mod tests {
     #[test]
     fn test_legacy_methods_still_work() {
         // Test build() method
-        let builder = CommandBuilder::<10>::from_prefix(&[0x81, 0x01, 0x04, 0x47]);
+        let builder = ConstCommandBuilder::<10>::from_prefix(&[0x81, 0x01, 0x04, 0x47]);
         let array = builder.build();
         assert_eq!(array[4], VISCA_TERMINATOR);
 
         // Test build() method with auto-termination
-        let command = CommandBuilder::<10>::new()
+        let command = ConstCommandBuilder::<10>::new()
             .push(0x81)
             .push(0x01)
             .push(0x04)

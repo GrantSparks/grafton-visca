@@ -10,7 +10,7 @@ use std::borrow::Cow;
 use crate::macros::internal::*;
 
 use crate::{
-    command::{encode_visca::EncodeVisca, ResponseType},
+    command::{encode_visca::EncodeVisca, ViscaResponseType},
     error::Error,
     timeout::CommandCategory,
     types::{ContrastLevel, LuminanceLevel},
@@ -77,7 +77,7 @@ pub enum Sharpness {
 }
 
 impl EncodeVisca for Sharpness {
-    type Response = ();
+    type ViscaResponse = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Custom;
 
@@ -86,7 +86,7 @@ impl EncodeVisca for Sharpness {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::const_encoding::{constants, CommandBuilder};
+        use crate::command::const_encoding::{constants, ConstCommandBuilder};
 
         match self {
             Self::Mode(mode) => {
@@ -94,25 +94,25 @@ impl EncodeVisca for Sharpness {
                     SharpnessMode::Auto => 0x02,
                     SharpnessMode::Manual => 0x03,
                 };
-                let mut builder = CommandBuilder::<6>::new();
+                let mut builder = ConstCommandBuilder::<6>::new();
                 builder.append_mut(constants::image::SHARPNESS_MODE_PREFIX);
                 builder.push_mut(mode_byte);
                 builder.with_camera_id(camera_id).build_into(buffer)
             }
             Self::Reset => {
-                let mut builder = CommandBuilder::<6>::new();
+                let mut builder = ConstCommandBuilder::<6>::new();
                 builder.append_mut(constants::image::SHARPNESS_CONTROL_PREFIX);
                 builder.push_mut(0x00);
                 builder.with_camera_id(camera_id).build_into(buffer)
             }
             Self::Up => {
-                let mut builder = CommandBuilder::<6>::new();
+                let mut builder = ConstCommandBuilder::<6>::new();
                 builder.append_mut(constants::image::SHARPNESS_CONTROL_PREFIX);
                 builder.push_mut(0x02);
                 builder.with_camera_id(camera_id).build_into(buffer)
             }
             Self::Down => {
-                let mut builder = CommandBuilder::<6>::new();
+                let mut builder = ConstCommandBuilder::<6>::new();
                 builder.append_mut(constants::image::SHARPNESS_CONTROL_PREFIX);
                 builder.push_mut(0x03);
                 builder.with_camera_id(camera_id).build_into(buffer)
@@ -125,7 +125,7 @@ impl EncodeVisca for Sharpness {
                         reason: Cow::Borrowed("Sharpness value must be in the range 0..=11"),
                     });
                 }
-                let mut builder = CommandBuilder::<9>::new();
+                let mut builder = ConstCommandBuilder::<9>::new();
                 builder.append_mut(constants::image::SHARPNESS_LEVEL_PREFIX);
                 builder.push_nibble_pair_mut(*value as u16);
                 builder.with_camera_id(camera_id).build_into(buffer)
@@ -133,14 +133,14 @@ impl EncodeVisca for Sharpness {
         }
     }
 
-    fn response_type(&self) -> Option<ResponseType> {
+    fn response_type(&self) -> Option<ViscaResponseType> {
         None
     }
 }
 
 visca_builder! {
     /// Command to set the luminance (brightness) level.
-    pub struct LuminanceCommand {
+    pub struct Luminance {
         /// The luminance level to set.
         value: LuminanceLevel,
     }
@@ -152,7 +152,7 @@ visca_builder! {
     timeout = Quick;
 }
 
-impl LuminanceCommand {
+impl Luminance {
     /// Create a new luminance command.
     pub fn new(value: LuminanceLevel) -> Self {
         Self { value }
@@ -161,7 +161,7 @@ impl LuminanceCommand {
 
 visca_builder! {
     /// Command to set the contrast level.
-    pub struct ContrastCommand {
+    pub struct Contrast {
         /// The contrast level to set.
         value: ContrastLevel,
     }
@@ -173,7 +173,7 @@ visca_builder! {
     timeout = Quick;
 }
 
-impl ContrastCommand {
+impl Contrast {
     /// Create a new contrast command.
     pub fn new(value: ContrastLevel) -> Self {
         Self { value }
@@ -295,7 +295,7 @@ mod tests {
         // Test valid G2 values
         for value in 0..=11 {
             let cmd = Sharpness::SetLevel { value };
-            assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
+            assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
         }
 
         // Test invalid G2 value
@@ -306,17 +306,17 @@ mod tests {
 
         // Test that non-SetLevel commands pass validation
         let cmd = Sharpness::Reset;
-        assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
+        assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
 
         let cmd = Sharpness::Mode(SharpnessMode::Auto);
-        assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
+        assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
     }
 
     // Test luminance level 0
     visca_test!(
-        LuminanceCommand,
+        Luminance,
         test_luminance_level_0,
-        LuminanceCommand::new(LuminanceLevel::new(0).unwrap()),
+        Luminance::new(LuminanceLevel::new(0).unwrap()),
         &[
             0x81,
             0x01,
@@ -332,9 +332,9 @@ mod tests {
 
     // Test luminance level 7
     visca_test!(
-        LuminanceCommand,
+        Luminance,
         test_luminance_level_7,
-        LuminanceCommand::new(LuminanceLevel::new(7).unwrap()),
+        Luminance::new(LuminanceLevel::new(7).unwrap()),
         &[
             0x81,
             0x01,
@@ -350,9 +350,9 @@ mod tests {
 
     // Test luminance level 14
     visca_test!(
-        LuminanceCommand,
+        Luminance,
         test_luminance_level_14,
-        LuminanceCommand::new(LuminanceLevel::new(14).unwrap()),
+        Luminance::new(LuminanceLevel::new(14).unwrap()),
         &[
             0x81,
             0x01,
@@ -368,7 +368,7 @@ mod tests {
 
     #[test]
     fn test_luminance_properties() {
-        let cmd = LuminanceCommand::new(LuminanceLevel::new(7).unwrap());
+        let cmd = Luminance::new(LuminanceLevel::new(7).unwrap());
         assert!(cmd.response_type().is_none());
         assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
     }
@@ -379,8 +379,8 @@ mod tests {
         for value in 0..=14 {
             let level = LuminanceLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = LuminanceCommand::new(level);
-            assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
+            let cmd = Luminance::new(level);
+            assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
         }
 
         // G2 supports all values 0-14, so no invalid values to test
@@ -389,9 +389,9 @@ mod tests {
 
     // Test contrast level 0
     visca_test!(
-        ContrastCommand,
+        Contrast,
         test_contrast_level_0,
-        ContrastCommand::new(ContrastLevel::new(0).unwrap()),
+        Contrast::new(ContrastLevel::new(0).unwrap()),
         &[
             0x81,
             0x01,
@@ -407,9 +407,9 @@ mod tests {
 
     // Test contrast level 7
     visca_test!(
-        ContrastCommand,
+        Contrast,
         test_contrast_level_7,
-        ContrastCommand::new(ContrastLevel::new(7).unwrap()),
+        Contrast::new(ContrastLevel::new(7).unwrap()),
         &[
             0x81,
             0x01,
@@ -425,9 +425,9 @@ mod tests {
 
     // Test contrast level 14
     visca_test!(
-        ContrastCommand,
+        Contrast,
         test_contrast_level_14,
-        ContrastCommand::new(ContrastLevel::new(14).unwrap()),
+        Contrast::new(ContrastLevel::new(14).unwrap()),
         &[
             0x81,
             0x01,
@@ -443,7 +443,7 @@ mod tests {
 
     #[test]
     fn test_contrast_properties() {
-        let cmd = ContrastCommand::new(ContrastLevel::new(7).unwrap());
+        let cmd = Contrast::new(ContrastLevel::new(7).unwrap());
         assert!(cmd.response_type().is_none());
         assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
     }
@@ -454,8 +454,8 @@ mod tests {
         for value in 0..=14 {
             let level = ContrastLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = ContrastCommand::new(level);
-            assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
+            let cmd = Contrast::new(level);
+            assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
         }
 
         // G2 supports all values 0-14, so no invalid values to test
@@ -476,10 +476,10 @@ mod tests {
             Box::new(Sharpness::Reset),
             Box::new(Sharpness::Mode(SharpnessMode::Auto)),
             Box::new(Sharpness::SetLevel { value: 5 }),
-            Box::new(LuminanceCommand::new(
+            Box::new(Luminance::new(
                 LuminanceLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             )),
-            Box::new(ContrastCommand::new(
+            Box::new(Contrast::new(
                 ContrastLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             )),
         ];
@@ -515,14 +515,14 @@ mod tests {
         // Test boundary values for luminance
         let level =
             LuminanceLevel::new(0).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-        let cmd = LuminanceCommand { value: level };
+        let cmd = Luminance { value: level };
         assert!(cmd
             .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
             .is_ok());
 
         let level =
             LuminanceLevel::new(14).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-        let cmd = LuminanceCommand { value: level };
+        let cmd = Luminance { value: level };
         assert!(cmd
             .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
             .is_ok());
@@ -530,14 +530,14 @@ mod tests {
         // Test boundary values for contrast
         let level =
             ContrastLevel::new(0).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-        let cmd = ContrastCommand { value: level };
+        let cmd = Contrast { value: level };
         assert!(cmd
             .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
             .is_ok());
 
         let level =
             ContrastLevel::new(14).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-        let cmd = ContrastCommand { value: level };
+        let cmd = Contrast { value: level };
         assert!(cmd
             .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
             .is_ok());
@@ -571,12 +571,12 @@ mod tests {
         assert!(Sharpness::Up.response_type().is_none());
         assert!(Sharpness::Down.response_type().is_none());
         assert!(Sharpness::SetLevel { value: 5 }.response_type().is_none());
-        assert!(LuminanceCommand::new(
+        assert!(Luminance::new(
             LuminanceLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
         )
         .response_type()
         .is_none());
-        assert!(ContrastCommand::new(
+        assert!(Contrast::new(
             ContrastLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
         )
         .response_type()
@@ -598,15 +598,15 @@ mod tests {
             assert!(matches!(cmd.timeout_kind(), CommandCategory::Custom));
         }
 
-        // Test LuminanceCommand and ContrastCommand use Quick category
+        // Test Luminance and Contrast use Quick category
         let level =
             LuminanceLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-        let cmd = LuminanceCommand { value: level };
+        let cmd = Luminance { value: level };
         assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
 
         let level =
             ContrastLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-        let cmd = ContrastCommand { value: level };
+        let cmd = Contrast { value: level };
         assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
     }
 }

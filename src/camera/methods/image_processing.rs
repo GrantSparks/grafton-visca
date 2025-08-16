@@ -11,7 +11,7 @@ use crate::{
 
 /// Image processing operations (async).
 #[cfg(feature = "async")]
-pub trait ImageProcessingOps: Sized {
+pub trait ImageProcessingControl: Sized {
     /// Enable image flip.
     async fn enable_flip(&self) -> Result<(), Error>;
 
@@ -89,7 +89,7 @@ pub trait ImageProcessingOps: Sized {
 }
 
 /// Image processing operations (blocking).
-pub trait ImageProcessingOpsBlocking: Sized {
+pub trait ImageProcessingControlBlocking: Sized {
     /// Enable image flip.
     fn enable_flip(&self) -> Result<(), Error>;
 
@@ -168,20 +168,20 @@ pub trait ImageProcessingOpsBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P, T, E> ImageProcessingOps for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
+impl<P, T, E> ImageProcessingControl for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
 where
     P: crate::capabilities::Profile,
     T: crate::transport::AsyncTransport + Send + Sync + 'static,
-    E: crate::executor_unified::Executor,
+    E: crate::executor::Executor,
 {
     async fn enable_flip(&self) -> Result<(), Error> {
-        let cmd = crate::command::flip::ImageFlipCommand::new(crate::command::flip::Flip::On);
+        let cmd = crate::command::flip::ImageFlip::new(crate::command::flip::Flip::On);
         self.send_command(&cmd).await?;
         Ok(())
     }
 
     async fn disable_flip(&self) -> Result<(), Error> {
-        let cmd = crate::command::flip::ImageFlipCommand::new(crate::command::flip::Flip::Off);
+        let cmd = crate::command::flip::ImageFlip::new(crate::command::flip::Flip::Off);
         self.send_command(&cmd).await?;
         Ok(())
     }
@@ -203,7 +203,7 @@ where
     }
 
     async fn set_contrast(&self, level: ContrastLevel) -> Result<(), Error> {
-        let cmd = crate::command::image_adjustment::ContrastCommand::new(level);
+        let cmd = crate::command::image_adjustment::Contrast::new(level);
         self.send_command(&cmd).await?;
         Ok(())
     }
@@ -277,7 +277,7 @@ where
     }
 
     async fn set_image_flip(&self, mode: ImageFlipMode) -> Result<(), Error> {
-        // Use the combined flip command (PTZOptics A4 opcode)
+        // Use the combined flip command (PtzOptics A4 opcode)
         // This is more efficient than sending separate vertical and horizontal commands
         let cmd = crate::command::image::ImageFlipCombinedCommand::new(mode);
         self.send_command(&cmd).await?;
@@ -285,7 +285,7 @@ where
     }
 
     async fn set_luminance(&self, level: LuminanceLevel) -> Result<(), Error> {
-        let cmd = crate::command::image_adjustment::LuminanceCommand::new(level);
+        let cmd = crate::command::image_adjustment::Luminance::new(level);
         self.send_command(&cmd).await?;
         Ok(())
     }
@@ -326,20 +326,20 @@ where
 }
 
 // Blocking implementation
-impl<P, T> ImageProcessingOpsBlocking
+impl<P, T> ImageProcessingControlBlocking
     for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile,
     T: crate::transport::BlockingTransport + Send + Sync + 'static,
 {
     fn enable_flip(&self) -> Result<(), Error> {
-        let cmd = crate::command::flip::ImageFlipCommand::new(crate::command::flip::Flip::On);
+        let cmd = crate::command::flip::ImageFlip::new(crate::command::flip::Flip::On);
         self.send_command(&cmd)?;
         Ok(())
     }
 
     fn disable_flip(&self) -> Result<(), Error> {
-        let cmd = crate::command::flip::ImageFlipCommand::new(crate::command::flip::Flip::Off);
+        let cmd = crate::command::flip::ImageFlip::new(crate::command::flip::Flip::Off);
         self.send_command(&cmd)?;
         Ok(())
     }
@@ -361,7 +361,7 @@ where
     }
 
     fn set_contrast(&self, level: ContrastLevel) -> Result<(), Error> {
-        let cmd = crate::command::image_adjustment::ContrastCommand::new(level);
+        let cmd = crate::command::image_adjustment::Contrast::new(level);
         self.send_command(&cmd)?;
         Ok(())
     }
@@ -435,7 +435,7 @@ where
     }
 
     fn set_image_flip(&self, mode: ImageFlipMode) -> Result<(), Error> {
-        // Use the combined flip command (PTZOptics A4 opcode)
+        // Use the combined flip command (PtzOptics A4 opcode)
         // This is more efficient than sending separate vertical and horizontal commands
         let cmd = crate::command::image::ImageFlipCombinedCommand::new(mode);
         self.send_command(&cmd)?;
@@ -443,7 +443,7 @@ where
     }
 
     fn set_luminance(&self, level: LuminanceLevel) -> Result<(), Error> {
-        let cmd = crate::command::image_adjustment::LuminanceCommand::new(level);
+        let cmd = crate::command::image_adjustment::Luminance::new(level);
         self.send_command(&cmd)?;
         Ok(())
     }

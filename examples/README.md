@@ -69,7 +69,7 @@ RUST_LOG=grafton_visca=debug cargo run --example quickstart
 
 The examples use different camera profiles to demonstrate type safety:
 
-- `PTZOpticsG2` - PTZOptics Generation 2 cameras (most examples)
+- `PtzOpticsG2` - PTZOptics Generation 2 cameras (most examples)
 - `PTZOpticsG3` - PTZOptics Generation 3 cameras
 - `SonyFR7` - Sony FR7 cameras with advanced features
 - `GenericVisca` - Basic VISCA profile for unknown cameras
@@ -80,12 +80,12 @@ The examples use different camera profiles to demonstrate type safety:
 ```rust
 // Blocking TCP (port defaults to profile-specific: 5678 for PTZOptics)
 let cam = CameraBuilder::tcp("192.168.0.110")
-    .profile::<PTZOpticsG2>()
+    .profile::<PtzOpticsG2>()
     .build()?;
 
 // Async TCP with Tokio
 let cam = CameraBuilder::tokio_tcp("192.168.0.110")
-    .profile::<PTZOpticsG2>()
+    .profile::<PtzOpticsG2>()
     .build()
     .await?;
 ```

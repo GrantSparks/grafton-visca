@@ -4,7 +4,9 @@
 //! When in 50-step mode, pan/tilt speed values can range from 1-50 for finer control.
 
 use crate::{
-    command::{const_encoding::builder::CommandBuilder, encode_visca::EncodeVisca, ResponseType},
+    command::{
+        const_encoding::builder::ConstCommandBuilder, encode_visca::EncodeVisca, ViscaResponseType,
+    },
     error::Error,
     timeout::CommandCategory,
 };
@@ -25,20 +27,20 @@ pub enum VariableSpeedMode {
 /// - p = 1 (24-step mode)
 /// - p = 2 (50-step mode)
 #[derive(Debug, Clone, Copy)]
-pub struct VariableSpeedModeCommand {
+pub struct VariableSpeedModeCmd {
     /// The speed mode to set.
     pub mode: VariableSpeedMode,
 }
 
-impl VariableSpeedModeCommand {
+impl VariableSpeedModeCmd {
     /// Create a new variable speed mode command.
     pub fn new(mode: VariableSpeedMode) -> Self {
         Self { mode }
     }
 }
 
-impl EncodeVisca for VariableSpeedModeCommand {
-    type Response = ();
+impl EncodeVisca for VariableSpeedModeCmd {
+    type ViscaResponse = ();
     const MAX_SIZE: usize = 7;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -54,13 +56,13 @@ impl EncodeVisca for VariableSpeedModeCommand {
             VariableSpeedMode::Fine50 => 0x02,
         };
 
-        CommandBuilder::<7>::from_prefix(constants::variable_speed::CONTROL_PREFIX)
+        ConstCommandBuilder::<7>::from_prefix(constants::variable_speed::CONTROL_PREFIX)
             .with_camera_id(camera_id)
             .push(mode_byte)
             .build_into(buffer)
     }
 
-    fn response_type(&self) -> Option<ResponseType> {
+    fn response_type(&self) -> Option<ViscaResponseType> {
         None
     }
 }
@@ -72,16 +74,16 @@ mod tests {
     use crate::macros::test_utils::visca_test;
 
     visca_test!(
-        VariableSpeedModeCommand,
+        VariableSpeedModeCmd,
         test_variable_speed_mode_standard24,
-        VariableSpeedModeCommand::new(VariableSpeedMode::Standard24),
+        VariableSpeedModeCmd::new(VariableSpeedMode::Standard24),
         &[0x81, 0x01, 0x7E, 0x04, 0x1B, 0x01, VISCA_TERMINATOR]
     );
 
     visca_test!(
-        VariableSpeedModeCommand,
+        VariableSpeedModeCmd,
         test_variable_speed_mode_fine50,
-        VariableSpeedModeCommand::new(VariableSpeedMode::Fine50),
+        VariableSpeedModeCmd::new(VariableSpeedMode::Fine50),
         &[0x81, 0x01, 0x7E, 0x04, 0x1B, 0x02, VISCA_TERMINATOR]
     );
 }

@@ -1,6 +1,6 @@
 //! Camera-specific constants and conversion utilities for VISCA protocol.
 //!
-//! This module provides constants for `PTZOptics` cameras including position ranges,
+//! This module provides constants for `PtzOptics` cameras including position ranges,
 //! speed limits, port numbers, and utilities for converting between different unit systems.
 
 #![allow(dead_code)]
@@ -10,19 +10,19 @@ use crate::error::Error;
 /// Camera variants for validation and constants (more comprehensive than profiles)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CameraVariant {
-    /// `PTZOptics` G2 series camera
-    PTZOpticsG2,
-    /// `PTZOptics` G3 series camera
-    PTZOpticsG3,
-    /// `PTZOptics` 30X optical zoom camera
-    PTZOptics30X,
+    /// `PtzOptics` G2 series camera
+    PtzOpticsG2,
+    /// `PtzOptics` G3 series camera
+    PtzOpticsG3,
+    /// `PtzOptics` 30X optical zoom camera
+    PtzOptics30X,
     /// Sony FR7 camera
     SonyFR7,
     /// Unknown or generic VISCA camera
     Unknown,
 }
 
-/// Pan/Tilt position constants for `PTZOptics` cameras
+/// Pan/Tilt position constants for `PtzOptics` cameras
 pub mod position {
     /// Maximum pan position (right) in VISCA units
     pub const PAN_MAX: i16 = 2448;
@@ -38,14 +38,14 @@ pub mod position {
     /// Center tilt position
     pub const TILT_CENTER: i16 = 0;
 
-    /// Total pan range in degrees for `PTZOptics` G2 (340°)
+    /// Total pan range in degrees for `PtzOptics` G2 (340°)
     pub const PAN_DEGREES_G2: f32 = 340.0;
-    /// Total tilt range in degrees for `PTZOptics` G2 (120°)
+    /// Total tilt range in degrees for `PtzOptics` G2 (120°)
     pub const TILT_DEGREES_G2: f32 = 120.0;
 
-    /// Total pan range in degrees for `PTZOptics` 30X (340°)
+    /// Total pan range in degrees for `PtzOptics` 30X (340°)
     pub const PAN_DEGREES_30X: f32 = 340.0;
-    /// Total tilt range in degrees for `PTZOptics` 30X (120°)
+    /// Total tilt range in degrees for `PtzOptics` 30X (120°)
     pub const TILT_DEGREES_30X: f32 = 120.0;
 }
 
@@ -99,7 +99,7 @@ pub mod speed {
 pub mod preset {
     /// Minimum preset ID
     pub const PRESET_ID_MIN: u8 = 0;
-    /// Maximum preset ID for `PTZOptics` cameras
+    /// Maximum preset ID for `PtzOptics` cameras
     pub const PRESET_ID_MAX: u8 = 100;
     /// Home preset ID (usually 0)
     pub const PRESET_HOME: u8 = 0;
@@ -111,7 +111,7 @@ pub mod network {
     pub const VISCA_DEFAULT_PORT: u16 = 5678;
     /// Secondary VISCA port (some cameras)
     pub const VISCA_SECONDARY_PORT: u16 = 1259;
-    /// NDI control port
+    /// Ndi control port
     pub const NDI_CONTROL_PORT: u16 = 5961;
 }
 
@@ -195,8 +195,8 @@ impl CameraConstants for CameraVariant {
 
     fn zoom_range(&self) -> (u16, u16) {
         match self {
-            Self::PTZOpticsG2 | Self::PTZOpticsG3 => (zoom::ZOOM_MIN, zoom::ZOOM_MAX_20X),
-            Self::PTZOptics30X => (zoom::ZOOM_MIN, zoom::ZOOM_MAX_30X),
+            Self::PtzOpticsG2 | Self::PtzOpticsG3 => (zoom::ZOOM_MIN, zoom::ZOOM_MAX_20X),
+            Self::PtzOptics30X => (zoom::ZOOM_MIN, zoom::ZOOM_MAX_30X),
             Self::SonyFR7 => (zoom::ZOOM_MIN, zoom::ZOOM_MAX_20X),
             Self::Unknown => (zoom::ZOOM_MIN, zoom::ZOOM_MAX_12X),
         }
@@ -204,16 +204,16 @@ impl CameraConstants for CameraVariant {
 
     fn pan_degrees(&self) -> f32 {
         match self {
-            Self::PTZOpticsG2 | Self::PTZOpticsG3 | Self::Unknown => position::PAN_DEGREES_G2,
-            Self::PTZOptics30X => position::PAN_DEGREES_30X,
+            Self::PtzOpticsG2 | Self::PtzOpticsG3 | Self::Unknown => position::PAN_DEGREES_G2,
+            Self::PtzOptics30X => position::PAN_DEGREES_30X,
             Self::SonyFR7 => position::PAN_DEGREES_G2,
         }
     }
 
     fn tilt_degrees(&self) -> f32 {
         match self {
-            Self::PTZOpticsG2 | Self::PTZOpticsG3 | Self::Unknown => position::TILT_DEGREES_G2,
-            Self::PTZOptics30X => position::TILT_DEGREES_30X,
+            Self::PtzOpticsG2 | Self::PtzOpticsG3 | Self::Unknown => position::TILT_DEGREES_G2,
+            Self::PtzOptics30X => position::TILT_DEGREES_30X,
             Self::SonyFR7 => position::TILT_DEGREES_G2,
         }
     }
@@ -232,8 +232,8 @@ impl CameraConstants for CameraVariant {
 
     fn max_preset_id(&self) -> u8 {
         match self {
-            Self::PTZOpticsG2 => 89,
-            Self::PTZOpticsG3 | Self::PTZOptics30X | Self::Unknown => preset::PRESET_ID_MAX,
+            Self::PtzOpticsG2 => 89,
+            Self::PtzOpticsG3 | Self::PtzOptics30X | Self::Unknown => preset::PRESET_ID_MAX,
             Self::SonyFR7 => 255,
         }
     }
@@ -623,7 +623,7 @@ mod tests {
     #[test]
     fn test_visca_to_degrees_conversion() {
         let visca_pos = ViscaPosition { pan: 0, tilt: 432 };
-        let degrees = visca_pos.to_degrees(CameraVariant::PTZOpticsG2);
+        let degrees = visca_pos.to_degrees(CameraVariant::PtzOpticsG2);
 
         assert!((degrees.pan - 0.0).abs() < 0.1);
         assert!((degrees.tilt - 0.0).abs() < 1.0);
@@ -632,7 +632,7 @@ mod tests {
             pan: position::PAN_MAX,
             tilt: position::TILT_MAX,
         };
-        let degrees = visca_pos.to_degrees(CameraVariant::PTZOpticsG2);
+        let degrees = visca_pos.to_degrees(CameraVariant::PtzOpticsG2);
 
         assert!((degrees.pan - 170.0).abs() < 1.0);
         assert!((degrees.tilt - 60.0).abs() < 1.0);
@@ -644,7 +644,7 @@ mod tests {
             pan: 0.0,
             tilt: 0.0,
         };
-        let visca = degree_pos.to_visca(CameraVariant::PTZOpticsG2);
+        let visca = degree_pos.to_visca(CameraVariant::PtzOpticsG2);
 
         assert_eq!(visca.pan, 0);
         let tilt_middle = (position::TILT_MAX + position::TILT_MIN) / 2;
@@ -657,7 +657,7 @@ mod tests {
             pan: 1.0,
             tilt: 1.0,
         };
-        let visca = norm_pos.to_visca(CameraVariant::PTZOpticsG2);
+        let visca = norm_pos.to_visca(CameraVariant::PtzOpticsG2);
 
         assert_eq!(visca.pan, position::PAN_MAX);
         assert_eq!(visca.tilt, position::TILT_MAX);
@@ -666,7 +666,7 @@ mod tests {
             pan: -1.0,
             tilt: -1.0,
         };
-        let visca = norm_pos.to_visca(CameraVariant::PTZOpticsG2);
+        let visca = norm_pos.to_visca(CameraVariant::PtzOpticsG2);
 
         assert_eq!(visca.pan, position::PAN_MIN);
         assert_eq!(visca.tilt, position::TILT_MIN);
@@ -674,11 +674,11 @@ mod tests {
 
     #[test]
     fn test_validation_functions() {
-        assert!(validate_pan_position(0, CameraVariant::PTZOpticsG2).is_ok());
-        assert!(validate_pan_position(5000, CameraVariant::PTZOpticsG2).is_err());
+        assert!(validate_pan_position(0, CameraVariant::PtzOpticsG2).is_ok());
+        assert!(validate_pan_position(5000, CameraVariant::PtzOpticsG2).is_err());
 
-        assert!(validate_tilt_position(0, CameraVariant::PTZOpticsG2).is_ok());
-        assert!(validate_tilt_position(-1000, CameraVariant::PTZOpticsG2).is_err());
+        assert!(validate_tilt_position(0, CameraVariant::PtzOpticsG2).is_ok());
+        assert!(validate_tilt_position(-1000, CameraVariant::PtzOpticsG2).is_err());
 
         assert!(validate_pan_speed(12).is_ok());
         assert!(validate_pan_speed(30).is_err());

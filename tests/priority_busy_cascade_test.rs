@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use grafton_visca::{
     camera_id::CameraId,
-    command::{power::PowerCommand, zoom::Zoom},
+    command::{power::Power, zoom::Zoom},
     runtime::{Priority, RuntimeHandle},
     testing::testkit::{
         deterministic_executor::{DeterministicExecutorExt, ExecutorExt},
@@ -40,7 +40,7 @@ fn test_busy_cascade_across_priorities() {
         clock.advance(Duration::from_millis(50));
 
         println!("🔧 Submitting power command that will get BUSY then succeed...");
-        let power_cmd = PowerCommand::On;
+        let power_cmd = Power::On;
 
         // Start the command send
         let command_future =
@@ -78,7 +78,7 @@ fn test_busy_with_max_retries() {
 
     executor.clone().block_on_bg(async move {
         // Create a transport that always returns BUSY to test retry exhaustion
-        // PowerCommand has category "Quick" with max_retries = 5
+        // Power has category "Quick" with max_retries = 5
         // We need 6 BUSY responses to trigger exhaustion (attempt > max_retries)
         let steps = vec![
             // Keep returning BUSY responses until retries are exhausted
@@ -118,7 +118,7 @@ fn test_busy_with_max_retries() {
         clock.advance(Duration::from_millis(50));
 
         // Submit a command that will exhaust retries
-        let power_cmd = PowerCommand::On;
+        let power_cmd = Power::On;
 
         println!("🔧 Sending power command that should exhaust retries...");
 
@@ -188,7 +188,7 @@ fn test_priority_order_during_busy_recovery() {
         clock.advance(Duration::from_millis(50));
 
         // Submit commands in reverse priority order to test proper scheduling
-        let normal_cmd = PowerCommand::On;
+        let normal_cmd = Power::On;
         let normal_future =
             runtime.send_command(&normal_cmd, CameraId::default(), Some(Priority::Normal));
 
@@ -196,7 +196,7 @@ fn test_priority_order_during_busy_recovery() {
         let high_future =
             runtime.send_command(&high_cmd, CameraId::default(), Some(Priority::High));
 
-        let critical_cmd = PowerCommand::Standby;
+        let critical_cmd = Power::Standby;
         let critical_future =
             runtime.send_command(&critical_cmd, CameraId::default(), Some(Priority::Critical));
 
