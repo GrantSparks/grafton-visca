@@ -50,42 +50,45 @@ fn spawn_runtime_task_properly<E: crate::executor_unified::Executor>(
             std::any::type_name_of_val(&executor_any)
         );
 
-        // Try direct DeterministicExecutor
-        if let Some(det_exec) =
-            executor_any.downcast_ref::<crate::testing::testkit::DeterministicExecutor>()
+        #[cfg(feature = "test-utils")]
         {
-            eprintln!(
-                "[spawn_runtime_task_properly] Detected DeterministicExecutor, using spawn_bg"
-            );
-            // Use ExecutorExt::spawn_bg which detaches the task
-            use crate::testing::testkit::deterministic_executor::ExecutorExt;
-            det_exec.spawn_bg(async move {
-                eprintln!("[runtime task] Runtime task starting (DeterministicExecutor)");
-                match runtime_task.await {
-                    Ok(()) => eprintln!("[runtime task] Runtime task completed successfully"),
-                    Err(e) => eprintln!("[runtime task] Runtime task failed: {}", e),
-                }
-            });
-            eprintln!("[spawn_runtime_task_properly] spawn_bg called, returning");
-            return;
-        }
+            // Try direct DeterministicExecutor
+            if let Some(det_exec) =
+                executor_any.downcast_ref::<crate::testing::testkit::DeterministicExecutor>()
+            {
+                eprintln!(
+                    "[spawn_runtime_task_properly] Detected DeterministicExecutor, using spawn_bg"
+                );
+                // Use ExecutorExt::spawn_bg which detaches the task
+                use crate::testing::testkit::deterministic_executor::ExecutorExt;
+                det_exec.spawn_bg(async move {
+                    eprintln!("[runtime task] Runtime task starting (DeterministicExecutor)");
+                    match runtime_task.await {
+                        Ok(()) => eprintln!("[runtime task] Runtime task completed successfully"),
+                        Err(e) => eprintln!("[runtime task] Runtime task failed: {}", e),
+                    }
+                });
+                eprintln!("[spawn_runtime_task_properly] spawn_bg called, returning");
+                return;
+            }
 
-        // Try Arc<DeterministicExecutor>
-        if let Some(arc_det) =
-            executor_any.downcast_ref::<Arc<crate::testing::testkit::DeterministicExecutor>>()
-        {
-            log::debug!("Detected Arc<DeterministicExecutor>, using spawn_bg");
-            // Use ExecutorExt::spawn_bg which detaches the task
-            use crate::testing::testkit::deterministic_executor::ExecutorExt;
-            arc_det.spawn_bg(async move {
-                log::debug!("Runtime task starting (Arc<DeterministicExecutor>)");
-                if let Err(e) = runtime_task.await {
-                    log::error!("Runtime task failed: {}", e);
-                } else {
-                    log::debug!("Runtime task completed successfully");
-                }
-            });
-            return;
+            // Try Arc<DeterministicExecutor>
+            if let Some(arc_det) =
+                executor_any.downcast_ref::<Arc<crate::testing::testkit::DeterministicExecutor>>()
+            {
+                log::debug!("Detected Arc<DeterministicExecutor>, using spawn_bg");
+                // Use ExecutorExt::spawn_bg which detaches the task
+                use crate::testing::testkit::deterministic_executor::ExecutorExt;
+                arc_det.spawn_bg(async move {
+                    log::debug!("Runtime task starting (Arc<DeterministicExecutor>)");
+                    if let Err(e) = runtime_task.await {
+                        log::error!("Runtime task failed: {}", e);
+                    } else {
+                        log::debug!("Runtime task completed successfully");
+                    }
+                });
+                return;
+            }
         }
 
         log::debug!("DeterministicExecutor not detected, falling through to regular spawn");
