@@ -3,10 +3,9 @@
 //! This example demonstrates error handling patterns with the Camera API,
 //! including retry logic and error classification.
 
-use std::borrow::Cow;
-use std::time::Duration;
 #[cfg(any(not(feature = "async"), feature = "rt-tokio"))]
 use std::time::Instant;
+use std::{borrow::Cow, time::Duration};
 
 use grafton_visca::Error;
 #[cfg(feature = "rt-tokio")]

@@ -16,6 +16,12 @@ fn main() {
 }
 
 #[cfg(feature = "rt-tokio")]
+use tokio::time::{sleep, Duration};
+
+#[cfg(feature = "rt-tokio")]
+use std::sync::Arc;
+
+#[cfg(feature = "rt-tokio")]
 use grafton_visca::{
     camera::methods::{
         inquiry::{InquiryOps, PanTiltInquiryOps},
@@ -29,12 +35,6 @@ use grafton_visca::{
     types::SpeedLevel,
     CameraBuilder, PanTiltDirection, PresetNumber, Result,
 };
-
-#[cfg(feature = "rt-tokio")]
-use std::sync::Arc;
-
-#[cfg(feature = "rt-tokio")]
-use tokio::time::{sleep, Duration};
 
 #[cfg(feature = "rt-tokio")]
 #[tokio::main]
@@ -327,7 +327,6 @@ async fn producer_consumer_pattern() -> Result<()> {
 async fn synchronized_movement() -> Result<()> {
     println!("--- Example 4: Synchronized Multi-Camera Movement ---");
 
-    use std::time::Duration;
     use tokio::sync::Barrier;
 
     // Create cameras

@@ -17,6 +17,12 @@
 //! ```
 
 #[cfg(feature = "rt-tokio")]
+use tokio::time::{sleep, Duration};
+
+#[cfg(feature = "rt-tokio")]
+use std::env;
+
+#[cfg(feature = "rt-tokio")]
 use grafton_visca::{
     camera::methods::{
         exposure::ExposureOps, focus::FocusOps, image_processing::ImageProcessingOps,
@@ -29,12 +35,6 @@ use grafton_visca::{
     units::{Degrees, Normalized},
     CameraBuilder, Error, PanTiltDirection,
 };
-
-#[cfg(feature = "rt-tokio")]
-use tokio::time::{sleep, Duration};
-
-#[cfg(feature = "rt-tokio")]
-use std::env;
 
 #[cfg(feature = "rt-tokio")]
 #[tokio::main]

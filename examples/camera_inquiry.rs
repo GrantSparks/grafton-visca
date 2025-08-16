@@ -125,23 +125,6 @@ fn main() -> grafton_visca::Result<()> {
         Err(e) => println!("Failed to get brightness: {e}"),
     }
 
-    // contrast_inquiry(), saturation_inquiry(), and sharpness_inquiry() have been commented out pending verification
-    // These are not standard VISCA inquiries according to the protocol documentation
-    // match camera.contrast_inquiry() {
-    //     Ok(val) => println!("Contrast: {:?}", val),
-    //     Err(e) => println!("Failed to get contrast: {e}"),
-    // }
-
-    // match camera.saturation_inquiry() {
-    //     Ok(val) => println!("Saturation: {:?}", val),
-    //     Err(e) => println!("Failed to get saturation: {e}"),
-    // }
-
-    // match camera.sharpness_inquiry() {
-    //     Ok(val) => println!("Sharpness: {:?}", val),
-    //     Err(e) => println!("Failed to get sharpness: {e}"),
-    // }
-
     match camera.get_hue() {
         Ok(val) => println!("Hue: {:?}", val),
         Err(e) => println!("Failed to get hue: {e}"),
@@ -204,8 +187,6 @@ async fn main() -> grafton_visca::Result<()> {
         wb_mode,
         color_temp,
         brightness,
-        // contrast,  // Not documented in VISCA specs
-        // sharpness, // Not documented in VISCA specs
         saturation,
         hue,
         flip,
@@ -222,8 +203,6 @@ async fn main() -> grafton_visca::Result<()> {
         camera.get_white_balance_mode(),
         camera.get_color_temperature(),
         camera.get_brightness(),
-        // camera.contrast_inquiry(),  // Not documented in VISCA specs
-        // camera.sharpness_inquiry(), // Not documented in VISCA specs
         camera.get_saturation(),
         camera.get_hue(),
         camera.get_image_flip(),
@@ -299,15 +278,6 @@ async fn main() -> grafton_visca::Result<()> {
         Ok(val) => println!("Brightness: {:?}", val),
         Err(e) => println!("Failed: {e}"),
     }
-    // NOTE: contrast and sharpness inquiries are not documented in VISCA specs
-    // match contrast {
-    //     Ok(val) => println!("Contrast: {:?}", val),
-    //     Err(e) => println!("Failed: {e}"),
-    // }
-    // match sharpness {
-    //     Ok(val) => println!("Sharpness: {:?}", val),
-    //     Err(e) => println!("Failed: {e}"),
-    // }
     match saturation {
         Ok(val) => println!("Saturation: {:?}", val),
         Err(e) => println!("Failed: {e}"),

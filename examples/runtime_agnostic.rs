@@ -10,8 +10,9 @@
 
 #[cfg(feature = "async")]
 fn main() {
-    use grafton_visca::{Error, Executor};
     use std::{future::Future, pin::Pin, time::Duration};
+
+    use grafton_visca::{Error, Executor};
 
     println!("🎥 Runtime-Agnostic Camera Control Demo");
     println!("========================================");

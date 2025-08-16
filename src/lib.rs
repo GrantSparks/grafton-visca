@@ -380,41 +380,40 @@ pub mod prelude;
 #[doc(hidden)]
 pub mod testing;
 
-// External crates
 pub use grafton_visca_macros::{InquiryCommand, ViscaEncode, ViscaEnum, ViscaValue};
 
-// Local re-exports
-pub use camera::{Camera, CameraBuilder};
-pub use camera_id::CameraId;
-pub use command::{
-    exposure::ExposureMode,
-    focus::{AutoFocusSensitivity, FocusMode},
-    nd_filter::NDFilterMode,
-    pan_tilt::{PanTiltDirection, PanTiltLimitCorner},
-    preset::PresetNumber,
-    resolution::{PictureEffectMode, ResolutionMode},
-    system::{MotionSyncMode, MotionSyncSpeed},
-    white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode},
+pub use crate::{
+    camera::{Camera, CameraBuilder},
+    camera_id::CameraId,
+    command::{
+        exposure::ExposureMode,
+        focus::{AutoFocusSensitivity, FocusMode},
+        nd_filter::NDFilterMode,
+        pan_tilt::{PanTiltDirection, PanTiltLimitCorner},
+        preset::PresetNumber,
+        resolution::{PictureEffectMode, ResolutionMode},
+        system::{MotionSyncMode, MotionSyncSpeed},
+        white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode},
+    },
+    error::{Error, Result},
 };
-pub use error::{Error, Result};
 
-// Async-only re-exports
-#[cfg(feature = "async")]
-pub use camera::methods::{
-    focus::FocusOps,
-    inquiry::{InquiryOps, PanTiltInquiryOps},
-    pan_tilt::PanTiltOps,
-    power::PowerOps,
-    presets::PresetsOps,
-    zoom::ZoomOps,
-};
 #[cfg(all(feature = "async", feature = "rt-tokio"))]
-pub use executor_unified::TokioExecutor;
+pub use crate::executor_unified::TokioExecutor;
 #[cfg(feature = "async")]
-pub use executor_unified::{ExecError, Executor};
+pub use crate::{
+    camera::methods::{
+        focus::FocusOps,
+        inquiry::{InquiryOps, PanTiltInquiryOps},
+        pan_tilt::PanTiltOps,
+        power::PowerOps,
+        presets::PresetsOps,
+        zoom::ZoomOps,
+    },
+    executor_unified::{ExecError, Executor},
+};
 
-// Blocking re-exports
-pub use camera::methods::{
+pub use crate::camera::methods::{
     focus::FocusOpsBlocking,
     inquiry::{InquiryOpsBlocking, PanTiltInquiryOpsBlocking},
     pan_tilt::PanTiltOpsBlocking,
