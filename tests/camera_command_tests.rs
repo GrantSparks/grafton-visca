@@ -5,7 +5,10 @@
 
 mod common;
 
-#[cfg(not(feature = "async"))]
+#[cfg(all(
+    not(feature = "async"),
+    any(feature = "rt-tokio", feature = "test-utils")
+))]
 mod blocking_tests {
     use crate::common::patterns;
     use grafton_visca::{
