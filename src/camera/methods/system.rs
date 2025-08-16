@@ -29,4 +29,60 @@ pub trait SystemOpsBlocking: Sized {
     fn cancel_command(&self, socket: Socket) -> Result<(), Error>;
 }
 
-// Async implementation
+// Async implementation for Camera with AsyncMode
+#[cfg(feature = "async")]
+impl<P, T, E> SystemOps for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
+where
+    P: crate::capabilities::Profile,
+    T: crate::transport::AsyncTransport + Send + Sync + 'static,
+    E: crate::executor_unified::Executor,
+{
+    async fn trigger_address_assignment(&self) -> Result<(), Error> {
+        use crate::command::system::AddressSetCommand;
+        let cmd = AddressSetCommand::new();
+        self.send_command(&cmd).await?;
+        Ok(())
+    }
+
+    async fn interface_clear(&self) -> Result<(), Error> {
+        use crate::command::system::InterfaceClearCommand;
+        let cmd = InterfaceClearCommand::new();
+        self.send_command(&cmd).await?;
+        Ok(())
+    }
+
+    async fn cancel_command(&self, socket: Socket) -> Result<(), Error> {
+        use crate::command::system::CommandCancelCommand;
+        let cmd = CommandCancelCommand::new(socket);
+        self.send_command(&cmd).await?;
+        Ok(())
+    }
+}
+
+// Blocking implementation for Camera with BlockingMode
+impl<P, T> SystemOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
+where
+    P: crate::capabilities::Profile,
+    T: crate::transport::BlockingTransport + Send + Sync + 'static,
+{
+    fn trigger_address_assignment(&self) -> Result<(), Error> {
+        use crate::command::system::AddressSetCommand;
+        let cmd = AddressSetCommand::new();
+        self.send_command(&cmd)?;
+        Ok(())
+    }
+
+    fn interface_clear(&self) -> Result<(), Error> {
+        use crate::command::system::InterfaceClearCommand;
+        let cmd = InterfaceClearCommand::new();
+        self.send_command(&cmd)?;
+        Ok(())
+    }
+
+    fn cancel_command(&self, socket: Socket) -> Result<(), Error> {
+        use crate::command::system::CommandCancelCommand;
+        let cmd = CommandCancelCommand::new(socket);
+        self.send_command(&cmd)?;
+        Ok(())
+    }
+}

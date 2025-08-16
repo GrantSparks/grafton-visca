@@ -16,10 +16,9 @@ use grafton_visca::{
     InquiryOps, PanTiltInquiryOps, PowerOps, PresetsOps,
 };
 use std::time::Duration;
-use tokio::time::timeout;
 
 /// Test basic power inquiry through the full stack
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_power_inquiry_integration() {
     use grafton_visca::TokioExecutor;
 
@@ -39,7 +38,7 @@ async fn test_power_inquiry_integration() {
 }
 
 /// Test position inquiries (pan/tilt, zoom, focus)
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_position_inquiries_integration() {
     use grafton_visca::TokioExecutor;
 
@@ -97,7 +96,7 @@ async fn test_position_inquiries_integration() {
 }
 
 /// Test exposure-related inquiries
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_exposure_inquiries_integration() {
     let _ = env_logger::builder().is_test(true).try_init();
     use grafton_visca::TokioExecutor;
@@ -174,7 +173,7 @@ async fn test_exposure_inquiries_integration() {
 }
 
 /// Test white balance and color inquiries
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_white_balance_color_inquiries_integration() {
     use grafton_visca::TokioExecutor;
 
@@ -205,7 +204,7 @@ async fn test_white_balance_color_inquiries_integration() {
 }
 
 /// Test image adjustment inquiries
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_image_adjustment_inquiries_integration() {
     use grafton_visca::TokioExecutor;
 
@@ -254,7 +253,7 @@ async fn test_image_adjustment_inquiries_integration() {
 }
 
 /// Test noise reduction inquiries
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_noise_reduction_inquiries_integration() {
     use grafton_visca::TokioExecutor;
 
@@ -281,7 +280,7 @@ async fn test_noise_reduction_inquiries_integration() {
 }
 
 /// Test focus mode inquiries
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_focus_mode_inquiries_integration() {
     use grafton_visca::TokioExecutor;
 
@@ -311,7 +310,7 @@ async fn test_focus_mode_inquiries_integration() {
 }
 
 /// Test resolution inquiry
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_resolution_inquiry_integration() {
     use grafton_visca::TokioExecutor;
 
@@ -337,7 +336,7 @@ async fn test_resolution_inquiry_integration() {
 }
 
 /// Test concurrent inquiries to verify socket manager handles them properly
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_concurrent_inquiries_integration() {
     use grafton_visca::TokioExecutor;
 
@@ -370,7 +369,7 @@ async fn test_concurrent_inquiries_integration() {
 }
 
 /// Test sequential inquiry commands
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_sequential_inquiries() {
     use grafton_visca::TokioExecutor;
 
@@ -396,7 +395,7 @@ async fn test_sequential_inquiries() {
 }
 
 /// Test inquiry timeout behavior
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_inquiry_timeout_behavior() {
     use grafton_visca::testing::camera_simulator::SimulatorBuilder;
 
@@ -415,7 +414,7 @@ async fn test_inquiry_timeout_behavior() {
     // Socket manager is now automatically initialized on first use
 
     // Query should complete within reasonable time
-    let result = timeout(Duration::from_millis(200), camera.get_power_state()).await;
+    let result = tokio::time::timeout(Duration::from_millis(200), camera.get_power_state()).await;
     assert!(result.is_ok(), "Inquiry should complete within timeout");
     assert!(
         result.unwrap().is_ok(),
@@ -424,7 +423,7 @@ async fn test_inquiry_timeout_behavior() {
 }
 
 /// Test mixed command and inquiry execution
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn test_mixed_commands_and_inquiries() {
     use grafton_visca::TokioExecutor;
 
