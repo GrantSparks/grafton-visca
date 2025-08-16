@@ -4,6 +4,8 @@
 //! time advancement explicitly, eliminating test flakiness from timing-dependent behavior.
 
 #![cfg(feature = "test-utils")]
+// Panics and expects in test utilities are intentional for detecting test failures
+#![allow(clippy::panic, clippy::expect_used)]
 
 use async_executor::Executor as AsyncExec;
 use futures_lite::future;
@@ -97,11 +99,11 @@ impl VirtualClock {
     }
 
     fn now(&self) -> Instant {
-        self.inner.lock().unwrap().now
+        self.inner.lock().expect("VirtualClock mutex poisoned").now
     }
 
     fn advance(&self, duration: Duration) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().expect("VirtualClock mutex poisoned");
         inner.now += duration;
 
         // Wake up and remove triggered sleepers
@@ -143,7 +145,7 @@ impl Future for SleepFuture {
 
         // Check if we've reached the deadline
         {
-            let inner = me.clock.lock().unwrap();
+            let inner = me.clock.lock().expect("VirtualClock mutex poisoned");
             let now = inner.now;
 
             if now >= me.deadline {
@@ -152,7 +154,7 @@ impl Future for SleepFuture {
         }
 
         // Update or register the waker
-        let mut inner = me.clock.lock().unwrap();
+        let mut inner = me.clock.lock().expect("VirtualClock mutex poisoned");
         if !me.registered {
             me.registered = true;
             inner.sleepers.push(SleepEntry {
@@ -298,7 +300,7 @@ impl DeterministicExecutor {
 
     /// Fire any timers that are due and return true if any were fired.
     fn fire_due_timers(&self) -> bool {
-        let mut inner = self.clock.inner.lock().unwrap();
+        let mut inner = self.clock.inner.lock().expect("VirtualClock mutex poisoned");
         let now = inner.now;
         let mut fired = false;
 
@@ -320,7 +322,7 @@ impl DeterministicExecutor {
 
     /// Check if there are any pending timers/deadlines that might benefit from time advancement.
     fn has_pending_deadlines(&self) -> bool {
-        let inner = self.clock.inner.lock().unwrap();
+        let inner = self.clock.inner.lock().expect("VirtualClock mutex poisoned");
         !inner.sleepers.is_empty()
     }
 
@@ -368,7 +370,7 @@ impl DeterministicExecutor {
     ///
     /// Returns true if time was advanced, false if there were no pending deadlines.
     pub fn advance_to_next_deadline(&self) -> bool {
-        let mut inner = self.clock.inner.lock().unwrap();
+        let mut inner = self.clock.inner.lock().expect("VirtualClock mutex poisoned");
 
         if let Some(next_deadline) = inner.sleepers.iter().map(|s| s.at).min() {
             if next_deadline > inner.now {
@@ -501,7 +503,7 @@ impl DeterministicClock {
 
     /// Check if there are any pending deadlines/timers.
     pub fn has_pending_deadlines(&self) -> bool {
-        let inner = self.clock.inner.lock().unwrap();
+        let inner = self.clock.inner.lock().expect("VirtualClock mutex poisoned");
         !inner.sleepers.is_empty()
     }
 }
@@ -888,7 +890,7 @@ mod tests {
         let flag = Arc::new(AtomicBool::new(false));
         let flag2 = flag.clone();
         let executor2 = executor.clone();
-        
+
         let initial_time = clock.now();
 
         // Spawn a task with a sleep
@@ -905,10 +907,13 @@ mod tests {
         // Advance to next deadline
         let advanced = executor.advance_to_next_deadline();
         assert!(advanced, "Should have advanced time");
-        
+
         // Verify that time actually advanced by 100ms
-        assert_eq!(clock.now(), initial_time + Duration::from_millis(100), 
-                   "Time should have advanced exactly to the sleep deadline");
+        assert_eq!(
+            clock.now(),
+            initial_time + Duration::from_millis(100),
+            "Time should have advanced exactly to the sleep deadline"
+        );
 
         // Run until idle again - task should complete
         executor.run_until_idle();

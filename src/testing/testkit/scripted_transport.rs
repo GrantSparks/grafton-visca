@@ -4,6 +4,8 @@
 //! of responses, allowing for deterministic and repeatable test behavior.
 
 #![cfg(feature = "test-utils")]
+// Expects in test utilities are intentional for detecting test failures
+#![allow(clippy::expect_used)]
 
 use bytes::Bytes;
 use std::{
@@ -129,7 +131,7 @@ impl<E> ScriptedTransport<E> {
         // Process any Step::After steps immediately
         let mut steps_to_process = Vec::new();
         {
-            let mut steps = self.steps.lock().unwrap();
+            let mut steps = self.steps.lock().expect("ScriptedBlockingTransport mutex poisoned");
             let mut remaining_steps = VecDeque::new();
 
             while let Some(step) = steps.pop_front() {
@@ -162,7 +164,7 @@ impl<E> ScriptedTransport<E> {
 
     /// Get all commands that were sent to this transport.
     pub fn sent(&self) -> Vec<Vec<u8>> {
-        self.sent.lock().unwrap().clone()
+        self.sent.lock().expect("ScriptedBlockingTransport mutex poisoned").clone()
     }
 
     /// Add a response to be returned immediately.
@@ -179,11 +181,11 @@ where
     async fn send(&self, bytes: &[u8]) -> Result<()> {
         // eprintln!("[ScriptedTransport::send] Sending: {:02X?}", bytes);
         // Record the sent command
-        self.sent.lock().unwrap().push(bytes.to_vec());
+        self.sent.lock().expect("ScriptedBlockingTransport mutex poisoned").push(bytes.to_vec());
 
         // Process any applicable steps
         let step = {
-            let mut steps = self.steps.lock().unwrap();
+            let mut steps = self.steps.lock().expect("ScriptedBlockingTransport mutex poisoned");
             steps.pop_front()
         };
 
@@ -204,7 +206,7 @@ where
                         // Put the step back if it didn't match
                         self.steps
                             .lock()
-                            .unwrap()
+                            .expect("ScriptedBlockingTransport mutex poisoned")
                             .push_front(Step::OnSend { matches, responses });
                     }
                 }
@@ -213,14 +215,14 @@ where
                     // If we encounter it here, it means no executor was set, so put it back
                     self.steps
                         .lock()
-                        .unwrap()
+                        .expect("ScriptedBlockingTransport mutex poisoned")
                         .push_front(Step::After { delay, responses });
                 }
                 Step::InjectError(error) => {
                     // Put the error step back to be handled on recv
                     self.steps
                         .lock()
-                        .unwrap()
+                        .expect("ScriptedBlockingTransport mutex poisoned")
                         .push_front(Step::InjectError(error));
                 }
             }
@@ -233,9 +235,9 @@ where
         // eprintln!("[ScriptedTransport::recv] Called");
         // Check for injected errors first
         {
-            let mut steps = self.steps.lock().unwrap();
+            let mut steps = self.steps.lock().expect("ScriptedBlockingTransport mutex poisoned");
             if let Some(Step::InjectError(_)) = steps.front() {
-                let error = match steps.pop_front().unwrap() {
+                let error = match steps.pop_front().expect("No error step available in scripted transport") {
                     Step::InjectError(e) => e,
                     _ => unreachable!(),
                 };
@@ -324,7 +326,7 @@ impl ScriptedBlockingTransport {
 
     /// Get all commands that were sent to this transport.
     pub fn sent(&self) -> Vec<Vec<u8>> {
-        self.sent.lock().unwrap().clone()
+        self.sent.lock().expect("ScriptedBlockingTransport mutex poisoned").clone()
     }
 
     /// Add a response to be returned immediately.
@@ -336,11 +338,11 @@ impl ScriptedBlockingTransport {
 impl BlockingTransport for ScriptedBlockingTransport {
     fn send_blocking(&self, bytes: &[u8]) -> Result<()> {
         // Record the sent command
-        self.sent.lock().unwrap().push(bytes.to_vec());
+        self.sent.lock().expect("ScriptedBlockingTransport mutex poisoned").push(bytes.to_vec());
 
         // Process any applicable steps
         let step = {
-            let mut steps = self.steps.lock().unwrap();
+            let mut steps = self.steps.lock().expect("ScriptedBlockingTransport mutex poisoned");
             steps.pop_front()
         };
 
@@ -361,7 +363,7 @@ impl BlockingTransport for ScriptedBlockingTransport {
                         // Put the step back if it didn't match
                         self.steps
                             .lock()
-                            .unwrap()
+                            .expect("ScriptedBlockingTransport mutex poisoned")
                             .push_front(Step::OnSend { matches, responses });
                     }
                 }

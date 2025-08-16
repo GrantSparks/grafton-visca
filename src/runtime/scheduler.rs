@@ -4,7 +4,9 @@
 //! command scheduling, and protocol-compliant timing.
 
 use flume::{Receiver, Sender};
-use log::{debug, trace, warn};
+use log::{debug, warn};
+#[cfg(feature = "async")]
+use log::trace;
 
 use std::{
     cmp::Ordering as CmpOrdering,
@@ -262,8 +264,10 @@ pub struct Scheduler {
     /// Timeout configuration.
     timeout_config: TimeoutConfig,
     /// Minimum inter-command spacing.
+    #[cfg(feature = "async")]
     command_spacing: Duration,
     /// Last command sent time.
+    #[cfg(feature = "async")]
     last_command_time: Option<Instant>,
     /// Track response channels for commands by ID.
     command_channels: HashMap<u32, Sender<Result<Response>>>,
@@ -548,7 +552,9 @@ impl Scheduler {
             sockets: Default::default(),
             next_id: AtomicU32::new(1),
             timeout_config: TimeoutConfig::default(),
+            #[cfg(feature = "async")]
             command_spacing: Duration::from_millis(50), // Default 50ms spacing
+            #[cfg(feature = "async")]
             last_command_time: None,
             command_channels: HashMap::new(),
             pending_inquiries: Vec::new(),
@@ -673,6 +679,7 @@ impl Scheduler {
     }
 
     /// Set command spacing duration.
+    #[cfg(feature = "async")]
     pub fn set_command_spacing(&mut self, spacing: Duration) {
         self.command_spacing = spacing;
         debug!("Command spacing set to {:?}", spacing);

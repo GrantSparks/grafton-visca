@@ -3,7 +3,9 @@
 #![allow(clippy::expect_used)]
 #![cfg(not(feature = "async"))]
 
+#[cfg(feature = "test-utils")]
 use grafton_visca::prelude::blocking::{GenericViscaCam, PTZOpticsG2Cam, SonyFR7Cam};
+#[cfg(feature = "test-utils")]
 use grafton_visca::{
     camera::methods::{
         focus::FocusOpsBlocking, pan_tilt::PanTiltOpsBlocking, power::PowerOpsBlocking,
