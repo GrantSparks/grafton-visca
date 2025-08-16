@@ -298,15 +298,25 @@ pub enum Error {
 
 impl Error {
     /// Create an `Error` from a VISCA error response code.
+    ///
+    /// ## Why 0x41 maps to CameraBusy
+    ///
+    /// The VISCA error code `0x41` ("Command Not Executable") is an umbrella condition
+    /// that includes "busy/try again" scenarios. For scheduling and user experience,
+    /// we treat `0x41` as **retryable**: internally as `ViscaError::Busy` in the
+    /// scheduler, and surfaced as `Error::CameraBusy` to callers.
+    ///
+    /// Non-retryable validation failures continue to surface as `Error::CommandNotExecutable`.
     #[must_use]
     pub const fn from_code(code: u8) -> Self {
         match code {
-            0x01 => Self::CameraBusy, // Changed from MessageLengthError - 0x01 is busy in VISCA
             0x02 => Self::SyntaxError,
             0x03 => Self::CommandBufferFull,
             0x04 => Self::CommandCanceled,
             0x05 => Self::NoSocket,
-            0x41 => Self::CommandNotExecutable,
+            // VISCA 0x41 is "Command Not Executable", which per spec includes busy conditions.
+            // We treat it as retryable BUSY internally to drive scheduler backoff/retry.
+            0x41 => Self::CameraBusy,
             _ => Self::Unknown(code),
         }
     }
@@ -364,11 +374,56 @@ mod tests {
         assert!(matches!(Error::from_code(0x03), Error::CommandBufferFull));
         assert!(matches!(Error::from_code(0x04), Error::CommandCanceled));
         assert!(matches!(Error::from_code(0x05), Error::NoSocket));
-        assert!(matches!(
-            Error::from_code(0x41),
-            Error::CommandNotExecutable
-        ));
+        assert!(matches!(Error::from_code(0x41), Error::CameraBusy));
         assert!(matches!(Error::from_code(0xFF), Error::Unknown(0xFF)));
+    }
+
+    #[test]
+    fn test_error_code_mapping_table() {
+        // Table-driven test for all known VISCA error codes
+        // This ensures consistent mapping across all layers
+        let cases = [
+            (0x02, "SyntaxError"),
+            (0x03, "CommandBufferFull"),
+            (0x04, "CommandCanceled"),
+            (0x05, "NoSocket"),
+            // 0x41 is "Command Not Executable" per VISCA spec, which includes busy conditions
+            // We treat it as retryable BUSY internally for scheduler backoff/retry
+            (0x41, "CameraBusy"),
+        ];
+
+        for (byte, expected_variant) in cases {
+            let error = Error::from_code(byte);
+            let variant_name = match error {
+                Error::SyntaxError => "SyntaxError",
+                Error::CommandBufferFull => "CommandBufferFull",
+                Error::CommandCanceled => "CommandCanceled",
+                Error::NoSocket => "NoSocket",
+                Error::CameraBusy => "CameraBusy",
+                _ => "Unknown",
+            };
+            assert_eq!(
+                variant_name, expected_variant,
+                "Byte {:#04x} should map to {}",
+                byte, expected_variant
+            );
+        }
+    }
+
+    #[test]
+    fn test_unknown_error_code_maps_to_unknown() {
+        // Test that unrecognized error codes map to Unknown variant
+        let unknown_codes = [0x00, 0x01, 0x06, 0x10, 0x20, 0x30, 0x40, 0x42, 0xFF];
+
+        for code in unknown_codes {
+            let error = Error::from_code(code);
+            assert!(
+                matches!(error, Error::Unknown(c) if c == code),
+                "Code {:#04x} should map to Unknown({})",
+                code,
+                code
+            );
+        }
     }
 
     #[test]

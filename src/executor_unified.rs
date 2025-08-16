@@ -5,6 +5,7 @@
 
 #[cfg(feature = "async")]
 use core::future::Future;
+
 #[cfg(feature = "async")]
 use std::pin::Pin;
 
@@ -82,7 +83,7 @@ pub trait Executor: Send + Sync + 'static {
 #[cfg(feature = "rt-tokio")]
 mod tokio_impl {
     use super::*;
-    use std::time::Duration;
+    use std::{sync::Arc, time::Duration};
 
     /// Tokio-based executor implementation.
     #[derive(Debug, Clone)]
@@ -167,6 +168,42 @@ mod tokio_impl {
                     Err(_) => Err(Error::Timeout),
                 }
             })
+        }
+    }
+
+    // Implement Executor for Arc<TokioExecutor> to match the pattern used by other executors
+    impl Executor for Arc<TokioExecutor> {
+        type Join<T>
+            = Pin<Box<dyn Future<Output = Result<T, ExecError>> + Send + 'static>>
+        where
+            T: Send + 'static;
+
+        fn spawn<F>(&self, fut: F) -> Self::Join<F::Output>
+        where
+            F: Future + Send + 'static,
+            F::Output: Send + 'static,
+        {
+            self.as_ref().spawn(fut)
+        }
+
+        fn block_on<F: Future>(&self, fut: F) -> F::Output {
+            self.as_ref().block_on(fut)
+        }
+
+        fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+            self.as_ref().sleep(duration)
+        }
+
+        fn timeout<'a, F, T>(
+            &'a self,
+            duration: Duration,
+            fut: F,
+        ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'a>>
+        where
+            F: Future<Output = T> + Send + 'a,
+            T: Send + 'a,
+        {
+            self.as_ref().timeout(duration, fut)
         }
     }
 }

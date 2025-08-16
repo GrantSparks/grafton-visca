@@ -5,137 +5,41 @@
 
 #![cfg(feature = "async")]
 
-use bytes::Bytes;
-use grafton_visca::transport::AsyncTransport;
-
-/// Mock transport that returns proper VISCA response sequences
-#[derive(Debug)]
-#[allow(dead_code)]
-struct MockTransport {
-    response_count: std::sync::Mutex<usize>,
-    pending_responses: std::sync::Mutex<std::collections::VecDeque<Vec<u8>>>,
-}
-
-impl MockTransport {
-    #[cfg(feature = "rt-tokio")]
-    fn new() -> Self {
-        Self {
-            response_count: std::sync::Mutex::new(0),
-            pending_responses: std::sync::Mutex::new(std::collections::VecDeque::new()),
-        }
-    }
-}
-
-impl AsyncTransport for MockTransport {
-    async fn send(&self, _bytes: &[u8]) -> Result<(), grafton_visca::Error> {
-        // When a command is sent, queue up appropriate responses
-        let mut responses = self.pending_responses.lock().unwrap();
-
-        // For action commands, add ACK and Completion
-        responses.push_back(vec![0x90, 0x41, 0xFF]); // ACK
-        responses.push_back(vec![0x90, 0x51, 0xFF]); // Completion
-
-        Ok(())
-    }
-
-    async fn recv(&self) -> Result<Bytes, grafton_visca::Error> {
-        // Check if we have pending responses with timeout for CI robustness
-        let timeout_duration = tokio::time::Duration::from_secs(2);
-        let start_time = tokio::time::Instant::now();
-
-        loop {
-            {
-                let mut responses = self.pending_responses.lock().unwrap();
-                if let Some(response) = responses.pop_front() {
-                    let mut count = self.response_count.lock().unwrap();
-                    *count += 1;
-                    return Ok(Bytes::from(response));
-                }
-            } // Lock is dropped here
-
-            // Check for timeout to avoid hanging in CI environments
-            if start_time.elapsed() > timeout_duration {
-                return Err(grafton_visca::Error::Timeout);
-            }
-
-            // Sleep briefly to avoid busy-waiting
-            tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
-        }
-    }
-}
-
-/// Mock transport that returns proper VISCA response sequences with specific responses
-#[derive(Debug)]
-#[allow(dead_code)]
-struct MockTransportWithResponses {
-    pending_responses: std::sync::Mutex<std::collections::VecDeque<Vec<u8>>>,
-    send_count: std::sync::Mutex<usize>,
-}
-
-impl MockTransportWithResponses {
-    #[allow(dead_code)]
-    fn new() -> Self {
-        Self {
-            pending_responses: std::sync::Mutex::new(std::collections::VecDeque::new()),
-            send_count: std::sync::Mutex::new(0),
-        }
-    }
-}
-
-impl AsyncTransport for MockTransportWithResponses {
-    async fn send(&self, _data: &[u8]) -> Result<(), grafton_visca::Error> {
-        // When a command is sent, immediately queue the expected responses
-        let mut responses = self.pending_responses.lock().unwrap();
-        let mut count = self.send_count.lock().unwrap();
-        *count += 1;
-
-        // Queue ACK and Completion for each command
-        responses.push_back(vec![0x90, 0x41, 0xFF]); // ACK
-        responses.push_back(vec![0x90, 0x51, 0xFF]); // Completion
-
-        Ok(())
-    }
-
-    async fn recv(&self) -> Result<Bytes, grafton_visca::Error> {
-        // Wait for responses to be available, with timeout for robustness
-        let timeout_duration = tokio::time::Duration::from_secs(2);
-        let start_time = tokio::time::Instant::now();
-
-        loop {
-            {
-                let mut responses = self.pending_responses.lock().unwrap();
-                if let Some(response) = responses.pop_front() {
-                    return Ok(Bytes::from(response));
-                }
-            } // Lock is dropped here
-
-            // Check for timeout to avoid hanging in CI environments
-            if start_time.elapsed() > timeout_duration {
-                return Err(grafton_visca::Error::Timeout);
-            }
-
-            // Sleep briefly to avoid busy-waiting
-            tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
-        }
-    }
-}
+#[cfg(feature = "test-utils")]
+use grafton_visca::testing::testkit::{helpers, ScriptedTransport};
 
 #[cfg(feature = "rt-tokio")]
-#[tokio::test]
+use grafton_visca::TokioExecutor;
+
+#[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
+#[tokio::test(start_paused = true)]
 async fn test_operations_work_with_default_runtime() {
     use grafton_visca::camera::{profiles::PTZOpticsG2, AsyncMode, Camera};
     use grafton_visca::{PanTiltOps, ZoomOps};
 
-    // Create camera with mock transport and explicit runtime
-    let transport = MockTransport::new();
-    let executor = grafton_visca::TokioExecutor::from_current().unwrap();
+    // Create TokioExecutor for integration test with paused time
+    let executor =
+        std::sync::Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
+    let transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(vec![
+        helpers::auto_respond_step(), // zoom_stop
+        helpers::auto_respond_step(), // pan_tilt_stop
+    ]);
+    let transport = transport.with_executor(executor.clone());
+
+    println!("Creating camera...");
     let camera = Camera::<AsyncMode, PTZOpticsG2, _, _>::with_executor(transport, executor)
         .await
         .unwrap();
+    println!("Camera created successfully");
+
+    // Advance tokio time to allow runtime to tick
+    tokio::time::advance(std::time::Duration::from_millis(100)).await;
+    println!("Tokio time advanced");
 
     // Simple operations should work with explicit runtime
-    // We'll just test zoom_stop which is a simple action command
+    println!("Calling zoom_stop...");
     let result = camera.zoom_stop().await;
+    println!("zoom_stop completed with result: {:?}", result);
     assert!(result.is_ok(), "zoom_stop failed: {:?}", result);
 
     // Pan/tilt operations should work with default runtime
@@ -143,26 +47,28 @@ async fn test_operations_work_with_default_runtime() {
     assert!(result.is_ok(), "pan_tilt_stop failed: {:?}", result);
 
     // Socket manager cleanup is now handled automatically by Drop
-
-    // Explicitly drop camera to ensure cleanup
     drop(camera);
 }
 
-#[cfg(feature = "rt-tokio")]
-#[tokio::test]
+#[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
+#[tokio::test(start_paused = true)]
 async fn test_operations_succeed_with_explicit_runtime() {
     use grafton_visca::camera::{profiles::PTZOpticsG2, AsyncMode, Camera};
     use grafton_visca::ZoomOps;
 
-    // Create a better mock transport that returns proper VISCA responses
-    let transport = MockTransportWithResponses::new();
-    // Provide explicit runtime as required by the new API
-    let executor = grafton_visca::TokioExecutor::from_current().unwrap();
+    // Create TokioExecutor for integration test with paused time
+    let executor =
+        std::sync::Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
+    let transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(vec![
+        helpers::standard_command_response(1), // ACK + Completion for socket 1
+    ]);
+    let transport = transport.with_executor(executor.clone());
+
     let camera = Camera::<AsyncMode, PTZOpticsG2, _, _>::with_executor(transport, executor)
         .await
         .unwrap();
 
-    // Operations should succeed with proper mock responses
+    // Operations should succeed with proper responses
     let result = camera.zoom_stop().await;
     assert!(
         result.is_ok(),
@@ -171,8 +77,6 @@ async fn test_operations_succeed_with_explicit_runtime() {
     );
 
     // Socket manager cleanup is now handled automatically by Drop
-
-    // Explicitly drop camera to ensure cleanup
     drop(camera);
 }
 
@@ -191,21 +95,26 @@ async fn test_custom_runtime_works() {
     // This test would need to be run in a different context to be meaningful
 }
 
-#[cfg(feature = "rt-tokio")]
-#[tokio::test]
+#[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
+#[tokio::test(start_paused = true)]
 async fn test_movement_detection_works_with_default_runtime() {
     use grafton_visca::camera::{profiles::PTZOpticsG2, AsyncMode, Camera};
     use grafton_visca::{PanTiltOps, ZoomOps};
 
-    // Create camera with mock transport and explicit runtime
-    let transport = MockTransport::new();
-    let executor = grafton_visca::TokioExecutor::from_current().unwrap();
+    // Create TokioExecutor for integration test with paused time
+    let executor =
+        std::sync::Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
+    let transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(vec![
+        helpers::auto_respond_step(), // zoom_stop
+        helpers::auto_respond_step(), // pan_tilt_stop
+    ]);
+    let transport = transport.with_executor(executor.clone());
+
     let camera = Camera::<AsyncMode, PTZOpticsG2, _, _>::with_executor(transport, executor)
         .await
         .unwrap();
 
     // Simple operations should work with explicit runtime
-    // Just test basic commands that don't require complex inquiry responses
     let result = camera.zoom_stop().await;
     assert!(result.is_ok(), "zoom_stop failed: {:?}", result);
 
@@ -213,20 +122,24 @@ async fn test_movement_detection_works_with_default_runtime() {
     assert!(result.is_ok(), "pan_tilt_stop failed: {:?}", result);
 
     // Socket manager cleanup is now handled automatically by Drop
-
-    // Explicitly drop camera to ensure cleanup
     drop(camera);
 }
 
-#[cfg(feature = "rt-tokio")]
-#[tokio::test]
+#[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
+#[tokio::test(start_paused = true)]
 async fn test_power_operations_work_with_default_runtime() {
     use grafton_visca::camera::{profiles::PTZOpticsG2, AsyncMode, Camera};
     use grafton_visca::{FocusOps, ZoomOps};
 
-    // Create camera with mock transport and explicit runtime
-    let transport = MockTransport::new();
-    let executor = grafton_visca::TokioExecutor::from_current().unwrap();
+    // Create TokioExecutor for integration test with paused time
+    let executor =
+        std::sync::Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
+    let transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(vec![
+        helpers::auto_respond_step(), // zoom_stop
+        helpers::auto_respond_step(), // focus_stop
+    ]);
+    let transport = transport.with_executor(executor.clone());
+
     let camera = Camera::<AsyncMode, PTZOpticsG2, _, _>::with_executor(transport, executor)
         .await
         .unwrap();
@@ -239,8 +152,6 @@ async fn test_power_operations_work_with_default_runtime() {
     assert!(result.is_ok(), "focus_stop failed: {:?}", result);
 
     // Socket manager cleanup is now handled automatically by Drop
-
-    // Explicitly drop camera to ensure cleanup
     drop(camera);
 }
 
