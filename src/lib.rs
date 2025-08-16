@@ -375,17 +375,12 @@ pub(crate) mod executor_unified;
 
 pub mod prelude;
 
-// Testing utilities (available with rt-tokio feature for integration tests)
-#[cfg(feature = "rt-tokio")]
+// Testing utilities (available with test-utils feature for deterministic testing)
+#[cfg(any(feature = "rt-tokio", feature = "test-utils"))]
 #[doc(hidden)]
 pub mod testing;
 
-// External crates
 pub use grafton_visca_macros::{InquiryCommand, ViscaEncode, ViscaEnum, ViscaValue};
-
-// Local modules
-pub use camera::{Camera, CameraBuilder};
-pub use camera_id::CameraId;
 
 #[cfg(feature = "async")]
 pub use camera::methods::{
@@ -396,7 +391,6 @@ pub use camera::methods::{
     presets::PresetsOps,
     zoom::ZoomOps,
 };
-
 pub use camera::methods::{
     focus::FocusOpsBlocking,
     inquiry::{InquiryOpsBlocking, PanTiltInquiryOpsBlocking},
@@ -405,7 +399,8 @@ pub use camera::methods::{
     presets::PresetsOpsBlocking,
     zoom::ZoomOpsBlocking,
 };
-
+pub use camera::{Camera, CameraBuilder};
+pub use camera_id::CameraId;
 pub use command::{
     exposure::ExposureMode,
     focus::{AutoFocusSensitivity, FocusMode},
@@ -416,14 +411,11 @@ pub use command::{
     system::{MotionSyncMode, MotionSyncSpeed},
     white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode},
 };
-
 pub use error::{Error, Result};
-
-#[cfg(feature = "async")]
-pub use executor_unified::{ExecError, Executor};
-
 #[cfg(all(feature = "async", feature = "rt-tokio"))]
 pub use executor_unified::TokioExecutor;
+#[cfg(feature = "async")]
+pub use executor_unified::{ExecError, Executor};
 
 /// Camera profiles with compositional capabilities
 pub mod profiles {

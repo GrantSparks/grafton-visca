@@ -41,10 +41,7 @@ impl EncodeVisca for MotionSyncModeCommand {
     ) -> Result<usize, Error> {
         use crate::command::const_encoding::constants;
 
-        let mode_byte = match self.mode {
-            MotionSyncMode::On => 0x02,
-            MotionSyncMode::Off => 0x03,
-        };
+        let mode_byte = self.mode as u8;
 
         CommandBuilder::<6>::from_prefix(constants::motion_sync::MODE_PREFIX)
             .with_camera_id(camera_id)

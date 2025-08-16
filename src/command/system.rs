@@ -54,10 +54,10 @@ visca_const_command! {
 /// Motion sync modes for coordinated camera movement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
 pub enum MotionSyncMode {
-    /// Motion sync disabled.
-    Off = 0x02,
     /// Motion sync enabled.
-    On = 0x03,
+    On = 0x02,
+    /// Motion sync disabled.
+    Off = 0x03,
 }
 
 /// Motion sync speed settings for camera movement.

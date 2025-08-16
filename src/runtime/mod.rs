@@ -4,6 +4,8 @@
 //! managing command scheduling, socket allocation, and protocol timing.
 
 pub mod scheduler;
+#[cfg(feature = "async")]
+mod time_utils;
 
 pub use scheduler::{
     LinkEvent, MetricsSummary, Priority, RxEvent, Scheduler, SchedulerMetrics, SocketId, TxItem,
@@ -13,13 +15,15 @@ pub use scheduler::{
 #[cfg(feature = "async")]
 use flume::{Receiver, Sender};
 #[cfg(feature = "async")]
+use futures_lite;
+#[cfg(feature = "async")]
+use log::{debug, error, trace, warn};
+
+#[cfg(feature = "async")]
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-
-#[cfg(feature = "async")]
-use log::{debug, error, trace, warn};
 
 #[cfg(feature = "async")]
 use crate::{
@@ -27,6 +31,70 @@ use crate::{
     error::{Error, Result},
     transport::AsyncTransport,
 };
+
+/// Helper function to spawn runtime tasks properly for different executor types.
+#[cfg(feature = "async")]
+fn spawn_runtime_task_properly<E: crate::executor_unified::Executor>(
+    executor: &E,
+    runtime_task: impl std::future::Future<Output = Result<(), Error>> + Send + 'static,
+) {
+    // For DeterministicExecutor in test mode, we need to detach the task
+    #[cfg(any(test, feature = "test-utils"))]
+    {
+        use std::any::Any;
+        let executor_any: &dyn Any = executor;
+
+        // Debug logging to see what type we have
+        eprintln!(
+            "[spawn_runtime_task_properly] Attempting to spawn runtime task, executor type: {:?}",
+            std::any::type_name_of_val(&executor_any)
+        );
+
+        // Try direct DeterministicExecutor
+        if let Some(det_exec) =
+            executor_any.downcast_ref::<crate::testing::testkit::DeterministicExecutor>()
+        {
+            eprintln!(
+                "[spawn_runtime_task_properly] Detected DeterministicExecutor, using spawn_bg"
+            );
+            // Use ExecutorExt::spawn_bg which detaches the task
+            use crate::testing::testkit::deterministic_executor::ExecutorExt;
+            det_exec.spawn_bg(async move {
+                eprintln!("[runtime task] Runtime task starting (DeterministicExecutor)");
+                match runtime_task.await {
+                    Ok(()) => eprintln!("[runtime task] Runtime task completed successfully"),
+                    Err(e) => eprintln!("[runtime task] Runtime task failed: {}", e),
+                }
+            });
+            eprintln!("[spawn_runtime_task_properly] spawn_bg called, returning");
+            return;
+        }
+
+        // Try Arc<DeterministicExecutor>
+        if let Some(arc_det) =
+            executor_any.downcast_ref::<Arc<crate::testing::testkit::DeterministicExecutor>>()
+        {
+            log::debug!("Detected Arc<DeterministicExecutor>, using spawn_bg");
+            // Use ExecutorExt::spawn_bg which detaches the task
+            use crate::testing::testkit::deterministic_executor::ExecutorExt;
+            arc_det.spawn_bg(async move {
+                log::debug!("Runtime task starting (Arc<DeterministicExecutor>)");
+                if let Err(e) = runtime_task.await {
+                    log::error!("Runtime task failed: {}", e);
+                } else {
+                    log::debug!("Runtime task completed successfully");
+                }
+            });
+            return;
+        }
+
+        log::debug!("DeterministicExecutor not detected, falling through to regular spawn");
+    }
+
+    // For all other executors, use regular spawn (handle gets dropped)
+    log::debug!("Using regular spawn for runtime task");
+    let _handle = executor.spawn(runtime_task);
+}
 
 /// VISCA runtime handle.
 ///
@@ -88,11 +156,19 @@ impl RuntimeHandle {
         let (metrics_tx, metrics_rx) = flume::unbounded();
 
         // Spawn the runtime task with configured tick interval
-        let runtime_task =
-            runtime_loop_with_config(transport, submit_rx, event_tx, metrics_rx, tick_interval_ms);
+        let runtime_task = runtime_loop_with_config(
+            transport,
+            submit_rx,
+            event_tx,
+            metrics_rx,
+            tick_interval_ms,
+            Arc::clone(&executor),
+        );
 
-        // Use the executor to spawn the task
-        let _handle = executor.spawn(runtime_task);
+        // Spawn the task, with special handling for deterministic executors in test mode
+        eprintln!("[RuntimeHandle::with_tick_interval] About to spawn runtime task");
+        spawn_runtime_task_properly(executor.as_ref(), runtime_task);
+        eprintln!("[RuntimeHandle::with_tick_interval] Runtime task spawned");
 
         Ok(Self {
             submit: submit_tx,
@@ -339,162 +415,299 @@ impl RuntimeHandle {
 
 /// Main runtime loop with configurable tick interval.
 #[cfg(feature = "async")]
-async fn runtime_loop_with_config<T: AsyncTransport>(
+async fn runtime_loop_with_config<T: AsyncTransport, E: crate::executor_unified::Executor>(
     transport: T,
     submit_rx: Receiver<TxItem>,
     event_tx: Sender<RxEvent>,
     metrics_rx: Receiver<Sender<MetricsSummary>>,
     tick_interval_ms: Option<u64>,
+    executor: Arc<E>,
 ) -> Result<()> {
     let mut scheduler = Scheduler::new(submit_rx.clone(), event_tx.clone());
     let mut response_buffer = Vec::new();
+    let mut consecutive_retries = 0usize;
 
-    debug!("VISCA runtime started");
+    eprintln!("[runtime_loop_with_config] VISCA runtime started");
 
     // Create a timer interval for periodic checks
-    #[cfg(feature = "rt-tokio")]
     let tick_ms = tick_interval_ms.unwrap_or(50);
-    #[cfg(not(feature = "rt-tokio"))]
-    let _tick_ms = tick_interval_ms.unwrap_or(50); // Currently unused in non-tokio implementation
-    #[cfg(feature = "rt-tokio")]
-    let mut tick_interval = tokio::time::interval(std::time::Duration::from_millis(tick_ms));
+    let tick_duration = std::time::Duration::from_millis(tick_ms);
 
     loop {
-        // Use tokio::select! or futures::select! to handle multiple async operations
-        #[cfg(feature = "rt-tokio")]
-        {
-            tokio::select! {
-                // Handle submitted commands/inquiries
-                item = submit_rx.recv_async() => {
-                    match item {
-                        Ok(tx_item) => {
-                            if let Err(e) = handle_tx_item(&transport, &mut scheduler, tx_item, &event_tx).await {
-                                error!("Error handling TX item: {}", e);
+        // Use select! style approach with explicit enum
+        enum Operation {
+            Recv(Result<bytes::Bytes, Error>),
+            Tick,
+        }
+
+        // Check for submit items non-blockingly first
+        if let Ok(item) = submit_rx.try_recv() {
+            match handle_tx_item(
+                &transport,
+                &mut scheduler,
+                item,
+                &event_tx,
+                executor.as_ref(),
+            )
+            .await
+            {
+                Ok(_) => {
+                    // Successfully handled a TX item - reset consecutive retries
+                    consecutive_retries = 0;
+
+                    // Process command queue with retry budget check
+                    let allow_retry_defer = consecutive_retries < 8;
+                    if let Err(e) = process_command_queue(
+                        &transport,
+                        &mut scheduler,
+                        &event_tx,
+                        executor.as_ref(),
+                        allow_retry_defer,
+                    )
+                    .await
+                    {
+                        error!("Error processing command queue after TX item: {}", e);
+                    }
+                }
+                Err(e) => {
+                    error!("Error handling TX item: {}", e);
+                }
+            }
+            continue;
+        }
+
+        // Check for metrics requests non-blockingly
+        if let Ok(response_tx) = metrics_rx.try_recv() {
+            let summary = scheduler.metrics.summary();
+            let _ = response_tx.send(summary);
+            continue;
+        }
+
+        // Pre-drain any retries that are due now to avoid race conditions
+        // This ensures deterministic behavior when retry deadline == now
+        let now = time_utils::now_from_executor_arc(&executor);
+        if scheduler.has_free_socket() {
+            while let Some(deadline) = scheduler.next_retry_deadline() {
+                if deadline > now {
+                    break; // No more retries due now
+                }
+
+                // Get the next retry that's due now
+                if let Some(retry_cmd) = scheduler.get_next_retry(now) {
+                    debug!(
+                        "Pre-draining retry for command {} (attempt {})",
+                        retry_cmd.id, retry_cmd.attempt
+                    );
+
+                    // Re-submit the command for retry
+                    let response_tx = if let Some(tx) =
+                        scheduler.peek_response_channel(retry_cmd.id)
+                    {
+                        tx.clone()
+                    } else {
+                        warn!(
+                            "Missing response channel for retry of command {} - this indicates a bug",
+                            retry_cmd.id
+                        );
+                        let (tx, _rx) = flume::bounded(1);
+                        tx
+                    };
+
+                    // Create TxItem for the retry (use a fresh deadline based on category timeout)
+                    let timeout_duration = retry_cmd.category.default_timeout();
+                    let deadline = now + timeout_duration;
+                    let tx_item = TxItem::Command {
+                        id: retry_cmd.id,
+                        bytes: retry_cmd.bytes.clone(),
+                        priority: retry_cmd.priority,
+                        deadline,
+                        category: retry_cmd.category,
+                        response_tx,
+                    };
+
+                    // Send the retry immediately
+                    if let Err(e) = handle_tx_item(
+                        &transport,
+                        &mut scheduler,
+                        tx_item,
+                        &event_tx,
+                        executor.as_ref(),
+                    )
+                    .await
+                    {
+                        error!("Error handling retry TX item: {}", e);
+                    }
+
+                    // If no more free sockets, stop draining
+                    if !scheduler.has_free_socket() {
+                        break;
+                    }
+                } else {
+                    break; // No retry ready (shouldn't happen since we checked deadline)
+                }
+            }
+        }
+
+        // Set up the transport receive future
+        let recv_fut = async { Operation::Recv(transport.recv().await) };
+
+        // Dynamic tick scheduling: sleep until the earliest retry deadline or housekeeping tick
+        let now = time_utils::now_from_executor_arc(&executor);
+        let sleep_dur = if let Some(deadline) = scheduler.next_retry_deadline() {
+            // Wake exactly when a retry becomes eligible (but never later than the housekeeping tick)
+            let until_retry = deadline.saturating_duration_since(now);
+            std::cmp::min(until_retry, tick_duration)
+        } else {
+            tick_duration
+        };
+        let tick_fut = async {
+            executor.sleep(sleep_dur).await;
+            Operation::Tick
+        };
+
+        // Race recv and tick futures
+        let operation = futures_lite::future::race(recv_fut, tick_fut).await;
+
+        match operation {
+            Operation::Recv(recv_result) => {
+                // Handle received data
+                match recv_result {
+                    Ok(bytes) => {
+                        trace!("Received bytes from transport: {:02X?}", bytes);
+                        response_buffer.extend_from_slice(&bytes);
+
+                        // Parse complete frames from the buffer
+                        let (frames, remaining) =
+                            crate::protocol::decode::parse_frames(&response_buffer);
+                        response_buffer = remaining;
+
+                        for frame in frames {
+                            if let Err(e) = handle_response(
+                                &transport,
+                                &mut scheduler,
+                                &frame,
+                                &event_tx,
+                                executor.as_ref(),
+                            )
+                            .await
+                            {
+                                error!("Error handling response: {}", e);
                             }
                         }
-                        Err(_) => {
-                            debug!("Submit channel closed, shutting down runtime");
-                            break;
-                        }
+                    }
+                    Err(e) => {
+                        error!("Error receiving from transport: {}", e);
                     }
                 }
-
-                // Handle metrics requests
-                metrics_request = metrics_rx.recv_async() => {
-                    if let Ok(response_tx) = metrics_request {
-                        let summary = scheduler.metrics.summary();
-                        let _ = response_tx.send(summary);
+            }
+            Operation::Tick => {
+                // eprintln!("[runtime loop] Tick fired");
+                // Handle tick - check for timeouts and retries
+                let now = time_utils::now_from_executor_arc(&executor);
+                let timed_out = scheduler.check_timeouts(now);
+                for (socket, cmd_id) in timed_out {
+                    // First, notify the waiting high-level caller
+                    if let Some(tx) = scheduler.get_response_channel(cmd_id) {
+                        let _ = tx.send(Err(Error::Timeout));
                     }
-                }
 
-                // Receive responses from the transport
-                response = transport.recv() => {
-                    match response {
-                        Ok(bytes) => {
-                            trace!("Received bytes from transport: {:02X?}", bytes);
-                            response_buffer.extend_from_slice(&bytes);
-
-                            // Parse complete frames from the buffer
-                            let (frames, remaining) = crate::protocol::decode::parse_frames(&response_buffer);
-                            response_buffer = remaining;
-
-                            for frame in frames {
-                                if let Err(e) = handle_response(&transport, &mut scheduler, &frame, &event_tx).await {
-                                    error!("Error handling response: {}", e);
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            error!("Error receiving from transport: {}", e);
-                        }
-                    }
-                }
-
-                // Check for timeouts and retries periodically
-                _ = tick_interval.tick() => {
-                    // First check for timeouts
-                    let timed_out = scheduler.check_timeouts();
-                    for (socket, cmd_id) in timed_out {
-                        let _ = event_tx.send_async(RxEvent::Error {
+                    // Then emit the structured RxEvent for observers/metrics
+                    let _ = event_tx
+                        .send_async(RxEvent::Error {
                             code: ViscaError::Timeout,
                             socket: Some(socket),
                             id: Some(cmd_id),
-                        }).await;
-                        scheduler.free_socket(socket);
-                    }
+                        })
+                        .await;
 
-                    // Then check if we have retries to process
-                    if scheduler.has_retries() {
-                        debug!("Has {} retries pending, free socket: {}, retry queue: {:?}",
-                            scheduler.retry_queue.len(), scheduler.has_free_socket(),
-                            scheduler.retry_queue.iter().map(|r| r.id).collect::<Vec<_>>());
-                    }
-                    if scheduler.has_free_socket() && scheduler.has_retries() {
-                        // get_next_retry() now handles exhausted retries internally
-                        if let Some(retry_cmd) = scheduler.get_next_retry() {
-                            debug!("Retrying command {} (attempt {})", retry_cmd.id, retry_cmd.attempt);
+                    // Finally, free the socket & clean up metadata
+                    scheduler.free_socket(socket);
+                }
 
-                            // Re-submit the command for retry
-                            let response_tx = if let Some(tx) = scheduler.peek_response_channel(retry_cmd.id) {
-                                debug!("Using existing response channel for retry of command {}", retry_cmd.id);
-                                tx.clone()
-                            } else {
-                                warn!("No response channel found for retry of command {}, creating new one", retry_cmd.id);
-                                let (tx, _rx) = flume::bounded(1);
-                                tx
-                            };
+                // Then check if we have retries to process
+                if scheduler.has_retries() {
+                    debug!(
+                        "Has {} retries pending, free socket: {}, retry queue: {:?}",
+                        scheduler.retry_queue.len(),
+                        scheduler.has_free_socket(),
+                        scheduler
+                            .retry_queue
+                            .iter()
+                            .map(|r| r.id)
+                            .collect::<Vec<_>>()
+                    );
+                }
+                if scheduler.has_free_socket() && scheduler.has_retries() {
+                    // eprintln!("[runtime loop] Has free socket and retries to process");
+                    // get_next_retry() now handles exhausted retries internally
+                    let now = time_utils::now_from_executor_arc(&executor);
+                    if let Some(retry_cmd) = scheduler.get_next_retry(now) {
+                        eprintln!(
+                            "[runtime loop] Retrying command {} (attempt {})",
+                            retry_cmd.id, retry_cmd.attempt
+                        );
+                        debug!(
+                            "Retrying command {} (attempt {})",
+                            retry_cmd.id, retry_cmd.attempt
+                        );
 
-                            let item = TxItem::Command {
-                                id: retry_cmd.id,
-                                bytes: retry_cmd.bytes.clone(),
-                                priority: retry_cmd.priority,
-                                category: retry_cmd.category,
-                                deadline: std::time::Instant::now() + std::time::Duration::from_secs(30),
-                                response_tx,
-                            };
+                        // Re-submit the command for retry
+                        let response_tx = if let Some(tx) =
+                            scheduler.peek_response_channel(retry_cmd.id)
+                        {
+                            tx.clone()
+                        } else {
+                            // This shouldn't happen in normal operation - it means the response channel
+                            // was lost somehow. Create a new one just to send the error.
+                            warn!(
+                                "Missing response channel for retry of command {} - this indicates a bug",
+                                retry_cmd.id
+                            );
+                            // Skip this retry and continue
+                            continue;
+                        };
+                        debug!(
+                            "Using existing response channel for retry of command {}",
+                            retry_cmd.id
+                        );
 
-                            if let Err(e) = handle_tx_item(&transport, &mut scheduler, item, &event_tx).await {
-                                error!("Error retrying command {}: {}", retry_cmd.id, e);
-                            }
+                        let now = time_utils::now_from_executor_arc(&executor);
+                        let item = TxItem::Command {
+                            id: retry_cmd.id,
+                            bytes: retry_cmd.bytes.clone(),
+                            priority: retry_cmd.priority,
+                            category: retry_cmd.category,
+                            deadline: now + std::time::Duration::from_secs(30),
+                            response_tx,
+                        };
+
+                        if let Err(e) = handle_tx_item(
+                            &transport,
+                            &mut scheduler,
+                            item,
+                            &event_tx,
+                            executor.as_ref(),
+                        )
+                        .await
+                        {
+                            error!("Error retrying command {}: {}", retry_cmd.id, e);
+                        } else {
+                            // Successfully submitted a retry
+                            consecutive_retries = consecutive_retries.saturating_add(1);
                         }
                     }
                 }
             }
         }
 
-        #[cfg(not(feature = "rt-tokio"))]
-        {
-            // For non-tokio async, use a different approach
-            // This is a simplified version - real implementation would need proper async handling
-            if let Ok(item) = submit_rx.try_recv() {
-                if let Err(e) = handle_tx_item(&transport, &mut scheduler, item, &event_tx).await {
-                    error!("Error handling TX item: {}", e);
-                }
-            }
-
-            // Handle metrics requests
-            if let Ok(response_tx) = metrics_rx.try_recv() {
-                let summary = scheduler.metrics.summary();
-                let _ = response_tx.send(summary);
-            }
-
-            // Try to receive responses
-            if let Ok(bytes) = transport.recv().await {
-                trace!("Received bytes from transport: {:02X?}", bytes);
-                response_buffer.extend_from_slice(&bytes);
-
-                // Parse complete frames from the buffer
-                let (frames, remaining) = crate::protocol::decode::parse_frames(&response_buffer);
-                response_buffer = remaining;
-
-                for frame in frames {
-                    if let Err(e) =
-                        handle_response(&transport, &mut scheduler, &frame, &event_tx).await
-                    {
-                        error!("Error handling response: {}", e);
-                    }
-                }
-            }
+        // Check if submit channel is closed and scheduler is idle for shutdown
+        let disconnected = submit_rx.is_disconnected();
+        let idle = scheduler.is_idle();
+        if disconnected && idle {
+            eprintln!(
+                "[runtime loop] Submit channel closed and scheduler is idle, shutting down runtime"
+            );
+            break;
         }
     }
 
@@ -508,24 +721,29 @@ async fn runtime_loop_with_config<T: AsyncTransport>(
 
 /// Process queued commands when a socket becomes available.
 #[cfg(feature = "async")]
-async fn process_command_queue<T: AsyncTransport>(
+async fn process_command_queue<T: AsyncTransport, E: crate::executor_unified::Executor>(
     transport: &T,
     scheduler: &mut Scheduler,
     event_tx: &Sender<RxEvent>,
+    executor: &E,
+    allow_retry_defer: bool,
 ) -> Result<()> {
     // Process commands from the priority queue while we have free sockets
     // But check if there's a higher priority retry ready first
     while scheduler.has_free_socket() && !scheduler.is_queue_empty() {
         // Check if there's a retry ready that has higher or equal priority than the next queued command
-        if let Some(next_queue_priority) = scheduler.peek_queue_priority() {
-            if let Some(retry_priority) = scheduler.peek_ready_retry_priority() {
-                // If retry has higher or equal priority, don't process queue yet
-                if retry_priority >= next_queue_priority {
-                    debug!(
-                        "Deferring queue processing - retry with priority {:?} waiting (queue has {:?})",
-                        retry_priority, next_queue_priority
-                    );
-                    return Ok(());
+        let now = time_utils::now_from_executor(executor);
+        if allow_retry_defer {
+            if let Some(next_queue_priority) = scheduler.peek_queue_priority() {
+                if let Some(retry_priority) = scheduler.peek_ready_retry_priority(now) {
+                    // If retry has higher or equal priority, don't process queue yet
+                    if retry_priority >= next_queue_priority {
+                        debug!(
+                            "Deferring queue processing - retry with priority {:?} waiting (queue has {:?})",
+                            retry_priority, next_queue_priority
+                        );
+                        return Ok(());
+                    }
                 }
             }
         }
@@ -536,7 +754,7 @@ async fn process_command_queue<T: AsyncTransport>(
                 scheduler.queue_size()
             );
             // Process the dequeued command
-            if let Err(e) = handle_tx_item(transport, scheduler, item, event_tx).await {
+            if let Err(e) = handle_tx_item(transport, scheduler, item, event_tx, executor).await {
                 error!("Error processing queued command: {}", e);
             }
         }
@@ -546,11 +764,12 @@ async fn process_command_queue<T: AsyncTransport>(
 
 /// Handle a submitted TX item.
 #[cfg(feature = "async")]
-async fn handle_tx_item<T: AsyncTransport>(
+async fn handle_tx_item<T: AsyncTransport, E: crate::executor_unified::Executor>(
     transport: &T,
     scheduler: &mut Scheduler,
     item: TxItem,
     event_tx: &Sender<RxEvent>,
+    executor: &E,
 ) -> Result<()> {
     use crate::protocol::encode::VISCA_TERMINATOR;
     use scheduler::ViscaError;
@@ -580,9 +799,10 @@ async fn handle_tx_item<T: AsyncTransport>(
             scheduler.metrics.priority_counts[idx].fetch_add(1, Ordering::Relaxed);
 
             // Check if we have a free socket
-            if let Some(socket) = scheduler.allocate_socket(id, category) {
+            let now = time_utils::now_from_executor(executor);
+            if let Some(socket) = scheduler.allocate_socket(id, category, now) {
                 // Enforce command spacing
-                scheduler.enforce_spacing().await;
+                scheduler.enforce_spacing_with(executor, now).await;
 
                 // Send command
                 trace!("Sending command {} on {:?}: {:02X?}", id, socket, bytes);
@@ -611,14 +831,18 @@ async fn handle_tx_item<T: AsyncTransport>(
                 scheduler.store_command_channel(id, response_tx.clone());
 
                 // Enqueue the command for later processing
-                scheduler.enqueue_command(TxItem::Command {
-                    id,
-                    bytes,
-                    priority,
-                    deadline: std::time::Instant::now() + std::time::Duration::from_secs(30),
-                    category,
-                    response_tx,
-                });
+                let now = time_utils::now_from_executor(executor);
+                scheduler.enqueue_command(
+                    TxItem::Command {
+                        id,
+                        bytes,
+                        priority,
+                        deadline: now + std::time::Duration::from_secs(30),
+                        category,
+                        response_tx,
+                    },
+                    now,
+                );
             }
         }
 
@@ -643,7 +867,8 @@ async fn handle_tx_item<T: AsyncTransport>(
                 .fetch_add(1, Ordering::Relaxed);
 
             // Inquiries don't need sockets
-            scheduler.enforce_spacing().await;
+            let now = time_utils::now_from_executor(executor);
+            scheduler.enforce_spacing_with(executor, now).await;
 
             // Send inquiry
             trace!("Sending inquiry {}: {:02X?}", id, bytes);
@@ -691,11 +916,12 @@ async fn handle_tx_item<T: AsyncTransport>(
 
 /// Handle a VISCA response frame.
 #[cfg(feature = "async")]
-async fn handle_response<T: AsyncTransport>(
+async fn handle_response<T: AsyncTransport, E: crate::executor_unified::Executor>(
     transport: &T,
     scheduler: &mut Scheduler,
     frame: &[u8],
     event_tx: &Sender<RxEvent>,
+    executor: &E,
 ) -> Result<()> {
     use crate::protocol::decode::{parse_response, ViscaResponse};
     use crate::protocol::encode::VISCA_TERMINATOR;
@@ -752,7 +978,9 @@ async fn handle_response<T: AsyncTransport>(
                 scheduler.free_socket(socket);
 
                 // Process any queued commands now that a socket is free
-                if let Err(e) = process_command_queue(transport, scheduler, event_tx).await {
+                if let Err(e) =
+                    process_command_queue(transport, scheduler, event_tx, executor, true).await
+                {
                     error!("Error processing command queue after completion: {}", e);
                 }
             } else {
@@ -814,9 +1042,16 @@ async fn handle_response<T: AsyncTransport>(
             warn!("Error response: {:?} on socket {:?}", error, socket);
 
             // Handle busy error specially - retry the command
+            // Per VISCA spec, error 0x41 (NotExecutable) includes camera busy conditions
+            // We map 0x41 to ViscaError::Busy in from_byte for retry logic
             if matches!(error, ViscaError::Busy) {
+                eprintln!("[handle_response] Received BUSY error");
                 if let Some(sock) = socket {
                     if let Some(cmd_id) = scheduler.socket_command(sock) {
+                        eprintln!(
+                            "[handle_response] Camera busy for command {} on {:?}, will retry",
+                            cmd_id, sock
+                        );
                         debug!(
                             "Camera busy for command {} on {:?}, will retry",
                             cmd_id, sock
@@ -831,8 +1066,9 @@ async fn handle_response<T: AsyncTransport>(
                                 cmd_id, priority
                             );
                             // Queue the command for retry (returns false if exhausted)
+                            let now = time_utils::now_from_executor(executor);
                             let queued =
-                                scheduler.queue_for_retry(cmd_id, bytes, priority, category);
+                                scheduler.queue_for_retry(cmd_id, bytes, priority, category, now);
 
                             if !queued {
                                 debug!("Command {} exhausted retries, not queuing", cmd_id);
@@ -851,7 +1087,10 @@ async fn handle_response<T: AsyncTransport>(
                         // The response channel remains stored in the scheduler
 
                         // Process any queued commands now that a socket is free
-                        if let Err(e) = process_command_queue(transport, scheduler, event_tx).await
+                        // Keep consecutive_retries count, as this wasn't a successful queue operation
+                        if let Err(e) =
+                            process_command_queue(transport, scheduler, event_tx, executor, true)
+                                .await
                         {
                             error!("Error processing command queue after busy: {}", e);
                         }
@@ -887,7 +1126,9 @@ async fn handle_response<T: AsyncTransport>(
                         scheduler.free_socket(sock);
 
                         // Process any queued commands now that a socket is free
-                        if let Err(e) = process_command_queue(transport, scheduler, event_tx).await
+                        if let Err(e) =
+                            process_command_queue(transport, scheduler, event_tx, executor, true)
+                                .await
                         {
                             error!("Error processing command queue after error: {}", e);
                         }
@@ -1020,8 +1261,15 @@ mod tests {
         let (_metrics_tx, metrics_rx) = flume::unbounded();
 
         // Start runtime loop
-        let runtime_task =
-            runtime_loop_with_config(MockTransport, submit_rx, event_tx, metrics_rx, None);
+        let executor = Arc::new(crate::executor_unified::TokioExecutor::from_current().unwrap());
+        let runtime_task = runtime_loop_with_config(
+            MockTransport,
+            submit_rx,
+            event_tx,
+            metrics_rx,
+            None,
+            executor,
+        );
 
         // Spawn the runtime
         let handle = tokio::spawn(runtime_task);

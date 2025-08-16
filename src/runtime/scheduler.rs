@@ -4,8 +4,9 @@
 //! command scheduling, and protocol-compliant timing.
 
 use flume::{Receiver, Sender};
-use log::{debug, trace, warn};
-use tracing::{info_span, instrument};
+#[cfg(feature = "async")]
+use log::trace;
+use log::{debug, warn};
 
 use std::{
     cmp::Ordering as CmpOrdering,
@@ -169,14 +170,22 @@ pub enum ViscaError {
 
 impl ViscaError {
     /// Create from VISCA error byte.
+    ///
+    /// ## Error Code 0x41 Mapping
+    ///
+    /// VISCA 0x41 is "Command Not Executable", which per spec includes busy conditions.
+    /// We treat it as retryable BUSY internally to drive scheduler backoff/retry.
+    /// This ensures commands that fail due to temporary busy conditions are automatically
+    /// retried rather than immediately failing.
     pub fn from_byte(byte: u8) -> Self {
         match byte {
-            0x01 => ViscaError::Busy,
             0x02 => ViscaError::SyntaxError,
             0x03 => ViscaError::BufferFull,
             0x04 => ViscaError::CommandCancelled,
             0x05 => ViscaError::NoSocket,
-            0x41 => ViscaError::NotExecutable,
+            // VISCA 0x41 is "Command Not Executable", which per spec includes busy conditions.
+            // We treat it as retryable BUSY internally to drive scheduler backoff/retry.
+            0x41 => ViscaError::Busy,
             other => ViscaError::Unknown(other),
         }
     }
@@ -184,7 +193,7 @@ impl ViscaError {
     /// Convert to VISCA error byte.
     pub fn to_byte(&self) -> u8 {
         match self {
-            ViscaError::Busy => 0x01,
+            ViscaError::Busy => 0x41, // Use NotExecutable code for busy (per VISCA spec)
             ViscaError::SyntaxError => 0x02,
             ViscaError::BufferFull => 0x03,
             ViscaError::CommandCancelled => 0x04,
@@ -255,8 +264,10 @@ pub struct Scheduler {
     /// Timeout configuration.
     timeout_config: TimeoutConfig,
     /// Minimum inter-command spacing.
+    #[cfg(feature = "async")]
     command_spacing: Duration,
     /// Last command sent time.
+    #[cfg(feature = "async")]
     last_command_time: Option<Instant>,
     /// Track response channels for commands by ID.
     command_channels: HashMap<u32, Sender<Result<Response>>>,
@@ -270,6 +281,8 @@ pub struct Scheduler {
     pub retry_queue: Vec<RetryCommand>,
     /// Store command metadata for potential retry.
     command_metadata: HashMap<u32, (Vec<u8>, Priority, CommandCategory)>,
+    /// Track retry attempts for commands (command_id -> attempt_count).
+    retry_attempts: HashMap<u32, u32>,
     /// Priority queue for pending commands.
     command_queue: BinaryHeap<PriorityQueueItem>,
     /// Maximum retries per command category.
@@ -539,12 +552,15 @@ impl Scheduler {
             sockets: Default::default(),
             next_id: AtomicU32::new(1),
             timeout_config: TimeoutConfig::default(),
+            #[cfg(feature = "async")]
             command_spacing: Duration::from_millis(50), // Default 50ms spacing
+            #[cfg(feature = "async")]
             last_command_time: None,
             command_channels: HashMap::new(),
             pending_inquiries: Vec::new(),
             retry_queue: Vec::new(),
             command_metadata: HashMap::new(),
+            retry_attempts: HashMap::new(),
             command_queue: BinaryHeap::new(),
             max_retries_per_category: max_retries,
             metrics: SchedulerMetrics::new(),
@@ -566,12 +582,13 @@ impl Scheduler {
         &mut self,
         command_id: u32,
         category: CommandCategory,
+        now: Instant,
     ) -> Option<SocketId> {
         for (idx, socket) in self.sockets.iter_mut().enumerate() {
             if socket.free {
                 socket.free = false;
                 socket.command_id = Some(command_id);
-                socket.started_at = Some(Instant::now());
+                socket.started_at = Some(now);
                 socket.category = Some(category);
 
                 let socket_id = if idx == 0 {
@@ -613,26 +630,28 @@ impl Scheduler {
     }
 
     /// Enforce minimum command spacing.
-    #[instrument(skip(self))]
-    pub async fn enforce_spacing(&mut self) {
+    #[cfg(feature = "async")]
+    pub async fn enforce_spacing_with<E: crate::executor_unified::Executor>(
+        &mut self,
+        executor: &E,
+        now: Instant,
+    ) {
         if let Some(last_time) = self.last_command_time {
-            let elapsed = last_time.elapsed();
-            if elapsed < self.command_spacing {
-                let wait_time = self.command_spacing - elapsed;
-                trace!("Waiting {:?} for command spacing", wait_time);
-                #[cfg(feature = "rt-tokio")]
-                tokio::time::sleep(wait_time).await;
-                #[cfg(not(feature = "rt-tokio"))]
-                std::thread::sleep(wait_time);
+            let target = last_time + self.command_spacing;
+            if now < target {
+                let wait = target - now;
+                trace!("Waiting {:?} for command spacing", wait);
+                executor.sleep(wait).await;
             }
+            self.last_command_time = Some(target);
+        } else {
+            self.last_command_time = Some(now);
         }
-        self.last_command_time = Some(Instant::now());
     }
 
     /// Check for timed out commands.
-    pub fn check_timeouts(&mut self) -> Vec<(SocketId, u32)> {
+    pub fn check_timeouts(&mut self, now: Instant) -> Vec<(SocketId, u32)> {
         let mut timed_out = Vec::new();
-        let now = Instant::now();
 
         for (idx, socket) in self.sockets.iter().enumerate() {
             if !socket.free {
@@ -660,19 +679,16 @@ impl Scheduler {
     }
 
     /// Set command spacing duration.
+    #[cfg(feature = "async")]
     pub fn set_command_spacing(&mut self, spacing: Duration) {
         self.command_spacing = spacing;
-        info_span!("config").in_scope(|| {
-            debug!("Command spacing set to {:?}", spacing);
-        });
+        debug!("Command spacing set to {:?}", spacing);
     }
 
     /// Set timeout configuration.
     pub fn set_timeout_config(&mut self, config: TimeoutConfig) {
         self.timeout_config = config;
-        info_span!("config").in_scope(|| {
-            debug!("Timeout configuration updated");
-        });
+        debug!("Timeout configuration updated");
     }
 
     /// Set maximum retries for a specific command category.
@@ -809,6 +825,7 @@ impl Scheduler {
         bytes: Vec<u8>,
         priority: Priority,
         category: CommandCategory,
+        now: Instant,
     ) -> bool {
         // Track retry metrics
         self.metrics.retry_attempts.fetch_add(1, Ordering::Relaxed);
@@ -821,66 +838,70 @@ impl Scheduler {
             .copied()
             .unwrap_or(3);
 
-        // Check if this command is already in the retry queue
-        let existing_idx = self.retry_queue.iter().position(|c| c.id == id);
+        // Get or initialize the attempt count from our tracking map
+        let attempt = self.retry_attempts.entry(id).or_insert(0);
+        *attempt += 1;
+        let current_attempt = *attempt;
 
-        if let Some(idx) = existing_idx {
-            // Get the command and increment retry attempt
-            let cmd = &mut self.retry_queue[idx];
-            cmd.attempt += 1;
-            let attempt = cmd.attempt;
-
-            // Check if we've exhausted retries
-            if attempt > max_retries {
-                // Remove from retry queue
+        // Check if we've exhausted retries
+        if current_attempt > max_retries {
+            // Remove from retry queue if it exists
+            if let Some(idx) = self.retry_queue.iter().position(|c| c.id == id) {
                 self.retry_queue.swap_remove(idx);
-
-                self.metrics
-                    .retries_exhausted
-                    .fetch_add(1, Ordering::Relaxed);
-                debug!(
-                    "Command {} exhausted retries after {} attempts (max: {})",
-                    id, attempt, max_retries
-                );
-
-                // Send error to the waiting command
-                if let Some(response_tx) = self.get_response_channel(id) {
-                    let _ = response_tx.send(Err(crate::Error::MaxRetriesExceeded));
-                }
-
-                // Clean up command metadata
-                self.command_metadata.remove(&id);
-
-                // Update retry queue depth metrics
-                let new_depth = self.retry_queue.len() as u32;
-                self.metrics.update_retry_queue_depth(new_depth);
-
-                return false;
             }
 
-            // Calculate exponential backoff: 100ms * 2^(attempt-1)
-            let backoff_ms = 100 * (1 << (attempt - 1).min(5)); // Cap at 3.2 seconds
+            self.metrics
+                .retries_exhausted
+                .fetch_add(1, Ordering::Relaxed);
+            debug!(
+                "Command {} exhausted retries after {} attempts (max: {})",
+                id, current_attempt, max_retries
+            );
+
+            // Send error to the waiting command
+            if let Some(response_tx) = self.get_response_channel(id) {
+                let _ = response_tx.send(Err(crate::Error::MaxRetriesExceeded));
+            }
+
+            // Clean up command metadata and retry tracking
+            self.command_metadata.remove(&id);
+            self.retry_attempts.remove(&id);
+
+            // Update retry queue depth metrics
+            let new_depth = self.retry_queue.len() as u32;
+            self.metrics.update_retry_queue_depth(new_depth);
+
+            return false;
+        }
+
+        // Calculate exponential backoff: 100ms * 2^(attempt-1)
+        let backoff_ms = 100 * (1 << (current_attempt - 1).min(5)); // Cap at 3.2 seconds
+        let retry_at = now + Duration::from_millis(backoff_ms);
+
+        // Check if this command is already in the retry queue
+        if let Some(idx) = self.retry_queue.iter().position(|c| c.id == id) {
+            // Update existing entry
             let cmd = &mut self.retry_queue[idx];
-            cmd.retry_at = Instant::now() + Duration::from_millis(backoff_ms);
+            cmd.attempt = current_attempt;
+            cmd.retry_at = retry_at;
             debug!(
                 "Command {} queued for retry attempt {} with {}ms backoff",
-                id, attempt, backoff_ms
+                id, current_attempt, backoff_ms
             );
         } else {
-            // Add new retry command with initial backoff
-            let backoff_ms = 100; // Initial backoff is 100ms
+            // Add new retry command
             self.retry_queue.push(RetryCommand {
                 id,
                 bytes,
                 priority,
                 category,
-                attempt: 1,
+                attempt: current_attempt,
                 max_retries,
-                retry_at: Instant::now() + Duration::from_millis(backoff_ms),
+                retry_at,
             });
             debug!(
-                "Command {} queued for first retry with {}ms backoff (max retries: {})",
-                id, backoff_ms, max_retries
+                "Command {} queued for retry attempt {} with {}ms backoff (max retries: {})",
+                id, current_attempt, backoff_ms, max_retries
             );
         }
 
@@ -895,12 +916,10 @@ impl Scheduler {
     ///
     /// Returns the highest priority command from the retry queue that is ready to be retried.
     /// Returns None if no commands are ready or if all ready commands have exhausted retries.
-    pub fn get_next_retry(&mut self) -> Option<RetryCommand> {
+    pub fn get_next_retry(&mut self, now: Instant) -> Option<RetryCommand> {
         if self.retry_queue.is_empty() {
             return None;
         }
-
-        let now = Instant::now();
 
         // Find the highest priority command that is ready to retry and hasn't exhausted retries
         let mut best_idx = None;
@@ -942,17 +961,18 @@ impl Scheduler {
                 let _ = response_tx.send(Err(crate::Error::MaxRetriesExceeded));
             }
 
-            // Clean up command metadata
+            // Clean up command metadata and retry tracking
             self.command_metadata.remove(&exhausted_cmd.id);
+            self.retry_attempts.remove(&exhausted_cmd.id);
         }
 
-        // Return a clone of the selected command if found (don't remove it yet)
+        // Remove and return the selected command if found
         if let Some(idx) = best_idx {
-            // Clone the command but keep it in the retry queue
-            // It will be removed when it succeeds or exhausts retries
-            let cmd = self.retry_queue[idx].clone();
+            // Remove the command from the retry queue (single-shot retry)
+            // It will be re-queued if it gets another BUSY response
+            let cmd = self.retry_queue.swap_remove(idx);
 
-            // Update retry queue depth metrics after removing exhausted commands
+            // Update retry queue depth metrics after removing the command
             let new_depth = self.retry_queue.len() as u32;
             self.metrics.update_retry_queue_depth(new_depth);
 
@@ -983,10 +1003,10 @@ impl Scheduler {
     /// Enqueue a command/inquiry to the priority queue.
     ///
     /// Commands are sorted by priority and submission time.
-    pub fn enqueue_command(&mut self, item: TxItem) {
+    pub fn enqueue_command(&mut self, item: TxItem, now: Instant) {
         let queue_item = PriorityQueueItem {
             item,
-            submitted_at: Instant::now(),
+            submitted_at: now,
         };
         debug!(
             "Enqueueing command with priority {:?} to queue (size: {})",
@@ -1033,10 +1053,16 @@ impl Scheduler {
         self.command_queue.peek().map(|item| item.priority())
     }
 
-    /// Peek at the highest priority retry that is ready to be sent.
-    pub fn peek_ready_retry_priority(&self) -> Option<Priority> {
-        let now = Instant::now();
+    /// Check if the scheduler is idle (no pending work).
+    pub fn is_idle(&self) -> bool {
+        self.is_queue_empty()
+            && self.retry_queue.is_empty()
+            && self.pending_inquiries.is_empty()
+            && self.sockets.iter().all(|s| s.free)
+    }
 
+    /// Peek at the highest priority retry that is ready to be sent.
+    pub fn peek_ready_retry_priority(&self, now: Instant) -> Option<Priority> {
         // Find the highest priority retry that is ready
         self.retry_queue
             .iter()
@@ -1058,6 +1084,14 @@ impl Scheduler {
             let new_depth = self.retry_queue.len() as u32;
             self.metrics.update_retry_queue_depth(new_depth);
         }
+        // Also clean up retry attempts tracking
+        self.retry_attempts.remove(&cmd_id);
+    }
+
+    /// Get the earliest retry deadline from the retry queue.
+    /// Returns None if the retry queue is empty.
+    pub fn next_retry_deadline(&self) -> Option<Instant> {
+        self.retry_queue.iter().map(|c| c.retry_at).min()
     }
 }
 
@@ -1086,8 +1120,42 @@ mod tests {
         assert_eq!(ViscaError::from_byte(0x03), ViscaError::BufferFull);
         assert_eq!(ViscaError::from_byte(0x04), ViscaError::CommandCancelled);
         assert_eq!(ViscaError::from_byte(0x05), ViscaError::NoSocket);
-        assert_eq!(ViscaError::from_byte(0x41), ViscaError::NotExecutable);
+        assert_eq!(ViscaError::from_byte(0x41), ViscaError::Busy);
         assert_eq!(ViscaError::from_byte(0xFF), ViscaError::Unknown(0xFF));
+    }
+
+    #[test]
+    fn test_visca_error_mapping_table() {
+        // Table-driven test for internal ViscaError mapping
+        // Ensures consistency between from_byte and to_byte
+        let cases = [
+            (0x02, ViscaError::SyntaxError),
+            (0x03, ViscaError::BufferFull),
+            (0x04, ViscaError::CommandCancelled),
+            (0x05, ViscaError::NoSocket),
+            // VISCA 0x41 is "Command Not Executable", which per spec includes busy conditions.
+            // We treat it as retryable BUSY internally to drive scheduler backoff/retry.
+            (0x41, ViscaError::Busy),
+        ];
+
+        for (byte, expected) in cases {
+            let error = ViscaError::from_byte(byte);
+            assert_eq!(
+                error, expected,
+                "Byte {:#04x} should map to {:?}",
+                byte, expected
+            );
+
+            // Verify round-trip for non-Unknown variants
+            if !matches!(error, ViscaError::Unknown(_)) {
+                let back_to_byte = error.to_byte();
+                assert_eq!(
+                    back_to_byte, byte,
+                    "Round-trip failed for {:#04x} -> {:?} -> {:#04x}",
+                    byte, error, back_to_byte
+                );
+            }
+        }
     }
 
     #[test]
@@ -1096,21 +1164,23 @@ mod tests {
         let (event_tx, _event_rx) = flume::unbounded();
         let mut scheduler = Scheduler::new(submit_rx, event_tx);
 
+        let now = Instant::now();
+
         // Both sockets should be free initially
         assert!(scheduler.has_free_socket());
 
         // Allocate first socket
-        let socket1 = scheduler.allocate_socket(1, CommandCategory::Movement);
+        let socket1 = scheduler.allocate_socket(1, CommandCategory::Movement, now);
         assert_eq!(socket1, Some(SocketId::Socket1));
         assert!(scheduler.has_free_socket());
 
         // Allocate second socket
-        let socket2 = scheduler.allocate_socket(2, CommandCategory::Quick);
+        let socket2 = scheduler.allocate_socket(2, CommandCategory::Quick, now);
         assert_eq!(socket2, Some(SocketId::Socket2));
         assert!(!scheduler.has_free_socket());
 
         // Try to allocate when none free
-        let socket3 = scheduler.allocate_socket(3, CommandCategory::Network);
+        let socket3 = scheduler.allocate_socket(3, CommandCategory::Network, now);
         assert_eq!(socket3, None);
 
         // Free a socket
@@ -1118,7 +1188,7 @@ mod tests {
         assert!(scheduler.has_free_socket());
 
         // Can allocate again
-        let socket4 = scheduler.allocate_socket(4, CommandCategory::Movement);
+        let socket4 = scheduler.allocate_socket(4, CommandCategory::Movement, now);
         assert_eq!(socket4, Some(SocketId::Socket1));
     }
 
@@ -1178,8 +1248,9 @@ mod tests {
 
         // Allocate a socket for a command
         let cmd_id = 123;
+        let now = Instant::now();
         let socket = scheduler
-            .allocate_socket(cmd_id, CommandCategory::Movement)
+            .allocate_socket(cmd_id, CommandCategory::Movement, now)
             .unwrap();
 
         // Store a response channel for the command
@@ -1214,17 +1285,18 @@ mod tests {
         scheduler.store_command_metadata(cmd_id, bytes.clone(), priority, category);
 
         // First retry (attempt 1)
-        let queued = scheduler.queue_for_retry(cmd_id, bytes.clone(), priority, category);
+        let now = Instant::now();
+        let queued = scheduler.queue_for_retry(cmd_id, bytes.clone(), priority, category, now);
         assert!(queued, "First retry should be queued");
         assert_eq!(scheduler.retry_queue.len(), 1);
 
         // Second retry (attempt 2)
-        let queued = scheduler.queue_for_retry(cmd_id, bytes.clone(), priority, category);
+        let queued = scheduler.queue_for_retry(cmd_id, bytes.clone(), priority, category, now);
         assert!(queued, "Second retry should be queued");
         assert_eq!(scheduler.retry_queue.len(), 1); // Still 1, same command
 
         // Third retry (attempt 3) - should exceed max retries of 2
-        let queued = scheduler.queue_for_retry(cmd_id, bytes.clone(), priority, category);
+        let queued = scheduler.queue_for_retry(cmd_id, bytes.clone(), priority, category, now);
         assert!(!queued, "Third retry should NOT be queued (exhausted)");
         assert_eq!(scheduler.retry_queue.len(), 0); // Should be removed
 
