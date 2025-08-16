@@ -4,6 +4,9 @@
 //! the new unified Executor trait, preventing runtime/spawner mismatches.
 
 #[cfg(not(feature = "async"))]
+use std::marker::PhantomData;
+
+#[cfg(not(feature = "async"))]
 use crate::camera::generic_executor::Camera as GenericCamera;
 use crate::{
     camera::BlockingMode, camera_id::CameraId, capabilities::Profile, timeout::TimeoutConfig,
@@ -27,7 +30,7 @@ pub struct CameraBuilder<E = ()> {
     #[cfg(feature = "async")]
     executor: Option<E>,
     #[cfg(not(feature = "async"))]
-    _phantom: std::marker::PhantomData<E>,
+    _phantom: PhantomData<E>,
 }
 
 impl<E> std::fmt::Debug for CameraBuilder<E> {
@@ -50,7 +53,7 @@ impl CameraBuilder<()> {
             #[cfg(feature = "async")]
             executor: None,
             #[cfg(not(feature = "async"))]
-            _phantom: std::marker::PhantomData,
+            _phantom: PhantomData,
         }
     }
 }

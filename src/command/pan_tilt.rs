@@ -27,19 +27,11 @@
 //! # }
 //! ```
 
-// Standard library imports
-// (none)
-
-// Third-party crate imports
-// (none)
-
-// Workspace / local-crate imports
 use crate::{
     command::{const_encoding::CommandBuilder, encode_visca::EncodeVisca, ResponseType},
     error::Error,
     timeout::CommandCategory,
     types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed},
-    // units::Normalized, // Used in commented out code
 };
 
 /// Corner position for pan/tilt limit setting.
