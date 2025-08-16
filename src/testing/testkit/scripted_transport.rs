@@ -700,7 +700,9 @@ mod tests {
     #[tokio::test]
     #[allow(clippy::unwrap_used)]
     async fn test_scripted_transport_delayed_response_manual() {
-        let (executor, _clock) = DeterministicExecutor::new();
+        use std::time::Duration;
+
+        let (executor, clock) = DeterministicExecutor::new();
         let transport = ScriptedTransport::new(vec![]).with_executor(executor.clone());
 
         // Send a command without any scripted responses
@@ -709,14 +711,19 @@ mod tests {
             .await
             .unwrap();
 
-        // Initially no response should be available
-        let result = transport.recv().await;
+        // Start recv, then advance deterministic time so the 10s timeout in recv() fires
+        let (result, _) = tokio::join!(transport.recv(), async {
+            // Ensure the timer is registered, then advance time
+            executor.drive_until_idle();
+            clock.advance(Duration::from_secs(10));
+            executor.drive_until_idle();
+        });
         assert!(matches!(result, Err(Error::Timeout)));
 
         // Manually add a response (simulating a delayed response)
         transport.add_response(vec![0x90, 0x41, VISCA_TERMINATOR]);
 
-        // Now the response should be available
+        // Now the response should be available immediately
         let response = transport.recv().await.unwrap();
         assert_eq!(response.as_ref(), &[0x90, 0x41, VISCA_TERMINATOR]);
     }
