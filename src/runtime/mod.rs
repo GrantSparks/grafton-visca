@@ -39,7 +39,7 @@ fn spawn_runtime_task_properly<E: crate::executor_unified::Executor>(
     runtime_task: impl std::future::Future<Output = Result<(), Error>> + Send + 'static,
 ) {
     // For DeterministicExecutor in test mode, we need to detach the task
-    #[cfg(any(test, feature = "test-utils"))]
+    #[cfg(any(feature = "rt-tokio", feature = "test-utils"))]
     {
         use std::any::Any;
         let executor_any: &dyn Any = executor;
