@@ -25,9 +25,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly
+      - name: Install Rust nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt
+        continue-on-error: true
+        id: nightly-toolchain
+      
+      # Fallback: retry with rustup directly if the action fails
+      - name: Retry nightly toolchain installation
+        if: steps.nightly-toolchain.outcome == 'failure'
+        run: |
+          for i in {1..3}; do
+            echo "Attempt $i of 3..."
+            rustup toolchain install nightly --component rustfmt --profile minimal && break
+            sleep 30
+          done
       - run: cargo fmt --all -- --check
 
 
@@ -52,9 +65,22 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libudev-dev
       
-      - uses: dtolnay/rust-toolchain@master
+      - name: Install Rust ${{ matrix.rust }} toolchain
+        uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
+        continue-on-error: true
+        id: matrix-toolchain
+      
+      # Fallback: retry with rustup directly if the action fails
+      - name: Retry ${{ matrix.rust }} toolchain installation
+        if: steps.matrix-toolchain.outcome == 'failure'
+        run: |
+          for i in {1..3}; do
+            echo "Attempt $i of 3..."
+            rustup toolchain install ${{ matrix.rust }} --profile minimal && break
+            sleep 30
+          done
       
       - uses: Swatinem/rust-cache@v2
         with:
@@ -126,9 +152,22 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libudev-dev
       
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+        continue-on-error: true
+        id: toolchain
+      
+      # Fallback: retry with rustup directly if the action fails
+      - name: Retry Rust toolchain installation
+        if: steps.toolchain.outcome == 'failure'
+        run: |
+          for i in {1..3}; do
+            echo "Attempt $i of 3..."
+            rustup toolchain install stable --component clippy --profile minimal && break
+            sleep 30
+          done
       
       - uses: Swatinem/rust-cache@v2
         with:
@@ -191,7 +230,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libudev-dev
       
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        continue-on-error: true
+        id: stable-toolchain-semver
+      
+      # Fallback: retry with rustup directly if the action fails  
+      - name: Retry stable toolchain installation
+        if: steps.stable-toolchain-semver.outcome == 'failure'
+        run: |
+          for i in {1..3}; do
+            echo "Attempt $i of 3..."
+            rustup toolchain install stable --profile minimal && break
+            sleep 30
+          done
       
       - uses: Swatinem/rust-cache@v2
         with:
@@ -215,7 +267,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libudev-dev
       
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        continue-on-error: true
+        id: stable-toolchain-pkg
+      
+      # Fallback: retry with rustup directly if the action fails  
+      - name: Retry stable toolchain installation
+        if: steps.stable-toolchain-pkg.outcome == 'failure'
+        run: |
+          for i in {1..3}; do
+            echo "Attempt $i of 3..."
+            rustup toolchain install stable --profile minimal && break
+            sleep 30
+          done
       
       - uses: Swatinem/rust-cache@v2
         with:
@@ -252,7 +317,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libudev-dev
       
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        continue-on-error: true
+        id: stable-toolchain-publish
+      
+      # Fallback: retry with rustup directly if the action fails  
+      - name: Retry stable toolchain installation
+        if: steps.stable-toolchain-publish.outcome == 'failure'
+        run: |
+          for i in {1..3}; do
+            echo "Attempt $i of 3..."
+            rustup toolchain install stable --profile minimal && break
+            sleep 30
+          done
       
       - uses: Swatinem/rust-cache@v2
         with:
