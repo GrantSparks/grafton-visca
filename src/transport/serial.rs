@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::error::{Error, Result};
-use crate::protocol::encode::{CommandBuilder, VISCA_TERMINATOR};
+use crate::protocol::encode::{FrameBuilder, VISCA_TERMINATOR};
 use crate::transport::{AsyncTransport, BlockingTransport};
 
 /// Serial port configuration for VISCA communication.
@@ -187,7 +187,7 @@ impl SerialTransport {
 
     /// Create a command builder with the camera address.
     fn build_command(&self, bytes: &[u8]) -> Vec<u8> {
-        CommandBuilder::new()
+        FrameBuilder::new()
             .device(self.camera_address)
             .bytes(bytes)
             .build()

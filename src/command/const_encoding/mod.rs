@@ -6,7 +6,7 @@
 pub mod builder;
 pub mod constants;
 
-pub use builder::CommandBuilder;
+pub use builder::ConstCommandBuilder;
 
 // pub use constants::*;  // Commented out - unused
 

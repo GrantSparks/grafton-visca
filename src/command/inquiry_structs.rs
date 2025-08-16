@@ -420,7 +420,7 @@ pub struct DefogModeInquiry;
 )]
 pub struct DefogLevelInquiry;
 
-/// Inquiry command to get the digital PTZ mode status.
+/// Inquiry command to get the digital Ptz mode status.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
 #[visca(
     command = 0x6B,
@@ -811,7 +811,7 @@ mod tests {
 pub struct TallyGreenInquiry;
 
 impl crate::command::encode_visca::EncodeVisca for TallyGreenInquiry {
-    type Response = crate::command::InquiryResponse;
+    type ViscaResponse = crate::command::InquiryResponse;
     const MAX_SIZE: usize = 7;
     const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
         crate::timeout::CommandCategory::Quick;
@@ -821,17 +821,17 @@ impl crate::command::encode_visca::EncodeVisca for TallyGreenInquiry {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, crate::error::Error> {
-        use crate::command::const_encoding::CommandBuilder;
+        use crate::command::const_encoding::ConstCommandBuilder;
 
         // Special format for green tally inquiry
-        let builder = CommandBuilder::<7>::new()
+        let builder = ConstCommandBuilder::<7>::new()
             .append(crate::command::const_encoding::constants::inquiry::TALLY_GREEN)
             .with_camera_id(camera_id)
             .terminate();
         builder.build_into(buffer)
     }
 
-    fn response_type(&self) -> Option<crate::command::response::ResponseType> {
+    fn response_type(&self) -> Option<crate::command::response::ViscaResponseType> {
         None
     }
 }

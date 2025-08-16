@@ -7,12 +7,12 @@
 use std::marker::PhantomData;
 
 #[cfg(not(feature = "async"))]
-use crate::camera::generic_executor::Camera as GenericCamera;
+use crate::camera::handle::Camera as GenericCamera;
 #[cfg(feature = "async")]
 use crate::{
-    camera::{generic_executor::Camera as GenericCamera, AsyncMode},
+    camera::{handle::Camera as GenericCamera, AsyncMode},
     error::Error,
-    executor_unified::Executor,
+    executor::Executor,
     transport::AsyncTransport,
 };
 
@@ -146,16 +146,16 @@ impl CameraBuilder<()> {
 
 // Convenience constructors for specific runtime implementations
 #[cfg(feature = "rt-tokio")]
-impl CameraBuilder<crate::executor_unified::TokioExecutor> {
+impl CameraBuilder<crate::executor::TokioExecutor> {
     /// Create a builder with the Tokio executor from the current runtime.
     ///
     /// This provides the easiest way to create a Tokio-based camera:
     /// ```ignore
     /// let camera = CameraBuilder::tokio()?
-    ///     .build_async::<PTZOpticsG2, _>(transport)?;
+    ///     .build_async::<PtzOpticsG2, _>(transport)?;
     /// ```
     pub fn tokio() -> Result<Self, Error> {
-        let executor = crate::executor_unified::TokioExecutor::from_current()?;
+        let executor = crate::executor::TokioExecutor::from_current()?;
         Ok(Self::with_executor(executor))
     }
 }
@@ -163,16 +163,15 @@ impl CameraBuilder<crate::executor_unified::TokioExecutor> {
 /// Type aliases for common camera configurations with executors.
 #[cfg(all(feature = "async", feature = "rt-tokio"))]
 pub mod async_cameras {
-    use crate::camera::{generic_executor::Camera as GenericCamera, AsyncMode};
+    use crate::camera::{handle::Camera as GenericCamera, AsyncMode};
 
     /// A camera using the Tokio executor.
-    pub type TokioCamera<P, T> =
-        GenericCamera<AsyncMode, P, T, crate::executor_unified::TokioExecutor>;
+    pub type TokioCamera<P, T> = GenericCamera<AsyncMode, P, T, crate::executor::TokioExecutor>;
 }
 
 /// Type aliases for blocking cameras.
 pub mod blocking_cameras {
-    use crate::camera::{generic_executor::Camera as GenericCamera, BlockingMode};
+    use crate::camera::{handle::Camera as GenericCamera, BlockingMode};
 
     /// A blocking camera (no executor needed).
     pub type BlockingCamera<P, T> = GenericCamera<BlockingMode, P, T, ()>;

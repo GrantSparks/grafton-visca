@@ -10,10 +10,10 @@ use grafton_visca::{camera::Camera, capabilities::*};
 
 // Import type aliases based on feature flags
 #[cfg(not(feature = "async"))]
-use grafton_visca::prelude::blocking::{GenericViscaCam, PTZOpticsG2Cam, SonyFR7Cam};
+use grafton_visca::prelude::blocking::{GenericViscaCam, PtzOpticsG2Cam, SonyFR7Cam};
 
 #[cfg(feature = "async")]
-use grafton_visca::prelude::r#async::{GenericViscaCam, PTZOpticsG2Cam, SonyFR7Cam};
+use grafton_visca::prelude::r#async::{GenericViscaCam, PtzOpticsG2Cam, SonyFR7Cam};
 
 // Tests demonstrating the compile-time profile system
 
@@ -23,11 +23,11 @@ fn test_profile_type_aliases() {
 
     #[cfg(feature = "async")]
     {
-        fn _accepts_g2_camera_async<T>(_camera: PTZOpticsG2Cam<T>)
+        fn _accepts_g2_camera_async<T>(_camera: PtzOpticsG2Cam<T>)
         where
             T: AsyncTransport + Send + Sync + 'static,
         {
-            // PTZOpticsG2Cam is a type alias for Camera<AsyncMode, PTZOpticsG2, T>
+            // PtzOpticsG2Cam is a type alias for Camera<AsyncMode, PtzOpticsG2, T>
         }
 
         fn _accepts_fr7_camera_async<T>(_camera: SonyFR7Cam<T>)
@@ -47,11 +47,11 @@ fn test_profile_type_aliases() {
 
     #[cfg(not(feature = "async"))]
     {
-        fn _accepts_g2_camera_blocking<T>(_camera: PTZOpticsG2Cam<T>)
+        fn _accepts_g2_camera_blocking<T>(_camera: PtzOpticsG2Cam<T>)
         where
             T: BlockingTransport + Send + Sync + 'static,
         {
-            // PTZOpticsG2Cam is a type alias for Camera<BlockingMode, PTZOpticsG2, T>
+            // PtzOpticsG2Cam is a type alias for Camera<BlockingMode, PtzOpticsG2, T>
         }
 
         fn _accepts_fr7_camera_blocking<T>(_camera: SonyFR7Cam<T>)
@@ -163,7 +163,7 @@ fn test_profile_traits_composition() {
     }
 
     // Test that known profiles implement Profile correctly
-    verify_profile_requirements::<grafton_visca::camera::profiles::PTZOpticsG2>();
+    verify_profile_requirements::<grafton_visca::camera::profiles::PtzOpticsG2>();
     verify_profile_requirements::<grafton_visca::camera::profiles::SonyFR7>();
     verify_profile_requirements::<grafton_visca::camera::profiles::GenericVisca>();
 }
@@ -179,15 +179,15 @@ fn test_optional_capabilities() {
 
     // These compile:
     has_nd_filter::<grafton_visca::camera::profiles::SonyFR7>();
-    has_motion_sync::<grafton_visca::camera::profiles::PTZOpticsG2>();
+    has_motion_sync::<grafton_visca::camera::profiles::PtzOpticsG2>();
     // Note: SonyFR7 doesn't have MotionSync in the current implementation
     has_variable_speed::<grafton_visca::camera::profiles::SonyFR7>();
 
     // These would NOT compile (commented out to keep test passing):
-    // has_nd_filter::<grafton_visca::camera::profiles::PTZOpticsG2>();
+    // has_nd_filter::<grafton_visca::camera::profiles::PtzOpticsG2>();
     // has_nd_filter::<grafton_visca::camera::profiles::GenericVisca>();
     // has_motion_sync::<grafton_visca::camera::profiles::GenericVisca>();
-    // has_variable_speed::<grafton_visca::camera::profiles::PTZOpticsG2>();
+    // has_variable_speed::<grafton_visca::camera::profiles::PtzOpticsG2>();
     // has_variable_speed::<grafton_visca::camera::profiles::GenericVisca>();
 }
 

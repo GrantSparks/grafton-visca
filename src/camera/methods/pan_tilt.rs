@@ -10,7 +10,7 @@ use crate::{
 
 /// Pan/Tilt operations (async).
 #[cfg(feature = "async")]
-pub trait PanTiltOps: Sized {
+pub trait PanTiltControl: Sized {
     /// Stop all pan/tilt movement.
     async fn pan_tilt_stop(&self) -> Result<(), Error>;
 
@@ -57,7 +57,7 @@ pub trait PanTiltOps: Sized {
 }
 
 /// Pan/Tilt operations (blocking).
-pub trait PanTiltOpsBlocking: Sized {
+pub trait PanTiltControlBlocking: Sized {
     /// Stop all pan/tilt movement.
     fn pan_tilt_stop(&self) -> Result<(), Error>;
 
@@ -105,11 +105,11 @@ pub trait PanTiltOpsBlocking: Sized {
 
 // Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P, T, E> PanTiltOps for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
+impl<P, T, E> PanTiltControl for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
 where
     P: crate::capabilities::Profile,
     T: crate::transport::AsyncTransport + Send + Sync + 'static,
-    E: crate::executor_unified::Executor,
+    E: crate::executor::Executor,
 {
     async fn pan_tilt_stop(&self) -> Result<(), Error> {
         use crate::command::pan_tilt::PanTilt;
@@ -217,7 +217,7 @@ where
 }
 
 // Blocking implementation for Camera with BlockingMode
-impl<P, T> PanTiltOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
+impl<P, T> PanTiltControlBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile,
     T: crate::transport::BlockingTransport + Send + Sync + 'static,

@@ -8,7 +8,7 @@ use std::time::Instant;
 /// For DeterministicExecutor, this returns virtual time.
 /// For other executors, this returns wall-clock time.
 #[cfg(feature = "async")]
-pub fn now_from_executor_arc<E: crate::executor_unified::Executor>(
+pub fn now_from_executor_arc<E: crate::executor::Executor>(
     executor: &std::sync::Arc<E>,
 ) -> Instant {
     // Try to downcast to DeterministicExecutor
@@ -37,7 +37,7 @@ pub fn now_from_executor_arc<E: crate::executor_unified::Executor>(
 /// For DeterministicExecutor, this returns virtual time.
 /// For other executors, this returns wall-clock time.
 #[cfg(feature = "async")]
-pub fn now_from_executor<E: crate::executor_unified::Executor>(executor: &E) -> Instant {
+pub fn now_from_executor<E: crate::executor::Executor>(executor: &E) -> Instant {
     // Try to downcast to DeterministicExecutor
     #[cfg(feature = "test-utils")]
     {

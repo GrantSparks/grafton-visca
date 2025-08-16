@@ -10,9 +10,9 @@
 //! - `CameraAsync<P, T>` for async cameras (requires executor)
 //! - `CameraBlocking<P, T>` for blocking cameras
 
-pub mod builder_executor;
-pub mod capability_introspection;
-pub mod generic_executor;
+pub mod builder;
+pub mod capabilities;
+pub mod handle;
 pub mod methods;
 pub mod mode;
 pub mod movement_detection;
@@ -20,13 +20,13 @@ pub mod movement_probe;
 pub mod profiles;
 
 // Re-export the new executor-based Camera as the primary Camera type
-pub use generic_executor::Camera;
+pub use handle::Camera;
 
 // Re-export mode markers and type aliases
 pub use mode::{AsyncMode, BlockingMode, CameraAsync, CameraBlocking, CameraMode};
 
 // Re-export builder types
-pub use builder_executor::CameraBuilder;
+pub use builder::CameraBuilder;
 
 // Re-export movement detection types
 pub use movement_probe::{MovementConfig, PanTiltPosition};

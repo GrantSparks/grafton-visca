@@ -10,11 +10,11 @@ fn test_placeholder() {
 }
 
 /*
-use grafton_visca::profiles::{GenericVisca, PTZOpticsG2};
+use grafton_visca::profiles::{GenericVisca, PtzOpticsG2};
 
 #[test]
 fn test_ptzoptics_g2_capabilities() {
-    let profile = PTZOpticsG2;
+    let profile = PtzOpticsG2;
 
     // Test G2-specific capabilities
     assert!(profile.supports_wide_dynamic_range());
@@ -37,7 +37,7 @@ fn test_ptzoptics_g2_capabilities() {
     assert_eq!(profile.tilt_degree_range(), -30.0..=90.0);
 
     // Test preset count
-    assert_eq!(PTZOpticsG2::max_preset_id(), 89);
+    assert_eq!(PtzOpticsG2::max_preset_id(), 89);
 }
 
 #[test]
@@ -95,7 +95,7 @@ fn test_sony_evid70_capabilities() {
 #[test]
 fn test_capabilities_conversion() {
     // Test that capabilities correctly convert between different units
-    let g2 = PTZOpticsG2;
+    let g2 = PtzOpticsG2;
 
     // Pan conversion
     assert_eq!(g2.pan_units_to_degrees(0), 0.0);

@@ -18,7 +18,7 @@ use crate::{
 mod exposure_constants {
     use crate::capabilities::ShutterSpeed;
 
-    pub const PTZOPTICS_G2_SHUTTER_SPEEDS: &[ShutterSpeed] = &[
+    pub const PTZ_OPTICS_G2_SHUTTER_SPEEDS: &[ShutterSpeed] = &[
         ShutterSpeed::new("1/30", 0x01),
         ShutterSpeed::new("1/60", 0x02),
         ShutterSpeed::new("1/90", 0x03),
@@ -53,7 +53,7 @@ mod exposure_constants {
 
 use exposure_constants::*;
 
-const PTZOPTICS_G2_WB_MODES: &[WhiteBalanceMode] = &[
+const PTZ_OPTICS_G2_WB_MODES: &[WhiteBalanceMode] = &[
     WhiteBalanceMode::Auto,
     WhiteBalanceMode::Indoor,
     WhiteBalanceMode::Outdoor,
@@ -77,7 +77,7 @@ const SONY_BRC_WB_MODES: &[WhiteBalanceMode] = &[
     WhiteBalanceMode::Manual,
 ];
 
-/// PTZOptics G2 camera profile.
+/// PtzOptics G2 camera profile.
 ///
 /// This camera supports:
 /// - Pan/Tilt with 340° pan range and -30° to +90° tilt
@@ -92,10 +92,10 @@ const SONY_BRC_WB_MODES: &[WhiteBalanceMode] = &[
 /// Does NOT support:
 /// - ND filters
 #[derive(Debug, Default, Clone, Copy)]
-pub struct PTZOpticsG2;
+pub struct PtzOpticsG2;
 
-impl ProfileMetadata for PTZOpticsG2 {
-    const MODEL_NAME: &'static str = "PTZOptics G2";
+impl ProfileMetadata for PtzOpticsG2 {
+    const MODEL_NAME: &'static str = "PtzOptics G2";
     const DEFAULT_ADDRESS: u8 = 1;
     const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::RawVisca;
     const ACK_TIMEOUT: Duration = Duration::from_millis(100);
@@ -105,7 +105,7 @@ impl ProfileMetadata for PTZOpticsG2 {
     const DEFAULT_UDP_PORT: u16 = 1259;
 }
 
-impl PanTilt for PTZOpticsG2 {
+impl PanTilt for PtzOpticsG2 {
     const PAN_RANGE: std::ops::Range<i16> = -2448..2449;
     const TILT_RANGE: std::ops::Range<i16> = -432..1297;
     const MAX_PAN_SPEED: u8 = 24;
@@ -114,37 +114,37 @@ impl PanTilt for PTZOpticsG2 {
     const TILT_DEGREES_TO_UNITS: f32 = 14.4;
 }
 
-impl Zoom for PTZOpticsG2 {
+impl Zoom for PtzOpticsG2 {
     const OPTICAL_ZOOM_MAX: u16 = 0x4000;
     const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7000);
     const ZOOM_SPEED_RANGE: std::ops::Range<u8> = 0..8;
     const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 862.3;
 }
 
-impl Focus for PTZOpticsG2 {
+impl Focus for PtzOpticsG2 {
     const FOCUS_NEAR_LIMIT: u16 = 0x1000;
     const FOCUS_FAR_LIMIT: u16 = 0xF000;
     const SUPPORTS_AUTO_FOCUS: bool = true;
     const SUPPORTS_ONE_PUSH_FOCUS: bool = true;
 }
 
-impl Exposure for PTZOpticsG2 {
+impl Exposure for PtzOpticsG2 {
     const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1D;
-    const SHUTTER_SPEEDS: &'static [ShutterSpeed] = PTZOPTICS_G2_SHUTTER_SPEEDS;
+    const SHUTTER_SPEEDS: &'static [ShutterSpeed] = PTZ_OPTICS_G2_SHUTTER_SPEEDS;
     const GAIN_RANGE: std::ops::Range<u8> = 0..9;
     const SUPPORTS_AUTO_EXPOSURE: bool = true;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
     const SUPPORTS_WDR: bool = true;
 }
 
-impl WhiteBalance for PTZOpticsG2 {
-    const WB_MODES: &'static [WhiteBalanceMode] = PTZOPTICS_G2_WB_MODES;
+impl WhiteBalance for PtzOpticsG2 {
+    const WB_MODES: &'static [WhiteBalanceMode] = PTZ_OPTICS_G2_WB_MODES;
     const SUPPORTS_ONE_PUSH_WB: bool = true;
     const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
     const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
 }
 
-impl ImageProcessing for PTZOpticsG2 {
+impl ImageProcessing for PtzOpticsG2 {
     const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..18;
     const CONTRAST_RANGE: std::ops::Range<u8> = 0..15;
     const SHARPNESS_RANGE: std::ops::Range<u8> = 0..15;
@@ -156,29 +156,29 @@ impl ImageProcessing for PTZOpticsG2 {
     const SUPPORTS_3D_NR: bool = true;
 }
 
-impl Presets for PTZOpticsG2 {
+impl Presets for PtzOpticsG2 {
     const MAX_PRESETS: u8 = 89;
     const PRESET_SPEED_RANGE: std::ops::Range<u8> = 1..25;
     const SUPPORTS_PRESET_TOUR: bool = false;
 }
 
-impl Power for PTZOpticsG2 {
+impl Power for PtzOpticsG2 {
     const POWER_ON_TIME: Duration = Duration::from_secs(10);
     const SUPPORTS_STANDBY: bool = true;
 }
 
-impl MotionSync for PTZOpticsG2 {
+impl MotionSync for PtzOpticsG2 {
     const SUPPORTS_MOTION_SYNC: bool = true;
     const MAX_MOTION_SYNC_SPEED: u8 = 24;
 }
-impl MenuControl for PTZOpticsG2 {}
+impl MenuControl for PtzOpticsG2 {}
 
-impl crate::capabilities::HasAutoExposure for PTZOpticsG2 {}
-impl crate::capabilities::HasBacklightCompensation for PTZOpticsG2 {}
-impl crate::capabilities::HasWDR for PTZOpticsG2 {}
-impl crate::capabilities::HasOnePushWhiteBalance for PTZOpticsG2 {}
-impl crate::capabilities::HasAutoFocus for PTZOpticsG2 {}
-impl crate::capabilities::HasOnePushFocus for PTZOpticsG2 {}
+impl crate::capabilities::HasAutoExposure for PtzOpticsG2 {}
+impl crate::capabilities::HasBacklightCompensation for PtzOpticsG2 {}
+impl crate::capabilities::HasWDR for PtzOpticsG2 {}
+impl crate::capabilities::HasOnePushWhiteBalance for PtzOpticsG2 {}
+impl crate::capabilities::HasAutoFocus for PtzOpticsG2 {}
+impl crate::capabilities::HasOnePushFocus for PtzOpticsG2 {}
 
 /// Generic VISCA camera profile.
 ///
@@ -316,7 +316,7 @@ impl Focus for SonyFR7 {
 
 impl Exposure for SonyFR7 {
     const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1F;
-    const SHUTTER_SPEEDS: &'static [ShutterSpeed] = PTZOPTICS_G2_SHUTTER_SPEEDS;
+    const SHUTTER_SPEEDS: &'static [ShutterSpeed] = PTZ_OPTICS_G2_SHUTTER_SPEEDS;
     const GAIN_RANGE: std::ops::Range<u8> = 0..16;
     const SUPPORTS_AUTO_EXPOSURE: bool = true;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
@@ -325,7 +325,7 @@ impl Exposure for SonyFR7 {
 }
 
 impl WhiteBalance for SonyFR7 {
-    const WB_MODES: &'static [WhiteBalanceMode] = PTZOPTICS_G2_WB_MODES;
+    const WB_MODES: &'static [WhiteBalanceMode] = PTZ_OPTICS_G2_WB_MODES;
     const SUPPORTS_ONE_PUSH_WB: bool = true;
     const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
     const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
@@ -705,14 +705,14 @@ impl ImageProcessing for NearusBRC300 {
 
 impl MenuControl for NearusBRC300 {}
 
-/// PTZOptics G3 camera profile.
+/// PtzOptics G3 camera profile.
 ///
-/// Latest generation PTZOptics camera with enhanced features.
+/// Latest generation PtzOptics camera with enhanced features.
 #[derive(Debug, Default, Clone, Copy)]
-pub struct PTZOpticsG3;
+pub struct PtzOpticsG3;
 
-impl ProfileMetadata for PTZOpticsG3 {
-    const MODEL_NAME: &'static str = "PTZOptics G3";
+impl ProfileMetadata for PtzOpticsG3 {
+    const MODEL_NAME: &'static str = "PtzOptics G3";
     const DEFAULT_ADDRESS: u8 = 1;
     const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::RawVisca;
     const ACK_TIMEOUT: Duration = Duration::from_millis(100);
@@ -721,7 +721,7 @@ impl ProfileMetadata for PTZOpticsG3 {
     const DEFAULT_UDP_PORT: u16 = 1259;
 }
 
-impl PanTilt for PTZOpticsG3 {
+impl PanTilt for PtzOpticsG3 {
     const PAN_RANGE: std::ops::Range<i16> = -2448..2449;
     const TILT_RANGE: std::ops::Range<i16> = -432..1297;
     const MAX_PAN_SPEED: u8 = 24;
@@ -730,37 +730,37 @@ impl PanTilt for PTZOpticsG3 {
     const TILT_DEGREES_TO_UNITS: f32 = 14.4;
 }
 
-impl Zoom for PTZOpticsG3 {
+impl Zoom for PtzOpticsG3 {
     const OPTICAL_ZOOM_MAX: u16 = 0x4000;
     const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7000);
     const ZOOM_SPEED_RANGE: std::ops::Range<u8> = 0..8;
     const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 862.3;
 }
 
-impl Focus for PTZOpticsG3 {
+impl Focus for PtzOpticsG3 {
     const FOCUS_NEAR_LIMIT: u16 = 0x1000;
     const FOCUS_FAR_LIMIT: u16 = 0xF000;
     const SUPPORTS_AUTO_FOCUS: bool = true;
     const SUPPORTS_ONE_PUSH_FOCUS: bool = true;
 }
 
-impl Exposure for PTZOpticsG3 {
+impl Exposure for PtzOpticsG3 {
     const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1D;
-    const SHUTTER_SPEEDS: &'static [ShutterSpeed] = PTZOPTICS_G2_SHUTTER_SPEEDS;
+    const SHUTTER_SPEEDS: &'static [ShutterSpeed] = PTZ_OPTICS_G2_SHUTTER_SPEEDS;
     const GAIN_RANGE: std::ops::Range<u8> = 0..9;
     const SUPPORTS_AUTO_EXPOSURE: bool = true;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
     const SUPPORTS_WDR: bool = true;
 }
 
-impl WhiteBalance for PTZOpticsG3 {
-    const WB_MODES: &'static [WhiteBalanceMode] = PTZOPTICS_G2_WB_MODES;
+impl WhiteBalance for PtzOpticsG3 {
+    const WB_MODES: &'static [WhiteBalanceMode] = PTZ_OPTICS_G2_WB_MODES;
     const SUPPORTS_ONE_PUSH_WB: bool = true;
     const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
     const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
 }
 
-impl ImageProcessing for PTZOpticsG3 {
+impl ImageProcessing for PtzOpticsG3 {
     const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..18;
     const CONTRAST_RANGE: std::ops::Range<u8> = 0..15;
     const SHARPNESS_RANGE: std::ops::Range<u8> = 0..15;
@@ -772,31 +772,31 @@ impl ImageProcessing for PTZOpticsG3 {
     const SUPPORTS_3D_NR: bool = true;
 }
 
-impl Presets for PTZOpticsG3 {
+impl Presets for PtzOpticsG3 {
     const MAX_PRESETS: u8 = 255;
     const PRESET_SPEED_RANGE: std::ops::Range<u8> = 1..25;
     const SUPPORTS_PRESET_TOUR: bool = true;
 }
 
-impl Power for PTZOpticsG3 {
+impl Power for PtzOpticsG3 {
     const POWER_ON_TIME: Duration = Duration::from_secs(10);
     const SUPPORTS_STANDBY: bool = true;
 }
-impl MenuControl for PTZOpticsG3 {}
+impl MenuControl for PtzOpticsG3 {}
 
-impl MotionSync for PTZOpticsG3 {
+impl MotionSync for PtzOpticsG3 {
     const SUPPORTS_MOTION_SYNC: bool = true;
     const MAX_MOTION_SYNC_SPEED: u8 = 24;
 }
 
-/// PTZOptics 30X camera profile.
+/// PtzOptics 30X camera profile.
 ///
-/// High-end PTZOptics camera with 30x optical zoom.
+/// High-end PtzOptics camera with 30x optical zoom.
 #[derive(Debug, Default, Clone, Copy)]
-pub struct PTZOptics30X;
+pub struct PtzOptics30X;
 
-impl ProfileMetadata for PTZOptics30X {
-    const MODEL_NAME: &'static str = "PTZOptics 30X";
+impl ProfileMetadata for PtzOptics30X {
+    const MODEL_NAME: &'static str = "PtzOptics 30X";
     const DEFAULT_ADDRESS: u8 = 1;
     const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::RawVisca;
     const ACK_TIMEOUT: Duration = Duration::from_millis(100);
@@ -805,7 +805,7 @@ impl ProfileMetadata for PTZOptics30X {
     const DEFAULT_UDP_PORT: u16 = 1259;
 }
 
-impl PanTilt for PTZOptics30X {
+impl PanTilt for PtzOptics30X {
     const PAN_RANGE: std::ops::Range<i16> = -2448..2449;
     const TILT_RANGE: std::ops::Range<i16> = -432..1297;
     const MAX_PAN_SPEED: u8 = 24;
@@ -814,37 +814,37 @@ impl PanTilt for PTZOptics30X {
     const TILT_DEGREES_TO_UNITS: f32 = 14.4;
 }
 
-impl Zoom for PTZOptics30X {
+impl Zoom for PtzOptics30X {
     const OPTICAL_ZOOM_MAX: u16 = 0x7AC0;
     const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7FFF);
     const ZOOM_SPEED_RANGE: std::ops::Range<u8> = 0..8;
     const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 1043.0;
 }
 
-impl Focus for PTZOptics30X {
+impl Focus for PtzOptics30X {
     const FOCUS_NEAR_LIMIT: u16 = 0x1000;
     const FOCUS_FAR_LIMIT: u16 = 0xF000;
     const SUPPORTS_AUTO_FOCUS: bool = true;
     const SUPPORTS_ONE_PUSH_FOCUS: bool = true;
 }
 
-impl Exposure for PTZOptics30X {
+impl Exposure for PtzOptics30X {
     const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1D;
-    const SHUTTER_SPEEDS: &'static [ShutterSpeed] = PTZOPTICS_G2_SHUTTER_SPEEDS;
+    const SHUTTER_SPEEDS: &'static [ShutterSpeed] = PTZ_OPTICS_G2_SHUTTER_SPEEDS;
     const GAIN_RANGE: std::ops::Range<u8> = 0..9;
     const SUPPORTS_AUTO_EXPOSURE: bool = true;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
     const SUPPORTS_WDR: bool = true;
 }
 
-impl WhiteBalance for PTZOptics30X {
-    const WB_MODES: &'static [WhiteBalanceMode] = PTZOPTICS_G2_WB_MODES;
+impl WhiteBalance for PtzOptics30X {
+    const WB_MODES: &'static [WhiteBalanceMode] = PTZ_OPTICS_G2_WB_MODES;
     const SUPPORTS_ONE_PUSH_WB: bool = true;
     const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
     const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
 }
 
-impl ImageProcessing for PTZOptics30X {
+impl ImageProcessing for PtzOptics30X {
     const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..18;
     const CONTRAST_RANGE: std::ops::Range<u8> = 0..15;
     const SHARPNESS_RANGE: std::ops::Range<u8> = 0..15;
@@ -856,24 +856,24 @@ impl ImageProcessing for PTZOptics30X {
     const SUPPORTS_3D_NR: bool = true;
 }
 
-impl Presets for PTZOptics30X {
+impl Presets for PtzOptics30X {
     const MAX_PRESETS: u8 = 100;
     const PRESET_SPEED_RANGE: std::ops::Range<u8> = 1..25;
     const SUPPORTS_PRESET_TOUR: bool = false;
 }
 
-impl Power for PTZOptics30X {
+impl Power for PtzOptics30X {
     const POWER_ON_TIME: Duration = Duration::from_secs(10);
     const SUPPORTS_STANDBY: bool = true;
 }
-impl MenuControl for PTZOptics30X {}
+impl MenuControl for PtzOptics30X {}
 
-impl MotionSync for PTZOptics30X {
+impl MotionSync for PtzOptics30X {
     const SUPPORTS_MOTION_SYNC: bool = true;
     const MAX_MOTION_SYNC_SPEED: u8 = 24;
 }
 
-/// Preset ID for PTZOptics G2 cameras (0-89).
+/// Preset ID for PtzOptics G2 cameras (0-89).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct G2PresetId(u8);
 
@@ -921,7 +921,7 @@ impl TryFrom<u8> for G2PresetId {
     }
 }
 
-/// Gain values for PTZOptics G2 cameras.
+/// Gain values for PtzOptics G2 cameras.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, crate::ViscaEnum)]
 pub enum G2Gain {
     /// 0dB gain
@@ -969,7 +969,7 @@ mod tests {
 
     #[test]
     fn test_ptzoptics_g2_capabilities() {
-        let camera = PTZOpticsG2;
+        let camera = PtzOpticsG2;
 
         assert!(camera.validate_pan(0).is_ok());
         assert!(camera.validate_pan(2448).is_ok());
@@ -990,8 +990,8 @@ mod tests {
 
     #[test]
     fn test_profile_metadata() {
-        assert_eq!(PTZOpticsG2::MODEL_NAME, "PTZOptics G2");
-        assert_eq!(PTZOpticsG2::PROTOCOL_STYLE, ProtocolStyle::RawVisca);
+        assert_eq!(PtzOpticsG2::MODEL_NAME, "PtzOptics G2");
+        assert_eq!(PtzOpticsG2::PROTOCOL_STYLE, ProtocolStyle::RawVisca);
 
         assert_eq!(SonyFR7::MODEL_NAME, "Sony FR7");
         assert!(matches!(
@@ -1004,7 +1004,7 @@ mod tests {
     fn test_profile_introspection() {
         use crate::capabilities::ProfileIntrospection;
 
-        let g2 = PTZOpticsG2;
+        let g2 = PtzOpticsG2;
         let fr7 = SonyFR7;
         let generic = GenericVisca;
 
@@ -1013,7 +1013,7 @@ mod tests {
         assert!(!generic.supports_nd_filter());
 
         let g2_summary = g2.capability_summary();
-        assert!(g2_summary.contains("PTZOptics G2"));
+        assert!(g2_summary.contains("PtzOptics G2"));
 
         let fr7_summary = fr7.capability_summary();
         assert!(fr7_summary.contains("Sony FR7"));

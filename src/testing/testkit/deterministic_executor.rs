@@ -17,10 +17,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{executor_unified::Executor, Error};
+use crate::{executor::Executor, Error};
 
 #[cfg(feature = "rt-tokio")]
-use crate::executor_unified::TokioExecutor;
+use crate::executor::TokioExecutor;
 
 /// Extension trait for executor background task semantics in test utilities.
 ///
@@ -526,9 +526,7 @@ impl DeterministicClock {
 
 impl Executor for DeterministicExecutor {
     type Join<T>
-        = Pin<
-        Box<dyn Future<Output = Result<T, crate::executor_unified::ExecError>> + Send + 'static>,
-    >
+        = Pin<Box<dyn Future<Output = Result<T, crate::executor::ExecError>> + Send + 'static>>
     where
         T: Send + 'static;
 
@@ -669,9 +667,7 @@ where
 // Implement Executor for Arc<DeterministicExecutor> to match the pattern used by other executors
 impl Executor for Arc<DeterministicExecutor> {
     type Join<T>
-        = Pin<
-        Box<dyn Future<Output = Result<T, crate::executor_unified::ExecError>> + Send + 'static>,
-    >
+        = Pin<Box<dyn Future<Output = Result<T, crate::executor::ExecError>> + Send + 'static>>
     where
         T: Send + 'static;
 

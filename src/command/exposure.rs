@@ -9,7 +9,7 @@ use grafton_visca_macros::ViscaEnum;
 // Local imports
 use crate::macros::internal::*;
 use crate::{
-    command::{const_encoding::constants, encode_visca::EncodeVisca, response::ResponseType},
+    command::{const_encoding::constants, encode_visca::EncodeVisca, response::ViscaResponseType},
     error::Error,
     timeout::CommandCategory,
     types::{
@@ -70,7 +70,7 @@ pub enum ExposureCompensation {
 }
 
 impl EncodeVisca for ExposureCompensation {
-    type Response = ();
+    type ViscaResponse = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -79,11 +79,11 @@ impl EncodeVisca for ExposureCompensation {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::const_encoding::{constants, CommandBuilder};
+        use crate::command::const_encoding::{constants, ConstCommandBuilder};
 
         match self {
             Self::On | Self::Off => {
-                let mut builder = CommandBuilder::<6>::new();
+                let mut builder = ConstCommandBuilder::<6>::new();
                 builder.append_mut(constants::exposure::COMPENSATION_ON_OFF_PREFIX);
                 builder.push_mut(match self {
                     Self::On => 0x02,
@@ -93,7 +93,7 @@ impl EncodeVisca for ExposureCompensation {
                 builder.with_camera_id(camera_id).build_into(buffer)
             }
             Self::Reset | Self::Up | Self::Down => {
-                let mut builder = CommandBuilder::<6>::new();
+                let mut builder = ConstCommandBuilder::<6>::new();
                 builder.append_mut(constants::exposure::COMPENSATION_CONTROL_PREFIX);
                 builder.push_mut(match self {
                     Self::Reset => 0x00,
@@ -104,7 +104,7 @@ impl EncodeVisca for ExposureCompensation {
                 builder.with_camera_id(camera_id).build_into(buffer)
             }
             Self::SetLevel(level) => {
-                let mut builder = CommandBuilder::<9>::new();
+                let mut builder = ConstCommandBuilder::<9>::new();
                 builder.append_mut(constants::exposure::COMPENSATION_LEVEL_PREFIX);
                 builder.push_mut(level.to_protocol_value());
                 builder.with_camera_id(camera_id).build_into(buffer)
@@ -112,7 +112,7 @@ impl EncodeVisca for ExposureCompensation {
         }
     }
 
-    fn response_type(&self) -> Option<ResponseType> {
+    fn response_type(&self) -> Option<ViscaResponseType> {
         None
     }
 }
@@ -163,7 +163,7 @@ pub enum Iris {
 
 // Manual implementation to add model validation
 impl EncodeVisca for Iris {
-    type Response = ();
+    type ViscaResponse = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -172,11 +172,11 @@ impl EncodeVisca for Iris {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::const_encoding::{constants, CommandBuilder};
+        use crate::command::const_encoding::{constants, ConstCommandBuilder};
 
         match self {
             Self::Reset | Self::Up | Self::Down => {
-                let mut builder = CommandBuilder::<6>::new();
+                let mut builder = ConstCommandBuilder::<6>::new();
                 builder.append_mut(constants::exposure::IRIS_CONTROL_PREFIX);
                 builder.push_mut(match self {
                     Self::Reset => 0x00,
@@ -187,7 +187,7 @@ impl EncodeVisca for Iris {
                 builder.with_camera_id(camera_id).build_into(buffer)
             }
             Self::SetAperture(level) => {
-                let mut builder = CommandBuilder::<9>::new();
+                let mut builder = ConstCommandBuilder::<9>::new();
                 builder.append_mut(constants::exposure::IRIS_DIRECT_PREFIX);
                 builder.push_nibble_pair_mut(level.value() as u16);
                 builder.with_camera_id(camera_id).build_into(buffer)
@@ -195,7 +195,7 @@ impl EncodeVisca for Iris {
         }
     }
 
-    fn response_type(&self) -> Option<ResponseType> {
+    fn response_type(&self) -> Option<ViscaResponseType> {
         None
     }
 }
@@ -220,7 +220,7 @@ pub enum Shutter {
 
 // Manual implementation to add model validation
 impl EncodeVisca for Shutter {
-    type Response = ();
+    type ViscaResponse = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -229,11 +229,11 @@ impl EncodeVisca for Shutter {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::const_encoding::{constants, CommandBuilder};
+        use crate::command::const_encoding::{constants, ConstCommandBuilder};
 
         match self {
             Self::Reset | Self::Up | Self::Down => {
-                let mut builder = CommandBuilder::<6>::new();
+                let mut builder = ConstCommandBuilder::<6>::new();
                 builder.append_mut(constants::exposure::SHUTTER_CONTROL_PREFIX);
                 builder.push_mut(match self {
                     Self::Reset => 0x00,
@@ -244,7 +244,7 @@ impl EncodeVisca for Shutter {
                 builder.with_camera_id(camera_id).build_into(buffer)
             }
             Self::SetSpeed(speed) => {
-                let mut builder = CommandBuilder::<9>::new();
+                let mut builder = ConstCommandBuilder::<9>::new();
                 builder.append_mut(constants::exposure::SHUTTER_DIRECT_PREFIX);
                 builder.push_nibble_pair_mut(speed.value());
                 builder.with_camera_id(camera_id).build_into(buffer)
@@ -252,7 +252,7 @@ impl EncodeVisca for Shutter {
         }
     }
 
-    fn response_type(&self) -> Option<ResponseType> {
+    fn response_type(&self) -> Option<ViscaResponseType> {
         None
     }
 }
@@ -274,7 +274,7 @@ pub enum Bright {
 }
 
 impl EncodeVisca for Bright {
-    type Response = ();
+    type ViscaResponse = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -283,11 +283,11 @@ impl EncodeVisca for Bright {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::const_encoding::{constants, CommandBuilder};
+        use crate::command::const_encoding::{constants, ConstCommandBuilder};
 
         match self {
             Self::Reset | Self::Up | Self::Down => {
-                let mut builder = CommandBuilder::<6>::new();
+                let mut builder = ConstCommandBuilder::<6>::new();
                 builder.append_mut(constants::exposure::BRIGHTNESS_CONTROL_PREFIX);
                 builder.push_mut(match self {
                     Self::Reset => 0x00,
@@ -298,13 +298,13 @@ impl EncodeVisca for Bright {
                 builder.with_camera_id(camera_id).build_into(buffer)
             }
             Self::SetLevel(level) => {
-                let mut builder = CommandBuilder::<9>::new();
+                let mut builder = ConstCommandBuilder::<9>::new();
                 builder.append_mut(constants::exposure::BRIGHTNESS_DIRECT_PREFIX);
                 builder.push_nibble_pair_mut(level.value());
                 builder.with_camera_id(camera_id).build_into(buffer)
             }
             Self::Direct(level) => {
-                let mut builder = CommandBuilder::<9>::new();
+                let mut builder = ConstCommandBuilder::<9>::new();
                 builder.append_mut(constants::exposure::BRIGHTNESS_VALUE_PREFIX);
                 builder.push_nibble_pair_mut(level.value());
                 builder.with_camera_id(camera_id).build_into(buffer)
@@ -312,7 +312,7 @@ impl EncodeVisca for Bright {
         }
     }
 
-    fn response_type(&self) -> Option<ResponseType> {
+    fn response_type(&self) -> Option<ViscaResponseType> {
         None
     }
 }
@@ -325,13 +325,13 @@ visca_command! {
     enum Spotlight {
         /// Turn spotlight on
         On => {
-            Ok(CommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<16>::new()
                 .append(constants::exposure::SPOTLIGHT_PREFIX)
                 .append(&[0x02]))
         },
         /// Turn spotlight off
         Off => {
-            Ok(CommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<16>::new()
                 .append(constants::exposure::SPOTLIGHT_PREFIX)
                 .append(&[0x03]))
         },
@@ -343,18 +343,18 @@ visca_command! {
     ///
     /// Controls the auto slow shutter feature which automatically reduces shutter speed
     /// in low light conditions to maintain proper exposure. This feature is supported
-    /// on Sony cameras and FR7, but PTZOptics only supports it via HTTP API.
+    /// on Sony cameras and FR7, but PtzOptics only supports it via HTTP API.
     category = "Quick",
     enum AutoSlowShutter {
         /// Turn auto slow shutter on
         On => {
-            Ok(CommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<16>::new()
                 .append(constants::exposure::SPOT_AE_PREFIX)
                 .append(&[0x02]))
         },
         /// Turn auto slow shutter off
         Off => {
-            Ok(CommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<16>::new()
                 .append(constants::exposure::SPOT_AE_PREFIX)
                 .append(&[0x03]))
         },
@@ -563,15 +563,15 @@ mod tests {
             let level = ExposureCompensationLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = ExposureCompensation::SetLevel(level);
-            assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
+            assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
         }
 
         // Other command types should always be valid
         assert!(ExposureCompensation::On
-            .validate_for_model(CameraVariant::PTZOpticsG2)
+            .validate_for_model(CameraVariant::PtzOpticsG2)
             .is_ok());
         assert!(ExposureCompensation::Off
-            .validate_for_model(CameraVariant::PTZOpticsG2)
+            .validate_for_model(CameraVariant::PtzOpticsG2)
             .is_ok());
     }
 
@@ -636,7 +636,7 @@ mod tests {
             let level = DynamicRangeLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = DynamicRange::new(level);
-            assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
+            assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
         }
     }
 
@@ -743,7 +743,7 @@ mod tests {
             let level =
                 IrisLevel::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = Iris::SetAperture(level);
-            assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
+            assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
         }
 
         // Test that non-G2 valid value still passes validation (G2 is more restrictive)
@@ -751,7 +751,7 @@ mod tests {
 
         // Non-direct commands should always be valid
         assert!(Iris::Reset
-            .validate_for_model(CameraVariant::PTZOpticsG2)
+            .validate_for_model(CameraVariant::PtzOpticsG2)
             .is_ok());
     }
 
@@ -858,7 +858,7 @@ mod tests {
             let speed =
                 ShutterSpeed::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = Shutter::SetSpeed(speed);
-            assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
+            assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
         }
 
         // Test that non-G2 valid value still passes validation (G2 is more restrictive)
@@ -866,7 +866,7 @@ mod tests {
 
         // Non-direct commands should always be valid
         assert!(Shutter::Reset
-            .validate_for_model(CameraVariant::PTZOpticsG2)
+            .validate_for_model(CameraVariant::PtzOpticsG2)
             .is_ok());
     }
 
@@ -1045,7 +1045,7 @@ mod tests {
             let level = BrightnessLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = Bright::SetLevel(level);
-            assert!(cmd.validate_for_model(CameraVariant::PTZOpticsG2).is_ok());
+            assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
         }
 
         // Test that non-G2 valid value still passes validation (G2 is more restrictive)
@@ -1053,7 +1053,7 @@ mod tests {
 
         // Non-direct commands should always be valid
         assert!(Bright::Reset
-            .validate_for_model(CameraVariant::PTZOpticsG2)
+            .validate_for_model(CameraVariant::PtzOpticsG2)
             .is_ok());
     }
 

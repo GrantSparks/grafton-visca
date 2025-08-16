@@ -7,7 +7,7 @@ use crate::{
 
 /// Async menu control methods for cameras that support menu navigation.
 #[cfg(feature = "async")]
-pub trait MenuControlOps: Send + Sync {
+pub trait MenuControl: Send + Sync {
     /// Show or hide the on-screen menu.
     async fn set_menu_display(&self, display: bool) -> Result<(), Error>;
 
@@ -20,7 +20,7 @@ pub trait MenuControlOps: Send + Sync {
 
 /// Async direct menu control methods for cameras that support advanced menu control.
 #[cfg(feature = "async")]
-pub trait DirectMenuControlOps: MenuControlOps {
+pub trait DirectMenuControl: MenuControl {
     /// Send a direct menu control command.
     async fn direct_menu_control(&self, control1: u8, control2: u8) -> Result<(), Error>;
 
@@ -29,7 +29,7 @@ pub trait DirectMenuControlOps: MenuControlOps {
 }
 
 /// Blocking menu control methods for cameras that support menu navigation.
-pub trait MenuControlOpsBlocking {
+pub trait MenuControlBlocking {
     /// Show or hide the on-screen menu.
     fn set_menu_display(&self, display: bool) -> Result<(), Error>;
 
@@ -41,7 +41,7 @@ pub trait MenuControlOpsBlocking {
 }
 
 /// Blocking direct menu control methods for cameras that support advanced menu control.
-pub trait DirectMenuControlOpsBlocking: MenuControlOpsBlocking {
+pub trait DirectMenuControlBlocking: MenuControlBlocking {
     /// Send a direct menu control command.
     fn direct_menu_control(&self, control1: u8, control2: u8) -> Result<(), Error>;
 
@@ -51,11 +51,11 @@ pub trait DirectMenuControlOpsBlocking: MenuControlOpsBlocking {
 
 // Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P, T, E> MenuControlOps for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
+impl<P, T, E> MenuControl for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
 where
     P: crate::capabilities::Profile + crate::capabilities::MenuControl,
     T: crate::transport::AsyncTransport + Send + Sync + 'static,
-    E: crate::executor_unified::Executor,
+    E: crate::executor::Executor,
 {
     async fn set_menu_display(&self, display: bool) -> Result<(), Error> {
         use crate::command::menu::MenuDisplayCommand;
@@ -65,15 +65,15 @@ where
     }
 
     async fn menu_navigate(&self, direction: MenuDirection) -> Result<(), Error> {
-        use crate::command::menu::MenuNavigateCommand;
-        let cmd = MenuNavigateCommand::new(direction);
+        use crate::command::menu::MenuNavigate;
+        let cmd = MenuNavigate::new(direction);
         self.send_command(&cmd).await?;
         Ok(())
     }
 
     async fn menu_action(&self, action: MenuAction) -> Result<(), Error> {
-        use crate::command::menu::MenuActionCommand;
-        let cmd = MenuActionCommand::new(action);
+        use crate::command::menu::MenuActionCmd;
+        let cmd = MenuActionCmd::new(action);
         self.send_command(&cmd).await?;
         Ok(())
     }
@@ -81,29 +81,29 @@ where
 
 // Async implementation for DirectMenuControlOps
 #[cfg(feature = "async")]
-impl<P, T, E> DirectMenuControlOps for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
+impl<P, T, E> DirectMenuControl for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
 where
     P: crate::capabilities::Profile + crate::capabilities::MenuControl,
     T: crate::transport::AsyncTransport + Send + Sync + 'static,
-    E: crate::executor_unified::Executor,
+    E: crate::executor::Executor,
 {
     async fn direct_menu_control(&self, control1: u8, control2: u8) -> Result<(), Error> {
-        use crate::command::menu::DirectMenuControlCommand;
-        let cmd = DirectMenuControlCommand::new(control1, control2);
+        use crate::command::menu::DirectMenuControl;
+        let cmd = DirectMenuControl::new(control1, control2);
         self.send_command(&cmd).await?;
         Ok(())
     }
 
     async fn toggle_menu(&self) -> Result<(), Error> {
-        use crate::command::menu::DirectMenuControlCommand;
-        let cmd = DirectMenuControlCommand::open_close();
+        use crate::command::menu::DirectMenuControl;
+        let cmd = DirectMenuControl::open_close();
         self.send_command(&cmd).await?;
         Ok(())
     }
 }
 
 // Blocking implementation for Camera with BlockingMode
-impl<P, T> MenuControlOpsBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
+impl<P, T> MenuControlBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile + crate::capabilities::MenuControl,
     T: crate::transport::BlockingTransport + Send + Sync + 'static,
@@ -116,37 +116,37 @@ where
     }
 
     fn menu_navigate(&self, direction: MenuDirection) -> Result<(), Error> {
-        use crate::command::menu::MenuNavigateCommand;
-        let cmd = MenuNavigateCommand::new(direction);
+        use crate::command::menu::MenuNavigate;
+        let cmd = MenuNavigate::new(direction);
         self.send_command(&cmd)?;
         Ok(())
     }
 
     fn menu_action(&self, action: MenuAction) -> Result<(), Error> {
-        use crate::command::menu::MenuActionCommand;
-        let cmd = MenuActionCommand::new(action);
+        use crate::command::menu::MenuActionCmd;
+        let cmd = MenuActionCmd::new(action);
         self.send_command(&cmd)?;
         Ok(())
     }
 }
 
 // Blocking implementation for DirectMenuControlOpsBlocking
-impl<P, T> DirectMenuControlOpsBlocking
+impl<P, T> DirectMenuControlBlocking
     for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile + crate::capabilities::MenuControl,
     T: crate::transport::BlockingTransport + Send + Sync + 'static,
 {
     fn direct_menu_control(&self, control1: u8, control2: u8) -> Result<(), Error> {
-        use crate::command::menu::DirectMenuControlCommand;
-        let cmd = DirectMenuControlCommand::new(control1, control2);
+        use crate::command::menu::DirectMenuControl;
+        let cmd = DirectMenuControl::new(control1, control2);
         self.send_command(&cmd)?;
         Ok(())
     }
 
     fn toggle_menu(&self) -> Result<(), Error> {
-        use crate::command::menu::DirectMenuControlCommand;
-        let cmd = DirectMenuControlCommand::open_close();
+        use crate::command::menu::DirectMenuControl;
+        let cmd = DirectMenuControl::open_close();
         self.send_command(&cmd)?;
         Ok(())
     }

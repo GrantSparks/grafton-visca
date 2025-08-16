@@ -13,5 +13,5 @@ pub use decode::{
 
 pub use encode::{
     encode_address_set, encode_cancel, encode_frame, encode_if_clear, encode_sony_frame,
-    CommandBuilder, PayloadType, SequenceGenerator, SonyHeader, VISCA_TERMINATOR,
+    FrameBuilder, PayloadType, SequenceGenerator, SonyHeader, VISCA_TERMINATOR,
 };

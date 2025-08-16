@@ -1,11 +1,11 @@
-//! Network and streaming commands for PTZOptics cameras
+//! Network and streaming commands for PtzOptics cameras
 //!
 //! This module contains vendor-specific commands for controlling network and streaming features
-//! on PTZOptics NDI cameras. These are not part of the baseline VISCA standard.
+//! on PtzOptics Ndi cameras. These are not part of the baseline VISCA standard.
 
 use crate::macros::internal::*;
 
-use crate::types::NDIQuality;
+use crate::types::NdiQuality;
 
 visca_bool_command! {
     /// Internal multicast streaming command
@@ -18,7 +18,7 @@ visca_bool_command! {
     }
 }
 
-/// Multicast streaming control for PTZOptics NDI cameras
+/// Multicast streaming control for PtzOptics Ndi cameras
 ///
 /// Vendor-specific command to enable or disable multicast video streaming
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,7 +39,7 @@ impl From<MulticastStreaming> for MulticastStreamingInternal {
 }
 
 impl crate::command::encode_visca::EncodeVisca for MulticastStreaming {
-    type Response = ();
+    type ViscaResponse = ();
     const MAX_SIZE: usize = MulticastStreamingInternal::MAX_SIZE;
     const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
         crate::timeout::CommandCategory::Network;
@@ -53,40 +53,40 @@ impl crate::command::encode_visca::EncodeVisca for MulticastStreaming {
         internal.encode_into(camera_id, buffer)
     }
 
-    fn response_type(&self) -> Option<crate::command::ResponseType> {
+    fn response_type(&self) -> Option<crate::command::ViscaResponseType> {
         MulticastStreamingInternal::new(true).response_type()
     }
 }
 
 visca_param_command! {
-    /// Internal NDI quality command
-    struct NDIQualityCommandInternal {
-        quality: NDIQuality,
+    /// Internal Ndi quality command
+    struct NdiQualityCommandInternal {
+        quality: NdiQuality,
     }
     prefix = crate::command::const_encoding::constants::streaming::NDI_QUALITY_PREFIX;
     param_byte = match quality {
-        NDIQuality::High => 0x01,
-        NDIQuality::Medium => 0x02,
-        NDIQuality::Low => 0x03,
-        NDIQuality::Off => 0x04,
+        NdiQuality::High => 0x01,
+        NdiQuality::Medium => 0x02,
+        NdiQuality::Low => 0x03,
+        NdiQuality::Off => 0x04,
     };
     timeout = Network;
     address = 0x81;
     response = None;
 }
 
-/// NDI streaming quality control command
+/// Ndi streaming quality control command
 ///
-/// Vendor-specific command for PTZOptics NDI cameras to set the NDI stream bandwidth/quality
+/// Vendor-specific command for PtzOptics Ndi cameras to set the Ndi stream bandwidth/quality
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct NDIQualityCommand {
-    /// The NDI quality setting to apply
-    pub quality: NDIQuality,
+pub struct NdiQualityCmd {
+    /// The Ndi quality setting to apply
+    pub quality: NdiQuality,
 }
 
-impl crate::command::encode_visca::EncodeVisca for NDIQualityCommand {
-    type Response = ();
-    const MAX_SIZE: usize = NDIQualityCommandInternal::MAX_SIZE;
+impl crate::command::encode_visca::EncodeVisca for NdiQualityCmd {
+    type ViscaResponse = ();
+    const MAX_SIZE: usize = NdiQualityCommandInternal::MAX_SIZE;
     const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
         crate::timeout::CommandCategory::Network;
 
@@ -95,23 +95,23 @@ impl crate::command::encode_visca::EncodeVisca for NDIQualityCommand {
         camera_id: crate::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, crate::Error> {
-        let internal = NDIQualityCommandInternal {
+        let internal = NdiQualityCommandInternal {
             quality: self.quality,
         };
         internal.encode_into(camera_id, buffer)
     }
 
-    fn response_type(&self) -> Option<crate::command::ResponseType> {
-        NDIQualityCommandInternal {
+    fn response_type(&self) -> Option<crate::command::ViscaResponseType> {
+        NdiQualityCommandInternal {
             quality: self.quality,
         }
         .response_type()
     }
 }
 
-impl NDIQualityCommand {
-    /// Create a new NDI quality command
-    pub fn new(quality: NDIQuality) -> Self {
+impl NdiQualityCmd {
+    /// Create a new Ndi quality command
+    pub fn new(quality: NdiQuality) -> Self {
         Self { quality }
     }
 }
@@ -138,30 +138,30 @@ mod tests {
     );
 
     visca_test!(
-        NDIQualityCommand,
+        NdiQuality,
         test_ndi_quality_high_encoding,
-        NDIQualityCommand::new(NDIQuality::High),
+        NdiQualityCmd::new(NdiQuality::High),
         &[0x81, 0x0B, 0x01, 0x01, 0x01, VISCA_TERMINATOR]
     );
 
     visca_test!(
-        NDIQualityCommand,
+        NdiQuality,
         test_ndi_quality_medium_encoding,
-        NDIQualityCommand::new(NDIQuality::Medium),
+        NdiQualityCmd::new(NdiQuality::Medium),
         &[0x81, 0x0B, 0x01, 0x01, 0x02, VISCA_TERMINATOR]
     );
 
     visca_test!(
-        NDIQualityCommand,
+        NdiQuality,
         test_ndi_quality_low_encoding,
-        NDIQualityCommand::new(NDIQuality::Low),
+        NdiQualityCmd::new(NdiQuality::Low),
         &[0x81, 0x0B, 0x01, 0x01, 0x03, VISCA_TERMINATOR]
     );
 
     visca_test!(
-        NDIQualityCommand,
+        NdiQuality,
         test_ndi_quality_off_encoding,
-        NDIQualityCommand::new(NDIQuality::Off),
+        NdiQualityCmd::new(NdiQuality::Off),
         &[0x81, 0x0B, 0x01, 0x01, 0x04, VISCA_TERMINATOR]
     );
 }

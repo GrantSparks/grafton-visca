@@ -14,8 +14,8 @@
 /// mod tests {
 ///     use crate::macros::test_utils::visca_test;
 ///     
-///     visca_test!(PowerCommand, test_power_on,
-///         PowerCommand::new(true),
+///     visca_test!(Power, test_power_on,
+///         Power::new(true),
 ///         &[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]
 ///     );
 /// }

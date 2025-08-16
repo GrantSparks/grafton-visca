@@ -32,13 +32,13 @@ visca_command! {
     enum NoiseReduction2D {
         /// Disable 2D noise reduction.
         Off => {
-            Ok(CommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<16>::new()
                 .append(constants::image::NOISE_REDUCTION_2D_PREFIX)
                 .push(0x00))
         },
         /// Set 2D noise reduction level.
         Level(level: NoiseReduction2DLevel) => {
-            Ok(CommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<16>::new()
                 .append(constants::image::NOISE_REDUCTION_2D_PREFIX)
                 .push(level.value()))
         }
@@ -55,13 +55,13 @@ visca_command! {
     enum NoiseReduction3D {
         /// Disable 3D noise reduction.
         Off => {
-            Ok(CommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<16>::new()
                 .append(constants::image::NOISE_REDUCTION_3D_PREFIX)
                 .push(0x00))
         },
         /// Set 3D noise reduction level.
         Level(level: NoiseReduction3DLevel) => {
-            Ok(CommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<16>::new()
                 .append(constants::image::NOISE_REDUCTION_3D_PREFIX)
                 .push(level.value()))
         }

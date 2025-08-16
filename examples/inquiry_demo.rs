@@ -206,7 +206,7 @@ fn main() -> grafton_visca::Result<()> {
 #[tokio::main]
 async fn main() -> grafton_visca::Result<()> {
     use grafton_visca::{
-        camera::methods::inquiry::{InquiryOps, PanTiltInquiryOps},
+        camera::methods::inquiry::{InquiryControl, PanTiltInquiryControl},
         transport::tokio::tcp::Tcp,
         CameraBuilder,
     };

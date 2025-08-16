@@ -7,13 +7,13 @@
 //! Most commands in this module are part of the baseline VISCA specification.
 //!
 //! ## Vendor-Specific Commands
-//! - `FocusLock` - PTZOptics specific
+//! - `FocusLock` - PtzOptics specific
 //! - `PushAF` - Sony FR7 specific
 
 use grafton_visca_macros::ViscaEnum;
 
 use crate::{
-    command::{encode_visca::EncodeVisca, ResponseType},
+    command::{encode_visca::EncodeVisca, ViscaResponseType},
     error::Error,
     macros::internal::*,
     timeout::CommandCategory,
@@ -90,7 +90,7 @@ pub enum Focus {
 }
 
 impl EncodeVisca for Focus {
-    type Response = ();
+    type ViscaResponse = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
 
@@ -99,14 +99,14 @@ impl EncodeVisca for Focus {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::const_encoding::{constants, CommandBuilder};
+        use crate::command::const_encoding::{constants, ConstCommandBuilder};
 
         match self {
             Self::Stop | Self::Far | Self::Near => {
                 // Demonstrate type-state pattern usage for Stop command
                 if matches!(self, Self::Stop) {
                     // Use the new type-state API
-                    let builder = CommandBuilder::<6>::new()
+                    let builder = ConstCommandBuilder::<6>::new()
                         .append(constants::focus::MOVEMENT_PREFIX)
                         .push(0x00)
                         .with_camera_id(camera_id)
@@ -116,7 +116,7 @@ impl EncodeVisca for Focus {
                     builder.build_into(buffer)
                 } else {
                     // Use legacy API for other commands
-                    let mut builder = CommandBuilder::<6>::new();
+                    let mut builder = ConstCommandBuilder::<6>::new();
                     builder.append_mut(constants::focus::MOVEMENT_PREFIX);
                     builder.push_mut(match self {
                         Self::Far => 0x02,
@@ -127,7 +127,7 @@ impl EncodeVisca for Focus {
                 }
             }
             Self::FarWithSpeed(_) | Self::NearWithSpeed(_) => {
-                let mut builder = CommandBuilder::<6>::new();
+                let mut builder = ConstCommandBuilder::<6>::new();
                 builder.append_mut(constants::focus::MOVEMENT_PREFIX);
                 builder.push_mut(match self {
                     Self::FarWithSpeed(s) => 0x20 | s.value(),
@@ -137,7 +137,7 @@ impl EncodeVisca for Focus {
                 builder.with_camera_id(camera_id).build_into(buffer)
             }
             Self::Position(position) => {
-                let builder = CommandBuilder::<9>::new()
+                let builder = ConstCommandBuilder::<9>::new()
                     .append(constants::focus::POSITION_PREFIX)
                     .push_visca_u16(position.value())
                     .with_camera_id(camera_id)
@@ -145,7 +145,7 @@ impl EncodeVisca for Focus {
                 builder.build_into(buffer)
             }
             Self::Auto | Self::Manual => {
-                let mut builder = CommandBuilder::<6>::new();
+                let mut builder = ConstCommandBuilder::<6>::new();
                 builder.append_mut(constants::focus::MODE_PREFIX);
                 builder.push_mut(match self {
                     Self::Auto => 0x02,
@@ -155,7 +155,7 @@ impl EncodeVisca for Focus {
                 builder.with_camera_id(camera_id).build_into(buffer)
             }
             Self::OnePushTrigger | Self::Infinity => {
-                let mut builder = CommandBuilder::<6>::new();
+                let mut builder = ConstCommandBuilder::<6>::new();
                 builder.append_mut(constants::focus::ONE_PUSH_PREFIX);
                 builder.push_mut(match self {
                     Self::OnePushTrigger => 0x01,
@@ -167,7 +167,7 @@ impl EncodeVisca for Focus {
         }
     }
 
-    fn response_type(&self) -> Option<ResponseType> {
+    fn response_type(&self) -> Option<ViscaResponseType> {
         None
     }
 }
@@ -261,18 +261,18 @@ visca_command! {
     ///
     /// Controls whether the camera locks focus at the current position.
     ///
-    /// **Vendor-Specific**: This command is specific to PTZOptics cameras.
+    /// **Vendor-Specific**: This command is specific to PtzOptics cameras.
     category = "Quick",
     enum FocusLock {
         /// Enable focus lock
         On => {
-            Ok(CommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<16>::new()
                 .append(crate::command::const_encoding::constants::focus::LOCK_PREFIX)
                 .push(0x02))
         },
         /// Disable focus lock
         Off => {
-            Ok(CommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<16>::new()
                 .append(crate::command::const_encoding::constants::focus::LOCK_PREFIX)
                 .push(0x03))
         },
@@ -294,7 +294,7 @@ pub enum PushAF {
 }
 
 impl EncodeVisca for PushAF {
-    type Response = ();
+    type ViscaResponse = ();
     const MAX_SIZE: usize = 8;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -303,9 +303,9 @@ impl EncodeVisca for PushAF {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::const_encoding::{constants, CommandBuilder};
+        use crate::command::const_encoding::{constants, ConstCommandBuilder};
 
-        let mut builder = CommandBuilder::<8>::new();
+        let mut builder = ConstCommandBuilder::<8>::new();
         builder.append_mut(constants::focus::PUSH_AF_PREFIX);
         builder.push_mut(match self {
             Self::Press => 0x01,
@@ -314,7 +314,7 @@ impl EncodeVisca for PushAF {
         builder.with_camera_id(camera_id).build_into(buffer)
     }
 
-    fn response_type(&self) -> Option<ResponseType> {
+    fn response_type(&self) -> Option<ViscaResponseType> {
         None
     }
 }
