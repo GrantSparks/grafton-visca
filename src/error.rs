@@ -367,6 +367,7 @@ impl From<Infallible> for Error {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
+    use crate::command::const_encoding::VISCA_TERMINATOR;
 
     #[test]
     fn test_visca_error_from_code() {
@@ -413,7 +414,17 @@ mod tests {
     #[test]
     fn test_unknown_error_code_maps_to_unknown() {
         // Test that unrecognized error codes map to Unknown variant
-        let unknown_codes = [0x00, 0x01, 0x06, 0x10, 0x20, 0x30, 0x40, 0x42, 0xFF];
+        let unknown_codes = [
+            0x00,
+            0x01,
+            0x06,
+            0x10,
+            0x20,
+            0x30,
+            0x40,
+            0x42,
+            VISCA_TERMINATOR,
+        ];
 
         for code in unknown_codes {
             let error = Error::from_code(code);
