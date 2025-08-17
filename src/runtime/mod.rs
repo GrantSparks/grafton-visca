@@ -1046,11 +1046,22 @@ async fn handle_response<T: AsyncTransport, E: crate::executor::Executor>(
         ViscaResponse::Error { socket, error } => {
             warn!("Error response: {:?} on socket {:?}", error, socket);
 
-            // Handle buffer full error specially - retry the command
-            // Per VISCA spec, error 0x03 (BufferFull) means camera is busy, queue and retry
-            // Error 0x41 (NotExecutable) means command invalid in current state, don't retry
-            if matches!(error, ViscaError::BufferFull) {
-                eprintln!("[handle_response] Received BUFFER FULL error");
+            // Check if error is retryable based on error type and command context
+            let should_retry = if let Some(sock) = socket {
+                if let Some(cmd_id) = scheduler.socket_command(sock) {
+                    // Get command category to determine if NotExecutable (0x41) is retryable
+                    let category = scheduler.get_command_for_retry(cmd_id)
+                        .map(|(_, _, cat)| cat);
+                    error.is_retryable(category)
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+
+            if should_retry {
+                eprintln!("[handle_response] Received retryable error: {:?}", error);
                 if let Some(sock) = socket {
                     if let Some(cmd_id) = scheduler.socket_command(sock) {
                         eprintln!(

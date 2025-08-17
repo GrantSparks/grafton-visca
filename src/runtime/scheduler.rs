@@ -200,6 +200,22 @@ impl ViscaError {
             ViscaError::Unknown(byte) => *byte,
         }
     }
+
+    /// Check if this error should trigger a retry.
+    ///
+    /// - BufferFull (0x03) always triggers retry
+    /// - NotExecutable (0x41) may trigger retry based on command category
+    pub fn is_retryable(&self, category: Option<CommandCategory>) -> bool {
+        match self {
+            ViscaError::BufferFull => true,  // Always retry on buffer full
+            ViscaError::NotExecutable => {
+                // For certain command categories, 0x41 may indicate "still settling"
+                // This is profile-dependent but for now we retry movement/preset commands
+                matches!(category, Some(CommandCategory::Movement | CommandCategory::Preset))
+            }
+            _ => false,
+        }
+    }
 }
 
 /// Link state events.
