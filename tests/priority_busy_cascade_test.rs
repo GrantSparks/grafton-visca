@@ -13,7 +13,7 @@ use grafton_visca::{
     runtime::{Priority, RuntimeHandle},
     testing::testkit::{
         deterministic_executor::{DeterministicExecutorExt, ExecutorExt},
-        helpers::{ack, not_executable, complete},
+        helpers::{ack, buffer_full, not_executable, complete},
         DeterministicExecutor, ScriptedTransport,
     },
     Executor,
@@ -26,8 +26,9 @@ fn test_busy_cascade_across_priorities() {
     executor.clone().block_on_bg(async move {
         println!("🔧 Setting up busy response test...");
 
-        // Create a transport using the built-in helper for NOT EXECUTABLE then success
-        let steps = grafton_visca::testing::testkit::helpers::not_executable_then_success(1);
+        // Create a transport using the built-in helper for BUFFER FULL then success
+        // BufferFull is always retryable, while NotExecutable is only retryable for Movement/Preset
+        let steps = grafton_visca::testing::testkit::helpers::buffer_full_then_success(1);
 
         let transport = ScriptedTransport::new(steps).with_executor(executor.clone());
 
@@ -77,34 +78,34 @@ fn test_busy_with_max_retries() {
     let (executor, clock) = DeterministicExecutor::new();
 
     executor.clone().block_on_bg(async move {
-        // Create a transport that always returns BUSY to test retry exhaustion
+        // Create a transport that always returns BUFFER FULL to test retry exhaustion
         // Power has category "Quick" with max_retries = 5
-        // We need 6 BUSY responses to trigger exhaustion (attempt > max_retries)
+        // We need 6 BUFFER FULL responses to trigger exhaustion (attempt > max_retries)
         let steps = vec![
             // Keep returning BUSY responses until retries are exhausted
             grafton_visca::testing::testkit::Step::OnSend {
                 matches: None,
-                responses: vec![not_executable(1)],
+                responses: vec![buffer_full(1)],
             },
             grafton_visca::testing::testkit::Step::OnSend {
                 matches: None,
-                responses: vec![not_executable(1)],
+                responses: vec![buffer_full(1)],
             },
             grafton_visca::testing::testkit::Step::OnSend {
                 matches: None,
-                responses: vec![not_executable(1)],
+                responses: vec![buffer_full(1)],
             },
             grafton_visca::testing::testkit::Step::OnSend {
                 matches: None,
-                responses: vec![not_executable(1)],
+                responses: vec![buffer_full(1)],
             },
             grafton_visca::testing::testkit::Step::OnSend {
                 matches: None,
-                responses: vec![not_executable(1)],
+                responses: vec![buffer_full(1)],
             },
             grafton_visca::testing::testkit::Step::OnSend {
                 matches: None,
-                responses: vec![not_executable(1)], // 6th BUSY triggers exhaustion
+                responses: vec![buffer_full(1)], // 6th BUSY triggers exhaustion
             },
         ];
 
@@ -160,7 +161,7 @@ fn test_priority_order_during_busy_recovery() {
             // Critical command gets BUSY
             grafton_visca::testing::testkit::Step::OnSend {
                 matches: None,
-                responses: vec![not_executable(1)],
+                responses: vec![buffer_full(1)],
             },
             // High priority command gets queued
             grafton_visca::testing::testkit::Step::OnSend {
