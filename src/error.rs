@@ -301,24 +301,25 @@ pub enum Error {
 impl Error {
     /// Create an `Error` from a VISCA error response code.
     ///
-    /// ## Why 0x41 maps to CameraBusy
+    /// ## Error Code Mapping
     ///
-    /// The VISCA error code `0x41` ("Command Not Executable") is an umbrella condition
-    /// that includes "busy/try again" scenarios. For scheduling and user experience,
-    /// we treat `0x41` as **retryable**: internally as `ViscaError::Busy` in the
-    /// scheduler, and surfaced as `Error::CameraBusy` to callers.
+    /// - `0x02`: Syntax Error - command format invalid
+    /// - `0x03`: Command Buffer Full - camera busy, always retry later
+    /// - `0x04`: Command Canceled - command was canceled
+    /// - `0x05`: No Socket - no socket available  
+    /// - `0x41`: Command Not Executable - command invalid in current state
     ///
-    /// Non-retryable validation failures continue to surface as `Error::CommandNotExecutable`.
+    /// Note: 0x41 is context-dependent. Some cameras (e.g., FR7) use it to indicate
+    /// "still settling after preset, retry" while others mean "invalid command".
+    /// The runtime determines retry policy based on camera profile and command context.
     #[must_use]
     pub const fn from_code(code: u8) -> Self {
         match code {
             0x02 => Self::SyntaxError,
-            0x03 => Self::CommandBufferFull,
+            0x03 => Self::CommandBufferFull,  // Always retryable
             0x04 => Self::CommandCanceled,
             0x05 => Self::NoSocket,
-            // VISCA 0x41 is "Command Not Executable", which per spec includes busy conditions.
-            // We treat it as retryable BUSY internally to drive scheduler backoff/retry.
-            0x41 => Self::CameraBusy,
+            0x41 => Self::CommandNotExecutable,  // Context-dependent retryability
             _ => Self::Unknown(code),
         }
     }
@@ -377,7 +378,7 @@ mod tests {
         assert!(matches!(Error::from_code(0x03), Error::CommandBufferFull));
         assert!(matches!(Error::from_code(0x04), Error::CommandCanceled));
         assert!(matches!(Error::from_code(0x05), Error::NoSocket));
-        assert!(matches!(Error::from_code(0x41), Error::CameraBusy));
+        assert!(matches!(Error::from_code(0x41), Error::CommandNotExecutable));
         assert!(matches!(Error::from_code(0xFF), Error::Unknown(0xFF)));
     }
 
@@ -390,9 +391,8 @@ mod tests {
             (0x03, "CommandBufferFull"),
             (0x04, "CommandCanceled"),
             (0x05, "NoSocket"),
-            // 0x41 is "Command Not Executable" per VISCA spec, which includes busy conditions
-            // We treat it as retryable BUSY internally for scheduler backoff/retry
-            (0x41, "CameraBusy"),
+            // 0x41 is "Command Not Executable" per VISCA spec - command invalid in current state
+            (0x41, "CommandNotExecutable"),
         ];
 
         for (byte, expected_variant) in cases {
@@ -403,6 +403,7 @@ mod tests {
                 Error::CommandCanceled => "CommandCanceled",
                 Error::NoSocket => "NoSocket",
                 Error::CameraBusy => "CameraBusy",
+                Error::CommandNotExecutable => "CommandNotExecutable",
                 _ => "Unknown",
             };
             assert_eq!(
