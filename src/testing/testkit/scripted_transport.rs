@@ -443,10 +443,16 @@ pub mod helpers {
         vec![0x90, 0x50 | (socket & 0x0F), VISCA_TERMINATOR]
     }
 
-    /// Create a BUSY response for the given socket number (0-7)
-    /// Returns error code 0x41 (Command Not Executable - camera busy, per VISCA spec)
-    pub fn busy(socket: u8) -> Vec<u8> {
+    /// Create a NOT EXECUTABLE response for the given socket number (0-7)
+    /// Returns error code 0x41 (Command Not Executable, per VISCA spec)
+    pub fn not_executable(socket: u8) -> Vec<u8> {
         vec![0x90, 0x60 | (socket & 0x0F), 0x41, VISCA_TERMINATOR]
+    }
+
+    /// Create a BUFFER FULL response for the given socket number (0-7)
+    /// Returns error code 0x03 (Command Buffer Full, per VISCA spec)
+    pub fn buffer_full(socket: u8) -> Vec<u8> {
+        vec![0x90, 0x60 | (socket & 0x0F), 0x03, VISCA_TERMINATOR]
     }
 
     /// Create a standard command response (ACK followed by completion)
@@ -465,20 +471,20 @@ pub mod helpers {
         }
     }
 
-    /// Create an inquiry response (ACK followed by data)
-    pub fn inquiry_response(pattern: Vec<u8>, socket: u8, data: Vec<u8>) -> Step {
+    /// Create an inquiry response (data only, no ACK per VISCA spec)
+    pub fn inquiry_response(pattern: Vec<u8>, _socket: u8, data: Vec<u8>) -> Step {
         Step::OnSend {
             matches: Some(pattern),
-            responses: vec![ack(socket), data],
+            responses: vec![data],  // No ACK for inquiries per VISCA spec
         }
     }
 
-    /// Create a BUSY response followed by successful completion after retry
-    pub fn busy_then_success(socket: u8) -> Vec<Step> {
+    /// Create a BUFFER FULL response followed by successful completion after retry
+    pub fn buffer_full_then_success(socket: u8) -> Vec<Step> {
         vec![
             Step::OnSend {
                 matches: None,
-                responses: vec![busy(socket)],
+                responses: vec![buffer_full(socket)],
             },
             Step::OnSend {
                 matches: None,
@@ -487,15 +493,50 @@ pub mod helpers {
         ]
     }
 
-    /// Create a sequence of BUSY responses followed by success
-    pub fn busy_sequence_then_success(socket: u8, busy_count: usize) -> Vec<Step> {
+    /// Create a NOT EXECUTABLE response followed by successful completion after retry
+    pub fn not_executable_then_success(socket: u8) -> Vec<Step> {
+        vec![
+            Step::OnSend {
+                matches: None,
+                responses: vec![not_executable(socket)],
+            },
+            Step::OnSend {
+                matches: None,
+                responses: vec![ack(socket), complete(socket)],
+            },
+        ]
+    }
+
+    /// Create a sequence of BUFFER FULL responses followed by success
+    pub fn buffer_full_sequence_then_success(socket: u8, full_count: usize) -> Vec<Step> {
         let mut steps = Vec::new();
 
-        // Add BUSY responses
-        for _ in 0..busy_count {
+        // Add BUFFER FULL responses
+        for _ in 0..full_count {
             steps.push(Step::OnSend {
                 matches: None,
-                responses: vec![busy(socket)],
+                responses: vec![buffer_full(socket)],
+            });
+        }
+
+        // Add final success response
+        steps.push(Step::OnSend {
+            matches: None,
+            responses: vec![ack(socket), complete(socket)],
+        });
+
+        steps
+    }
+
+    /// Create a sequence of NOT EXECUTABLE responses followed by success
+    pub fn not_executable_sequence_then_success(socket: u8, error_count: usize) -> Vec<Step> {
+        let mut steps = Vec::new();
+
+        // Add NOT EXECUTABLE responses
+        for _ in 0..error_count {
+            steps.push(Step::OnSend {
+                matches: None,
+                responses: vec![not_executable(socket)],
             });
         }
 

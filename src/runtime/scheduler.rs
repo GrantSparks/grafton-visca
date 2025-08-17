@@ -150,16 +150,14 @@ pub enum Priority {
 pub enum ViscaError {
     /// Syntax error in command.
     SyntaxError,
-    /// Command buffer full.
+    /// Command buffer full (0x03) - always retryable.
     BufferFull,
     /// Command cancelled.
     CommandCancelled,
-    /// Command not executable in current state.
+    /// Command not executable (0x41) - may be retryable based on context.
     NotExecutable,
     /// No socket available.
     NoSocket,
-    /// Camera busy - retry later.
-    Busy,
     /// Network error.
     NetworkError,
     /// Timeout waiting for response.
@@ -171,21 +169,20 @@ pub enum ViscaError {
 impl ViscaError {
     /// Create from VISCA error byte.
     ///
-    /// ## Error Code 0x41 Mapping
+    /// ## Error Code Mapping
     ///
-    /// VISCA 0x41 is "Command Not Executable", which per spec includes busy conditions.
-    /// We treat it as retryable BUSY internally to drive scheduler backoff/retry.
-    /// This ensures commands that fail due to temporary busy conditions are automatically
-    /// retried rather than immediately failing.
+    /// - 0x02: Syntax Error
+    /// - 0x03: Command Buffer Full (camera busy, should queue and retry)
+    /// - 0x04: Command Canceled
+    /// - 0x05: No Socket
+    /// - 0x41: Command Not Executable (command invalid in current state)
     pub fn from_byte(byte: u8) -> Self {
         match byte {
             0x02 => ViscaError::SyntaxError,
-            0x03 => ViscaError::BufferFull,
+            0x03 => ViscaError::BufferFull,  // This is the actual "busy" error
             0x04 => ViscaError::CommandCancelled,
             0x05 => ViscaError::NoSocket,
-            // VISCA 0x41 is "Command Not Executable", which per spec includes busy conditions.
-            // We treat it as retryable BUSY internally to drive scheduler backoff/retry.
-            0x41 => ViscaError::Busy,
+            0x41 => ViscaError::NotExecutable,  // Command not valid in current state
             other => ViscaError::Unknown(other),
         }
     }
@@ -193,7 +190,6 @@ impl ViscaError {
     /// Convert to VISCA error byte.
     pub fn to_byte(&self) -> u8 {
         match self {
-            ViscaError::Busy => 0x41, // Use NotExecutable code for busy (per VISCA spec)
             ViscaError::SyntaxError => 0x02,
             ViscaError::BufferFull => 0x03,
             ViscaError::CommandCancelled => 0x04,
@@ -1112,7 +1108,7 @@ mod tests {
         assert_eq!(ViscaError::from_byte(0x03), ViscaError::BufferFull);
         assert_eq!(ViscaError::from_byte(0x04), ViscaError::CommandCancelled);
         assert_eq!(ViscaError::from_byte(0x05), ViscaError::NoSocket);
-        assert_eq!(ViscaError::from_byte(0x41), ViscaError::Busy);
+        assert_eq!(ViscaError::from_byte(0x41), ViscaError::NotExecutable);
         assert_eq!(ViscaError::from_byte(0xFF), ViscaError::Unknown(0xFF));
     }
 
@@ -1125,9 +1121,8 @@ mod tests {
             (0x03, ViscaError::BufferFull),
             (0x04, ViscaError::CommandCancelled),
             (0x05, ViscaError::NoSocket),
-            // VISCA 0x41 is "Command Not Executable", which per spec includes busy conditions.
-            // We treat it as retryable BUSY internally to drive scheduler backoff/retry.
-            (0x41, ViscaError::Busy),
+            // VISCA 0x41 is "Command Not Executable" - command invalid in current state
+            (0x41, ViscaError::NotExecutable),
         ];
 
         for (byte, expected) in cases {
