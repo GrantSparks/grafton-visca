@@ -189,18 +189,24 @@ mod tokio_tests {
         // Use tokio::time::timeout to ensure test doesn't hang forever
         let result = tokio::time::timeout(
             Duration::from_secs(35), // Give it 35 seconds (default timeout is often 30s)
-            camera.power_on()
-        ).await;
+            camera.power_on(),
+        )
+        .await;
 
         // Should timeout from the VISCA layer, not our test timeout
         match result {
             Ok(inner_result) => {
-                assert!(inner_result.is_err(), "Command should timeout without responses");
+                assert!(
+                    inner_result.is_err(),
+                    "Command should timeout without responses"
+                );
             }
             Err(_) => {
                 // This means our test timeout fired, which shouldn't happen
                 // The VISCA timeout should fire first
-                panic!("Test timeout fired before VISCA timeout - VISCA timeout may not be working");
+                panic!(
+                    "Test timeout fired before VISCA timeout - VISCA timeout may not be working"
+                );
             }
         }
     }
