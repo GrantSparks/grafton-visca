@@ -179,10 +179,10 @@ impl ViscaError {
     pub fn from_byte(byte: u8) -> Self {
         match byte {
             0x02 => ViscaError::SyntaxError,
-            0x03 => ViscaError::BufferFull,  // This is the actual "busy" error
+            0x03 => ViscaError::BufferFull, // This is the actual "busy" error
             0x04 => ViscaError::CommandCancelled,
             0x05 => ViscaError::NoSocket,
-            0x41 => ViscaError::NotExecutable,  // Command not valid in current state
+            0x41 => ViscaError::NotExecutable, // Command not valid in current state
             other => ViscaError::Unknown(other),
         }
     }
@@ -207,11 +207,14 @@ impl ViscaError {
     /// - NotExecutable (0x41) may trigger retry based on command category
     pub fn is_retryable(&self, category: Option<CommandCategory>) -> bool {
         match self {
-            ViscaError::BufferFull => true,  // Always retry on buffer full
+            ViscaError::BufferFull => true, // Always retry on buffer full
             ViscaError::NotExecutable => {
                 // For certain command categories, 0x41 may indicate "still settling"
                 // This is profile-dependent but for now we retry movement/preset commands
-                matches!(category, Some(CommandCategory::Movement | CommandCategory::Preset))
+                matches!(
+                    category,
+                    Some(CommandCategory::Movement | CommandCategory::Preset)
+                )
             }
             _ => false,
         }
@@ -283,6 +286,9 @@ pub struct Scheduler {
         Sender<Result<ViscaResponse>>,
         Option<crate::command::response::ViscaResponseType>,
     )>,
+    /// Commands that have been sent but not yet acknowledged.
+    /// Maps command ID to (bytes, priority, category, sent_time).
+    pending_ack: HashMap<u32, (Vec<u8>, Priority, CommandCategory, Instant)>,
     /// Commands waiting to be retried (after busy response).
     pub retry_queue: Vec<RetryCommand>,
     /// Store command metadata for potential retry.
@@ -568,6 +574,7 @@ impl Scheduler {
             command_queue: BinaryHeap::new(),
             max_retries_per_category: max_retries,
             metrics: SchedulerMetrics::new(),
+            pending_ack: HashMap::new(),
         }
     }
 
@@ -631,6 +638,132 @@ impl Scheduler {
     /// Get command ID for a socket.
     pub fn socket_command(&self, socket: SocketId) -> Option<u32> {
         self.sockets[socket.as_index()].command_id
+    }
+
+    /// Add a command to pending ACK list when sent.
+    pub fn add_pending_ack(
+        &mut self,
+        id: u32,
+        bytes: Vec<u8>,
+        priority: Priority,
+        category: CommandCategory,
+        now: Instant,
+    ) {
+        self.pending_ack
+            .insert(id, (bytes, priority, category, now));
+        debug!("Added command {} to pending ACK list", id);
+    }
+
+    /// Handle ACK received - assign socket to command.
+    pub fn handle_ack(&mut self, socket: SocketId, now: Instant) -> Option<u32> {
+        // Find oldest pending command (FIFO order for ACKs)
+        let oldest_id = self
+            .pending_ack
+            .iter()
+            .min_by_key(|(_, (_, _, _, sent_time))| *sent_time)
+            .map(|(id, _)| *id)?;
+
+        // Remove from pending and assign to socket
+        if let Some((bytes, priority, category, _)) = self.pending_ack.remove(&oldest_id) {
+            // Now allocate the specific socket the camera assigned
+            let idx = socket.as_index();
+            let state = &mut self.sockets[idx];
+
+            if !state.free {
+                warn!(
+                    "Camera assigned {:?} but it's already occupied by command {:?}",
+                    socket, state.command_id
+                );
+                // This shouldn't happen with proper VISCA implementation
+                return None;
+            }
+
+            state.free = false;
+            state.command_id = Some(oldest_id);
+            state.started_at = Some(now);
+            state.category = Some(category);
+
+            // Store metadata for potential retry
+            self.store_command_metadata(oldest_id, bytes, priority, category);
+
+            debug!(
+                "Assigned command {} to {:?} per camera ACK",
+                oldest_id, socket
+            );
+            Some(oldest_id)
+        } else {
+            warn!("Failed to remove command {} from pending ACK", oldest_id);
+            None
+        }
+    }
+
+    /// Check if a command is pending ACK.
+    pub fn is_pending_ack(&self, id: u32) -> bool {
+        self.pending_ack.contains_key(&id)
+    }
+
+    /// Check if we can send another command (have room for pending ACK).
+    /// VISCA cameras support max 2 concurrent commands.
+    pub fn can_send_command(&self) -> bool {
+        // Count commands that are either pending ACK or have a socket allocated
+        let pending_count = self.pending_ack.len();
+        let allocated_count = self.sockets.iter().filter(|s| !s.free).count();
+        let total_in_flight = pending_count + allocated_count;
+
+        debug!(
+            "Commands in flight: {} pending ACK + {} allocated = {}/2",
+            pending_count, allocated_count, total_in_flight
+        );
+
+        total_in_flight < 2
+    }
+
+    /// Handle error for pending ACK commands.
+    /// When error arrives without socket (0x03 BufferFull), it applies to pending command.
+    pub fn handle_pending_ack_error(
+        &mut self,
+        error: ViscaError,
+    ) -> Option<(u32, Priority, CommandCategory)> {
+        // Find oldest pending command that would get this error
+        let oldest = self
+            .pending_ack
+            .iter()
+            .min_by_key(|(_, (_, _, _, sent_time))| *sent_time)
+            .map(|(id, (_, priority, category, _))| (*id, *priority, *category))?;
+
+        // Remove from pending since it got an error
+        self.pending_ack.remove(&oldest.0);
+
+        debug!(
+            "Removed command {} from pending ACK due to error {:?}",
+            oldest.0, error
+        );
+        Some(oldest)
+    }
+
+    /// Handle error for pending ACK commands, returning bytes for retry.
+    /// When error arrives without socket (0x03 BufferFull), it applies to pending command.
+    pub fn handle_pending_ack_error_with_bytes(
+        &mut self,
+        error: ViscaError,
+    ) -> Option<(u32, Priority, CommandCategory, Vec<u8>)> {
+        // Find oldest pending command that would get this error
+        let oldest = self
+            .pending_ack
+            .iter()
+            .min_by_key(|(_, (_, _, _, sent_time))| *sent_time)
+            .map(|(id, (bytes, priority, category, _))| {
+                (*id, *priority, *category, bytes.clone())
+            })?;
+
+        // Remove from pending since it got an error
+        self.pending_ack.remove(&oldest.0);
+
+        debug!(
+            "Removed command {} from pending ACK due to error {:?}",
+            oldest.0, error
+        );
+        Some(oldest)
     }
 
     /// Enforce minimum command spacing.
@@ -1104,6 +1237,56 @@ impl Scheduler {
 mod tests {
     use super::*;
     use crate::protocol::encode::VISCA_TERMINATOR;
+    use std::time::Duration;
+
+    #[test]
+    fn test_can_send_command() {
+        let (_tx, rx) = flume::unbounded();
+        let (event_tx, _event_rx) = flume::unbounded();
+        let mut scheduler = Scheduler::new(rx, event_tx);
+        let now = Instant::now();
+
+        // Initially can send 2 commands
+        assert!(scheduler.can_send_command());
+
+        // Add first pending ACK
+        scheduler.add_pending_ack(
+            1,
+            vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
+            Priority::Normal,
+            CommandCategory::Quick,
+            now,
+        );
+        assert!(scheduler.can_send_command()); // Still room for 1 more
+
+        // Add second pending ACK (with slightly later timestamp for deterministic ordering)
+        scheduler.add_pending_ack(
+            2,
+            vec![0x81, 0x01, 0x07, 0x00, 0x02, VISCA_TERMINATOR],
+            Priority::Normal,
+            CommandCategory::Movement,
+            now + Duration::from_nanos(1),
+        );
+        assert!(!scheduler.can_send_command()); // Now at limit
+
+        // Simulate ACK for first command - assigns socket 1
+        let cmd_id = scheduler.handle_ack(SocketId::Socket1, now).unwrap();
+        assert_eq!(cmd_id, 1);
+        assert!(!scheduler.can_send_command()); // Still at limit (1 pending + 1 allocated)
+
+        // Simulate ACK for second command - assigns socket 2
+        let cmd_id = scheduler.handle_ack(SocketId::Socket2, now).unwrap();
+        assert_eq!(cmd_id, 2);
+        assert!(!scheduler.can_send_command()); // Still at limit (0 pending + 2 allocated)
+
+        // Free socket 1
+        scheduler.free_socket(SocketId::Socket1);
+        assert!(scheduler.can_send_command()); // Now have room for 1
+
+        // Free socket 2
+        scheduler.free_socket(SocketId::Socket2);
+        assert!(scheduler.can_send_command()); // Back to full capacity
+    }
 
     #[test]
     fn test_socket_id_conversion() {
