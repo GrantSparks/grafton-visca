@@ -604,6 +604,27 @@ async fn runtime_loop_with_config<T: AsyncTransport, E: crate::executor::Executo
                 // debug!("[runtime loop] Tick fired");
                 // Handle tick - check for timeouts and retries
                 let now = time_utils::now_from_executor_arc(&executor);
+
+                // Check for commands that have timed out waiting for ACK
+                let pending_ack_timeouts = scheduler.check_pending_ack_timeouts(now);
+                for cmd_id in pending_ack_timeouts {
+                    debug!("Command {} timed out waiting for ACK", cmd_id);
+                    // Notify the waiting high-level caller
+                    if let Some(tx) = scheduler.get_response_channel(cmd_id) {
+                        let _ = tx.send(Err(Error::Timeout));
+                    }
+
+                    // Emit the structured RxEvent for observers/metrics
+                    let _ = event_tx
+                        .send_async(RxEvent::Error {
+                            code: ViscaError::Timeout,
+                            socket: None, // No socket assigned yet
+                            id: Some(cmd_id),
+                        })
+                        .await;
+                }
+
+                // Check for commands in sockets that have timed out
                 let timed_out = scheduler.check_timeouts(now);
                 for (socket, cmd_id) in timed_out {
                     // First, notify the waiting high-level caller

@@ -820,6 +820,37 @@ impl Scheduler {
         timed_out
     }
 
+    /// Check for timed out pending ACK commands.
+    /// Returns list of command IDs that have timed out while waiting for ACK.
+    pub fn check_pending_ack_timeouts(&mut self, now: Instant) -> Vec<u32> {
+        let mut timed_out = Vec::new();
+
+        // Check each pending ACK command
+        let mut to_remove = Vec::new();
+        for (id, (_, _, _category, sent_time)) in self.pending_ack.iter() {
+            // Use a shorter timeout for ACK (e.g., 2 seconds)
+            // According to VISCA spec, ACK should arrive within ~33ms
+            // But we'll be generous to account for network delays
+            let ack_timeout = Duration::from_secs(2);
+
+            if now.duration_since(*sent_time) > ack_timeout {
+                warn!(
+                    "Command {} timed out waiting for ACK after {:?}",
+                    id, ack_timeout
+                );
+                timed_out.push(*id);
+                to_remove.push(*id);
+            }
+        }
+
+        // Remove timed out commands from pending_ack
+        for id in to_remove {
+            self.pending_ack.remove(&id);
+        }
+
+        timed_out
+    }
+
     /// Set command spacing duration.
     #[cfg(feature = "async")]
     pub fn set_command_spacing(&mut self, spacing: Duration) {

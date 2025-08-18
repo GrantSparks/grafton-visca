@@ -175,7 +175,6 @@ mod tokio_tests {
     }
 
     #[tokio::test]
-    #[ignore = "Timeout handling needs investigation - currently hangs"]
     async fn test_socket_manager_timeout_handling() {
         let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
         // Create transport with no scripted responses - will timeout
