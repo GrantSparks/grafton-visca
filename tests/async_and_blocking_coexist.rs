@@ -84,6 +84,7 @@ fn test_both_preludes_available() {
     #[cfg(all(feature = "async", feature = "rt-tokio"))]
     {
         use grafton_visca::prelude::r#async as async_prelude;
+
         type _AsyncG2 = async_prelude::PtzOpticsG2Cam<AsyncTcp>;
     }
 }

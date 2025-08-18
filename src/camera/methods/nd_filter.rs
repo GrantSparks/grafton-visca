@@ -60,6 +60,7 @@ where
 {
     async fn set_nd_filter_mode(&self, mode: CommandNDFilterMode) -> Result<(), Error> {
         use crate::command::nd_filter::NdFilterModeCmd;
+
         let cmd = NdFilterModeCmd::new(mode);
         self.send_command(&cmd).await?;
         Ok(())
@@ -67,6 +68,7 @@ where
 
     async fn set_nd_filter_value(&self, value: u16) -> Result<(), Error> {
         use crate::command::nd_filter::NDFilterValue;
+
         let cmd = NDFilterValue::new(value).map_err(|_| Error::InvalidParameter {
             parameter: "value",
             value: value.to_string().into(),
@@ -78,6 +80,7 @@ where
 
     async fn set_nd_filter_stops(&self, stops: f32) -> Result<(), Error> {
         use crate::command::nd_filter::NDFilterValue;
+
         let cmd = NDFilterValue::from_stops(stops).map_err(|_| Error::InvalidParameter {
             parameter: "stops",
             value: stops.to_string().into(),
@@ -89,6 +92,7 @@ where
 
     async fn step_nd_filter(&self, direction: NDFilterStep) -> Result<(), Error> {
         use crate::command::nd_filter::NdFilterStepCmd;
+
         let cmd = NdFilterStepCmd::new(direction);
         self.send_command(&cmd).await?;
         Ok(())
@@ -96,6 +100,7 @@ where
 
     async fn set_auto_nd(&self, enabled: bool) -> Result<(), Error> {
         use crate::command::nd_filter::AutoNDCommand;
+
         let cmd = AutoNDCommand::new(enabled);
         self.send_command(&cmd).await?;
         Ok(())
@@ -103,6 +108,7 @@ where
 
     async fn get_nd_filter(&self) -> Result<u8, Error> {
         use crate::command::{inquiry::NdFilterInquiry, response::ViscaResponse, InquiryResponse};
+
         let inquiry = NdFilterInquiry;
         let response = self.send_command(&inquiry).await?;
         match response {
@@ -120,6 +126,7 @@ where
 {
     fn set_nd_filter_mode(&self, mode: CommandNDFilterMode) -> Result<(), Error> {
         use crate::command::nd_filter::NdFilterModeCmd;
+
         let cmd = NdFilterModeCmd::new(mode);
         self.send_command(&cmd)?;
         Ok(())
@@ -127,6 +134,7 @@ where
 
     fn set_nd_filter_value(&self, value: u16) -> Result<(), Error> {
         use crate::command::nd_filter::NDFilterValue;
+
         let cmd = NDFilterValue::new(value).map_err(|_| Error::InvalidParameter {
             parameter: "value",
             value: value.to_string().into(),
@@ -138,6 +146,7 @@ where
 
     fn set_nd_filter_stops(&self, stops: f32) -> Result<(), Error> {
         use crate::command::nd_filter::NDFilterValue;
+
         let cmd = NDFilterValue::from_stops(stops).map_err(|_| Error::InvalidParameter {
             parameter: "stops",
             value: stops.to_string().into(),
@@ -149,6 +158,7 @@ where
 
     fn step_nd_filter(&self, direction: NDFilterStep) -> Result<(), Error> {
         use crate::command::nd_filter::NdFilterStepCmd;
+
         let cmd = NdFilterStepCmd::new(direction);
         self.send_command(&cmd)?;
         Ok(())
@@ -156,6 +166,7 @@ where
 
     fn set_auto_nd(&self, enabled: bool) -> Result<(), Error> {
         use crate::command::nd_filter::AutoNDCommand;
+
         let cmd = AutoNDCommand::new(enabled);
         self.send_command(&cmd)?;
         Ok(())
@@ -163,6 +174,7 @@ where
 
     fn get_nd_filter(&self) -> Result<u8, Error> {
         use crate::command::{inquiry::NdFilterInquiry, response::ViscaResponse, InquiryResponse};
+
         let inquiry = NdFilterInquiry;
         let response = self.send_command(&inquiry)?;
         match response {

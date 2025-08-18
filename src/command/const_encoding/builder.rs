@@ -1,7 +1,8 @@
 //! Stack-allocated command builder for hybrid const/runtime encoding.
 
-use crate::command::const_encoding::VISCA_TERMINATOR;
 use core::marker::PhantomData;
+
+use crate::command::const_encoding::VISCA_TERMINATOR;
 
 /// Type state for an incomplete (unterminated) command
 #[derive(Debug, Clone, Copy)]

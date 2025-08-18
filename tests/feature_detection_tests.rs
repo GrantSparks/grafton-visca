@@ -5,8 +5,10 @@
 
 #[cfg(feature = "async")]
 use grafton_visca::{camera::AsyncMode, transport::async_transport::AsyncTransport};
+
 #[cfg(not(feature = "async"))]
 use grafton_visca::{camera::BlockingMode, transport::BlockingTransport};
+
 use grafton_visca::{
     camera::Camera,
     capabilities::{MotionSync, NDFilter, Profile, VariableSpeed},

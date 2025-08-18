@@ -59,6 +59,7 @@ where
 {
     async fn set_menu_display(&self, display: bool) -> Result<(), Error> {
         use crate::command::menu::MenuDisplayCommand;
+
         let cmd = MenuDisplayCommand::new(display);
         self.send_command(&cmd).await?;
         Ok(())
@@ -66,6 +67,7 @@ where
 
     async fn menu_navigate(&self, direction: MenuDirection) -> Result<(), Error> {
         use crate::command::menu::MenuNavigate;
+
         let cmd = MenuNavigate::new(direction);
         self.send_command(&cmd).await?;
         Ok(())
@@ -73,6 +75,7 @@ where
 
     async fn menu_action(&self, action: MenuAction) -> Result<(), Error> {
         use crate::command::menu::MenuActionCmd;
+
         let cmd = MenuActionCmd::new(action);
         self.send_command(&cmd).await?;
         Ok(())
@@ -89,6 +92,7 @@ where
 {
     async fn direct_menu_control(&self, control1: u8, control2: u8) -> Result<(), Error> {
         use crate::command::menu::DirectMenuControl;
+
         let cmd = DirectMenuControl::new(control1, control2);
         self.send_command(&cmd).await?;
         Ok(())
@@ -96,6 +100,7 @@ where
 
     async fn toggle_menu(&self) -> Result<(), Error> {
         use crate::command::menu::DirectMenuControl;
+
         let cmd = DirectMenuControl::open_close();
         self.send_command(&cmd).await?;
         Ok(())
@@ -110,6 +115,7 @@ where
 {
     fn set_menu_display(&self, display: bool) -> Result<(), Error> {
         use crate::command::menu::MenuDisplayCommand;
+
         let cmd = MenuDisplayCommand::new(display);
         self.send_command(&cmd)?;
         Ok(())
@@ -117,6 +123,7 @@ where
 
     fn menu_navigate(&self, direction: MenuDirection) -> Result<(), Error> {
         use crate::command::menu::MenuNavigate;
+
         let cmd = MenuNavigate::new(direction);
         self.send_command(&cmd)?;
         Ok(())
@@ -124,6 +131,7 @@ where
 
     fn menu_action(&self, action: MenuAction) -> Result<(), Error> {
         use crate::command::menu::MenuActionCmd;
+
         let cmd = MenuActionCmd::new(action);
         self.send_command(&cmd)?;
         Ok(())
@@ -139,6 +147,7 @@ where
 {
     fn direct_menu_control(&self, control1: u8, control2: u8) -> Result<(), Error> {
         use crate::command::menu::DirectMenuControl;
+
         let cmd = DirectMenuControl::new(control1, control2);
         self.send_command(&cmd)?;
         Ok(())
@@ -146,6 +155,7 @@ where
 
     fn toggle_menu(&self) -> Result<(), Error> {
         use crate::command::menu::DirectMenuControl;
+
         let cmd = DirectMenuControl::open_close();
         self.send_command(&cmd)?;
         Ok(())

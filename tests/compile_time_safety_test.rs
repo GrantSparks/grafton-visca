@@ -5,6 +5,7 @@
 
 #[cfg(feature = "test-utils")]
 use grafton_visca::prelude::blocking::{GenericViscaCam, PtzOpticsG2Cam, SonyFR7Cam};
+
 #[cfg(feature = "test-utils")]
 use grafton_visca::{
     camera::methods::{

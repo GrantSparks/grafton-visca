@@ -482,6 +482,7 @@ mod tests {
     #[test]
     fn test_visca_error_from_nom_error() {
         use nom::error::{Error as NomError, ErrorKind};
+
         let nom_err = nom::Err::Error(NomError::new(&b"test"[..], ErrorKind::Tag));
         let visca_err = Error::from(nom_err);
         assert!(matches!(visca_err, Error::ParseError(_)));

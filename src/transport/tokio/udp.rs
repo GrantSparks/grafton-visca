@@ -1,11 +1,13 @@
 //! Tokio UDP transport implementation with zero-cost async and IPv6 support.
 
-use crate::transport::AsyncTransport;
-use crate::Error;
 use bytes::Bytes;
+use tokio::net::UdpSocket;
+
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
-use tokio::net::UdpSocket;
+
+use crate::transport::AsyncTransport;
+use crate::Error;
 
 /// UDP transport for async VISCA communication using tokio.
 ///

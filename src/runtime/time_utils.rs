@@ -29,6 +29,7 @@ pub fn now_from_executor_arc<E: crate::executor::Executor>(
     #[cfg(feature = "rt-tokio")]
     {
         use std::any::Any;
+
         let executor_any: &dyn Any = &**executor;
         if executor_any.is::<crate::executor::TokioExecutor>() {
             // Use tokio's time which respects pause in tests
@@ -73,6 +74,7 @@ pub fn now_from_executor<E: crate::executor::Executor>(executor: &E) -> Instant 
     #[cfg(feature = "rt-tokio")]
     {
         use std::any::Any;
+
         let executor_any: &dyn Any = executor;
         if executor_any.is::<crate::executor::TokioExecutor>() {
             // Use tokio's time which respects pause in tests

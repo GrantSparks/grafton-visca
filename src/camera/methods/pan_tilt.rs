@@ -113,6 +113,7 @@ where
 {
     async fn pan_tilt_stop(&self) -> Result<(), Error> {
         use crate::command::pan_tilt::PanTilt;
+
         let cmd = PanTilt::Move {
             direction: PanTiltDirection::Stop,
             pan_speed: PanSpeed::from(SpeedLevel::Medium),
@@ -124,6 +125,7 @@ where
 
     async fn pan_tilt_home(&self) -> Result<(), Error> {
         use crate::command::pan_tilt::PanTilt;
+
         let cmd = PanTilt::Home;
         self.send_command(&cmd).await?;
         Ok(())
@@ -136,6 +138,7 @@ where
         speed: SpeedLevel,
     ) -> Result<(), Error> {
         use crate::command::pan_tilt::PanTilt;
+
         // Convert Degrees to Position and SpeedLevel to individual speeds
         let pan_pos = PanPosition::from_degrees(pan.0)?;
         let tilt_pos = TiltPosition::from_degrees(tilt.0)?;
@@ -158,6 +161,7 @@ where
         speed: SpeedLevel,
     ) -> Result<(), Error> {
         use crate::command::pan_tilt::PanTilt;
+
         // Convert Degrees to Position and SpeedLevel to individual speeds
         let pan_pos = PanPosition::from_degrees(pan.0)?;
         let tilt_pos = TiltPosition::from_degrees(tilt.0)?;
@@ -180,6 +184,7 @@ where
         tilt_speed: TiltSpeed,
     ) -> Result<(), Error> {
         use crate::command::pan_tilt::PanTilt;
+
         let cmd = PanTilt::Move {
             direction,
             pan_speed,
@@ -191,6 +196,7 @@ where
 
     async fn pan_tilt_reset(&self) -> Result<(), Error> {
         use crate::command::pan_tilt::PanTilt;
+
         let cmd = PanTilt::Reset;
         self.send_command(&cmd).await?;
         Ok(())
@@ -203,6 +209,7 @@ where
         tilt: TiltPosition,
     ) -> Result<(), Error> {
         use crate::command::pan_tilt::PanTilt;
+
         let cmd = PanTilt::LimitSet { corner, pan, tilt };
         self.send_command(&cmd).await?;
         Ok(())
@@ -210,6 +217,7 @@ where
 
     async fn pan_tilt_limit_clear(&self, corner: PanTiltLimitCorner) -> Result<(), Error> {
         use crate::command::pan_tilt::PanTilt;
+
         let cmd = PanTilt::LimitClear { corner };
         self.send_command(&cmd).await?;
         Ok(())
@@ -224,6 +232,7 @@ where
 {
     fn pan_tilt_stop(&self) -> Result<(), Error> {
         use crate::command::pan_tilt::PanTilt;
+
         let cmd = PanTilt::Move {
             direction: PanTiltDirection::Stop,
             pan_speed: PanSpeed::from(SpeedLevel::Medium),
@@ -235,6 +244,7 @@ where
 
     fn pan_tilt_home(&self) -> Result<(), Error> {
         use crate::command::pan_tilt::PanTilt;
+
         let cmd = PanTilt::Home;
         self.send_command(&cmd)?;
         Ok(())
@@ -247,6 +257,7 @@ where
         speed: SpeedLevel,
     ) -> Result<(), Error> {
         use crate::command::pan_tilt::PanTilt;
+
         // Convert Degrees to Position and SpeedLevel to individual speeds
         let pan_pos = PanPosition::from_degrees(pan.0)?;
         let tilt_pos = TiltPosition::from_degrees(tilt.0)?;
@@ -269,6 +280,7 @@ where
         speed: SpeedLevel,
     ) -> Result<(), Error> {
         use crate::command::pan_tilt::PanTilt;
+
         // Convert Degrees to Position and SpeedLevel to individual speeds
         let pan_pos = PanPosition::from_degrees(pan.0)?;
         let tilt_pos = TiltPosition::from_degrees(tilt.0)?;
@@ -291,6 +303,7 @@ where
         tilt_speed: TiltSpeed,
     ) -> Result<(), Error> {
         use crate::command::pan_tilt::PanTilt;
+
         let cmd = PanTilt::Move {
             direction,
             pan_speed,
@@ -302,6 +315,7 @@ where
 
     fn pan_tilt_reset(&self) -> Result<(), Error> {
         use crate::command::pan_tilt::PanTilt;
+
         let cmd = PanTilt::Reset;
         self.send_command(&cmd)?;
         Ok(())
@@ -314,6 +328,7 @@ where
         tilt: TiltPosition,
     ) -> Result<(), Error> {
         use crate::command::pan_tilt::PanTilt;
+
         let cmd = PanTilt::LimitSet { corner, pan, tilt };
         self.send_command(&cmd)?;
         Ok(())
@@ -321,6 +336,7 @@ where
 
     fn pan_tilt_limit_clear(&self, corner: PanTiltLimitCorner) -> Result<(), Error> {
         use crate::command::pan_tilt::PanTilt;
+
         let cmd = PanTilt::LimitClear { corner };
         self.send_command(&cmd)?;
         Ok(())

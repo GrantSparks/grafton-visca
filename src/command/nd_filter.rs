@@ -10,9 +10,7 @@
 //! - All ND filter commands - Sony FR7 specific
 //! - The FR7 supports variable ND filter (2 to 7 stops, continuously variable)
 
-use crate::macros::internal::*;
-
-use crate::{command::const_encoding::constants, error::Error};
+use crate::{command::const_encoding::constants, error::Error, macros::internal::*};
 
 /// ND filter mode for Sony FR7.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

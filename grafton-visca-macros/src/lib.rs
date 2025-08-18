@@ -11,8 +11,9 @@
 #![deny(missing_docs)]
 #![doc(html_root_url = "https://docs.rs/grafton-visca/0.5.0")]
 
-use proc_macro::TokenStream;
 use syn::{parse_macro_input, DeriveInput};
+
+use proc_macro::TokenStream;
 
 mod inquiry_command;
 mod parser_templates;

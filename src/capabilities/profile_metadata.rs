@@ -1,7 +1,8 @@
 //! Core profile metadata trait for camera identification and protocol configuration.
 
-use crate::capabilities::CameraFeature;
 use std::time::Duration;
+
+use crate::capabilities::CameraFeature;
 
 /// Core trait that all camera profiles must implement.
 ///

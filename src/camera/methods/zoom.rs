@@ -67,6 +67,7 @@ where
 {
     async fn zoom_stop(&self) -> Result<(), Error> {
         use crate::command::zoom::Zoom;
+
         let cmd = Zoom::Stop;
         self.send_command(&cmd).await?;
         Ok(())
@@ -74,6 +75,7 @@ where
 
     async fn zoom_tele_std(&self) -> Result<(), Error> {
         use crate::command::zoom::Zoom;
+
         let cmd = Zoom::TeleStd;
         self.send_command(&cmd).await?;
         Ok(())
@@ -81,6 +83,7 @@ where
 
     async fn zoom_wide_std(&self) -> Result<(), Error> {
         use crate::command::zoom::Zoom;
+
         let cmd = Zoom::WideStd;
         self.send_command(&cmd).await?;
         Ok(())
@@ -88,6 +91,7 @@ where
 
     async fn zoom_tele_variable(&self, speed: ZoomSpeed) -> Result<(), Error> {
         use crate::command::zoom::Zoom;
+
         let cmd = Zoom::TeleVariable(speed);
         self.send_command(&cmd).await?;
         Ok(())
@@ -95,6 +99,7 @@ where
 
     async fn zoom_wide_variable(&self, speed: ZoomSpeed) -> Result<(), Error> {
         use crate::command::zoom::Zoom;
+
         let cmd = Zoom::WideVariable(speed);
         self.send_command(&cmd).await?;
         Ok(())
@@ -102,6 +107,7 @@ where
 
     async fn zoom_absolute(&self, position: Normalized) -> Result<(), Error> {
         use crate::command::zoom::Zoom;
+
         // Convert normalized position to zoom position value
         let zoom_pos = crate::types::ZoomPosition::try_from(*position.value())?;
         let cmd = Zoom::Position(zoom_pos);
@@ -111,6 +117,7 @@ where
 
     async fn zoom_position(&self, position: crate::types::ZoomPosition) -> Result<(), Error> {
         use crate::command::zoom::Zoom;
+
         let cmd = Zoom::Position(position);
         self.send_command(&cmd).await?;
         Ok(())
@@ -140,6 +147,7 @@ where
 {
     fn zoom_stop(&self) -> Result<(), Error> {
         use crate::command::zoom::Zoom;
+
         let cmd = Zoom::Stop;
         self.send_command(&cmd)?;
         Ok(())
@@ -147,6 +155,7 @@ where
 
     fn zoom_tele_std(&self) -> Result<(), Error> {
         use crate::command::zoom::Zoom;
+
         let cmd = Zoom::TeleStd;
         self.send_command(&cmd)?;
         Ok(())
@@ -154,6 +163,7 @@ where
 
     fn zoom_wide_std(&self) -> Result<(), Error> {
         use crate::command::zoom::Zoom;
+
         let cmd = Zoom::WideStd;
         self.send_command(&cmd)?;
         Ok(())
@@ -161,6 +171,7 @@ where
 
     fn zoom_tele_variable(&self, speed: ZoomSpeed) -> Result<(), Error> {
         use crate::command::zoom::Zoom;
+
         let cmd = Zoom::TeleVariable(speed);
         self.send_command(&cmd)?;
         Ok(())
@@ -168,6 +179,7 @@ where
 
     fn zoom_wide_variable(&self, speed: ZoomSpeed) -> Result<(), Error> {
         use crate::command::zoom::Zoom;
+
         let cmd = Zoom::WideVariable(speed);
         self.send_command(&cmd)?;
         Ok(())
@@ -175,6 +187,7 @@ where
 
     fn zoom_absolute(&self, position: Normalized) -> Result<(), Error> {
         use crate::command::zoom::Zoom;
+
         // Convert normalized position to zoom position value
         let zoom_pos = crate::types::ZoomPosition::try_from(*position.value())?;
         let cmd = Zoom::Position(zoom_pos);
@@ -184,6 +197,7 @@ where
 
     fn zoom_position(&self, position: crate::types::ZoomPosition) -> Result<(), Error> {
         use crate::command::zoom::Zoom;
+
         let cmd = Zoom::Position(position);
         self.send_command(&cmd)?;
         Ok(())

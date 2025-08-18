@@ -20,8 +20,9 @@
 use crate::command::const_encoding::VISCA_TERMINATOR;
 use crate::macros::internal::*;
 
-use crate::command::const_encoding::constants;
 use grafton_visca_macros::ViscaEnum;
+
+use crate::command::const_encoding::constants;
 
 visca_const_command! {
     /// Command to set camera address (broadcast, serial only).

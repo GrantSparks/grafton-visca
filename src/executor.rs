@@ -7,6 +7,7 @@ use crate::Error;
 
 #[cfg(feature = "async")]
 use core::future::Future;
+
 #[cfg(feature = "async")]
 use std::pin::Pin;
 
@@ -81,8 +82,9 @@ pub trait Executor: Send + Sync + 'static {
 // Tokio executor implementation
 #[cfg(feature = "rt-tokio")]
 mod tokio_impl {
-    use super::*;
     use std::{sync::Arc, time::Duration};
+
+    use super::*;
 
     /// Tokio-based executor implementation.
     #[derive(Debug, Clone)]
@@ -213,9 +215,10 @@ pub use tokio_impl::TokioExecutor;
 // async-std executor implementation
 #[cfg(feature = "rt-async-std")]
 mod async_std_impl {
-    use super::*;
     use std::sync::Arc;
     use std::time::Duration;
+
+    use super::*;
 
     /// async-std based executor implementation.
     #[derive(Debug, Clone, Copy)]
@@ -339,9 +342,10 @@ pub use async_std_impl::AsyncStdExecutor;
 // smol executor implementation
 #[cfg(feature = "rt-smol")]
 mod smol_impl {
-    use super::*;
     use std::sync::Arc;
     use std::time::Duration;
+
+    use super::*;
 
     /// smol-based executor implementation.
     #[derive(Debug, Clone)]

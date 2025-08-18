@@ -102,6 +102,7 @@ impl_into_iris_level! {
     FStop => |x| Ok(IrisLevel::from(x)),
     Percentage<f32> => |x| {
         use std::convert::TryFrom;
+
         IrisLevel::try_from(x)
     },
 }

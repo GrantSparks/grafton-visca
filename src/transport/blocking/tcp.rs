@@ -1,13 +1,15 @@
 //! Blocking TCP transport implementation with DNS resolution and IPv6 support.
 
-use crate::transport::BlockingTransport;
-use crate::Error;
 use bytes::Bytes;
+
 use std::borrow::Cow;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
+
+use crate::transport::BlockingTransport;
+use crate::Error;
 
 /// TCP transport for blocking VISCA communication.
 ///

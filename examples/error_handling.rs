@@ -8,6 +8,7 @@ use std::time::Instant;
 use std::{borrow::Cow, time::Duration};
 
 use grafton_visca::Error;
+
 #[cfg(feature = "rt-tokio")]
 use grafton_visca::{
     camera::methods::{

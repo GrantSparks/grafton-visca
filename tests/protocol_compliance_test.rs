@@ -233,5 +233,4 @@ fn test_three_commands_buffer_full() {
 
     // For now, we'll skip this test as it requires complex timing coordination
     // The protocol compliance for BufferFull retry is already validated by test_buffer_full_always_retryable
-    // TODO: Fix this test once we have better test infrastructure for complex timing scenarios
 }

@@ -3,13 +3,6 @@
 //! This module provides commands for storing and recalling camera positions.
 //! `PtzOptics` G2 cameras support up to 90 presets (0-89).
 
-// Standard library imports
-// (none)
-
-// Third-party crate imports
-// (none)
-
-// Workspace / local-crate imports
 use crate::{
     command::{
         const_encoding::builder::ConstCommandBuilder, encode_visca::EncodeVisca, ViscaResponseType,
@@ -54,10 +47,7 @@ pub(crate) struct PresetCommand {
     pub preset_number: PresetNumber,
 }
 
-impl PresetCommand {
-    // Legacy method - removed in new API
-    // pub fn new<P: crate::camera::CameraProfile>(...) { ... }
-}
+impl PresetCommand {}
 
 impl EncodeVisca for PresetCommand {
     type ViscaResponse = ();

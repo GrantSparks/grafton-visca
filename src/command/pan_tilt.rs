@@ -27,7 +27,6 @@
 //! # }
 //! ```
 
-// Local imports
 use crate::{
     command::{const_encoding::ConstCommandBuilder, encode_visca::EncodeVisca, ViscaResponseType},
     error::Error,

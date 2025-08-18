@@ -11,6 +11,7 @@ mod common;
 ))]
 mod blocking_tests {
     use crate::common::patterns;
+
     use grafton_visca::{
         camera::methods::{
             pan_tilt::PanTiltControlBlocking, power::PowerControlBlocking,
@@ -132,6 +133,7 @@ mod blocking_tests {
 
         // Set and recall preset 5
         use grafton_visca::PresetNumber;
+
         let preset_id = PresetNumber::new(5).unwrap();
         assert!(camera.preset_set(preset_id).is_ok());
         assert!(camera.preset_recall(preset_id).is_ok());

@@ -1,11 +1,13 @@
 //! Blocking UDP transport implementation with IPv6 support.
 
-use crate::transport::BlockingTransport;
-use crate::Error;
 use bytes::Bytes;
+
 use std::net::{SocketAddr, ToSocketAddrs, UdpSocket};
 use std::sync::Mutex;
 use std::time::Duration;
+
+use crate::transport::BlockingTransport;
+use crate::Error;
 
 /// UDP transport for blocking VISCA communication.
 ///

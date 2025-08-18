@@ -9,6 +9,7 @@ use std::{marker::PhantomData, sync::Arc};
 
 #[cfg(feature = "async")]
 use crate::{camera::AsyncMode, executor::Executor, runtime, transport::AsyncTransport};
+
 use crate::{
     camera::BlockingMode,
     camera_id::CameraId,

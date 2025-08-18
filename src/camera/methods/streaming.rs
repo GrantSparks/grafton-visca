@@ -134,6 +134,7 @@ where
 {
     async fn enable_multicast(&self) -> Result<()> {
         use crate::command::streaming::MulticastStreaming;
+
         let cmd = MulticastStreaming::On;
         self.send_command(&cmd).await?;
         Ok(())
@@ -141,6 +142,7 @@ where
 
     async fn disable_multicast(&self) -> Result<()> {
         use crate::command::streaming::MulticastStreaming;
+
         let cmd = MulticastStreaming::Off;
         self.send_command(&cmd).await?;
         Ok(())
@@ -148,6 +150,7 @@ where
 
     async fn set_ndi_quality(&self, quality: NdiQuality) -> Result<()> {
         use crate::command::streaming::NdiQualityCmd;
+
         let cmd = NdiQualityCmd::new(quality);
         self.send_command(&cmd).await?;
         Ok(())
@@ -162,6 +165,7 @@ where
 {
     fn enable_multicast(&self) -> Result<()> {
         use crate::command::streaming::MulticastStreaming;
+
         let cmd = MulticastStreaming::On;
         self.send_command(&cmd)?;
         Ok(())
@@ -169,6 +173,7 @@ where
 
     fn disable_multicast(&self) -> Result<()> {
         use crate::command::streaming::MulticastStreaming;
+
         let cmd = MulticastStreaming::Off;
         self.send_command(&cmd)?;
         Ok(())
@@ -176,6 +181,7 @@ where
 
     fn set_ndi_quality(&self, quality: NdiQuality) -> Result<()> {
         use crate::command::streaming::NdiQualityCmd;
+
         let cmd = NdiQualityCmd::new(quality);
         self.send_command(&cmd)?;
         Ok(())

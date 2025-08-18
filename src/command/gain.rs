@@ -200,7 +200,6 @@ mod tests {
         }
     }
 
-    // TODO: Fix this test - G2_VALID_VALUES constant needs to be defined
     // #[test]
     // fn test_gain_limit_g2_validation() {
     //     // Test valid G2 gain limit values

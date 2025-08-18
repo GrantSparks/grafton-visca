@@ -37,6 +37,7 @@ where
 {
     async fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error> {
         use crate::command::preset::{PresetAction, PresetCommand};
+
         let cmd = PresetCommand {
             action: PresetAction::Recall,
             preset_number: preset,
@@ -47,6 +48,7 @@ where
 
     async fn preset_set(&self, preset: PresetNumber) -> Result<(), Error> {
         use crate::command::preset::{PresetAction, PresetCommand};
+
         let cmd = PresetCommand {
             action: PresetAction::Set,
             preset_number: preset,
@@ -57,6 +59,7 @@ where
 
     async fn preset_reset(&self, preset: PresetNumber) -> Result<(), Error> {
         use crate::command::preset::{PresetAction, PresetCommand};
+
         let cmd = PresetCommand {
             action: PresetAction::Reset,
             preset_number: preset,
@@ -74,6 +77,7 @@ where
 {
     fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error> {
         use crate::command::preset::{PresetAction, PresetCommand};
+
         let cmd = PresetCommand {
             action: PresetAction::Recall,
             preset_number: preset,
@@ -84,6 +88,7 @@ where
 
     fn preset_set(&self, preset: PresetNumber) -> Result<(), Error> {
         use crate::command::preset::{PresetAction, PresetCommand};
+
         let cmd = PresetCommand {
             action: PresetAction::Set,
             preset_number: preset,
@@ -94,6 +99,7 @@ where
 
     fn preset_reset(&self, preset: PresetNumber) -> Result<(), Error> {
         use crate::command::preset::{PresetAction, PresetCommand};
+
         let cmd = PresetCommand {
             action: PresetAction::Reset,
             preset_number: preset,

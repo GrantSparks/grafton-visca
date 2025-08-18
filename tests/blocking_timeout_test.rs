@@ -10,6 +10,7 @@
 use grafton_visca::transport::blocking::{Tcp, Udp};
 use grafton_visca::transport::BlockingTransport;
 use grafton_visca::Error;
+
 use std::net::{TcpListener, UdpSocket};
 use std::thread;
 use std::time::{Duration, Instant};

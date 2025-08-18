@@ -380,9 +380,19 @@ pub mod prelude;
 #[doc(hidden)]
 pub mod testing;
 
+// External crates
 pub use grafton_visca_macros::{InquiryCommand, ViscaEncode, ViscaEnum, ViscaValue};
 
+// Local modules
 pub use crate::{
+    camera::methods::{
+        focus::FocusControlBlocking,
+        inquiry::{InquiryControlBlocking, PanTiltInquiryControlBlocking},
+        pan_tilt::PanTiltControlBlocking,
+        power::PowerControlBlocking,
+        presets::PresetsControlBlocking,
+        zoom::ZoomControlBlocking,
+    },
     camera::{Camera, CameraBuilder},
     camera_id::CameraId,
     command::{
@@ -415,15 +425,6 @@ pub use crate::{
         zoom::ZoomControl,
     },
     executor::{ExecError, Executor},
-};
-
-pub use crate::camera::methods::{
-    focus::FocusControlBlocking,
-    inquiry::{InquiryControlBlocking, PanTiltInquiryControlBlocking},
-    pan_tilt::PanTiltControlBlocking,
-    power::PowerControlBlocking,
-    presets::PresetsControlBlocking,
-    zoom::ZoomControlBlocking,
 };
 
 /// Camera profiles with compositional capabilities

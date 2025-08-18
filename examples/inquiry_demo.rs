@@ -323,7 +323,6 @@ async fn main() -> grafton_visca::Result<()> {
     println!("\n── Focus ──");
     println!("  Mode: {:?}", focus_mode.ok());
     // NOTE: auto_focus inquiry is not documented in VISCA specs
-    // println!(
     //     "  Auto Focus: {}",
     //     auto_focus.map_or("❌".to_string(), |e| if e { "✓" } else { "✗" })
     // );
@@ -360,8 +359,6 @@ async fn main() -> grafton_visca::Result<()> {
 
     println!("\n── Image Adjustments ──");
     // NOTE: sharpness and contrast inquiries are not documented in VISCA specs
-    // println!("  Sharpness: {:?}", sharpness.unwrap_or_default());
-    // println!("  Contrast: {:?}", contrast.unwrap_or_default());
     println!("  Saturation: {:?}", saturation.ok());
     println!("  Hue: {:?}", hue.ok());
     println!("  Image Flip: {:?}", flip.ok());

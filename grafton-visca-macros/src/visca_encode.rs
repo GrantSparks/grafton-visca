@@ -1,3 +1,4 @@
+// External crates
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Data, DataEnum, DataStruct, DeriveInput, Fields, Ident};

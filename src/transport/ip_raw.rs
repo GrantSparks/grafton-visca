@@ -7,6 +7,7 @@ use bytes::{Bytes, BytesMut};
 use log::{debug, trace};
 
 use std::io::{Read, Write};
+
 #[cfg(feature = "rt-tokio")]
 use std::net::SocketAddr;
 use std::net::{TcpStream, ToSocketAddrs, UdpSocket};

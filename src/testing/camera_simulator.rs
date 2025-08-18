@@ -5,15 +5,17 @@
 
 #![allow(clippy::expect_used)]
 
-use crate::command::const_encoding::VISCA_TERMINATOR;
-use crate::transport::AsyncTransport;
-use crate::Error;
 use bytes::Bytes;
+use tokio::sync::{broadcast, RwLock};
+use tokio::time::sleep;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{broadcast, RwLock};
-use tokio::time::sleep;
+
+use crate::command::const_encoding::VISCA_TERMINATOR;
+use crate::transport::AsyncTransport;
+use crate::Error;
 
 /// Represents the state of a single VISCA socket
 #[derive(Debug, Clone)]

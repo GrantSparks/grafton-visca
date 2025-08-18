@@ -79,6 +79,7 @@ where
 {
     async fn set_white_balance_mode(&self, mode: WhiteBalanceMode) -> Result<(), Error> {
         use crate::command::white_balance::WhiteBalanceCommand;
+
         let cmd = WhiteBalanceCommand { mode };
         self.send_command(&cmd).await?;
         Ok(())
@@ -118,6 +119,7 @@ where
         sensitivity: AutoWhiteBalanceSensitivity,
     ) -> Result<(), Error> {
         use crate::command::white_balance::AWBSensitivityCommand;
+
         let cmd = AWBSensitivityCommand { sensitivity };
         self.send_command(&cmd).await?;
         Ok(())
@@ -133,6 +135,7 @@ where
 {
     fn set_white_balance_mode(&self, mode: WhiteBalanceMode) -> Result<(), Error> {
         use crate::command::white_balance::WhiteBalanceCommand;
+
         let cmd = WhiteBalanceCommand { mode };
         self.send_command(&cmd)?;
         Ok(())
@@ -168,6 +171,7 @@ where
 
     fn set_awb_sensitivity(&self, sensitivity: AutoWhiteBalanceSensitivity) -> Result<(), Error> {
         use crate::command::white_balance::AWBSensitivityCommand;
+
         let cmd = AWBSensitivityCommand { sensitivity };
         self.send_command(&cmd)?;
         Ok(())

@@ -3,8 +3,9 @@
 //! This trait provides native async functions without boxing, enabling
 //! zero-overhead async transport implementations.
 
-use crate::Error;
 use bytes::Bytes;
+
+use crate::Error;
 
 /// Async transport for VISCA communication.
 ///

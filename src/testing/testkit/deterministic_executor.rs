@@ -9,6 +9,7 @@
 
 use async_executor::Executor as AsyncExec;
 use futures_lite::future;
+
 use std::{
     future::Future,
     pin::Pin,
@@ -753,9 +754,10 @@ impl DeterministicExecutorExt for Arc<DeterministicExecutor> {
 
 #[cfg(all(test, feature = "test-utils"))]
 mod tests {
-    use super::*;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::time::Duration;
+
+    use super::*;
 
     #[test]
     fn test_virtual_clock_advance() {
@@ -788,6 +790,7 @@ mod tests {
 
         // Use ExecutorExt::spawn_bg to properly spawn background task
         use super::ExecutorExt;
+
         executor.spawn_bg(async move {
             flag2.store(true, Ordering::SeqCst);
         });
@@ -806,6 +809,7 @@ mod tests {
 
         // Use ExecutorExt::spawn_bg to properly spawn background task
         use super::ExecutorExt;
+
         executor.spawn_bg(async move {
             executor2.sleep(Duration::from_millis(50)).await;
             flag2.store(true, Ordering::SeqCst);
@@ -839,6 +843,7 @@ mod tests {
             let expected_value = i;
 
             use super::ExecutorExt;
+
             executor.spawn_bg(async move {
                 executor_clone
                     .sleep(Duration::from_millis(i as u64 * 10))
@@ -892,6 +897,7 @@ mod tests {
 
         // Spawn a task
         use super::ExecutorExt;
+
         executor.spawn_bg(async move {
             flag2.store(true, Ordering::SeqCst);
         });
@@ -917,6 +923,7 @@ mod tests {
 
         // Spawn a task with a sleep
         use super::ExecutorExt;
+
         executor.spawn_bg(async move {
             executor2.sleep(Duration::from_millis(100)).await;
             flag2.store(true, Ordering::SeqCst);
@@ -953,6 +960,7 @@ mod tests {
             let executor_clone = executor.clone();
 
             use super::ExecutorExt;
+
             executor.spawn_bg(async move {
                 executor_clone
                     .sleep(Duration::from_millis(i as u64 * 50))

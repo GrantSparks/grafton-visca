@@ -40,6 +40,7 @@ pub mod zoom {
 /// Pan/Tilt command patterns
 pub mod pan_tilt {
     use super::VISCA_TERMINATOR;
+
     /// Pan/tilt home position
     pub const HOME: &[u8] = &[0x81, 0x01, 0x06, 0x04, VISCA_TERMINATOR];
 
@@ -118,6 +119,7 @@ pub mod pan_tilt {
 /// Focus command patterns
 pub mod focus {
     use super::VISCA_TERMINATOR;
+
     /// Focus far
     pub const FAR: &[u8] = &[0x81, 0x01, 0x04, 0x08, 0x02, VISCA_TERMINATOR];
 
@@ -137,6 +139,7 @@ pub mod focus {
 /// Preset command patterns
 pub mod preset {
     use super::VISCA_TERMINATOR;
+
     /// Preset set for position 0
     pub const SET_0: &[u8] = &[0x81, 0x01, 0x04, 0x3F, 0x01, 0x00, VISCA_TERMINATOR];
 
@@ -153,6 +156,7 @@ pub mod preset {
 /// Common response patterns
 pub mod responses {
     use super::VISCA_TERMINATOR;
+
     /// ACK for socket 0
     pub const ACK_0: &[u8] = &[0x90, 0x40, VISCA_TERMINATOR];
 
@@ -190,6 +194,7 @@ pub mod responses {
 /// Exposure command patterns
 pub mod exposure {
     use super::VISCA_TERMINATOR;
+
     /// Auto exposure mode
     pub const AUTO: &[u8] = &[0x81, 0x01, 0x04, 0x39, 0x00, VISCA_TERMINATOR];
 
@@ -209,6 +214,7 @@ pub mod exposure {
 /// White balance command patterns
 pub mod white_balance {
     use super::VISCA_TERMINATOR;
+
     /// Auto white balance
     pub const AUTO: &[u8] = &[0x81, 0x01, 0x04, 0x35, 0x00, VISCA_TERMINATOR];
 
@@ -231,6 +237,7 @@ pub mod white_balance {
 /// System command patterns
 pub mod system {
     use super::VISCA_TERMINATOR;
+
     /// System information inquiry
     pub const INFO_INQ: &[u8] = &[0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR];
 
@@ -247,6 +254,7 @@ pub mod system {
 /// Inquiry command patterns - all inquiry commands in one place
 pub mod inquiry {
     use super::VISCA_TERMINATOR;
+
     /// Power state inquiry
     pub const POWER: &[u8] = &[0x81, 0x09, 0x04, 0x00, VISCA_TERMINATOR];
 

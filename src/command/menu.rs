@@ -4,9 +4,7 @@
 //! allowing remote navigation and configuration. These commands are particularly useful
 //! for Sony FR7 and other cameras with comprehensive on-screen menus.
 
-use crate::macros::internal::*;
-
-use crate::command::const_encoding::constants;
+use crate::{command::const_encoding::constants, macros::internal::*};
 
 visca_bool_command! {
     /// Menu display control command.

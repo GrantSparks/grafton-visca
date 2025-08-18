@@ -37,6 +37,7 @@ where
 {
     async fn power_on(&self) -> Result<(), Error> {
         use crate::command::power::Power;
+
         let cmd = Power::On;
         self.send_command(&cmd).await?;
         Ok(())
@@ -44,6 +45,7 @@ where
 
     async fn power_off(&self) -> Result<(), Error> {
         use crate::command::power::Power;
+
         let cmd = Power::Standby;
         self.send_command(&cmd).await?;
         Ok(())
@@ -51,6 +53,7 @@ where
 
     async fn power_inquiry(&self) -> Result<bool, Error> {
         use crate::command::{inquiry::PowerInquiry, response::ViscaResponse, InquiryResponse};
+
         let inquiry = PowerInquiry {};
         let response = self.send_command(&inquiry).await?;
         match response {
@@ -68,6 +71,7 @@ where
 {
     fn power_on(&self) -> Result<(), Error> {
         use crate::command::power::Power;
+
         let cmd = Power::On;
         self.send_command(&cmd)?;
         Ok(())
@@ -75,6 +79,7 @@ where
 
     fn power_off(&self) -> Result<(), Error> {
         use crate::command::power::Power;
+
         let cmd = Power::Standby;
         self.send_command(&cmd)?;
         Ok(())
@@ -82,6 +87,7 @@ where
 
     fn power_inquiry(&self) -> Result<bool, Error> {
         use crate::command::{inquiry::PowerInquiry, response::ViscaResponse, InquiryResponse};
+
         let inquiry = PowerInquiry {};
         let response = self.send_command(&inquiry)?;
         match response {

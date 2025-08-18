@@ -3,19 +3,17 @@
 //! This module provides commands for adjusting image quality parameters such as
 //! sharpness, brightness (luminance), and contrast levels.
 
-// Standard library imports
-use std::borrow::Cow;
+use grafton_visca_macros::ViscaEnum;
 
-// Crate imports
-use crate::macros::internal::*;
+use std::borrow::Cow;
 
 use crate::{
     command::{encode_visca::EncodeVisca, ViscaResponseType},
     error::Error,
+    macros::internal::*,
     timeout::CommandCategory,
     types::{ContrastLevel, LuminanceLevel},
 };
-use grafton_visca_macros::ViscaEnum;
 
 /// Sharpness control modes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]

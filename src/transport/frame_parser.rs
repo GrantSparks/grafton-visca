@@ -4,10 +4,10 @@
 //! separating protocol parsing from raw IO operations.
 
 use bytes::BytesMut;
+
 use std::borrow::Cow;
 
-use crate::command::const_encoding::VISCA_TERMINATOR;
-use crate::Error;
+use crate::{command::const_encoding::VISCA_TERMINATOR, Error};
 
 /// VISCA frame parser that handles message boundary detection.
 ///

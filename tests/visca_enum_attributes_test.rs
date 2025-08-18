@@ -29,18 +29,16 @@ pub enum ModeWithSkip {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use std::convert::TryFrom;
 
     #[test]
     fn test_custom_names_in_error_messages() {
-        // This should fail with custom names in the error message
         let result = AdvancedMode::try_from(0xFF);
         assert!(result.is_err());
 
         let err = result.unwrap_err();
         let err_msg = format!("{err}");
-
-        // Check that custom names appear in error message
         assert!(err_msg.contains("Automatic Mode"));
         assert!(err_msg.contains("Manual Control"));
         assert!(err_msg.contains("Advanced Shutter"));
@@ -48,29 +46,22 @@ mod tests {
 
     #[test]
     fn test_is_valid_discriminant() {
-        // Test valid discriminants
         assert!(AdvancedMode::is_valid_discriminant(0x00));
         assert!(AdvancedMode::is_valid_discriminant(0x03));
         assert!(AdvancedMode::is_valid_discriminant(0x0A));
-
-        // Test invalid discriminants
         assert!(!AdvancedMode::is_valid_discriminant(0x01));
         assert!(!AdvancedMode::is_valid_discriminant(0xFF));
     }
 
     #[test]
     fn test_skip_attribute() {
-        // Valid values should work
         assert_eq!(ModeWithSkip::try_from(0x01).unwrap(), ModeWithSkip::Active);
         assert_eq!(
             ModeWithSkip::try_from(0x02).unwrap(),
             ModeWithSkip::Inactive
         );
 
-        // Skipped value should not be recognized
         assert!(ModeWithSkip::try_from(0xFF).is_err());
-
-        // is_valid_discriminant should return false for skipped values
         assert!(!ModeWithSkip::is_valid_discriminant(0xFF));
         assert!(ModeWithSkip::is_valid_discriminant(0x01));
         assert!(ModeWithSkip::is_valid_discriminant(0x02));
@@ -84,6 +75,5 @@ mod tests {
 
         assert_eq!(u8::from(ModeWithSkip::Active), 0x01);
         assert_eq!(u8::from(ModeWithSkip::Inactive), 0x02);
-        // Note: _Reserved variant cannot be tested in From conversion as it's not accessible
     }
 }

@@ -16,12 +16,6 @@ fn main() {
 }
 
 #[cfg(feature = "rt-tokio")]
-use tokio::time::{sleep, Duration};
-
-#[cfg(feature = "rt-tokio")]
-use std::sync::Arc;
-
-#[cfg(feature = "rt-tokio")]
 use grafton_visca::{
     camera::methods::{
         inquiry::{InquiryControl, PanTiltInquiryControl},
@@ -35,6 +29,12 @@ use grafton_visca::{
     types::SpeedLevel,
     CameraBuilder, PanTiltDirection, PresetNumber, Result,
 };
+
+#[cfg(feature = "rt-tokio")]
+use tokio::time::{sleep, Duration};
+
+#[cfg(feature = "rt-tokio")]
+use std::sync::Arc;
 
 #[cfg(feature = "rt-tokio")]
 #[tokio::main]

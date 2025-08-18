@@ -8,6 +8,7 @@ use std::marker::PhantomData;
 
 #[cfg(not(feature = "async"))]
 use crate::camera::handle::Camera as GenericCamera;
+
 #[cfg(feature = "async")]
 use crate::{
     camera::{handle::Camera as GenericCamera, AsyncMode},

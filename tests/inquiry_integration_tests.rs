@@ -328,6 +328,7 @@ async fn test_resolution_inquiry_integration() {
         .expect("resolution inquiry should succeed");
     // The simulator returns FullHD60 by default
     use grafton_visca::command::resolution::ResolutionMode;
+
     assert_eq!(
         resolution,
         ResolutionMode::FullHD60,
@@ -349,6 +350,7 @@ async fn test_concurrent_inquiries_integration() {
 
     // Launch multiple inquiries concurrently
     use tokio::join;
+
     let (r1, r2, r3) = join!(
         camera.get_power_state(),
         camera.get_power_state(), // Duplicate to test queuing

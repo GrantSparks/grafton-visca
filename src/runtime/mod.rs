@@ -14,8 +14,10 @@ pub use scheduler::{
 
 #[cfg(feature = "async")]
 use flume::{Receiver, Sender};
+
 #[cfg(feature = "async")]
 use futures_lite;
+
 #[cfg(feature = "async")]
 use log::{debug, error, trace, warn};
 
@@ -42,6 +44,7 @@ fn spawn_runtime_task_properly<E: crate::executor::Executor>(
     #[cfg(any(feature = "rt-tokio", feature = "test-utils"))]
     {
         use std::any::Any;
+
         let executor_any: &dyn Any = executor;
 
         // Debug logging to see what type we have
@@ -61,6 +64,7 @@ fn spawn_runtime_task_properly<E: crate::executor::Executor>(
                 );
                 // Use ExecutorExt::spawn_bg which detaches the task
                 use crate::testing::testkit::deterministic_executor::ExecutorExt;
+
                 det_exec.spawn_bg(async move {
                     debug!("[runtime task] Runtime task starting (DeterministicExecutor)");
                     match runtime_task.await {
@@ -79,6 +83,7 @@ fn spawn_runtime_task_properly<E: crate::executor::Executor>(
                 log::debug!("Detected Arc<DeterministicExecutor>, using spawn_bg");
                 // Use ExecutorExt::spawn_bg which detaches the task
                 use crate::testing::testkit::deterministic_executor::ExecutorExt;
+
                 arc_det.spawn_bg(async move {
                     log::debug!("Runtime task starting (Arc<DeterministicExecutor>)");
                     if let Err(e) = runtime_task.await {
@@ -793,8 +798,9 @@ async fn handle_tx_item<T: AsyncTransport, E: crate::executor::Executor>(
     event_tx: &Sender<RxEvent>,
     executor: &E,
 ) -> Result<()> {
-    use crate::protocol::encode::VISCA_TERMINATOR;
     use scheduler::ViscaError;
+
+    use crate::protocol::encode::VISCA_TERMINATOR;
 
     match item {
         TxItem::Command {

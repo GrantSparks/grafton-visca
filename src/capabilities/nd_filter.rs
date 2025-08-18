@@ -1,7 +1,8 @@
 //! Neutral Density (ND) filter capability trait and associated types.
 
-use crate::capabilities::ValidationError;
 use std::borrow::Cow;
+
+use crate::capabilities::ValidationError;
 
 /// Trait for cameras that support ND filter control.
 ///

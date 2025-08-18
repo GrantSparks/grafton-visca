@@ -3,9 +3,11 @@
 //! This trait provides synchronous methods for blocking transports,
 //! with built-in timeout support using OS-level socket timeouts.
 
-use crate::Error;
 use bytes::Bytes;
+
 use core::time::Duration;
+
+use crate::Error;
 
 /// Blocking transport for VISCA communication.
 ///

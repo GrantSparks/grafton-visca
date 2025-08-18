@@ -91,6 +91,7 @@ where
 {
     async fn tally_red_on(&self) -> Result<(), Error> {
         use crate::command::tally::Tally;
+
         let cmd = Tally::RedOn;
         self.send_command(&cmd).await?;
         Ok(())
@@ -98,6 +99,7 @@ where
 
     async fn tally_red_off(&self) -> Result<(), Error> {
         use crate::command::tally::Tally;
+
         let cmd = Tally::RedOff;
         self.send_command(&cmd).await?;
         Ok(())
@@ -105,6 +107,7 @@ where
 
     async fn tally_bright_lo(&self) -> Result<(), Error> {
         use crate::command::tally::Tally;
+
         let cmd = Tally::BrightLo;
         self.send_command(&cmd).await?;
         Ok(())
@@ -112,6 +115,7 @@ where
 
     async fn tally_bright_hi(&self) -> Result<(), Error> {
         use crate::command::tally::Tally;
+
         let cmd = Tally::BrightHi;
         self.send_command(&cmd).await?;
         Ok(())
@@ -119,6 +123,7 @@ where
 
     async fn tally_green_on(&self) -> Result<(), Error> {
         use crate::command::tally::Tally;
+
         let cmd = Tally::GreenOn;
         self.send_command(&cmd).await?;
         Ok(())
@@ -126,6 +131,7 @@ where
 
     async fn tally_green_off(&self) -> Result<(), Error> {
         use crate::command::tally::Tally;
+
         let cmd = Tally::GreenOff;
         self.send_command(&cmd).await?;
         Ok(())
@@ -133,6 +139,7 @@ where
 
     async fn tally_flash(&self) -> Result<(), Error> {
         use crate::command::tally::Tally;
+
         let cmd = Tally::Flash;
         self.send_command(&cmd).await?;
         Ok(())
@@ -140,6 +147,7 @@ where
 
     async fn tally_on(&self) -> Result<(), Error> {
         use crate::command::tally::Tally;
+
         let cmd = Tally::On;
         self.send_command(&cmd).await?;
         Ok(())
@@ -147,6 +155,7 @@ where
 
     async fn tally_off(&self) -> Result<(), Error> {
         use crate::command::tally::Tally;
+
         let cmd = Tally::Off;
         self.send_command(&cmd).await?;
         Ok(())
@@ -154,6 +163,7 @@ where
 
     async fn get_tally_status(&self) -> Result<bool, Error> {
         use crate::command::{response::ViscaResponse, tally::TallyInquiry, InquiryResponse};
+
         let inquiry = TallyInquiry::Red;
         let response = self.send_command(&inquiry).await?;
         match response {
@@ -164,6 +174,7 @@ where
 
     async fn get_red_tally_status(&self) -> Result<bool, Error> {
         use crate::command::{response::ViscaResponse, tally::TallyInquiry, InquiryResponse};
+
         let inquiry = TallyInquiry::Red;
         let response = self.send_command(&inquiry).await?;
         match response {
@@ -174,6 +185,7 @@ where
 
     async fn get_green_tally_status(&self) -> Result<bool, Error> {
         use crate::command::{response::ViscaResponse, tally::TallyInquiry, InquiryResponse};
+
         let inquiry = TallyInquiry::Green;
         let response = self.send_command(&inquiry).await?;
         match response {
@@ -191,6 +203,7 @@ where
 {
     fn tally_red_on(&self) -> Result<(), Error> {
         use crate::command::tally::Tally;
+
         let cmd = Tally::RedOn;
         self.send_command(&cmd)?;
         Ok(())
@@ -198,6 +211,7 @@ where
 
     fn tally_red_off(&self) -> Result<(), Error> {
         use crate::command::tally::Tally;
+
         let cmd = Tally::RedOff;
         self.send_command(&cmd)?;
         Ok(())
@@ -205,6 +219,7 @@ where
 
     fn tally_bright_lo(&self) -> Result<(), Error> {
         use crate::command::tally::Tally;
+
         let cmd = Tally::BrightLo;
         self.send_command(&cmd)?;
         Ok(())
@@ -212,6 +227,7 @@ where
 
     fn tally_bright_hi(&self) -> Result<(), Error> {
         use crate::command::tally::Tally;
+
         let cmd = Tally::BrightHi;
         self.send_command(&cmd)?;
         Ok(())
@@ -219,6 +235,7 @@ where
 
     fn tally_green_on(&self) -> Result<(), Error> {
         use crate::command::tally::Tally;
+
         let cmd = Tally::GreenOn;
         self.send_command(&cmd)?;
         Ok(())
@@ -226,6 +243,7 @@ where
 
     fn tally_green_off(&self) -> Result<(), Error> {
         use crate::command::tally::Tally;
+
         let cmd = Tally::GreenOff;
         self.send_command(&cmd)?;
         Ok(())
@@ -233,6 +251,7 @@ where
 
     fn tally_flash(&self) -> Result<(), Error> {
         use crate::command::tally::Tally;
+
         let cmd = Tally::Flash;
         self.send_command(&cmd)?;
         Ok(())
@@ -240,6 +259,7 @@ where
 
     fn tally_on(&self) -> Result<(), Error> {
         use crate::command::tally::Tally;
+
         let cmd = Tally::On;
         self.send_command(&cmd)?;
         Ok(())
@@ -247,6 +267,7 @@ where
 
     fn tally_off(&self) -> Result<(), Error> {
         use crate::command::tally::Tally;
+
         let cmd = Tally::Off;
         self.send_command(&cmd)?;
         Ok(())
@@ -254,6 +275,7 @@ where
 
     fn get_tally_status(&self) -> Result<bool, Error> {
         use crate::command::{response::ViscaResponse, tally::TallyInquiry, InquiryResponse};
+
         let inquiry = TallyInquiry::Red;
         let response = self.send_command(&inquiry)?;
         match response {
@@ -264,6 +286,7 @@ where
 
     fn get_red_tally_status(&self) -> Result<bool, Error> {
         use crate::command::{response::ViscaResponse, tally::TallyInquiry, InquiryResponse};
+
         let inquiry = TallyInquiry::Red;
         let response = self.send_command(&inquiry)?;
         match response {
@@ -274,6 +297,7 @@ where
 
     fn get_green_tally_status(&self) -> Result<bool, Error> {
         use crate::command::{response::ViscaResponse, tally::TallyInquiry, InquiryResponse};
+
         let inquiry = TallyInquiry::Green;
         let response = self.send_command(&inquiry)?;
         match response {

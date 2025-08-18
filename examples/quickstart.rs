@@ -17,9 +17,6 @@
 //! ```
 
 #[cfg(not(feature = "async"))]
-use std::{env, thread::sleep, time::Duration};
-
-#[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{
         methods::{
@@ -36,6 +33,9 @@ use grafton_visca::{
     units::{Degrees, Normalized},
     Error, PanTiltDirection,
 };
+
+#[cfg(not(feature = "async"))]
+use std::{env, thread::sleep, time::Duration};
 
 #[cfg(not(feature = "async"))]
 fn main() -> Result<(), Error> {

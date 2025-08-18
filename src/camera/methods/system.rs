@@ -39,6 +39,7 @@ where
 {
     async fn trigger_address_assignment(&self) -> Result<(), Error> {
         use crate::command::system::AddressSetCommand;
+
         let cmd = AddressSetCommand::new();
         self.send_command(&cmd).await?;
         Ok(())
@@ -46,6 +47,7 @@ where
 
     async fn interface_clear(&self) -> Result<(), Error> {
         use crate::command::system::InterfaceClearCommand;
+
         let cmd = InterfaceClearCommand::new();
         self.send_command(&cmd).await?;
         Ok(())
@@ -53,6 +55,7 @@ where
 
     async fn cancel_command(&self, socket: Socket) -> Result<(), Error> {
         use crate::command::system::CommandCancelCommand;
+
         let cmd = CommandCancelCommand::new(socket);
         self.send_command(&cmd).await?;
         Ok(())
@@ -67,6 +70,7 @@ where
 {
     fn trigger_address_assignment(&self) -> Result<(), Error> {
         use crate::command::system::AddressSetCommand;
+
         let cmd = AddressSetCommand::new();
         self.send_command(&cmd)?;
         Ok(())
@@ -74,6 +78,7 @@ where
 
     fn interface_clear(&self) -> Result<(), Error> {
         use crate::command::system::InterfaceClearCommand;
+
         let cmd = InterfaceClearCommand::new();
         self.send_command(&cmd)?;
         Ok(())
@@ -81,6 +86,7 @@ where
 
     fn cancel_command(&self, socket: Socket) -> Result<(), Error> {
         use crate::command::system::CommandCancelCommand;
+
         let cmd = CommandCancelCommand::new(socket);
         self.send_command(&cmd)?;
         Ok(())

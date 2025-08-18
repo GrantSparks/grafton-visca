@@ -3,8 +3,6 @@
 //! This module provides all command types for controlling VISCA cameras,
 //! organized by functionality.
 
-// Crate imports removed - no longer needed
-
 // Command modules
 pub mod color;
 pub mod exposure;
@@ -64,10 +62,6 @@ pub use self::{
     white_balance::*,
     // zoom::*,  // Commented out - unused
 };
-
-// Note: Complex tests moved to tests/ directory for enhanced testing infrastructure
-
-// Command trait has been replaced by EncodeVisca trait
 
 /// ViscaResponse data from VISCA inquiry commands.
 ///
@@ -474,9 +468,11 @@ pub enum InquiryResponse {
 
 #[cfg(test)]
 mod tests {
-    use crate::camera_id::CameraId;
-    use crate::command::const_encoding::VISCA_TERMINATOR;
-    use crate::command::encode_visca::EncodeVisca;
+    // Local modules
+    use crate::{
+        camera_id::CameraId,
+        command::{const_encoding::VISCA_TERMINATOR, encode_visca::EncodeVisca},
+    };
 
     /// Helper to encode a command and verify it has a terminator
     #[allow(clippy::expect_used, clippy::unwrap_used)]

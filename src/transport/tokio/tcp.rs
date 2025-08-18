@@ -1,14 +1,16 @@
 //! Tokio TCP transport implementation with zero-cost async.
 
-use crate::transport::AsyncTransport;
-use crate::Error;
 use bytes::Bytes;
-use std::borrow::Cow;
-use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
+
+use std::borrow::Cow;
+use std::time::Duration;
+
+use crate::transport::AsyncTransport;
+use crate::Error;
 
 /// TCP transport for async VISCA communication using tokio.
 ///

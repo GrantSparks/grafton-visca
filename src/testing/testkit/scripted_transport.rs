@@ -8,6 +8,7 @@
 #![allow(clippy::expect_used)]
 
 use bytes::Bytes;
+
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
@@ -194,7 +195,6 @@ where
     E: Executor + ExecutorExt + 'static,
 {
     async fn send(&self, bytes: &[u8]) -> Result<()> {
-        // eprintln!("[ScriptedTransport::send] Sending: {:02X?}", bytes);
         // Record the sent command
         self.sent
             .lock()
@@ -256,7 +256,6 @@ where
     }
 
     async fn recv(&self) -> Result<Bytes> {
-        // eprintln!("[ScriptedTransport::recv] Called");
         // Check for injected errors first
         {
             let mut steps = self

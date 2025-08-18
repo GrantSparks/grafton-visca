@@ -13,6 +13,7 @@
 /// Convert a string literal to a CommandCategory at compile time
 pub const fn str_to_command_category(s: &str) -> crate::timeout::CommandCategory {
     use crate::timeout::CommandCategory;
+
     match str_bytes(s) {
         b"Quick" => CommandCategory::Quick,
         b"Movement" => CommandCategory::Movement,

@@ -88,6 +88,7 @@ fn main() {
     #[cfg(feature = "rt-tokio")]
     {
         use grafton_visca::TokioExecutor;
+
         println!("Using Tokio executor:");
         if let Ok(_executor) = TokioExecutor::from_current() {
             println!("  ✅ Created TokioExecutor from current runtime");
@@ -104,6 +105,7 @@ fn main() {
     #[cfg(feature = "rt-async-std")]
     {
         use grafton_visca::AsyncStdExecutor;
+
         println!("Using async-std executor:");
         let executor = AsyncStdExecutor::new();
         println!("  ✅ Created AsyncStdExecutor");
@@ -113,6 +115,7 @@ fn main() {
     #[cfg(feature = "rt-smol")]
     {
         use grafton_visca::SmolExecutor;
+
         println!("Using smol executor:");
         let executor = SmolExecutor::new();
         println!("  ✅ Created SmolExecutor");

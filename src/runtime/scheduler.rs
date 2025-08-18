@@ -4,6 +4,7 @@
 //! command scheduling, and protocol-compliant timing.
 
 use flume::{Receiver, Sender};
+
 #[cfg(feature = "async")]
 use log::trace;
 use log::{debug, warn};
@@ -1094,15 +1095,12 @@ impl Scheduler {
             return None;
         }
 
-        // eprintln!("[get_next_retry] Checking retry queue at {:?}", now);
-
         // Find the highest priority command that is ready to retry and hasn't exhausted retries
         let mut best_idx = None;
         let mut best_priority = Priority::Low;
         let mut exhausted_commands = Vec::new();
 
         for (idx, cmd) in self.retry_queue.iter().enumerate() {
-            // eprintln!("[get_next_retry] Command {} retry_at {:?}, now {:?}, ready: {}",
             //     cmd.id, cmd.retry_at, now, cmd.retry_at <= now);
             // Skip commands that aren't ready yet
             if cmd.retry_at > now {
@@ -1275,9 +1273,10 @@ impl Scheduler {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
     use crate::protocol::encode::VISCA_TERMINATOR;
-    use std::time::Duration;
 
     #[test]
     fn test_can_send_command() {

@@ -50,6 +50,7 @@ fn test_deterministic_executor_with_simple_command() {
 
         // Check the response
         use grafton_visca::command::response::ViscaResponse;
+
         assert!(matches!(
             response,
             ViscaResponse::CmdAck | ViscaResponse::Completion
@@ -94,6 +95,7 @@ fn test_deterministic_executor_with_sleep() {
 
         // The virtual time should advance automatically in block_on_bg
         use grafton_visca::command::response::ViscaResponse;
+
         assert!(matches!(
             response,
             ViscaResponse::CmdAck | ViscaResponse::Completion
@@ -156,6 +158,7 @@ fn test_deterministic_executor_handles_busy_retry() {
         match response {
             Ok(resp) => {
                 use grafton_visca::command::response::ViscaResponse;
+
                 assert!(matches!(
                     resp,
                     ViscaResponse::CmdAck | ViscaResponse::Completion
@@ -242,6 +245,7 @@ fn test_deterministic_executor_handles_busy_exhaustion() {
 #[test]
 fn test_det_drives_spawned_tasks_smokescreen() {
     use grafton_visca::testing::testkit::deterministic_executor::ExecutorExt;
+
     use std::sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -263,6 +267,7 @@ fn test_det_drives_spawned_tasks_smokescreen() {
 #[test]
 fn test_det_sleep_fires_only_when_time_advances_smokescreen() {
     use grafton_visca::testing::testkit::deterministic_executor::ExecutorExt;
+
     use std::sync::{
         atomic::{AtomicBool, Ordering},
         Arc,

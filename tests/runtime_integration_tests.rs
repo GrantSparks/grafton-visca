@@ -11,6 +11,7 @@
 
 #[cfg(feature = "rt-tokio")]
 use flume::{Receiver, Sender};
+
 #[cfg(feature = "rt-tokio")]
 use grafton_visca::{
     command::response::{ViscaResponse, ViscaResponseType},
@@ -233,8 +234,6 @@ mod runtime_tests {
 
         runtime.command(command).await.unwrap();
 
-        // eprintln!("Test: Command sent, advancing time in steps");
-
         // Advance time in steps to allow the runtime to process
         // The retry has a 100ms backoff, so we need to advance past that
         for _ in 0..20 {
@@ -243,13 +242,9 @@ mod runtime_tests {
             tokio::task::yield_now().await;
         }
 
-        // eprintln!("Test: Time advanced 400ms total, checking for response");
-
         // Wait for the command to complete (busy -> retry -> completion)
         let response =
             tokio::time::timeout(Duration::from_millis(100), response_rx.recv_async()).await;
-
-        // eprintln!("Test: Response received: {:?}", response);
 
         let response = response.expect("Timeout waiting for response").unwrap();
 

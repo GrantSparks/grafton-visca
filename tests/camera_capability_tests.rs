@@ -5,7 +5,6 @@
 
 #[test]
 fn test_placeholder() {
-    // TODO: Rewrite tests to use the new API
     // This test validates that the capability traits compile correctly
 }
 
