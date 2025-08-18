@@ -121,47 +121,11 @@ impl<E> ScriptedTransport<E> {
     }
 
     /// Add an executor for handling delayed responses.
-    /// This will immediately schedule any Step::After steps that exist in the queue.
     pub fn with_executor(mut self, executor: Arc<E>) -> Self
     where
         E: Executor + ExecutorExt + 'static,
     {
-        self.executor = Some(executor.clone());
-
-        // Process any Step::After steps immediately
-        let mut steps_to_process = Vec::new();
-        {
-            let mut steps = self
-                .steps
-                .lock()
-                .expect("ScriptedBlockingTransport mutex poisoned");
-            let mut remaining_steps = VecDeque::new();
-
-            while let Some(step) = steps.pop_front() {
-                if let Step::After { delay, responses } = step {
-                    steps_to_process.push((delay, responses));
-                } else {
-                    remaining_steps.push_back(step);
-                }
-            }
-
-            *steps = remaining_steps;
-        }
-
-        // Schedule all After steps
-        for (delay, responses) in steps_to_process {
-            let response_tx = self.response_tx.clone();
-            let executor_clone = executor.clone();
-
-            // Use spawn_bg for true fire-and-forget semantics
-            executor.spawn_bg(async move {
-                executor_clone.sleep(delay).await;
-                for response in responses {
-                    let _ = response_tx.send_async(Ok(response)).await;
-                }
-            });
-        }
-
+        self.executor = Some(executor);
         self
     }
 
@@ -223,12 +187,24 @@ where
                     }
                 }
                 Step::After { delay, responses } => {
-                    // Step::After should have been processed in with_executor()
-                    // If we encounter it here, it means no executor was set, so put it back
-                    self.steps
-                        .lock()
-                        .expect("ScriptedBlockingTransport mutex poisoned")
-                        .push_front(Step::After { delay, responses });
+                    // Schedule delayed responses if we have an executor
+                    if let Some(executor) = &self.executor {
+                        let response_tx = self.response_tx.clone();
+                        let executor_clone = executor.clone();
+
+                        // Use spawn_bg for true fire-and-forget semantics
+                        executor.spawn_bg(async move {
+                            executor_clone.sleep(delay).await;
+                            for response in responses {
+                                let _ = response_tx.send_async(Ok(response)).await;
+                            }
+                        });
+                    } else {
+                        // No executor available, send responses immediately
+                        for response in responses {
+                            let _ = self.response_tx.send(Ok(response));
+                        }
+                    }
                 }
                 Step::InjectError(error) => {
                     // Put the error step back to be handled on recv
@@ -449,10 +425,11 @@ pub mod helpers {
         vec![0x90, 0x60 | (socket & 0x0F), 0x41, VISCA_TERMINATOR]
     }
 
-    /// Create a BUFFER FULL response for the given socket number (0-7)
+    /// Create a BUFFER FULL response
     /// Returns error code 0x03 (Command Buffer Full, per VISCA spec)
-    pub fn buffer_full(socket: u8) -> Vec<u8> {
-        vec![0x90, 0x60 | (socket & 0x0F), 0x03, VISCA_TERMINATOR]
+    /// Note: BufferFull errors don't have a socket assignment as the command wasn't accepted
+    pub fn buffer_full(_socket: u8) -> Vec<u8> {
+        vec![0x90, 0x60, 0x03, VISCA_TERMINATOR] // No socket bits in 0x60 for buffer full
     }
 
     /// Create a standard command response (ACK followed by completion)
@@ -475,7 +452,7 @@ pub mod helpers {
     pub fn inquiry_response(pattern: Vec<u8>, _socket: u8, data: Vec<u8>) -> Step {
         Step::OnSend {
             matches: Some(pattern),
-            responses: vec![data],  // No ACK for inquiries per VISCA spec
+            responses: vec![data], // No ACK for inquiries per VISCA spec
         }
     }
 
@@ -484,11 +461,11 @@ pub mod helpers {
         vec![
             Step::OnSend {
                 matches: None,
-                responses: vec![buffer_full(socket)],
+                responses: vec![buffer_full(0)], // BufferFull has no socket assignment
             },
             Step::OnSend {
                 matches: None,
-                responses: vec![ack(socket), complete(socket)],
+                responses: vec![ack(socket), complete(socket)], // Retry succeeds with socket assignment
             },
         ]
     }

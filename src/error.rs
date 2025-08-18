@@ -316,10 +316,10 @@ impl Error {
     pub const fn from_code(code: u8) -> Self {
         match code {
             0x02 => Self::SyntaxError,
-            0x03 => Self::CommandBufferFull,  // Always retryable
+            0x03 => Self::CommandBufferFull, // Always retryable
             0x04 => Self::CommandCanceled,
             0x05 => Self::NoSocket,
-            0x41 => Self::CommandNotExecutable,  // Context-dependent retryability
+            0x41 => Self::CommandNotExecutable, // Context-dependent retryability
             _ => Self::Unknown(code),
         }
     }
@@ -378,7 +378,10 @@ mod tests {
         assert!(matches!(Error::from_code(0x03), Error::CommandBufferFull));
         assert!(matches!(Error::from_code(0x04), Error::CommandCanceled));
         assert!(matches!(Error::from_code(0x05), Error::NoSocket));
-        assert!(matches!(Error::from_code(0x41), Error::CommandNotExecutable));
+        assert!(matches!(
+            Error::from_code(0x41),
+            Error::CommandNotExecutable
+        ));
         assert!(matches!(Error::from_code(0xFF), Error::Unknown(0xFF)));
     }
 

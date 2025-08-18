@@ -13,7 +13,7 @@ use grafton_visca::{
     runtime::{Priority, RuntimeHandle},
     testing::testkit::{
         deterministic_executor::{DeterministicExecutorExt, ExecutorExt},
-        helpers::{ack, buffer_full, not_executable, complete},
+        helpers::{ack, buffer_full, complete},
         DeterministicExecutor, ScriptedTransport,
     },
     Executor,
@@ -24,43 +24,37 @@ fn test_busy_cascade_across_priorities() {
     let (executor, clock) = DeterministicExecutor::new();
 
     executor.clone().block_on_bg(async move {
-        println!("🔧 Setting up busy response test...");
-
         // Create a transport using the built-in helper for BUFFER FULL then success
         // BufferFull is always retryable, while NotExecutable is only retryable for Movement/Preset
         let steps = grafton_visca::testing::testkit::helpers::buffer_full_then_success(1);
 
         let transport = ScriptedTransport::new(steps).with_executor(executor.clone());
 
-        println!("🔧 Creating runtime with ScriptedTransport...");
         let runtime = RuntimeHandle::new(transport, executor.clone())
             .await
             .expect("Failed to create runtime");
 
-        println!("🔧 Advancing clock to allow runtime to start...");
         clock.advance(Duration::from_millis(50));
+        executor.drive_until_idle();
 
-        println!("🔧 Submitting power command that will get BUSY then succeed...");
         let power_cmd = Power::On;
+
+        // Spawn a task to drive the executor and advance time
+        let executor_clone = executor.clone();
+        let clock_clone = clock.clone();
+        let _driver_handle = executor.spawn(async move {
+            for _ in 0..20 {
+                clock_clone.advance(Duration::from_millis(100));
+                executor_clone.drive_until_idle();
+                executor_clone.sleep(Duration::from_micros(1)).await;
+            }
+        });
 
         // Start the command send
         let command_future =
             runtime.send_command(&power_cmd, CameraId::default(), Some(Priority::Normal));
 
-        // Spawn a task to drive the command
-        let executor_clone = executor.clone();
-        let clock_clone = clock.clone();
-        executor.spawn_bg(async move {
-            // Drive the executor periodically
-            for _ in 0..10 {
-                executor_clone.drive_until_idle();
-                clock_clone.advance(Duration::from_millis(50));
-            }
-        });
-
         let power_result = command_future.await;
-
-        println!("🔧 Power command result: {:?}", power_result);
 
         // Command should eventually succeed after the retry
         assert!(
@@ -68,8 +62,6 @@ fn test_busy_cascade_across_priorities() {
             "Power command should succeed after retry: {:?}",
             power_result
         );
-
-        println!("✅ BUSY retry test succeeded with DeterministicExecutor");
     });
 }
 
@@ -121,14 +113,11 @@ fn test_busy_with_max_retries() {
         // Submit a command that will exhaust retries
         let power_cmd = Power::On;
 
-        println!("🔧 Sending power command that should exhaust retries...");
-
         // Create a task to periodically advance time while command executes
         let executor_clone = executor.clone();
         let clock_clone = clock.clone();
         executor.spawn_bg(async move {
-            for i in 0..20 {
-                println!("⏰ Advancing time iteration {}", i);
+            for _ in 0..20 {
                 executor_clone.drive_until_idle();
                 clock_clone.advance(Duration::from_millis(100));
 
@@ -146,8 +135,6 @@ fn test_busy_with_max_retries() {
             result.is_err(),
             "Command should fail after exhausting retries"
         );
-
-        println!("✅ Successfully tested retry exhaustion with DeterministicExecutor");
     });
 }
 
