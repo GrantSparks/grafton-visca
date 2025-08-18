@@ -16,7 +16,7 @@ pub fn now_from_executor_arc<E: crate::executor::Executor>(
     {
         use std::any::Any;
 
-        // Check if E is DeterministicExecutor
+        // When E is Arc<DeterministicExecutor>, &**executor gives us &DeterministicExecutor
         let executor_any: &dyn Any = &**executor;
         if let Some(det_exec) =
             executor_any.downcast_ref::<crate::testing::testkit::DeterministicExecutor>()

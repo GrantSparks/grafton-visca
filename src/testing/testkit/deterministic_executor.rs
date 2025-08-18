@@ -293,6 +293,16 @@ impl DeterministicExecutor {
                 );
             }
 
+            // Tick once more to ensure any woken tasks get a chance to run
+            // This is crucial for handling the case where we just advanced time
+            // and woke up a timer, but haven't run the woken task yet
+            if self.executor.try_tick() {
+                spins = 0; // Reset progress counter if we made progress
+                if let Ok(out) = rx.try_recv() {
+                    return out;
+                }
+            }
+
             // Be polite to the host thread without affecting determinism of task order.
             std::thread::yield_now();
         }

@@ -141,6 +141,51 @@ impl<E> ScriptedTransport<E> {
     pub fn add_response(&self, response: Vec<u8>) {
         let _ = self.response_tx.send(Ok(response));
     }
+
+    /// Process any pending Step::After steps.
+    /// This is called after a successful Step::OnSend to handle any delayed responses.
+    fn process_after_steps(&self)
+    where
+        E: Executor + ExecutorExt,
+    {
+        loop {
+            let step = {
+                let mut steps = self
+                    .steps
+                    .lock()
+                    .expect("ScriptedBlockingTransport mutex poisoned");
+
+                // Only process Step::After, leave others alone
+                match steps.front() {
+                    Some(Step::After { .. }) => steps.pop_front(),
+                    _ => None,
+                }
+            };
+
+            if let Some(Step::After { delay, responses }) = step {
+                // Schedule delayed responses if we have an executor
+                if let Some(executor) = &self.executor {
+                    let response_tx = self.response_tx.clone();
+                    let executor_clone = executor.clone();
+
+                    // Use spawn_bg for true fire-and-forget semantics
+                    executor.spawn_bg(async move {
+                        executor_clone.sleep(delay).await;
+                        for response in responses {
+                            let _ = response_tx.send_async(Ok(response)).await;
+                        }
+                    });
+                } else {
+                    // No executor available, send responses immediately
+                    for response in responses {
+                        let _ = self.response_tx.send(Ok(response));
+                    }
+                }
+            } else {
+                break;
+            }
+        }
+    }
 }
 
 #[cfg(feature = "async")]
@@ -178,6 +223,8 @@ where
                         for response in responses {
                             let _ = self.response_tx.send(Ok(response));
                         }
+                        // Process any Step::After that follows immediately
+                        self.process_after_steps();
                     } else {
                         // Put the step back if it didn't match
                         self.steps
@@ -187,24 +234,13 @@ where
                     }
                 }
                 Step::After { delay, responses } => {
-                    // Schedule delayed responses if we have an executor
-                    if let Some(executor) = &self.executor {
-                        let response_tx = self.response_tx.clone();
-                        let executor_clone = executor.clone();
-
-                        // Use spawn_bg for true fire-and-forget semantics
-                        executor.spawn_bg(async move {
-                            executor_clone.sleep(delay).await;
-                            for response in responses {
-                                let _ = response_tx.send_async(Ok(response)).await;
-                            }
-                        });
-                    } else {
-                        // No executor available, send responses immediately
-                        for response in responses {
-                            let _ = self.response_tx.send(Ok(response));
-                        }
-                    }
+                    // Put it back to be processed by process_after_steps
+                    self.steps
+                        .lock()
+                        .expect("ScriptedBlockingTransport mutex poisoned")
+                        .push_front(Step::After { delay, responses });
+                    // Process it now
+                    self.process_after_steps();
                 }
                 Step::InjectError(error) => {
                     // Put the error step back to be handled on recv
