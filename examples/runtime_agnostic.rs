@@ -1,11 +1,16 @@
-//! Runtime-agnostic async example demonstrating custom runtime usage.
+//! Runtime-agnostic async example demonstrating multiple runtime support.
 //!
-//! This example shows how the library can be used with a custom runtime implementation
-//! without requiring tokio features. It demonstrates the compile-time API structure.
+//! This example shows how the library can be used with different async runtimes:
+//! - tokio (with --features rt-tokio)
+//! - async-std (with --features rt-async-std)  
+//! - smol (with --features rt-smol)
+//! - custom runtime implementations
 //!
 //! Run with:
 //! ```sh
-//! cargo run --example runtime_agnostic
+//! cargo run --example runtime_agnostic --features rt-tokio
+//! cargo run --example runtime_agnostic --features rt-async-std
+//! cargo run --example runtime_agnostic --features rt-smol
 //! ```
 
 #[cfg(feature = "async")]
@@ -16,6 +21,18 @@ fn main() {
 
     println!("🎥 Runtime-Agnostic Camera Control Demo");
     println!("========================================");
+    println!();
+
+    // Show which runtime features are enabled
+    #[cfg(feature = "rt-tokio")]
+    println!("✅ Tokio runtime support enabled");
+
+    #[cfg(feature = "rt-async-std")]
+    println!("✅ async-std runtime support enabled");
+
+    #[cfg(feature = "rt-smol")]
+    println!("✅ smol runtime support enabled");
+
     println!();
 
     // Define a custom executor implementation
@@ -67,16 +84,51 @@ fn main() {
         }
     }
 
+    // Demonstrate using different runtime executors
+    #[cfg(feature = "rt-tokio")]
+    {
+        use grafton_visca::TokioExecutor;
+        println!("Using Tokio executor:");
+        if let Ok(_executor) = TokioExecutor::from_current() {
+            println!("  ✅ Created TokioExecutor from current runtime");
+        } else {
+            println!("  Creating TokioExecutor outside of runtime context");
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let _guard = rt.enter();
+            let executor = TokioExecutor::from_current().unwrap();
+            println!("  ✅ Created TokioExecutor after entering runtime");
+            let _ = executor;
+        }
+    }
+
+    #[cfg(feature = "rt-async-std")]
+    {
+        use grafton_visca::AsyncStdExecutor;
+        println!("Using async-std executor:");
+        let executor = AsyncStdExecutor::new();
+        println!("  ✅ Created AsyncStdExecutor");
+        let _ = executor;
+    }
+
+    #[cfg(feature = "rt-smol")]
+    {
+        use grafton_visca::SmolExecutor;
+        println!("Using smol executor:");
+        let executor = SmolExecutor::new();
+        println!("  ✅ Created SmolExecutor");
+        let _ = executor;
+    }
+
     // Create a custom executor instance
     let executor = CustomExecutor;
 
-    println!("✅ Created custom executor implementation");
+    println!("\n✅ Created custom executor implementation");
 
     // Demonstrate that the library can be used with a custom executor
     // The type system ensures that Camera can work with any executor
     // This shows the API structure without requiring an actual transport
-    println!("The Camera type accepts custom executors:");
-    println!("  Camera::<AsyncMode, Profile, Transport, E>::with_executor(transport, executor)");
+    println!("\nThe Camera type accepts any executor:");
+    println!("  Camera::with_executor(transport, executor)");
 
     // Show that we can reference the executor type
     let _ = executor;

@@ -45,7 +45,7 @@ fn spawn_runtime_task_properly<E: crate::executor::Executor>(
         let executor_any: &dyn Any = executor;
 
         // Debug logging to see what type we have
-        eprintln!(
+        debug!(
             "[spawn_runtime_task_properly] Attempting to spawn runtime task, executor type: {:?}",
             std::any::type_name_of_val(&executor_any)
         );
@@ -56,19 +56,19 @@ fn spawn_runtime_task_properly<E: crate::executor::Executor>(
             if let Some(det_exec) =
                 executor_any.downcast_ref::<crate::testing::testkit::DeterministicExecutor>()
             {
-                eprintln!(
+                debug!(
                     "[spawn_runtime_task_properly] Detected DeterministicExecutor, using spawn_bg"
                 );
                 // Use ExecutorExt::spawn_bg which detaches the task
                 use crate::testing::testkit::deterministic_executor::ExecutorExt;
                 det_exec.spawn_bg(async move {
-                    eprintln!("[runtime task] Runtime task starting (DeterministicExecutor)");
+                    debug!("[runtime task] Runtime task starting (DeterministicExecutor)");
                     match runtime_task.await {
-                        Ok(()) => eprintln!("[runtime task] Runtime task completed successfully"),
-                        Err(e) => eprintln!("[runtime task] Runtime task failed: {}", e),
+                        Ok(()) => debug!("[runtime task] Runtime task completed successfully"),
+                        Err(e) => debug!("[runtime task] Runtime task failed: {}", e),
                     }
                 });
-                eprintln!("[spawn_runtime_task_properly] spawn_bg called, returning");
+                debug!("[spawn_runtime_task_properly] spawn_bg called, returning");
                 return;
             }
 
@@ -166,9 +166,9 @@ impl RuntimeHandle {
         );
 
         // Spawn the task, with special handling for deterministic executors in test mode
-        eprintln!("[RuntimeHandle::with_tick_interval] About to spawn runtime task");
+        debug!("[RuntimeHandle::with_tick_interval] About to spawn runtime task");
         spawn_runtime_task_properly(executor.as_ref(), runtime_task);
-        eprintln!("[RuntimeHandle::with_tick_interval] Runtime task spawned");
+        debug!("[RuntimeHandle::with_tick_interval] Runtime task spawned");
 
         Ok(Self {
             submit: submit_tx,
@@ -427,7 +427,7 @@ async fn runtime_loop_with_config<T: AsyncTransport, E: crate::executor::Executo
     let mut response_buffer = Vec::new();
     let mut consecutive_retries = 0usize;
 
-    eprintln!("[runtime_loop_with_config] VISCA runtime started");
+    debug!("[runtime_loop_with_config] VISCA runtime started");
 
     // Create a timer interval for periodic checks
     let tick_ms = tick_interval_ms.unwrap_or(50);
@@ -486,7 +486,7 @@ async fn runtime_loop_with_config<T: AsyncTransport, E: crate::executor::Executo
         // Pre-drain any retries that are due now to avoid race conditions
         // This ensures deterministic behavior when retry deadline == now
         let now = time_utils::now_from_executor_arc(&executor);
-        if scheduler.has_free_socket() {
+        if scheduler.can_send_command() {
             while let Some(deadline) = scheduler.next_retry_deadline() {
                 if deadline > now {
                     break; // No more retries due now
@@ -538,8 +538,8 @@ async fn runtime_loop_with_config<T: AsyncTransport, E: crate::executor::Executo
                         error!("Error handling retry TX item: {}", e);
                     }
 
-                    // If no more free sockets, stop draining
-                    if !scheduler.has_free_socket() {
+                    // If can't send more commands, stop draining
+                    if !scheduler.can_send_command() {
                         break;
                     }
                 } else {
@@ -601,7 +601,7 @@ async fn runtime_loop_with_config<T: AsyncTransport, E: crate::executor::Executo
                 }
             }
             Operation::Tick => {
-                // eprintln!("[runtime loop] Tick fired");
+                // debug!("[runtime loop] Tick fired");
                 // Handle tick - check for timeouts and retries
                 let now = time_utils::now_from_executor_arc(&executor);
                 let timed_out = scheduler.check_timeouts(now);
@@ -627,9 +627,10 @@ async fn runtime_loop_with_config<T: AsyncTransport, E: crate::executor::Executo
                 // Then check if we have retries to process
                 if scheduler.has_retries() {
                     debug!(
-                        "Has {} retries pending, free socket: {}, retry queue: {:?}",
+                        "[runtime loop] Has {} retries pending, free socket: {}, can_send: {}, retry queue: {:?}",
                         scheduler.retry_queue.len(),
                         scheduler.has_free_socket(),
+                        scheduler.can_send_command(),
                         scheduler
                             .retry_queue
                             .iter()
@@ -637,12 +638,12 @@ async fn runtime_loop_with_config<T: AsyncTransport, E: crate::executor::Executo
                             .collect::<Vec<_>>()
                     );
                 }
-                if scheduler.has_free_socket() && scheduler.has_retries() {
-                    // eprintln!("[runtime loop] Has free socket and retries to process");
+                if scheduler.can_send_command() && scheduler.has_retries() {
+                    debug!("[runtime loop] Has free socket and retries to process");
                     // get_next_retry() now handles exhausted retries internally
                     let now = time_utils::now_from_executor_arc(&executor);
                     if let Some(retry_cmd) = scheduler.get_next_retry(now) {
-                        eprintln!(
+                        debug!(
                             "[runtime loop] Retrying command {} (attempt {})",
                             retry_cmd.id, retry_cmd.attempt
                         );
@@ -704,7 +705,7 @@ async fn runtime_loop_with_config<T: AsyncTransport, E: crate::executor::Executo
         let disconnected = submit_rx.is_disconnected();
         let idle = scheduler.is_idle();
         if disconnected && idle {
-            eprintln!(
+            debug!(
                 "[runtime loop] Submit channel closed and scheduler is idle, shutting down runtime"
             );
             break;
@@ -728,9 +729,9 @@ async fn process_command_queue<T: AsyncTransport, E: crate::executor::Executor>(
     executor: &E,
     allow_retry_defer: bool,
 ) -> Result<()> {
-    // Process commands from the priority queue while we have free sockets
+    // Process commands from the priority queue while we can send more
     // But check if there's a higher priority retry ready first
-    while scheduler.has_free_socket() && !scheduler.is_queue_empty() {
+    while scheduler.can_send_command() && !scheduler.is_queue_empty() {
         // Check if there's a retry ready that has higher or equal priority than the next queued command
         let now = time_utils::now_from_executor(executor);
         if allow_retry_defer {
@@ -798,17 +799,21 @@ async fn handle_tx_item<T: AsyncTransport, E: crate::executor::Executor>(
             let idx = SchedulerMetrics::priority_index(priority);
             scheduler.metrics.priority_counts[idx].fetch_add(1, Ordering::Relaxed);
 
-            // Check if we have a free socket
+            // Check if we can send immediately (not at 2-command limit)
+            // NOTE: We don't allocate socket yet - camera assigns it in ACK
             let now = time_utils::now_from_executor(executor);
-            if let Some(socket) = scheduler.allocate_socket(id, category, now) {
+            if scheduler.can_send_command() {
                 // Enforce command spacing
                 scheduler.enforce_spacing_with(executor, now).await;
 
                 // Send command
-                trace!("Sending command {} on {:?}: {:02X?}", id, socket, bytes);
+                debug!(
+                    "[handle_tx_item] Sending command {} (awaiting ACK): {:02X?}",
+                    id, bytes
+                );
+                trace!("Sending command {} (awaiting ACK): {:02X?}", id, bytes);
                 if let Err(e) = transport.send(&bytes).await {
                     error!("Failed to send command {}: {}", id, e);
-                    scheduler.free_socket(socket);
                     scheduler
                         .metrics
                         .commands_failed
@@ -817,9 +822,10 @@ async fn handle_tx_item<T: AsyncTransport, E: crate::executor::Executor>(
                     return Ok(());
                 }
 
-                // Store the response channel and metadata in the scheduler for later use
+                // Add to pending ACK list - socket will be assigned when ACK arrives
+                scheduler.add_pending_ack(id, bytes.clone(), priority, category, now);
                 scheduler.store_command_channel(id, response_tx);
-                scheduler.store_command_metadata(id, bytes.clone(), priority, category);
+                debug!("[handle_tx_item] Command {} added to pending ACK list", id);
             } else {
                 // No socket available, add to priority queue
                 debug!(
@@ -927,12 +933,18 @@ async fn handle_response<T: AsyncTransport, E: crate::executor::Executor>(
     use crate::protocol::encode::VISCA_TERMINATOR;
 
     let response = parse_response(frame);
+    debug!("[handle_response] Parsed response: {:?}", response);
     trace!("Parsed response: {:?}", response);
 
     match response {
         ViscaResponse::Ack { socket } => {
-            if let Some(cmd_id) = scheduler.socket_command(socket) {
-                debug!("ACK received for command {} on {:?}", cmd_id, socket);
+            // Camera has assigned a socket - handle the ACK
+            let now = time_utils::now_from_executor(executor);
+            if let Some(cmd_id) = scheduler.handle_ack(socket, now) {
+                debug!(
+                    "ACK received - command {} assigned to {:?} by camera",
+                    cmd_id, socket
+                );
                 let _ = event_tx
                     .send_async(RxEvent::Ack { socket, id: cmd_id })
                     .await;
@@ -940,7 +952,10 @@ async fn handle_response<T: AsyncTransport, E: crate::executor::Executor>(
                 // Don't send ACK to the response channel - wait for Completion
                 // The response channel is expecting the final result, not intermediate ACKs
             } else {
-                warn!("Received ACK for {:?} with no pending command", socket);
+                warn!(
+                    "Received ACK for {:?} but no pending commands awaiting ACK",
+                    socket
+                );
             }
         }
 
@@ -1046,14 +1061,93 @@ async fn handle_response<T: AsyncTransport, E: crate::executor::Executor>(
         ViscaResponse::Error { socket, error } => {
             warn!("Error response: {:?} on socket {:?}", error, socket);
 
-            // Handle busy error specially - retry the command
-            // Per VISCA spec, error 0x41 (NotExecutable) includes camera busy conditions
-            // We map 0x41 to ViscaError::Busy in from_byte for retry logic
-            if matches!(error, ViscaError::Busy) {
-                eprintln!("[handle_response] Received BUSY error");
+            // Handle errors for commands that haven't received ACK yet
+            // Check if we have pending ACK commands and no command assigned to the socket yet
+            let is_pending_ack_error = if let Some(sock) = socket {
+                // If socket has error but no command assigned, it's a pending ACK error
+                scheduler.socket_command(sock).is_none() && scheduler.pending_ack_count() > 0
+            } else {
+                // No socket specified - always check pending ACK
+                scheduler.pending_ack_count() > 0
+            };
+
+            if is_pending_ack_error {
+                // debug!("[handle_response] Handling as pending ACK error");
+                if let Some((cmd_id, priority, category, bytes)) =
+                    scheduler.handle_pending_ack_error_with_bytes(error)
+                {
+                    debug!("{:?} for pending ACK command {}", error, cmd_id);
+
+                    // Store metadata for potential retry (it wasn't stored since we never got ACK)
+                    scheduler.store_command_metadata(cmd_id, bytes.clone(), priority, category);
+
+                    // Queue for retry if it's a retryable error
+                    let retryable = error.is_retryable(Some(category));
+                    // debug!("[handle_response] Command {} category {:?}, error {:?}, retryable: {}",
+                    //     cmd_id, category, error, retryable);
+
+                    if retryable {
+                        let now = time_utils::now_from_executor(executor);
+                        let queued =
+                            scheduler.queue_for_retry(cmd_id, bytes, priority, category, now);
+                        // debug!("[handle_response] Queued for retry: {}", queued);
+                        if !queued {
+                            // Retries exhausted - error already sent to response channel by queue_for_retry
+                            debug!("Command {} exhausted retries", cmd_id);
+                        } else {
+                            // Successfully queued for retry
+                            debug!("Command {} queued for retry", cmd_id);
+
+                            // Emit retry event
+                            let _ = event_tx
+                                .send_async(RxEvent::Link(LinkEvent::Retry {
+                                    attempt: 1,
+                                    reason: format!("Error {:?}", error),
+                                }))
+                                .await;
+                        }
+                    } else {
+                        // Non-retryable error - send error response immediately
+                        debug!("Non-retryable error {:?} for command {}", error, cmd_id);
+                        if let Some(response_tx) = scheduler.get_response_channel(cmd_id) {
+                            // Convert ViscaError to Error using the byte code
+                            let error_code = error.to_byte();
+                            let _ = response_tx.send(Err(Error::from_code(error_code)));
+                            scheduler
+                                .metrics
+                                .commands_failed
+                                .fetch_add(1, Ordering::Relaxed);
+                        }
+                    }
+                    return Ok(());
+                }
+            }
+
+            // Check if error is retryable based on error type and command context
+            let should_retry = if let Some(sock) = socket {
+                if let Some(cmd_id) = scheduler.socket_command(sock) {
+                    // Get command category to determine if NotExecutable (0x41) is retryable
+                    let category = scheduler
+                        .get_command_for_retry(cmd_id)
+                        .map(|(_, _, cat)| cat);
+                    // let retryable = error.is_retryable(category);
+                    // debug!("[handle_response] Socket error - Command {} category {:?}, error {:?}, retryable: {}",
+                    //     cmd_id, category, error, retryable);
+                    error.is_retryable(category)
+                } else {
+                    // debug!("[handle_response] Socket error but no command found for socket");
+                    false
+                }
+            } else {
+                // debug!("[handle_response] No socket specified in error");
+                false
+            };
+
+            if should_retry {
+                // debug!("[handle_response] Will retry error: {:?}", error);
                 if let Some(sock) = socket {
                     if let Some(cmd_id) = scheduler.socket_command(sock) {
-                        eprintln!(
+                        debug!(
                             "[handle_response] Camera busy for command {} on {:?}, will retry",
                             cmd_id, sock
                         );

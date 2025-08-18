@@ -118,11 +118,11 @@ fn test_deterministic_executor_handles_busy_retry() {
     let steps = vec![
         Step::OnSend {
             matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]),
-            responses: vec![vec![0x90, 0x61, 0x41, 0xFF]], // BUSY error on socket 1 (0x41 = Camera Busy)
+            responses: vec![vec![0x90, 0x60, 0x03, 0xFF]], // Buffer Full error (0x03 = Command Buffer Full - the actual BUSY)
         },
         Step::OnSend {
             matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]), // First retry
-            responses: vec![vec![0x90, 0x61, 0x41, 0xFF]],           // BUSY again on socket 1
+            responses: vec![vec![0x90, 0x60, 0x03, 0xFF]],           // Buffer Full again
         },
         Step::OnSend {
             matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]), // Second retry
@@ -184,27 +184,27 @@ fn test_deterministic_executor_handles_busy_exhaustion() {
     let steps = vec![
         Step::OnSend {
             matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]),
-            responses: vec![vec![0x90, 0x61, 0x41, 0xFF]], // BUSY 1 on socket 1 - initial attempt
+            responses: vec![vec![0x90, 0x60, 0x03, 0xFF]], // Buffer Full 1 - initial attempt
         },
         Step::OnSend {
             matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]),
-            responses: vec![vec![0x90, 0x61, 0x41, 0xFF]], // BUSY 2 on socket 1 - retry 1
+            responses: vec![vec![0x90, 0x60, 0x03, 0xFF]], // Buffer Full 2 - retry 1
         },
         Step::OnSend {
             matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]),
-            responses: vec![vec![0x90, 0x61, 0x41, 0xFF]], // BUSY 3 on socket 1 - retry 2
+            responses: vec![vec![0x90, 0x60, 0x03, 0xFF]], // Buffer Full 3 - retry 2
         },
         Step::OnSend {
             matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]),
-            responses: vec![vec![0x90, 0x61, 0x41, 0xFF]], // BUSY 4 on socket 1 - retry 3
+            responses: vec![vec![0x90, 0x60, 0x03, 0xFF]], // Buffer Full 4 - retry 3
         },
         Step::OnSend {
             matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]),
-            responses: vec![vec![0x90, 0x61, 0x41, 0xFF]], // BUSY 5 on socket 1 - retry 4
+            responses: vec![vec![0x90, 0x60, 0x03, 0xFF]], // Buffer Full 5 - retry 4
         },
         Step::OnSend {
             matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]),
-            responses: vec![vec![0x90, 0x61, 0x41, 0xFF]], // BUSY 6 on socket 1 - retry 5, exhaustion
+            responses: vec![vec![0x90, 0x60, 0x03, 0xFF]], // Buffer Full 6 - retry 5, exhaustion
         },
     ];
 

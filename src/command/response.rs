@@ -2061,10 +2061,10 @@ mod tests {
         let response = parse_response(error_bytes, &ViscaResponseType::PanTiltPosition);
         assert!(matches!(response, Err(Error::CommandBufferFull)));
 
-        // Test Command Not Executable (0x41 now maps to CameraBusy for retry logic)
+        // Test Command Not Executable (0x41 - command invalid in current state)
         let error_bytes = &[0x90, 0x61, 0x41, VISCA_TERMINATOR];
         let response = parse_response(error_bytes, &ViscaResponseType::PanTiltPosition);
-        assert!(matches!(response, Err(Error::CameraBusy)));
+        assert!(matches!(response, Err(Error::CommandNotExecutable)));
     }
 
     #[test]

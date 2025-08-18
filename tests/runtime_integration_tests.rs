@@ -227,17 +227,31 @@ mod runtime_tests {
             bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF],
             priority: Priority::Normal,
             response_tx,
-            category: CommandCategory::Quick,
+            category: CommandCategory::Movement, // Movement commands retry on 0x41
             deadline: std::time::Instant::now() + Duration::from_secs(30),
         };
 
         runtime.command(command).await.unwrap();
 
-        // Advance time to allow command processing and retry
-        tokio::time::advance(Duration::from_millis(300)).await;
+        // eprintln!("Test: Command sent, advancing time in steps");
+
+        // Advance time in steps to allow the runtime to process
+        // The retry has a 100ms backoff, so we need to advance past that
+        for _ in 0..20 {
+            tokio::time::advance(Duration::from_millis(20)).await;
+            // Yield to allow the runtime to process
+            tokio::task::yield_now().await;
+        }
+
+        // eprintln!("Test: Time advanced 400ms total, checking for response");
 
         // Wait for the command to complete (busy -> retry -> completion)
-        let response = response_rx.recv_async().await.unwrap();
+        let response =
+            tokio::time::timeout(Duration::from_millis(100), response_rx.recv_async()).await;
+
+        // eprintln!("Test: Response received: {:?}", response);
+
+        let response = response.expect("Timeout waiting for response").unwrap();
 
         assert!(
             matches!(response, Ok(ViscaResponse::Completion)),

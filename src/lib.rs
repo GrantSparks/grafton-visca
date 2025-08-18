@@ -398,6 +398,10 @@ pub use crate::{
     error::{Error, Result},
 };
 
+#[cfg(all(feature = "async", feature = "rt-async-std"))]
+pub use crate::executor::AsyncStdExecutor;
+#[cfg(all(feature = "async", feature = "rt-smol"))]
+pub use crate::executor::SmolExecutor;
 #[cfg(all(feature = "async", feature = "rt-tokio"))]
 pub use crate::executor::TokioExecutor;
 #[cfg(feature = "async")]
