@@ -89,7 +89,7 @@ fn main() {
     {
         use grafton_visca::TokioExecutor;
         println!("Using Tokio executor:");
-        if let Ok(executor) = TokioExecutor::from_current() {
+        if let Ok(_executor) = TokioExecutor::from_current() {
             println!("  ✅ Created TokioExecutor from current runtime");
         } else {
             println!("  Creating TokioExecutor outside of runtime context");

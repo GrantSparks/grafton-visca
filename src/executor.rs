@@ -9,8 +9,6 @@ use crate::Error;
 use core::future::Future;
 #[cfg(feature = "async")]
 use std::pin::Pin;
-#[cfg(feature = "async")]
-use std::sync::Arc;
 
 /// Error type for executor operations.
 #[derive(Debug, thiserror::Error)]
@@ -216,6 +214,7 @@ pub use tokio_impl::TokioExecutor;
 #[cfg(feature = "rt-async-std")]
 mod async_std_impl {
     use super::*;
+    use std::sync::Arc;
     use std::time::Duration;
 
     /// async-std based executor implementation.
@@ -341,6 +340,7 @@ pub use async_std_impl::AsyncStdExecutor;
 #[cfg(feature = "rt-smol")]
 mod smol_impl {
     use super::*;
+    use std::sync::Arc;
     use std::time::Duration;
 
     /// smol-based executor implementation.
@@ -429,14 +429,12 @@ mod smol_impl {
 
                 // Race the two futures
                 loop {
-                    match futures_lite::future::poll_once(&mut fut).await {
-                        Some(value) => return Ok(value),
-                        None => {}
+                    if let Some(value) = futures_lite::future::poll_once(&mut fut).await {
+                        return Ok(value);
                     }
 
-                    match futures_lite::future::poll_once(&mut timer).await {
-                        Some(_) => return Err(Error::Timeout),
-                        None => {}
+                    if futures_lite::future::poll_once(&mut timer).await.is_some() {
+                        return Err(Error::Timeout);
                     }
 
                     // Yield to executor
