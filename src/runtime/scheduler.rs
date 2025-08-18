@@ -718,6 +718,11 @@ impl Scheduler {
         total_in_flight < 2
     }
 
+    /// Get count of pending ACK commands.
+    pub fn pending_ack_count(&self) -> usize {
+        self.pending_ack.len()
+    }
+
     /// Handle error for pending ACK commands.
     /// When error arrives without socket (0x03 BufferFull), it applies to pending command.
     pub fn handle_pending_ack_error(
@@ -1058,12 +1063,16 @@ impl Scheduler {
             return None;
         }
 
+        // eprintln!("[get_next_retry] Checking retry queue at {:?}", now);
+
         // Find the highest priority command that is ready to retry and hasn't exhausted retries
         let mut best_idx = None;
         let mut best_priority = Priority::Low;
         let mut exhausted_commands = Vec::new();
 
         for (idx, cmd) in self.retry_queue.iter().enumerate() {
+            // eprintln!("[get_next_retry] Command {} retry_at {:?}, now {:?}, ready: {}",
+            //     cmd.id, cmd.retry_at, now, cmd.retry_at <= now);
             // Skip commands that aren't ready yet
             if cmd.retry_at > now {
                 continue;
