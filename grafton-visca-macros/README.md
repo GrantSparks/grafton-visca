@@ -1,5 +1,9 @@
 # grafton-visca-macros
 
+[![Crates.io](https://img.shields.io/crates/v/grafton-visca-macros.svg)](https://crates.io/crates/grafton-visca-macros)
+[![Documentation](https://docs.rs/grafton-visca-macros/badge.svg)](https://docs.rs/grafton-visca-macros)
+[![License](https://img.shields.io/crates/l/grafton-visca-macros.svg)](../LICENSE)
+
 Procedural macros for the grafton-visca crate, providing derive macros to eliminate boilerplate in VISCA protocol implementations.
 
 ## Overview
@@ -171,11 +175,72 @@ use grafton_visca::{InquiryCommand, ViscaEnum, ViscaValue, ViscaEncode};
 5. **Consistent API** - All commands follow the same patterns
 6. **Performance** - Zero-cost abstractions with const functions where possible
 
+## Examples
+
+### Complete Command Implementation
+
+```rust
+use grafton_visca_macros::{ViscaEncode, InquiryCommand, ViscaEnum};
+
+// Define exposure modes
+#[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
+pub enum ExposureMode {
+    Auto = 0x00,
+    Manual = 0x03,
+    Shutter = 0x0A,
+    Iris = 0x0B,
+}
+
+// Command to set exposure mode
+#[derive(ViscaEncode, Debug, Copy, Clone)]
+#[visca_encode(response = "Completion", max_size = 6, timeout = "Quick")]
+pub struct SetExposureMode {
+    mode: ExposureMode,
+}
+
+// Inquiry to get current exposure mode
+#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[visca(command = 0x39, response = "ExposureMode", parser = "mode")]
+pub struct ExposureModeInquiry;
+```
+
+### Value Types with Validation
+
+```rust
+use grafton_visca_macros::ViscaValue;
+
+#[derive(ViscaValue, Debug, Copy, Clone)]
+#[visca_value(bytes = 2, min = 0x0000, max = 0x4000)]
+pub struct ZoomPosition(u16);
+
+impl ZoomPosition {
+    pub fn from_percentage(percent: f32) -> Result<Self, Error> {
+        let value = (percent.clamp(0.0, 100.0) * 0x4000 as f32 / 100.0) as u16;
+        Ok(Self(value))
+    }
+    
+    pub fn to_percentage(&self) -> f32 {
+        self.0 as f32 * 100.0 / 0x4000 as f32
+    }
+}
+```
+
 ## Requirements
 
+- Rust 1.70 or later (for const trait implementations)
 - The `response` attribute in `InquiryCommand` must reference existing `ResponseType` variants
 - Enums using `ViscaEnum` must have explicit discriminant values
 - All discriminant values must be unique and valid u8 values (0-255)
+
+## Version Compatibility
+
+This crate follows the same versioning as the main `grafton-visca` crate. Always use matching versions:
+
+```toml
+[dependencies]
+grafton-visca = "0.7"
+grafton-visca-macros = "0.7"
+```
 
 ## License
 

@@ -2,6 +2,17 @@
 
 This directory contains comprehensive examples demonstrating how to use the grafton-visca library for controlling VISCA-compatible PTZ cameras.
 
+## Important: Feature Flags
+
+This library uses feature flags to control dependencies:
+- **No features** (default): Blocking API only, zero async dependencies
+- **`async`**: Runtime-agnostic async support (requires executor)
+- **`rt-tokio`**: Tokio runtime integration (includes async)
+- **`rt-async-std`**: async-std runtime integration (includes async)
+- **`rt-smol`**: smol runtime integration (includes async)
+- **`serial`**: Serial port support for RS-232/RS-422 (partial implementation)
+- **`test-utils`**: Testing utilities (not for production)
+
 ## Getting Started
 
 If you're new to the library, start with these examples in order:
@@ -15,6 +26,7 @@ If you're new to the library, start with these examples in order:
 ### Basic Usage
 - **[quickstart.rs](quickstart.rs)** - Comprehensive blocking example covering movement, presets, and imaging
 - **[quickstart_async.rs](quickstart_async.rs)** - Async version with concurrent operations and state management
+- **[runtime_agnostic.rs](runtime_agnostic.rs)** - Works with any async runtime (smol, async-std, etc.)
 
 ### Camera Control
 - **[camera_inquiry.rs](camera_inquiry.rs)** - Query and read camera state, positions, and settings
@@ -29,6 +41,8 @@ If you're new to the library, start with these examples in order:
 ### Advanced Patterns
 - **[concurrent_control.rs](concurrent_control.rs)** - Thread-safe operations from multiple threads
 - **[error_handling.rs](error_handling.rs)** - Comprehensive error handling and recovery strategies
+- **[runtime_demo.rs](runtime_demo.rs)** - Protocol-compliant runtime execution with ACK/Completion
+- **[inquiry_demo.rs](inquiry_demo.rs)** - Advanced camera state queries and monitoring
 
 ## Running Examples
 
@@ -47,52 +61,82 @@ Run blocking examples:
 ```bash
 cargo run --example quickstart
 cargo run --example preset_demo
-cargo run --example error_handling
+cargo run --example transports
+cargo run --example type_safe_commands
 ```
 
-Run async examples (requires tokio feature):
+Run async examples (requires rt-tokio feature):
 ```bash
-cargo run --example quickstart_async --features tokio
-cargo run --example camera_inquiry --features tokio
-cargo run --example concurrent_control --features tokio
+cargo run --example quickstart_async --features rt-tokio
+cargo run --example camera_inquiry --features rt-tokio
+cargo run --example concurrent_control --features rt-tokio
+cargo run --example error_handling --features rt-tokio
+cargo run --example builder_api --features rt-tokio
+cargo run --example sony_encapsulation --features rt-tokio
+cargo run --example inquiry_demo --features rt-tokio
+cargo run --example runtime_demo --features rt-tokio
+
+# Runtime-agnostic async example
+cargo run --example runtime_agnostic --features async
 ```
 
 ### With Logging
 
 Enable debug logging to see VISCA commands and responses:
 ```bash
-RUST_LOG=debug cargo run --example camera_control
-RUST_LOG=grafton_visca=debug cargo run --example quickstart
+RUST_LOG=debug cargo run --example quickstart
+RUST_LOG=grafton_visca=debug cargo run --example quickstart_async --features rt-tokio
 ```
 
 ## Camera Profiles
 
-The examples use different camera profiles to demonstrate type safety:
+The examples use different camera profiles to demonstrate compile-time type safety:
 
 - `PtzOpticsG2` - PTZOptics Generation 2 cameras (most examples)
-- `PTZOpticsG3` - PTZOptics Generation 3 cameras
-- `SonyFR7` - Sony FR7 cameras with advanced features
+- `PtzOpticsG3` - PTZOptics Generation 3 cameras with enhanced features
+- `PtzOptics30X` - PTZOptics 30X optical zoom models
+- `SonyFR7` - Sony FR7 cameras with ND filter and advanced imaging
+- `SonyBRCH900` - Sony BRC-H900 professional cameras
+- `SonyBRC300` - Sony BRC-300 standard PTZ cameras
 - `GenericVisca` - Basic VISCA profile for unknown cameras
+
+Profiles enable compile-time validation of camera capabilities. Commands not supported by a profile won't compile, preventing runtime errors.
 
 ## Common Patterns
 
 ### Connection Setup
 ```rust
-// Blocking TCP (port defaults to profile-specific: 5678 for PTZOptics)
-let cam = CameraBuilder::tcp("192.168.0.110")
-    .profile::<PtzOpticsG2>()
-    .build()?;
+use grafton_visca::{Camera, camera::BlockingMode};
+use grafton_visca::transport::blocking::tcp::Tcp;
+use grafton_visca::camera::profiles::PtzOpticsG2;
 
-// Async TCP with Tokio
-let cam = CameraBuilder::tokio_tcp("192.168.0.110")
-    .profile::<PtzOpticsG2>()
-    .build()
+// Blocking TCP
+let transport = Tcp::connect("192.168.0.110:5678")?;
+let cam = Camera::<BlockingMode, PtzOpticsG2, _, _>::new(transport);
+
+// Async TCP with Tokio runtime
+use grafton_visca::{CameraBuilder, transport::tokio::tcp::Tcp as TokioTcp};
+
+let transport = TokioTcp::connect("192.168.0.110:5678").await?;
+let cam = CameraBuilder::tokio()?
+    .build_async::<PtzOpticsG2, _>(transport)
+    .await?;
+
+// Runtime-agnostic async (bring your own executor)
+use grafton_visca::runtime::executor::Executor;
+
+let executor = YourExecutor::new();
+let transport = your_async_transport().await?;
+let cam = CameraBuilder::with_executor(executor)
+    .build_async::<PtzOpticsG2, _>(transport)
     .await?;
 ```
 
 ### Error Handling
 ```rust
-match cam.zoom_in() {
+use grafton_visca::camera::methods::zoom::ZoomControlBlocking;
+
+match cam.zoom_tele_std() {
     Ok(_) => println!("Success"),
     Err(e) if e.is_retryable() => {
         std::thread::sleep(e.suggested_retry_delay().unwrap());
@@ -104,9 +148,14 @@ match cam.zoom_in() {
 
 ### Concurrent Operations (Async)
 ```rust
+use grafton_visca::camera::methods::{
+    pan_tilt::PanTiltControl,
+    zoom::ZoomControl,
+};
+
 let (pan_result, zoom_result) = tokio::join!(
     cam.pan_tilt_right(speed),
-    cam.zoom_in()
+    cam.zoom_tele_std()
 );
 ```
 
@@ -126,9 +175,11 @@ let (pan_result, zoom_result) = tokio::join!(
 
 ### Performance
 - Use async for concurrent operations
-- Consider UDP for lower latency
-- TCP provides better reliability
+- Consider UDP for lower latency (but less reliable)
+- TCP provides better reliability and is recommended
 - Adjust timeouts based on network conditions
+- The library uses zero-copy parsing and stack-allocated buffers
+- Runtime-agnostic design means zero overhead when not using async
 
 ## Contributing
 

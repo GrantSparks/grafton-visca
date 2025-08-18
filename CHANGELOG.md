@@ -5,11 +5,71 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.7.0] - 2025-01-12
+## [Unreleased]
 
-### Major Architectural Improvements (Issue #226)
+### Added
+- Protocol-compliant VISCA implementation with full ACK/Completion handling
+- Runtime-agnostic async support with deterministic testing infrastructure
+- Comprehensive test utilities in `test-utils` feature for protocol validation
+- Scripted transport for reproducible and deterministic protocol testing
+- Priority-based command scheduling with automatic retry logic
+- Feature flags:
+  - `async` - Runtime-agnostic async support
+  - `rt-tokio` - Tokio runtime integration (fully implemented)
+  - `rt-async-std` - async-std runtime integration (implemented)
+  - `rt-smol` - smol runtime integration (implemented)
+  - `test-utils` - Testing utilities and deterministic executor
+  - `serial` - Serial port support (partial - blocking only, needs async trait fix)
+- Executor-based async API to prevent runtime/spawner mismatches
+- Flume-based runtime communication for runtime independence
+- Transport implementations:
+  - `transport::blocking::tcp::Tcp` - Blocking TCP transport
+  - `transport::blocking::udp::Udp` - Blocking UDP transport
+  - `transport::tokio::tcp::Tcp` - Async TCP with Tokio
+  - `transport::tokio::udp::Udp` - Async UDP with Tokio
 
-This release introduces significant architectural improvements focused on zero-cost abstractions, better type safety, and improved network support. See [MIGRATION.md](MIGRATION.md) for a complete migration guide.
+### Changed
+- **Breaking**: Complete API redesign for v0.7.0
+  - Camera creation simplified with transport-first approach
+  - Use `transport::blocking::tcp::Tcp::connect()` for blocking TCP
+  - Use `transport::tokio::tcp::Tcp::connect().await` for async with Tokio
+  - Pass transport to `Camera::new()` for blocking mode
+  - Use `CameraBuilder::tokio()?` or `CameraBuilder::with_executor()` for async
+- **Breaking**: Methods organized into trait modules under `camera::methods::`
+  - Control traits come in pairs: `*ControlBlocking` and `*Control` (async)
+  - `ExposureControlBlocking`/`ExposureControl` - Exposure and iris operations
+  - `FocusControlBlocking`/`FocusControl` - Focus control and auto-focus
+  - `PanTiltControlBlocking`/`PanTiltControl` - Pan/tilt movement
+  - `ZoomControlBlocking`/`ZoomControl` - Zoom operations
+  - `WhiteBalanceControlBlocking`/`WhiteBalanceControl` - White balance
+  - `PresetsControlBlocking`/`PresetsControl` - Preset management
+  - `ImageProcessingControlBlocking`/`ImageProcessingControl` - Image adjustments
+  - `PowerControlBlocking`/`PowerControl` - Power management
+  - `ColorControlBlocking`/`ColorControl` - Color settings
+  - `InquiryControlBlocking`/`InquiryControl` - Status inquiries
+  - Additional traits for: Menu, MotionSync, NDFilter, Streaming, System, Tally, VariableSpeed
+- Architectural improvements for runtime independence
+- Zero-overhead blocking API with no async dependencies
+- Enhanced error handling with retry guidance based on error type
+- Improved timeout management with ACK-specific timeouts (75ms default)
+- Transport traits refactored for better abstraction
+
+### Fixed
+- Timeout handling for commands awaiting ACK
+- Package validation separated for release and development builds
+- Async trait bounds corrected for proper compilation
+- Removed automatic Tokio runtime fallback to maintain runtime independence
+- Resolved unused import warnings in test modules
+
+### Removed
+- Direct builder methods `CameraBuilder::tcp()` and `udp()` (use transport modules)
+- Legacy async implementation from v0.6
+
+## [0.7.0] - 2025-01-18
+
+### Major Architectural Improvements (Issues #226-#243)
+
+This release introduces significant architectural improvements focused on zero-cost abstractions, better type safety, and improved network support.
 
 ### Breaking Changes
 
@@ -19,19 +79,17 @@ This release introduces significant architectural improvements focused on zero-c
   - Added separate `AsyncTransport` and `BlockingTransport` traits with native async functions
   - Zero heap allocations in hot paths
 - **BREAKING**: Unified camera type with compile-time mode dispatch
-  - Single `Camera<Mode, Profile, Transport>` type
-  - `AsyncMode` and `BlockingMode` zero-size type markers
-  - Type aliases: `CameraAsync<P, T>` and `CameraBlocking<P, T>`
+  - Single `Camera<Mode, Profile, Transport, Executor>` type
+  - `BlockingMode` and `AsyncMode` zero-size type markers
 - **BREAKING**: Camera construction changes
-  - Changed from `PTZOpticsG2Cam::new()` to `CameraBuilder` pattern
-  - Explicit transport creation with `connect_tcp()` / `connect_tcp_blocking()`
+  - Changed from direct construction to `CameraBuilder` pattern
+  - Explicit transport creation with transport types (`BlockingTcp`, `BlockingUdp`, etc.)
 - **BREAKING**: Method name changes for clarity
   - `zoom_in()` → `zoom_tele_std()` (telephoto/zoom in)
   - `zoom_out()` → `zoom_wide_std()` (wide angle/zoom out)
-  - `get_pan_tilt_position()` → `get_pan_tilt_degrees()`
-  - `get_zoom_position()` → `get_zoom()`
+  - Movement await methods: `await_pan_tilt_idle()`, `await_zoom_idle()`, `await_focus_idle()`
 - **BREAKING**: Position and speed types now require explicit construction
-  - Use `PanPosition::from_degrees()`, `TiltPosition::from_degrees()`
+  - Use `Degrees` and `Normalized` types for positions
   - Use `PanSpeed::new()`, `TiltSpeed::new()` with numeric values
 
 #### 🔄 API Consolidation and Cleanup (Issue #222)
@@ -76,6 +134,12 @@ Key points:
 2. Replace method calls according to the name changes (e.g., `zoom_in()` → `zoom_tele_std()`)
 3. Update position/speed types to use explicit constructors
 4. Import specific trait modules as needed for accessing control methods
+
+## [0.6.1] - 2025-01-12
+
+### Internal
+- Pre-release version with initial architectural improvements
+- Foundation for v0.7.0 release
 
 ## [0.6.0] - 2025-01-07
 

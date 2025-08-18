@@ -1,5 +1,7 @@
 # VISCA Error Handling & Retry Policy
 
+This document describes the error handling and retry strategies in the grafton-visca library.
+
 ## Error Code Mappings
 
 The VISCA protocol defines specific error codes that are returned by cameras when commands fail. These are mapped to the `Error` enum in `src/error.rs`:
@@ -13,7 +15,7 @@ The VISCA protocol defines specific error codes that are returned by cameras whe
 | `0x03` | `CommandBufferFull` | Two sockets are already in use | **Yes** |
 | `0x04` | `CommandCanceled` | Command was canceled in the specified socket | No |
 | `0x05` | `NoSocket` | No command is executing in the specified socket | No |
-| `0x41` | `CommandNotExecutable` | Command cannot be executed due to current conditions | **Yes** |
+| `0x41` | `CommandNotExecutable` | Command cannot be executed due to current conditions | No |
 
 ### Extended Error Conditions
 
@@ -35,27 +37,39 @@ Beyond the standard VISCA error codes, the library defines additional error cond
 ### Architecture Difference
 
 **Important:** Retry behavior differs between async and blocking modes:
-- **Async mode with socket manager**: Automatic retry with configurable policy
+- **Async mode with runtime**: Automatic retry handled by the runtime layer
 - **Blocking mode**: No automatic retry - must be implemented by the application
 
-### Automatic Retry (Async Mode with Socket Manager)
+The runtime layer in async mode provides protocol-compliant retry logic with exponential backoff.
 
-When using the async API with socket manager, automatic retry is handled by the `RetryHook` trait:
+### Automatic Retry (Async Mode)
+
+When using the async API, the runtime layer handles automatic retry based on VISCA protocol rules:
 
 ```rust
-// Default retry configuration
-pub struct DefaultRetryHook {
-    max_attempts: 3,        // Maximum retry attempts
-    base_delay: 100ms,      // Base delay for exponential backoff
-    max_delay: 5s,          // Maximum delay between retries
+// Retry configuration in the runtime
+pub struct RetryConfig {
+    max_attempts: 3,              // Maximum retry attempts
+    base_delay: Duration::from_millis(100),  // Base delay
+    max_delay: Duration::from_secs(5),       // Maximum delay
+    jitter: true,                 // Add randomization to delays
 }
 ```
 
 #### Retryable Errors
 
-The socket manager automatically retries these errors:
-- `CommandNotExecutable` (0x41) - Camera temporarily cannot execute command
+The runtime automatically retries these VISCA protocol errors:
 - `CommandBufferFull` (0x03) - Camera command buffer is full
+- `CameraBusy` - Camera is processing another command
+- `CommandPending` - Command acknowledged but pending completion
+- `CameraMoving` - Camera is performing mechanical movement
+- `CommandTimeout` - Command exceeded configured timeout
+- `Timeout` - Operation timed out
+
+Retry behavior is command-category aware:
+- Movement commands: Always retryable when busy
+- Quick commands: Limited retries to avoid blocking
+- Inquiry commands: No retry (immediate response expected)
 
 #### Exponential Backoff
 
@@ -155,15 +169,35 @@ When encountering `CommandBufferFull`:
 ## Example: Robust Command Execution
 
 ```rust
-use grafton_visca::{Camera, Error, blocking::prelude::*};
+use grafton_visca::{Error, Result};
+use grafton_visca::camera::{Camera, AsyncMode, BlockingMode};
+use grafton_visca::camera::methods::pan_tilt::{PanTiltControl, PanTiltControlBlocking};
+use grafton_visca::camera::profiles::Profile;
+use grafton_visca::transport::{AsyncTransport, BlockingTransport};
+use grafton_visca::runtime::executor::Executor;
 
-async fn execute_command_robust(camera: &Camera) -> Result<(), Error> {
-    // Async mode with socket manager handles retry automatically
+// Async mode - automatic retry by runtime
+async fn execute_command_robust<P, T, E>(
+    camera: &Camera<AsyncMode, P, T, E>
+) -> Result<()> 
+where
+    P: Profile,
+    T: AsyncTransport,
+    E: Executor,
+{
+    // Runtime handles retry automatically based on protocol rules
     camera.pan_tilt_home().await?;
     Ok(())
 }
 
-fn execute_command_robust_blocking(camera: &Camera) -> Result<(), Error> {
+// Blocking mode - manual retry required
+fn execute_command_robust_blocking<P, T>(
+    camera: &Camera<BlockingMode, P, T, ()>
+) -> Result<()>
+where
+    P: Profile,
+    T: BlockingTransport,
+{
     let mut attempts = 0;
     const MAX_ATTEMPTS: u32 = 3;
     
@@ -182,3 +216,19 @@ fn execute_command_robust_blocking(camera: &Camera) -> Result<(), Error> {
     }
 }
 ```
+
+## Priority-Based Retry
+
+The async runtime uses command priorities to manage retries:
+
+```rust
+// Priority levels (lowest to highest value)
+pub enum Priority {
+    Low = 0,         // Normal operations
+    Normal = 1,      // Default priority
+    High = 2,        // User-initiated actions
+    Critical = 3,    // Emergency/safety operations
+}
+```
+
+Higher priority commands can preempt retry attempts of lower priority commands when the camera is busy.
