@@ -1130,10 +1130,10 @@ async fn handle_response<T: AsyncTransport, E: crate::executor::Executor>(
                     let category = scheduler
                         .get_command_for_retry(cmd_id)
                         .map(|(_, _, cat)| cat);
-                    let retryable = error.is_retryable(category);
+                    // let retryable = error.is_retryable(category);
                     // debug!("[handle_response] Socket error - Command {} category {:?}, error {:?}, retryable: {}",
                     //     cmd_id, category, error, retryable);
-                    retryable
+                    error.is_retryable(category)
                 } else {
                     // debug!("[handle_response] Socket error but no command found for socket");
                     false
