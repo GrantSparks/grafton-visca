@@ -4,7 +4,7 @@
 //! any additional encapsulation. This is the format used by PtzOptics cameras.
 
 use bytes::{Bytes, BytesMut};
-use log::{debug, trace};
+use log::{debug, trace, warn};
 
 use std::io::{Read, Write};
 
