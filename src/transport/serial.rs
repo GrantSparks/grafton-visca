@@ -9,11 +9,11 @@ use log::{debug, trace, warn};
 
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::error::{Error, Result};
 use crate::protocol::encode::{FrameBuilder, VISCA_TERMINATOR};
-use crate::transport::{AsyncTransport, BlockingTransport};
+use crate::transport::{AsyncTransport, BlockingTransport, RetryConfig};
 
 /// Serial port configuration for VISCA communication.
 #[derive(Debug, Clone)]
@@ -32,6 +32,8 @@ pub struct SerialConfig {
     pub read_timeout: Duration,
     /// Write timeout for serial operations.
     pub write_timeout: Duration,
+    /// Retry configuration for serial operations.
+    pub retry_config: RetryConfig,
 }
 
 impl Default for SerialConfig {
@@ -44,6 +46,7 @@ impl Default for SerialConfig {
             address_set_on_connect: false,
             read_timeout: Duration::from_millis(100),
             write_timeout: Duration::from_millis(100),
+            retry_config: RetryConfig::default(),
         }
     }
 }
@@ -54,6 +57,7 @@ pub struct SerialTransport {
     port: Arc<Mutex<Box<dyn serialport::SerialPort>>>,
     camera_address: u8,
     read_buffer: Arc<Mutex<BytesMut>>,
+    config: SerialConfig,
 }
 
 impl SerialTransport {
@@ -67,17 +71,22 @@ impl SerialTransport {
                 Error::TransportError(format!("Failed to open serial port: {}", e).into())
             })?;
 
+        let camera_address = config.camera_address;
+        let if_clear = config.if_clear_on_connect;
+        let address_set = config.address_set_on_connect;
+
         let transport = Self {
             port: Arc::new(Mutex::new(port)),
-            camera_address: config.camera_address,
+            camera_address,
             read_buffer: Arc::new(Mutex::new(BytesMut::with_capacity(256))),
+            config,
         };
 
         // Perform initialization if requested
-        if config.if_clear_on_connect {
+        if if_clear {
             transport.send_if_clear()?;
         }
-        if config.address_set_on_connect {
+        if address_set {
             transport.send_address_set()?;
         }
 
@@ -95,42 +104,113 @@ impl SerialTransport {
     }
 
     /// Send Address Set command to assign addresses to devices.
-    pub fn send_address_set(&self) -> Result<()> {
-        debug!("Sending Address Set command");
-        let cmd = vec![0x88, 0x30, 0x01, VISCA_TERMINATOR];
-        self.send_raw(&cmd)?;
+    /// Returns the number of cameras detected.
+    pub fn send_address_set(&self) -> Result<u8> {
+        let max_attempts = 3;
 
-        // Read responses from devices
-        // Each device will respond with its address
-        let mut buffer = [0u8; 16];
+        for attempt in 0..max_attempts {
+            debug!("Address Set attempt {}", attempt + 1);
+            let cmd = vec![0x88, 0x30, 0x01, VISCA_TERMINATOR];
+            self.send_raw(&cmd)?;
+
+            // Parse response properly
+            match self.recv_address_set_response(Duration::from_secs(2)) {
+                Ok(camera_count) => {
+                    debug!("Address Set successful, found {} cameras", camera_count);
+                    return Ok(camera_count);
+                }
+                Err(Error::Timeout) if attempt < max_attempts - 1 => {
+                    warn!("Address Set timeout, retrying...");
+                    std::thread::sleep(Duration::from_millis(100));
+                    continue;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
+        Err(Error::MaxRetriesExceeded)
+    }
+
+    /// Receive and parse Address Set response.
+    fn recv_address_set_response(&self, timeout: Duration) -> Result<u8> {
+        let mut buffer = [0u8; 64];
         let mut port = self
             .port
             .lock()
             .map_err(|_| Error::LockPoisoned("serial port mutex"))?;
 
-        loop {
+        // Temporarily set timeout
+        let original_timeout = port.timeout();
+        port.set_timeout(timeout)
+            .map_err(|e| Error::TransportError(format!("Failed to set timeout: {}", e).into()))?;
+
+        let mut camera_count = 0;
+        let start = Instant::now();
+
+        // Read all device responses
+        while start.elapsed() < timeout {
             match port.read(&mut buffer) {
                 Ok(n) if n > 0 => {
                     trace!("Address Set response: {:02X?}", &buffer[..n]);
-                    // Check for end of address setting (0x88 0x30 0x02 0xFF)
-                    if n >= 4 && buffer[0] == 0x88 && buffer[1] == 0x30 && buffer[2] == 0x02 {
-                        debug!("Address Set complete");
-                        break;
+
+                    // Parse response bytes
+                    let mut i = 0;
+                    while i < n {
+                        // Device response format: 0x88 0x30 <device_num> 0xFF
+                        if i + 3 < n && buffer[i] == 0x88 && buffer[i + 1] == 0x30 {
+                            if buffer[i + 2] == 0x02 && buffer[i + 3] == VISCA_TERMINATOR {
+                                // End of address setting
+                                debug!("Address Set complete, {} cameras found", camera_count);
+
+                                // Restore timeout
+                                port.set_timeout(original_timeout).ok();
+                                return Ok(camera_count);
+                            } else if buffer[i + 3] == VISCA_TERMINATOR {
+                                // Device response
+                                camera_count += 1;
+                                trace!("Camera {} responded", camera_count);
+                            }
+                            i += 4;
+                        } else {
+                            i += 1;
+                        }
                     }
                 }
                 Ok(_) => {
+                    // No data, continue waiting
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
                     // Timeout - no more devices
-                    debug!("Address Set timeout - assuming complete");
-                    break;
+                    debug!("Address Set timeout - {} cameras found", camera_count);
+
+                    // Restore timeout
+                    port.set_timeout(original_timeout).ok();
+
+                    if camera_count > 0 {
+                        return Ok(camera_count);
+                    } else {
+                        return Err(Error::Timeout);
+                    }
                 }
                 Err(e) => {
-                    warn!("Error reading Address Set response: {}", e);
-                    break;
+                    // Restore timeout
+                    port.set_timeout(original_timeout).ok();
+                    return Err(Error::TransportError(
+                        format!("Error reading Address Set response: {}", e).into(),
+                    ));
                 }
             }
         }
 
-        Ok(())
+        // Restore timeout
+        port.set_timeout(original_timeout).ok();
+
+        if camera_count > 0 {
+            Ok(camera_count)
+        } else {
+            Err(Error::Timeout)
+        }
     }
 
     /// Send raw bytes to the serial port.
@@ -205,11 +285,62 @@ impl BlockingTransport for SerialTransport {
             self.build_command(bytes)
         };
 
-        self.send_raw(&cmd)
+        // Send with retry logic
+        let mut attempts = 0;
+        let start_time = Instant::now();
+
+        loop {
+            match self.send_raw(&cmd) {
+                Ok(()) => return Ok(()),
+                Err(e)
+                    if e.is_retryable()
+                        && self.config.retry_config.should_retry(attempts, start_time) =>
+                {
+                    attempts += 1;
+                    let delay = self
+                        .config
+                        .retry_config
+                        .calculate_delay(attempts, e.suggested_retry_delay());
+
+                    if start_time.elapsed() + delay > self.config.retry_config.max_retry_duration {
+                        return Err(Error::MaxRetriesExceeded);
+                    }
+
+                    debug!("Retrying serial send (attempt {}): {:?}", attempts, e);
+                    std::thread::sleep(delay);
+                }
+                Err(e) => return Err(e),
+            }
+        }
     }
 
     fn recv_blocking(&self) -> Result<Bytes> {
-        self.recv_frame()
+        let mut attempts = 0;
+        let start_time = Instant::now();
+
+        loop {
+            match self.recv_frame() {
+                Ok(frame) => return Ok(frame),
+                Err(e)
+                    if e.is_retryable()
+                        && self.config.retry_config.should_retry(attempts, start_time) =>
+                {
+                    attempts += 1;
+                    let delay = self
+                        .config
+                        .retry_config
+                        .calculate_delay(attempts, e.suggested_retry_delay());
+
+                    if start_time.elapsed() + delay > self.config.retry_config.max_retry_duration {
+                        return Err(Error::MaxRetriesExceeded);
+                    }
+
+                    debug!("Retrying serial receive (attempt {}): {:?}", attempts, e);
+                    std::thread::sleep(delay);
+                }
+                Err(e) => return Err(e),
+            }
+        }
     }
 
     fn recv_blocking_with_timeout(&self, timeout: Duration) -> Result<Bytes> {
@@ -300,6 +431,7 @@ mod tests {
             port: Arc::new(Mutex::new(Box::new(MockSerialPort::new()))),
             camera_address: 1,
             read_buffer: Arc::new(Mutex::new(BytesMut::new())),
+            config: SerialConfig::default(),
         };
 
         let cmd = transport.build_command(&[0x01, 0x04, 0x00, 0x02]);

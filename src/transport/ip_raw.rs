@@ -12,11 +12,11 @@ use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::net::{TcpStream, ToSocketAddrs, UdpSocket};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::error::{Error, Result};
 use crate::protocol::encode::VISCA_TERMINATOR;
-use crate::transport::BlockingTransport;
+use crate::transport::{BlockingTransport, RetryConfig};
 
 /// Configuration for raw IP transport.
 #[derive(Debug, Clone)]
@@ -29,6 +29,8 @@ pub struct RawIpConfig {
     pub read_timeout: Duration,
     /// Write timeout.
     pub write_timeout: Duration,
+    /// Retry configuration for network operations.
+    pub retry_config: RetryConfig,
 }
 
 impl Default for RawIpConfig {
@@ -38,6 +40,7 @@ impl Default for RawIpConfig {
             connect_timeout: Duration::from_secs(5),
             read_timeout: Duration::from_millis(100),
             write_timeout: Duration::from_millis(100),
+            retry_config: RetryConfig::default(),
         }
     }
 }
@@ -47,6 +50,7 @@ impl Default for RawIpConfig {
 pub struct RawTcpTransport {
     stream: Arc<Mutex<TcpStream>>,
     read_buffer: Arc<Mutex<BytesMut>>,
+    config: RawIpConfig,
 }
 
 impl RawTcpTransport {
@@ -81,6 +85,7 @@ impl RawTcpTransport {
         Ok(Self {
             stream: Arc::new(Mutex::new(stream)),
             read_buffer: Arc::new(Mutex::new(BytesMut::with_capacity(256))),
+            config,
         })
     }
 
@@ -128,22 +133,76 @@ impl RawTcpTransport {
 
 impl BlockingTransport for RawTcpTransport {
     fn send_blocking(&self, bytes: &[u8]) -> Result<()> {
-        let mut stream = self
-            .stream
-            .lock()
-            .map_err(|_| Error::LockPoisoned("transport mutex"))?;
-        stream
-            .write_all(bytes)
-            .map_err(|e| Error::TransportError(format!("TCP write error: {}", e).into()))?;
-        stream
-            .flush()
-            .map_err(|e| Error::TransportError(format!("TCP flush error: {}", e).into()))?;
-        trace!("Sent {} bytes: {:02X?}", bytes.len(), bytes);
-        Ok(())
+        let mut attempts = 0;
+        let start_time = Instant::now();
+
+        loop {
+            let mut stream = self
+                .stream
+                .lock()
+                .map_err(|_| Error::LockPoisoned("transport mutex"))?;
+
+            let result = stream
+                .write_all(bytes)
+                .and_then(|_| stream.flush())
+                .map_err(|e| Error::TransportError(format!("TCP write error: {}", e).into()));
+
+            drop(stream);
+
+            match result {
+                Ok(()) => {
+                    trace!("Sent {} bytes: {:02X?}", bytes.len(), bytes);
+                    return Ok(());
+                }
+                Err(e)
+                    if e.is_retryable()
+                        && self.config.retry_config.should_retry(attempts, start_time) =>
+                {
+                    attempts += 1;
+                    let delay = self
+                        .config
+                        .retry_config
+                        .calculate_delay(attempts, e.suggested_retry_delay());
+
+                    if start_time.elapsed() + delay > self.config.retry_config.max_retry_duration {
+                        return Err(Error::MaxRetriesExceeded);
+                    }
+
+                    debug!("Retrying TCP send (attempt {}): {:?}", attempts, e);
+                    std::thread::sleep(delay);
+                }
+                Err(e) => return Err(e),
+            }
+        }
     }
 
     fn recv_blocking(&self) -> Result<Bytes> {
-        self.recv_frame()
+        let mut attempts = 0;
+        let start_time = Instant::now();
+
+        loop {
+            match self.recv_frame() {
+                Ok(frame) => return Ok(frame),
+                Err(e)
+                    if e.is_retryable()
+                        && self.config.retry_config.should_retry(attempts, start_time) =>
+                {
+                    attempts += 1;
+                    let delay = self
+                        .config
+                        .retry_config
+                        .calculate_delay(attempts, e.suggested_retry_delay());
+
+                    if start_time.elapsed() + delay > self.config.retry_config.max_retry_duration {
+                        return Err(Error::MaxRetriesExceeded);
+                    }
+
+                    debug!("Retrying TCP receive (attempt {}): {:?}", attempts, e);
+                    std::thread::sleep(delay);
+                }
+                Err(e) => return Err(e),
+            }
+        }
     }
 
     fn recv_blocking_with_timeout(&self, timeout: Duration) -> Result<Bytes> {
@@ -182,6 +241,9 @@ impl BlockingTransport for RawTcpTransport {
 pub struct RawUdpTransport {
     socket: Arc<UdpSocket>,
     read_buffer: Arc<Mutex<BytesMut>>,
+    config: RawIpConfig,
+    /// Track last sent command for retry on timeout
+    last_command: Arc<Mutex<Option<Vec<u8>>>>,
 }
 
 impl RawUdpTransport {
@@ -220,6 +282,8 @@ impl RawUdpTransport {
         Ok(Self {
             socket: Arc::new(socket),
             read_buffer: Arc::new(Mutex::new(BytesMut::with_capacity(256))),
+            config,
+            last_command: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -263,15 +327,116 @@ impl RawUdpTransport {
 
 impl BlockingTransport for RawUdpTransport {
     fn send_blocking(&self, bytes: &[u8]) -> Result<()> {
-        self.socket
-            .send(bytes)
-            .map_err(|e| Error::TransportError(format!("UDP send error: {}", e).into()))?;
-        trace!("Sent {} bytes: {:02X?}", bytes.len(), bytes);
-        Ok(())
+        // Store the command for potential retry on receive timeout
+        {
+            let mut last_cmd = self
+                .last_command
+                .lock()
+                .map_err(|_| Error::LockPoisoned("transport mutex"))?;
+            *last_cmd = Some(bytes.to_vec());
+        }
+
+        let mut attempts = 0;
+        let start_time = Instant::now();
+
+        loop {
+            let result = self
+                .socket
+                .send(bytes)
+                .map_err(|e| Error::TransportError(format!("UDP send error: {}", e).into()));
+
+            match result {
+                Ok(_) => {
+                    trace!("Sent {} bytes: {:02X?}", bytes.len(), bytes);
+                    return Ok(());
+                }
+                Err(e)
+                    if e.is_retryable()
+                        && self.config.retry_config.should_retry(attempts, start_time) =>
+                {
+                    attempts += 1;
+                    let delay = self
+                        .config
+                        .retry_config
+                        .calculate_delay(attempts, e.suggested_retry_delay());
+
+                    if start_time.elapsed() + delay > self.config.retry_config.max_retry_duration {
+                        return Err(Error::MaxRetriesExceeded);
+                    }
+
+                    debug!("Retrying UDP send (attempt {}): {:?}", attempts, e);
+                    std::thread::sleep(delay);
+                }
+                Err(e) => return Err(e),
+            }
+        }
     }
 
     fn recv_blocking(&self) -> Result<Bytes> {
-        self.recv_frame()
+        let mut attempts = 0;
+        let start_time = Instant::now();
+
+        loop {
+            match self.recv_frame() {
+                Ok(frame) => return Ok(frame),
+                Err(Error::Timeout)
+                    if self.config.retry_config.should_retry(attempts, start_time) =>
+                {
+                    // For UDP, timeout might mean packet loss - resend last command
+                    let last_cmd = self
+                        .last_command
+                        .lock()
+                        .map_err(|_| Error::LockPoisoned("transport mutex"))?
+                        .clone();
+
+                    if let Some(cmd) = last_cmd {
+                        attempts += 1;
+                        let delay = self
+                            .config
+                            .retry_config
+                            .calculate_delay(attempts, Error::Timeout.suggested_retry_delay());
+
+                        if start_time.elapsed() + delay
+                            > self.config.retry_config.max_retry_duration
+                        {
+                            return Err(Error::MaxRetriesExceeded);
+                        }
+
+                        debug!(
+                            "UDP receive timeout, resending command (attempt {})",
+                            attempts
+                        );
+
+                        // Resend the command
+                        self.socket.send(&cmd).map_err(|e| {
+                            Error::TransportError(format!("UDP resend error: {}", e).into())
+                        })?;
+
+                        std::thread::sleep(delay);
+                    } else {
+                        return Err(Error::Timeout);
+                    }
+                }
+                Err(e)
+                    if e.is_retryable()
+                        && self.config.retry_config.should_retry(attempts, start_time) =>
+                {
+                    attempts += 1;
+                    let delay = self
+                        .config
+                        .retry_config
+                        .calculate_delay(attempts, e.suggested_retry_delay());
+
+                    if start_time.elapsed() + delay > self.config.retry_config.max_retry_duration {
+                        return Err(Error::MaxRetriesExceeded);
+                    }
+
+                    debug!("Retrying UDP receive (attempt {}): {:?}", attempts, e);
+                    std::thread::sleep(delay);
+                }
+                Err(e) => return Err(e),
+            }
+        }
     }
 
     fn recv_blocking_with_timeout(&self, timeout: Duration) -> Result<Bytes> {
@@ -303,6 +468,7 @@ impl BlockingTransport for RawUdpTransport {
 pub struct AsyncRawTcpTransport {
     stream: Arc<tokio::sync::Mutex<tokio::net::TcpStream>>,
     read_buffer: Arc<tokio::sync::Mutex<BytesMut>>,
+    retry_config: RetryConfig,
 }
 
 #[cfg(feature = "rt-tokio")]
@@ -327,6 +493,7 @@ impl AsyncRawTcpTransport {
         Ok(Self {
             stream: Arc::new(tokio::sync::Mutex::new(stream)),
             read_buffer: Arc::new(tokio::sync::Mutex::new(BytesMut::with_capacity(256))),
+            retry_config: config.retry_config,
         })
     }
 
@@ -370,21 +537,78 @@ impl crate::transport::AsyncTransport for AsyncRawTcpTransport {
     async fn send(&self, bytes: &[u8]) -> Result<()> {
         use tokio::io::AsyncWriteExt;
 
-        let mut stream = self.stream.lock().await;
-        stream
-            .write_all(bytes)
-            .await
-            .map_err(|e| Error::TransportError(format!("TCP write error: {}", e).into()))?;
-        stream
-            .flush()
-            .await
-            .map_err(|e| Error::TransportError(format!("TCP flush error: {}", e).into()))?;
-        trace!("Sent {} bytes: {:02X?}", bytes.len(), bytes);
-        Ok(())
+        let start_time = Instant::now();
+        let mut attempt = 0;
+        let mut last_error = None;
+
+        while self.retry_config.should_retry(attempt, start_time) {
+            let mut stream = self.stream.lock().await;
+
+            let result: Result<()> =
+                async {
+                    stream.write_all(bytes).await.map_err(|e| {
+                        Error::TransportError(format!("TCP write error: {}", e).into())
+                    })?;
+                    stream.flush().await.map_err(|e| {
+                        Error::TransportError(format!("TCP flush error: {}", e).into())
+                    })?;
+                    trace!("Sent {} bytes: {:02X?}", bytes.len(), bytes);
+                    Ok(())
+                }
+                .await;
+
+            match result {
+                Ok(()) => return Ok(()),
+                Err(e) if e.is_retryable() => {
+                    attempt += 1;
+
+                    if self.retry_config.should_retry(attempt, start_time) {
+                        let delay = self
+                            .retry_config
+                            .calculate_delay(attempt, e.suggested_retry_delay());
+                        debug!(
+                            "Retrying send after {:?} (attempt {}/{})",
+                            delay, attempt, self.retry_config.max_retries
+                        );
+                        tokio::time::sleep(delay).await;
+                    }
+                    last_error = Some(e);
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
+        Err(last_error.unwrap_or(Error::Timeout))
     }
 
     async fn recv(&self) -> Result<Bytes> {
-        self.recv_frame().await
+        let start_time = Instant::now();
+        let mut attempt = 0;
+        let mut last_error = None;
+
+        while self.retry_config.should_retry(attempt, start_time) {
+            match self.recv_frame().await {
+                Ok(bytes) => return Ok(bytes),
+                Err(e) if e.is_retryable() => {
+                    attempt += 1;
+
+                    if self.retry_config.should_retry(attempt, start_time) {
+                        let delay = self
+                            .retry_config
+                            .calculate_delay(attempt, e.suggested_retry_delay());
+                        debug!(
+                            "Retrying recv after {:?} (attempt {}/{})",
+                            delay, attempt, self.retry_config.max_retries
+                        );
+                        tokio::time::sleep(delay).await;
+                    }
+                    last_error = Some(e);
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
+        Err(last_error.unwrap_or(Error::Timeout))
     }
 }
 
@@ -394,6 +618,8 @@ impl crate::transport::AsyncTransport for AsyncRawTcpTransport {
 pub struct AsyncRawUdpTransport {
     socket: Arc<tokio::net::UdpSocket>,
     read_buffer: Arc<tokio::sync::Mutex<BytesMut>>,
+    retry_config: RetryConfig,
+    last_sent_command: Arc<tokio::sync::Mutex<Option<Vec<u8>>>>,
 }
 
 #[cfg(feature = "rt-tokio")]
@@ -421,6 +647,8 @@ impl AsyncRawUdpTransport {
         Ok(Self {
             socket: Arc::new(socket),
             read_buffer: Arc::new(tokio::sync::Mutex::new(BytesMut::with_capacity(256))),
+            retry_config: config.retry_config,
+            last_sent_command: Arc::new(tokio::sync::Mutex::new(None)),
         })
     }
 
@@ -459,16 +687,99 @@ impl AsyncRawUdpTransport {
 #[cfg(feature = "rt-tokio")]
 impl crate::transport::AsyncTransport for AsyncRawUdpTransport {
     async fn send(&self, bytes: &[u8]) -> Result<()> {
-        self.socket
-            .send(bytes)
-            .await
-            .map_err(|e| Error::TransportError(format!("UDP send error: {}", e).into()))?;
-        trace!("Sent {} bytes: {:02X?}", bytes.len(), bytes);
-        Ok(())
+        let start_time = Instant::now();
+        let mut attempt = 0;
+        let mut last_error = None;
+
+        // Store command for potential resend on receive timeout
+        {
+            let mut last_cmd = self.last_sent_command.lock().await;
+            *last_cmd = Some(bytes.to_vec());
+        }
+
+        while self.retry_config.should_retry(attempt, start_time) {
+            match self.socket.send(bytes).await {
+                Ok(_) => {
+                    trace!("Sent {} bytes: {:02X?}", bytes.len(), bytes);
+                    return Ok(());
+                }
+                Err(e) => {
+                    let error = Error::TransportError(format!("UDP send error: {}", e).into());
+                    if error.is_retryable() {
+                        attempt += 1;
+
+                        if self.retry_config.should_retry(attempt, start_time) {
+                            let delay = self
+                                .retry_config
+                                .calculate_delay(attempt, error.suggested_retry_delay());
+                            debug!(
+                                "Retrying UDP send after {:?} (attempt {}/{})",
+                                delay, attempt, self.retry_config.max_retries
+                            );
+                            tokio::time::sleep(delay).await;
+                        }
+                        last_error = Some(error);
+                    } else {
+                        return Err(error);
+                    }
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or(Error::Timeout))
     }
 
     async fn recv(&self) -> Result<Bytes> {
-        self.recv_frame().await
+        let start_time = Instant::now();
+        let mut attempt = 0;
+        let mut last_error = None;
+
+        while self.retry_config.should_retry(attempt, start_time) {
+            match self.recv_frame().await {
+                Ok(bytes) => return Ok(bytes),
+                Err(Error::Timeout) => {
+                    // On timeout, resend the last command (handle packet loss)
+                    if let Some(last_cmd) = &*self.last_sent_command.lock().await {
+                        debug!("Receive timeout, resending last command");
+                        if let Err(e) = self.socket.send(last_cmd).await {
+                            warn!("Failed to resend command: {}", e);
+                        }
+                    }
+
+                    attempt += 1;
+
+                    if self.retry_config.should_retry(attempt, start_time) {
+                        let delay = self
+                            .retry_config
+                            .calculate_delay(attempt, Some(Duration::from_millis(200)));
+                        debug!(
+                            "Retrying UDP recv after {:?} (attempt {}/{})",
+                            delay, attempt, self.retry_config.max_retries
+                        );
+                        tokio::time::sleep(delay).await;
+                    }
+                    last_error = Some(Error::Timeout);
+                }
+                Err(e) if e.is_retryable() => {
+                    attempt += 1;
+
+                    if self.retry_config.should_retry(attempt, start_time) {
+                        let delay = self
+                            .retry_config
+                            .calculate_delay(attempt, e.suggested_retry_delay());
+                        debug!(
+                            "Retrying UDP recv after {:?} (attempt {}/{})",
+                            delay, attempt, self.retry_config.max_retries
+                        );
+                        tokio::time::sleep(delay).await;
+                    }
+                    last_error = Some(e);
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
+        Err(last_error.unwrap_or(Error::Timeout))
     }
 }
 
