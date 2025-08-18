@@ -423,7 +423,7 @@ async fn test_inquiry_timeout_behavior() {
 }
 
 /// Test mixed command and inquiry execution
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn test_mixed_commands_and_inquiries() {
     use grafton_visca::TokioExecutor;
 
