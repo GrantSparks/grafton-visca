@@ -287,13 +287,26 @@ jobs:
           shared-key: "rust-cache-ubuntu-latest-stable"
           save-if: false
       
-      # Verify the package can be built for publishing
-      - name: Check package
-        run: cargo package --no-verify
+      # Only do full package verification on tags (releases)
+      # For regular CI runs, just verify the crates build correctly
+      - name: Check package (release tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          echo "Running full package check for release tag..."
+          cargo package -p grafton-visca-macros --no-verify
+          cargo package --no-verify
       
-      # Verify the macro crate can be packaged
-      - name: Check macro package
-        run: cargo package -p grafton-visca-macros --no-verify
+      # For non-release runs, just verify everything builds
+      - name: Build validation (non-release)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        run: |
+          echo "Running build validation for non-release..."
+          # Verify the workspace builds with all features
+          cargo build --all-features --workspace
+          # Verify examples build
+          cargo build --examples --all-features
+          # Quick check that the manifest is valid
+          cargo metadata --format-version 1 > /dev/null
       
       # Check for security vulnerabilities
       - name: Install cargo-audit

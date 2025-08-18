@@ -38,7 +38,7 @@ test-utils = ["dep:async-executor", "dep:futures-lite"]  # Feature for exposing 
 bytes = "1.5"
 chrono = { version = "0.4", features = ["serde"] }
 flume = "0.11"
-grafton-visca-macros = { version = "0.7.0", path = "grafton-visca-macros" }
+grafton-visca-macros = { path = "grafton-visca-macros", version = "0.7.0" }
 hex = "0.4"
 log = "0.4.22"
 env_logger = "0.11.5"
