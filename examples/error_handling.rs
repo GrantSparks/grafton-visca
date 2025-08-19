@@ -3,18 +3,23 @@
 //! This example demonstrates error handling patterns with the Camera API,
 //! including retry logic and error classification.
 
+use grafton_visca::Error;
+
 #[cfg(any(not(feature = "async"), feature = "rt-tokio"))]
 use std::time::Instant;
-use std::{borrow::Cow, time::Duration};
 
-use grafton_visca::Error;
+use std::{borrow::Cow, time::Duration};
 
 #[cfg(feature = "rt-tokio")]
 use grafton_visca::{
-    camera::methods::{
-        pan_tilt::PanTiltControl, power::PowerControl, presets::PresetsControl, zoom::ZoomControl,
+    camera::{
+        methods::{
+            pan_tilt::PanTiltControl, power::PowerControl, presets::PresetsControl,
+            zoom::ZoomControl,
+        },
+        profiles::G2PresetId,
+        AsyncMode, Camera,
     },
-    camera::{profiles::G2PresetId, AsyncMode, Camera},
     prelude::r#async::*,
     transport::tokio::Tcp,
     types::{PanSpeed, TiltSpeed},
@@ -22,11 +27,14 @@ use grafton_visca::{
 };
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::methods::{
-        pan_tilt::PanTiltControlBlocking, power::PowerControlBlocking,
-        presets::PresetsControlBlocking, zoom::ZoomControlBlocking,
+    camera::{
+        methods::{
+            pan_tilt::PanTiltControlBlocking, power::PowerControlBlocking,
+            presets::PresetsControlBlocking, zoom::ZoomControlBlocking,
+        },
+        profiles::G2PresetId,
+        BlockingMode, Camera,
     },
-    camera::{profiles::G2PresetId, BlockingMode, Camera},
     prelude::blocking::*,
     transport::blocking::Tcp,
     types::{PanSpeed, TiltSpeed},

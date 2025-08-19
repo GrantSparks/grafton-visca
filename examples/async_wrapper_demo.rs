@@ -17,16 +17,14 @@ fn main() {
 #[cfg(feature = "rt-tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use grafton_visca::transport::builder::TransportBuilder;
-    use grafton_visca::transport::{AsyncTransport, AsyncWrapper, AsyncWrapperExt};
+    use grafton_visca::transport::{
+        builder::TransportBuilder, AsyncTransport, AsyncWrapper, AsyncWrapperExt,
+    };
 
-    use std::env;
-    use std::time::Duration;
+    use std::{env, time::Duration};
 
-    // Initialize logging
     env_logger::init();
 
-    // Get camera address from environment or use default
     let address = env::var("CAMERA_ADDRESS").unwrap_or_else(|_| "192.168.0.110:5678".to_string());
 
     println!("Async Wrapper Demo");
@@ -39,17 +37,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("---------------------------------");
     {
         use grafton_visca::transport::blocking::Tcp;
-
-        // Create a blocking TCP transport
         match Tcp::connect(&address) {
             Ok(blocking_transport) => {
                 println!("✓ Created blocking TCP transport");
 
-                // Wrap it for async usage
                 let async_transport = AsyncWrapper::new(blocking_transport);
                 println!("✓ Wrapped for async usage");
 
-                // Now we can use it as an async transport
                 demonstrate_async_transport(async_transport, "Manual wrapper").await?;
             }
             Err(e) => {
@@ -66,8 +60,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("------------------------------------");
     {
         use grafton_visca::transport::blocking::Udp;
-
-        // Create and immediately convert to async
         match Udp::connect(&address) {
             Ok(blocking_transport) => {
                 println!("✓ Created blocking UDP transport");
@@ -121,17 +113,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("-------------------------------------");
     {
         use grafton_visca::transport::blocking::Tcp;
-
         use std::sync::Arc;
 
         match Tcp::connect(&address) {
             Ok(blocking_transport) => {
-                // Create an Arc-wrapped transport for sharing
                 let shared_transport = Arc::new(blocking_transport);
                 let async_transport = shared_transport.as_async();
                 println!("✓ Created shared async-wrapped transport");
 
-                // Spawn multiple tasks using the same transport
                 let transport1 = async_transport.clone();
                 let transport2 = async_transport.clone();
 
@@ -145,7 +134,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 });
 
                 let task2 = tokio::spawn(async move {
-                    // Wait a bit to avoid collision
                     tokio::time::sleep(Duration::from_millis(100)).await;
                     println!("  Task 2: Sending zoom inquiry...");
                     if let Err(e) = transport2.send(b"\x81\x09\x04\x47\xFF").await {
@@ -155,7 +143,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 });
 
-                // Wait for both tasks
                 let _ = tokio::try_join!(task1, task2);
                 println!("✓ Both tasks completed");
             }
@@ -184,12 +171,10 @@ async fn demonstrate_async_transport<T: grafton_visca::transport::BlockingTransp
     method_name: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::transport::AsyncTransport;
-
     use std::time::Instant;
 
     println!("  Testing async operations with {method_name}...");
 
-    // Send a power inquiry command
     let start = Instant::now();
     match transport.send(b"\x81\x09\x04\x00\xFF").await {
         Ok(_) => {
@@ -201,7 +186,6 @@ async fn demonstrate_async_transport<T: grafton_visca::transport::BlockingTransp
         }
     }
 
-    // Try to receive response (with timeout via tokio)
     match tokio::time::timeout(std::time::Duration::from_secs(1), transport.recv()).await {
         Ok(Ok(response)) => {
             println!("  ✓ Received response: {:02X?}", response.as_ref());
@@ -225,12 +209,10 @@ async fn demonstrate_boxed_async_transport(
     method_name: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::transport::AsyncTransport;
-
     use std::time::Instant;
 
     println!("  Testing boxed async transport with {method_name}...");
 
-    // Send a zoom inquiry command
     let start = Instant::now();
     match transport.send(b"\x81\x09\x04\x47\xFF").await {
         Ok(_) => {
@@ -242,7 +224,6 @@ async fn demonstrate_boxed_async_transport(
         }
     }
 
-    // Try to receive response
     match tokio::time::timeout(std::time::Duration::from_secs(1), transport.recv()).await {
         Ok(Ok(response)) => {
             println!("  ✓ Received response: {:02X?}", response.as_ref());

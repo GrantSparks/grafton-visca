@@ -17,19 +17,20 @@ fn main() {
 
 #[cfg(feature = "rt-tokio")]
 use grafton_visca::{
-    camera::methods::{
-        inquiry::{InquiryControl, PanTiltInquiryControl},
-        pan_tilt::PanTiltControl,
-        presets::PresetsControl,
-        zoom::ZoomControl,
+    camera::{
+        methods::{
+            inquiry::{InquiryControl, PanTiltInquiryControl},
+            pan_tilt::PanTiltControl,
+            presets::PresetsControl,
+            zoom::ZoomControl,
+        },
+        profiles::PtzOpticsG2,
     },
-    camera::profiles::PtzOpticsG2,
     prelude::r#async::*,
     transport::tokio::tcp::Tcp,
     types::SpeedLevel,
     CameraBuilder, PanTiltDirection, PresetNumber, Result,
 };
-
 #[cfg(feature = "rt-tokio")]
 use tokio::time::{sleep, Duration};
 

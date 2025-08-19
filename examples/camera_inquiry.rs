@@ -28,7 +28,6 @@ fn main() -> grafton_visca::Result<()> {
 
     println!("=== Camera Inquiry Demo (Blocking) ===\n");
 
-    // Get camera address from command line or use default
     let camera_addr = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "192.168.0.110:5678".to_string());
@@ -37,7 +36,6 @@ fn main() -> grafton_visca::Result<()> {
     let transport = BlockingTcp::connect(&camera_addr)?;
     let camera = CameraBuilder::new().build_blocking::<PtzOpticsG2, _>(transport);
 
-    // Query power state
     println!("\n--- Power State ---");
     match camera.get_power_state() {
         Ok(is_on) => {
@@ -47,21 +45,18 @@ fn main() -> grafton_visca::Result<()> {
         Err(e) => println!("Failed to get power state: {e}"),
     }
 
-    // Query position
     println!("\n--- Position ---");
     match camera.get_pan_tilt_position() {
         Ok((pan, tilt)) => {
             println!("Pan: {:?}", pan);
             println!("Tilt: {:?}", tilt);
 
-            // Convert to degrees using the built-in methods
             println!("Pan: {:.2}°", pan.to_degrees());
             println!("Tilt: {:.2}°", tilt.to_degrees());
         }
         Err(e) => println!("Failed to get position: {e}"),
     }
 
-    // Query zoom
     println!("\n--- Zoom ---");
     match camera.get_zoom_position() {
         Ok(zoom) => {
@@ -72,7 +67,6 @@ fn main() -> grafton_visca::Result<()> {
         Err(e) => println!("Failed to get zoom: {e}"),
     }
 
-    // Query focus
     println!("\n--- Focus ---");
     match camera.get_focus_mode() {
         Ok(mode) => println!("Focus Mode: {mode:?}"),
@@ -84,7 +78,6 @@ fn main() -> grafton_visca::Result<()> {
         Err(e) => println!("Failed to get focus position: {e}"),
     }
 
-    // Query exposure
     println!("\n--- Exposure ---");
     match camera.get_exposure_mode() {
         Ok(mode) => println!("Exposure Mode: {mode:?}"),
@@ -106,7 +99,6 @@ fn main() -> grafton_visca::Result<()> {
         Err(e) => println!("Failed to get gain: {e}"),
     }
 
-    // Query white balance
     println!("\n--- White Balance ---");
     match camera.get_white_balance_mode() {
         Ok(mode) => println!("WB Mode: {mode:?}"),
@@ -118,7 +110,6 @@ fn main() -> grafton_visca::Result<()> {
         Err(e) => println!("Failed to get color temp: {e}"),
     }
 
-    // Query image adjustments
     println!("\n--- Image Adjustments ---");
     match camera.get_brightness() {
         Ok(val) => println!("Brightness: {:?}", val),
@@ -130,7 +121,6 @@ fn main() -> grafton_visca::Result<()> {
         Err(e) => println!("Failed to get hue: {e}"),
     }
 
-    // Query flip status
     println!("\n--- Image Orientation ---");
     match camera.get_image_flip() {
         Ok(mode) => println!("Flip Mode: {mode:?}"),
@@ -158,7 +148,6 @@ async fn main() -> grafton_visca::Result<()> {
 
     println!("=== Camera Inquiry Demo (Async) ===\n");
 
-    // Get camera address from command line or use default
     let camera_addr = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "192.168.0.110:5678".to_string());
@@ -172,8 +161,6 @@ async fn main() -> grafton_visca::Result<()> {
     println!("\n--- Querying All States Concurrently ---");
 
     use tokio::join;
-
-    // Run multiple inquiries concurrently for better performance
     let (
         power,
         position,

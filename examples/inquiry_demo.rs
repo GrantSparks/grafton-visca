@@ -80,12 +80,6 @@ fn main() -> grafton_visca::Result<()> {
         Err(e) => println!("  Mode: ❌ {e}"),
     }
 
-    // auto_focus_inquiry() has been commented out pending verification
-    // match camera.auto_focus_inquiry() {
-    //     Ok(enabled) => println!("  Auto Focus: {}", if enabled { "✓" } else { "✗" }),
-    //     Err(e) => println!("  Auto Focus: ❌ {e}"),
-    // }
-
     match camera.focus_position_inquiry() {
         Ok(pos) => println!("  Position: {pos:?}"),
         Err(e) => println!("  Position: ❌ {e}"),
@@ -157,17 +151,6 @@ fn main() -> grafton_visca::Result<()> {
 
     // Image Adjustments
     println!("\n── Image Adjustments ──");
-    // sharpness_inquiry() and contrast_inquiry() have been commented out pending verification
-    // These are not standard VISCA inquiries according to the protocol documentation
-    // match camera.sharpness_inquiry() {
-    //     Ok(val) => println!("  Sharpness: {val:?}"),
-    //     Err(e) => println!("  Sharpness: ❌ {e}"),
-    // }
-
-    // match camera.contrast_inquiry() {
-    //     Ok(val) => println!("  Contrast: {val:?}"),
-    //     Err(e) => println!("  Contrast: ❌ {e}"),
-    // }
 
     match camera.saturation_inquiry() {
         Ok(val) => println!("  Saturation: {val:?}"),
@@ -205,12 +188,13 @@ fn main() -> grafton_visca::Result<()> {
 #[cfg(feature = "rt-tokio")]
 #[tokio::main]
 async fn main() -> grafton_visca::Result<()> {
+    use tokio::time::{Duration, Instant};
+
     use grafton_visca::{
         camera::methods::inquiry::{InquiryControl, PanTiltInquiryControl},
         transport::tokio::tcp::Tcp,
         CameraBuilder,
     };
-    use tokio::time::{Duration, Instant};
 
     env_logger::init();
 
@@ -239,7 +223,6 @@ async fn main() -> grafton_visca::Result<()> {
         pan_tilt,
         zoom,
         focus_mode,
-        // auto_focus, // Not documented in VISCA specs
         focus_pos,
         focus_near,
         exposure_mode,
@@ -253,8 +236,6 @@ async fn main() -> grafton_visca::Result<()> {
         backlight,
         wb_mode,
         color_temp,
-        // sharpness, // Not documented in VISCA specs
-        // contrast,  // Not documented in VISCA specs
         saturation,
         hue,
         flip,
@@ -267,7 +248,6 @@ async fn main() -> grafton_visca::Result<()> {
         camera.get_pan_tilt_position(),
         camera.get_zoom_position(),
         camera.get_focus_mode(),
-        // camera.auto_focus_inquiry(), // Not documented in VISCA specs
         camera.get_focus_position(),
         camera.get_focus_near_limit(),
         camera.get_exposure_mode(),
@@ -281,8 +261,6 @@ async fn main() -> grafton_visca::Result<()> {
         camera.get_backlight_enabled(),
         camera.get_white_balance_mode(),
         camera.get_color_temperature(),
-        // camera.sharpness_inquiry(), // Not documented in VISCA specs
-        // camera.contrast_inquiry(),  // Not documented in VISCA specs
         camera.get_saturation(),
         camera.get_hue(),
         camera.get_flip_mode(),
@@ -322,10 +300,6 @@ async fn main() -> grafton_visca::Result<()> {
 
     println!("\n── Focus ──");
     println!("  Mode: {:?}", focus_mode.ok());
-    // NOTE: auto_focus inquiry is not documented in VISCA specs
-    //     "  Auto Focus: {}",
-    //     auto_focus.map_or("❌".to_string(), |e| if e { "✓" } else { "✗" })
-    // );
     println!("  Position: {:?}", focus_pos.ok());
     println!(
         "  Near Limit: {}",
@@ -358,7 +332,6 @@ async fn main() -> grafton_visca::Result<()> {
     println!("  Color Temperature: {}K", color_temp.unwrap_or(0));
 
     println!("\n── Image Adjustments ──");
-    // NOTE: sharpness and contrast inquiries are not documented in VISCA specs
     println!("  Saturation: {:?}", saturation.ok());
     println!("  Hue: {:?}", hue.ok());
     println!("  Image Flip: {:?}", flip.ok());

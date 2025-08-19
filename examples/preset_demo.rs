@@ -11,6 +11,9 @@
 //! ```
 
 #[cfg(not(feature = "async"))]
+use std::{env, thread::sleep, time::Duration};
+
+#[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::methods::{
         inquiry::{InquiryControlBlocking, PanTiltInquiryControlBlocking},
@@ -22,9 +25,6 @@ use grafton_visca::{
     transport::blocking::Tcp,
     CameraBuilder, Error,
 };
-
-#[cfg(not(feature = "async"))]
-use std::{env, thread::sleep, time::Duration};
 
 #[cfg(not(feature = "async"))]
 fn main() -> Result<(), Error> {
@@ -49,14 +49,12 @@ fn main() -> Result<(), Error> {
 
     println!("✅ Connected successfully!\n");
 
-    // Start from home position
     println!("Moving to home position...");
     camera.pan_tilt_home()?;
     camera.zoom_absolute(Normalized(0.0))?;
     camera.await_idle(Duration::from_secs(10))?;
     println!("✓ At home position\n");
 
-    // Define test presets
     struct PresetTest {
         number: u8,
         name: &'static str,
@@ -89,7 +87,6 @@ fn main() -> Result<(), Error> {
         },
     ];
 
-    // Save presets
     println!("═══ Saving Presets ═══");
     for preset in &presets {
         println!("Setting up Preset {} - '{}'", preset.number, preset.name);
@@ -100,14 +97,10 @@ fn main() -> Result<(), Error> {
             preset.zoom.0 * 100.0
         );
 
-        // Move to position
         camera.pan_tilt_absolute(preset.pan, preset.tilt, SpeedLevel::Medium)?;
         camera.zoom_absolute(preset.zoom)?;
 
-        // Wait for movement
         camera.await_idle(Duration::from_secs(10))?;
-
-        // Verify position
         if let Ok((pan, tilt)) = camera.get_pan_tilt_position() {
             println!(
                 "  At position: Pan={:.1}°, Tilt={:.1}°",
@@ -116,18 +109,13 @@ fn main() -> Result<(), Error> {
             );
         }
 
-        // Save preset
         camera.preset_set(PresetNumber::new(preset.number)?)?;
         println!("  ✓ Preset {} saved\n", preset.number);
 
-        // Brief pause before next preset
         sleep(Duration::from_millis(200));
     }
 
-    // Test preset recall
     println!("═══ Testing Preset Recall ═══");
-
-    // Go to a different position first
     println!("Moving to test position (60°, -15°)...");
     camera.pan_tilt_absolute(Degrees(60.0), Degrees(-15.0), SpeedLevel::Fast)?;
     camera.zoom_absolute(Normalized(0.7))?;
@@ -141,25 +129,18 @@ fn main() -> Result<(), Error> {
         );
     }
 
-    // Now recall each preset
     for preset in &presets {
         println!("Recalling Preset {} - '{}'", preset.number, preset.name);
 
-        // Get position before
         let before = camera.get_pan_tilt_position();
         let before_zoom = camera.get_zoom_position();
 
-        // Recall preset
         camera.preset_recall(PresetNumber::new(preset.number)?)?;
 
-        // Wait for movement
         camera.await_idle(Duration::from_secs(10))?;
 
-        // Get position after
         let after = camera.get_pan_tilt_position();
         let after_zoom = camera.get_zoom_position();
-
-        // Show movement
         if let (Ok((before_pan, before_tilt)), Ok((after_pan, after_tilt))) = (before, after) {
             let before_pan_deg = before_pan as f32 / 614.4;
             let before_tilt_deg = before_tilt as f32 / 614.4;
@@ -175,7 +156,6 @@ fn main() -> Result<(), Error> {
                 before_tilt_deg, after_tilt_deg, preset.tilt.0
             );
 
-            // Check if we reached the expected position
             let pan_diff = (after_pan_deg - preset.pan.0).abs();
             let tilt_diff = (after_tilt_deg - preset.tilt.0).abs();
 

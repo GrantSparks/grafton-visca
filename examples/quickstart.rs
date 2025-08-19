@@ -17,6 +17,9 @@
 //! ```
 
 #[cfg(not(feature = "async"))]
+use std::{env, thread::sleep, time::Duration};
+
+#[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{
         methods::{
@@ -35,9 +38,6 @@ use grafton_visca::{
 };
 
 #[cfg(not(feature = "async"))]
-use std::{env, thread::sleep, time::Duration};
-
-#[cfg(not(feature = "async"))]
 fn main() -> Result<(), Error> {
     env_logger::init();
 
@@ -50,7 +50,6 @@ fn main() -> Result<(), Error> {
     println!("Connecting to camera at {camera_addr}");
     println!();
 
-    // Create transport and camera using the new API
     let transport = Tcp::connect(&camera_addr)?;
     let camera = Camera::<_, PtzOpticsG2, _, _>::new(transport);
 
@@ -58,7 +57,6 @@ fn main() -> Result<(), Error> {
     println!();
 
     println!("═══ Saving Initial Camera State ═══");
-    // Note: Position inquiry methods will be added in a future update
     println!("⚠ Position inquiry not yet available, will return to home at end");
     println!();
 

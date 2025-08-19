@@ -17,6 +17,12 @@
 //! ```
 
 #[cfg(feature = "rt-tokio")]
+use std::env;
+
+#[cfg(feature = "rt-tokio")]
+use tokio::time::{sleep, Duration};
+
+#[cfg(feature = "rt-tokio")]
 use grafton_visca::{
     camera::methods::{
         exposure::ExposureControl, focus::FocusControl, image_processing::ImageProcessingControl,
@@ -32,18 +38,10 @@ use grafton_visca::{
 };
 
 #[cfg(feature = "rt-tokio")]
-use tokio::time::{sleep, Duration};
-
-#[cfg(feature = "rt-tokio")]
-use std::env;
-
-#[cfg(feature = "rt-tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    // Initialize logging (set RUST_LOG=debug for verbose output)
     env_logger::init();
 
-    // Get camera address from command line or use default
     let camera_addr = env::args()
         .nth(1)
         .unwrap_or_else(|| "192.168.0.110:52381".to_string());
@@ -53,7 +51,6 @@ async fn main() -> Result<(), Error> {
     println!("Connecting to camera at {camera_addr}");
     println!();
 
-    // Create camera using the new executor-based API
     let transport = Tcp::connect(&camera_addr).await?;
     let camera = CameraBuilder::tokio()?
         .build_async::<PtzOpticsG2, _>(transport)
@@ -62,18 +59,14 @@ async fn main() -> Result<(), Error> {
     println!("✅ Connected successfully!");
     println!();
 
-    // === SAVE INITIAL STATE ===
     println!("═══ Saving Initial Camera State ═══");
 
-    // Store initial values for later restoration
-    // In a real application, you'd query these from the camera
     let _initial_pan = Degrees(0.0);
     let _initial_tilt = Degrees(0.0);
 
     println!("✓ Initial state saved (will return to home at end)");
     println!();
 
-    // === BASIC MOVEMENT ===
     println!("═══ Basic Movement Operations ═══");
 
     println!("Moving to home position...");
@@ -81,7 +74,6 @@ async fn main() -> Result<(), Error> {
     camera.await_pan_tilt_idle(Duration::from_secs(30)).await?;
     println!("✓ At home position");
 
-    // Demonstrate zoom control
     println!("Testing zoom...");
     println!("  Zooming in briefly...");
     camera.zoom_tele_std().await?;
@@ -96,7 +88,6 @@ async fn main() -> Result<(), Error> {
     camera.await_zoom_idle(Duration::from_secs(5)).await?;
     println!("✓ Zoom complete");
 
-    // Demonstrate pan/tilt control
     println!("Testing pan/tilt...");
     println!("  Panning right briefly...");
     camera
@@ -120,20 +111,14 @@ async fn main() -> Result<(), Error> {
     println!("✓ Pan/tilt complete");
     println!();
 
-    // === ADVANCED POSITIONING ===
     println!("═══ Advanced Positioning ═══");
-
-    // Absolute positioning with custom movement detection
     println!("Moving to absolute position (45°, 15°) with custom detection...");
     camera
         .pan_tilt_absolute(Degrees::new(45.0), Degrees::new(15.0), SpeedLevel::Fast)
         .await?;
 
-    // Wait for movement to complete
     sleep(Duration::from_secs(3)).await;
     println!("✓ Moved to position");
-
-    // Relative movement with simplified API
     println!("Moving relative (+10°, +5°)...");
     camera
         .pan_tilt_relative(Degrees(10.0), Degrees(5.0), SpeedLevel::Medium)
