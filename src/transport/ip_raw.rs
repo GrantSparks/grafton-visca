@@ -4,7 +4,9 @@
 //! any additional encapsulation. This is the format used by PtzOptics cameras.
 
 use bytes::{Bytes, BytesMut};
-use log::{debug, trace, warn};
+#[cfg(feature = "rt-tokio")]
+use log::warn;
+use log::{debug, trace};
 
 use std::io::{Read, Write};
 
