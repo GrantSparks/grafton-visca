@@ -380,10 +380,8 @@ pub mod prelude;
 #[doc(hidden)]
 pub mod testing;
 
-// External crates
 pub use grafton_visca_macros::{InquiryCommand, ViscaEncode, ViscaEnum, ViscaValue};
 
-// Local modules
 pub use crate::{
     camera::methods::{
         focus::FocusControlBlocking,
