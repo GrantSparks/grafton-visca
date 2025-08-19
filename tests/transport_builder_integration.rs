@@ -188,7 +188,16 @@ fn test_builder_validation() {
     // Test async wrapper only when async feature is enabled
     #[cfg(feature = "async")]
     {
-        let builder = TransportBuilder::tcp().address("192.168.0.110:5678");
+        // Start a mock TCP server for the async wrapper test
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        
+        // Spawn server thread to accept connection
+        thread::spawn(move || {
+            let _ = listener.accept(); // Just accept the connection
+        });
+        
+        let builder = TransportBuilder::tcp().address(&addr.to_string());
         let wrapper_result = builder.build_async_wrapper();
         // Should succeed - wrapping blocking transport in async wrapper
         assert!(wrapper_result.is_ok());
