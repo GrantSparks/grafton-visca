@@ -22,12 +22,20 @@ fn test_builder_creates_configured_tcp_transport() {
     // Spawn server thread
     thread::spawn(move || {
         if let Ok((mut stream, _)) = listener.accept() {
-            use std::io::Write;
+            use std::io::{Read, Write};
 
-            // Send a VISCA response
-            stream.write_all(&[0x90, 0x50, 0xFF]).unwrap();
+            // Read the incoming command first
+            let mut buffer = [0u8; 256];
+            if stream.read(&mut buffer).is_ok() {
+                // Send a VISCA response
+                stream.write_all(&[0x90, 0x50, 0xFF]).unwrap();
+                stream.flush().unwrap();
+            }
         }
     });
+
+    // Give the server thread time to start listening
+    thread::sleep(Duration::from_millis(50));
 
     // Use builder to create transport
     let transport = TransportBuilder::tcp()
