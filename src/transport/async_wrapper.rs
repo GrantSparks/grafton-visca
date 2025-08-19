@@ -141,12 +141,7 @@ impl<T: BlockingTransport + 'static> AsyncTransport for AsyncWrapper<T> {
                 // This is a simplified fallback for testing
                 std::thread::spawn(move || transport.send_blocking(&bytes))
                     .join()
-                    .map_err(|_| {
-                        Error::Io(std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            "Thread panicked",
-                        ))
-                    })?
+                    .map_err(|_| Error::Io(std::io::Error::other("Thread panicked")))?
             })
         }
     }
@@ -190,12 +185,7 @@ impl<T: BlockingTransport + 'static> AsyncTransport for AsyncWrapper<T> {
                 // This is a simplified fallback for testing
                 std::thread::spawn(move || transport.recv_blocking())
                     .join()
-                    .map_err(|_| {
-                        Error::Io(std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            "Thread panicked",
-                        ))
-                    })?
+                    .map_err(|_| Error::Io(std::io::Error::other("Thread panicked")))?
             })
         }
     }
@@ -246,7 +236,6 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::command::const_encoding::VISCA_TERMINATOR;
 
     // Mock blocking transport for testing
     #[derive(Debug, Clone)]
@@ -263,6 +252,7 @@ mod tests {
             }
         }
 
+        #[allow(dead_code)]
         fn add_response(&self, data: Vec<u8>) {
             self.recv_data
                 .lock()
@@ -270,6 +260,7 @@ mod tests {
                 .push(Bytes::from(data));
         }
 
+        #[allow(dead_code)]
         fn get_sent_data(&self) -> Vec<Vec<u8>> {
             self.send_data.lock().expect("Mock lock poisoned").clone()
         }
