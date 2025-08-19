@@ -3,12 +3,12 @@
 //! This module provides a unified retry mechanism that can be used across
 //! all transport implementations, both blocking and async.
 
-use crate::Error;
 #[cfg(feature = "async")]
 use std::future::Future;
 use std::time::{Duration, Instant};
 
 use super::RetryConfig;
+use crate::Error;
 
 /// A trait for operations that can provide retry hints.
 pub trait RetryableOperation {
@@ -252,10 +252,12 @@ impl RetryExecutor {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
-    use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+
+    use super::*;
 
     #[test]
     fn test_successful_operation_no_retry() {
@@ -267,7 +269,7 @@ mod tests {
             Ok::<_, Error>(42)
         });
 
-        assert_eq!(result.unwrap(), 42);
+        assert_eq!(result.expect("Test operation failed"), 42);
         assert_eq!(calls, 1);
     }
 
@@ -306,7 +308,10 @@ mod tests {
             }
         });
 
-        assert_eq!(result.unwrap(), 100);
+        assert_eq!(
+            result.expect("Test operation should succeed after retries"),
+            100
+        );
         assert_eq!(counter.load(Ordering::SeqCst), 3);
     }
 
@@ -344,7 +349,7 @@ mod tests {
             }
         });
 
-        assert_eq!(result.unwrap(), "success");
+        assert_eq!(result.expect("Async test operation failed"), "success");
         assert_eq!(calls, 2);
     }
 
@@ -374,7 +379,7 @@ mod tests {
         })
         .await;
 
-        assert_eq!(result.unwrap(), 200);
+        assert_eq!(result.expect("Async executor test failed"), 200);
         assert_eq!(counter.load(Ordering::SeqCst), 3);
     }
 }

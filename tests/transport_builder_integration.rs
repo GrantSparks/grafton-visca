@@ -6,6 +6,7 @@
 use grafton_visca::transport::builder::{TransportBuilder, TransportBuilderExt};
 use grafton_visca::transport::BlockingTransport;
 use grafton_visca::Error;
+
 use std::net::{TcpListener, UdpSocket};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -22,6 +23,7 @@ fn test_builder_creates_configured_tcp_transport() {
     thread::spawn(move || {
         if let Ok((mut stream, _)) = listener.accept() {
             use std::io::Write;
+
             // Send a VISCA response
             stream.write_all(&[0x90, 0x50, 0xFF]).unwrap();
         }
@@ -29,7 +31,7 @@ fn test_builder_creates_configured_tcp_transport() {
 
     // Use builder to create transport
     let transport = TransportBuilder::tcp()
-        .address(&addr.to_string())
+        .address(addr.to_string().as_str())
         .connect_timeout(Duration::from_secs(2))
         .read_timeout(Duration::from_secs(1))
         .tcp_nodelay(true)
@@ -75,7 +77,7 @@ fn test_builder_creates_configured_udp_transport() {
 
     // Use builder to create transport
     let transport = TransportBuilder::udp()
-        .address(&addr.to_string())
+        .address(addr.to_string().as_str())
         .connect_timeout(Duration::from_secs(2))
         .buffer_size(512)
         .build();
@@ -110,7 +112,6 @@ fn test_builder_buffer_configuration() {
 /// Test retry configuration through builder
 #[test]
 fn test_builder_retry_configuration() {
-    use std::io;
     use std::sync::atomic::{AtomicU32, Ordering};
 
     // Create a server that fails the first few times
@@ -137,7 +138,7 @@ fn test_builder_retry_configuration() {
 
     // Use builder with retry configuration
     let transport = TransportBuilder::udp()
-        .address(&addr.to_string())
+        .address(addr.to_string().as_str())
         .max_retries(5) // Allow enough retries
         .retry_delay(Duration::from_millis(50)) // Short delay for testing
         .build()
@@ -184,11 +185,14 @@ fn test_builder_validation() {
     let result = TransportBuilder::tcp().build();
     assert!(matches!(result, Err(Error::InvalidParameter { .. })));
 
-    // Invalid transport type for async wrapper (when using blocking-only transport)
-    let builder = TransportBuilder::tcp().address("192.168.0.110:5678");
-    let wrapper_result = builder.build_async_wrapper();
-    // Should succeed - wrapping blocking transport in async wrapper
-    assert!(wrapper_result.is_ok());
+    // Test async wrapper only when async feature is enabled
+    #[cfg(feature = "async")]
+    {
+        let builder = TransportBuilder::tcp().address("192.168.0.110:5678");
+        let wrapper_result = builder.build_async_wrapper();
+        // Should succeed - wrapping blocking transport in async wrapper
+        assert!(wrapper_result.is_ok());
+    }
 }
 
 /// Test extension trait

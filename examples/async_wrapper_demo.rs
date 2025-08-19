@@ -18,9 +18,8 @@ fn main() {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::transport::builder::TransportBuilder;
-    use grafton_visca::transport::{
-        AsyncTransport, AsyncWrapper, AsyncWrapperExt, BlockingTransport,
-    };
+    use grafton_visca::transport::{AsyncTransport, AsyncWrapper, AsyncWrapperExt};
+
     use std::env;
     use std::time::Duration;
 
@@ -32,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Async Wrapper Demo");
     println!("==================");
-    println!("Connecting to camera at: {}", address);
+    println!("Connecting to camera at: {address}");
     println!();
 
     // Method 1: Manual wrapper creation
@@ -54,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 demonstrate_async_transport(async_transport, "Manual wrapper").await?;
             }
             Err(e) => {
-                println!("✗ Failed to connect: {}", e);
+                println!("✗ Failed to connect: {e}");
                 println!("  (This is expected if no camera is connected)");
             }
         }
@@ -79,7 +78,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 demonstrate_async_transport(async_transport, "Extension trait").await?;
             }
             Err(e) => {
-                println!("✗ Failed to connect: {}", e);
+                println!("✗ Failed to connect: {e}");
                 println!("  (This is expected if no camera is connected)");
             }
         }
@@ -109,7 +108,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 demonstrate_boxed_async_transport(async_transport, "Builder pattern").await?;
             }
             Err(e) => {
-                println!("✗ Failed to build transport: {}", e);
+                println!("✗ Failed to build transport: {e}");
                 println!("  (This is expected if no camera is connected)");
             }
         }
@@ -122,6 +121,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("-------------------------------------");
     {
         use grafton_visca::transport::blocking::Tcp;
+
         use std::sync::Arc;
 
         match Tcp::connect(&address) {
@@ -138,7 +138,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let task1 = tokio::spawn(async move {
                     println!("  Task 1: Sending power inquiry...");
                     if let Err(e) = transport1.send(b"\x81\x09\x04\x00\xFF").await {
-                        println!("  Task 1: Send failed: {}", e);
+                        println!("  Task 1: Send failed: {e}");
                     } else {
                         println!("  Task 1: ✓ Sent successfully");
                     }
@@ -149,7 +149,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     tokio::time::sleep(Duration::from_millis(100)).await;
                     println!("  Task 2: Sending zoom inquiry...");
                     if let Err(e) = transport2.send(b"\x81\x09\x04\x47\xFF").await {
-                        println!("  Task 2: Send failed: {}", e);
+                        println!("  Task 2: Send failed: {e}");
                     } else {
                         println!("  Task 2: ✓ Sent successfully");
                     }
@@ -160,7 +160,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("✓ Both tasks completed");
             }
             Err(e) => {
-                println!("✗ Failed to connect: {}", e);
+                println!("✗ Failed to connect: {e}");
                 println!("  (This is expected if no camera is connected)");
             }
         }
@@ -184,9 +184,10 @@ async fn demonstrate_async_transport<T: grafton_visca::transport::BlockingTransp
     method_name: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::transport::AsyncTransport;
+
     use std::time::Instant;
 
-    println!("  Testing async operations with {}...", method_name);
+    println!("  Testing async operations with {method_name}...");
 
     // Send a power inquiry command
     let start = Instant::now();
@@ -195,7 +196,7 @@ async fn demonstrate_async_transport<T: grafton_visca::transport::BlockingTransp
             println!("  ✓ Sent power inquiry in {:?}", start.elapsed());
         }
         Err(e) => {
-            println!("  ✗ Send failed: {}", e);
+            println!("  ✗ Send failed: {e}");
             return Ok(());
         }
     }
@@ -206,7 +207,7 @@ async fn demonstrate_async_transport<T: grafton_visca::transport::BlockingTransp
             println!("  ✓ Received response: {:02X?}", response.as_ref());
         }
         Ok(Err(e)) => {
-            println!("  ✗ Receive error: {}", e);
+            println!("  ✗ Receive error: {e}");
         }
         Err(_) => {
             println!("  ✗ Receive timeout (no camera connected?)");
@@ -224,9 +225,10 @@ async fn demonstrate_boxed_async_transport(
     method_name: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::transport::AsyncTransport;
+
     use std::time::Instant;
 
-    println!("  Testing boxed async transport with {}...", method_name);
+    println!("  Testing boxed async transport with {method_name}...");
 
     // Send a zoom inquiry command
     let start = Instant::now();
@@ -235,7 +237,7 @@ async fn demonstrate_boxed_async_transport(
             println!("  ✓ Sent zoom inquiry in {:?}", start.elapsed());
         }
         Err(e) => {
-            println!("  ✗ Send failed: {}", e);
+            println!("  ✗ Send failed: {e}");
             return Ok(());
         }
     }
@@ -246,7 +248,7 @@ async fn demonstrate_boxed_async_transport(
             println!("  ✓ Received response: {:02X?}", response.as_ref());
         }
         Ok(Err(e)) => {
-            println!("  ✗ Receive error: {}", e);
+            println!("  ✗ Receive error: {e}");
         }
         Err(_) => {
             println!("  ✗ Receive timeout (no camera connected?)");

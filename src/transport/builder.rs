@@ -406,6 +406,7 @@ impl TransportBuilderExt for crate::transport::tokio::udp::Udp {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
 
@@ -447,14 +448,19 @@ mod tests {
         let result = builder.build();
         assert!(result.is_err());
 
-        if let Err(Error::InvalidParameter {
-            parameter, reason, ..
-        }) = result
-        {
-            assert_eq!(parameter, "address");
-            assert!(reason.contains("No address specified"));
-        } else {
-            panic!("Expected InvalidParameter error");
+        match result {
+            Err(Error::InvalidParameter {
+                parameter, reason, ..
+            }) => {
+                assert_eq!(parameter, "address");
+                assert!(reason.contains("No address specified"));
+            }
+            Ok(_) => {
+                panic!("Expected InvalidParameter error, but got Ok");
+            }
+            Err(e) => {
+                panic!("Expected InvalidParameter error, but got: {e}");
+            }
         }
     }
 

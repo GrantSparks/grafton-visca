@@ -6,6 +6,7 @@
 //! of existing blocking transport implementations.
 
 use bytes::Bytes;
+
 use std::sync::Arc;
 
 use crate::transport::{AsyncTransport, BlockingTransport};
@@ -237,12 +238,15 @@ pub trait AsyncWrapperExt: BlockingTransport + Sized + 'static {
 impl<T: BlockingTransport + 'static> AsyncWrapperExt for T {}
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
-    use super::*;
-    use crate::command::const_encoding::VISCA_TERMINATOR;
     use bytes::Bytes;
+
     use std::sync::Mutex;
     use std::time::Duration;
+
+    use super::*;
+    use crate::command::const_encoding::VISCA_TERMINATOR;
 
     // Mock blocking transport for testing
     #[derive(Debug, Clone)]
@@ -260,24 +264,30 @@ mod tests {
         }
 
         fn add_response(&self, data: Vec<u8>) {
-            self.recv_data.lock().unwrap().push(Bytes::from(data));
+            self.recv_data
+                .lock()
+                .expect("Mock lock poisoned")
+                .push(Bytes::from(data));
         }
 
         fn get_sent_data(&self) -> Vec<Vec<u8>> {
-            self.send_data.lock().unwrap().clone()
+            self.send_data.lock().expect("Mock lock poisoned").clone()
         }
     }
 
     impl BlockingTransport for MockBlockingTransport {
         fn send_blocking(&self, bytes: &[u8]) -> Result<(), Error> {
-            self.send_data.lock().unwrap().push(bytes.to_vec());
+            self.send_data
+                .lock()
+                .expect("Mock lock poisoned")
+                .push(bytes.to_vec());
             Ok(())
         }
 
         fn recv_blocking(&self) -> Result<Bytes, Error> {
             self.recv_data
                 .lock()
-                .unwrap()
+                .expect("Mock lock poisoned")
                 .pop()
                 .ok_or(Error::Io(std::io::Error::new(
                     std::io::ErrorKind::UnexpectedEof,
@@ -294,7 +304,12 @@ mod tests {
     fn test_wrapper_creation() {
         let transport = MockBlockingTransport::new();
         let wrapper = AsyncWrapper::new(transport);
-        assert!(wrapper.inner().send_data.lock().unwrap().is_empty());
+        assert!(wrapper
+            .inner()
+            .send_data
+            .lock()
+            .expect("Mock lock poisoned")
+            .is_empty());
     }
 
     #[test]
@@ -361,7 +376,10 @@ mod tests {
 
             let result = wrapper.recv().await;
             assert!(result.is_ok());
-            assert_eq!(result.unwrap(), Bytes::from(vec![0x90, 0x50, VISCA_TERMINATOR]));
+            assert_eq!(
+                result.expect("Failed to receive in test"),
+                Bytes::from(vec![0x90, 0x50, VISCA_TERMINATOR])
+            );
         }
 
         #[tokio::test]
@@ -372,14 +390,20 @@ mod tests {
             let wrapper = AsyncWrapper::new(transport);
 
             // Send command
-            wrapper.send(b"\x81\x01\x04\x00\x02\xFF").await.unwrap();
+            wrapper
+                .send(b"\x81\x01\x04\x00\x02\xFF")
+                .await
+                .expect("Failed to send in test");
 
             // Receive ACK
-            let ack = wrapper.recv().await.unwrap();
+            let ack = wrapper.recv().await.expect("Failed to receive ACK in test");
             assert_eq!(ack, Bytes::from(vec![0x90, 0x51, VISCA_TERMINATOR]));
 
             // Receive completion
-            let completion = wrapper.recv().await.unwrap();
+            let completion = wrapper
+                .recv()
+                .await
+                .expect("Failed to receive completion in test");
             assert_eq!(completion, Bytes::from(vec![0x90, 0x41, VISCA_TERMINATOR]));
 
             // Verify sent data

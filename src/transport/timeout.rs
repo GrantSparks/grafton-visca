@@ -3,11 +3,12 @@
 //! This module provides a unified way to handle timeouts across different
 //! transport types, eliminating code duplication.
 
-use crate::Error;
 use std::io;
 use std::net::{TcpStream, UdpSocket};
 use std::sync::MutexGuard;
 use std::time::Duration;
+
+use crate::Error;
 
 /// A trait for managing timeouts on socket operations.
 ///
@@ -228,102 +229,132 @@ where
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
-    use super::*;
     use std::net::{TcpListener, TcpStream};
     use std::thread;
+
+    use super::*;
 
     #[test]
     fn test_tcp_timeout_manager() {
         // Start a TCP server
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind test listener");
+        let addr = listener
+            .local_addr()
+            .expect("Failed to get listener address");
 
         // Spawn a thread to accept connections
         thread::spawn(move || {
-            let (_stream, _) = listener.accept().unwrap();
+            let (_stream, _) = listener.accept().expect("Failed to accept connection");
             // Keep the connection open
             thread::sleep(Duration::from_secs(10));
         });
 
         // Connect to the server
-        let mut stream = TcpStream::connect(addr).unwrap();
+        let mut stream = TcpStream::connect(addr).expect("Failed to connect to test server");
 
         // Test setting and getting timeouts
-        assert_eq!(stream.get_read_timeout().unwrap(), None);
+        assert_eq!(
+            stream.get_read_timeout().expect("Failed to get timeout"),
+            None
+        );
 
         stream
             .set_read_timeout(Some(Duration::from_secs(5)))
-            .unwrap();
+            .expect("Failed to set timeout");
         assert_eq!(
-            stream.get_read_timeout().unwrap(),
+            stream.get_read_timeout().expect("Failed to get timeout"),
             Some(Duration::from_secs(5))
         );
 
         // Test with_read_timeout
         let result = stream.with_read_timeout(Duration::from_secs(1), |s| {
             // Verify timeout is set
-            assert_eq!(s.get_read_timeout().unwrap(), Some(Duration::from_secs(1)));
+            assert_eq!(
+                s.get_read_timeout()
+                    .expect("Failed to get timeout in guard"),
+                Some(Duration::from_secs(1))
+            );
             Ok(42)
         });
 
-        assert_eq!(result.unwrap(), 42);
+        assert_eq!(result.expect("Test operation failed"), 42);
         // Verify timeout is restored
         assert_eq!(
-            stream.get_read_timeout().unwrap(),
+            stream
+                .get_read_timeout()
+                .expect("Failed to get timeout after guard"),
             Some(Duration::from_secs(5))
         );
     }
 
     #[test]
     fn test_udp_timeout_manager() {
-        let mut socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let mut socket = UdpSocket::bind("127.0.0.1:0").expect("Failed to bind UDP socket");
 
         // Test setting and getting timeouts
-        assert_eq!(socket.get_read_timeout().unwrap(), None);
+        assert_eq!(
+            socket
+                .get_read_timeout()
+                .expect("Failed to get UDP timeout"),
+            None
+        );
 
         socket
             .set_read_timeout(Some(Duration::from_secs(3)))
-            .unwrap();
+            .expect("Failed to set UDP timeout");
         assert_eq!(
-            socket.get_read_timeout().unwrap(),
+            socket
+                .get_read_timeout()
+                .expect("Failed to get UDP timeout"),
             Some(Duration::from_secs(3))
         );
 
         // Test with_read_timeout
         let result = socket.with_read_timeout(Duration::from_secs(2), |s| {
             // Verify timeout is set
-            assert_eq!(s.get_read_timeout().unwrap(), Some(Duration::from_secs(2)));
+            assert_eq!(
+                s.get_read_timeout()
+                    .expect("Failed to get UDP timeout in guard"),
+                Some(Duration::from_secs(2))
+            );
             Ok("success")
         });
 
-        assert_eq!(result.unwrap(), "success");
+        assert_eq!(result.expect("UDP test operation failed"), "success");
         // Verify timeout is restored
         assert_eq!(
-            socket.get_read_timeout().unwrap(),
+            socket
+                .get_read_timeout()
+                .expect("Failed to get UDP timeout after guard"),
             Some(Duration::from_secs(3))
         );
     }
 
     #[test]
     fn test_timeout_guard() {
-        let mut socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let mut socket = UdpSocket::bind("127.0.0.1:0").expect("Failed to bind UDP socket");
 
         // Set initial timeouts
         socket
             .set_read_timeout(Some(Duration::from_secs(5)))
-            .unwrap();
+            .expect("Failed to set read timeout");
         socket
             .set_write_timeout(Some(Duration::from_secs(10)))
-            .unwrap();
+            .expect("Failed to set write timeout");
 
         // Verify initial timeouts
         assert_eq!(
-            socket.get_read_timeout().unwrap(),
+            socket
+                .get_read_timeout()
+                .expect("Failed to get read timeout"),
             Some(Duration::from_secs(5))
         );
         assert_eq!(
-            socket.get_write_timeout().unwrap(),
+            socket
+                .get_write_timeout()
+                .expect("Failed to get write timeout"),
             Some(Duration::from_secs(10))
         );
 
@@ -333,7 +364,7 @@ mod tests {
                 Some(Duration::from_secs(1)),
                 Some(Duration::from_secs(2)),
             )
-            .unwrap();
+            .expect("Failed to create timeout guard");
 
             // Guard holds the mutable reference, so we can't access socket here
             // The guard will automatically restore on drop
@@ -341,11 +372,15 @@ mod tests {
 
         // Verify original timeouts are restored after guard is dropped
         assert_eq!(
-            socket.get_read_timeout().unwrap(),
+            socket
+                .get_read_timeout()
+                .expect("Failed to get read timeout after guard"),
             Some(Duration::from_secs(5))
         );
         assert_eq!(
-            socket.get_write_timeout().unwrap(),
+            socket
+                .get_write_timeout()
+                .expect("Failed to get write timeout after guard"),
             Some(Duration::from_secs(10))
         );
     }

@@ -3,9 +3,10 @@
 //! This module provides a unified way to resolve network addresses across
 //! different transport types, eliminating code duplication.
 
-use crate::Error;
 use std::borrow::Cow;
 use std::net::{SocketAddr, ToSocketAddrs};
+
+use crate::Error;
 
 /// A utility for resolving network addresses.
 ///
@@ -47,7 +48,7 @@ impl AddressResolver {
     /// let resolver = AddressResolver::new();
     /// let addresses = resolver.resolve("example.com:5678")?;
     /// for addr in addresses {
-    ///     println!("Resolved: {}", addr);
+    ///     println!("Resolved: {addr}");
     /// }
     /// # Ok::<(), grafton_visca::Error>(())
     /// ```
@@ -55,13 +56,13 @@ impl AddressResolver {
         let addrs: Vec<SocketAddr> = address
             .to_socket_addrs()
             .map_err(|e| Error::InvalidAddress {
-                reason: format!("Failed to resolve '{}': {}", address, e).into(),
+                reason: format!("Failed to resolve '{address}': {e}").into(),
             })?
             .collect();
 
         if addrs.is_empty() {
             return Err(Error::InvalidAddress {
-                reason: format!("No addresses resolved for '{}'", address).into(),
+                reason: format!("No addresses resolved for '{address}'").into(),
             });
         }
 
@@ -95,7 +96,7 @@ impl AddressResolver {
     ///
     /// let resolver = AddressResolver::new();
     /// let addr = resolver.resolve_first("192.168.0.100:5678")?;
-    /// println!("Using address: {}", addr);
+    /// println!("Using address: {addr}");
     /// # Ok::<(), grafton_visca::Error>(())
     /// ```
     pub fn resolve_first(&self, address: &str) -> Result<SocketAddr, Error> {
@@ -103,7 +104,7 @@ impl AddressResolver {
             .into_iter()
             .next()
             .ok_or_else(|| Error::InvalidAddress {
-                reason: format!("No addresses resolved for '{}'", address).into(),
+                reason: format!("No addresses resolved for '{address}'").into(),
             })
     }
 
@@ -133,7 +134,7 @@ impl AddressResolver {
     /// ```
     pub fn bind_address_for(&self, target: &SocketAddr) -> SocketAddr {
         use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-        
+
         if target.is_ipv4() {
             SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0)
         } else {
@@ -199,6 +200,7 @@ impl ResolveAddress for AddressResolver {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
+
     use super::*;
 
     #[test]
