@@ -1,22 +1,8 @@
 #![allow(missing_docs)]
 //! Test macros for common assertion patterns.
-//!
-//! These macros help reduce boilerplate in tests and provide better error messages
-//! than simple unwrap() calls.
 
-/// VISCA command terminator byte.
 const VISCA_TERMINATOR: u8 = 0xFF;
 
-/// Assert that command bytes match the expected bytes.
-///
-/// Provides better error output with hex formatting for debugging.
-///
-/// # Example
-/// ```no_run
-/// # use grafton_visca::command::EncodeVisca;
-/// # let command = unimplemented!();
-/// assert_command_bytes!(command, [0x81, 0x01, 0x06, 0x04, VISCA_TERMINATOR]);
-/// ```
 #[macro_export]
 macro_rules! assert_command_bytes {
     ($cmd:expr, $expected:expr) => {{
@@ -34,16 +20,6 @@ macro_rules! assert_command_bytes {
     }};
 }
 
-/// Assert that a Result is Ok and matches the expected response.
-///
-/// Provides context about what response was expected vs actual.
-///
-/// # Example
-/// ```no_run
-/// # use grafton_visca::ViscaResponse;
-/// # let result: Result<ViscaResponse, grafton_visca::Error> = Ok(ViscaResponse::CmdAck);
-/// assert_response_ok!(result, ViscaResponse::CmdAck);
-/// ```
 #[macro_export]
 macro_rules! assert_response_ok {
     ($result:expr) => {{
@@ -73,15 +49,6 @@ macro_rules! assert_response_ok {
     }};
 }
 
-/// Assert that a Result is an error and optionally check the error type.
-///
-/// # Example
-/// ```no_run
-/// # use grafton_visca::{ViscaResponse, Error};
-/// # let result: Result<ViscaResponse, Error> = Err(Error::Timeout);
-/// assert_response_err!(result);
-/// assert_response_err!(result, Error::Timeout);
-/// ```
 #[macro_export]
 macro_rules! assert_response_err {
     ($result:expr) => {{
@@ -103,15 +70,6 @@ macro_rules! assert_response_err {
     }};
 }
 
-/// Assert that an inquiry response matches the expected variant and extract its data.
-///
-/// # Example
-/// ```no_run
-/// # use grafton_visca::{ViscaResponse, InquiryResponse};
-/// # let response = ViscaResponse::InquiryResponse(InquiryResponse::Power { on: true });
-/// let on = assert_inquiry_response!(response, Power { on });
-/// assert!(on);
-/// ```
 #[macro_export]
 macro_rules! assert_inquiry_response {
     ($response:expr, $variant:ident { $($field:ident),+ }) => {{
@@ -139,16 +97,6 @@ macro_rules! assert_inquiry_response {
     }};
 }
 
-/// Create a test client with better error messages.
-///
-/// # Example
-/// ```no_run
-/// # #[cfg(not(feature = "async"))]
-/// # {
-/// let client = create_test_client!(udp, "127.0.0.1:1234");
-/// let client = create_test_client!(tcp, "127.0.0.1:5678");
-/// # }
-/// ```
 #[cfg(not(feature = "async"))]
 #[macro_export]
 macro_rules! create_test_client {
@@ -162,17 +110,6 @@ macro_rules! create_test_client {
     }};
 }
 
-/// Assert that sending a command succeeds.
-///
-/// # Example
-/// ```no_run
-/// # #[cfg(not(feature = "async"))]
-/// # {
-/// # use grafton_visca::{Client, command::Power, command::power::Power};
-/// # let client = Client::connect_udp("127.0.0.1:1234").unwrap();
-/// assert_send_ok!(client, Power { power: Power::On });
-/// # }
-/// ```
 #[cfg(not(feature = "async"))]
 #[macro_export]
 macro_rules! assert_send_ok {
@@ -199,59 +136,4 @@ macro_rules! assert_send_ok {
 }
 
 #[cfg(test)]
-mod tests {
-
-    // Note: EncodeVisca is now internal, so this test is commented out
-    // use grafton_visca::command::EncodeVisca;
-
-    // Test commented out since EncodeVisca is now internal
-    /*
-    #[test]
-    fn test_assert_command_bytes_macro() {
-        struct TestCommand;
-        impl EncodeVisca for TestCommand {
-            type ViscaResponse = ();
-            const MAX_SIZE: usize = 5;
-
-            fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-                let bytes = [0x81, 0x01, 0x06, 0x04, VISCA_TERMINATOR];
-                buffer[..5].copy_from_slice(&bytes);
-                Ok(5)
-            }
-
-            fn response_type(&self) -> Option<grafton_visca::command::ResponseType> {
-                None
-            }
-        }
-
-        let cmd = TestCommand;
-        assert_command_bytes!(cmd, [0x81, 0x01, 0x06, 0x04, VISCA_TERMINATOR]);
-    }
-    */
-
-    // Test commented out since EncodeVisca is now internal
-    /*
-    #[test]
-    #[should_panic(expected = "Command bytes mismatch")]
-    fn test_assert_command_bytes_failure() {
-        struct TestCommand;
-        impl EncodeVisca for TestCommand {
-            type ViscaResponse = ();
-            const MAX_SIZE: usize = 5;
-
-            fn encode_into(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-                let bytes = [0x81, 0x01, 0x06, 0x05, VISCA_TERMINATOR];
-                buffer[..5].copy_from_slice(&bytes);
-                Ok(5)
-            }
-
-            fn response_type(&self) -> Option<grafton_visca::command::ResponseType> {
-                None
-            }
-        }
-
-        let cmd = TestCommand;
-        assert_command_bytes!(cmd, [0x81, 0x01, 0x06, 0x04, VISCA_TERMINATOR]);
-    }
-    */
-}
+mod tests {}

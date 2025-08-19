@@ -1,25 +1,20 @@
 //! Simple test to verify compilation succeeds with generic Camera implementation.
-//!
-//! This test demonstrates the mode-based Camera API with compile-time mode selection.
-
-use grafton_visca::{
-    camera::Camera,
-    capabilities::{NDFilter, Profile},
-};
 
 #[cfg(feature = "async")]
 use grafton_visca::{
-    camera::AsyncMode,
+    camera::{AsyncMode, Camera},
     prelude::r#async::{GenericViscaCam, PtzOpticsG2Cam, SonyFR7Cam},
     transport::async_transport::AsyncTransport,
 };
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::BlockingMode,
+    camera::{BlockingMode, Camera},
     prelude::blocking::{GenericViscaCam, PtzOpticsG2Cam, SonyFR7Cam},
     transport::BlockingTransport,
 };
+
+use grafton_visca::capabilities::{NDFilter, Profile};
 
 #[test]
 fn test_compilation_succeeds() {

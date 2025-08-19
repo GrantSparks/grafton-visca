@@ -2,6 +2,8 @@
 
 #![cfg(all(feature = "test-utils", feature = "async"))]
 
+use std::time::Duration;
+
 use grafton_visca::{
     runtime::{Priority, RuntimeHandle},
     testing::testkit::{
@@ -10,13 +12,11 @@ use grafton_visca::{
     },
     Executor,
 };
-use std::time::Duration;
 
 #[test]
 fn test_deterministic_executor_with_simple_command() {
     let (executor, _clock) = DeterministicExecutor::new();
 
-    // Create a scripted transport with a simple ACK/Completion response
     let steps = vec![Step::OnSend {
         matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]), // Power On command
         responses: vec![
@@ -28,16 +28,13 @@ fn test_deterministic_executor_with_simple_command() {
     let transport = ScriptedTransport::new(steps).with_executor(executor.clone());
     let executor2 = executor.clone();
 
-    // Use block_on_bg to drive the runtime
     let result = executor.block_on_bg(async move {
         eprintln!("Starting test - creating runtime");
 
-        // Create runtime with the scripted transport
         let runtime = RuntimeHandle::new(transport, executor2).await?;
 
         eprintln!("Runtime created, sending command");
 
-        // Send a simple power on command
         let response = runtime
             .send_command(
                 &grafton_visca::command::power::Power::On,
@@ -48,7 +45,6 @@ fn test_deterministic_executor_with_simple_command() {
 
         eprintln!("Command sent, got response: {:?}", response);
 
-        // Check the response
         use grafton_visca::command::response::ViscaResponse;
 
         assert!(matches!(
@@ -66,7 +62,6 @@ fn test_deterministic_executor_with_simple_command() {
 fn test_deterministic_executor_with_sleep() {
     let (executor, _clock) = DeterministicExecutor::new();
 
-    // Create a scripted transport with delayed response
     let steps = vec![
         Step::OnSend {
             matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]),
@@ -84,7 +79,6 @@ fn test_deterministic_executor_with_sleep() {
     let result = executor.block_on_bg(async move {
         let runtime = RuntimeHandle::new(transport, executor2).await?;
 
-        // Start the command (it will be waiting for the delayed response)
         let response = runtime
             .send_command(
                 &grafton_visca::command::power::Power::On,
@@ -93,7 +87,6 @@ fn test_deterministic_executor_with_sleep() {
             )
             .await?;
 
-        // The virtual time should advance automatically in block_on_bg
         use grafton_visca::command::response::ViscaResponse;
 
         assert!(matches!(
@@ -115,8 +108,6 @@ fn test_deterministic_executor_with_sleep() {
 fn test_deterministic_executor_handles_busy_retry() {
     let (executor, _clock) = DeterministicExecutor::new();
 
-    // Create a scripted transport that returns BUSY twice then success
-    // Power uses Quick category which has 5 max retries, so 2 BUSYs followed by success should work
     let steps = vec![
         Step::OnSend {
             matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]),
@@ -143,7 +134,6 @@ fn test_deterministic_executor_handles_busy_retry() {
         let runtime = RuntimeHandle::new(transport, executor2).await?;
 
         eprintln!("Runtime created, sending command...");
-        // Send command that will get BUSY twice then succeed on retry
         let response = runtime
             .send_command(
                 &grafton_visca::command::power::Power::On,
@@ -154,7 +144,6 @@ fn test_deterministic_executor_handles_busy_retry() {
 
         eprintln!("Got response: {:?}", response);
 
-        // Should succeed after retry
         match response {
             Ok(resp) => {
                 use grafton_visca::command::response::ViscaResponse;
@@ -180,10 +169,6 @@ fn test_deterministic_executor_handles_busy_retry() {
 fn test_deterministic_executor_handles_busy_exhaustion() {
     let (executor, _clock) = DeterministicExecutor::new();
 
-    // Create a scripted transport that returns BUSY 6 times (exhaustion for max_retries=5)
-    // Power uses Quick category which has 5 max retries
-    // The runtime sends the initial command (attempt 1), then up to 5 retries (attempts 2-6)
-    // On the 6th BUSY (attempt 6), it should exhaust and return MaxRetriesExceeded
     let steps = vec![
         Step::OnSend {
             matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]),
@@ -217,7 +202,6 @@ fn test_deterministic_executor_handles_busy_exhaustion() {
     let result = executor.block_on_bg(async move {
         let runtime = RuntimeHandle::new(transport, executor2).await?;
 
-        // Send command that will get BUSY 6 times and exhaust retries
         let response = runtime
             .send_command(
                 &grafton_visca::command::power::Power::On,
@@ -226,7 +210,6 @@ fn test_deterministic_executor_handles_busy_exhaustion() {
             )
             .await;
 
-        // Should fail with MaxRetriesExceeded
         match response {
             Err(grafton_visca::Error::MaxRetriesExceeded) => Ok::<(), grafton_visca::Error>(()),
             other => panic!("Expected MaxRetriesExceeded, got: {:?}", other),
@@ -239,8 +222,6 @@ fn test_deterministic_executor_handles_busy_exhaustion() {
         result.err()
     );
 }
-
-// Smokescreen tests as recommended in the issue comment
 
 #[test]
 fn test_det_drives_spawned_tasks_smokescreen() {
@@ -259,7 +240,6 @@ fn test_det_drives_spawned_tasks_smokescreen() {
         flag2.store(true, Ordering::SeqCst);
     });
 
-    // Drive executor
     assert!(executor.run_until_idle(), "Should have made progress");
     assert!(flag.load(Ordering::SeqCst), "Task should have run");
 }
@@ -283,14 +263,12 @@ fn test_det_sleep_fires_only_when_time_advances_smokescreen() {
         flag2.store(true, Ordering::SeqCst);
     });
 
-    // Nothing should happen yet
     executor.run_until_idle();
     assert!(
         !flag.load(Ordering::SeqCst),
         "Sleep should not complete without time advancement"
     );
 
-    // Jump clock to next deadline and drive
     assert!(
         executor.advance_to_next_deadline(),
         "Should have advanced to deadline"

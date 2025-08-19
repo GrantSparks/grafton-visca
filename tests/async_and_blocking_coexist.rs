@@ -1,35 +1,24 @@
 //! Test that both async and blocking APIs can coexist in the same build.
 
+#[cfg(feature = "rt-tokio")]
+use grafton_visca::{camera::AsyncMode, transport::tokio::tcp::Tcp as AsyncTcp, TokioExecutor};
 use grafton_visca::{
-    camera::profiles::PtzOpticsG2,
-    camera::{BlockingMode, Camera},
+    camera::{profiles::PtzOpticsG2, BlockingMode, Camera},
     transport::blocking::Tcp as BlockingTcp,
 };
 
-#[cfg(feature = "rt-tokio")]
-use grafton_visca::camera::AsyncMode;
-
-#[cfg(feature = "rt-tokio")]
-use grafton_visca::{transport::tokio::tcp::Tcp as AsyncTcp, TokioExecutor};
-
-// Test that both blocking and async camera types can be defined in the same module
 #[test]
 fn test_both_modes_compile() {
-    // Blocking camera type
     type _BlockingCamera = Camera<BlockingMode, PtzOpticsG2, BlockingTcp, ()>;
 
-    // Async camera type (when tokio feature is enabled)
     #[cfg(feature = "rt-tokio")]
     type _AsyncCamera = Camera<AsyncMode, PtzOpticsG2, AsyncTcp, TokioExecutor>;
-
-    // Both types should compile without conflict
     fn _accepts_blocking(_camera: &_BlockingCamera) {}
 
     #[cfg(feature = "rt-tokio")]
     fn _accepts_async(_camera: &_AsyncCamera) {}
 }
 
-// Test that blocking traits are available regardless of async feature
 #[test]
 fn test_blocking_traits_always_available() {
     use grafton_visca::{
@@ -37,7 +26,6 @@ fn test_blocking_traits_always_available() {
         PresetsControlBlocking, ZoomControlBlocking,
     };
 
-    // These traits should be available even with async feature enabled
     fn _uses_blocking_traits<T>()
     where
         T: PowerControlBlocking
@@ -50,7 +38,6 @@ fn test_blocking_traits_always_available() {
     }
 }
 
-// Test that async traits are available when async feature is enabled
 #[cfg(feature = "async")]
 #[test]
 fn test_async_traits_with_feature() {
@@ -58,7 +45,6 @@ fn test_async_traits_with_feature() {
         FocusControl, InquiryControl, PanTiltControl, PowerControl, PresetsControl, ZoomControl,
     };
 
-    // These traits should only be available with async feature
     fn _uses_async_traits<T>()
     where
         T: PowerControl
@@ -71,16 +57,11 @@ fn test_async_traits_with_feature() {
     }
 }
 
-// Test that both preludes can be used
 #[test]
 fn test_both_preludes_available() {
-    // Blocking prelude should always be available
     use grafton_visca::prelude::blocking as blocking_prelude;
 
-    // Use types from blocking prelude
     type _BlockingG2 = blocking_prelude::PtzOpticsG2Cam<BlockingTcp>;
-
-    // Use types from async prelude when available
     #[cfg(all(feature = "async", feature = "rt-tokio"))]
     {
         use grafton_visca::prelude::r#async as async_prelude;

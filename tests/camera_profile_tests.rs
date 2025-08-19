@@ -3,18 +3,19 @@
 //! This test suite validates the mode-based Camera API with profile capabilities.
 
 #[cfg(feature = "async")]
-use grafton_visca::{camera::AsyncMode, transport::async_transport::AsyncTransport};
-
+use grafton_visca::{
+    camera::AsyncMode,
+    prelude::r#async::{GenericViscaCam, PtzOpticsG2Cam, SonyFR7Cam},
+    transport::async_transport::AsyncTransport,
+};
 #[cfg(not(feature = "async"))]
-use grafton_visca::{camera::BlockingMode, transport::BlockingTransport};
+use grafton_visca::{
+    camera::BlockingMode,
+    prelude::blocking::{GenericViscaCam, PtzOpticsG2Cam, SonyFR7Cam},
+    transport::BlockingTransport,
+};
+
 use grafton_visca::{camera::Camera, capabilities::*};
-
-// Import type aliases based on feature flags
-#[cfg(not(feature = "async"))]
-use grafton_visca::prelude::blocking::{GenericViscaCam, PtzOpticsG2Cam, SonyFR7Cam};
-
-#[cfg(feature = "async")]
-use grafton_visca::prelude::r#async::{GenericViscaCam, PtzOpticsG2Cam, SonyFR7Cam};
 
 // Tests demonstrating the compile-time profile system
 
@@ -131,8 +132,6 @@ fn test_profile_capabilities_are_compile_time() {
 
 #[test]
 fn test_profile_traits_composition() {
-    use grafton_visca::capabilities::*;
-
     // Verify that Profile trait requires all basic capabilities
     fn verify_profile_requirements<P>()
     where
@@ -171,8 +170,6 @@ fn test_profile_traits_composition() {
 
 #[test]
 fn test_optional_capabilities() {
-    use grafton_visca::capabilities::*;
-
     // Test which profiles have optional capabilities
     fn has_nd_filter<T: NDFilter>() {}
     fn has_motion_sync<T: MotionSync>() {}

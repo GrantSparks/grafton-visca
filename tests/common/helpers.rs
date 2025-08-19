@@ -1,21 +1,14 @@
 #![allow(missing_docs)]
+#![allow(dead_code)]
 //! Test helper functions to reduce unwrap usage and improve error messages.
 //!
 //! This module provides reusable test utilities that make tests more maintainable
 //! and provide better failure messages, reducing the need for #[allow(...)] directives.
-#![allow(dead_code)] // These utilities are for future test use
 
 use std::fmt::Debug;
 
 /// VISCA command terminator byte.
 const VISCA_TERMINATOR: u8 = 0xFF;
-
-// Note: ViscaProtocol creation helpers have been removed since concrete
-// transport implementations (TCP/UDP) are now provided as examples
-// rather than being part of the core library. Tests should either:
-// 1. Use mock transports for unit testing
-// 2. Include transport implementations from the examples directory
-// 3. Implement their own test transports
 
 /// Standard test speeds to avoid repetitive magic numbers.
 ///
@@ -28,8 +21,6 @@ pub fn test_speeds() -> (u8, u8) {
 /// Test speeds with custom values.
 #[cfg(not(feature = "async"))]
 pub fn test_speeds_with(pan: u8, tilt: u8) -> (u8, u8) {
-    // In the new API, speeds are just u8 values
-    // Camera profiles handle validation
     (pan, tilt)
 }
 

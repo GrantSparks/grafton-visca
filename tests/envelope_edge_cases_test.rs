@@ -1,14 +1,9 @@
 //! Comprehensive edge case tests for TransportEnvelope and FrameParser.
 //!
-//! Task E: Envelope & parser tightening
 //! These tests ensure robust handling of malformed data, edge cases,
 //! and protocol violations.
 
 const VISCA_TERMINATOR: u8 = 0xFF;
-
-// ========================================
-// Sony Encapsulation Edge Cases
-// ========================================
 
 #[test]
 fn test_sony_response_too_short_for_header() {
@@ -19,21 +14,18 @@ fn test_sony_response_too_short_for_header() {
         use_sequence: false,
     });
 
-    // Only 7 bytes when we need 8 for header
     let malformed = vec![0x01, 0x11, 0x00, 0x03, 0x00, 0x00, 0x00];
     assert!(
         envelope.extract_response(&malformed).is_err(),
         "Should reject response shorter than Sony header"
     );
 
-    // Empty response
     let empty = vec![];
     assert!(
         envelope.extract_response(&empty).is_err(),
         "Should reject empty response"
     );
 
-    // Single byte
     let single = vec![0x90];
     assert!(
         envelope.extract_response(&single).is_err(),
@@ -50,7 +42,6 @@ fn test_sony_invalid_payload_types() {
         use_sequence: false,
     });
 
-    // Test various invalid payload type combinations
     let invalid_types = [
         [0x00, 0x00], // Zero payload type
         [0xFF, 0xFF], // All bits set
@@ -86,7 +77,6 @@ fn test_sony_length_field_mismatches() {
         use_sequence: false,
     });
 
-    // Length field says 10 bytes but only 3 bytes of payload
     let mut response = Vec::new();
     response.extend_from_slice(&[0x01, 0x11]); // Reply type
     response.extend_from_slice(&(10u16).to_be_bytes()); // Wrong length
@@ -98,7 +88,6 @@ fn test_sony_length_field_mismatches() {
         "Should reject length field mismatch (claims 10, has 3)"
     );
 
-    // Length field says 0 but has payload
     let mut response = Vec::new();
     response.extend_from_slice(&[0x01, 0x11]); // Reply type
     response.extend_from_slice(&(0u16).to_be_bytes()); // Zero length
@@ -120,7 +109,6 @@ fn test_sony_max_length_boundaries() {
         use_sequence: false,
     });
 
-    // Maximum u16 length
     let mut response = Vec::new();
     response.extend_from_slice(&[0x01, 0x11]); // Reply type
     response.extend_from_slice(&(u16::MAX).to_be_bytes()); // Max length
@@ -140,17 +128,13 @@ fn test_sony_sequence_number_wraparound() {
 
     let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated { use_sequence: true });
 
-    // Set sequence counter near u32::MAX by calling frame_command many times
     let dummy_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
 
-    // This would take too long to actually do u32::MAX times,
-    // so we'll test the atomic increment behavior directly
     for _ in 0..100 {
         let framed = envelope.frame_command(&dummy_cmd, false);
         assert!(framed.len() > 8, "Should produce framed output");
     }
 
-    // Verify sequence numbers are incrementing
     let frame1 = envelope.frame_command(&dummy_cmd, false);
     let frame2 = envelope.frame_command(&dummy_cmd, false);
 
@@ -169,7 +153,6 @@ fn test_sony_malformed_header_bytes() {
         use_sequence: false,
     });
 
-    // Header with non-standard byte ordering
     let mut response = Vec::new();
     response.push(0x11); // Wrong byte order for type
     response.push(0x01);
@@ -177,17 +160,12 @@ fn test_sony_malformed_header_bytes() {
     response.extend_from_slice(&0u32.to_le_bytes()); // Wrong endianness
     response.extend_from_slice(&[0x90, 0x41, VISCA_TERMINATOR]);
 
-    // This should parse but may give unexpected results
     let result = envelope.extract_response(&response);
     assert!(
         result.is_err(),
         "Should reject malformed header with wrong byte order"
     );
 }
-
-// ========================================
-// Raw VISCA Edge Cases
-// ========================================
 
 #[test]
 fn test_raw_visca_zero_length_handling() {
@@ -196,7 +174,6 @@ fn test_raw_visca_zero_length_handling() {
 
     let envelope = TransportEnvelope::new(ProtocolStyle::RawVisca);
 
-    // Empty slice
     let empty: &[u8] = &[];
     let framed = envelope.frame_command(empty, false);
     assert_eq!(framed.len(), 0, "Should handle empty command");
@@ -213,7 +190,6 @@ fn test_raw_visca_maximum_size() {
 
     let envelope = TransportEnvelope::new(ProtocolStyle::RawVisca);
 
-    // VISCA commands can be up to 16 bytes typically, but test larger
     let large_cmd = vec![0x81; 1000];
     let framed = envelope.frame_command(&large_cmd, false);
     assert_eq!(framed.len(), 1000, "Should pass through large commands");
@@ -233,20 +209,14 @@ fn test_bytes_immutability_and_efficiency() {
     let original = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
     let framed = envelope.frame_command(&original, false);
 
-    // Bytes should be efficiently cloneable (reference counted)
     let cloned = framed.clone();
     assert_eq!(framed, cloned);
 
-    // Original shouldn't be affected
     assert_eq!(
         original,
         vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]
     );
 }
-
-// ========================================
-// Frame Parser Edge Cases
-// ========================================
 
 #[test]
 fn test_parser_multiple_terminators() {
@@ -254,18 +224,14 @@ fn test_parser_multiple_terminators() {
 
     let mut parser = FrameParser::new();
 
-    // Feed data with multiple 0xFF bytes
     parser.feed(&[0x81, 0xFF, 0xFF, 0x90, 0xFF]);
 
-    // Should extract first frame at first terminator
     let frame1 = parser.next_frame().expect("Should find first frame");
     assert_eq!(&frame1[..], &[0x81, 0xFF]);
 
-    // Should extract second frame at second terminator
     let frame2 = parser.next_frame().expect("Should find second frame");
     assert_eq!(&frame2[..], &[0xFF]);
 
-    // Should extract third frame
     let frame3 = parser.next_frame().expect("Should find third frame");
     assert_eq!(&frame3[..], &[0x90, 0xFF]);
 
@@ -278,7 +244,6 @@ fn test_parser_no_terminator_accumulation() {
 
     let mut parser = FrameParser::new();
 
-    // Feed data without terminator
     for i in 0..100 {
         parser.feed(&[0x81, 0x01, i as u8]);
         assert!(
@@ -287,13 +252,10 @@ fn test_parser_no_terminator_accumulation() {
         );
     }
 
-    // Parser should have accumulated all data
     assert_eq!(parser.len(), 300);
 
-    // Add terminator
     parser.feed(&[0xFF]);
 
-    // Should now extract entire accumulated frame
     let frame = parser
         .next_frame()
         .expect("Should extract after terminator");
@@ -307,20 +269,17 @@ fn test_parser_interleaved_data() {
 
     let mut parser = FrameParser::new();
 
-    // Simulate receiving data in small chunks with delays
     parser.feed(&[0x81]);
     assert!(parser.next_frame().is_none());
 
     parser.feed(&[0x01, 0x04]);
     assert!(parser.next_frame().is_none());
 
-    // Complete first frame and start second
     parser.feed(&[0x00, 0x02, 0xFF, 0x90]);
 
     let frame1 = parser.next_frame().expect("Should extract complete frame");
     assert_eq!(&frame1[..], &[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]);
 
-    // Second frame incomplete
     assert!(parser.next_frame().is_none());
     assert_eq!(parser.len(), 1); // Should have 0x90 remaining
 
@@ -341,7 +300,6 @@ fn test_parser_clear_and_reuse() {
     parser.clear();
     assert!(parser.is_empty());
 
-    // Should be reusable after clear
     parser.feed(&[0x90, 0x41, 0xFF]);
     let frame = parser.next_frame().expect("Should work after clear");
     assert_eq!(&frame[..], &[0x90, 0x41, 0xFF]);
@@ -353,11 +311,9 @@ fn test_parser_capacity_management() {
 
     let mut parser = FrameParser::with_capacity(10);
 
-    // Feed more than initial capacity
     let large_data = vec![0x81; 50];
     parser.feed(&large_data);
 
-    // Should handle growth automatically
     assert!(parser.len() >= 50);
 
     parser.feed(&[0xFF]);
@@ -365,36 +321,27 @@ fn test_parser_capacity_management() {
     assert_eq!(frame.len(), 51);
 }
 
-// ========================================
-// Frame Validation Edge Cases
-// ========================================
-
 #[test]
 fn test_validate_frame_edge_cases() {
     use grafton_visca::transport::frame_parser::validate_frame;
 
-    // Empty frame
     assert!(validate_frame(&[]).is_err(), "Should reject empty frame");
 
-    // Single terminator is valid
     assert!(
         validate_frame(&[0xFF]).is_ok(),
         "Single terminator should be valid"
     );
 
-    // Missing terminator
     assert!(
         validate_frame(&[0x81, 0x01, 0x04]).is_err(),
         "Should reject frame without terminator"
     );
 
-    // Terminator in middle, not at end
     assert!(
         validate_frame(&[0x81, 0xFF, 0x01]).is_err(),
         "Should reject frame with terminator not at end"
     );
 
-    // Exactly at size limit (32 bytes)
     let mut max_frame = vec![0x81; 31];
     max_frame.push(0xFF);
     assert!(
@@ -402,7 +349,6 @@ fn test_validate_frame_edge_cases() {
         "Should accept 32 byte frame"
     );
 
-    // Just over size limit (33 bytes)
     let mut over_frame = vec![0x81; 32];
     over_frame.push(0xFF);
     assert!(
@@ -410,7 +356,6 @@ fn test_validate_frame_edge_cases() {
         "Should reject 33 byte frame"
     );
 
-    // All terminators
     let all_ff = vec![0xFF; 10];
     assert!(
         validate_frame(&all_ff).is_ok(),
@@ -422,14 +367,12 @@ fn test_validate_frame_edge_cases() {
 fn test_validate_frame_null_bytes() {
     use grafton_visca::transport::frame_parser::validate_frame;
 
-    // Frame with null bytes
     let with_nulls = vec![0x00, 0x00, 0x00, 0xFF];
     assert!(
         validate_frame(&with_nulls).is_ok(),
         "Should accept frame with null bytes"
     );
 
-    // Frame with only null and terminator
     let null_term = vec![0x00, 0xFF];
     assert!(
         validate_frame(&null_term).is_ok(),
@@ -443,13 +386,11 @@ fn test_bytesmut_split_behavior() {
 
     let mut parser = FrameParser::new();
 
-    // Test that split_to correctly maintains remaining data
     parser.feed(&[0x81, 0x01, 0xFF, 0x90, 0x41]);
 
     let frame1 = parser.next_frame().expect("Should get first frame");
     assert_eq!(&frame1[..], &[0x81, 0x01, 0xFF]);
 
-    // Remaining data should still be in buffer
     assert_eq!(parser.len(), 2);
     assert!(!parser.is_empty());
 
@@ -460,19 +401,13 @@ fn test_bytesmut_split_behavior() {
     assert!(parser.is_empty());
 }
 
-// ========================================
-// Stress Tests
-// ========================================
-
 #[test]
 fn test_rapid_frame_parsing() {
     use grafton_visca::transport::frame_parser::FrameParser;
 
     let mut parser = FrameParser::new();
 
-    // Simulate rapid command/response cycles
     for i in 0..1000 {
-        // Avoid 0xFF as data byte since it's the terminator
         let data_byte = if (i % 256) == 0xFF {
             0xFE
         } else {
@@ -494,7 +429,6 @@ fn test_alternating_protocol_styles() {
     use grafton_visca::capabilities::ProtocolStyle;
     use grafton_visca::transport::envelope::TransportEnvelope;
 
-    // Test switching between protocol styles
     let raw_envelope = TransportEnvelope::new(ProtocolStyle::RawVisca);
     let sony_envelope =
         TransportEnvelope::new(ProtocolStyle::SonyEncapsulated { use_sequence: true });
@@ -514,7 +448,6 @@ fn test_alternating_protocol_styles() {
 fn test_concurrent_parsers() {
     use grafton_visca::transport::frame_parser::FrameParser;
 
-    // Multiple parsers shouldn't interfere with each other
     let mut parser1 = FrameParser::new();
     let mut parser2 = FrameParser::new();
 
@@ -531,10 +464,6 @@ fn test_concurrent_parsers() {
     assert_eq!(&frame2[..], &[0x90, 0x41, 0xFF]);
 }
 
-// ========================================
-// Bytes Optimization Tests
-// ========================================
-
 #[test]
 fn test_bytes_zero_copy_behavior() {
     use grafton_visca::capabilities::ProtocolStyle;
@@ -542,17 +471,13 @@ fn test_bytes_zero_copy_behavior() {
 
     let envelope = TransportEnvelope::new(ProtocolStyle::RawVisca);
 
-    // Create a large command
     let large_cmd = vec![0x81; 1000];
 
-    // Frame it multiple times
     let framed1 = envelope.frame_command(&large_cmd, false);
     let framed2 = framed1.clone(); // Should be cheap (reference counted)
 
-    // Both should point to same data
     assert_eq!(framed1, framed2);
 
-    // Dropping one shouldn't affect the other
     drop(framed1);
     assert_eq!(framed2.len(), 1000);
 }
@@ -563,12 +488,10 @@ fn test_bytesmut_efficient_growth() {
 
     let mut parser = FrameParser::with_capacity(16);
 
-    // Feed data that requires growth
     for _ in 0..10 {
         parser.feed(&[0x81; 100]);
     }
 
-    // Should have grown to accommodate
     assert!(parser.len() >= 1000);
 
     // Add terminator and extract

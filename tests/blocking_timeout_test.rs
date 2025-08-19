@@ -7,13 +7,19 @@
 
 #![cfg(not(feature = "async"))]
 
-use grafton_visca::transport::blocking::{Tcp, Udp};
-use grafton_visca::transport::BlockingTransport;
-use grafton_visca::Error;
+use std::{
+    net::{TcpListener, UdpSocket},
+    thread,
+    time::{Duration, Instant},
+};
 
-use std::net::{TcpListener, UdpSocket};
-use std::thread;
-use std::time::{Duration, Instant};
+use grafton_visca::{
+    transport::{
+        blocking::{Tcp, Udp},
+        BlockingTransport,
+    },
+    Error,
+};
 
 /// A slow server that doesn't respond for testing timeouts
 fn start_slow_tcp_server() -> String {
@@ -22,14 +28,11 @@ fn start_slow_tcp_server() -> String {
 
     thread::spawn(move || {
         if let Ok((stream, _)) = listener.accept() {
-            // Accept the connection but don't send any data
-            // Keep the connection open
             thread::sleep(Duration::from_secs(10));
             drop(stream);
         }
     });
 
-    // Give the server time to start
     thread::sleep(Duration::from_millis(100));
     addr
 }
@@ -41,12 +44,10 @@ fn start_slow_udp_server() -> String {
 
     thread::spawn(move || {
         let mut buf = [0u8; 1024];
-        // Wait for data but never respond
         let _ = socket.recv(&mut buf);
         thread::sleep(Duration::from_secs(10));
     });
 
-    // Give the server time to start
     thread::sleep(Duration::from_millis(100));
     addr
 }
@@ -93,7 +94,7 @@ fn test_tcp_blocking_timeout_enforcement() {
                     tolerance_ms
                 );
             }
-            Err(e) => panic!("Expected Timeout error, got: {:?}", e),
+            Err(e) => panic!("Expected Timeout error, got: {e:?}"),
             Ok(_) => panic!("Expected timeout but got success"),
         }
     }
@@ -144,7 +145,7 @@ fn test_udp_blocking_timeout_enforcement() {
                     tolerance_ms
                 );
             }
-            Err(e) => panic!("Expected Timeout error, got: {:?}", e),
+            Err(e) => panic!("Expected Timeout error, got: {e:?}"),
             Ok(_) => panic!("Expected timeout but got success"),
         }
     }

@@ -3,14 +3,20 @@
 //! These tests verify that the builder pattern correctly creates and configures
 //! transports with all the new components (BufferManager, RetryExecutor, etc.)
 
-use grafton_visca::transport::builder::{TransportBuilder, TransportBuilderExt};
-use grafton_visca::transport::BlockingTransport;
-use grafton_visca::Error;
+use std::{
+    net::{TcpListener, UdpSocket},
+    sync::{Arc, Mutex},
+    thread,
+    time::Duration,
+};
 
-use std::net::{TcpListener, UdpSocket};
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
+use grafton_visca::{
+    transport::{
+        builder::{TransportBuilder, TransportBuilderExt},
+        BlockingTransport,
+    },
+    Error,
+};
 
 /// Test that the builder creates a TCP transport with proper configuration
 #[test]
