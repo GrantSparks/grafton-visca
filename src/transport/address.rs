@@ -132,10 +132,12 @@ impl AddressResolver {
     /// assert!(bind_addr.is_ipv4());
     /// ```
     pub fn bind_address_for(&self, target: &SocketAddr) -> SocketAddr {
+        use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+        
         if target.is_ipv4() {
-            "0.0.0.0:0".parse().unwrap()
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0)
         } else {
-            "[::]:0".parse().unwrap()
+            SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0)
         }
     }
 
@@ -172,8 +174,8 @@ impl AddressResolver {
 
         // Fall back to the first address if no preference match
         preferred
-            .or_else(|| addrs.into_iter().next())
-            .ok_or_else(|| Error::InvalidAddress {
+            .or(addrs.into_iter().next())
+            .ok_or(Error::InvalidAddress {
                 reason: Cow::Borrowed("No addresses resolved"),
             })
     }
@@ -196,6 +198,7 @@ impl ResolveAddress for AddressResolver {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
     use super::*;
 
     #[test]

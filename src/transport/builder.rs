@@ -10,7 +10,7 @@ use crate::transport::{BlockingTransport, RetryConfig};
 use crate::Error;
 
 /// Common configuration options for all transport types.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct TransportConfig {
     /// Connection timeout duration.
     pub connect_timeout: Duration,

@@ -92,7 +92,7 @@ impl BufferConfig {
 }
 
 /// Manager for buffer allocation and lifecycle.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct BufferManager {
     config: BufferConfig,
 }
@@ -104,7 +104,7 @@ impl BufferManager {
     }
 
     /// Create a new buffer manager with default configuration.
-    pub fn default() -> Self {
+    pub fn with_defaults() -> Self {
         Self::new(BufferConfig::default())
     }
 
@@ -209,7 +209,7 @@ mod tests {
 
     #[test]
     fn test_buffer_manager_allocation() {
-        let manager = BufferManager::default();
+        let manager = BufferManager::with_defaults();
 
         let recv_buf = manager.alloc_recv_buffer();
         assert_eq!(recv_buf.capacity(), DEFAULT_BUFFER_SIZE);
@@ -223,7 +223,7 @@ mod tests {
 
     #[test]
     fn test_buffer_resize() {
-        let manager = BufferManager::default();
+        let manager = BufferManager::with_defaults();
         let mut buffer = manager.alloc_recv_buffer();
 
         // Initial capacity should be DEFAULT_BUFFER_SIZE (128)
@@ -246,7 +246,7 @@ mod tests {
 
     #[test]
     fn test_buffer_reset() {
-        let manager = BufferManager::default();
+        let manager = BufferManager::with_defaults();
         let mut buffer = manager.alloc_recv_buffer();
 
         // Add some data
@@ -260,7 +260,7 @@ mod tests {
 
     #[test]
     fn test_process_recv_data() {
-        let manager = BufferManager::default();
+        let manager = BufferManager::with_defaults();
         let mut buffer = vec![0u8; 10];
         buffer[0] = 0x81;
         buffer[1] = 0x01;

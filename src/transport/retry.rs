@@ -32,7 +32,7 @@ impl DefaultRetryStrategy {
     }
 
     /// Create a retry strategy with default configuration.
-    pub fn default() -> Self {
+    pub fn with_defaults() -> Self {
         Self::new(RetryConfig::default())
     }
 }

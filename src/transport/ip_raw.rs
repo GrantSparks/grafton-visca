@@ -90,7 +90,7 @@ impl RawTcpTransport {
         let buffer_manager = Arc::new(BufferManager::new(BufferConfig::for_raw_ip()));
 
         // Create retry executor with the configured retry settings
-        let retry_executor = RetryExecutor::new(config.retry_config.clone());
+        let retry_executor = RetryExecutor::new(config.retry_config);
 
         Ok(Self {
             stream: Arc::new(Mutex::new(stream)),
@@ -248,7 +248,7 @@ impl RawUdpTransport {
         let buffer_manager = Arc::new(BufferManager::new(BufferConfig::for_udp()));
 
         // Create retry executor with the configured retry settings
-        let retry_executor = RetryExecutor::new(config.retry_config.clone());
+        let retry_executor = RetryExecutor::new(config.retry_config);
 
         Ok(Self {
             socket: Arc::new(socket),

@@ -71,7 +71,7 @@ impl Tcp {
                         reader: Mutex::new(BufReader::new(reader_stream)),
                         writer: Mutex::new(stream),
                         retry_executor: RetryExecutor::with_defaults(),
-                        buffer_manager: BufferManager::default(),
+                        buffer_manager: BufferManager::with_defaults(),
                         stream: Some(config_stream),
                     });
                 }

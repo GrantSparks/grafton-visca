@@ -157,7 +157,7 @@ pub struct TimeoutGuard<'a, T: TimeoutManager> {
     restored: bool,
 }
 
-impl<'a, T: TimeoutManager> std::fmt::Debug for TimeoutGuard<'a, T> {
+impl<T: TimeoutManager> std::fmt::Debug for TimeoutGuard<'_, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TimeoutGuard")
             .field("original_read_timeout", &self.original_read_timeout)
@@ -204,7 +204,7 @@ impl<'a, T: TimeoutManager> TimeoutGuard<'a, T> {
     }
 }
 
-impl<'a, T: TimeoutManager> Drop for TimeoutGuard<'a, T> {
+impl<T: TimeoutManager> Drop for TimeoutGuard<'_, T> {
     fn drop(&mut self) {
         // Best effort to restore timeouts
         let _ = self.restore();

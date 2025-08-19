@@ -23,7 +23,7 @@ fn main() -> Result<(), Error> {
     println!("\n=== Direct Buffer Manager Usage ===");
 
     // Create a buffer manager with default configuration
-    let default_manager = BufferManager::default();
+    let default_manager = BufferManager::with_defaults();
     let recv_buf = default_manager.alloc_recv_buffer();
     println!("Default receive buffer capacity: {}", recv_buf.capacity());
 
@@ -48,7 +48,7 @@ fn main() -> Result<(), Error> {
     // Example 3: Buffer resizing
     println!("\n=== Buffer Resizing ===");
 
-    let manager = BufferManager::default();
+    let manager = BufferManager::with_defaults();
     let mut buffer = manager.alloc_recv_buffer();
     println!("Initial buffer capacity: {}", buffer.capacity());
 

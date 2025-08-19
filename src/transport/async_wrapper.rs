@@ -8,7 +8,6 @@
 use bytes::Bytes;
 use std::sync::Arc;
 
-use crate::command::const_encoding::VISCA_TERMINATOR;
 use crate::transport::{AsyncTransport, BlockingTransport};
 use crate::Error;
 
@@ -240,6 +239,7 @@ impl<T: BlockingTransport + 'static> AsyncWrapperExt for T {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::command::const_encoding::VISCA_TERMINATOR;
     use bytes::Bytes;
     use std::sync::Mutex;
     use std::time::Duration;
