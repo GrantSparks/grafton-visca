@@ -12,12 +12,15 @@ use std::io::{Read, Write};
 
 #[cfg(feature = "rt-tokio")]
 use std::net::SocketAddr;
-use std::net::{TcpStream, ToSocketAddrs, UdpSocket};
+use std::net::{TcpStream, UdpSocket};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::error::{Error, Result};
 use crate::protocol::encode::VISCA_TERMINATOR;
+use crate::transport::address::AddressResolver;
+use crate::transport::buffer::{BufferConfig, BufferManager};
+use crate::transport::retry::RetryExecutor;
 use crate::transport::{BlockingTransport, RetryConfig};
 
 /// Configuration for raw IP transport.
@@ -51,19 +54,18 @@ impl Default for RawIpConfig {
 #[derive(Debug)]
 pub struct RawTcpTransport {
     stream: Arc<Mutex<TcpStream>>,
+    buffer_manager: Arc<BufferManager>,
     read_buffer: Arc<Mutex<BytesMut>>,
-    config: RawIpConfig,
+    retry_executor: RetryExecutor,
 }
 
 impl RawTcpTransport {
     /// Connect to a camera via raw TCP.
     pub fn connect(config: RawIpConfig) -> Result<Self> {
-        let addr = config
-            .address
-            .to_socket_addrs()
-            .map_err(|e| Error::TransportError(format!("Invalid address: {}", e).into()))?
-            .next()
-            .ok_or_else(|| Error::TransportError("No valid address".into()))?;
+        let resolver = AddressResolver::new();
+        let addr = resolver
+            .resolve_first(&config.address)
+            .map_err(|e| Error::TransportError(format!("Invalid address: {}", e).into()))?;
 
         debug!("Connecting to {} via raw TCP", addr);
 
@@ -84,10 +86,17 @@ impl RawTcpTransport {
 
         debug!("Connected to {}", addr);
 
+        // Create buffer manager with raw IP optimized sizes
+        let buffer_manager = Arc::new(BufferManager::new(BufferConfig::for_raw_ip()));
+
+        // Create retry executor with the configured retry settings
+        let retry_executor = RetryExecutor::new(config.retry_config.clone());
+
         Ok(Self {
             stream: Arc::new(Mutex::new(stream)),
-            read_buffer: Arc::new(Mutex::new(BytesMut::with_capacity(256))),
-            config,
+            buffer_manager: buffer_manager.clone(),
+            read_buffer: Arc::new(Mutex::new(buffer_manager.alloc_recv_buffer())),
+            retry_executor,
         })
     }
 
@@ -101,7 +110,7 @@ impl RawTcpTransport {
             .stream
             .lock()
             .map_err(|_| Error::LockPoisoned("transport mutex"))?;
-        let mut temp_buf = [0u8; 256];
+        let mut temp_buf = self.buffer_manager.alloc_vec_buffer();
 
         loop {
             // Check if we have a complete frame in the buffer
@@ -135,76 +144,29 @@ impl RawTcpTransport {
 
 impl BlockingTransport for RawTcpTransport {
     fn send_blocking(&self, bytes: &[u8]) -> Result<()> {
-        let mut attempts = 0;
-        let start_time = Instant::now();
+        // Clone bytes for the closure
+        let bytes_vec = bytes.to_vec();
 
-        loop {
+        // Use the retry executor for automatic retry handling
+        self.retry_executor.execute(|| {
             let mut stream = self
                 .stream
                 .lock()
                 .map_err(|_| Error::LockPoisoned("transport mutex"))?;
 
-            let result = stream
-                .write_all(bytes)
+            stream
+                .write_all(&bytes_vec)
                 .and_then(|_| stream.flush())
-                .map_err(|e| Error::TransportError(format!("TCP write error: {}", e).into()));
+                .map_err(|e| Error::TransportError(format!("TCP write error: {}", e).into()))?;
 
-            drop(stream);
-
-            match result {
-                Ok(()) => {
-                    trace!("Sent {} bytes: {:02X?}", bytes.len(), bytes);
-                    return Ok(());
-                }
-                Err(e)
-                    if e.is_retryable()
-                        && self.config.retry_config.should_retry(attempts, start_time) =>
-                {
-                    attempts += 1;
-                    let delay = self
-                        .config
-                        .retry_config
-                        .calculate_delay(attempts, e.suggested_retry_delay());
-
-                    if start_time.elapsed() + delay > self.config.retry_config.max_retry_duration {
-                        return Err(Error::MaxRetriesExceeded);
-                    }
-
-                    debug!("Retrying TCP send (attempt {}): {:?}", attempts, e);
-                    std::thread::sleep(delay);
-                }
-                Err(e) => return Err(e),
-            }
-        }
+            trace!("Sent {} bytes: {:02X?}", bytes_vec.len(), bytes_vec);
+            Ok(())
+        })
     }
 
     fn recv_blocking(&self) -> Result<Bytes> {
-        let mut attempts = 0;
-        let start_time = Instant::now();
-
-        loop {
-            match self.recv_frame() {
-                Ok(frame) => return Ok(frame),
-                Err(e)
-                    if e.is_retryable()
-                        && self.config.retry_config.should_retry(attempts, start_time) =>
-                {
-                    attempts += 1;
-                    let delay = self
-                        .config
-                        .retry_config
-                        .calculate_delay(attempts, e.suggested_retry_delay());
-
-                    if start_time.elapsed() + delay > self.config.retry_config.max_retry_duration {
-                        return Err(Error::MaxRetriesExceeded);
-                    }
-
-                    debug!("Retrying TCP receive (attempt {}): {:?}", attempts, e);
-                    std::thread::sleep(delay);
-                }
-                Err(e) => return Err(e),
-            }
-        }
+        // Don't retry receive operations to avoid protocol confusion
+        self.recv_frame()
     }
 
     fn recv_blocking_with_timeout(&self, timeout: Duration) -> Result<Bytes> {
@@ -242,7 +204,9 @@ impl BlockingTransport for RawTcpTransport {
 #[derive(Debug)]
 pub struct RawUdpTransport {
     socket: Arc<UdpSocket>,
+    buffer_manager: Arc<BufferManager>,
     read_buffer: Arc<Mutex<BytesMut>>,
+    retry_executor: RetryExecutor,
     config: RawIpConfig,
     /// Track last sent command for retry on timeout
     last_command: Arc<Mutex<Option<Vec<u8>>>>,
@@ -251,16 +215,15 @@ pub struct RawUdpTransport {
 impl RawUdpTransport {
     /// Connect to a camera via raw UDP.
     pub fn connect(config: RawIpConfig) -> Result<Self> {
-        let addr = config
-            .address
-            .to_socket_addrs()
-            .map_err(|e| Error::TransportError(format!("Invalid address: {}", e).into()))?
-            .next()
-            .ok_or_else(|| Error::TransportError("No valid address".into()))?;
+        let resolver = AddressResolver::new();
+        let addr = resolver
+            .resolve_first(&config.address)
+            .map_err(|e| Error::TransportError(format!("Invalid address: {}", e).into()))?;
 
         debug!("Connecting to {} via raw UDP", addr);
 
-        let socket = UdpSocket::bind("0.0.0.0:0")
+        let bind_addr = resolver.bind_address_for(&addr);
+        let socket = UdpSocket::bind(bind_addr)
             .map_err(|e| Error::TransportError(format!("UDP bind failed: {}", e).into()))?;
 
         socket
@@ -281,9 +244,17 @@ impl RawUdpTransport {
 
         debug!("Connected to {}", addr);
 
+        // Create buffer manager with UDP optimized sizes
+        let buffer_manager = Arc::new(BufferManager::new(BufferConfig::for_udp()));
+
+        // Create retry executor with the configured retry settings
+        let retry_executor = RetryExecutor::new(config.retry_config.clone());
+
         Ok(Self {
             socket: Arc::new(socket),
-            read_buffer: Arc::new(Mutex::new(BytesMut::with_capacity(256))),
+            buffer_manager: buffer_manager.clone(),
+            read_buffer: Arc::new(Mutex::new(buffer_manager.alloc_recv_buffer())),
+            retry_executor,
             config,
             last_command: Arc::new(Mutex::new(None)),
         })
@@ -295,7 +266,7 @@ impl RawUdpTransport {
             .read_buffer
             .lock()
             .map_err(|_| Error::LockPoisoned("transport mutex"))?;
-        let mut temp_buf = [0u8; 1500]; // UDP MTU
+        let mut temp_buf = self.buffer_manager.alloc_vec_buffer();
 
         loop {
             // Check if we have a complete frame in the buffer
@@ -338,40 +309,18 @@ impl BlockingTransport for RawUdpTransport {
             *last_cmd = Some(bytes.to_vec());
         }
 
-        let mut attempts = 0;
-        let start_time = Instant::now();
+        // Clone bytes for the closure
+        let bytes_vec = bytes.to_vec();
 
-        loop {
-            let result = self
-                .socket
-                .send(bytes)
-                .map_err(|e| Error::TransportError(format!("UDP send error: {}", e).into()));
+        // Use the retry executor for automatic retry handling
+        self.retry_executor.execute(|| {
+            self.socket
+                .send(&bytes_vec)
+                .map_err(|e| Error::TransportError(format!("UDP send error: {}", e).into()))?;
 
-            match result {
-                Ok(_) => {
-                    trace!("Sent {} bytes: {:02X?}", bytes.len(), bytes);
-                    return Ok(());
-                }
-                Err(e)
-                    if e.is_retryable()
-                        && self.config.retry_config.should_retry(attempts, start_time) =>
-                {
-                    attempts += 1;
-                    let delay = self
-                        .config
-                        .retry_config
-                        .calculate_delay(attempts, e.suggested_retry_delay());
-
-                    if start_time.elapsed() + delay > self.config.retry_config.max_retry_duration {
-                        return Err(Error::MaxRetriesExceeded);
-                    }
-
-                    debug!("Retrying UDP send (attempt {}): {:?}", attempts, e);
-                    std::thread::sleep(delay);
-                }
-                Err(e) => return Err(e),
-            }
-        }
+            trace!("Sent {} bytes: {:02X?}", bytes_vec.len(), bytes_vec);
+            Ok(())
+        })
     }
 
     fn recv_blocking(&self) -> Result<Bytes> {
@@ -447,6 +396,7 @@ impl BlockingTransport for RawUdpTransport {
             .socket
             .read_timeout()
             .map_err(|e| Error::TransportError(format!("Failed to get timeout: {}", e).into()))?;
+
         self.socket
             .set_read_timeout(Some(timeout))
             .map_err(|e| Error::TransportError(format!("Failed to set timeout: {}", e).into()))?;

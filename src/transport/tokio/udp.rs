@@ -3,10 +3,12 @@
 use bytes::Bytes;
 use tokio::net::UdpSocket;
 
-use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
 
-use crate::transport::AsyncTransport;
+use crate::transport::address::AddressResolver;
+use crate::transport::buffer::{BufferConfig, BufferManager};
+use crate::transport::retry::RetryExecutor;
+use crate::transport::{builder::TransportConfig, AsyncTransport, RetryConfig};
 use crate::Error;
 
 /// UDP transport for async VISCA communication using tokio.
@@ -16,6 +18,8 @@ use crate::Error;
 #[derive(Debug)]
 pub struct Udp {
     socket: Arc<UdpSocket>,
+    retry_executor: Arc<RetryExecutor>,
+    buffer_manager: Arc<BufferManager>,
 }
 
 impl Udp {
@@ -25,55 +29,99 @@ impl Udp {
     /// The socket will bind to the appropriate unspecified address based on the
     /// target address family.
     pub async fn connect(address: &str) -> Result<Self, Error> {
-        // Resolve the target address to determine address family
-        let target_addr = Self::resolve_address(address)?;
+        // Use the common address resolver
+        let resolver = AddressResolver::new();
+        let target_addr = resolver.resolve_first(address)?;
 
         // Bind to the appropriate unspecified address based on target family
-        let bind_addr = if target_addr.is_ipv4() {
-            "0.0.0.0:0"
-        } else {
-            "[::]:0"
-        };
+        let bind_addr = resolver.bind_address_for(&target_addr);
 
         let socket = UdpSocket::bind(bind_addr).await?;
         socket.connect(target_addr).await?;
 
         Ok(Self {
             socket: Arc::new(socket),
+            retry_executor: Arc::new(RetryExecutor::with_defaults()),
+            buffer_manager: Arc::new(BufferManager::new(BufferConfig::for_udp())),
         })
     }
 
-    /// Resolve an address string to a SocketAddr.
-    ///
-    /// This handles DNS resolution and returns the first resolved address.
-    fn resolve_address(address: &str) -> Result<SocketAddr, Error> {
-        // Use ToSocketAddrs to resolve the address
-        let addrs: Vec<SocketAddr> = address
-            .to_socket_addrs()
-            .map_err(|e| Error::InvalidAddress {
-                reason: format!("Failed to resolve '{}': {}", address, e).into(),
-            })?
-            .collect();
+    /// Create a new UDP transport with custom retry configuration.
+    pub async fn connect_with_retry(address: &str, config: RetryConfig) -> Result<Self, Error> {
+        // Use the common address resolver
+        let resolver = AddressResolver::new();
+        let target_addr = resolver.resolve_first(address)?;
 
-        addrs
-            .into_iter()
-            .next()
-            .ok_or_else(|| Error::InvalidAddress {
-                reason: format!("No addresses resolved for '{}'", address).into(),
-            })
+        // Bind to the appropriate unspecified address based on target family
+        let bind_addr = resolver.bind_address_for(&target_addr);
+
+        let socket = UdpSocket::bind(bind_addr).await?;
+        socket.connect(target_addr).await?;
+
+        Ok(Self {
+            socket: Arc::new(socket),
+            retry_executor: Arc::new(RetryExecutor::new(config)),
+            buffer_manager: Arc::new(BufferManager::new(BufferConfig::for_udp())),
+        })
+    }
+
+    /// Get the current retry configuration.
+    pub fn retry_config(&self) -> &RetryConfig {
+        self.retry_executor.config()
+    }
+
+    /// Connect with a full configuration.
+    ///
+    /// This method provides full control over connection and socket parameters.
+    pub async fn connect_with_config(
+        address: &str,
+        config: TransportConfig,
+    ) -> Result<Self, Error> {
+        // Use the common address resolver
+        let resolver = AddressResolver::new();
+        let target_addr = resolver.resolve_first(address)?;
+
+        // Bind to the appropriate unspecified address based on target family
+        let bind_addr = resolver.bind_address_for(&target_addr);
+
+        let socket = UdpSocket::bind(bind_addr).await?;
+        socket.connect(target_addr).await?;
+
+        // Apply socket options
+        if let Some(ttl) = config.ttl {
+            socket.set_ttl(ttl)?;
+        }
+
+        Ok(Self {
+            socket: Arc::new(socket),
+            retry_executor: Arc::new(RetryExecutor::new(config.retry_config)),
+            buffer_manager: Arc::new(BufferManager::new(BufferConfig::for_udp())),
+        })
     }
 }
 
 impl AsyncTransport for Udp {
     async fn send(&self, data: &[u8]) -> Result<(), Error> {
-        self.socket.send(data).await?;
-        Ok(())
+        // Clone data and socket for retry closure
+        let data_vec = data.to_vec();
+        let socket = self.socket.clone();
+
+        self.retry_executor
+            .execute_async(|| {
+                let socket = socket.clone();
+                let data = data_vec.clone();
+                async move {
+                    socket.send(&data).await?;
+                    Ok(())
+                }
+            })
+            .await
     }
 
     async fn recv(&self) -> Result<Bytes, Error> {
-        let mut buffer = vec![0u8; 1024];
+        // Receiving is typically not retried to avoid protocol confusion
+        let mut buffer = self.buffer_manager.alloc_vec_buffer();
         let n = self.socket.recv(&mut buffer).await?;
-        buffer.truncate(n);
-        Ok(Bytes::from(buffer))
+        Ok(self.buffer_manager.process_recv_data(&mut buffer, n))
     }
 }

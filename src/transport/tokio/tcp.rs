@@ -9,7 +9,7 @@ use tokio::sync::Mutex;
 use std::borrow::Cow;
 use std::time::Duration;
 
-use crate::transport::AsyncTransport;
+use crate::transport::{builder::TransportConfig, AsyncTransport};
 use crate::Error;
 
 /// TCP transport for async VISCA communication using tokio.
@@ -41,6 +41,41 @@ impl Tcp {
 
         // Set TCP nodelay for low latency
         stream.set_nodelay(true)?;
+
+        // Split into read and write halves for concurrent access
+        let (read_half, write_half) = stream.into_split();
+
+        Ok(Self {
+            reader: Mutex::new(BufReader::new(read_half)),
+            writer: Mutex::new(write_half),
+        })
+    }
+
+    /// Connect with a full configuration.
+    ///
+    /// This method provides full control over connection and socket parameters.
+    pub async fn connect_with_config(
+        address: &str,
+        config: TransportConfig,
+    ) -> Result<Self, Error> {
+        // TcpStream::connect already handles DNS resolution and IPv6
+        let stream = tokio::time::timeout(config.connect_timeout, TcpStream::connect(address))
+            .await
+            .map_err(|_| Error::Timeout)??;
+
+        // Apply socket options
+        if let Some(nodelay) = config.tcp_nodelay {
+            stream.set_nodelay(nodelay)?;
+        } else {
+            // Default to nodelay for low latency
+            stream.set_nodelay(true)?;
+        }
+
+        if let Some(ttl) = config.ttl {
+            stream.set_ttl(ttl)?;
+        }
+
+        // Note: keepalive configuration would require platform-specific code
 
         // Split into read and write halves for concurrent access
         let (read_half, write_half) = stream.into_split();

@@ -41,15 +41,22 @@
 //! # }
 //! ```
 
+pub mod address;
 pub mod async_transport;
+#[cfg(feature = "async")]
+pub mod async_wrapper;
 pub mod blocking;
 pub mod blocking_transport;
+pub mod buffer;
+pub mod builder;
 pub mod envelope;
 pub mod frame_parser;
 pub mod ip_raw;
 pub mod ip_sony;
+pub mod retry;
 #[cfg(feature = "serial")]
 pub mod serial;
+pub mod timeout;
 #[cfg(feature = "rt-tokio")]
 pub mod tokio;
 
@@ -57,6 +64,8 @@ use std::time::{Duration, Instant};
 
 #[cfg(feature = "async")]
 pub use async_transport::AsyncTransport;
+#[cfg(feature = "async")]
+pub use async_wrapper::{AsyncWrapper, AsyncWrapperExt};
 pub use blocking::{Tcp as BlockingTcp, Udp as BlockingUdp};
 pub use blocking_transport::BlockingTransport;
 pub use envelope::TransportEnvelope;

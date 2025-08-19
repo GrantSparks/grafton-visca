@@ -8,13 +8,14 @@ use bytes::{Bytes, BytesMut};
 use log::{debug, error, trace, warn};
 
 use std::collections::HashMap;
-use std::net::ToSocketAddrs;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::error::{Error, Result};
 use crate::protocol::encode::{PayloadType, SonyHeader};
+use crate::transport::address::AddressResolver;
+use crate::transport::buffer::{BufferConfig, BufferManager};
 use crate::transport::BlockingTransport;
 
 /// Configuration for Sony encapsulated IP transport.
@@ -67,6 +68,7 @@ pub struct SonyTcpTransport {
     stream: Arc<Mutex<std::net::TcpStream>>,
     sequence: Arc<AtomicU32>,
     pending: Arc<Mutex<HashMap<u32, PendingCommand>>>,
+    buffer_manager: Arc<BufferManager>,
     read_buffer: Arc<Mutex<BytesMut>>,
     config: SonyIpConfig,
 }
@@ -74,12 +76,10 @@ pub struct SonyTcpTransport {
 impl SonyTcpTransport {
     /// Connect to a camera via Sony encapsulated TCP.
     pub fn connect(config: SonyIpConfig) -> Result<Self> {
-        let addr = config
-            .address
-            .to_socket_addrs()
-            .map_err(|e| Error::TransportError(format!("Invalid address: {}", e).into()))?
-            .next()
-            .ok_or_else(|| Error::TransportError("No valid address".into()))?;
+        let resolver = AddressResolver::new();
+        let addr = resolver
+            .resolve_first(&config.address)
+            .map_err(|e| Error::TransportError(format!("Invalid address: {}", e).into()))?;
 
         debug!("Connecting to {} via Sony TCP", addr);
 
@@ -100,11 +100,15 @@ impl SonyTcpTransport {
 
         debug!("Connected to {}", addr);
 
+        // Create buffer manager with Sony IP optimized sizes
+        let buffer_manager = Arc::new(BufferManager::new(BufferConfig::for_sony_ip()));
+
         Ok(Self {
             stream: Arc::new(Mutex::new(stream)),
             sequence: Arc::new(AtomicU32::new(1)),
             pending: Arc::new(Mutex::new(HashMap::new())),
-            read_buffer: Arc::new(Mutex::new(BytesMut::with_capacity(512))),
+            buffer_manager: buffer_manager.clone(),
+            read_buffer: Arc::new(Mutex::new(buffer_manager.alloc_recv_buffer())),
             config,
         })
     }
@@ -162,7 +166,7 @@ impl SonyTcpTransport {
             .stream
             .lock()
             .map_err(|_| Error::LockPoisoned("transport mutex"))?;
-        let mut temp_buf = [0u8; 512];
+        let mut temp_buf = self.buffer_manager.alloc_vec_buffer();
 
         loop {
             // Check if we have a complete header
@@ -396,22 +400,22 @@ pub struct SonyUdpTransport {
     socket: Arc<std::net::UdpSocket>,
     sequence: Arc<AtomicU32>,
     pending: Arc<Mutex<HashMap<u32, PendingCommand>>>,
+    buffer_manager: Arc<BufferManager>,
     config: SonyIpConfig,
 }
 
 impl SonyUdpTransport {
     /// Connect to a camera via Sony encapsulated UDP.
     pub fn connect(config: SonyIpConfig) -> Result<Self> {
-        let addr = config
-            .address
-            .to_socket_addrs()
-            .map_err(|e| Error::TransportError(format!("Invalid address: {}", e).into()))?
-            .next()
-            .ok_or_else(|| Error::TransportError("No valid address".into()))?;
+        let resolver = AddressResolver::new();
+        let addr = resolver
+            .resolve_first(&config.address)
+            .map_err(|e| Error::TransportError(format!("Invalid address: {}", e).into()))?;
 
         debug!("Connecting to {} via Sony UDP", addr);
 
-        let socket = std::net::UdpSocket::bind("0.0.0.0:0")
+        let bind_addr = resolver.bind_address_for(&addr);
+        let socket = std::net::UdpSocket::bind(bind_addr)
             .map_err(|e| Error::TransportError(format!("UDP bind failed: {}", e).into()))?;
 
         socket
@@ -432,10 +436,14 @@ impl SonyUdpTransport {
 
         debug!("Connected to {}", addr);
 
+        // Create buffer manager with Sony IP optimized sizes
+        let buffer_manager = Arc::new(BufferManager::new(BufferConfig::for_sony_ip()));
+
         Ok(Self {
             socket: Arc::new(socket),
             sequence: Arc::new(AtomicU32::new(1)),
             pending: Arc::new(Mutex::new(HashMap::new())),
+            buffer_manager,
             config,
         })
     }
@@ -469,7 +477,7 @@ impl SonyUdpTransport {
 
     /// Receive a Sony encapsulated frame.
     fn recv_sony_frame(&self) -> Result<(SonyHeader, Bytes)> {
-        let mut temp_buf = [0u8; 1500]; // UDP MTU
+        let mut temp_buf = self.buffer_manager.alloc_vec_buffer();
 
         match self.socket.recv(&mut temp_buf) {
             Ok(n) if n >= SonyHeader::SIZE => {

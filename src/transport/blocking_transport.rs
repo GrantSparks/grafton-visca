@@ -70,3 +70,18 @@ pub trait BlockingTransport: Send + Sync {
     /// * `Err(_)` - For other transport errors
     fn recv_blocking_with_timeout(&self, timeout: Duration) -> Result<Bytes, Error>;
 }
+
+// Implement BlockingTransport for Box<dyn BlockingTransport> to enable nested boxing
+impl BlockingTransport for Box<dyn BlockingTransport> {
+    fn send_blocking(&self, bytes: &[u8]) -> Result<(), Error> {
+        (**self).send_blocking(bytes)
+    }
+
+    fn recv_blocking(&self) -> Result<Bytes, Error> {
+        (**self).recv_blocking()
+    }
+
+    fn recv_blocking_with_timeout(&self, timeout: Duration) -> Result<Bytes, Error> {
+        (**self).recv_blocking_with_timeout(timeout)
+    }
+}
