@@ -110,7 +110,7 @@ impl<T: BlockingTransport + 'static> AsyncTransport for AsyncWrapper<T> {
         {
             tokio::task::spawn_blocking(move || transport.send_blocking(&bytes))
                 .await
-                .map_err(|e| Error::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))?
+                .map_err(|e| Error::Io(std::io::Error::other(e)))?
         }
 
         #[cfg(all(feature = "rt-async-std", not(feature = "rt-tokio")))]
@@ -154,7 +154,7 @@ impl<T: BlockingTransport + 'static> AsyncTransport for AsyncWrapper<T> {
         {
             tokio::task::spawn_blocking(move || transport.recv_blocking())
                 .await
-                .map_err(|e| Error::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))?
+                .map_err(|e| Error::Io(std::io::Error::other(e)))?
         }
 
         #[cfg(all(feature = "rt-async-std", not(feature = "rt-tokio")))]
@@ -345,6 +345,7 @@ mod tests {
     #[cfg(all(test, feature = "rt-tokio"))]
     mod tokio_tests {
         use super::*;
+        use crate::command::const_encoding::VISCA_TERMINATOR;
 
         #[tokio::test]
         async fn test_async_send() {
