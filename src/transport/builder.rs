@@ -448,20 +448,19 @@ mod tests {
         let result = builder.build();
         assert!(result.is_err());
 
-        match result {
+        // Check that we get the correct error type
+        let is_correct_error = matches!(
+            result,
             Err(Error::InvalidParameter {
-                parameter, reason, ..
-            }) => {
-                assert_eq!(parameter, "address");
-                assert!(reason.contains("No address specified"));
-            }
-            Ok(_) => {
-                panic!("Expected InvalidParameter error, but got Ok");
-            }
-            Err(e) => {
-                panic!("Expected InvalidParameter error, but got: {e}");
-            }
-        }
+                parameter,
+                reason,
+                ..
+            }) if parameter == "address" && reason.contains("No address specified")
+        );
+        assert!(
+            is_correct_error,
+            "Expected InvalidParameter error with address parameter"
+        );
     }
 
     #[test]
