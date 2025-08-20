@@ -341,7 +341,7 @@ impl TransportBuilder {
     ///
     /// ```rust,no_run
     /// # #[cfg(feature = "async")]
-    /// use grafton_visca::transport::builder::TransportBuilder;
+    /// use grafton_visca::transport::{builder::TransportBuilder, AsyncTransport};
     ///
     /// # #[cfg(feature = "async")]
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
