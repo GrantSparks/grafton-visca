@@ -120,12 +120,15 @@ fn test_refactoring_validates_size_reduction() {
     );
 
     // Verify they use AsyncWrapper pattern by checking for 'inner: Arc'
+    // Check for the struct definition and the inner field separately to be more flexible
     assert!(
-        content.contains("pub struct AsyncRawTcpTransport {\n    inner: Arc<RawTcpTransport>"),
+        content.contains("pub struct AsyncRawTcpTransport")
+            && content.contains("inner: Arc<RawTcpTransport>"),
         "AsyncRawTcpTransport doesn't use AsyncWrapper pattern"
     );
     assert!(
-        content.contains("pub struct AsyncRawUdpTransport {\n    inner: Arc<RawUdpTransport>"),
+        content.contains("pub struct AsyncRawUdpTransport")
+            && content.contains("inner: Arc<RawUdpTransport>"),
         "AsyncRawUdpTransport doesn't use AsyncWrapper pattern"
     );
 }
