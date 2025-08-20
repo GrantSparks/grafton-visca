@@ -18,7 +18,7 @@ use crate::capabilities::ProtocolStyle;
 /// - Raw VISCA: Commands sent as-is (PtzOptics, generic cameras)  
 /// - Sony Encapsulated: 8-byte header + VISCA payload (Sony cameras)
 #[derive(Debug)]
-pub struct TransportEnvelope {
+pub(crate) struct TransportEnvelope {
     style: ProtocolStyle,
     sequence_counter: AtomicU32,
 }
@@ -292,5 +292,224 @@ mod tests {
         invalid_response.extend_from_slice(&0u32.to_be_bytes());
         invalid_response.extend_from_slice(&[0x90, 0x41, VISCA_TERMINATOR]);
         assert!(envelope.extract_response(&invalid_response).is_err());
+    }
+
+    #[test]
+    fn test_sony_response_too_short_for_header() {
+        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated {
+            use_sequence: false,
+        });
+
+        let malformed = vec![0x01, 0x11, 0x00, 0x03, 0x00, 0x00, 0x00];
+        assert!(
+            envelope.extract_response(&malformed).is_err(),
+            "Should reject response shorter than Sony header"
+        );
+
+        let empty = vec![];
+        assert!(
+            envelope.extract_response(&empty).is_err(),
+            "Should reject empty response"
+        );
+
+        let single = vec![0x90];
+        assert!(
+            envelope.extract_response(&single).is_err(),
+            "Should reject single byte response"
+        );
+    }
+
+    #[test]
+    fn test_sony_invalid_payload_types() {
+        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated {
+            use_sequence: false,
+        });
+
+        let invalid_types = [
+            [0x00, 0x00], // Zero payload type
+            [0xFF, 0xFF], // All bits set
+            [0x01, 0x01], // Invalid sub-type
+            [0x01, 0x12], // Out of range sub-type
+            [0x02, 0x00], // Wrong major type
+            [0x01, 0xFF], // Invalid sub-type with correct major
+            [0x80, 0x80], // High bit set
+        ];
+
+        for invalid_type in &invalid_types {
+            let mut response = Vec::new();
+            response.extend_from_slice(invalid_type);
+            response.extend_from_slice(&(3u16).to_be_bytes()); // Length
+            response.extend_from_slice(&0u32.to_be_bytes()); // Sequence
+            response.extend_from_slice(&[0x90, 0x41, VISCA_TERMINATOR]); // Valid VISCA
+
+            let result = envelope.extract_response(&response);
+            assert!(
+                result.is_err(),
+                "Should reject invalid Sony payload type: {:02X?}",
+                invalid_type
+            );
+        }
+    }
+
+    #[test]
+    fn test_sony_length_field_mismatches() {
+        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated {
+            use_sequence: false,
+        });
+
+        let mut response = Vec::new();
+        response.extend_from_slice(&[0x01, 0x11]); // Reply type
+        response.extend_from_slice(&(10u16).to_be_bytes()); // Wrong length
+        response.extend_from_slice(&0u32.to_be_bytes()); // Sequence
+        response.extend_from_slice(&[0x90, 0x41, VISCA_TERMINATOR]); // 3 bytes payload
+
+        assert!(
+            envelope.extract_response(&response).is_err(),
+            "Should reject length field mismatch (claims 10, has 3)"
+        );
+
+        let mut response = Vec::new();
+        response.extend_from_slice(&[0x01, 0x11]); // Reply type
+        response.extend_from_slice(&(0u16).to_be_bytes()); // Zero length
+        response.extend_from_slice(&0u32.to_be_bytes()); // Sequence
+        response.extend_from_slice(&[0x90, 0x41, VISCA_TERMINATOR]); // But has payload
+
+        assert!(
+            envelope.extract_response(&response).is_err(),
+            "Should reject zero length with payload"
+        );
+    }
+
+    #[test]
+    fn test_sony_max_length_boundaries() {
+        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated {
+            use_sequence: false,
+        });
+
+        let mut response = Vec::new();
+        response.extend_from_slice(&[0x01, 0x11]); // Reply type
+        response.extend_from_slice(&(u16::MAX).to_be_bytes()); // Max length
+        response.extend_from_slice(&0u32.to_be_bytes()); // Sequence
+        response.extend_from_slice(&[0x90, 0x41, VISCA_TERMINATOR]); // Small payload
+
+        assert!(
+            envelope.extract_response(&response).is_err(),
+            "Should reject u16::MAX length mismatch"
+        );
+    }
+
+    #[test]
+    fn test_sony_sequence_number_wraparound() {
+        let envelope =
+            TransportEnvelope::new(ProtocolStyle::SonyEncapsulated { use_sequence: true });
+
+        let dummy_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
+
+        for _ in 0..100 {
+            let framed = envelope.frame_command(&dummy_cmd, false);
+            assert!(framed.len() > 8, "Should produce framed output");
+        }
+
+        let frame1 = envelope.frame_command(&dummy_cmd, false);
+        let frame2 = envelope.frame_command(&dummy_cmd, false);
+
+        let seq1 = u32::from_be_bytes([frame1[4], frame1[5], frame1[6], frame1[7]]);
+        let seq2 = u32::from_be_bytes([frame2[4], frame2[5], frame2[6], frame2[7]]);
+
+        assert_eq!(seq2, seq1 + 1, "Sequence should increment by 1");
+    }
+
+    #[test]
+    fn test_sony_malformed_header_bytes() {
+        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated {
+            use_sequence: false,
+        });
+
+        let mut response = Vec::new();
+        response.push(0x11); // Wrong byte order for type
+        response.push(0x01);
+        response.extend_from_slice(&(3u16).to_le_bytes()); // Wrong endianness
+        response.extend_from_slice(&0u32.to_le_bytes()); // Wrong endianness
+        response.extend_from_slice(&[0x90, 0x41, VISCA_TERMINATOR]);
+
+        let result = envelope.extract_response(&response);
+        assert!(
+            result.is_err(),
+            "Should reject malformed header with wrong byte order"
+        );
+    }
+
+    #[test]
+    fn test_raw_visca_zero_length_handling() {
+        let envelope = TransportEnvelope::new(ProtocolStyle::RawVisca);
+
+        let empty: &[u8] = &[];
+        let framed = envelope.frame_command(empty, false);
+        assert_eq!(framed.len(), 0, "Should handle empty command");
+
+        let extracted = envelope.extract_response(empty);
+        assert!(extracted.is_ok(), "Should handle empty response");
+        assert_eq!(extracted.expect("Already checked is_ok").len(), 0);
+    }
+
+    #[test]
+    fn test_raw_visca_maximum_size() {
+        let envelope = TransportEnvelope::new(ProtocolStyle::RawVisca);
+
+        let large_cmd = vec![0x81; 1000];
+        let framed = envelope.frame_command(&large_cmd, false);
+        assert_eq!(framed.len(), 1000, "Should pass through large commands");
+
+        let extracted = envelope.extract_response(&large_cmd);
+        assert!(extracted.is_ok(), "Should extract large responses");
+        assert_eq!(extracted.expect("Already checked is_ok").len(), 1000);
+    }
+
+    #[test]
+    fn test_bytes_immutability_and_efficiency() {
+        let envelope = TransportEnvelope::new(ProtocolStyle::RawVisca);
+
+        let original = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
+        let framed = envelope.frame_command(&original, false);
+
+        let cloned = framed.clone();
+        assert_eq!(framed, cloned);
+
+        assert_eq!(
+            original,
+            vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]
+        );
+    }
+
+    #[test]
+    fn test_alternating_protocol_styles() {
+        let raw_envelope = TransportEnvelope::new(ProtocolStyle::RawVisca);
+        let sony_envelope =
+            TransportEnvelope::new(ProtocolStyle::SonyEncapsulated { use_sequence: true });
+
+        let cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
+
+        for _ in 0..100 {
+            let raw_framed = raw_envelope.frame_command(&cmd, false);
+            assert_eq!(raw_framed.len(), 6);
+
+            let sony_framed = sony_envelope.frame_command(&cmd, false);
+            assert_eq!(sony_framed.len(), 14);
+        }
+    }
+
+    #[test]
+    fn test_bytes_zero_copy_behavior() {
+        let envelope = TransportEnvelope::new(ProtocolStyle::RawVisca);
+
+        let large_cmd = vec![0x81; 1000];
+
+        let framed1 = envelope.frame_command(&large_cmd, false);
+        let framed2 = framed1.clone(); // Should be cheap (reference counted)
+
+        assert_eq!(framed1, framed2);
+
+        drop(framed1);
+        assert_eq!(framed2.len(), 1000);
     }
 }

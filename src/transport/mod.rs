@@ -68,7 +68,6 @@ pub use async_transport::AsyncTransport;
 pub use async_wrapper::{AsyncWrapper, AsyncWrapperExt};
 pub use blocking::{Tcp as BlockingTcp, Udp as BlockingUdp};
 pub use blocking_transport::BlockingTransport;
-pub use envelope::TransportEnvelope;
 
 /// Retry configuration for transport layer operations.
 ///

@@ -17,7 +17,7 @@ use crate::{
     command::{const_encoding::VISCA_TERMINATOR, response::ViscaResponse, EncodeVisca},
     error::Error,
     timeout::TimeoutConfig,
-    transport::{BlockingTransport, TransportEnvelope},
+    transport::{envelope::TransportEnvelope, BlockingTransport},
 };
 
 /// Generic camera client with compile-time mode and profile selection.
