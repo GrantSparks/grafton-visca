@@ -1,7 +1,7 @@
 //! Comprehensive async camera control example using tokio.
 //!
 //! This example demonstrates the full range of camera control operations available
-//! in the async API, including:
+//! in the **ASYNC API** (requires tokio runtime), including:
 //! - Connection and power management
 //! - Pan/Tilt/Zoom (PTZ) operations
 //! - Focus control
@@ -11,9 +11,12 @@
 //! - Presets management
 //! - Concurrent operations (async advantage!)
 //!
+//! **Context**: This example uses native async transports with the tokio runtime.
+//! It demonstrates true async/await operations with zero-cost abstractions.
+//!
 //! Run with:
 //! ```sh
-//! cargo run --example quickstart_async --features tokio [camera_ip[:port]]
+//! cargo run --example quickstart_async --features rt-tokio [camera_ip[:port]]
 //! ```
 
 #[cfg(feature = "rt-tokio")]
@@ -31,7 +34,7 @@ use grafton_visca::{
     },
     camera::profiles::PtzOpticsG2,
     command::preset::PresetNumber,
-    transport::tokio::tcp::Tcp,
+    transport::builder::TransportBuilder,
     types::{PanSpeed, SpeedLevel, TiltSpeed},
     units::{Degrees, Normalized},
     CameraBuilder, Error, PanTiltDirection,
@@ -51,7 +54,13 @@ async fn main() -> Result<(), Error> {
     println!("Connecting to camera at {camera_addr}");
     println!();
 
-    let transport = Tcp::connect(&camera_addr).await?;
+    // Using TransportBuilder for native async transport (requires tokio runtime)
+    let transport = TransportBuilder::tokio_tcp()
+        .address(camera_addr)
+        .connect_timeout(Duration::from_secs(5))
+        .build_async() // .build_async() returns impl AsyncTransport for native async
+        .await?;
+
     let camera = CameraBuilder::tokio()?
         .build_async::<PtzOpticsG2, _>(transport)
         .await?;

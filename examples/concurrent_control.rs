@@ -7,12 +7,15 @@
 //! - Resource sharing with Arc/Mutex
 //! - Async task spawning
 //!
-//! Run with: cargo run --example concurrent_control --features tokio
+//! **Context**: This example uses native async transports with the tokio runtime
+//! to demonstrate true concurrent operations across multiple cameras.
+//!
+//! Run with: cargo run --example concurrent_control --features rt-tokio
 
 #[cfg(not(feature = "rt-tokio"))]
 fn main() {
-    println!("This example requires the 'tokio' feature.");
-    println!("Run with: cargo run --example concurrent_control --features tokio");
+    println!("This example requires the 'rt-tokio' feature.");
+    println!("Run with: cargo run --example concurrent_control --features rt-tokio");
 }
 
 #[cfg(feature = "rt-tokio")]
@@ -27,7 +30,7 @@ use grafton_visca::{
         profiles::PtzOpticsG2,
     },
     prelude::r#async::*,
-    transport::tokio::tcp::Tcp,
+    transport::builder::TransportBuilder,
     types::SpeedLevel,
     CameraBuilder, PanTiltDirection, PresetNumber, Result,
 };
@@ -63,23 +66,32 @@ async fn main() -> Result<()> {
 async fn multi_camera_control() -> Result<()> {
     println!("--- Example 1: Multiple Cameras Simultaneously ---");
 
-    // Create multiple cameras using best practices
-    // First, establish connections with proper error handling
-    let transport1 = Tcp::connect_timeout("192.168.0.109:5678", Duration::from_secs(5))
+    // Create multiple cameras using TransportBuilder for native async
+    // Using .build_async() for true async transports (requires tokio runtime)
+    let transport1 = TransportBuilder::tokio_tcp()
+        .address("192.168.0.109:5678")
+        .connect_timeout(Duration::from_secs(5))
+        .build_async()
         .await
         .map_err(|e| {
             eprintln!("Failed to connect to camera 1: {e}");
             e
         })?;
 
-    let transport2 = Tcp::connect_timeout("192.168.0.110:5678", Duration::from_secs(5))
+    let transport2 = TransportBuilder::tokio_tcp()
+        .address("192.168.0.110:5678")
+        .connect_timeout(Duration::from_secs(5))
+        .build_async()
         .await
         .map_err(|e| {
             eprintln!("Failed to connect to camera 2: {e}");
             e
         })?;
 
-    let transport3 = Tcp::connect_timeout("192.168.0.111:5678", Duration::from_secs(5))
+    let transport3 = TransportBuilder::tokio_tcp()
+        .address("192.168.0.111:5678")
+        .connect_timeout(Duration::from_secs(5))
+        .build_async()
         .await
         .map_err(|e| {
             eprintln!("Failed to connect to camera 3: {e}");
@@ -176,7 +188,10 @@ async fn parallel_single_camera() -> Result<()> {
     println!("--- Example 2: Parallel Operations on Single Camera ---");
 
     // Create camera with proper error handling
-    let transport = Tcp::connect_timeout("192.168.0.110:5678", Duration::from_secs(5))
+    let transport = TransportBuilder::tokio_tcp()
+        .address("192.168.0.110:5678")
+        .connect_timeout(Duration::from_secs(5))
+        .build_async()
         .await
         .map_err(|e| {
             eprintln!("Failed to connect to camera: {e}");
@@ -250,7 +265,10 @@ async fn producer_consumer_pattern() -> Result<()> {
 
     use tokio::sync::mpsc;
 
-    let transport = Tcp::connect("192.168.0.110").await?;
+    let transport = TransportBuilder::tokio_tcp()
+        .address("192.168.0.110:5678")
+        .build_async()
+        .await?;
     let camera = Arc::new(
         CameraBuilder::tokio()?
             .build_async::<PtzOpticsG2, _>(transport)
@@ -336,7 +354,10 @@ async fn synchronized_movement() -> Result<()> {
     let mut initial_states = vec![];
 
     for addr in camera_addrs {
-        let transport = Tcp::connect(addr).await?;
+        let transport = TransportBuilder::tokio_tcp()
+            .address(format!("{}:5678", addr))
+            .build_async()
+            .await?;
         let camera = Arc::new(
             CameraBuilder::tokio()?
                 .build_async::<PtzOpticsG2, _>(transport)

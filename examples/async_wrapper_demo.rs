@@ -1,10 +1,14 @@
 //! Example demonstrating the async wrapper for blocking transports.
 //!
 //! This example shows how to:
-//! - Use blocking transports in async contexts
-//! - Convert blocking transports to async using the wrapper
-//! - Mix blocking and async transports in the same application
-//! - Use the builder pattern to create wrapped transports
+//! - Use native async transports with TransportBuilder
+//! - Convert blocking transports to async using the AsyncWrapper
+//! - Compare native async vs wrapped blocking performance
+//! - Share transports across async tasks
+//!
+//! **Context**: This example requires tokio runtime and demonstrates BOTH:
+//! - Native async transports via .build_async() (preferred for async code)
+//! - Wrapped blocking transports via .build_async_wrapper() (for migration/compatibility)
 //!
 //! Run with: `cargo run --example async_wrapper_demo --features rt-tokio`
 
@@ -17,9 +21,7 @@ fn main() {
 #[cfg(feature = "rt-tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use grafton_visca::transport::{
-        builder::TransportBuilder, AsyncTransport, AsyncWrapper, AsyncWrapperExt,
-    };
+    use grafton_visca::transport::{builder::TransportBuilder, AsyncTransport, AsyncWrapperExt};
 
     use std::{env, time::Duration};
 
@@ -32,19 +34,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Connecting to camera at: {address}");
     println!();
 
-    // Method 1: Manual wrapper creation
-    println!("Method 1: Manual wrapper creation");
-    println!("---------------------------------");
+    // Method 1: Native async transport with TransportBuilder
+    println!("Method 1: Native async transport with TransportBuilder");
+    println!("-------------------------------------------------------");
     {
-        use grafton_visca::transport::blocking::Tcp;
-        match Tcp::connect(&address) {
-            Ok(blocking_transport) => {
-                println!("✓ Created blocking TCP transport");
+        match TransportBuilder::tokio_tcp()
+            .address(&address)
+            .connect_timeout(Duration::from_secs(5))
+            .build_async()
+            .await
+        {
+            Ok(async_transport) => {
+                println!("✓ Created native async TCP transport via builder");
+                println!("  (No wrapping needed - this is a true async transport)");
 
-                let async_transport = AsyncWrapper::new(blocking_transport);
-                println!("✓ Wrapped for async usage");
-
-                demonstrate_async_transport(async_transport, "Manual wrapper").await?;
+                demonstrate_native_async_transport(async_transport, "Native async").await?;
             }
             Err(e) => {
                 println!("✗ Failed to connect: {e}");
@@ -55,19 +59,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!();
 
-    // Method 2: Using the extension trait
-    println!("Method 2: Using the extension trait");
-    println!("------------------------------------");
+    // Method 2: Native async UDP transport
+    println!("Method 2: Native async UDP transport");
+    println!("-------------------------------------");
     {
-        use grafton_visca::transport::blocking::Udp;
-        match Udp::connect(&address) {
-            Ok(blocking_transport) => {
-                println!("✓ Created blocking UDP transport");
+        match TransportBuilder::tokio_udp()
+            .address(&address)
+            .build_async()
+            .await
+        {
+            Ok(async_transport) => {
+                println!("✓ Created native async UDP transport via builder");
+                println!("  (This is a true async UDP transport)");
 
-                let async_transport = blocking_transport.into_async();
-                println!("✓ Converted to async using extension trait");
-
-                demonstrate_async_transport(async_transport, "Extension trait").await?;
+                demonstrate_native_async_transport(async_transport, "Native UDP").await?;
             }
             Err(e) => {
                 println!("✗ Failed to connect: {e}");
@@ -112,14 +117,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Method 4: Sharing across async tasks");
     println!("-------------------------------------");
     {
-        use grafton_visca::transport::blocking::Tcp;
         use std::sync::Arc;
 
-        match Tcp::connect(&address) {
+        match TransportBuilder::tcp()
+            .address(&address)
+            .max_retries(5)
+            .build()
+        {
             Ok(blocking_transport) => {
                 let shared_transport = Arc::new(blocking_transport);
                 let async_transport = shared_transport.as_async();
-                println!("✓ Created shared async-wrapped transport");
+                println!("✓ Created shared async-wrapped transport via builder");
 
                 let transport1 = async_transport.clone();
                 let transport2 = async_transport.clone();
@@ -166,14 +174,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(feature = "rt-tokio")]
-async fn demonstrate_async_transport<T: grafton_visca::transport::BlockingTransport + 'static>(
-    transport: grafton_visca::transport::AsyncWrapper<T>,
+async fn demonstrate_native_async_transport(
+    transport: impl grafton_visca::transport::AsyncTransport,
     method_name: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use grafton_visca::transport::AsyncTransport;
     use std::time::Instant;
 
-    println!("  Testing async operations with {method_name}...");
+    println!("  Testing native async operations with {method_name}...");
 
     let start = Instant::now();
     match transport.send(b"\x81\x09\x04\x00\xFF").await {

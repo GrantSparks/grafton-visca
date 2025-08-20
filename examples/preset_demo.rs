@@ -5,6 +5,8 @@
 //! - Recalling presets to verify they work correctly
 //! - Showing position changes during recall
 //!
+//! **Context**: This is a blocking example that requires NO async features or runtime.
+//!
 //! Run with:
 //! ```sh
 //! cargo run --example preset_demo [camera_ip[:port]]
@@ -22,7 +24,7 @@ use grafton_visca::{
         zoom::ZoomControlBlocking,
     },
     prelude::blocking::*,
-    transport::blocking::Tcp,
+    transport::builder::TransportBuilder,
     CameraBuilder, Error,
 };
 
@@ -38,11 +40,15 @@ fn main() -> Result<(), Error> {
     println!("========================");
     println!("Connecting to camera at {camera_addr}\n");
 
-    // Create transport with proper error handling
-    let transport = Tcp::connect(&format!("{camera_addr}:5678")).map_err(|e| {
-        eprintln!("Failed to connect to camera at {camera_addr}: {e}");
-        e
-    })?;
+    // Create blocking transport using TransportBuilder (no async runtime needed)
+    let transport = TransportBuilder::tcp()
+        .address(format!("{camera_addr}:5678"))
+        .connect_timeout(Duration::from_secs(5))
+        .build() // .build() for pure blocking transport
+        .map_err(|e| {
+            eprintln!("Failed to connect to camera at {camera_addr}: {e}");
+            e
+        })?;
 
     // Build camera using the builder pattern for clarity and extensibility
     let camera = CameraBuilder::new().build_blocking::<PtzOpticsG2, _>(transport);

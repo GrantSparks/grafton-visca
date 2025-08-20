@@ -1,7 +1,7 @@
 //! Comprehensive camera control example using the blocking API.
 //!
 //! This example demonstrates the full range of camera control operations available
-//! in the blocking API, including:
+//! in the **BLOCKING API** (no async runtime required), including:
 //! - Connection and power management
 //! - Pan/Tilt/Zoom (PTZ) operations
 //! - Focus control
@@ -10,6 +10,9 @@
 //! - Image adjustments
 //! - Presets management
 //! - Speed control
+//!
+//! **Context**: This is a pure blocking example that requires NO async features or runtime.
+//! It demonstrates the library's ability to work with zero async dependencies.
 //!
 //! Run with:
 //! ```sh
@@ -31,7 +34,7 @@ use grafton_visca::{
         Camera,
     },
     command::preset::PresetNumber,
-    transport::blocking::tcp::Tcp,
+    transport::builder::TransportBuilder,
     types::{PanSpeed, SpeedLevel, TiltSpeed},
     units::{Degrees, Normalized},
     Error, PanTiltDirection,
@@ -50,7 +53,12 @@ fn main() -> Result<(), Error> {
     println!("Connecting to camera at {camera_addr}");
     println!();
 
-    let transport = Tcp::connect(&camera_addr)?;
+    // Using TransportBuilder for blocking transport (NO async runtime needed)
+    let transport = TransportBuilder::tcp()
+        .address(camera_addr)
+        .connect_timeout(Duration::from_secs(5))
+        .build()?; // .build() returns Box<dyn BlockingTransport> for pure blocking usage
+
     let camera = Camera::<_, PtzOpticsG2, _, _>::new(transport);
 
     println!("✅ Connected successfully!");
