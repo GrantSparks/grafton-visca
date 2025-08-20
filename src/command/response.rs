@@ -3,8 +3,6 @@
 //! This module provides response parsing functionality for VISCA protocol responses,
 //! including ACK/completion messages, error responses, and inquiry data parsing.
 
-#![allow(dead_code)]
-
 // Standard library imports
 use std::borrow::Cow;
 

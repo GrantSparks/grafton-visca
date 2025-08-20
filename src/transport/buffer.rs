@@ -4,27 +4,29 @@
 //! ensuring consistent buffer sizes and allocation strategies.
 
 use bytes::{Bytes, BytesMut};
+#[cfg(feature = "rt-tokio")]
 use std::sync::Arc;
 
 /// Default buffer size for most VISCA operations.
 /// VISCA commands are typically small (< 20 bytes) and responses rarely exceed 64 bytes.
-pub const DEFAULT_BUFFER_SIZE: usize = 128;
+pub(crate) const DEFAULT_BUFFER_SIZE: usize = 128;
 
 /// Buffer size for UDP transports.
 /// UDP packets can be larger but VISCA over UDP still uses small messages.
-pub const UDP_BUFFER_SIZE: usize = 1024;
+pub(crate) const UDP_BUFFER_SIZE: usize = 1024;
 
 /// Buffer size for Sony IP protocol.
 /// Sony protocol adds headers requiring slightly larger buffers.
-pub const SONY_BUFFER_SIZE: usize = 512;
+pub(crate) const SONY_BUFFER_SIZE: usize = 512;
 
 /// Buffer size for raw IP protocol.
 /// Raw IP protocol may batch multiple commands.
-pub const RAW_IP_BUFFER_SIZE: usize = 256;
+pub(crate) const RAW_IP_BUFFER_SIZE: usize = 256;
 
 /// Buffer size for serial transports.
 /// Serial typically uses smaller buffers for efficiency.
-pub const SERIAL_BUFFER_SIZE: usize = 64;
+#[cfg(feature = "serial")]
+pub(crate) const SERIAL_BUFFER_SIZE: usize = 64;
 
 /// Configuration for buffer management.
 #[derive(Debug, Clone, Copy)]
@@ -36,6 +38,7 @@ pub struct BufferConfig {
     pub send_buffer_size: usize,
 
     /// Whether to use pooled buffers (future enhancement).
+    #[allow(dead_code)] // Reserved for future use
     pub use_pooling: bool,
 
     /// Maximum buffer size to prevent unbounded growth.
@@ -82,6 +85,7 @@ impl BufferConfig {
     }
 
     /// Create a configuration for serial transports.
+    #[cfg(feature = "serial")]
     pub fn for_serial() -> Self {
         Self {
             recv_buffer_size: SERIAL_BUFFER_SIZE,
@@ -93,7 +97,8 @@ impl BufferConfig {
 
 /// Manager for buffer allocation and lifecycle.
 #[derive(Debug, Clone, Copy)]
-pub struct BufferManager {
+
+pub(crate) struct BufferManager {
     config: BufferConfig,
 }
 
@@ -114,6 +119,7 @@ impl BufferManager {
     }
 
     /// Allocate a new send buffer.
+    #[cfg(any(feature = "async", test))]
     pub fn alloc_send_buffer(&self) -> BytesMut {
         BytesMut::with_capacity(self.config.send_buffer_size)
     }
@@ -123,11 +129,6 @@ impl BufferManager {
         vec![0u8; self.config.recv_buffer_size]
     }
 
-    /// Create a shared buffer for concurrent access.
-    pub fn alloc_shared_buffer(&self) -> Arc<std::sync::Mutex<BytesMut>> {
-        Arc::new(std::sync::Mutex::new(self.alloc_recv_buffer()))
-    }
-
     /// Create a shared buffer for async concurrent access.
     #[cfg(feature = "rt-tokio")]
     pub fn alloc_async_shared_buffer(&self) -> Arc<tokio::sync::Mutex<BytesMut>> {
@@ -135,6 +136,7 @@ impl BufferManager {
     }
 
     /// Resize a buffer if needed, respecting max size limits.
+    #[cfg(any(feature = "async", test))]
     pub fn resize_buffer(&self, buffer: &mut BytesMut, required_size: usize) {
         let new_size = required_size.min(self.config.max_buffer_size);
         if buffer.capacity() < new_size {
@@ -144,6 +146,7 @@ impl BufferManager {
     }
 
     /// Clear and reset a buffer for reuse.
+    #[cfg(any(feature = "async", test))]
     pub fn reset_buffer(&self, buffer: &mut BytesMut) {
         buffer.clear();
         // Shrink if buffer has grown too large
@@ -157,26 +160,6 @@ impl BufferManager {
     pub fn process_recv_data(&self, buffer: &mut Vec<u8>, received: usize) -> Bytes {
         buffer.truncate(received);
         Bytes::from(buffer.clone())
-    }
-}
-
-/// Helper trait for buffer operations.
-pub trait BufferOps {
-    /// Get the optimal buffer size for this transport type.
-    fn optimal_buffer_size(&self) -> usize;
-
-    /// Create a properly sized buffer for receive operations.
-    fn create_recv_buffer(&self) -> Vec<u8>;
-}
-
-/// Default implementation for transports without special requirements.
-impl BufferOps for () {
-    fn optimal_buffer_size(&self) -> usize {
-        DEFAULT_BUFFER_SIZE
-    }
-
-    fn create_recv_buffer(&self) -> Vec<u8> {
-        vec![0u8; self.optimal_buffer_size()]
     }
 }
 

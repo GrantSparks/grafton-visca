@@ -4,8 +4,6 @@
 //! allowing camera profiles to be composed from only the features they support.
 //! This enables compile-time safety where methods for unsupported features don't exist.
 
-#![allow(dead_code)]
-
 pub mod exposure;
 pub mod focus;
 pub mod image_processing;

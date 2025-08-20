@@ -4,17 +4,17 @@
 //! different transport encapsulation formats (raw, Sony header).
 
 // External crates
+#[cfg(any(feature = "async", test))]
 use bytes::{BufMut, BytesMut};
 
-// Standard library
-use std::sync::atomic::{AtomicU32, Ordering};
+// Standard library imports are in the specific functions that need them
 
 /// VISCA frame terminator byte.
-pub const VISCA_TERMINATOR: u8 = 0xFF;
+pub(crate) const VISCA_TERMINATOR: u8 = 0xFF;
 
 /// Sony encapsulated header payload types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PayloadType {
+pub(crate) enum PayloadType {
     /// VISCA command payload (0x01 0x00).
     ViscaCommand,
     /// VISCA inquiry payload (0x01 0x10).
@@ -31,7 +31,8 @@ pub enum PayloadType {
 
 /// Sony encapsulated header for VISCA over IP.
 #[derive(Debug, Clone, Copy)]
-pub struct SonyHeader {
+
+pub(crate) struct SonyHeader {
     /// Payload type.
     pub payload_type: PayloadType,
     /// Payload length (excluding header).
@@ -57,15 +58,6 @@ impl SonyHeader {
     pub fn new_inquiry(payload_len: usize, sequence: u32) -> Self {
         Self {
             payload_type: PayloadType::ViscaInquiry,
-            payload_length: payload_len as u16,
-            sequence_number: sequence,
-        }
-    }
-
-    /// Create a new reply header with the given sequence.
-    pub fn new_reply(payload_len: usize, sequence: u32) -> Self {
-        Self {
-            payload_type: PayloadType::ViscaReply,
             payload_length: payload_len as u16,
             sequence_number: sequence,
         }
@@ -134,67 +126,17 @@ impl SonyHeader {
     }
 }
 
-/// Sequence number generator for Sony encapsulated mode.
-#[derive(Debug)]
-pub struct SequenceGenerator {
-    next: AtomicU32,
-}
-
-impl SequenceGenerator {
-    /// Create a new sequence generator starting at 1.
-    pub fn new() -> Self {
-        Self {
-            next: AtomicU32::new(1),
-        }
-    }
-
-    /// Get the next sequence number.
-    pub fn next(&self) -> u32 {
-        self.next.fetch_add(1, Ordering::SeqCst)
-    }
-}
-
-impl Default for SequenceGenerator {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Encode a VISCA command frame.
-///
-/// Ensures the frame is properly terminated with 0xFF.
-pub fn encode_frame(command: &[u8]) -> Vec<u8> {
-    let mut frame = Vec::with_capacity(command.len() + 1);
-    frame.extend_from_slice(command);
-
-    // Add terminator if not present
-    if !command.ends_with(&[VISCA_TERMINATOR]) {
-        frame.push(VISCA_TERMINATOR);
-    }
-
-    frame
-}
-
-/// Encode a VISCA command with Sony header.
-pub fn encode_sony_frame(command: &[u8], sequence: u32) -> Vec<u8> {
-    let visca_frame = encode_frame(command);
-    let header = SonyHeader::new_command(visca_frame.len(), sequence);
-
-    let mut frame = Vec::with_capacity(SonyHeader::SIZE + visca_frame.len());
-    frame.extend_from_slice(&header.encode());
-    frame.extend_from_slice(&visca_frame);
-
-    frame
-}
-
 /// Builder for VISCA commands.
+#[cfg(any(feature = "async", test))]
 #[derive(Debug)]
-pub struct FrameBuilder {
+pub(crate) struct FrameBuilder {
     buffer: BytesMut,
 }
 
+#[cfg(any(feature = "async", test))]
 impl FrameBuilder {
     /// Create a new command builder.
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             buffer: BytesMut::with_capacity(16),
@@ -214,6 +156,7 @@ impl FrameBuilder {
     }
 
     /// Add multiple bytes.
+    #[cfg(feature = "serial")]
     pub fn bytes(mut self, bytes: &[u8]) -> Self {
         self.buffer.extend_from_slice(bytes);
         self
@@ -244,6 +187,7 @@ impl FrameBuilder {
     }
 }
 
+#[cfg(any(feature = "async", test))]
 impl Default for FrameBuilder {
     fn default() -> Self {
         Self::new()
@@ -251,17 +195,20 @@ impl Default for FrameBuilder {
 }
 
 /// Cancel command bytes for each socket.
-pub fn encode_cancel(socket: u8) -> Vec<u8> {
+#[cfg(any(feature = "async", test))]
+pub(crate) fn encode_cancel(socket: u8) -> Vec<u8> {
     vec![0x81, socket | 0x20, VISCA_TERMINATOR]
 }
 
 /// Interface clear command (serial only).
-pub fn encode_if_clear() -> Vec<u8> {
+#[cfg(any(feature = "serial", test))]
+pub(crate) fn encode_if_clear() -> Vec<u8> {
     vec![0x88, 0x01, 0x00, 0x01, VISCA_TERMINATOR]
 }
 
 /// Address set command (serial only).
-pub fn encode_address_set() -> Vec<u8> {
+#[cfg(any(feature = "serial", test))]
+pub(crate) fn encode_address_set() -> Vec<u8> {
     vec![0x88, 0x30, 0x01, VISCA_TERMINATOR]
 }
 
@@ -287,27 +234,6 @@ mod tests {
         assert_eq!(decoded.payload_type, PayloadType::ViscaCommand);
         assert_eq!(decoded.payload_length, 10);
         assert_eq!(decoded.sequence_number, 12345);
-    }
-
-    #[test]
-    fn test_sequence_generator() {
-        let gen = SequenceGenerator::new();
-        assert_eq!(gen.next(), 1);
-        assert_eq!(gen.next(), 2);
-        assert_eq!(gen.next(), 3);
-    }
-
-    #[test]
-    fn test_encode_frame() {
-        // Without terminator
-        let cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02];
-        let frame = encode_frame(&cmd);
-        assert_eq!(frame, vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
-
-        // With terminator already
-        let cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
-        let frame = encode_frame(&cmd);
-        assert_eq!(frame, vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
     }
 
     #[test]

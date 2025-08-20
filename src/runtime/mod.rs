@@ -7,10 +7,11 @@ pub mod scheduler;
 #[cfg(feature = "async")]
 mod time_utils;
 
-pub use scheduler::{
-    LinkEvent, MetricsSummary, Priority, RxEvent, Scheduler, SchedulerMetrics, SocketId, TxItem,
-    ViscaError,
-};
+pub use scheduler::{MetricsSummary, Priority};
+
+// Internal imports
+#[cfg(feature = "async")]
+use scheduler::{LinkEvent, RxEvent, Scheduler, SchedulerMetrics, SocketId, TxItem, ViscaError};
 
 #[cfg(feature = "async")]
 use flume::{Receiver, Sender};
@@ -118,6 +119,8 @@ pub struct RuntimeHandle {
     /// Channel for submitting commands and inquiries.
     submit: Sender<TxItem>,
     /// Channel for receiving events from the runtime.
+    /// TODO: This is for monitoring/debugging runtime events. Currently unused but useful to keep.
+    #[allow(dead_code)] // Intentionally kept for future monitoring features
     events: Receiver<RxEvent>,
     // Runtime handle not needed with flume-based design
     // Tasks are managed internally by the runtime loop
@@ -262,7 +265,7 @@ impl RuntimeHandle {
     }
 
     /// Send a command item to the runtime.
-    pub async fn command(&self, item: TxItem) -> Result<()> {
+    pub(crate) async fn command(&self, item: TxItem) -> Result<()> {
         if self.shutdown.load(Ordering::Relaxed) {
             return Err(Error::RuntimeShutdown);
         }
@@ -273,7 +276,7 @@ impl RuntimeHandle {
     }
 
     /// Send an inquiry item to the runtime.
-    pub async fn inquire(&self, item: TxItem) -> Result<()> {
+    pub(crate) async fn inquire(&self, item: TxItem) -> Result<()> {
         self.submit
             .send_async(item)
             .await
@@ -281,11 +284,22 @@ impl RuntimeHandle {
     }
 
     /// Cancel a command on the specified socket.
+    ///
+    /// TODO: This currently cancels all commands on socket 1. Future implementation
+    /// should track command IDs to socket mappings for targeted cancellation.
     pub async fn cancel(&self, _command_id: u32) -> Result<()> {
-        // For now, we don't have a direct way to cancel by command ID
-        // This would need to be implemented in the scheduler
-        warn!("Cancel by command_id not yet implemented");
-        Ok(())
+        // TODO: Implement proper command_id to socket mapping
+        // For now, cancel on socket 1 as a placeholder
+        warn!("Cancel by command_id not fully implemented - cancelling socket 1");
+
+        let cancel_item = TxItem::Cancel {
+            socket: SocketId::Socket1,
+        };
+
+        self.submit
+            .send_async(cancel_item)
+            .await
+            .map_err(|_| Error::ChannelClosed)
     }
 
     /// Shutdown the runtime.
@@ -301,7 +315,9 @@ impl RuntimeHandle {
     /// Get the next event from the runtime.
     ///
     /// This can be used for monitoring or custom event handling.
-    pub async fn next_event(&self) -> Option<RxEvent> {
+    /// TODO: Implement runtime event monitoring features that use this.
+    #[allow(dead_code)] // Intentionally kept for future monitoring features
+    pub(crate) async fn next_event(&self) -> Option<RxEvent> {
         self.events.recv_async().await.ok()
     }
 
@@ -800,8 +816,6 @@ async fn handle_tx_item<T: AsyncTransport, E: crate::executor::Executor>(
 ) -> Result<()> {
     use scheduler::ViscaError;
 
-    use crate::protocol::encode::VISCA_TERMINATOR;
-
     match item {
         TxItem::Command {
             mut id,
@@ -922,8 +936,8 @@ async fn handle_tx_item<T: AsyncTransport, E: crate::executor::Executor>(
         TxItem::Cancel { socket } => {
             trace!("Processing cancel for {:?}", socket);
 
-            // Send cancel command
-            let cancel_bytes = vec![0x81, socket.as_byte() | 0x20, VISCA_TERMINATOR];
+            // Send cancel command using proper encoding
+            let cancel_bytes = crate::protocol::encode::encode_cancel(socket.as_byte());
 
             if let Err(e) = transport.send(&cancel_bytes).await {
                 error!("Failed to send cancel: {}", e);
@@ -1138,7 +1152,7 @@ async fn handle_response<T: AsyncTransport, E: crate::executor::Executor>(
                         debug!("Non-retryable error {:?} for command {}", error, cmd_id);
                         if let Some(response_tx) = scheduler.get_response_channel(cmd_id) {
                             // Convert ViscaError to Error using the byte code
-                            let error_code = error.to_byte();
+                            let error_code = error.as_byte();
                             let _ = response_tx.send(Err(Error::from_code(error_code)));
                             scheduler
                                 .metrics
@@ -1246,7 +1260,7 @@ async fn handle_response<T: AsyncTransport, E: crate::executor::Executor>(
                         // Notify the waiting command and free the socket
                         if let Some(response_tx) = scheduler.get_response_channel(cmd_id) {
                             // Convert ViscaError to Error using the byte code
-                            let error_code = error.to_byte();
+                            let error_code = error.as_byte();
                             let _ = response_tx.send(Err(Error::from_code(error_code)));
                         }
                         scheduler.free_socket(sock);
@@ -1279,7 +1293,7 @@ async fn handle_response<T: AsyncTransport, E: crate::executor::Executor>(
 
                         // Notify the waiting command
                         if let Some(response_tx) = scheduler.get_response_channel(cmd_id) {
-                            let error_code = error.to_byte();
+                            let error_code = error.as_byte();
                             let _ = response_tx.send(Err(Error::from_code(error_code)));
                         }
 
@@ -1315,17 +1329,22 @@ async fn handle_response<T: AsyncTransport, E: crate::executor::Executor>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::decode::{parse_response, ViscaResponse};
-    use crate::protocol::encode::VISCA_TERMINATOR;
 
+    #[cfg(feature = "async")]
     #[test]
     fn test_socket_id() {
+        use crate::runtime::scheduler::SocketId;
         assert_eq!(SocketId::Socket1.as_index(), 0);
         assert_eq!(SocketId::Socket2.as_index(), 1);
     }
 
+    #[cfg(feature = "async")]
     #[test]
     fn test_response_parsing() {
+        use crate::protocol::decode::{parse_response, ViscaResponse};
+        use crate::protocol::encode::VISCA_TERMINATOR;
+        use crate::runtime::scheduler::{SocketId, ViscaError};
+
         // Test ACK parsing
         let ack_frame = vec![0x90, 0x41, VISCA_TERMINATOR];
         let response = parse_response(&ack_frame);
@@ -1361,6 +1380,143 @@ mod tests {
                 error: ViscaError::BufferFull
             }
         ));
+    }
+
+    #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
+    #[tokio::test(start_paused = true)]
+    #[allow(clippy::expect_used)]
+    async fn test_runtime_sends_command() {
+        use crate::command::response::ViscaResponse;
+        use crate::runtime::scheduler::{Priority, TxItem};
+        use crate::testing::testkit::{ScriptedTransport, Step};
+        use crate::timeout::CommandCategory;
+        use crate::TokioExecutor;
+        use std::time::Duration;
+        use tokio::runtime::Handle;
+
+        // Create TokioExecutor and scripted transport
+        let executor = Arc::new(TokioExecutor::from_handle(Handle::current()));
+        let transport = ScriptedTransport::new(vec![Step::OnSend {
+            matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]), // Power on command
+            responses: vec![
+                vec![0x90, 0x41, 0xFF], // ACK
+                vec![0x90, 0x51, 0xFF], // Completion
+            ],
+        }])
+        .with_executor(executor.clone());
+
+        let runtime = RuntimeHandle::new(transport.clone(), executor.clone())
+            .await
+            .expect("Failed to create runtime handle");
+
+        // Give the runtime a moment to start
+        tokio::time::advance(Duration::from_millis(50)).await;
+
+        // Send a command
+        let (response_tx, response_rx): (
+            Sender<Result<ViscaResponse>>,
+            Receiver<Result<ViscaResponse>>,
+        ) = flume::bounded(1);
+        let command = TxItem::Command {
+            id: 1,
+            bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF], // Power on
+            priority: Priority::Normal,
+            response_tx,
+            category: CommandCategory::Quick,
+            deadline: std::time::Instant::now() + Duration::from_secs(30),
+        };
+
+        runtime
+            .command(command)
+            .await
+            .expect("Failed to send command");
+
+        // Advance time to allow command processing
+        tokio::time::advance(Duration::from_millis(100)).await;
+
+        // Wait for response
+        let response = response_rx
+            .recv_async()
+            .await
+            .expect("Failed to receive response");
+        assert!(matches!(response, Ok(ViscaResponse::Completion)));
+
+        // Verify command was sent
+        let sent = transport.sent();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0], vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]); // Command with terminator
+    }
+
+    #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
+    #[tokio::test(start_paused = true)]
+    #[allow(clippy::expect_used, clippy::panic)]
+    async fn test_runtime_handles_inquiry() {
+        use crate::command::response::{ViscaResponse, ViscaResponseType};
+        use crate::runtime::scheduler::TxItem;
+        use crate::testing::testkit::{ScriptedTransport, Step};
+        use crate::TokioExecutor;
+        use std::time::Duration;
+        use tokio::runtime::Handle;
+
+        // Create deterministic executor and scripted transport
+        let executor = Arc::new(TokioExecutor::from_handle(Handle::current()));
+        let transport = ScriptedTransport::new(vec![Step::OnSend {
+            matches: Some(vec![0x81, 0x09, 0x04, 0x00, 0xFF]), // Power inquiry
+            responses: vec![
+                vec![0x90, 0x50, 0x02, 0xFF], // Power on response
+            ],
+        }])
+        .with_executor(executor.clone());
+
+        let runtime = RuntimeHandle::new(transport.clone(), executor.clone())
+            .await
+            .expect("Failed to create runtime handle");
+
+        // Give the runtime a moment to start
+        tokio::time::advance(Duration::from_millis(50)).await;
+
+        // Send an inquiry
+        let (response_tx, response_rx): (
+            Sender<Result<ViscaResponse>>,
+            Receiver<Result<ViscaResponse>>,
+        ) = flume::bounded(1);
+        let inquiry = TxItem::Inquiry {
+            id: 1,
+            bytes: vec![0x81, 0x09, 0x04, 0x00, 0xFF], // Power inquiry
+            response_tx,
+            response_type: Some(ViscaResponseType::Power),
+            deadline: std::time::Instant::now() + Duration::from_secs(5),
+        };
+
+        runtime
+            .inquire(inquiry)
+            .await
+            .expect("Failed to send inquiry");
+
+        // Advance time to allow inquiry processing
+        tokio::time::advance(Duration::from_millis(100)).await;
+
+        // Wait for response
+        let response = response_rx
+            .recv_async()
+            .await
+            .expect("Failed to receive response");
+
+        // Should receive inquiry response
+        match response {
+            Ok(ViscaResponse::Inquiry(_)) => {
+                // Expected - actual data would be in the InquiryResponse
+            }
+            Ok(ViscaResponse::Unknown { .. }) => {
+                // Also acceptable for this test
+            }
+            _ => panic!("Expected Inquiry or Unknown response, got: {:?}", response),
+        }
+
+        // Verify inquiry was sent
+        let sent = transport.sent();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0], vec![0x81, 0x09, 0x04, 0x00, 0xFF]); // Inquiry with terminator
     }
 
     #[cfg(feature = "rt-tokio")]

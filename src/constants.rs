@@ -3,8 +3,6 @@
 //! This module provides constants for `PtzOptics` cameras including position ranges,
 //! speed limits, port numbers, and utilities for converting between different unit systems.
 
-#![allow(dead_code)]
-
 use crate::error::Error;
 
 /// Camera variants for validation and constants (more comprehensive than profiles)

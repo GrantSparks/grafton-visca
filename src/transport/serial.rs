@@ -96,7 +96,7 @@ impl SerialTransport {
     /// Send I/F Clear command to reset all devices on the bus.
     pub fn send_if_clear(&self) -> Result<()> {
         debug!("Sending I/F Clear command");
-        let cmd = vec![0x88, 0x01, 0x00, 0x01, VISCA_TERMINATOR];
+        let cmd = crate::protocol::encode::encode_if_clear();
         self.send_raw(&cmd)?;
         // Wait for I/F Clear to complete
         std::thread::sleep(Duration::from_millis(100));
@@ -110,7 +110,7 @@ impl SerialTransport {
 
         for attempt in 0..max_attempts {
             debug!("Address Set attempt {}", attempt + 1);
-            let cmd = vec![0x88, 0x30, 0x01, VISCA_TERMINATOR];
+            let cmd = crate::protocol::encode::encode_address_set();
             self.send_raw(&cmd)?;
 
             // Parse response properly

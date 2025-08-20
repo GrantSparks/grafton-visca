@@ -3,12 +3,13 @@
 //! This module implements the core VISCA runtime with proper socket management,
 //! command scheduling, and protocol-compliant timing.
 
+#[cfg(feature = "async")]
 use flume::{Receiver, Sender};
 
 #[cfg(feature = "async")]
-use log::trace;
-use log::{debug, warn};
+use log::{debug, trace, warn};
 
+#[cfg(feature = "async")]
 use std::{
     cmp::Ordering as CmpOrdering,
     collections::{BinaryHeap, HashMap},
@@ -16,6 +17,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(feature = "async")]
 use crate::{
     command::response::ViscaResponse,
     error::Result,
@@ -23,8 +25,9 @@ use crate::{
 };
 
 /// Represents an item to be transmitted (command, inquiry, or cancel).
+#[cfg(feature = "async")]
 #[derive(Debug, Clone)]
-pub enum TxItem {
+pub(crate) enum TxItem {
     /// A command that requires a socket and expects ACK/Completion.
     Command {
         /// Unique identifier for this command.
@@ -34,6 +37,8 @@ pub enum TxItem {
         /// Priority level for scheduling.
         priority: Priority,
         /// Deadline for command execution.
+        /// TODO: Implement deadline-based scheduling/timeout. Currently unused.
+        #[allow(dead_code)] // Reserved for future deadline-based scheduling
         deadline: Instant,
         /// Category for timeout calculation.
         category: CommandCategory,
@@ -47,6 +52,8 @@ pub enum TxItem {
         /// Raw VISCA bytes to send.
         bytes: Vec<u8>,
         /// Deadline for inquiry response.
+        /// TODO: Implement deadline-based scheduling/timeout. Currently unused.
+        #[allow(dead_code)] // Reserved for future deadline-based scheduling
         deadline: Instant,
         /// Expected response type.
         response_type: Option<crate::command::response::ViscaResponseType>,
@@ -61,8 +68,9 @@ pub enum TxItem {
 }
 
 /// Events received from the VISCA device.
+#[cfg(feature = "async")]
 #[derive(Debug, Clone)]
-pub enum RxEvent {
+pub(crate) enum RxEvent {
     /// Acknowledgment that a command has been accepted.
     Ack {
         /// Socket that received the ACK.
@@ -94,18 +102,22 @@ pub enum RxEvent {
         id: Option<u32>,
     },
     /// Link state events.
+    /// TODO: Implement link state event handling for connection monitoring.
+    #[allow(dead_code)] // Field not accessed but variant is used for event categorization
     Link(LinkEvent),
 }
 
 /// Socket identifier for VISCA commands.
+#[cfg(feature = "async")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum SocketId {
+pub(crate) enum SocketId {
     /// First command socket.
     Socket1,
     /// Second command socket.
     Socket2,
 }
 
+#[cfg(feature = "async")]
 impl SocketId {
     /// Convert to zero-based index.
     pub fn as_index(&self) -> usize {
@@ -147,8 +159,9 @@ pub enum Priority {
 }
 
 /// VISCA protocol errors.
+#[cfg(feature = "async")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ViscaError {
+pub(crate) enum ViscaError {
     /// Syntax error in command.
     SyntaxError,
     /// Command buffer full (0x03) - always retryable.
@@ -160,6 +173,8 @@ pub enum ViscaError {
     /// No socket available.
     NoSocket,
     /// Network error.
+    /// TODO: Use this for network transport errors (currently they're wrapped as TransportError).
+    #[allow(dead_code)] // Reserved for future network error handling
     NetworkError,
     /// Timeout waiting for response.
     Timeout,
@@ -167,6 +182,7 @@ pub enum ViscaError {
     Unknown(u8),
 }
 
+#[cfg(feature = "async")]
 impl ViscaError {
     /// Create from VISCA error byte.
     ///
@@ -189,7 +205,7 @@ impl ViscaError {
     }
 
     /// Convert to VISCA error byte.
-    pub fn to_byte(&self) -> u8 {
+    pub fn as_byte(&self) -> u8 {
         match self {
             ViscaError::SyntaxError => 0x02,
             ViscaError::BufferFull => 0x03,
@@ -223,8 +239,9 @@ impl ViscaError {
 }
 
 /// Link state events.
+#[cfg(feature = "async")]
 #[derive(Debug, Clone)]
-pub enum LinkEvent {
+pub(crate) enum LinkEvent {
     /// Connected to device.
     Connected,
     /// Disconnected from device.
@@ -239,6 +256,7 @@ pub enum LinkEvent {
 }
 
 /// Socket state tracking.
+#[cfg(feature = "async")]
 #[derive(Debug, Clone)]
 struct SocketState {
     /// Whether socket is free.
@@ -251,6 +269,7 @@ struct SocketState {
     category: Option<CommandCategory>,
 }
 
+#[cfg(feature = "async")]
 impl Default for SocketState {
     fn default() -> Self {
         Self {
@@ -265,8 +284,9 @@ impl Default for SocketState {
 /// VISCA runtime scheduler.
 ///
 /// Manages command scheduling, socket allocation, and protocol timing.
+#[cfg(feature = "async")]
 #[derive(Debug)]
-pub struct Scheduler {
+pub(crate) struct Scheduler {
     /// Socket states.
     sockets: [SocketState; 2],
     /// Command ID generator.
@@ -305,8 +325,9 @@ pub struct Scheduler {
 }
 
 /// Command waiting to be retried.
+#[cfg(feature = "async")]
 #[derive(Debug, Clone)]
-pub struct RetryCommand {
+pub(crate) struct RetryCommand {
     /// Command ID.
     pub id: u32,
     /// Command bytes.
@@ -324,8 +345,9 @@ pub struct RetryCommand {
 }
 
 /// Runtime metrics for monitoring scheduler performance.
+#[cfg(feature = "async")]
 #[derive(Debug, Default)]
-pub struct SchedulerMetrics {
+pub(crate) struct SchedulerMetrics {
     /// Total commands submitted.
     pub commands_submitted: AtomicU64,
     /// Total inquiries submitted.
@@ -352,6 +374,7 @@ pub struct SchedulerMetrics {
     pub retry_by_category: [AtomicU64; 6], // Quick, Movement, Preset, Network, LongRunning, Custom
 }
 
+#[cfg(feature = "async")]
 impl SchedulerMetrics {
     /// Create new metrics instance.
     pub fn new() -> Self {
@@ -499,6 +522,7 @@ pub struct MetricsSummary {
 ///
 /// This struct wraps a TxItem to make it orderable for the BinaryHeap.
 /// Higher priority commands will be processed first.
+#[cfg(feature = "async")]
 #[derive(Debug, Clone)]
 struct PriorityQueueItem {
     /// The actual command/inquiry item.
@@ -507,6 +531,7 @@ struct PriorityQueueItem {
     pub submitted_at: Instant,
 }
 
+#[cfg(feature = "async")]
 impl PartialEq for PriorityQueueItem {
     fn eq(&self, other: &Self) -> bool {
         // Compare by priority and submission time
@@ -514,14 +539,17 @@ impl PartialEq for PriorityQueueItem {
     }
 }
 
+#[cfg(feature = "async")]
 impl Eq for PriorityQueueItem {}
 
+#[cfg(feature = "async")]
 impl PartialOrd for PriorityQueueItem {
     fn partial_cmp(&self, other: &Self) -> Option<CmpOrdering> {
         Some(self.cmp(other))
     }
 }
 
+#[cfg(feature = "async")]
 impl Ord for PriorityQueueItem {
     fn cmp(&self, other: &Self) -> CmpOrdering {
         // First compare by priority (higher priority first)
@@ -536,6 +564,7 @@ impl Ord for PriorityQueueItem {
     }
 }
 
+#[cfg(feature = "async")]
 impl PriorityQueueItem {
     /// Get the priority of this item.
     fn priority(&self) -> Priority {
@@ -547,6 +576,7 @@ impl PriorityQueueItem {
     }
 }
 
+#[cfg(feature = "async")]
 impl Scheduler {
     /// Create a new scheduler with given channels.
     pub fn new(_submit_rx: Receiver<TxItem>, _event_tx: Sender<RxEvent>) -> Self {
@@ -1270,7 +1300,7 @@ impl Scheduler {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "async"))]
 #[allow(clippy::unwrap_used)]
 mod tests {
     use std::time::Duration;
@@ -1373,7 +1403,7 @@ mod tests {
 
             // Verify round-trip for non-Unknown variants
             if !matches!(error, ViscaError::Unknown(_)) {
-                let back_to_byte = error.to_byte();
+                let back_to_byte = error.as_byte();
                 assert_eq!(
                     back_to_byte, byte,
                     "Round-trip failed for {:#04x} -> {:?} -> {:#04x}",

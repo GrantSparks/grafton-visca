@@ -150,7 +150,7 @@ impl PictureEffectMode {
     }
 
     /// Get the raw byte value for this picture effect mode.
-    pub fn to_byte(&self) -> u8 {
+    pub fn as_byte(&self) -> u8 {
         match self {
             PictureEffectMode::Off => 0x00,
             PictureEffectMode::Negative => 0x01,
@@ -219,7 +219,7 @@ impl NDFilterPosition {
     }
 
     /// Get the raw byte value for this ND filter position.
-    pub fn to_byte(&self) -> u8 {
+    pub fn as_byte(&self) -> u8 {
         match self {
             NDFilterPosition::Clear => 0x00,
             NDFilterPosition::OneQuarter => 0x01,

@@ -3,13 +3,16 @@
 //! This module provides functions for parsing VISCA responses including
 //! ACK, Completion, Data Reply, and Error messages.
 
+#[cfg(feature = "async")]
 use log::{debug, trace, warn};
 
+#[cfg(feature = "async")]
 use crate::runtime::scheduler::{SocketId, ViscaError};
 
 /// VISCA response types.
+#[cfg(feature = "async")]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ViscaResponse {
+pub(crate) enum ViscaResponse {
     /// Acknowledgment - command accepted (90 4y FF).
     Ack {
         /// Socket that acknowledged (y = 1 or 2).
@@ -44,7 +47,8 @@ pub enum ViscaResponse {
 /// Parse a VISCA response frame.
 ///
 /// Takes a complete frame (including terminator) and returns the parsed response.
-pub fn parse_response(frame: &[u8]) -> ViscaResponse {
+#[cfg(feature = "async")]
+pub(crate) fn parse_response(frame: &[u8]) -> ViscaResponse {
     trace!("Parsing VISCA response: {:02X?}", frame);
 
     // Minimum valid response is 3 bytes (e.g., 90 38 FF)
@@ -163,7 +167,11 @@ pub fn parse_response(frame: &[u8]) -> ViscaResponse {
 /// - Single byte: 90 50 0p FF (value = p)
 /// - Two nibbles: 90 50 0p 0q FF (value = pq)
 /// - Four nibbles: 90 50 0p 0q 0r 0s FF (value = pqrs)
-pub fn extract_inquiry_value(data: &[u8]) -> Option<u32> {
+///
+/// TODO: This utility function should be used in actual inquiry response parsing
+/// instead of inline parsing. Currently only used in tests.
+#[allow(dead_code)]
+pub(crate) fn extract_inquiry_value(data: &[u8]) -> Option<u32> {
     match data.len() {
         1 => {
             // Single nibble value
@@ -190,14 +198,19 @@ pub fn extract_inquiry_value(data: &[u8]) -> Option<u32> {
 /// Check if a frame is a complete VISCA message.
 ///
 /// VISCA messages are terminated with 0xFF.
-pub fn is_complete_frame(data: &[u8]) -> bool {
+///
+/// TODO: This utility should be used in transport receive logic
+/// for proper frame boundary detection. Currently only used in tests.
+#[allow(dead_code)]
+pub(crate) fn is_complete_frame(data: &[u8]) -> bool {
     !data.is_empty() && data[data.len() - 1] == 0xFF
 }
 
 /// Find the next complete frame in a buffer.
 ///
 /// Returns the frame and remaining data.
-pub fn find_next_frame(buffer: &[u8]) -> Option<(Vec<u8>, &[u8])> {
+#[cfg(feature = "async")]
+pub(crate) fn find_next_frame(buffer: &[u8]) -> Option<(Vec<u8>, &[u8])> {
     if let Some(pos) = buffer.iter().position(|&b| b == 0xFF) {
         let frame = buffer[..=pos].to_vec();
         let remaining = &buffer[pos + 1..];
@@ -210,7 +223,8 @@ pub fn find_next_frame(buffer: &[u8]) -> Option<(Vec<u8>, &[u8])> {
 /// Parse multiple frames from a buffer.
 ///
 /// Returns all complete frames found and any remaining incomplete data.
-pub fn parse_frames(buffer: &[u8]) -> (Vec<Vec<u8>>, Vec<u8>) {
+#[cfg(feature = "async")]
+pub(crate) fn parse_frames(buffer: &[u8]) -> (Vec<Vec<u8>>, Vec<u8>) {
     let mut frames = Vec::new();
     let mut remaining = buffer;
 
@@ -222,7 +236,7 @@ pub fn parse_frames(buffer: &[u8]) -> (Vec<Vec<u8>>, Vec<u8>) {
     (frames, remaining.to_vec())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "async"))]
 mod tests {
     use super::*;
     use crate::protocol::encode::VISCA_TERMINATOR;

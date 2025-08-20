@@ -118,7 +118,7 @@ visca_param_command! {
         mode: PictureEffectMode,
     }
     prefix = constants::image::PICTURE_EFFECT_PREFIX;
-    param_byte = mode.to_byte();
+    param_byte = mode.as_byte();
     timeout = Quick;
 }
 
