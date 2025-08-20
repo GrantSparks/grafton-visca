@@ -11,12 +11,16 @@ use std::net::{TcpStream, UdpSocket};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::error::{Error, Result};
-use crate::protocol::encode::VISCA_TERMINATOR;
-use crate::transport::address::AddressResolver;
-use crate::transport::buffer::{BufferConfig, BufferManager};
-use crate::transport::retry::RetryExecutor;
-use crate::transport::{BlockingTransport, RetryConfig};
+use crate::{
+    error::{Error, Result},
+    protocol::encode::VISCA_TERMINATOR,
+    transport::{
+        address::AddressResolver,
+        buffer::{BufferConfig, BufferManager},
+        retry::RetryExecutor,
+        BlockingTransport, RetryConfig,
+    },
+};
 
 /// Configuration for raw IP transport.
 #[derive(Debug, Clone)]
@@ -90,7 +94,7 @@ impl RawTcpTransport {
         Ok(Self {
             stream: Arc::new(Mutex::new(stream)),
             buffer_manager: buffer_manager.clone(),
-            read_buffer: Arc::new(Mutex::new(buffer_manager.alloc_recv_buffer())),
+            read_buffer: buffer_manager.alloc_async_shared_buffer(),
             retry_executor,
         })
     }
@@ -244,7 +248,7 @@ impl RawUdpTransport {
         Ok(Self {
             socket: Arc::new(socket),
             buffer_manager: buffer_manager.clone(),
-            read_buffer: Arc::new(Mutex::new(buffer_manager.alloc_recv_buffer())),
+            read_buffer: buffer_manager.alloc_async_shared_buffer(),
             retry_executor,
             config,
             last_command: Arc::new(Mutex::new(None)),

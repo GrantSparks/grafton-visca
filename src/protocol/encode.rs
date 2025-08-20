@@ -3,11 +3,10 @@
 //! This module provides functions for encoding VISCA commands and handling
 //! different transport encapsulation formats (raw, Sony header).
 
-// External crates
-#[cfg(any(feature = "async", test))]
-use bytes::{BufMut, BytesMut};
-
-// Standard library imports are in the specific functions that need them
+#[cfg(any(feature = "serial", test))]
+use bytes::BufMut;
+#[cfg(any(feature = "async", feature = "serial", test))]
+use bytes::BytesMut;
 
 /// VISCA frame terminator byte.
 pub(crate) const VISCA_TERMINATOR: u8 = 0xFF;
@@ -127,13 +126,14 @@ impl SonyHeader {
 }
 
 /// Builder for VISCA commands.
-#[cfg(any(feature = "async", test))]
+#[cfg(any(feature = "async", feature = "serial", test))]
 #[derive(Debug)]
 pub(crate) struct FrameBuilder {
+    #[allow(dead_code)] // Used when feature combinations differ
     buffer: BytesMut,
 }
 
-#[cfg(any(feature = "async", test))]
+#[cfg(any(feature = "async", feature = "serial", test))]
 impl FrameBuilder {
     /// Create a new command builder.
     #[allow(dead_code)]
@@ -144,12 +144,14 @@ impl FrameBuilder {
     }
 
     /// Add the device address byte (usually 0x81 for device 1).
+    #[cfg(any(feature = "serial", test))]
     pub fn device(mut self, device_id: u8) -> Self {
         self.buffer.put_u8(0x80 | (device_id & 0x0F));
         self
     }
 
     /// Add a command byte.
+    #[cfg(test)]
     pub fn byte(mut self, byte: u8) -> Self {
         self.buffer.put_u8(byte);
         self
@@ -163,6 +165,7 @@ impl FrameBuilder {
     }
 
     /// Add a nibble-encoded value (0x0p 0x0q for value pq).
+    #[cfg(test)]
     pub fn nibbles(mut self, value: u8) -> Self {
         self.buffer.put_u8(value >> 4);
         self.buffer.put_u8(value & 0x0F);
@@ -170,6 +173,7 @@ impl FrameBuilder {
     }
 
     /// Add a 4-nibble encoded value (0x0p 0x0q 0x0r 0x0s for value pqrs).
+    #[cfg(test)]
     pub fn nibbles_u16(mut self, value: u16) -> Self {
         self.buffer.put_u8((value >> 12) as u8);
         self.buffer.put_u8((value >> 8) as u8 & 0x0F);
@@ -179,6 +183,7 @@ impl FrameBuilder {
     }
 
     /// Build the final command with terminator.
+    #[cfg(any(feature = "serial", test))]
     pub fn build(mut self) -> Vec<u8> {
         if !self.buffer.ends_with(&[VISCA_TERMINATOR]) {
             self.buffer.put_u8(VISCA_TERMINATOR);
@@ -187,7 +192,7 @@ impl FrameBuilder {
     }
 }
 
-#[cfg(any(feature = "async", test))]
+#[cfg(any(feature = "async", feature = "serial", test))]
 impl Default for FrameBuilder {
     fn default() -> Self {
         Self::new()

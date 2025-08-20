@@ -7,16 +7,24 @@
 use bytes::{Bytes, BytesMut};
 use log::{debug, error, trace, warn};
 
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc, Mutex,
+    },
+    time::{Duration, Instant},
+};
 
-use crate::error::{Error, Result};
-use crate::protocol::encode::{PayloadType, SonyHeader};
-use crate::transport::address::AddressResolver;
-use crate::transport::buffer::{BufferConfig, BufferManager};
-use crate::transport::BlockingTransport;
+use crate::{
+    error::{Error, Result},
+    protocol::encode::{PayloadType, SonyHeader},
+    transport::{
+        address::AddressResolver,
+        buffer::{BufferConfig, BufferManager},
+        BlockingTransport,
+    },
+};
 
 /// Configuration for Sony encapsulated IP transport.
 #[derive(Debug, Clone)]
@@ -108,7 +116,7 @@ impl SonyTcpTransport {
             sequence: Arc::new(AtomicU32::new(1)),
             pending: Arc::new(Mutex::new(HashMap::new())),
             buffer_manager: buffer_manager.clone(),
-            read_buffer: Arc::new(Mutex::new(buffer_manager.alloc_recv_buffer())),
+            read_buffer: buffer_manager.alloc_async_shared_buffer(),
             config,
         })
     }

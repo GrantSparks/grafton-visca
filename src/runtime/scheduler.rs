@@ -5,7 +5,6 @@
 
 #[cfg(feature = "async")]
 use flume::{Receiver, Sender};
-
 #[cfg(feature = "async")]
 use log::{debug, trace, warn};
 
@@ -36,10 +35,6 @@ pub(crate) enum TxItem {
         bytes: Vec<u8>,
         /// Priority level for scheduling.
         priority: Priority,
-        /// Deadline for command execution.
-        /// TODO: Implement deadline-based scheduling/timeout. Currently unused.
-        #[allow(dead_code)] // Reserved for future deadline-based scheduling
-        deadline: Instant,
         /// Category for timeout calculation.
         category: CommandCategory,
         /// Channel to send response back.
@@ -51,10 +46,6 @@ pub(crate) enum TxItem {
         id: u32,
         /// Raw VISCA bytes to send.
         bytes: Vec<u8>,
-        /// Deadline for inquiry response.
-        /// TODO: Implement deadline-based scheduling/timeout. Currently unused.
-        #[allow(dead_code)] // Reserved for future deadline-based scheduling
-        deadline: Instant,
         /// Expected response type.
         response_type: Option<crate::command::response::ViscaResponseType>,
         /// Channel to send response back.
@@ -74,35 +65,44 @@ pub(crate) enum RxEvent {
     /// Acknowledgment that a command has been accepted.
     Ack {
         /// Socket that received the ACK.
+        #[allow(dead_code)] // Used in runtime event processing
         socket: SocketId,
         /// Command ID that was acknowledged.
+        #[allow(dead_code)] // Used in runtime event processing
         id: u32,
     },
     /// Command has completed execution.
     Completion {
         /// Socket that completed.
+        #[allow(dead_code)] // Used in runtime event processing
         socket: SocketId,
         /// Command ID that completed.
+        #[allow(dead_code)] // Used in runtime event processing
         id: u32,
     },
     /// Data reply from an inquiry.
     DataReply {
         /// Inquiry ID that received data.
+        #[allow(dead_code)] // Used in runtime event processing
         id: u32,
         /// ViscaResponse data bytes.
+        #[allow(dead_code)] // Used in runtime event processing
         data: Vec<u8>,
     },
     /// Error response from device.
     Error {
         /// Error code from VISCA protocol.
+        #[allow(dead_code)] // Used in runtime event processing
         code: ViscaError,
         /// Socket if error is socket-specific.
+        #[allow(dead_code)] // Used in runtime event processing
         socket: Option<SocketId>,
         /// Command/inquiry ID if applicable.
+        #[allow(dead_code)] // Used in runtime event processing
         id: Option<u32>,
     },
     /// Link state events.
-    /// TODO: Implement link state event handling for connection monitoring.
+    /// Reserved for future link state event handling for connection monitoring.
     #[allow(dead_code)] // Field not accessed but variant is used for event categorization
     Link(LinkEvent),
 }
@@ -172,10 +172,6 @@ pub(crate) enum ViscaError {
     NotExecutable,
     /// No socket available.
     NoSocket,
-    /// Network error.
-    /// TODO: Use this for network transport errors (currently they're wrapped as TransportError).
-    #[allow(dead_code)] // Reserved for future network error handling
-    NetworkError,
     /// Timeout waiting for response.
     Timeout,
     /// Unknown error code.
@@ -212,8 +208,7 @@ impl ViscaError {
             ViscaError::CommandCancelled => 0x04,
             ViscaError::NoSocket => 0x05,
             ViscaError::NotExecutable => 0x41,
-            ViscaError::NetworkError => 0x70, // Custom code for network errors
-            ViscaError::Timeout => 0x71,      // Custom code for timeouts
+            ViscaError::Timeout => 0x71, // Custom code for timeouts
             ViscaError::Unknown(byte) => *byte,
         }
     }
@@ -241,6 +236,7 @@ impl ViscaError {
 /// Link state events.
 #[cfg(feature = "async")]
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Used for event categorization and future link monitoring
 pub(crate) enum LinkEvent {
     /// Connected to device.
     Connected,
@@ -620,6 +616,7 @@ impl Scheduler {
     }
 
     /// Allocate a free socket for a command.
+    #[cfg(test)]
     pub fn allocate_socket(
         &mut self,
         command_id: u32,
@@ -729,6 +726,7 @@ impl Scheduler {
     }
 
     /// Check if a command is pending ACK.
+    #[allow(dead_code)] // Used in runtime flow but clippy can't see it
     pub fn is_pending_ack(&self, id: u32) -> bool {
         self.pending_ack.contains_key(&id)
     }
@@ -756,6 +754,7 @@ impl Scheduler {
 
     /// Handle error for pending ACK commands.
     /// When error arrives without socket (0x03 BufferFull), it applies to pending command.
+    #[allow(dead_code)] // Used in runtime/mod.rs
     pub fn handle_pending_ack_error(
         &mut self,
         error: ViscaError,
@@ -882,31 +881,11 @@ impl Scheduler {
         timed_out
     }
 
-    /// Set command spacing duration.
-    #[cfg(feature = "async")]
-    pub fn set_command_spacing(&mut self, spacing: Duration) {
-        self.command_spacing = spacing;
-        debug!("Command spacing set to {:?}", spacing);
-    }
-
-    /// Set timeout configuration.
-    pub fn set_timeout_config(&mut self, config: TimeoutConfig) {
-        self.timeout_config = config;
-        debug!("Timeout configuration updated");
-    }
-
     /// Set maximum retries for a specific command category.
+    #[cfg(test)]
     pub fn set_max_retries(&mut self, category: CommandCategory, max_retries: u32) {
         self.max_retries_per_category.insert(category, max_retries);
         debug!("Max retries for {:?} set to {}", category, max_retries);
-    }
-
-    /// Get maximum retries for a specific command category.
-    pub fn get_max_retries(&self, category: CommandCategory) -> u32 {
-        self.max_retries_per_category
-            .get(&category)
-            .copied()
-            .unwrap_or(3)
     }
 
     /// Get the response channel for a command ID.
@@ -1009,6 +988,7 @@ impl Scheduler {
     /// Get the response type for a pending inquiry.
     ///
     /// Returns the response type if the inquiry is still pending.
+    #[cfg(test)]
     pub fn get_inquiry_response_type(
         &self,
         id: u32,

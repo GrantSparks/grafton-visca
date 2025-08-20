@@ -4,8 +4,8 @@
 //! ensuring consistent buffer sizes and allocation strategies.
 
 use bytes::{Bytes, BytesMut};
-#[cfg(feature = "rt-tokio")]
-use std::sync::Arc;
+
+use std::sync::{Arc, Mutex};
 
 /// Default buffer size for most VISCA operations.
 /// VISCA commands are typically small (< 20 bytes) and responses rarely exceed 64 bytes.
@@ -37,10 +37,6 @@ pub struct BufferConfig {
     /// Initial buffer capacity for send operations.
     pub send_buffer_size: usize,
 
-    /// Whether to use pooled buffers (future enhancement).
-    #[allow(dead_code)] // Reserved for future use
-    pub use_pooling: bool,
-
     /// Maximum buffer size to prevent unbounded growth.
     pub max_buffer_size: usize,
 }
@@ -50,7 +46,6 @@ impl Default for BufferConfig {
         Self {
             recv_buffer_size: DEFAULT_BUFFER_SIZE,
             send_buffer_size: DEFAULT_BUFFER_SIZE,
-            use_pooling: false,
             max_buffer_size: 8192, // 8KB max
         }
     }
@@ -119,7 +114,7 @@ impl BufferManager {
     }
 
     /// Allocate a new send buffer.
-    #[cfg(any(feature = "async", test))]
+    #[cfg(test)]
     pub fn alloc_send_buffer(&self) -> BytesMut {
         BytesMut::with_capacity(self.config.send_buffer_size)
     }
@@ -130,13 +125,12 @@ impl BufferManager {
     }
 
     /// Create a shared buffer for async concurrent access.
-    #[cfg(feature = "rt-tokio")]
-    pub fn alloc_async_shared_buffer(&self) -> Arc<tokio::sync::Mutex<BytesMut>> {
-        Arc::new(tokio::sync::Mutex::new(self.alloc_recv_buffer()))
+    pub fn alloc_async_shared_buffer(&self) -> Arc<Mutex<BytesMut>> {
+        Arc::new(Mutex::new(self.alloc_recv_buffer()))
     }
 
     /// Resize a buffer if needed, respecting max size limits.
-    #[cfg(any(feature = "async", test))]
+    #[cfg(test)]
     pub fn resize_buffer(&self, buffer: &mut BytesMut, required_size: usize) {
         let new_size = required_size.min(self.config.max_buffer_size);
         if buffer.capacity() < new_size {
@@ -146,7 +140,7 @@ impl BufferManager {
     }
 
     /// Clear and reset a buffer for reuse.
-    #[cfg(any(feature = "async", test))]
+    #[cfg(test)]
     pub fn reset_buffer(&self, buffer: &mut BytesMut) {
         buffer.clear();
         // Shrink if buffer has grown too large
@@ -172,7 +166,6 @@ mod tests {
         let config = BufferConfig::default();
         assert_eq!(config.recv_buffer_size, DEFAULT_BUFFER_SIZE);
         assert_eq!(config.send_buffer_size, DEFAULT_BUFFER_SIZE);
-        assert!(!config.use_pooling);
         assert_eq!(config.max_buffer_size, 8192);
     }
 

@@ -9,16 +9,10 @@ mod time_utils;
 
 pub use scheduler::{MetricsSummary, Priority};
 
-// Internal imports
-#[cfg(feature = "async")]
-use scheduler::{LinkEvent, RxEvent, Scheduler, SchedulerMetrics, SocketId, TxItem, ViscaError};
-
 #[cfg(feature = "async")]
 use flume::{Receiver, Sender};
-
 #[cfg(feature = "async")]
 use futures_lite;
-
 #[cfg(feature = "async")]
 use log::{debug, error, trace, warn};
 
@@ -34,6 +28,8 @@ use crate::{
     error::{Error, Result},
     transport::AsyncTransport,
 };
+#[cfg(feature = "async")]
+use scheduler::{LinkEvent, RxEvent, Scheduler, SchedulerMetrics, SocketId, TxItem, ViscaError};
 
 /// Helper function to spawn runtime tasks properly for different executor types.
 #[cfg(feature = "async")]
@@ -119,7 +115,7 @@ pub struct RuntimeHandle {
     /// Channel for submitting commands and inquiries.
     submit: Sender<TxItem>,
     /// Channel for receiving events from the runtime.
-    /// TODO: This is for monitoring/debugging runtime events. Currently unused but useful to keep.
+    /// Reserved for future monitoring/debugging runtime events.
     #[allow(dead_code)] // Intentionally kept for future monitoring features
     events: Receiver<RxEvent>,
     // Runtime handle not needed with flume-based design
@@ -288,8 +284,7 @@ impl RuntimeHandle {
     /// TODO: This currently cancels all commands on socket 1. Future implementation
     /// should track command IDs to socket mappings for targeted cancellation.
     pub async fn cancel(&self, _command_id: u32) -> Result<()> {
-        // TODO: Implement proper command_id to socket mapping
-        // For now, cancel on socket 1 as a placeholder
+        // Cancel on socket 1 as a placeholder until command_id to socket mapping is implemented
         warn!("Cancel by command_id not fully implemented - cancelling socket 1");
 
         let cancel_item = TxItem::Cancel {
@@ -315,7 +310,7 @@ impl RuntimeHandle {
     /// Get the next event from the runtime.
     ///
     /// This can be used for monitoring or custom event handling.
-    /// TODO: Implement runtime event monitoring features that use this.
+    /// Reserved for future runtime event monitoring features.
     #[allow(dead_code)] // Intentionally kept for future monitoring features
     pub(crate) async fn next_event(&self) -> Option<RxEvent> {
         self.events.recv_async().await.ok()
@@ -370,7 +365,6 @@ impl RuntimeHandle {
             id: 0, // Will be assigned by scheduler
             bytes: buffer,
             priority: priority.unwrap_or(Priority::Normal),
-            deadline: std::time::Instant::now() + std::time::Duration::from_secs(30),
             category: C::TIMEOUT_CATEGORY,
             response_tx,
         };
@@ -418,7 +412,6 @@ impl RuntimeHandle {
         let item = TxItem::Inquiry {
             id: 0, // Will be assigned by scheduler
             bytes: buffer,
-            deadline: std::time::Instant::now() + std::time::Duration::from_secs(10),
             response_type,
             response_tx,
         };
@@ -534,14 +527,11 @@ async fn runtime_loop_with_config<T: AsyncTransport, E: crate::executor::Executo
                         tx
                     };
 
-                    // Create TxItem for the retry (use a fresh deadline based on category timeout)
-                    let timeout_duration = retry_cmd.category.default_timeout();
-                    let deadline = now + timeout_duration;
+                    // Create TxItem for the retry
                     let tx_item = TxItem::Command {
                         id: retry_cmd.id,
                         bytes: retry_cmd.bytes.clone(),
                         priority: retry_cmd.priority,
-                        deadline,
                         category: retry_cmd.category,
                         response_tx,
                     };
@@ -714,13 +704,11 @@ async fn runtime_loop_with_config<T: AsyncTransport, E: crate::executor::Executo
                             retry_cmd.id
                         );
 
-                        let now = time_utils::now_from_executor_arc(&executor);
                         let item = TxItem::Command {
                             id: retry_cmd.id,
                             bytes: retry_cmd.bytes.clone(),
                             priority: retry_cmd.priority,
                             category: retry_cmd.category,
-                            deadline: now + std::time::Duration::from_secs(30),
                             response_tx,
                         };
 
@@ -821,7 +809,6 @@ async fn handle_tx_item<T: AsyncTransport, E: crate::executor::Executor>(
             mut id,
             bytes,
             priority,
-            deadline: _,
             category,
             response_tx,
         } => {
@@ -884,7 +871,6 @@ async fn handle_tx_item<T: AsyncTransport, E: crate::executor::Executor>(
                         id,
                         bytes,
                         priority,
-                        deadline: now + std::time::Duration::from_secs(30),
                         category,
                         response_tx,
                     },
@@ -896,7 +882,6 @@ async fn handle_tx_item<T: AsyncTransport, E: crate::executor::Executor>(
         TxItem::Inquiry {
             mut id,
             bytes,
-            deadline: _,
             response_type,
             response_tx,
         } => {
@@ -1423,7 +1408,6 @@ mod tests {
             priority: Priority::Normal,
             response_tx,
             category: CommandCategory::Quick,
-            deadline: std::time::Instant::now() + Duration::from_secs(30),
         };
 
         runtime
@@ -1485,7 +1469,6 @@ mod tests {
             bytes: vec![0x81, 0x09, 0x04, 0x00, 0xFF], // Power inquiry
             response_tx,
             response_type: Some(ViscaResponseType::Power),
-            deadline: std::time::Instant::now() + Duration::from_secs(5),
         };
 
         runtime
