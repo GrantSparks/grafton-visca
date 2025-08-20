@@ -8,62 +8,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Protocol-compliant VISCA implementation with full ACK/Completion handling
-- Runtime-agnostic async support with deterministic testing infrastructure
-- Comprehensive test utilities in `test-utils` feature for protocol validation
-- Scripted transport for reproducible and deterministic protocol testing
-- Priority-based command scheduling with automatic retry logic
-- Feature flags:
-  - `async` - Runtime-agnostic async support
-  - `rt-tokio` - Tokio runtime integration (fully implemented)
-  - `rt-async-std` - async-std runtime integration (implemented)
-  - `rt-smol` - smol runtime integration (implemented)
-  - `test-utils` - Testing utilities and deterministic executor
-  - `serial` - Serial port support (partial - blocking only, needs async trait fix)
-- Executor-based async API to prevent runtime/spawner mismatches
-- Flume-based runtime communication for runtime independence
-- Transport implementations:
-  - `transport::blocking::tcp::Tcp` - Blocking TCP transport
-  - `transport::blocking::udp::Udp` - Blocking UDP transport
-  - `transport::tokio::tcp::Tcp` - Async TCP with Tokio
-  - `transport::tokio::udp::Udp` - Async UDP with Tokio
+- **Transport Builder**: Enhanced `TransportBuilder` with comprehensive connection options
+  - DNS resolution support for hostnames
+  - IPv4/IPv6 address parsing
+  - Configurable timeouts and buffer sizes
+  - Support for both blocking and async transports
+- **Async Wrapper**: New `AsyncWrapper` pattern for simplifying async transport implementations
+  - Reduces code duplication between blocking and async transports
+  - Provides consistent error handling and timeout behavior
+- **Protocol Improvements**:
+  - Streamlined runtime and protocol modules
+  - Consolidated envelope tests for better maintainability
+  - Enhanced frame parsing with better error recovery
 
 ### Changed
-- **Breaking**: Complete API redesign for v0.7.0
-  - Camera creation simplified with transport-first approach
-  - Use `transport::blocking::tcp::Tcp::connect()` for blocking TCP
-  - Use `transport::tokio::tcp::Tcp::connect().await` for async with Tokio
-  - Pass transport to `Camera::new()` for blocking mode
-  - Use `CameraBuilder::tokio()?` or `CameraBuilder::with_executor()` for async
-- **Breaking**: Methods organized into trait modules under `camera::methods::`
-  - Control traits come in pairs: `*ControlBlocking` and `*Control` (async)
-  - `ExposureControlBlocking`/`ExposureControl` - Exposure and iris operations
-  - `FocusControlBlocking`/`FocusControl` - Focus control and auto-focus
-  - `PanTiltControlBlocking`/`PanTiltControl` - Pan/tilt movement
-  - `ZoomControlBlocking`/`ZoomControl` - Zoom operations
-  - `WhiteBalanceControlBlocking`/`WhiteBalanceControl` - White balance
-  - `PresetsControlBlocking`/`PresetsControl` - Preset management
-  - `ImageProcessingControlBlocking`/`ImageProcessingControl` - Image adjustments
-  - `PowerControlBlocking`/`PowerControl` - Power management
-  - `ColorControlBlocking`/`ColorControl` - Color settings
-  - `InquiryControlBlocking`/`InquiryControl` - Status inquiries
-  - Additional traits for: Menu, MotionSync, NDFilter, Streaming, System, Tally, VariableSpeed
-- Architectural improvements for runtime independence
-- Zero-overhead blocking API with no async dependencies
-- Enhanced error handling with retry guidance based on error type
-- Improved timeout management with ACK-specific timeouts (75ms default)
-- Transport traits refactored for better abstraction
+- **Transport Refactoring**: Major refactoring of transport layer
+  - Simplified `ip_raw` and `ip_sony` transport implementations
+  - Improved buffer management with cleaner abstractions
+  - Better separation of concerns between protocol layers
+- **Runtime Improvements**:
+  - Enhanced runtime module with better task scheduling
+  - Improved scheduler implementation for command prioritization
+  - More efficient handling of ACK/Completion sequences
+- **Code Quality**:
+  - Removed redundant TODO comments throughout codebase
+  - Cleaned up imports and module organization
+  - Consolidated test utilities for better reusability
+  - Simplified example code for better clarity
 
 ### Fixed
-- Timeout handling for commands awaiting ACK
-- Package validation separated for release and development builds
-- Async trait bounds corrected for proper compilation
-- Removed automatic Tokio runtime fallback to maintain runtime independence
-- Resolved unused import warnings in test modules
+- TCP test race condition on Windows
+- Missing `AsyncTransport` import in build_async_wrapper doctest
+- Various clippy warnings and formatting issues
+- Visibility issues in envelope and protocol modules
 
-### Removed
-- Direct builder methods `CameraBuilder::tcp()` and `udp()` (use transport modules)
-- Legacy async implementation from v0.6
+### Internal
+- Reduced test suite complexity by removing redundant tests
+- Improved test organization with better helper utilities
+- Streamlined CI/CD checks for faster builds
 
 ## [0.7.0] - 2025-01-18
 
