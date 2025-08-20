@@ -4,14 +4,9 @@
 //! any additional encapsulation. This is the format used by PtzOptics cameras.
 
 use bytes::{Bytes, BytesMut};
-#[cfg(feature = "rt-tokio")]
-use log::warn;
 use log::{debug, trace};
 
 use std::io::{Read, Write};
-
-#[cfg(feature = "rt-tokio")]
-use std::net::SocketAddr;
 use std::net::{TcpStream, UdpSocket};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -65,26 +60,26 @@ impl RawTcpTransport {
         let resolver = AddressResolver::new();
         let addr = resolver
             .resolve_first(&config.address)
-            .map_err(|e| Error::TransportError(format!("Invalid address: {}", e).into()))?;
+            .map_err(|e| Error::TransportError(format!("Invalid address: {e}").into()))?;
 
-        debug!("Connecting to {} via raw TCP", addr);
+        debug!("Connecting to {addr} via raw TCP");
 
         let stream = TcpStream::connect_timeout(&addr, config.connect_timeout)
-            .map_err(|e| Error::TransportError(format!("TCP connect failed: {}", e).into()))?;
+            .map_err(|e| Error::TransportError(format!("TCP connect failed: {e}").into()))?;
 
         stream
             .set_read_timeout(Some(config.read_timeout))
             .map_err(|e| {
-                Error::TransportError(format!("Failed to set read timeout: {}", e).into())
+                Error::TransportError(format!("Failed to set read timeout: {e}").into())
             })?;
 
         stream
             .set_write_timeout(Some(config.write_timeout))
             .map_err(|e| {
-                Error::TransportError(format!("Failed to set write timeout: {}", e).into())
+                Error::TransportError(format!("Failed to set write timeout: {e}").into())
             })?;
 
-        debug!("Connected to {}", addr);
+        debug!("Connected to {addr}");
 
         // Create buffer manager with raw IP optimized sizes
         let buffer_manager = Arc::new(BufferManager::new(BufferConfig::for_raw_ip()));
@@ -124,7 +119,7 @@ impl RawTcpTransport {
             match stream.read(&mut temp_buf) {
                 Ok(n) if n > 0 => {
                     buffer.extend_from_slice(&temp_buf[..n]);
-                    trace!("Read {} bytes from TCP", n);
+                    trace!("Read {n} bytes from TCP");
                 }
                 Ok(_) => {
                     return Err(Error::ConnectionClosed);
@@ -133,9 +128,7 @@ impl RawTcpTransport {
                     return Err(Error::Timeout);
                 }
                 Err(e) => {
-                    return Err(Error::TransportError(
-                        format!("TCP read error: {}", e).into(),
-                    ));
+                    return Err(Error::TransportError(format!("TCP read error: {e}").into()));
                 }
             }
         }
@@ -157,7 +150,7 @@ impl BlockingTransport for RawTcpTransport {
             stream
                 .write_all(&bytes_vec)
                 .and_then(|_| stream.flush())
-                .map_err(|e| Error::TransportError(format!("TCP write error: {}", e).into()))?;
+                .map_err(|e| Error::TransportError(format!("TCP write error: {e}").into()))?;
 
             trace!("Sent {} bytes: {:02X?}", bytes_vec.len(), bytes_vec);
             Ok(())
@@ -177,10 +170,10 @@ impl BlockingTransport for RawTcpTransport {
             .map_err(|_| Error::LockPoisoned("transport mutex"))?;
         let original_read_timeout = stream
             .read_timeout()
-            .map_err(|e| Error::TransportError(format!("Failed to get timeout: {}", e).into()))?;
+            .map_err(|e| Error::TransportError(format!("Failed to get timeout: {e}").into()))?;
         stream
             .set_read_timeout(Some(timeout))
-            .map_err(|e| Error::TransportError(format!("Failed to set timeout: {}", e).into()))?;
+            .map_err(|e| Error::TransportError(format!("Failed to set timeout: {e}").into()))?;
         drop(stream);
 
         let result = self.recv_frame();
@@ -192,9 +185,7 @@ impl BlockingTransport for RawTcpTransport {
             .map_err(|_| Error::LockPoisoned("transport mutex"))?;
         stream
             .set_read_timeout(original_read_timeout)
-            .map_err(|e| {
-                Error::TransportError(format!("Failed to restore timeout: {}", e).into())
-            })?;
+            .map_err(|e| Error::TransportError(format!("Failed to restore timeout: {e}").into()))?;
 
         result
     }
@@ -218,31 +209,31 @@ impl RawUdpTransport {
         let resolver = AddressResolver::new();
         let addr = resolver
             .resolve_first(&config.address)
-            .map_err(|e| Error::TransportError(format!("Invalid address: {}", e).into()))?;
+            .map_err(|e| Error::TransportError(format!("Invalid address: {e}").into()))?;
 
-        debug!("Connecting to {} via raw UDP", addr);
+        debug!("Connecting to {addr} via raw UDP");
 
         let bind_addr = resolver.bind_address_for(&addr);
         let socket = UdpSocket::bind(bind_addr)
-            .map_err(|e| Error::TransportError(format!("UDP bind failed: {}", e).into()))?;
+            .map_err(|e| Error::TransportError(format!("UDP bind failed: {e}").into()))?;
 
         socket
             .connect(addr)
-            .map_err(|e| Error::TransportError(format!("UDP connect failed: {}", e).into()))?;
+            .map_err(|e| Error::TransportError(format!("UDP connect failed: {e}").into()))?;
 
         socket
             .set_read_timeout(Some(config.read_timeout))
             .map_err(|e| {
-                Error::TransportError(format!("Failed to set read timeout: {}", e).into())
+                Error::TransportError(format!("Failed to set read timeout: {e}").into())
             })?;
 
         socket
             .set_write_timeout(Some(config.write_timeout))
             .map_err(|e| {
-                Error::TransportError(format!("Failed to set write timeout: {}", e).into())
+                Error::TransportError(format!("Failed to set write timeout: {e}").into())
             })?;
 
-        debug!("Connected to {}", addr);
+        debug!("Connected to {addr}");
 
         // Create buffer manager with UDP optimized sizes
         let buffer_manager = Arc::new(BufferManager::new(BufferConfig::for_udp()));
@@ -280,7 +271,7 @@ impl RawUdpTransport {
             match self.socket.recv(&mut temp_buf) {
                 Ok(n) if n > 0 => {
                     buffer.extend_from_slice(&temp_buf[..n]);
-                    trace!("Read {} bytes from UDP", n);
+                    trace!("Read {n} bytes from UDP");
                 }
                 Ok(_) => {
                     return Err(Error::Timeout);
@@ -289,9 +280,7 @@ impl RawUdpTransport {
                     return Err(Error::Timeout);
                 }
                 Err(e) => {
-                    return Err(Error::TransportError(
-                        format!("UDP read error: {}", e).into(),
-                    ));
+                    return Err(Error::TransportError(format!("UDP read error: {e}").into()));
                 }
             }
         }
@@ -316,7 +305,7 @@ impl BlockingTransport for RawUdpTransport {
         self.retry_executor.execute(|| {
             self.socket
                 .send(&bytes_vec)
-                .map_err(|e| Error::TransportError(format!("UDP send error: {}", e).into()))?;
+                .map_err(|e| Error::TransportError(format!("UDP send error: {e}").into()))?;
 
             trace!("Sent {} bytes: {:02X?}", bytes_vec.len(), bytes_vec);
             Ok(())
@@ -353,14 +342,11 @@ impl BlockingTransport for RawUdpTransport {
                             return Err(Error::MaxRetriesExceeded);
                         }
 
-                        debug!(
-                            "UDP receive timeout, resending command (attempt {})",
-                            attempts
-                        );
+                        debug!("UDP receive timeout, resending command (attempt {attempts})");
 
                         // Resend the command
                         self.socket.send(&cmd).map_err(|e| {
-                            Error::TransportError(format!("UDP resend error: {}", e).into())
+                            Error::TransportError(format!("UDP resend error: {e}").into())
                         })?;
 
                         std::thread::sleep(delay);
@@ -382,7 +368,7 @@ impl BlockingTransport for RawUdpTransport {
                         return Err(Error::MaxRetriesExceeded);
                     }
 
-                    debug!("Retrying UDP receive (attempt {}): {:?}", attempts, e);
+                    debug!("Retrying UDP receive (attempt {attempts}): {e:?}");
                     std::thread::sleep(delay);
                 }
                 Err(e) => return Err(e),
@@ -395,343 +381,288 @@ impl BlockingTransport for RawUdpTransport {
         let original_read_timeout = self
             .socket
             .read_timeout()
-            .map_err(|e| Error::TransportError(format!("Failed to get timeout: {}", e).into()))?;
+            .map_err(|e| Error::TransportError(format!("Failed to get timeout: {e}").into()))?;
 
         self.socket
             .set_read_timeout(Some(timeout))
-            .map_err(|e| Error::TransportError(format!("Failed to set timeout: {}", e).into()))?;
+            .map_err(|e| Error::TransportError(format!("Failed to set timeout: {e}").into()))?;
 
         let result = self.recv_frame();
 
         // Restore original timeout
         self.socket
             .set_read_timeout(original_read_timeout)
-            .map_err(|e| {
-                Error::TransportError(format!("Failed to restore timeout: {}", e).into())
-            })?;
+            .map_err(|e| Error::TransportError(format!("Failed to restore timeout: {e}").into()))?;
 
         result
     }
 }
 
-/// Async raw TCP transport using tokio.
-#[cfg(feature = "rt-tokio")]
-#[derive(Debug)]
+/// Async raw TCP transport using AsyncWrapper.
+///
+/// This transport wraps the blocking RawTcpTransport to provide async operations
+/// while reusing all the buffer management, retry logic, and error handling
+/// from the blocking implementation.
+#[cfg(feature = "async")]
+#[derive(Clone, Debug)]
 pub struct AsyncRawTcpTransport {
-    stream: Arc<tokio::sync::Mutex<tokio::net::TcpStream>>,
-    read_buffer: Arc<tokio::sync::Mutex<BytesMut>>,
-    retry_config: RetryConfig,
+    inner: Arc<RawTcpTransport>,
 }
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "async")]
 impl AsyncRawTcpTransport {
     /// Connect to a camera via raw TCP.
+    ///
+    /// Creates a blocking transport and wraps it for async usage.
     pub async fn connect(config: RawIpConfig) -> Result<Self> {
-        let addr = config
-            .address
-            .parse::<SocketAddr>()
-            .map_err(|e| Error::TransportError(format!("Invalid address: {}", e).into()))?;
+        // Create blocking transport in a blocking task
+        #[cfg(feature = "rt-tokio")]
+        let transport = tokio::task::spawn_blocking(move || RawTcpTransport::connect(config))
+            .await
+            .map_err(|e| {
+                Error::TransportError(format!("Failed to spawn blocking task: {e}").into())
+            })??;
 
-        debug!("Connecting to {} via raw TCP", addr);
+        #[cfg(all(feature = "rt-async-std", not(feature = "rt-tokio")))]
+        let transport =
+            async_std::task::spawn_blocking(move || RawTcpTransport::connect(config)).await?;
 
-        let stream =
-            tokio::time::timeout(config.connect_timeout, tokio::net::TcpStream::connect(addr))
-                .await
-                .map_err(|_| Error::Timeout)?
-                .map_err(|e| Error::TransportError(format!("TCP connect failed: {}", e).into()))?;
+        #[cfg(all(
+            feature = "rt-smol",
+            not(feature = "rt-tokio"),
+            not(feature = "rt-async-std")
+        ))]
+        let transport = smol::unblock(move || RawTcpTransport::connect(config)).await?;
 
-        debug!("Connected to {}", addr);
+        #[cfg(all(
+            feature = "async",
+            not(feature = "rt-tokio"),
+            not(feature = "rt-async-std"),
+            not(feature = "rt-smol")
+        ))]
+        let transport = std::thread::spawn(move || RawTcpTransport::connect(config))
+            .join()
+            .map_err(|_| Error::Io(std::io::Error::other("Thread panicked")))??;
 
         Ok(Self {
-            stream: Arc::new(tokio::sync::Mutex::new(stream)),
-            read_buffer: Arc::new(tokio::sync::Mutex::new(BytesMut::with_capacity(256))),
-            retry_config: config.retry_config,
+            inner: Arc::new(transport),
         })
-    }
-
-    /// Receive a complete VISCA frame.
-    async fn recv_frame(&self) -> Result<Bytes> {
-        use tokio::io::AsyncReadExt;
-
-        let mut buffer = self.read_buffer.lock().await;
-        let mut stream = self.stream.lock().await;
-        let mut temp_buf = [0u8; 256];
-
-        loop {
-            // Check if we have a complete frame in the buffer
-            if let Some(pos) = buffer.iter().position(|&b| b == VISCA_TERMINATOR) {
-                let frame = buffer.split_to(pos + 1);
-                trace!("Received frame: {:02X?}", frame);
-                return Ok(frame.freeze());
-            }
-
-            // Read more data
-            match stream.read(&mut temp_buf).await {
-                Ok(n) if n > 0 => {
-                    buffer.extend_from_slice(&temp_buf[..n]);
-                    trace!("Read {} bytes from TCP", n);
-                }
-                Ok(_) => {
-                    return Err(Error::ConnectionClosed);
-                }
-                Err(e) => {
-                    return Err(Error::TransportError(
-                        format!("TCP read error: {}", e).into(),
-                    ));
-                }
-            }
-        }
     }
 }
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "async")]
 impl crate::transport::AsyncTransport for AsyncRawTcpTransport {
     async fn send(&self, bytes: &[u8]) -> Result<()> {
-        use tokio::io::AsyncWriteExt;
+        let inner = self.inner.clone();
+        let bytes = bytes.to_vec();
 
-        let start_time = Instant::now();
-        let mut attempt = 0;
-        let mut last_error = None;
-
-        while self.retry_config.should_retry(attempt, start_time) {
-            let mut stream = self.stream.lock().await;
-
-            let result: Result<()> =
-                async {
-                    stream.write_all(bytes).await.map_err(|e| {
-                        Error::TransportError(format!("TCP write error: {}", e).into())
-                    })?;
-                    stream.flush().await.map_err(|e| {
-                        Error::TransportError(format!("TCP flush error: {}", e).into())
-                    })?;
-                    trace!("Sent {} bytes: {:02X?}", bytes.len(), bytes);
-                    Ok(())
-                }
-                .await;
-
-            match result {
-                Ok(()) => return Ok(()),
-                Err(e) if e.is_retryable() => {
-                    attempt += 1;
-
-                    if self.retry_config.should_retry(attempt, start_time) {
-                        let delay = self
-                            .retry_config
-                            .calculate_delay(attempt, e.suggested_retry_delay());
-                        debug!(
-                            "Retrying send after {:?} (attempt {}/{})",
-                            delay, attempt, self.retry_config.max_retries
-                        );
-                        tokio::time::sleep(delay).await;
-                    }
-                    last_error = Some(e);
-                }
-                Err(e) => return Err(e),
-            }
+        // Use spawn_blocking to run the blocking send in a thread pool
+        #[cfg(feature = "rt-tokio")]
+        {
+            tokio::task::spawn_blocking(move || inner.send_blocking(&bytes))
+                .await
+                .map_err(|e| Error::TransportError(format!("Async send error: {e}").into()))?
         }
 
-        Err(last_error.unwrap_or(Error::Timeout))
+        #[cfg(all(feature = "rt-async-std", not(feature = "rt-tokio")))]
+        {
+            async_std::task::spawn_blocking(move || inner.send_blocking(&bytes)).await
+        }
+
+        #[cfg(all(
+            feature = "rt-smol",
+            not(feature = "rt-tokio"),
+            not(feature = "rt-async-std")
+        ))]
+        {
+            smol::unblock(move || inner.send_blocking(&bytes)).await
+        }
+
+        #[cfg(all(
+            feature = "async",
+            not(feature = "rt-tokio"),
+            not(feature = "rt-async-std"),
+            not(feature = "rt-smol")
+        ))]
+        {
+            std::thread::spawn(move || inner.send_blocking(&bytes))
+                .join()
+                .map_err(|_| Error::Io(std::io::Error::other("Thread panicked")))?
+        }
     }
 
     async fn recv(&self) -> Result<Bytes> {
-        let start_time = Instant::now();
-        let mut attempt = 0;
-        let mut last_error = None;
+        let inner = self.inner.clone();
 
-        while self.retry_config.should_retry(attempt, start_time) {
-            match self.recv_frame().await {
-                Ok(bytes) => return Ok(bytes),
-                Err(e) if e.is_retryable() => {
-                    attempt += 1;
-
-                    if self.retry_config.should_retry(attempt, start_time) {
-                        let delay = self
-                            .retry_config
-                            .calculate_delay(attempt, e.suggested_retry_delay());
-                        debug!(
-                            "Retrying recv after {:?} (attempt {}/{})",
-                            delay, attempt, self.retry_config.max_retries
-                        );
-                        tokio::time::sleep(delay).await;
-                    }
-                    last_error = Some(e);
-                }
-                Err(e) => return Err(e),
-            }
+        // Use spawn_blocking to run the blocking recv in a thread pool
+        #[cfg(feature = "rt-tokio")]
+        {
+            tokio::task::spawn_blocking(move || inner.recv_blocking())
+                .await
+                .map_err(|e| Error::TransportError(format!("Async recv error: {e}").into()))?
         }
 
-        Err(last_error.unwrap_or(Error::Timeout))
+        #[cfg(all(feature = "rt-async-std", not(feature = "rt-tokio")))]
+        {
+            async_std::task::spawn_blocking(move || inner.recv_blocking()).await
+        }
+
+        #[cfg(all(
+            feature = "rt-smol",
+            not(feature = "rt-tokio"),
+            not(feature = "rt-async-std")
+        ))]
+        {
+            smol::unblock(move || inner.recv_blocking()).await
+        }
+
+        #[cfg(all(
+            feature = "async",
+            not(feature = "rt-tokio"),
+            not(feature = "rt-async-std"),
+            not(feature = "rt-smol")
+        ))]
+        {
+            std::thread::spawn(move || inner.recv_blocking())
+                .join()
+                .map_err(|_| Error::Io(std::io::Error::other("Thread panicked")))?
+        }
     }
 }
 
-/// Async raw UDP transport using tokio.
-#[cfg(feature = "rt-tokio")]
-#[derive(Debug)]
+/// Async raw UDP transport using AsyncWrapper.
+///
+/// This transport wraps the blocking RawUdpTransport to provide async operations
+/// while reusing all the buffer management, retry logic, packet loss handling,
+/// and error handling from the blocking implementation.
+#[cfg(feature = "async")]
+#[derive(Clone, Debug)]
 pub struct AsyncRawUdpTransport {
-    socket: Arc<tokio::net::UdpSocket>,
-    read_buffer: Arc<tokio::sync::Mutex<BytesMut>>,
-    retry_config: RetryConfig,
-    last_sent_command: Arc<tokio::sync::Mutex<Option<Vec<u8>>>>,
+    inner: Arc<RawUdpTransport>,
 }
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "async")]
 impl AsyncRawUdpTransport {
     /// Connect to a camera via raw UDP.
+    ///
+    /// Creates a blocking transport and wraps it for async usage.
+    /// The blocking transport handles all UDP-specific concerns like
+    /// packet loss and automatic resending.
     pub async fn connect(config: RawIpConfig) -> Result<Self> {
-        let addr = config
-            .address
-            .parse::<SocketAddr>()
-            .map_err(|e| Error::TransportError(format!("Invalid address: {}", e).into()))?;
-
-        debug!("Connecting to {} via raw UDP", addr);
-
-        let socket = tokio::net::UdpSocket::bind("0.0.0.0:0")
+        // Create blocking transport in a blocking task
+        #[cfg(feature = "rt-tokio")]
+        let transport = tokio::task::spawn_blocking(move || RawUdpTransport::connect(config))
             .await
-            .map_err(|e| Error::TransportError(format!("UDP bind failed: {}", e).into()))?;
+            .map_err(|e| {
+                Error::TransportError(format!("Failed to spawn blocking task: {e}").into())
+            })??;
 
-        socket
-            .connect(addr)
-            .await
-            .map_err(|e| Error::TransportError(format!("UDP connect failed: {}", e).into()))?;
+        #[cfg(all(feature = "rt-async-std", not(feature = "rt-tokio")))]
+        let transport =
+            async_std::task::spawn_blocking(move || RawUdpTransport::connect(config)).await?;
 
-        debug!("Connected to {}", addr);
+        #[cfg(all(
+            feature = "rt-smol",
+            not(feature = "rt-tokio"),
+            not(feature = "rt-async-std")
+        ))]
+        let transport = smol::unblock(move || RawUdpTransport::connect(config)).await?;
+
+        #[cfg(all(
+            feature = "async",
+            not(feature = "rt-tokio"),
+            not(feature = "rt-async-std"),
+            not(feature = "rt-smol")
+        ))]
+        let transport = std::thread::spawn(move || RawUdpTransport::connect(config))
+            .join()
+            .map_err(|_| Error::Io(std::io::Error::other("Thread panicked")))??;
 
         Ok(Self {
-            socket: Arc::new(socket),
-            read_buffer: Arc::new(tokio::sync::Mutex::new(BytesMut::with_capacity(256))),
-            retry_config: config.retry_config,
-            last_sent_command: Arc::new(tokio::sync::Mutex::new(None)),
+            inner: Arc::new(transport),
         })
-    }
-
-    /// Receive a complete VISCA frame.
-    async fn recv_frame(&self) -> Result<Bytes> {
-        let mut buffer = self.read_buffer.lock().await;
-        let mut temp_buf = [0u8; 1500]; // UDP MTU
-
-        loop {
-            // Check if we have a complete frame in the buffer
-            if let Some(pos) = buffer.iter().position(|&b| b == VISCA_TERMINATOR) {
-                let frame = buffer.split_to(pos + 1);
-                trace!("Received frame: {:02X?}", frame);
-                return Ok(frame.freeze());
-            }
-
-            // Read more data
-            match self.socket.recv(&mut temp_buf).await {
-                Ok(n) if n > 0 => {
-                    buffer.extend_from_slice(&temp_buf[..n]);
-                    trace!("Read {} bytes from UDP", n);
-                }
-                Ok(_) => {
-                    return Err(Error::Timeout);
-                }
-                Err(e) => {
-                    return Err(Error::TransportError(
-                        format!("UDP read error: {}", e).into(),
-                    ));
-                }
-            }
-        }
     }
 }
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "async")]
 impl crate::transport::AsyncTransport for AsyncRawUdpTransport {
     async fn send(&self, bytes: &[u8]) -> Result<()> {
-        let start_time = Instant::now();
-        let mut attempt = 0;
-        let mut last_error = None;
+        let inner = self.inner.clone();
+        let bytes = bytes.to_vec();
 
-        // Store command for potential resend on receive timeout
+        // Use spawn_blocking to run the blocking send in a thread pool
+        // The blocking implementation handles all UDP-specific concerns
+        #[cfg(feature = "rt-tokio")]
         {
-            let mut last_cmd = self.last_sent_command.lock().await;
-            *last_cmd = Some(bytes.to_vec());
+            tokio::task::spawn_blocking(move || inner.send_blocking(&bytes))
+                .await
+                .map_err(|e| Error::TransportError(format!("Async send error: {e}").into()))?
         }
 
-        while self.retry_config.should_retry(attempt, start_time) {
-            match self.socket.send(bytes).await {
-                Ok(_) => {
-                    trace!("Sent {} bytes: {:02X?}", bytes.len(), bytes);
-                    return Ok(());
-                }
-                Err(e) => {
-                    let error = Error::TransportError(format!("UDP send error: {}", e).into());
-                    if error.is_retryable() {
-                        attempt += 1;
-
-                        if self.retry_config.should_retry(attempt, start_time) {
-                            let delay = self
-                                .retry_config
-                                .calculate_delay(attempt, error.suggested_retry_delay());
-                            debug!(
-                                "Retrying UDP send after {:?} (attempt {}/{})",
-                                delay, attempt, self.retry_config.max_retries
-                            );
-                            tokio::time::sleep(delay).await;
-                        }
-                        last_error = Some(error);
-                    } else {
-                        return Err(error);
-                    }
-                }
-            }
+        #[cfg(all(feature = "rt-async-std", not(feature = "rt-tokio")))]
+        {
+            async_std::task::spawn_blocking(move || inner.send_blocking(&bytes)).await
         }
 
-        Err(last_error.unwrap_or(Error::Timeout))
+        #[cfg(all(
+            feature = "rt-smol",
+            not(feature = "rt-tokio"),
+            not(feature = "rt-async-std")
+        ))]
+        {
+            smol::unblock(move || inner.send_blocking(&bytes)).await
+        }
+
+        #[cfg(all(
+            feature = "async",
+            not(feature = "rt-tokio"),
+            not(feature = "rt-async-std"),
+            not(feature = "rt-smol")
+        ))]
+        {
+            std::thread::spawn(move || inner.send_blocking(&bytes))
+                .join()
+                .map_err(|_| Error::Io(std::io::Error::other("Thread panicked")))?
+        }
     }
 
     async fn recv(&self) -> Result<Bytes> {
-        let start_time = Instant::now();
-        let mut attempt = 0;
-        let mut last_error = None;
+        let inner = self.inner.clone();
 
-        while self.retry_config.should_retry(attempt, start_time) {
-            match self.recv_frame().await {
-                Ok(bytes) => return Ok(bytes),
-                Err(Error::Timeout) => {
-                    // On timeout, resend the last command (handle packet loss)
-                    if let Some(last_cmd) = &*self.last_sent_command.lock().await {
-                        debug!("Receive timeout, resending last command");
-                        if let Err(e) = self.socket.send(last_cmd).await {
-                            warn!("Failed to resend command: {}", e);
-                        }
-                    }
-
-                    attempt += 1;
-
-                    if self.retry_config.should_retry(attempt, start_time) {
-                        let delay = self
-                            .retry_config
-                            .calculate_delay(attempt, Some(Duration::from_millis(200)));
-                        debug!(
-                            "Retrying UDP recv after {:?} (attempt {}/{})",
-                            delay, attempt, self.retry_config.max_retries
-                        );
-                        tokio::time::sleep(delay).await;
-                    }
-                    last_error = Some(Error::Timeout);
-                }
-                Err(e) if e.is_retryable() => {
-                    attempt += 1;
-
-                    if self.retry_config.should_retry(attempt, start_time) {
-                        let delay = self
-                            .retry_config
-                            .calculate_delay(attempt, e.suggested_retry_delay());
-                        debug!(
-                            "Retrying UDP recv after {:?} (attempt {}/{})",
-                            delay, attempt, self.retry_config.max_retries
-                        );
-                        tokio::time::sleep(delay).await;
-                    }
-                    last_error = Some(e);
-                }
-                Err(e) => return Err(e),
-            }
+        // Use spawn_blocking to run the blocking recv in a thread pool
+        // The blocking implementation handles packet loss and resending
+        #[cfg(feature = "rt-tokio")]
+        {
+            tokio::task::spawn_blocking(move || inner.recv_blocking())
+                .await
+                .map_err(|e| Error::TransportError(format!("Async recv error: {e}").into()))?
         }
 
-        Err(last_error.unwrap_or(Error::Timeout))
+        #[cfg(all(feature = "rt-async-std", not(feature = "rt-tokio")))]
+        {
+            async_std::task::spawn_blocking(move || inner.recv_blocking()).await
+        }
+
+        #[cfg(all(
+            feature = "rt-smol",
+            not(feature = "rt-tokio"),
+            not(feature = "rt-async-std")
+        ))]
+        {
+            smol::unblock(move || inner.recv_blocking()).await
+        }
+
+        #[cfg(all(
+            feature = "async",
+            not(feature = "rt-tokio"),
+            not(feature = "rt-async-std"),
+            not(feature = "rt-smol")
+        ))]
+        {
+            std::thread::spawn(move || inner.recv_blocking())
+                .join()
+                .map_err(|_| Error::Io(std::io::Error::other("Thread panicked")))?
+        }
     }
 }
 

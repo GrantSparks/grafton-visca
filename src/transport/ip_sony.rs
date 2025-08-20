@@ -79,26 +79,26 @@ impl SonyTcpTransport {
         let resolver = AddressResolver::new();
         let addr = resolver
             .resolve_first(&config.address)
-            .map_err(|e| Error::TransportError(format!("Invalid address: {}", e).into()))?;
+            .map_err(|e| Error::TransportError(format!("Invalid address: {e}").into()))?;
 
-        debug!("Connecting to {} via Sony TCP", addr);
+        debug!("Connecting to {addr} via Sony TCP");
 
         let stream = std::net::TcpStream::connect_timeout(&addr, config.connect_timeout)
-            .map_err(|e| Error::TransportError(format!("TCP connect failed: {}", e).into()))?;
+            .map_err(|e| Error::TransportError(format!("TCP connect failed: {e}").into()))?;
 
         stream
             .set_read_timeout(Some(config.read_timeout))
             .map_err(|e| {
-                Error::TransportError(format!("Failed to set read timeout: {}", e).into())
+                Error::TransportError(format!("Failed to set read timeout: {e}").into())
             })?;
 
         stream
             .set_write_timeout(Some(config.write_timeout))
             .map_err(|e| {
-                Error::TransportError(format!("Failed to set write timeout: {}", e).into())
+                Error::TransportError(format!("Failed to set write timeout: {e}").into())
             })?;
 
-        debug!("Connected to {}", addr);
+        debug!("Connected to {addr}");
 
         // Create buffer manager with Sony IP optimized sizes
         let buffer_manager = Arc::new(BufferManager::new(BufferConfig::for_sony_ip()));
@@ -139,10 +139,10 @@ impl SonyTcpTransport {
             .map_err(|_| Error::LockPoisoned("transport mutex"))?;
         stream
             .write_all(&packet)
-            .map_err(|e| Error::TransportError(format!("TCP write error: {}", e).into()))?;
+            .map_err(|e| Error::TransportError(format!("TCP write error: {e}").into()))?;
         stream
             .flush()
-            .map_err(|e| Error::TransportError(format!("TCP flush error: {}", e).into()))?;
+            .map_err(|e| Error::TransportError(format!("TCP flush error: {e}").into()))?;
 
         trace!(
             "Sent packet with seq {}: header={:02X?} payload={:02X?}",
@@ -211,7 +211,7 @@ impl SonyTcpTransport {
             match stream.read(&mut temp_buf) {
                 Ok(n) if n > 0 => {
                     buffer.extend_from_slice(&temp_buf[..n]);
-                    trace!("Read {} bytes from TCP", n);
+                    trace!("Read {n} bytes from TCP");
                 }
                 Ok(_) => {
                     return Err(Error::ConnectionClosed);
@@ -220,9 +220,7 @@ impl SonyTcpTransport {
                     return Err(Error::Timeout);
                 }
                 Err(e) => {
-                    return Err(Error::TransportError(
-                        format!("TCP read error: {}", e).into(),
-                    ));
+                    return Err(Error::TransportError(format!("TCP read error: {e}").into()));
                 }
             }
         }
@@ -250,12 +248,11 @@ impl SonyTcpTransport {
                 drop(pending); // Release lock before sending
 
                 warn!(
-                    "Retrying command (old seq: {}, new seq: {}, attempt {})",
-                    old_sequence, new_sequence, retry_count
+                    "Retrying command (old seq: {old_sequence}, new seq: {new_sequence}, attempt {retry_count})"
                 );
                 self.send_with_header(&bytes, new_sequence)?;
             } else {
-                error!("Max retries exceeded for seq {}", old_sequence);
+                error!("Max retries exceeded for seq {old_sequence}");
                 return Err(Error::MaxRetriesExceeded);
             }
         }
@@ -274,7 +271,7 @@ impl SonyTcpTransport {
 
         pending.retain(|seq, cmd| {
             if now.duration_since(cmd.sent_at) > timeout {
-                warn!("Command seq {} timed out", seq);
+                warn!("Command seq {seq} timed out");
                 false
             } else {
                 true
@@ -371,10 +368,10 @@ impl BlockingTransport for SonyTcpTransport {
             .map_err(|_| Error::LockPoisoned("transport mutex"))?;
         let original_read_timeout = stream
             .read_timeout()
-            .map_err(|e| Error::TransportError(format!("Failed to get timeout: {}", e).into()))?;
+            .map_err(|e| Error::TransportError(format!("Failed to get timeout: {e}").into()))?;
         stream
             .set_read_timeout(Some(timeout))
-            .map_err(|e| Error::TransportError(format!("Failed to set timeout: {}", e).into()))?;
+            .map_err(|e| Error::TransportError(format!("Failed to set timeout: {e}").into()))?;
         drop(stream);
 
         let result = self.recv_blocking();
@@ -386,9 +383,7 @@ impl BlockingTransport for SonyTcpTransport {
             .map_err(|_| Error::LockPoisoned("transport mutex"))?;
         stream
             .set_read_timeout(original_read_timeout)
-            .map_err(|e| {
-                Error::TransportError(format!("Failed to restore timeout: {}", e).into())
-            })?;
+            .map_err(|e| Error::TransportError(format!("Failed to restore timeout: {e}").into()))?;
 
         result
     }
@@ -410,31 +405,31 @@ impl SonyUdpTransport {
         let resolver = AddressResolver::new();
         let addr = resolver
             .resolve_first(&config.address)
-            .map_err(|e| Error::TransportError(format!("Invalid address: {}", e).into()))?;
+            .map_err(|e| Error::TransportError(format!("Invalid address: {e}").into()))?;
 
-        debug!("Connecting to {} via Sony UDP", addr);
+        debug!("Connecting to {addr} via Sony UDP");
 
         let bind_addr = resolver.bind_address_for(&addr);
         let socket = std::net::UdpSocket::bind(bind_addr)
-            .map_err(|e| Error::TransportError(format!("UDP bind failed: {}", e).into()))?;
+            .map_err(|e| Error::TransportError(format!("UDP bind failed: {e}").into()))?;
 
         socket
             .connect(addr)
-            .map_err(|e| Error::TransportError(format!("UDP connect failed: {}", e).into()))?;
+            .map_err(|e| Error::TransportError(format!("UDP connect failed: {e}").into()))?;
 
         socket
             .set_read_timeout(Some(config.read_timeout))
             .map_err(|e| {
-                Error::TransportError(format!("Failed to set read timeout: {}", e).into())
+                Error::TransportError(format!("Failed to set read timeout: {e}").into())
             })?;
 
         socket
             .set_write_timeout(Some(config.write_timeout))
             .map_err(|e| {
-                Error::TransportError(format!("Failed to set write timeout: {}", e).into())
+                Error::TransportError(format!("Failed to set write timeout: {e}").into())
             })?;
 
-        debug!("Connected to {}", addr);
+        debug!("Connected to {addr}");
 
         // Create buffer manager with Sony IP optimized sizes
         let buffer_manager = Arc::new(BufferManager::new(BufferConfig::for_sony_ip()));
@@ -468,9 +463,9 @@ impl SonyUdpTransport {
         // Send packet
         self.socket
             .send(&packet)
-            .map_err(|e| Error::TransportError(format!("UDP send error: {}", e).into()))?;
+            .map_err(|e| Error::TransportError(format!("UDP send error: {e}").into()))?;
 
-        trace!("Sent UDP packet with seq {}: {:02X?}", sequence, packet);
+        trace!("Sent UDP packet with seq {sequence}: {packet:02X?}");
 
         Ok(())
     }
@@ -517,19 +512,17 @@ impl SonyUdpTransport {
                     Ok((header, payload))
                 } else {
                     Err(Error::InvalidResponse {
-                        expected: format!("Sony frame with {} byte payload", payload_length).into(),
+                        expected: format!("Sony frame with {payload_length} byte payload").into(),
                         actual: format!("Only {} bytes received", n - SonyHeader::SIZE).into(),
                     })
                 }
             }
             Ok(n) => Err(Error::InvalidResponse {
                 expected: "Sony encapsulated frame".into(),
-                actual: format!("Short packet ({} bytes)", n).into(),
+                actual: format!("Short packet ({n} bytes)").into(),
             }),
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Err(Error::Timeout),
-            Err(e) => Err(Error::TransportError(
-                format!("UDP read error: {}", e).into(),
-            )),
+            Err(e) => Err(Error::TransportError(format!("UDP read error: {e}").into())),
         }
     }
 }
@@ -609,8 +602,8 @@ impl BlockingTransport for SonyUdpTransport {
                         let new_seq = self.sequence.fetch_add(1, Ordering::SeqCst);
 
                         warn!(
-                            "Retrying UDP command (old seq {}, new seq {}, attempt {})",
-                            old_seq, new_seq, cmd.retries
+                            "Retrying UDP command (old seq {old_seq}, new seq {new_seq}, attempt {})",
+                            cmd.retries
                         );
 
                         self.send_with_header(&cmd.bytes, new_seq)?;
@@ -639,19 +632,17 @@ impl BlockingTransport for SonyUdpTransport {
         let original_read_timeout = self
             .socket
             .read_timeout()
-            .map_err(|e| Error::TransportError(format!("Failed to get timeout: {}", e).into()))?;
+            .map_err(|e| Error::TransportError(format!("Failed to get timeout: {e}").into()))?;
         self.socket
             .set_read_timeout(Some(timeout))
-            .map_err(|e| Error::TransportError(format!("Failed to set timeout: {}", e).into()))?;
+            .map_err(|e| Error::TransportError(format!("Failed to set timeout: {e}").into()))?;
 
         let result = self.recv_blocking();
 
         // Restore original timeout
         self.socket
             .set_read_timeout(original_read_timeout)
-            .map_err(|e| {
-                Error::TransportError(format!("Failed to restore timeout: {}", e).into())
-            })?;
+            .map_err(|e| Error::TransportError(format!("Failed to restore timeout: {e}").into()))?;
 
         result
     }
@@ -666,6 +657,100 @@ pub fn create_transport(config: SonyIpConfig) -> Result<Box<dyn BlockingTranspor
     }
 }
 
+// Async implementations
+
+#[cfg(feature = "async")]
+use crate::transport::async_wrapper::AsyncWrapper;
+
+/// Async Sony TCP transport using AsyncWrapper.
+///
+/// This transport wraps the blocking SonyTcpTransport to provide async operations
+/// while reusing all the sequence number management, buffer handling,
+/// and Sony-specific protocol logic from the blocking implementation.
+#[cfg(feature = "async")]
+pub type AsyncSonyTcpTransport = AsyncWrapper<SonyTcpTransport>;
+
+#[cfg(feature = "async")]
+impl AsyncSonyTcpTransport {
+    /// Connect to a camera via Sony encapsulated TCP.
+    pub async fn connect(config: SonyIpConfig) -> Result<Self> {
+        // Create blocking transport in a blocking task
+        #[cfg(feature = "rt-tokio")]
+        let transport = tokio::task::spawn_blocking(move || SonyTcpTransport::connect(config))
+            .await
+            .map_err(|e| {
+                Error::TransportError(format!("Failed to spawn blocking task: {e}").into())
+            })??;
+
+        #[cfg(all(feature = "rt-async-std", not(feature = "rt-tokio")))]
+        let transport =
+            async_std::task::spawn_blocking(move || SonyTcpTransport::connect(config)).await?;
+
+        #[cfg(all(
+            feature = "rt-smol",
+            not(feature = "rt-tokio"),
+            not(feature = "rt-async-std")
+        ))]
+        let transport = smol::unblock(move || SonyTcpTransport::connect(config)).await?;
+
+        #[cfg(all(
+            feature = "async",
+            not(feature = "rt-tokio"),
+            not(feature = "rt-async-std"),
+            not(feature = "rt-smol")
+        ))]
+        let transport = std::thread::spawn(move || SonyTcpTransport::connect(config))
+            .join()
+            .map_err(|_| Error::Io(std::io::Error::other("Thread panicked")))??;
+
+        Ok(AsyncWrapper::new(transport))
+    }
+}
+
+/// Async Sony UDP transport using AsyncWrapper.
+///
+/// This transport wraps the blocking SonyUdpTransport to provide async operations
+/// while reusing all the sequence number management, buffer handling,
+/// and Sony-specific protocol logic from the blocking implementation.
+#[cfg(feature = "async")]
+pub type AsyncSonyUdpTransport = AsyncWrapper<SonyUdpTransport>;
+
+#[cfg(feature = "async")]
+impl AsyncSonyUdpTransport {
+    /// Connect to a camera via Sony encapsulated UDP.
+    pub async fn connect(config: SonyIpConfig) -> Result<Self> {
+        // Create blocking transport in a blocking task
+        #[cfg(feature = "rt-tokio")]
+        let transport = tokio::task::spawn_blocking(move || SonyUdpTransport::connect(config))
+            .await
+            .map_err(|e| {
+                Error::TransportError(format!("Failed to spawn blocking task: {e}").into())
+            })??;
+
+        #[cfg(all(feature = "rt-async-std", not(feature = "rt-tokio")))]
+        let transport =
+            async_std::task::spawn_blocking(move || SonyUdpTransport::connect(config)).await?;
+
+        #[cfg(all(
+            feature = "rt-smol",
+            not(feature = "rt-tokio"),
+            not(feature = "rt-async-std")
+        ))]
+        let transport = smol::unblock(move || SonyUdpTransport::connect(config)).await?;
+
+        #[cfg(all(
+            feature = "async",
+            not(feature = "rt-tokio"),
+            not(feature = "rt-async-std"),
+            not(feature = "rt-smol")
+        ))]
+        let transport = std::thread::spawn(move || SonyUdpTransport::connect(config))
+            .join()
+            .map_err(|_| Error::Io(std::io::Error::other("Thread panicked")))??;
+
+        Ok(AsyncWrapper::new(transport))
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -684,95 +769,5 @@ mod tests {
         assert_eq!(header.payload_type, PayloadType::ViscaCommand);
         assert_eq!(header.payload_length, 5);
         assert_eq!(header.sequence_number, 42);
-    }
-}
-
-// Async implementations
-
-/// Async Sony TCP transport.
-#[cfg(feature = "rt-tokio")]
-#[derive(Clone, Debug)]
-pub struct AsyncSonyTcpTransport {
-    inner: Arc<SonyTcpTransport>,
-}
-
-#[cfg(feature = "rt-tokio")]
-impl AsyncSonyTcpTransport {
-    /// Connect to a camera via Sony encapsulated TCP.
-    pub async fn connect(config: SonyIpConfig) -> Result<Self> {
-        // Create blocking transport in a blocking task
-        let transport = tokio::task::spawn_blocking(move || SonyTcpTransport::connect(config))
-            .await
-            .map_err(|e| {
-                Error::TransportError(format!("Failed to spawn blocking task: {}", e).into())
-            })??;
-
-        Ok(Self {
-            inner: Arc::new(transport),
-        })
-    }
-}
-
-#[cfg(feature = "rt-tokio")]
-impl crate::transport::AsyncTransport for AsyncSonyTcpTransport {
-    async fn send(&self, bytes: &[u8]) -> Result<()> {
-        let inner = self.inner.clone();
-        let bytes = bytes.to_vec();
-
-        tokio::task::spawn_blocking(move || inner.send_blocking(&bytes))
-            .await
-            .map_err(|e| Error::TransportError(format!("Async send error: {}", e).into()))?
-    }
-
-    async fn recv(&self) -> Result<Bytes> {
-        let inner = self.inner.clone();
-
-        tokio::task::spawn_blocking(move || inner.recv_blocking())
-            .await
-            .map_err(|e| Error::TransportError(format!("Async recv error: {}", e).into()))?
-    }
-}
-
-/// Async Sony UDP transport.
-#[cfg(feature = "rt-tokio")]
-#[derive(Clone, Debug)]
-pub struct AsyncSonyUdpTransport {
-    inner: Arc<SonyUdpTransport>,
-}
-
-#[cfg(feature = "rt-tokio")]
-impl AsyncSonyUdpTransport {
-    /// Connect to a camera via Sony encapsulated UDP.
-    pub async fn connect(config: SonyIpConfig) -> Result<Self> {
-        // Create blocking transport in a blocking task
-        let transport = tokio::task::spawn_blocking(move || SonyUdpTransport::connect(config))
-            .await
-            .map_err(|e| {
-                Error::TransportError(format!("Failed to spawn blocking task: {}", e).into())
-            })??;
-
-        Ok(Self {
-            inner: Arc::new(transport),
-        })
-    }
-}
-
-#[cfg(feature = "rt-tokio")]
-impl crate::transport::AsyncTransport for AsyncSonyUdpTransport {
-    async fn send(&self, bytes: &[u8]) -> Result<()> {
-        let inner = self.inner.clone();
-        let bytes = bytes.to_vec();
-
-        tokio::task::spawn_blocking(move || inner.send_blocking(&bytes))
-            .await
-            .map_err(|e| Error::TransportError(format!("Async send error: {}", e).into()))?
-    }
-
-    async fn recv(&self) -> Result<Bytes> {
-        let inner = self.inner.clone();
-
-        tokio::task::spawn_blocking(move || inner.recv_blocking())
-            .await
-            .map_err(|e| Error::TransportError(format!("Async recv error: {}", e).into()))?
     }
 }
