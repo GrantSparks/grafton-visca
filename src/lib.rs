@@ -36,6 +36,7 @@
 //! - **Comprehensive Inquiry**: Query camera state for all supported features
 //! - **Transport Abstraction**: Implement your own transport (TCP, UDP, serial, etc.)
 //! - **Builder Patterns**: Create custom camera profiles for any VISCA camera
+//! - **Clean API Separation**: Choose blocking OR async at compile time - no mixed dependencies
 //! - **Runtime-Agnostic Async**: Optional async support works with ANY runtime (tokio, async-std, smol, etc.)
 //!
 //! ## Quick Start
@@ -277,12 +278,19 @@
 //!
 //! ### Blocking vs Async Mode
 //!
-//! The library enforces a clear separation between blocking and async modes:
+//! The library provides a clean separation between blocking and async APIs:
 //!
-//! - **Blocking mode** (default): No runtime needed, uses synchronous I/O
-//! - **Async mode** (`async` feature): REQUIRES runtime configuration
+//! - **Blocking mode** (default): No async dependencies, uses synchronous I/O
+//!   - When no features are enabled, only blocking types are available
+//!   - Zero async runtime overhead or dependencies
 //!
-//! You cannot use both modes simultaneously - choose one at compile time via features.
+//! - **Async mode** (`async` feature): Native async implementation
+//!   - When `async` feature is enabled, blocking types are NOT exported
+//!   - Provides true async I/O without blocking thread pools
+//!   - REQUIRES runtime configuration (see Async Support section above)
+//!
+//! The API surface changes based on your feature selection - you get either blocking
+//! OR async types, never both. This ensures a clean, focused API for your use case.
 //!
 //! ## Supported Commands
 //!

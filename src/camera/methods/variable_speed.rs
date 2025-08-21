@@ -10,7 +10,6 @@ use crate::{
 
 /// Async methods for variable speed mode control.
 #[cfg(feature = "async")]
-#[allow(async_fn_in_trait)]
 pub trait VariableSpeedControl {
     /// Set the variable speed mode (24-step or 50-step).
     ///

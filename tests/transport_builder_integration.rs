@@ -198,24 +198,6 @@ fn test_builder_validation() {
     // Missing address
     let result = TransportBuilder::tcp().build();
     assert!(matches!(result, Err(Error::InvalidParameter { .. })));
-
-    // Test async wrapper only when async feature is enabled
-    #[cfg(feature = "async")]
-    {
-        // Start a mock TCP server for the async wrapper test
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
-
-        // Spawn server thread to accept connection
-        thread::spawn(move || {
-            let _ = listener.accept(); // Just accept the connection
-        });
-
-        let builder = TransportBuilder::tcp().address(addr.to_string());
-        let wrapper_result = builder.build_async_wrapper();
-        // Should succeed - wrapping blocking transport in async wrapper
-        assert!(wrapper_result.is_ok());
-    }
 }
 
 /// Test extension trait
@@ -228,24 +210,6 @@ fn test_transport_builder_extension_trait() {
     let _udp_builder = Udp::builder();
 
     // The fact that these compile verifies the extension trait is working
-}
-
-#[cfg(feature = "async")]
-#[test]
-fn test_async_wrapper_builder() {
-    let builder = TransportBuilder::tcp()
-        .address("192.168.0.110:5678")
-        .connect_timeout(Duration::from_millis(100)) // Very short timeout
-        .max_retries(5);
-
-    // This should try to create an AsyncWrapper around a blocking transport
-    // But it will fail because build() is called first, which tries to connect
-    let async_wrapper = builder.build_async_wrapper();
-
-    // The connection should fail or timeout
-    // If the test environment has 192.168.0.110 routable, this might succeed
-    // So we just test that the method exists and compiles
-    let _ = async_wrapper; // Don't assert on the result
 }
 
 /// Test that all configurations are properly applied

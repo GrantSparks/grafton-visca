@@ -1,16 +1,21 @@
-//! Runtime-agnostic async example demonstrating multiple runtime support.
+//! Runtime-agnostic async example showing how to bring your own runtime.
 //!
-//! This example shows how the library can be used with different async runtimes:
+//! This example demonstrates:
+//! 1. How to implement the Executor trait for a custom runtime
+//! 2. How to use the library without depending on any specific runtime
+//! 3. How to create your own AsyncTransport implementation
+//!
+//! The library provides built-in executors for common runtimes:
 //! - tokio (with --features rt-tokio)
 //! - async-std (with --features rt-async-std)  
 //! - smol (with --features rt-smol)
-//! - custom runtime implementations
+//!
+//! But you can use ANY runtime by implementing the Executor trait!
 //!
 //! Run with:
 //! ```sh
+//! cargo run --example runtime_agnostic --features async
 //! cargo run --example runtime_agnostic --features rt-tokio
-//! cargo run --example runtime_agnostic --features rt-async-std
-//! cargo run --example runtime_agnostic --features rt-smol
 //! ```
 
 #[cfg(feature = "async")]
@@ -35,51 +40,74 @@ fn main() {
 
     println!();
 
-    // Define a custom executor implementation
+    // Example: Implement a custom executor for your runtime
+    // This shows the minimal interface you need to implement
     #[derive(Debug, Clone)]
-    struct CustomExecutor;
+    struct MyCustomExecutor;
 
-    impl Executor for CustomExecutor {
+    impl Executor for MyCustomExecutor {
         type Join<T>
             = Pin<Box<dyn Future<Output = Result<T, grafton_visca::ExecError>> + Send + 'static>>
         where
             T: Send + 'static;
 
-        fn spawn<F>(&self, _future: F) -> Self::Join<F::Output>
+        fn spawn<F>(&self, future: F) -> Self::Join<F::Output>
         where
             F: Future + Send + 'static,
             F::Output: Send + 'static,
         {
-            // In a real implementation, this would spawn on your runtime
+            // Example: If using async-std, you would do:
+            // let handle = async_std::task::spawn(future);
+            // Box::pin(async move {
+            //     Ok(handle.await)
+            // })
+
+            // For this demo, we return a stub
+            let _ = future;
             Box::pin(async {
                 Err(grafton_visca::ExecError::TaskFailed(
-                    "Not implemented".into(),
+                    "Demo executor - implement spawn() for your runtime".into(),
                 ))
             })
         }
 
-        fn block_on<F: Future>(&self, _future: F) -> F::Output {
-            // In a real implementation, this would block on your runtime
-            panic!("block_on not implemented for demo executor")
+        fn block_on<F: Future>(&self, future: F) -> F::Output {
+            // Example: If using async-std, you would do:
+            // async_std::task::block_on(future)
+
+            // For this demo, we panic
+            let _ = future;
+            panic!("Demo executor - implement block_on() for your runtime")
         }
 
-        fn sleep(&self, _duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-            // In a real implementation, this would use your runtime's sleep
-            Box::pin(async {
-                // Sleep would happen here
+        fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+            // Example: If using async-std, you would do:
+            // Box::pin(async_std::task::sleep(duration))
+
+            // For this demo, we return immediately
+            Box::pin(async move {
+                println!("  Would sleep for {:?}", duration);
             })
         }
 
         fn timeout<'a, F, T>(
             &'a self,
-            _duration: Duration,
-            _future: F,
+            duration: Duration,
+            future: F,
         ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'a>>
         where
             F: Future<Output = T> + Send + 'a,
             T: Send + 'a,
         {
-            // In a real implementation, this would use your runtime's timeout
+            // Example: If using async-std, you would do:
+            // Box::pin(async move {
+            //     async_std::future::timeout(duration, future)
+            //         .await
+            //         .map_err(|_| Error::Timeout)
+            // })
+
+            // For this demo, we return timeout error
+            let _ = (duration, future);
             Box::pin(async { Err(Error::Timeout) })
         }
     }
@@ -122,37 +150,68 @@ fn main() {
         let _ = executor;
     }
 
-    // Create a custom executor instance
-    let executor = CustomExecutor;
-
+    // Create an instance of your custom executor
+    let my_executor = MyCustomExecutor;
     println!("\n✅ Created custom executor implementation");
 
-    // Demonstrate that the library can be used with a custom executor
-    // The type system ensures that Camera can work with any executor
-    // This shows the API structure without requiring an actual transport
-    println!("\nThe Camera type accepts any executor:");
-    println!("  Camera::with_executor(transport, executor)");
-
-    // Show that we can reference the executor type
-    let _ = executor;
-
-    println!("✅ Demonstrated that Camera accepts custom executor");
+    // Example: How to create your own AsyncTransport
+    println!("\n📡 Custom AsyncTransport Example:");
+    println!("```rust");
+    println!("use grafton_visca::transport::AsyncTransport;");
+    println!("use bytes::Bytes;");
     println!();
-
-    println!("Key Points:");
-    println!("- The library does not require tokio for its executor abstraction");
-    println!("- You can provide your own Executor implementation");
-    println!("- The Executor trait requires spawn(), block_on(), sleep(), and timeout() methods");
-    println!("- All async operations will use your provided executor");
+    println!("struct MyCustomTransport {{ /* your fields */ }}");
     println!();
-
-    println!("To use with a real async runtime:");
-    println!("1. Implement the Executor trait for your runtime");
-    println!("2. Pass it to Camera::with_executor()");
-    println!("3. The camera will use your executor for all async operations");
+    println!("impl AsyncTransport for MyCustomTransport {{");
+    println!("    async fn send(&self, bytes: &[u8]) -> Result<()> {{");
+    println!("        // Send bytes using your async I/O");
+    println!("        Ok(())");
+    println!("    }}");
     println!();
+    println!("    async fn recv(&self) -> Result<Bytes> {{");
+    println!("        // Receive response using your async I/O");
+    println!("        Ok(Bytes::new())");
+    println!("    }}");
+    println!("}}");
+    println!("```");
 
-    println!("✅ Example completed successfully!");
+    // Show how it all comes together
+    println!("\n🔧 Putting It All Together:");
+    println!("```rust");
+    println!("// Create your transport");
+    println!("let transport = MyCustomTransport::new();");
+    println!();
+    println!("// Create your executor");
+    println!("let executor = MyCustomExecutor::new();");
+    println!();
+    println!("// Build the camera with your components");
+    println!("let camera = CameraBuilder::with_transport(transport)");
+    println!("    .executor(executor)");
+    println!("    .profile::<PtzOpticsG2>()");
+    println!("    .build()");
+    println!("    .await?;");
+    println!();
+    println!("// Use the camera - all async operations use YOUR runtime!");
+    println!("camera.power_on().await?;");
+    println!("camera.zoom_in().await?;");
+    println!("```");
+
+    println!("\n📚 Key Benefits:");
+    println!("✅ No forced runtime dependency");
+    println!("✅ Works with ANY async runtime (tokio, async-std, smol, embassy, etc.)");
+    println!("✅ Can integrate with embedded async runtimes");
+    println!("✅ Full control over async execution");
+
+    println!("\n💡 Tips:");
+    println!("- Start with a provided executor (rt-tokio) to test");
+    println!("- Look at TokioExecutor source for implementation example");
+    println!("- The spawn() method is used for background tasks");
+    println!("- The timeout() method is critical for camera operations");
+
+    // Show that we can reference the executor
+    let _ = my_executor;
+
+    println!("\n✅ Example completed successfully!");
 }
 
 #[cfg(not(feature = "async"))]

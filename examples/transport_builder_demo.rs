@@ -121,10 +121,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("     Created tokio UDP builder");
         println!("     Would connect with: .build_async().await");
 
-        // Example 7c: Async-wrapped blocking transport
-        println!("\n  7c. Async-wrapped blocking transport:");
-        println!("     Can wrap any blocking transport for async use");
-        println!("     Would create with: .build_async_wrapper()");
+        // Example 7c: Native async transports only
+        println!("\n  7c. Native async transports:");
+        println!("     All async transports are now native (no wrappers)");
+        println!("     Use .build_async().await for native async performance");
         println!();
     }
 

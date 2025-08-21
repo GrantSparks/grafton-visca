@@ -372,13 +372,17 @@ impl BlockingTransport for SerialTransport {
 /// Async serial transport implementation using tokio.
 #[cfg(feature = "rt-tokio")]
 #[derive(Debug)]
-pub struct AsyncSerialTransport {
+// AsyncSerialTransport is temporarily private until native async serial is implemented
+// TODO: Implement native async serial using tokio-serial behind rt-tokio-serial feature
+#[allow(dead_code)]
+struct AsyncSerialTransport {
     inner: Arc<SerialTransport>,
 }
 
 #[cfg(feature = "rt-tokio")]
 impl AsyncSerialTransport {
     /// Create a new async serial transport.
+    #[allow(dead_code)] // Will be used when serial support is made public
     pub async fn new(config: SerialConfig) -> Result<Self> {
         let inner = tokio::task::spawn_blocking(move || SerialTransport::new(config))
             .await

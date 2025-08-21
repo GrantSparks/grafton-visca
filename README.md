@@ -10,8 +10,9 @@ A production-ready, pure Rust implementation of the VISCA protocol for controlli
 ## Features
 
 - **Type-safe camera profiles** - Compile-time validation of camera capabilities
-- **Runtime-agnostic async** - Works with any async runtime or custom executor
+- **Clean API separation** - Choose blocking OR async at compile time
 - **Native blocking API** - Zero async dependencies when using blocking mode
+- **Runtime-agnostic async** - Works with any async runtime or custom executor
 - **Protocol-compliant** - Full VISCA protocol implementation with proper ACK/completion handling
 - **Comprehensive command coverage** - 100+ VISCA commands implemented
 - **Intelligent timeout management** - Automatic command categorization and deadline handling

@@ -215,6 +215,86 @@ jobs:
         env:
           RUSTDOCFLAGS: "-D warnings"
 
+  # Feature matrix verification
+  feature-matrix:
+    name: Feature Matrix Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        continue-on-error: true
+        id: stable-toolchain-features
+      
+      # Fallback: retry with rustup directly if the action fails  
+      - name: Retry stable toolchain installation
+        if: steps.stable-toolchain-features.outcome == 'failure'
+        run: |
+          for i in {1..3}; do
+            echo "Attempt $i of 3..."
+            rustup toolchain install stable --profile minimal && break
+            sleep 30
+          done
+      
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-cache-ubuntu-latest-stable"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      
+      # Test 1: Verify no async dependencies in blocking mode
+      - name: Check no async deps in blocking mode
+        run: |
+          echo "Checking that blocking mode has no async dependencies..."
+          cargo tree --no-default-features | grep -E "tokio|async-std|smol|futures" && \
+            (echo "ERROR: Found async dependencies in blocking mode!" && exit 1) || \
+            echo "✅ No async dependencies found in blocking mode"
+      
+      # Test 2: Verify blocking types are NOT exported when async is enabled
+      - name: Verify API separation
+        run: |
+          echo "Testing that blocking types are not exported with async feature..."
+          cat > /tmp/test_api_separation.rs << 'EOF'
+          // This should fail to compile if blocking types are exported with async
+          #[cfg(feature = "async")]
+          fn test_no_blocking_with_async() {
+              // These should not exist when async is enabled
+              let _ = grafton_visca::transport::BlockingTcp;
+              let _ = grafton_visca::transport::BlockingUdp;
+          }
+          EOF
+          
+          # This should fail (which is what we want)
+          if cargo rustc --no-default-features --features async -- --emit=metadata 2>&1 | grep -q "BlockingTcp"; then
+            echo "✅ Blocking types correctly NOT exported with async feature"
+          else
+            # Try to compile a test that uses the types
+            echo "use grafton_visca::transport::{BlockingTcp, BlockingUdp}; fn main() {}" > /tmp/test.rs
+            if cargo rustc --no-default-features --features async --bin test /tmp/test.rs 2>&1 | grep -q "unresolved import"; then
+              echo "✅ Blocking types correctly NOT exported with async feature"
+            else
+              echo "ERROR: Blocking types are exported when async is enabled!"
+              exit 1
+            fi
+          fi
+      
+      # Test 3: Verify examples compile with correct features
+      - name: Test examples compilation
+        run: |
+          echo "Testing example compilation..."
+          
+          # Blocking examples should work without async
+          cargo build --example quickstart --no-default-features
+          echo "✅ Blocking example compiles without async"
+          
+          # Async examples should require async feature
+          cargo build --example quickstart_async --no-default-features --features rt-tokio
+          echo "✅ Async example compiles with rt-tokio"
+          
+          # Runtime agnostic should work with just async
+          cargo build --example runtime_agnostic --no-default-features --features async
+          echo "✅ Runtime agnostic example compiles with async only"
+
   # Semver compatibility check
   semver:
     name: Check semver

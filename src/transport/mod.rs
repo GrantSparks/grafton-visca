@@ -43,8 +43,6 @@
 
 pub mod address;
 pub mod async_transport;
-#[cfg(feature = "async")]
-pub mod async_wrapper;
 pub mod blocking;
 pub mod blocking_transport;
 pub mod buffer;
@@ -64,8 +62,8 @@ use std::time::{Duration, Instant};
 
 #[cfg(feature = "async")]
 pub use async_transport::AsyncTransport;
-#[cfg(feature = "async")]
-pub use async_wrapper::{AsyncWrapper, AsyncWrapperExt};
+// Gate blocking exports so they only appear without async
+#[cfg(not(feature = "async"))]
 pub use blocking::{Tcp as BlockingTcp, Udp as BlockingUdp};
 pub use blocking_transport::BlockingTransport;
 

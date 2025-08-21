@@ -190,11 +190,8 @@ impl RuntimeHandle {
         address: impl AsRef<str>,
         executor: Arc<E>,
     ) -> Result<Self> {
-        let config = crate::transport::ip_raw::RawIpConfig {
-            address: address.as_ref().to_string(),
-            ..Default::default()
-        };
-        let transport = crate::transport::ip_raw::AsyncRawTcpTransport::connect(config).await?;
+        // Use native tokio TCP transport for raw VISCA
+        let transport = crate::transport::tokio::tcp::Tcp::connect(address.as_ref()).await?;
         Self::new(transport, executor).await
     }
 
@@ -206,11 +203,8 @@ impl RuntimeHandle {
         address: impl AsRef<str>,
         executor: Arc<E>,
     ) -> Result<Self> {
-        let config = crate::transport::ip_raw::RawIpConfig {
-            address: address.as_ref().to_string(),
-            ..Default::default()
-        };
-        let transport = crate::transport::ip_raw::AsyncRawUdpTransport::connect(config).await?;
+        // Use native tokio UDP transport for raw VISCA
+        let transport = crate::transport::tokio::udp::Udp::connect(address.as_ref()).await?;
         Self::new(transport, executor).await
     }
 
@@ -220,12 +214,8 @@ impl RuntimeHandle {
         address: impl AsRef<str>,
         executor: Arc<E>,
     ) -> Result<Self> {
-        let config = crate::transport::ip_sony::SonyIpConfig {
-            address: address.as_ref().to_string(),
-            use_tcp: true,
-            ..Default::default()
-        };
-        let transport = crate::transport::ip_sony::AsyncSonyTcpTransport::connect(config).await?;
+        // Use native tokio Sony TCP transport
+        let transport = crate::transport::tokio::sony::Tcp::connect(address.as_ref()).await?;
         Self::new(transport, executor).await
     }
 
@@ -235,30 +225,27 @@ impl RuntimeHandle {
         address: impl AsRef<str>,
         executor: Arc<E>,
     ) -> Result<Self> {
-        let config = crate::transport::ip_sony::SonyIpConfig {
-            address: address.as_ref().to_string(),
-            use_tcp: false,
-            ..Default::default()
-        };
-        let transport = crate::transport::ip_sony::AsyncSonyUdpTransport::connect(config).await?;
+        // Use native tokio Sony UDP transport
+        let transport = crate::transport::tokio::sony::Udp::connect(address.as_ref()).await?;
         Self::new(transport, executor).await
     }
 
-    /// Create a new camera runtime with serial transport.
-    #[cfg(all(feature = "async", feature = "serial", feature = "rt-tokio"))]
-    pub async fn new_serial<E: crate::executor::Executor>(
-        port: impl AsRef<str>,
-        camera_address: u8,
-        executor: Arc<E>,
-    ) -> Result<Self> {
-        let config = crate::transport::serial::SerialConfig {
-            port: port.as_ref().to_string(),
-            camera_address,
-            ..Default::default()
-        };
-        let transport = crate::transport::serial::AsyncSerialTransport::new(config).await?;
-        Self::new(transport, executor).await
-    }
+    // TODO: Uncomment when native async serial is implemented with tokio-serial
+    // /// Create a new camera runtime with serial transport.
+    // #[cfg(all(feature = "async", feature = "serial", feature = "rt-tokio"))]
+    // pub async fn new_serial<E: crate::executor::Executor>(
+    //     port: impl AsRef<str>,
+    //     camera_address: u8,
+    //     executor: Arc<E>,
+    // ) -> Result<Self> {
+    //     let config = crate::transport::serial::SerialConfig {
+    //         port: port.as_ref().to_string(),
+    //         camera_address,
+    //         ..Default::default()
+    //     };
+    //     let transport = crate::transport::serial::AsyncSerialTransport::new(config).await?;
+    //     Self::new(transport, executor).await
+    // }
 
     /// Send a command item to the runtime.
     pub(crate) async fn command(&self, item: TxItem) -> Result<()> {

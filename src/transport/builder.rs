@@ -321,57 +321,6 @@ impl TransportBuilder {
         }
     }
 
-    /// Build a blocking transport wrapped for async usage.
-    ///
-    /// This method creates a blocking transport and wraps it with an `AsyncWrapper`
-    /// to enable its use in async contexts. This is useful for:
-    /// - Using blocking transports in async code
-    /// - Gradual migration from blocking to async
-    /// - Testing async code with simpler blocking implementations
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - No address has been set
-    /// - Connection fails
-    /// - Socket configuration fails
-    /// - The transport type is already async (use `build_async()` instead)
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # #[cfg(feature = "async")]
-    /// use grafton_visca::transport::{builder::TransportBuilder, AsyncTransport};
-    ///
-    /// # #[cfg(feature = "async")]
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let async_transport = TransportBuilder::tcp()
-    ///     .address("192.168.0.110:5678")
-    ///     .build_async_wrapper()?;
-    ///
-    /// // AsyncWrapper provides async send/recv methods
-    /// async_transport.send(b"\x81\x01\x04\x00\x02\xFF").await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[cfg(feature = "async")]
-    pub fn build_async_wrapper(
-        self,
-    ) -> Result<crate::transport::AsyncWrapper<Box<dyn BlockingTransport>>, Error> {
-        match self.transport_type {
-            TransportType::Tcp | TransportType::Udp => {
-                let blocking_transport = self.build()?;
-                Ok(crate::transport::AsyncWrapper::new(blocking_transport))
-            }
-            #[cfg(feature = "rt-tokio")]
-            TransportType::TokioTcp | TransportType::TokioUdp => Err(Error::InvalidParameter {
-                parameter: "transport_type",
-                value: format!("{:?}", self.transport_type).into(),
-                reason: "Already an async transport, use build_async() instead".into(),
-            }),
-        }
-    }
-
     /// Build a native async transport.
     ///
     /// This method creates a native async transport using tokio. The actual transport
