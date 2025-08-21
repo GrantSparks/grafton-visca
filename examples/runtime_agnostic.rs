@@ -63,7 +63,7 @@ fn main() {
             // })
 
             // For this demo, we return a stub
-            let _ = future;
+            drop(future);
             Box::pin(async {
                 Err(grafton_visca::ExecError::TaskFailed(
                     "Demo executor - implement spawn() for your runtime".into(),
@@ -76,7 +76,7 @@ fn main() {
             // async_std::task::block_on(future)
 
             // For this demo, we panic
-            let _ = future;
+            drop(future);
             panic!("Demo executor - implement block_on() for your runtime")
         }
 
