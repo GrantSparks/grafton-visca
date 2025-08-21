@@ -248,9 +248,9 @@ impl Udp {
 
         // Create and bind UDP socket
         let local_addr: SocketAddr = if remote_addr.is_ipv4() {
-            "0.0.0.0:0".parse().unwrap()
+            SocketAddr::from(([0, 0, 0, 0], 0))
         } else {
-            "[::]:0".parse().unwrap()
+            SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], 0))
         };
 
         let socket = UdpSocket::bind(local_addr).await?;
