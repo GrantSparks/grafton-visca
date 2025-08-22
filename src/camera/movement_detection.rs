@@ -37,7 +37,7 @@ where
     /// * `Ok(())` - Movement completed successfully
     /// * `Err(Error::Timeout)` - Movement did not complete within timeout
     /// * `Err(Error::*)` - Other communication or camera errors
-    pub fn wait_for_movement(&self, config: &MovementConfig) -> Result<(), Error> {
+    pub fn wait_for_movement(&mut self, config: &MovementConfig) -> Result<(), Error> {
         // In blocking mode, we can't use event-driven detection with async channels
         // Users should use the async wait_for_movement method for event-driven detection
 
@@ -50,7 +50,7 @@ where
     }
 
     /// Wait for movement using state querying (fallback method).
-    fn wait_using_state_query(&self, config: &MovementConfig) -> Result<(), Error> {
+    fn wait_using_state_query(&mut self, config: &MovementConfig) -> Result<(), Error> {
         let start = Instant::now();
 
         // Keep checking if camera is moving
@@ -77,7 +77,7 @@ where
     /// Wait for pan/tilt movement to complete.
     ///
     /// Convenience method that waits for pan and tilt motors to stop moving.
-    pub fn await_pan_tilt_idle(&self, timeout: Duration) -> Result<(), Error> {
+    pub fn await_pan_tilt_idle(&mut self, timeout: Duration) -> Result<(), Error> {
         let config = MovementConfig {
             timeout,
             debug: false,
@@ -133,7 +133,7 @@ where
     /// Wait for zoom movement to complete.
     ///
     /// Convenience method that waits for zoom motor to stop moving.
-    pub fn await_zoom_idle(&self, timeout: Duration) -> Result<(), Error> {
+    pub fn await_zoom_idle(&mut self, timeout: Duration) -> Result<(), Error> {
         let config = MovementConfig {
             timeout,
             debug: false,
@@ -181,7 +181,7 @@ where
     /// Wait for focus movement to complete.
     ///
     /// Convenience method that waits for focus motor to stop moving.
-    pub fn await_focus_idle(&self, timeout: Duration) -> Result<(), Error> {
+    pub fn await_focus_idle(&mut self, timeout: Duration) -> Result<(), Error> {
         let config = MovementConfig {
             timeout,
             debug: false,
@@ -229,7 +229,7 @@ where
     /// Wait for all movements to complete.
     ///
     /// Convenience method that waits for all motors (pan/tilt, zoom, focus) to stop.
-    pub fn await_idle(&self, timeout: Duration) -> Result<(), Error> {
+    pub fn await_idle(&mut self, timeout: Duration) -> Result<(), Error> {
         let config = MovementConfig {
             timeout,
             debug: false,
@@ -240,7 +240,7 @@ where
     /// Check if the camera is currently moving.
     ///
     /// This checks pan/tilt, zoom, and focus positions to detect movement.
-    pub fn is_moving(&self) -> Result<bool, Error> {
+    pub fn is_moving(&mut self) -> Result<bool, Error> {
         // Get first reading using inquiry commands
         let pos1_pt_response = self.send_command(&PanTiltPositionInquiry)?;
         let (pos1_pan, pos1_tilt) = match pos1_pt_response {

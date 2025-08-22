@@ -45,40 +45,40 @@ pub trait TallyControl: Sized {
 /// Tally light control operations (blocking).
 pub trait TallyControlBlocking: Sized {
     /// Turn red tally light on.
-    fn tally_red_on(&self) -> Result<(), Error>;
+    fn tally_red_on(&mut self) -> Result<(), Error>;
 
     /// Turn red tally light off.
-    fn tally_red_off(&self) -> Result<(), Error>;
+    fn tally_red_off(&mut self) -> Result<(), Error>;
 
     /// Set tally brightness to low.
-    fn tally_bright_lo(&self) -> Result<(), Error>;
+    fn tally_bright_lo(&mut self) -> Result<(), Error>;
 
     /// Set tally brightness to high.
-    fn tally_bright_hi(&self) -> Result<(), Error>;
+    fn tally_bright_hi(&mut self) -> Result<(), Error>;
 
     /// Turn green tally light on.
-    fn tally_green_on(&self) -> Result<(), Error>;
+    fn tally_green_on(&mut self) -> Result<(), Error>;
 
     /// Turn green tally light off.
-    fn tally_green_off(&self) -> Result<(), Error>;
+    fn tally_green_off(&mut self) -> Result<(), Error>;
 
     /// Flash tally light.
-    fn tally_flash(&self) -> Result<(), Error>;
+    fn tally_flash(&mut self) -> Result<(), Error>;
 
     /// Turn tally light on.
-    fn tally_on(&self) -> Result<(), Error>;
+    fn tally_on(&mut self) -> Result<(), Error>;
 
     /// Turn tally light off.
-    fn tally_off(&self) -> Result<(), Error>;
+    fn tally_off(&mut self) -> Result<(), Error>;
 
     /// Get tally light status.
-    fn get_tally_status(&self) -> Result<bool, Error>;
+    fn get_tally_status(&mut self) -> Result<bool, Error>;
 
     /// Query red tally light state.
-    fn get_red_tally_status(&self) -> Result<bool, Error>;
+    fn get_red_tally_status(&mut self) -> Result<bool, Error>;
 
     /// Query green tally light state (FR7 specific).
-    fn get_green_tally_status(&self) -> Result<bool, Error>;
+    fn get_green_tally_status(&mut self) -> Result<bool, Error>;
 }
 
 // Async implementation for Camera with AsyncMode
@@ -199,9 +199,9 @@ where
 impl<P, T> TallyControlBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile,
-    T: crate::transport::BlockingTransport + Send + Sync + 'static,
+    T: crate::transport::BlockingTransport + Send + 'static,
 {
-    fn tally_red_on(&self) -> Result<(), Error> {
+    fn tally_red_on(&mut self) -> Result<(), Error> {
         use crate::command::tally::Tally;
 
         let cmd = Tally::RedOn;
@@ -209,7 +209,7 @@ where
         Ok(())
     }
 
-    fn tally_red_off(&self) -> Result<(), Error> {
+    fn tally_red_off(&mut self) -> Result<(), Error> {
         use crate::command::tally::Tally;
 
         let cmd = Tally::RedOff;
@@ -217,7 +217,7 @@ where
         Ok(())
     }
 
-    fn tally_bright_lo(&self) -> Result<(), Error> {
+    fn tally_bright_lo(&mut self) -> Result<(), Error> {
         use crate::command::tally::Tally;
 
         let cmd = Tally::BrightLo;
@@ -225,7 +225,7 @@ where
         Ok(())
     }
 
-    fn tally_bright_hi(&self) -> Result<(), Error> {
+    fn tally_bright_hi(&mut self) -> Result<(), Error> {
         use crate::command::tally::Tally;
 
         let cmd = Tally::BrightHi;
@@ -233,7 +233,7 @@ where
         Ok(())
     }
 
-    fn tally_green_on(&self) -> Result<(), Error> {
+    fn tally_green_on(&mut self) -> Result<(), Error> {
         use crate::command::tally::Tally;
 
         let cmd = Tally::GreenOn;
@@ -241,7 +241,7 @@ where
         Ok(())
     }
 
-    fn tally_green_off(&self) -> Result<(), Error> {
+    fn tally_green_off(&mut self) -> Result<(), Error> {
         use crate::command::tally::Tally;
 
         let cmd = Tally::GreenOff;
@@ -249,7 +249,7 @@ where
         Ok(())
     }
 
-    fn tally_flash(&self) -> Result<(), Error> {
+    fn tally_flash(&mut self) -> Result<(), Error> {
         use crate::command::tally::Tally;
 
         let cmd = Tally::Flash;
@@ -257,7 +257,7 @@ where
         Ok(())
     }
 
-    fn tally_on(&self) -> Result<(), Error> {
+    fn tally_on(&mut self) -> Result<(), Error> {
         use crate::command::tally::Tally;
 
         let cmd = Tally::On;
@@ -265,7 +265,7 @@ where
         Ok(())
     }
 
-    fn tally_off(&self) -> Result<(), Error> {
+    fn tally_off(&mut self) -> Result<(), Error> {
         use crate::command::tally::Tally;
 
         let cmd = Tally::Off;
@@ -273,7 +273,7 @@ where
         Ok(())
     }
 
-    fn get_tally_status(&self) -> Result<bool, Error> {
+    fn get_tally_status(&mut self) -> Result<bool, Error> {
         use crate::command::{response::ViscaResponse, tally::TallyInquiry, InquiryResponse};
 
         let inquiry = TallyInquiry::Red;
@@ -284,7 +284,7 @@ where
         }
     }
 
-    fn get_red_tally_status(&self) -> Result<bool, Error> {
+    fn get_red_tally_status(&mut self) -> Result<bool, Error> {
         use crate::command::{response::ViscaResponse, tally::TallyInquiry, InquiryResponse};
 
         let inquiry = TallyInquiry::Red;
@@ -295,7 +295,7 @@ where
         }
     }
 
-    fn get_green_tally_status(&self) -> Result<bool, Error> {
+    fn get_green_tally_status(&mut self) -> Result<bool, Error> {
         use crate::command::{response::ViscaResponse, tally::TallyInquiry, InquiryResponse};
 
         let inquiry = TallyInquiry::Green;

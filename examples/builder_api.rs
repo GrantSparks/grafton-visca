@@ -67,7 +67,7 @@ fn main() -> Result<()> {
 #[cfg(feature = "rt-tokio")]
 #[tokio::main]
 async fn main() -> Result<()> {
-    use grafton_visca::transport::tokio::{Tcp, Udp};
+    use grafton_visca::runtime_adapters::tokio::{TcpTransport as Tcp, UdpTransport as Udp};
 
     env_logger::init();
 

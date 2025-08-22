@@ -13,7 +13,7 @@
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # #[cfg(feature = "rt-tokio")]
 //! # {
-//! use grafton_visca::transport::tokio::tcp::Tcp;
+//! use grafton_visca::runtime_adapters::tokio::TcpTransport;
 //! use grafton_visca::TokioExecutor;
 //!
 //! let transport = Tcp::connect("192.168.0.110:52381").await?;

@@ -6,7 +6,7 @@ use grafton_visca::{testing::camera_simulator::ViscaCameraSimulator, transport::
 
 #[tokio::test(start_paused = true)]
 async fn test_simulator_power_inquiry_direct() {
-    let simulator = ViscaCameraSimulator::new();
+    let mut simulator = ViscaCameraSimulator::new();
 
     // Send power inquiry command directly
     let power_inquiry = vec![0x81, 0x09, 0x04, 0x00, 0xFF];
@@ -27,7 +27,7 @@ async fn test_simulator_power_inquiry_direct() {
 
 #[tokio::test(start_paused = true)]
 async fn test_simulator_zoom_inquiry_direct() {
-    let simulator = ViscaCameraSimulator::new();
+    let mut simulator = ViscaCameraSimulator::new();
 
     // Send zoom position inquiry
     let zoom_inquiry = vec![0x81, 0x09, 0x04, 0x47, 0xFF];
@@ -54,7 +54,7 @@ async fn test_simulator_zoom_inquiry_direct() {
 
 #[tokio::test(start_paused = true)]
 async fn test_simulator_pan_tilt_inquiry_direct() {
-    let simulator = ViscaCameraSimulator::new();
+    let mut simulator = ViscaCameraSimulator::new();
 
     // Send pan/tilt position inquiry
     let pt_inquiry = vec![0x81, 0x09, 0x06, 0x12, 0xFF];
@@ -87,7 +87,7 @@ async fn test_simulator_pan_tilt_inquiry_direct() {
 
 #[tokio::test(start_paused = true)]
 async fn test_simulator_exposure_compensation_inquiry() {
-    let simulator = ViscaCameraSimulator::new();
+    let mut simulator = ViscaCameraSimulator::new();
 
     // Send exposure compensation inquiry command directly
     let inquiry = vec![0x81, 0x09, 0x04, 0x4E, 0xFF];
@@ -116,7 +116,7 @@ async fn test_simulator_exposure_compensation_inquiry() {
 
 #[tokio::test(start_paused = true)]
 async fn test_simulator_mixed_commands_and_inquiries() {
-    let simulator = ViscaCameraSimulator::new();
+    let mut simulator = ViscaCameraSimulator::new();
 
     // Send a regular command (zoom in)
     let zoom_in = vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF];

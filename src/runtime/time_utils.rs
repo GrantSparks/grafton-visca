@@ -25,22 +25,11 @@ pub fn now_from_executor_arc<E: crate::executor::Executor>(
         }
     }
 
-    // For tokio runtime, use tokio time which respects paused time in tests
-    #[cfg(feature = "rt-tokio")]
-    {
-        use std::any::Any;
-
-        let executor_any: &dyn Any = &**executor;
-        if executor_any.is::<crate::executor::TokioExecutor>() {
-            // Use tokio's time which respects pause in tests
-            return tokio::time::Instant::now().into_std();
-        }
-    }
-
-    #[cfg(not(any(feature = "test-utils", feature = "rt-tokio")))]
+    #[cfg(not(feature = "test-utils"))]
     let _ = executor;
 
-    // Fall back to wall-clock time for all other executors
+    // Default: use standard library time
+    // Runtime-specific executors should override this if they need special behavior
     Instant::now()
 }
 
@@ -70,21 +59,8 @@ pub fn now_from_executor<E: crate::executor::Executor>(executor: &E) -> Instant 
         }
     }
 
-    // For tokio runtime, use tokio time which respects paused time in tests
-    #[cfg(feature = "rt-tokio")]
-    {
-        use std::any::Any;
-
-        let executor_any: &dyn Any = executor;
-        if executor_any.is::<crate::executor::TokioExecutor>() {
-            // Use tokio's time which respects pause in tests
-            return tokio::time::Instant::now().into_std();
-        }
-    }
-
-    #[cfg(not(any(feature = "test-utils", feature = "rt-tokio")))]
+    // Default: use standard library time
+    // Runtime-specific executors should override this if they need special behavior
     let _ = executor;
-
-    // Fall back to wall-clock time for all other executors
     Instant::now()
 }

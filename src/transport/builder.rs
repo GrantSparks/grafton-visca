@@ -6,8 +6,6 @@
 use std::time::Duration;
 
 use crate::transport::buffer::BufferConfig;
-#[cfg(feature = "rt-tokio")]
-use crate::transport::AsyncTransport;
 use crate::transport::{BlockingTransport, RetryConfig};
 use crate::Error;
 
@@ -273,39 +271,15 @@ impl TransportBuilder {
 
         match self.transport_type {
             TransportType::Tcp => {
-                let mut transport = crate::transport::blocking::Tcp::connect_timeout(
-                    &address,
-                    self.config.connect_timeout,
-                )?;
-
-                // Apply retry configuration
-                transport.set_retry_config(self.config.retry_config);
-
-                // Apply socket options if the transport supports them
-                if let Some(nodelay) = self.config.tcp_nodelay {
-                    transport.set_nodelay(nodelay)?;
-                }
-                if let Some(ttl) = self.config.ttl {
-                    transport.set_ttl(ttl)?;
-                }
-
+                // Use connect_with_config to apply all settings at once
+                let transport =
+                    crate::transport::blocking::Tcp::connect_with_config(&address, self.config)?;
                 Ok(Box::new(transport))
             }
             TransportType::Udp => {
-                let mut transport = crate::transport::blocking::Udp::connect(&address)?;
-
-                // Apply retry configuration
-                transport.set_retry_config(self.config.retry_config);
-
-                // Apply socket options
-                if let Some(ttl) = self.config.ttl {
-                    transport.set_ttl(ttl)?;
-                }
-
-                // Set timeouts
-                transport.set_read_timeout(Some(self.config.read_timeout))?;
-                transport.set_write_timeout(Some(self.config.write_timeout))?;
-
+                // Use connect_with_config to apply all settings at once
+                let transport =
+                    crate::transport::blocking::Udp::connect_with_config(&address, self.config)?;
                 Ok(Box::new(transport))
             }
             #[cfg(feature = "rt-tokio")]
@@ -321,14 +295,10 @@ impl TransportBuilder {
         }
     }
 
-    /// Build a native async transport.
+    /// Build a Tokio TCP async transport.
     ///
-    /// This method creates a native async transport using tokio. The actual transport
-    /// type is determined by the builder's configuration (TCP or UDP).
-    ///
-    /// Unlike `build()` which returns a boxed trait object, this method returns
-    /// the concrete transport type. This is necessary because `AsyncTransport` uses
-    /// `impl Trait` in return position, making it non-dyn-compatible.
+    /// This method creates a native async TCP transport using tokio.
+    /// Returns the concrete `Tcp` type for maximum type safety and performance.
     ///
     /// # Errors
     ///
@@ -336,90 +306,95 @@ impl TransportBuilder {
     /// - No address has been set
     /// - Connection fails
     /// - Socket configuration fails
-    /// - The transport type is not async (use `build()` for blocking transports)
+    /// - The transport type is not TokioTcp
     ///
     /// # Example
     ///
     /// ```rust,no_run
     /// # #[cfg(feature = "rt-tokio")]
     /// use grafton_visca::transport::builder::TransportBuilder;
-    /// # #[cfg(feature = "rt-tokio")]
-    /// use grafton_visca::transport::AsyncTransport;
     ///
     /// # #[cfg(feature = "rt-tokio")]
     /// # #[tokio::main]
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// // Build a TCP async transport
     /// let tcp_transport = TransportBuilder::tokio_tcp()
     ///     .address("192.168.0.110:5678")
-    ///     .build_async().await?;
-    ///
-    /// // Build a UDP async transport  
-    /// let udp_transport = TransportBuilder::tokio_udp()
-    ///     .address("192.168.0.110:5678")
-    ///     .build_async().await?;
-    ///
-    /// // Both can be used as AsyncTransport
-    /// tcp_transport.send(b"\x81\x01\x04\x00\x02\xFF").await?;
+    ///     .tcp_nodelay(true)
+    ///     .build_tcp_async().await?;
     /// # Ok(())
     /// # }
     /// ```
     #[cfg(feature = "rt-tokio")]
-    pub async fn build_async(self) -> Result<impl AsyncTransport, Error> {
+    pub async fn build_tcp_async(
+        self,
+    ) -> Result<crate::runtime_adapters::tokio::TcpTransport, Error> {
+        if self.transport_type != TransportType::TokioTcp {
+            return Err(Error::InvalidParameter {
+                parameter: "transport_type",
+                value: format!("{:?}", self.transport_type).into(),
+                reason: "This method is for TokioTcp transports only".into(),
+            });
+        }
+
         let address = self.address.ok_or_else(|| Error::InvalidParameter {
             parameter: "address",
             value: "None".into(),
             reason: "No address specified for transport".into(),
         })?;
 
-        match self.transport_type {
-            TransportType::TokioTcp => {
-                let transport =
-                    crate::transport::tokio::tcp::Tcp::connect_with_config(&address, self.config)
-                        .await?;
-                Ok(AsyncTransportWrapper::Tcp(transport))
-            }
-            TransportType::TokioUdp => {
-                let transport =
-                    crate::transport::tokio::udp::Udp::connect_with_config(&address, self.config)
-                        .await?;
-                Ok(AsyncTransportWrapper::Udp(transport))
-            }
-            _ => Err(Error::InvalidParameter {
+        crate::runtime_adapters::tokio::TcpTransport::connect_with_config(&address, self.config)
+            .await
+    }
+
+    /// Build a Tokio UDP async transport.
+    ///
+    /// This method creates a native async UDP transport using tokio.
+    /// Returns the concrete `Udp` type for maximum type safety and performance.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - No address has been set
+    /// - Connection fails
+    /// - Socket configuration fails
+    /// - The transport type is not TokioUdp
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # #[cfg(feature = "rt-tokio")]
+    /// use grafton_visca::transport::builder::TransportBuilder;
+    ///
+    /// # #[cfg(feature = "rt-tokio")]
+    /// # #[tokio::main]
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let udp_transport = TransportBuilder::tokio_udp()
+    ///     .address("192.168.0.110:1259")
+    ///     .max_retries(5)
+    ///     .build_udp_async().await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(feature = "rt-tokio")]
+    pub async fn build_udp_async(
+        self,
+    ) -> Result<crate::runtime_adapters::tokio::UdpTransport, Error> {
+        if self.transport_type != TransportType::TokioUdp {
+            return Err(Error::InvalidParameter {
                 parameter: "transport_type",
                 value: format!("{:?}", self.transport_type).into(),
-                reason: "Use build() for blocking transports".into(),
-            }),
+                reason: "This method is for TokioUdp transports only".into(),
+            });
         }
-    }
-}
 
-/// Internal wrapper enum for async transports returned by the builder.
-///
-/// This enum allows the builder to return different concrete async transport types
-/// while still implementing `AsyncTransport`. Since `AsyncTransport` is not
-/// dyn-compatible, we use an enum to provide a unified type.
-#[cfg(feature = "rt-tokio")]
-#[derive(Debug)]
-enum AsyncTransportWrapper {
-    Tcp(crate::transport::tokio::tcp::Tcp),
-    Udp(crate::transport::tokio::udp::Udp),
-}
+        let address = self.address.ok_or_else(|| Error::InvalidParameter {
+            parameter: "address",
+            value: "None".into(),
+            reason: "No address specified for transport".into(),
+        })?;
 
-#[cfg(feature = "rt-tokio")]
-impl AsyncTransport for AsyncTransportWrapper {
-    async fn send(&self, data: &[u8]) -> Result<(), Error> {
-        match self {
-            Self::Tcp(transport) => transport.send(data).await,
-            Self::Udp(transport) => transport.send(data).await,
-        }
-    }
-
-    async fn recv(&self) -> Result<bytes::Bytes, Error> {
-        match self {
-            Self::Tcp(transport) => transport.recv().await,
-            Self::Udp(transport) => transport.recv().await,
-        }
+        crate::runtime_adapters::tokio::UdpTransport::connect_with_config(&address, self.config)
+            .await
     }
 }
 
@@ -442,14 +417,14 @@ impl TransportBuilderExt for crate::transport::blocking::Udp {
 }
 
 #[cfg(feature = "rt-tokio")]
-impl TransportBuilderExt for crate::transport::tokio::tcp::Tcp {
+impl TransportBuilderExt for crate::runtime_adapters::tokio::TcpTransport {
     fn builder() -> TransportBuilder {
         TransportBuilder::tokio_tcp()
     }
 }
 
 #[cfg(feature = "rt-tokio")]
-impl TransportBuilderExt for crate::transport::tokio::udp::Udp {
+impl TransportBuilderExt for crate::runtime_adapters::tokio::UdpTransport {
     fn builder() -> TransportBuilder {
         TransportBuilder::tokio_udp()
     }

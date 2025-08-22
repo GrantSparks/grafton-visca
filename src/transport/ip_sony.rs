@@ -9,10 +9,9 @@ use log::{debug, error, trace, warn};
 
 use std::{
     collections::HashMap,
-    sync::{
-        atomic::{AtomicU32, Ordering},
-        Arc, Mutex,
-    },
+    io::{BufReader, Read, Write},
+    net::TcpStream,
+    sync::atomic::{AtomicU32, Ordering},
     time::{Duration, Instant},
 };
 
@@ -73,11 +72,12 @@ struct PendingCommand {
 /// Sony TCP transport for blocking I/O.
 #[derive(Debug)]
 pub struct SonyTcpTransport {
-    stream: Arc<Mutex<std::net::TcpStream>>,
-    sequence: Arc<AtomicU32>,
-    pending: Arc<Mutex<HashMap<u32, PendingCommand>>>,
-    buffer_manager: Arc<BufferManager>,
-    read_buffer: Arc<Mutex<BytesMut>>,
+    reader: BufReader<TcpStream>,
+    writer: TcpStream,
+    sequence: AtomicU32,
+    pending: HashMap<u32, PendingCommand>,
+    buffer_manager: BufferManager,
+    read_buffer: BytesMut,
     config: SonyIpConfig,
 }
 
@@ -91,7 +91,7 @@ impl SonyTcpTransport {
 
         debug!("Connecting to {addr} via Sony TCP");
 
-        let stream = std::net::TcpStream::connect_timeout(&addr, config.connect_timeout)
+        let stream = TcpStream::connect_timeout(&addr, config.connect_timeout)
             .map_err(|e| Error::TransportError(format!("TCP connect failed: {e}").into()))?;
 
         stream
@@ -108,23 +108,28 @@ impl SonyTcpTransport {
 
         debug!("Connected to {addr}");
 
+        // Clone the stream for reader/writer split
+        let writer = stream
+            .try_clone()
+            .map_err(|e| Error::TransportError(format!("Failed to clone stream: {e}").into()))?;
+        let reader = BufReader::new(stream);
+
         // Create buffer manager with Sony IP optimized sizes
-        let buffer_manager = Arc::new(BufferManager::new(BufferConfig::for_sony_ip()));
+        let buffer_manager = BufferManager::new(BufferConfig::for_sony_ip());
 
         Ok(Self {
-            stream: Arc::new(Mutex::new(stream)),
-            sequence: Arc::new(AtomicU32::new(1)),
-            pending: Arc::new(Mutex::new(HashMap::new())),
-            buffer_manager: buffer_manager.clone(),
-            read_buffer: buffer_manager.alloc_async_shared_buffer(),
+            reader,
+            writer,
+            sequence: AtomicU32::new(1),
+            pending: HashMap::new(),
+            buffer_manager,
+            read_buffer: buffer_manager.alloc_recv_buffer(),
             config,
         })
     }
 
     /// Send a command with Sony header.
-    fn send_with_header(&self, bytes: &[u8], sequence: u32) -> Result<()> {
-        use std::io::Write;
-
+    fn send_with_header(&mut self, bytes: &[u8], sequence: u32) -> Result<()> {
         // Check if this is an inquiry (second byte is 0x09)
         let is_inquiry = bytes.len() >= 2 && bytes[1] == 0x09;
         let header = if is_inquiry {
@@ -141,14 +146,10 @@ impl SonyTcpTransport {
         packet.extend_from_slice(bytes);
 
         // Send packet
-        let mut stream = self
-            .stream
-            .lock()
-            .map_err(|_| Error::LockPoisoned("transport mutex"))?;
-        stream
+        self.writer
             .write_all(&packet)
             .map_err(|e| Error::TransportError(format!("TCP write error: {e}").into()))?;
-        stream
+        self.writer
             .flush()
             .map_err(|e| Error::TransportError(format!("TCP flush error: {e}").into()))?;
 
@@ -163,33 +164,28 @@ impl SonyTcpTransport {
     }
 
     /// Receive a Sony encapsulated frame.
-    fn recv_sony_frame(&self) -> Result<(SonyHeader, Bytes)> {
-        use std::io::Read;
-
-        let mut buffer = self
-            .read_buffer
-            .lock()
-            .map_err(|_| Error::LockPoisoned("transport mutex"))?;
-        let mut stream = self
-            .stream
-            .lock()
-            .map_err(|_| Error::LockPoisoned("transport mutex"))?;
+    fn recv_sony_frame(&mut self) -> Result<(SonyHeader, Bytes)> {
         let mut temp_buf = self.buffer_manager.alloc_vec_buffer();
 
         loop {
             // Check if we have a complete header
-            if buffer.len() >= SonyHeader::SIZE {
+            if self.read_buffer.len() >= SonyHeader::SIZE {
                 // Parse header
-                let _payload_type = u16::from_be_bytes([buffer[0], buffer[1]]);
-                let payload_length = u16::from_be_bytes([buffer[2], buffer[3]]) as usize;
-                let _sequence_number =
-                    u32::from_be_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]);
+                let _payload_type = u16::from_be_bytes([self.read_buffer[0], self.read_buffer[1]]);
+                let payload_length =
+                    u16::from_be_bytes([self.read_buffer[2], self.read_buffer[3]]) as usize;
+                let _sequence_number = u32::from_be_bytes([
+                    self.read_buffer[4],
+                    self.read_buffer[5],
+                    self.read_buffer[6],
+                    self.read_buffer[7],
+                ]);
 
                 // Check if we have the complete payload
-                if buffer.len() >= SonyHeader::SIZE + payload_length {
+                if self.read_buffer.len() >= SonyHeader::SIZE + payload_length {
                     // Extract frame - use decode method for consistency
-                    let header_bytes = buffer.split_to(SonyHeader::SIZE);
-                    let payload = buffer.split_to(payload_length);
+                    let header_bytes = self.read_buffer.split_to(SonyHeader::SIZE);
+                    let payload = self.read_buffer.split_to(payload_length);
 
                     let header = match SonyHeader::decode(&header_bytes) {
                         Some(h) => h,
@@ -216,9 +212,9 @@ impl SonyTcpTransport {
             }
 
             // Read more data
-            match stream.read(&mut temp_buf) {
+            match self.reader.read(&mut temp_buf) {
                 Ok(n) if n > 0 => {
-                    buffer.extend_from_slice(&temp_buf[..n]);
+                    self.read_buffer.extend_from_slice(&temp_buf[..n]);
                     trace!("Read {n} bytes from TCP");
                 }
                 Ok(_) => {
@@ -235,13 +231,8 @@ impl SonyTcpTransport {
     }
 
     /// Handle retries for a command.
-    fn handle_retry(&self, old_sequence: u32) -> Result<()> {
-        let mut pending = self
-            .pending
-            .lock()
-            .map_err(|_| Error::LockPoisoned("transport mutex"))?;
-
-        if let Some(mut cmd) = pending.remove(&old_sequence) {
+    fn handle_retry(&mut self, old_sequence: u32) -> Result<()> {
+        if let Some(mut cmd) = self.pending.remove(&old_sequence) {
             if cmd.retries < self.config.max_retries {
                 cmd.retries += 1;
                 let retry_count = cmd.retries;
@@ -252,8 +243,7 @@ impl SonyTcpTransport {
                 let new_sequence = self.sequence.fetch_add(1, Ordering::SeqCst);
 
                 // Insert command with new sequence
-                pending.insert(new_sequence, cmd);
-                drop(pending); // Release lock before sending
+                self.pending.insert(new_sequence, cmd);
 
                 warn!(
                     "Retrying command (old seq: {old_sequence}, new seq: {new_sequence}, attempt {retry_count})"
@@ -269,15 +259,11 @@ impl SonyTcpTransport {
     }
 
     /// Clean up old pending commands.
-    fn cleanup_pending(&self) {
-        let Ok(mut pending) = self.pending.lock() else {
-            // Lock poisoned, can't clean up
-            return;
-        };
+    fn cleanup_pending(&mut self) {
         let now = Instant::now();
         let timeout = self.config.response_timeout;
 
-        pending.retain(|seq, cmd| {
+        self.pending.retain(|seq, cmd| {
             if now.duration_since(cmd.sent_at) > timeout {
                 warn!("Command seq {seq} timed out");
                 false
@@ -289,24 +275,18 @@ impl SonyTcpTransport {
 }
 
 impl BlockingTransport for SonyTcpTransport {
-    fn send_blocking(&self, bytes: &[u8]) -> Result<()> {
+    fn send_blocking(&mut self, bytes: &[u8]) -> Result<()> {
         let sequence = self.sequence.fetch_add(1, Ordering::SeqCst);
 
         // Store pending command for potential retry
-        {
-            let mut pending = self
-                .pending
-                .lock()
-                .map_err(|_| Error::LockPoisoned("transport mutex"))?;
-            pending.insert(
-                sequence,
-                PendingCommand {
-                    bytes: bytes.to_vec(),
-                    retries: 0,
-                    sent_at: Instant::now(),
-                },
-            );
-        }
+        self.pending.insert(
+            sequence,
+            PendingCommand {
+                bytes: bytes.to_vec(),
+                retries: 0,
+                sent_at: Instant::now(),
+            },
+        );
 
         // Send with header
         self.send_with_header(bytes, sequence)?;
@@ -317,24 +297,20 @@ impl BlockingTransport for SonyTcpTransport {
         Ok(())
     }
 
-    fn recv_blocking(&self) -> Result<Bytes> {
+    fn recv_blocking(&mut self) -> Result<Bytes> {
         loop {
             match self.recv_sony_frame() {
                 Ok((header, payload)) => {
                     // Only accept replies that match a pending command
-                    if header.payload_type == PayloadType::ViscaReply {
-                        let mut pending = self
-                            .pending
-                            .lock()
-                            .map_err(|_| Error::LockPoisoned("transport mutex"))?;
-                        if pending.remove(&header.sequence_number).is_none() {
-                            // Late or duplicate reply - discard it
-                            warn!(
-                                "TCP: Discarding late/duplicate reply with seq {} (not in pending)",
-                                header.sequence_number
-                            );
-                            continue; // Keep waiting for a valid response
-                        }
+                    if header.payload_type == PayloadType::ViscaReply
+                        && self.pending.remove(&header.sequence_number).is_none()
+                    {
+                        // Late or duplicate reply - discard it
+                        warn!(
+                            "TCP: Discarding late/duplicate reply with seq {} (not in pending)",
+                            header.sequence_number
+                        );
+                        continue; // Keep waiting for a valid response
                     }
 
                     return Ok(payload);
@@ -343,19 +319,15 @@ impl BlockingTransport for SonyTcpTransport {
                     // Check if we should retry any pending commands
                     if matches!(e, Error::Timeout) {
                         // Check for timed out commands
-                        let pending = self
-                            .pending
-                            .lock()
-                            .map_err(|_| Error::LockPoisoned("transport mutex"))?;
                         let now = Instant::now();
-                        let timed_out: Vec<u32> = pending
+                        let timed_out: Vec<u32> = self
+                            .pending
                             .iter()
                             .filter(|(_, cmd)| {
                                 now.duration_since(cmd.sent_at) > self.config.response_timeout
                             })
                             .map(|(seq, _)| *seq)
                             .collect();
-                        drop(pending);
 
                         for seq in timed_out {
                             self.handle_retry(seq)?;
@@ -368,28 +340,24 @@ impl BlockingTransport for SonyTcpTransport {
         }
     }
 
-    fn recv_blocking_with_timeout(&self, timeout: Duration) -> Result<Bytes> {
-        // Temporarily set the timeout on the stream
-        let stream = self
-            .stream
-            .lock()
-            .map_err(|_| Error::LockPoisoned("transport mutex"))?;
-        let original_read_timeout = stream
+    fn recv_blocking_with_timeout(&mut self, timeout: Duration) -> Result<Bytes> {
+        // We need to temporarily modify the timeout on the stream
+        // Since we can't get a mutable reference while recv_blocking borrows self mutably,
+        // we'll use the writer (which is a clone of the same stream)
+
+        let original_read_timeout = self
+            .writer
             .read_timeout()
             .map_err(|e| Error::TransportError(format!("Failed to get timeout: {e}").into()))?;
-        stream
+
+        self.writer
             .set_read_timeout(Some(timeout))
             .map_err(|e| Error::TransportError(format!("Failed to set timeout: {e}").into()))?;
-        drop(stream);
 
         let result = self.recv_blocking();
 
         // Restore original timeout
-        let stream = self
-            .stream
-            .lock()
-            .map_err(|_| Error::LockPoisoned("transport mutex"))?;
-        stream
+        self.writer
             .set_read_timeout(original_read_timeout)
             .map_err(|e| Error::TransportError(format!("Failed to restore timeout: {e}").into()))?;
 
@@ -400,10 +368,10 @@ impl BlockingTransport for SonyTcpTransport {
 /// Sony UDP transport for blocking I/O.
 #[derive(Debug)]
 pub struct SonyUdpTransport {
-    socket: Arc<std::net::UdpSocket>,
-    sequence: Arc<AtomicU32>,
-    pending: Arc<Mutex<HashMap<u32, PendingCommand>>>,
-    buffer_manager: Arc<BufferManager>,
+    socket: std::net::UdpSocket,
+    sequence: AtomicU32,
+    pending: HashMap<u32, PendingCommand>,
+    buffer_manager: BufferManager,
     config: SonyIpConfig,
 }
 
@@ -440,19 +408,19 @@ impl SonyUdpTransport {
         debug!("Connected to {addr}");
 
         // Create buffer manager with Sony IP optimized sizes
-        let buffer_manager = Arc::new(BufferManager::new(BufferConfig::for_sony_ip()));
+        let buffer_manager = BufferManager::new(BufferConfig::for_sony_ip());
 
         Ok(Self {
-            socket: Arc::new(socket),
-            sequence: Arc::new(AtomicU32::new(1)),
-            pending: Arc::new(Mutex::new(HashMap::new())),
+            socket,
+            sequence: AtomicU32::new(1),
+            pending: HashMap::new(),
             buffer_manager,
             config,
         })
     }
 
     /// Send a command with Sony header.
-    fn send_with_header(&self, bytes: &[u8], sequence: u32) -> Result<()> {
+    fn send_with_header(&mut self, bytes: &[u8], sequence: u32) -> Result<()> {
         // Check if this is an inquiry (second byte is 0x09)
         let is_inquiry = bytes.len() >= 2 && bytes[1] == 0x09;
         let header = if is_inquiry {
@@ -479,7 +447,7 @@ impl SonyUdpTransport {
     }
 
     /// Receive a Sony encapsulated frame.
-    fn recv_sony_frame(&self) -> Result<(SonyHeader, Bytes)> {
+    fn recv_sony_frame(&mut self) -> Result<(SonyHeader, Bytes)> {
         let mut temp_buf = self.buffer_manager.alloc_vec_buffer();
 
         match self.socket.recv(&mut temp_buf) {
@@ -536,24 +504,18 @@ impl SonyUdpTransport {
 }
 
 impl BlockingTransport for SonyUdpTransport {
-    fn send_blocking(&self, bytes: &[u8]) -> Result<()> {
+    fn send_blocking(&mut self, bytes: &[u8]) -> Result<()> {
         let sequence = self.sequence.fetch_add(1, Ordering::SeqCst);
 
         // Store pending command for potential retry
-        {
-            let mut pending = self
-                .pending
-                .lock()
-                .map_err(|_| Error::LockPoisoned("transport mutex"))?;
-            pending.insert(
-                sequence,
-                PendingCommand {
-                    bytes: bytes.to_vec(),
-                    retries: 0,
-                    sent_at: Instant::now(),
-                },
-            );
-        }
+        self.pending.insert(
+            sequence,
+            PendingCommand {
+                bytes: bytes.to_vec(),
+                retries: 0,
+                sent_at: Instant::now(),
+            },
+        );
 
         // Send with header
         self.send_with_header(bytes, sequence)?;
@@ -561,38 +523,31 @@ impl BlockingTransport for SonyUdpTransport {
         Ok(())
     }
 
-    fn recv_blocking(&self) -> Result<Bytes> {
+    fn recv_blocking(&mut self) -> Result<Bytes> {
         loop {
             match self.recv_sony_frame() {
                 Ok((header, payload)) => {
                     // Only accept replies that match a pending command
-                    if header.payload_type == PayloadType::ViscaReply {
-                        let mut pending = self
-                            .pending
-                            .lock()
-                            .map_err(|_| Error::LockPoisoned("transport mutex"))?;
-                        if pending.remove(&header.sequence_number).is_none() {
-                            // Late or duplicate reply - discard it
-                            warn!(
-                                "UDP: Discarding late/duplicate reply with seq {} (not in pending)",
-                                header.sequence_number
-                            );
-                            continue; // Keep waiting for a valid response
-                        }
+                    if header.payload_type == PayloadType::ViscaReply
+                        && self.pending.remove(&header.sequence_number).is_none()
+                    {
+                        // Late or duplicate reply - discard it
+                        warn!(
+                            "UDP: Discarding late/duplicate reply with seq {} (not in pending)",
+                            header.sequence_number
+                        );
+                        continue; // Keep waiting for a valid response
                     }
 
                     return Ok(payload);
                 }
                 Err(Error::Timeout) => {
                     // Implement retry logic for UDP
-                    let pending = self
-                        .pending
-                        .lock()
-                        .map_err(|_| Error::LockPoisoned("transport mutex"))?;
                     let now = Instant::now();
 
                     // Find commands that need retry
-                    let to_retry: Vec<(u32, PendingCommand)> = pending
+                    let to_retry: Vec<(u32, PendingCommand)> = self
+                        .pending
                         .iter()
                         .filter(|(_, cmd)| {
                             now.duration_since(cmd.sent_at) > Duration::from_millis(500)
@@ -600,7 +555,6 @@ impl BlockingTransport for SonyUdpTransport {
                         })
                         .map(|(seq, cmd)| (*seq, cmd.clone()))
                         .collect();
-                    drop(pending);
 
                     // Retry commands with new sequence numbers (per Sony spec)
                     for (old_seq, mut cmd) in to_retry {
@@ -616,15 +570,11 @@ impl BlockingTransport for SonyUdpTransport {
 
                         self.send_with_header(&cmd.bytes, new_seq)?;
 
-                        let mut pending = self
-                            .pending
-                            .lock()
-                            .map_err(|_| Error::LockPoisoned("transport mutex"))?;
                         // Remove old sequence entry
-                        pending.remove(&old_seq);
+                        self.pending.remove(&old_seq);
                         // Insert with new sequence
                         cmd.sent_at = Instant::now();
-                        pending.insert(new_seq, cmd);
+                        self.pending.insert(new_seq, cmd);
                     }
 
                     // Continue waiting for response
@@ -635,7 +585,7 @@ impl BlockingTransport for SonyUdpTransport {
         }
     }
 
-    fn recv_blocking_with_timeout(&self, timeout: Duration) -> Result<Bytes> {
+    fn recv_blocking_with_timeout(&mut self, timeout: Duration) -> Result<Bytes> {
         // Temporarily set the timeout on the socket
         let original_read_timeout = self
             .socket

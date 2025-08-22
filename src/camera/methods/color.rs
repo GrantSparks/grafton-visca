@@ -52,40 +52,40 @@ pub trait ColorControl: Sized {
 /// Color operations (blocking).
 pub trait ColorControlBlocking: Sized {
     /// Trigger one-push white balance.
-    fn one_push_trigger(&self) -> Result<(), Error>;
+    fn one_push_trigger(&mut self) -> Result<(), Error>;
 
     /// Set color temperature.
-    fn set_color_temperature(&self, temp: ColorTemp) -> Result<(), Error>;
+    fn set_color_temperature(&mut self, temp: ColorTemp) -> Result<(), Error>;
 
     /// Reset color temperature to default value.
-    fn reset_color_temperature(&self) -> Result<(), Error>;
+    fn reset_color_temperature(&mut self) -> Result<(), Error>;
 
     /// Increase color temperature (makes image cooler/bluer).
-    fn increase_color_temperature(&self) -> Result<(), Error>;
+    fn increase_color_temperature(&mut self) -> Result<(), Error>;
 
     /// Decrease color temperature (makes image warmer/redder).
-    fn decrease_color_temperature(&self) -> Result<(), Error>;
+    fn decrease_color_temperature(&mut self) -> Result<(), Error>;
 
     /// Set or query color temperature.
-    fn color_temperature(&self, temp: Option<ColorTemp>) -> Result<(), Error>;
+    fn color_temperature(&mut self, temp: Option<ColorTemp>) -> Result<(), Error>;
 
     /// Set red gain.
-    fn set_red_gain(&self, gain: RedChannel) -> Result<(), Error>;
+    fn set_red_gain(&mut self, gain: RedChannel) -> Result<(), Error>;
 
     /// Set, reset, increase or decrease red gain.
-    fn red_gain(&self, command: RedGain) -> Result<(), Error>;
+    fn red_gain(&mut self, command: RedGain) -> Result<(), Error>;
 
     /// Set blue gain.
-    fn set_blue_gain(&self, gain: BlueChannel) -> Result<(), Error>;
+    fn set_blue_gain(&mut self, gain: BlueChannel) -> Result<(), Error>;
 
     /// Set, reset, increase or decrease blue gain.
-    fn blue_gain(&self, command: BlueGain) -> Result<(), Error>;
+    fn blue_gain(&mut self, command: BlueGain) -> Result<(), Error>;
 
     /// Set red tuning.
-    fn set_red_tuning(&self, tuning: RedTuning) -> Result<(), Error>;
+    fn set_red_tuning(&mut self, tuning: RedTuning) -> Result<(), Error>;
 
     /// Set blue tuning.
-    fn set_blue_tuning(&self, tuning: BlueTuning) -> Result<(), Error>;
+    fn set_blue_tuning(&mut self, tuning: BlueTuning) -> Result<(), Error>;
 }
 
 // Async implementation for Camera with AsyncMode
@@ -170,34 +170,34 @@ where
 impl<P, T> ColorControlBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile,
-    T: crate::transport::BlockingTransport + Send + Sync + 'static,
+    T: crate::transport::BlockingTransport + Send + 'static,
 {
-    fn one_push_trigger(&self) -> Result<(), Error> {
+    fn one_push_trigger(&mut self) -> Result<(), Error> {
         self.send_command(&OnePushTriggerCommand)?;
         Ok(())
     }
 
-    fn set_color_temperature(&self, temp: ColorTemp) -> Result<(), Error> {
+    fn set_color_temperature(&mut self, temp: ColorTemp) -> Result<(), Error> {
         self.send_command(&ColorTemperature::SetTemperature(temp))?;
         Ok(())
     }
 
-    fn reset_color_temperature(&self) -> Result<(), Error> {
+    fn reset_color_temperature(&mut self) -> Result<(), Error> {
         self.send_command(&ColorTemperature::Reset)?;
         Ok(())
     }
 
-    fn increase_color_temperature(&self) -> Result<(), Error> {
+    fn increase_color_temperature(&mut self) -> Result<(), Error> {
         self.send_command(&ColorTemperature::Up)?;
         Ok(())
     }
 
-    fn decrease_color_temperature(&self) -> Result<(), Error> {
+    fn decrease_color_temperature(&mut self) -> Result<(), Error> {
         self.send_command(&ColorTemperature::Down)?;
         Ok(())
     }
 
-    fn color_temperature(&self, temp: Option<ColorTemp>) -> Result<(), Error> {
+    fn color_temperature(&mut self, temp: Option<ColorTemp>) -> Result<(), Error> {
         match temp {
             Some(t) => self.send_command(&ColorTemperature::SetTemperature(t))?,
             None => {
@@ -207,32 +207,32 @@ where
         Ok(())
     }
 
-    fn set_red_gain(&self, gain: RedChannel) -> Result<(), Error> {
+    fn set_red_gain(&mut self, gain: RedChannel) -> Result<(), Error> {
         self.send_command(&RedGain::SetValue(gain))?;
         Ok(())
     }
 
-    fn red_gain(&self, command: RedGain) -> Result<(), Error> {
+    fn red_gain(&mut self, command: RedGain) -> Result<(), Error> {
         self.send_command(&command)?;
         Ok(())
     }
 
-    fn set_blue_gain(&self, gain: BlueChannel) -> Result<(), Error> {
+    fn set_blue_gain(&mut self, gain: BlueChannel) -> Result<(), Error> {
         self.send_command(&BlueGain::SetValue(gain))?;
         Ok(())
     }
 
-    fn blue_gain(&self, command: BlueGain) -> Result<(), Error> {
+    fn blue_gain(&mut self, command: BlueGain) -> Result<(), Error> {
         self.send_command(&command)?;
         Ok(())
     }
 
-    fn set_red_tuning(&self, tuning: RedTuning) -> Result<(), Error> {
+    fn set_red_tuning(&mut self, tuning: RedTuning) -> Result<(), Error> {
         self.send_command(&RedTuningCommand::new(tuning))?;
         Ok(())
     }
 
-    fn set_blue_tuning(&self, tuning: BlueTuning) -> Result<(), Error> {
+    fn set_blue_tuning(&mut self, tuning: BlueTuning) -> Result<(), Error> {
         self.send_command(&BlueTuningCommand::new(tuning))?;
         Ok(())
     }

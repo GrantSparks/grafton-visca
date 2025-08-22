@@ -143,8 +143,53 @@ impl<E> ScriptedTransport<E> {
         let _ = self.response_tx.send(Ok(response));
     }
 
+    /// Process any pending Step::After steps (static version for use in async blocks).
+    fn process_after_steps_static(
+        steps: Arc<Mutex<VecDeque<Step>>>,
+        response_tx: flume::Sender<Result<Vec<u8>>>,
+        executor: Option<Arc<E>>,
+    ) where
+        E: Executor + ExecutorExt + 'static,
+    {
+        loop {
+            let step = {
+                let mut steps_guard = steps
+                    .lock()
+                    .expect("ScriptedBlockingTransport mutex poisoned");
+                // Only process Step::After, leave others alone
+                match steps_guard.front() {
+                    Some(Step::After { .. }) => steps_guard.pop_front(),
+                    _ => None,
+                }
+            };
+
+            if let Some(Step::After { delay, responses }) = step {
+                // Schedule delayed responses if we have an executor
+                if let Some(executor) = &executor {
+                    let response_tx_clone = response_tx.clone();
+                    let executor_clone = executor.clone();
+                    // Use spawn_bg for true fire-and-forget semantics
+                    executor.spawn_bg(async move {
+                        executor_clone.sleep(delay).await;
+                        for response in responses {
+                            let _ = response_tx_clone.send_async(Ok(response)).await;
+                        }
+                    });
+                } else {
+                    // No executor available, send responses immediately
+                    for response in responses {
+                        let _ = response_tx.send(Ok(response));
+                    }
+                }
+            } else {
+                break;
+            }
+        }
+    }
+
     /// Process any pending Step::After steps.
     /// This is called after a successful Step::OnSend to handle any delayed responses.
+    #[allow(dead_code)]
     fn process_after_steps(&self)
     where
         E: Executor + ExecutorExt,
@@ -194,136 +239,124 @@ impl<E> AsyncTransport for ScriptedTransport<E>
 where
     E: Executor + ExecutorExt + 'static,
 {
-    async fn send(&self, bytes: &[u8]) -> Result<()> {
-        // Record the sent command
-        self.sent
-            .lock()
-            .expect("ScriptedBlockingTransport mutex poisoned")
-            .push(bytes.to_vec());
+    fn send(&mut self, bytes: &[u8]) -> impl std::future::Future<Output = Result<()>> + Send {
+        let bytes_vec = bytes.to_vec();
+        let sent = self.sent.clone();
+        let steps = self.steps.clone();
+        let response_tx = self.response_tx.clone();
+        let executor = self.executor.clone();
 
-        // Process any applicable steps
-        let step = {
-            let mut steps = self
-                .steps
-                .lock()
-                .expect("ScriptedBlockingTransport mutex poisoned");
-            steps.pop_front()
-        };
+        async move {
+            // Record the sent command
+            sent.lock()
+                .expect("ScriptedBlockingTransport mutex poisoned")
+                .push(bytes_vec.clone());
 
-        if let Some(step) = step {
-            match step {
-                Step::OnSend { matches, responses } => {
-                    // Check if this send matches the expected pattern
-                    let should_respond = matches
-                        .as_ref()
-                        .map_or(true, |pattern| bytes.starts_with(pattern));
+            // Process any applicable steps
+            let step = {
+                let mut steps_guard = steps
+                    .lock()
+                    .expect("ScriptedBlockingTransport mutex poisoned");
+                steps_guard.pop_front()
+            };
 
-                    if should_respond {
-                        // Send responses to the channel immediately
-                        for response in responses {
-                            let _ = self.response_tx.send(Ok(response));
+            if let Some(step) = step {
+                match step {
+                    Step::OnSend { matches, responses } => {
+                        // Check if this send matches the expected pattern
+                        let should_respond = matches
+                            .as_ref()
+                            .map_or(true, |pattern| bytes_vec.starts_with(pattern));
+
+                        if should_respond {
+                            // Send responses to the channel immediately
+                            for response in responses {
+                                let _ = response_tx.send(Ok(response));
+                            }
+                            // Process any Step::After that follows immediately
+                            ScriptedTransport::<E>::process_after_steps_static(
+                                steps.clone(),
+                                response_tx.clone(),
+                                executor.clone(),
+                            );
+                        } else {
+                            // Put the step back if it didn't match
+                            steps
+                                .lock()
+                                .expect("ScriptedBlockingTransport mutex poisoned")
+                                .push_front(Step::OnSend { matches, responses });
                         }
-                        // Process any Step::After that follows immediately
-                        self.process_after_steps();
-                    } else {
-                        // Put the step back if it didn't match
-                        self.steps
+                    }
+                    Step::After { delay, responses } => {
+                        // Put it back to be processed by process_after_steps
+                        steps
                             .lock()
                             .expect("ScriptedBlockingTransport mutex poisoned")
-                            .push_front(Step::OnSend { matches, responses });
+                            .push_front(Step::After { delay, responses });
+                        // Process it now
+                        ScriptedTransport::<E>::process_after_steps_static(
+                            steps.clone(),
+                            response_tx.clone(),
+                            executor.clone(),
+                        );
+                    }
+                    Step::InjectError(error) => {
+                        // Put the error step back to be handled on recv
+                        steps
+                            .lock()
+                            .expect("ScriptedBlockingTransport mutex poisoned")
+                            .push_front(Step::InjectError(error));
                     }
                 }
-                Step::After { delay, responses } => {
-                    // Put it back to be processed by process_after_steps
-                    self.steps
-                        .lock()
-                        .expect("ScriptedBlockingTransport mutex poisoned")
-                        .push_front(Step::After { delay, responses });
-                    // Process it now
-                    self.process_after_steps();
-                }
-                Step::InjectError(error) => {
-                    // Put the error step back to be handled on recv
-                    self.steps
-                        .lock()
-                        .expect("ScriptedBlockingTransport mutex poisoned")
-                        .push_front(Step::InjectError(error));
-                }
             }
-        }
 
-        Ok(())
+            Ok(())
+        }
     }
 
-    async fn recv(&self) -> Result<Bytes> {
-        // Check for injected errors first
-        {
-            let mut steps = self
-                .steps
-                .lock()
-                .expect("ScriptedBlockingTransport mutex poisoned");
-            if let Some(Step::InjectError(_)) = steps.front() {
-                let error = match steps
-                    .pop_front()
-                    .expect("No error step available in scripted transport")
-                {
-                    Step::InjectError(e) => e,
-                    _ => unreachable!(),
-                };
-                eprintln!(
-                    "[ScriptedTransport::recv] Returning injected error: {:?}",
-                    error
-                );
-                return Err(error);
-            }
-        }
+    fn recv(&mut self) -> impl std::future::Future<Output = Result<Bytes>> + Send {
+        let steps = self.steps.clone();
+        let response_rx = self.response_rx.clone();
 
-        // Use event-driven channel receive with timeout
-        if let Some(executor) = &self.executor {
-            // With executor, use its timeout mechanism
-            match executor
-                .timeout(Duration::from_secs(10), self.response_rx.recv_async())
-                .await
+        async move {
+            // Check for injected errors first
             {
-                Ok(Ok(Ok(response))) => {
+                let mut steps_guard = steps
+                    .lock()
+                    .expect("ScriptedBlockingTransport mutex poisoned");
+                if let Some(Step::InjectError(_)) = steps_guard.front() {
+                    let error = match steps_guard
+                        .pop_front()
+                        .expect("No error step available in scripted transport")
+                    {
+                        Step::InjectError(e) => e,
+                        _ => unreachable!(),
+                    };
+                    eprintln!(
+                        "[ScriptedTransport::recv] Returning injected error: {:?}",
+                        error
+                    );
+                    return Err(error);
+                }
+            }
+
+            // Receive response from channel
+            match response_rx.recv_async().await {
+                Ok(Ok(response)) => {
                     eprintln!(
                         "[ScriptedTransport::recv] Returning response: {:02X?}",
                         response
                     );
                     Ok(Bytes::from(response))
                 }
-                Ok(Ok(Err(_))) => {
-                    eprintln!("[ScriptedTransport::recv] Channel closed, returning timeout");
-                    Err(Error::Timeout)
-                } // Channel closed
                 Ok(Err(_)) => {
                     eprintln!("[ScriptedTransport::recv] Recv error, returning timeout");
                     Err(Error::Timeout)
                 } // Recv error
                 Err(_) => {
-                    eprintln!("[ScriptedTransport::recv] Timeout from executor");
+                    eprintln!("[ScriptedTransport::recv] Channel closed, returning timeout");
                     Err(Error::Timeout)
-                } // Timeout from executor
-            }
-        } else {
-            // Without executor, use tokio timeout
-            #[cfg(feature = "rt-tokio")]
-            match tokio::time::timeout(Duration::from_secs(10), self.response_rx.recv_async()).await
-            {
-                Ok(Ok(Ok(response))) => Ok(Bytes::from(response)),
-                Ok(Ok(Err(_))) => Err(Error::Timeout), // Channel closed
-                Ok(Err(_)) => Err(Error::Timeout),     // Recv error
-                Err(_) => Err(Error::Timeout),         // Timeout
-            }
-
-            #[cfg(not(feature = "rt-tokio"))]
-            {
-                // Fallback for tests without tokio - just try receive
-                match self.response_rx.recv_async().await {
-                    Ok(Ok(response)) => Ok(Bytes::from(response)),
-                    Ok(Err(_)) => Err(Error::Timeout),
-                    Err(_) => Err(Error::Timeout),
-                }
+                } // Channel closed
             }
         }
     }
@@ -368,7 +401,7 @@ impl ScriptedBlockingTransport {
 }
 
 impl BlockingTransport for ScriptedBlockingTransport {
-    fn send_blocking(&self, bytes: &[u8]) -> Result<()> {
+    fn send_blocking(&mut self, bytes: &[u8]) -> Result<()> {
         // Record the sent command
         self.sent
             .lock()
@@ -421,7 +454,7 @@ impl BlockingTransport for ScriptedBlockingTransport {
         Ok(())
     }
 
-    fn recv_blocking(&self) -> Result<Bytes> {
+    fn recv_blocking(&mut self) -> Result<Bytes> {
         // Try to get a response from the channel (blocking)
         match self.response_rx.recv_timeout(Duration::from_secs(10)) {
             Ok(Ok(response)) => Ok(Bytes::from(response)),
@@ -430,7 +463,7 @@ impl BlockingTransport for ScriptedBlockingTransport {
         }
     }
 
-    fn recv_blocking_with_timeout(&self, _timeout: Duration) -> Result<Bytes> {
+    fn recv_blocking_with_timeout(&mut self, _timeout: Duration) -> Result<Bytes> {
         // For the scripted transport, we just use the same logic as recv_blocking
         // The timeout is handled by the script itself
         self.recv_blocking()
@@ -683,7 +716,7 @@ mod tests {
     #[test]
     #[allow(clippy::unwrap_used)]
     fn test_scripted_blocking_transport_basic() {
-        let transport = ScriptedBlockingTransport::new(vec![Step::OnSend {
+        let mut transport = ScriptedBlockingTransport::new(vec![Step::OnSend {
             matches: None,
             responses: vec![vec![0x90, 0x41, VISCA_TERMINATOR]], // ACK
         }]);
@@ -706,7 +739,7 @@ mod tests {
     #[test]
     #[allow(clippy::unwrap_used)]
     fn test_scripted_blocking_transport_no_response() {
-        let transport = ScriptedBlockingTransport::new(vec![]);
+        let mut transport = ScriptedBlockingTransport::new(vec![]);
 
         // Send a command
         transport
@@ -727,7 +760,7 @@ mod tests {
         // Test basic functionality without delayed responses for now
         // The After step with spawned tasks requires more complex integration
         // between DeterministicExecutor and async-executor
-        let transport = ScriptedTransport::new(vec![Step::OnSend {
+        let mut transport = ScriptedTransport::new(vec![Step::OnSend {
             matches: None,
             responses: vec![vec![0x90, 0x41, VISCA_TERMINATOR]], // ACK immediately
         }])
@@ -756,7 +789,7 @@ mod tests {
         use std::time::Duration;
 
         let (executor, clock) = DeterministicExecutor::new();
-        let transport = ScriptedTransport::new(vec![]).with_executor(executor.clone());
+        let mut transport = ScriptedTransport::new(vec![]).with_executor(executor.clone());
 
         // Send a command without any scripted responses
         transport

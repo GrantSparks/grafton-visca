@@ -11,7 +11,7 @@ fn test_blocking_wrapper_api() {
     };
 
     fn _example<P: Profile, T>(
-        camera: &Camera<BlockingMode, P, T, ()>,
+        camera: &mut Camera<BlockingMode, P, T, ()>,
     ) -> Result<(), grafton_visca::Error>
     where
         T: BlockingTransport + Send + Sync + 'static,

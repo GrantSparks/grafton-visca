@@ -59,7 +59,7 @@ fn main() -> Result<(), Error> {
         .connect_timeout(Duration::from_secs(5))
         .build()?; // .build() returns Box<dyn BlockingTransport> for pure blocking usage
 
-    let camera = Camera::<_, PtzOpticsG2, _, _>::new(transport);
+    let mut camera = Camera::<_, PtzOpticsG2, _, _>::new(transport);
 
     println!("✅ Connected successfully!");
     println!();

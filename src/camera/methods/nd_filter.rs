@@ -32,22 +32,22 @@ pub trait NdFilterControl: Sized {
 /// ND filter operations (blocking).
 pub trait NdFilterControlBlocking: Sized {
     /// Set ND filter mode (preset or variable).
-    fn set_nd_filter_mode(&self, mode: CommandNDFilterMode) -> Result<(), Error>;
+    fn set_nd_filter_mode(&mut self, mode: CommandNDFilterMode) -> Result<(), Error>;
 
     /// Set ND filter value directly (for variable mode).
-    fn set_nd_filter_value(&self, value: u16) -> Result<(), Error>;
+    fn set_nd_filter_value(&mut self, value: u16) -> Result<(), Error>;
 
     /// Set ND filter by stop value (2.0 to 7.0 stops).
-    fn set_nd_filter_stops(&self, stops: f32) -> Result<(), Error>;
+    fn set_nd_filter_stops(&mut self, stops: f32) -> Result<(), Error>;
 
     /// Step ND filter up or down.
-    fn step_nd_filter(&self, direction: NDFilterStep) -> Result<(), Error>;
+    fn step_nd_filter(&mut self, direction: NDFilterStep) -> Result<(), Error>;
 
     /// Enable or disable auto ND.
-    fn set_auto_nd(&self, enabled: bool) -> Result<(), Error>;
+    fn set_auto_nd(&mut self, enabled: bool) -> Result<(), Error>;
 
     /// Get current ND filter setting.
-    fn get_nd_filter(&self) -> Result<u8, Error>;
+    fn get_nd_filter(&mut self) -> Result<u8, Error>;
 }
 
 // Async implementation for Camera with AsyncMode
@@ -122,9 +122,9 @@ where
 impl<P, T> NdFilterControlBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile + crate::capabilities::nd_filter::NDFilter,
-    T: crate::transport::BlockingTransport + Send + Sync + 'static,
+    T: crate::transport::BlockingTransport + Send + 'static,
 {
-    fn set_nd_filter_mode(&self, mode: CommandNDFilterMode) -> Result<(), Error> {
+    fn set_nd_filter_mode(&mut self, mode: CommandNDFilterMode) -> Result<(), Error> {
         use crate::command::nd_filter::NdFilterModeCmd;
 
         let cmd = NdFilterModeCmd::new(mode);
@@ -132,7 +132,7 @@ where
         Ok(())
     }
 
-    fn set_nd_filter_value(&self, value: u16) -> Result<(), Error> {
+    fn set_nd_filter_value(&mut self, value: u16) -> Result<(), Error> {
         use crate::command::nd_filter::NDFilterValue;
 
         let cmd = NDFilterValue::new(value).map_err(|_| Error::InvalidParameter {
@@ -144,7 +144,7 @@ where
         Ok(())
     }
 
-    fn set_nd_filter_stops(&self, stops: f32) -> Result<(), Error> {
+    fn set_nd_filter_stops(&mut self, stops: f32) -> Result<(), Error> {
         use crate::command::nd_filter::NDFilterValue;
 
         let cmd = NDFilterValue::from_stops(stops).map_err(|_| Error::InvalidParameter {
@@ -156,7 +156,7 @@ where
         Ok(())
     }
 
-    fn step_nd_filter(&self, direction: NDFilterStep) -> Result<(), Error> {
+    fn step_nd_filter(&mut self, direction: NDFilterStep) -> Result<(), Error> {
         use crate::command::nd_filter::NdFilterStepCmd;
 
         let cmd = NdFilterStepCmd::new(direction);
@@ -164,7 +164,7 @@ where
         Ok(())
     }
 
-    fn set_auto_nd(&self, enabled: bool) -> Result<(), Error> {
+    fn set_auto_nd(&mut self, enabled: bool) -> Result<(), Error> {
         use crate::command::nd_filter::AutoNDCommand;
 
         let cmd = AutoNDCommand::new(enabled);
@@ -172,7 +172,7 @@ where
         Ok(())
     }
 
-    fn get_nd_filter(&self) -> Result<u8, Error> {
+    fn get_nd_filter(&mut self) -> Result<u8, Error> {
         use crate::command::{inquiry::NdFilterInquiry, response::ViscaResponse, InquiryResponse};
 
         let inquiry = NdFilterInquiry;

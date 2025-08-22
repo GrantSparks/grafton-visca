@@ -16,7 +16,7 @@ pub trait StreamingControl: Sized {
     /// ```ignore
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// # use grafton_visca::r#async::{Camera, StreamingControl};
-    /// # use grafton_visca::transport::tokio::Tcp;
+    /// # use grafton_visca::runtime_adapters::tokio::TcpTransport as Tcp;
     /// # let transport = Tcp::connect("192.168.0.110:52381").await?;
     /// # let camera = Camera::new(transport);
     /// camera.enable_multicast().await?;
@@ -34,7 +34,7 @@ pub trait StreamingControl: Sized {
     /// ```ignore
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// # use grafton_visca::r#async::{Camera, StreamingControl};
-    /// # use grafton_visca::transport::tokio::Tcp;
+    /// # use grafton_visca::runtime_adapters::tokio::TcpTransport as Tcp;
     /// # let transport = Tcp::connect("192.168.0.110:52381").await?;
     /// # let camera = Camera::new(transport);
     /// camera.disable_multicast().await?;
@@ -52,7 +52,7 @@ pub trait StreamingControl: Sized {
     /// ```ignore
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// # use grafton_visca::r#async::{Camera, StreamingControl};
-    /// # use grafton_visca::transport::tokio::Tcp;
+    /// # use grafton_visca::runtime_adapters::tokio::TcpTransport as Tcp;
     /// # use grafton_visca::types::NdiQuality;
     /// # let transport = Tcp::connect("192.168.0.110:52381").await?;
     /// # let camera = Camera::new(transport);
@@ -82,7 +82,7 @@ pub trait StreamingControlBlocking: Sized {
     /// # Ok(())
     /// # }
     /// ```
-    fn enable_multicast(&self) -> Result<()>;
+    fn enable_multicast(&mut self) -> Result<()>;
 
     /// Disable multicast streaming for Ndi cameras.
     ///
@@ -101,7 +101,7 @@ pub trait StreamingControlBlocking: Sized {
     /// # Ok(())
     /// # }
     /// ```
-    fn disable_multicast(&self) -> Result<()>;
+    fn disable_multicast(&mut self) -> Result<()>;
 
     /// Set the Ndi streaming quality.
     ///
@@ -121,7 +121,7 @@ pub trait StreamingControlBlocking: Sized {
     /// # Ok(())
     /// # }
     /// ```
-    fn set_ndi_quality(&self, quality: NdiQuality) -> Result<()>;
+    fn set_ndi_quality(&mut self, quality: NdiQuality) -> Result<()>;
 }
 
 // Async implementation for Camera with AsyncMode
@@ -161,9 +161,9 @@ where
 impl<P, T> StreamingControlBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile,
-    T: crate::transport::BlockingTransport + Send + Sync + 'static,
+    T: crate::transport::BlockingTransport + Send + 'static,
 {
-    fn enable_multicast(&self) -> Result<()> {
+    fn enable_multicast(&mut self) -> Result<()> {
         use crate::command::streaming::MulticastStreaming;
 
         let cmd = MulticastStreaming::On;
@@ -171,7 +171,7 @@ where
         Ok(())
     }
 
-    fn disable_multicast(&self) -> Result<()> {
+    fn disable_multicast(&mut self) -> Result<()> {
         use crate::command::streaming::MulticastStreaming;
 
         let cmd = MulticastStreaming::Off;
@@ -179,7 +179,7 @@ where
         Ok(())
     }
 
-    fn set_ndi_quality(&self, quality: NdiQuality) -> Result<()> {
+    fn set_ndi_quality(&mut self, quality: NdiQuality) -> Result<()> {
         use crate::command::streaming::NdiQualityCmd;
 
         let cmd = NdiQualityCmd::new(quality);

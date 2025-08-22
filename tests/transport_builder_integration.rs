@@ -58,7 +58,7 @@ fn test_builder_creates_configured_tcp_transport() {
     );
 
     // Verify transport can send and receive
-    let transport = transport.unwrap();
+    let mut transport = transport.unwrap();
     transport
         .send_blocking(&[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF])
         .unwrap();
@@ -98,7 +98,7 @@ fn test_builder_creates_configured_udp_transport() {
 
     assert!(transport.is_ok(), "Builder should create UDP transport");
 
-    let transport = transport.unwrap();
+    let mut transport = transport.unwrap();
     transport
         .send_blocking(&[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF])
         .unwrap();
@@ -151,7 +151,7 @@ fn test_builder_retry_configuration() {
     });
 
     // Use builder with retry configuration
-    let transport = TransportBuilder::udp()
+    let mut transport = TransportBuilder::udp()
         .address(addr.to_string().as_str())
         .max_retries(5) // Allow enough retries
         .retry_delay(Duration::from_millis(50)) // Short delay for testing

@@ -24,34 +24,34 @@ use crate::Error;
 /// struct MyBlockingTransport { /* ... */ }
 ///
 /// impl BlockingTransport for MyBlockingTransport {
-///     fn send_blocking(&self, bytes: &[u8]) -> Result<(), Error> {
+///     fn send_blocking(&mut self, bytes: &[u8]) -> Result<(), Error> {
 ///         // Send implementation
 ///         Ok(())
 ///     }
 ///
-///     fn recv_blocking(&self) -> Result<Bytes, Error> {
+///     fn recv_blocking(&mut self) -> Result<Bytes, Error> {
 ///         // Receive implementation without timeout
 ///         Ok(Bytes::new())
 ///     }
 ///
-///     fn recv_blocking_with_timeout(&self, timeout: Duration) -> Result<Bytes, Error> {
+///     fn recv_blocking_with_timeout(&mut self, timeout: Duration) -> Result<Bytes, Error> {
 ///         // Receive implementation with timeout
 ///         Ok(Bytes::new())
 ///     }
 /// }
 /// ```
-pub trait BlockingTransport: Send + Sync {
+pub trait BlockingTransport: Send {
     /// Send raw bytes to the device (blocking).
     ///
     /// This method blocks until the bytes have been written to the
     /// underlying transport.
-    fn send_blocking(&self, bytes: &[u8]) -> Result<(), Error>;
+    fn send_blocking(&mut self, bytes: &[u8]) -> Result<(), Error>;
 
     /// Receive raw bytes from the device (blocking).
     ///
     /// This method blocks until a complete VISCA frame is received.
     /// There is no timeout - it will block indefinitely.
-    fn recv_blocking(&self) -> Result<Bytes, Error>;
+    fn recv_blocking(&mut self) -> Result<Bytes, Error>;
 
     /// Receive raw bytes with a timeout (blocking).
     ///
@@ -68,20 +68,20 @@ pub trait BlockingTransport: Send + Sync {
     /// * `Ok(bytes)` - A complete VISCA frame
     /// * `Err(Error::Timeout)` - If the timeout expires
     /// * `Err(_)` - For other transport errors
-    fn recv_blocking_with_timeout(&self, timeout: Duration) -> Result<Bytes, Error>;
+    fn recv_blocking_with_timeout(&mut self, timeout: Duration) -> Result<Bytes, Error>;
 }
 
 // Implement BlockingTransport for Box<dyn BlockingTransport> to enable nested boxing
 impl BlockingTransport for Box<dyn BlockingTransport> {
-    fn send_blocking(&self, bytes: &[u8]) -> Result<(), Error> {
+    fn send_blocking(&mut self, bytes: &[u8]) -> Result<(), Error> {
         (**self).send_blocking(bytes)
     }
 
-    fn recv_blocking(&self) -> Result<Bytes, Error> {
+    fn recv_blocking(&mut self) -> Result<Bytes, Error> {
         (**self).recv_blocking()
     }
 
-    fn recv_blocking_with_timeout(&self, timeout: Duration) -> Result<Bytes, Error> {
+    fn recv_blocking_with_timeout(&mut self, timeout: Duration) -> Result<Bytes, Error> {
         (**self).recv_blocking_with_timeout(timeout)
     }
 }

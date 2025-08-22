@@ -18,13 +18,13 @@ pub trait PresetsControl: Sized {
 /// Presets operations (blocking).
 pub trait PresetsControlBlocking: Sized {
     /// Recall a preset position.
-    fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error>;
+    fn preset_recall(&mut self, preset: PresetNumber) -> Result<(), Error>;
 
     /// Set current position as a preset.
-    fn preset_set(&self, preset: PresetNumber) -> Result<(), Error>;
+    fn preset_set(&mut self, preset: PresetNumber) -> Result<(), Error>;
 
     /// Reset/clear a preset.
-    fn preset_reset(&self, preset: PresetNumber) -> Result<(), Error>;
+    fn preset_reset(&mut self, preset: PresetNumber) -> Result<(), Error>;
 }
 
 // Async implementation for Camera with AsyncMode
@@ -73,9 +73,9 @@ where
 impl<P, T> PresetsControlBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile,
-    T: crate::transport::BlockingTransport + Send + Sync + 'static,
+    T: crate::transport::BlockingTransport + Send + 'static,
 {
-    fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error> {
+    fn preset_recall(&mut self, preset: PresetNumber) -> Result<(), Error> {
         use crate::command::preset::{PresetAction, PresetCommand};
 
         let cmd = PresetCommand {
@@ -86,7 +86,7 @@ where
         Ok(())
     }
 
-    fn preset_set(&self, preset: PresetNumber) -> Result<(), Error> {
+    fn preset_set(&mut self, preset: PresetNumber) -> Result<(), Error> {
         use crate::command::preset::{PresetAction, PresetCommand};
 
         let cmd = PresetCommand {
@@ -97,7 +97,7 @@ where
         Ok(())
     }
 
-    fn preset_reset(&self, preset: PresetNumber) -> Result<(), Error> {
+    fn preset_reset(&mut self, preset: PresetNumber) -> Result<(), Error> {
         use crate::command::preset::{PresetAction, PresetCommand};
 
         let cmd = PresetCommand {

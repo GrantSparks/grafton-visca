@@ -57,7 +57,7 @@ fn test_tcp_blocking_timeout_enforcement() {
     let addr = start_slow_tcp_server();
 
     // Connect to the slow server
-    let transport = Tcp::connect(&addr).expect("Failed to connect");
+    let mut transport = Tcp::connect(&addr).expect("Failed to connect");
 
     // Test different timeout durations
     // Windows has less precise timing, especially in CI, so we need larger tolerances
@@ -105,7 +105,7 @@ fn test_udp_blocking_timeout_enforcement() {
     let addr = start_slow_udp_server();
 
     // Connect to the slow server
-    let transport = Udp::connect(&addr).expect("Failed to connect");
+    let mut transport = Udp::connect(&addr).expect("Failed to connect");
 
     // Send something first to establish the "connection"
     let _ = transport.send_blocking(b"\x81\x01\x04\x00\x02\xFF");
@@ -162,7 +162,7 @@ fn test_blocking_timeout_no_polling() {
     // cargo test -- --ignored
 
     let addr = start_slow_tcp_server();
-    let transport = Tcp::connect(&addr).expect("Failed to connect");
+    let mut transport = Tcp::connect(&addr).expect("Failed to connect");
 
     // Measure CPU time before the operation
     let start = Instant::now();
@@ -191,7 +191,7 @@ fn test_timeout_restores_original_setting() {
     // recv_blocking_with_timeout completes
 
     let addr = start_slow_tcp_server();
-    let transport = Tcp::connect(&addr).expect("Failed to connect");
+    let mut transport = Tcp::connect(&addr).expect("Failed to connect");
 
     // First timeout with a short duration
     let _ = transport.recv_blocking_with_timeout(Duration::from_millis(100));

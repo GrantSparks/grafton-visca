@@ -6,9 +6,8 @@
 use bytes::{Bytes, BytesMut};
 use log::{debug, trace};
 
-use std::io::{Read, Write};
+use std::io::{BufReader, Read, Write};
 use std::net::{TcpStream, UdpSocket};
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::{
@@ -52,9 +51,10 @@ impl Default for RawIpConfig {
 /// Raw TCP transport for blocking I/O.
 #[derive(Debug)]
 pub struct RawTcpTransport {
-    stream: Arc<Mutex<TcpStream>>,
-    buffer_manager: Arc<BufferManager>,
-    read_buffer: Arc<Mutex<BytesMut>>,
+    reader: BufReader<TcpStream>,
+    writer: TcpStream,
+    buffer_manager: BufferManager,
+    read_buffer: BytesMut,
     retry_executor: RetryExecutor,
 }
 
@@ -85,44 +85,43 @@ impl RawTcpTransport {
 
         debug!("Connected to {addr}");
 
+        // Clone the stream for reader/writer split
+        let writer = stream
+            .try_clone()
+            .map_err(|e| Error::TransportError(format!("Failed to clone stream: {e}").into()))?;
+        let reader = BufReader::new(stream);
+
         // Create buffer manager with raw IP optimized sizes
-        let buffer_manager = Arc::new(BufferManager::new(BufferConfig::for_raw_ip()));
+        let buffer_manager = BufferManager::new(BufferConfig::for_raw_ip());
 
         // Create retry executor with the configured retry settings
         let retry_executor = RetryExecutor::new(config.retry_config);
 
         Ok(Self {
-            stream: Arc::new(Mutex::new(stream)),
-            buffer_manager: buffer_manager.clone(),
-            read_buffer: buffer_manager.alloc_async_shared_buffer(),
+            reader,
+            writer,
+            buffer_manager,
+            read_buffer: buffer_manager.alloc_recv_buffer(),
             retry_executor,
         })
     }
 
     /// Receive a complete VISCA frame.
-    fn recv_frame(&self) -> Result<Bytes> {
-        let mut buffer = self
-            .read_buffer
-            .lock()
-            .map_err(|_| Error::LockPoisoned("transport mutex"))?;
-        let mut stream = self
-            .stream
-            .lock()
-            .map_err(|_| Error::LockPoisoned("transport mutex"))?;
+    fn recv_frame(&mut self) -> Result<Bytes> {
         let mut temp_buf = self.buffer_manager.alloc_vec_buffer();
 
         loop {
             // Check if we have a complete frame in the buffer
-            if let Some(pos) = buffer.iter().position(|&b| b == VISCA_TERMINATOR) {
-                let frame = buffer.split_to(pos + 1);
+            if let Some(pos) = self.read_buffer.iter().position(|&b| b == VISCA_TERMINATOR) {
+                let frame = self.read_buffer.split_to(pos + 1);
                 trace!("Received frame: {:02X?}", frame);
                 return Ok(frame.freeze());
             }
 
             // Read more data
-            match stream.read(&mut temp_buf) {
+            match self.reader.read(&mut temp_buf) {
                 Ok(n) if n > 0 => {
-                    buffer.extend_from_slice(&temp_buf[..n]);
+                    self.read_buffer.extend_from_slice(&temp_buf[..n]);
                     trace!("Read {n} bytes from TCP");
                 }
                 Ok(_) => {
@@ -140,20 +139,18 @@ impl RawTcpTransport {
 }
 
 impl BlockingTransport for RawTcpTransport {
-    fn send_blocking(&self, bytes: &[u8]) -> Result<()> {
+    fn send_blocking(&mut self, bytes: &[u8]) -> Result<()> {
         // Clone bytes for the closure
         let bytes_vec = bytes.to_vec();
 
+        // Create a mutable reference to writer for the retry closure
+        let writer = &mut self.writer;
+
         // Use the retry executor for automatic retry handling
         self.retry_executor.execute(|| {
-            let mut stream = self
-                .stream
-                .lock()
-                .map_err(|_| Error::LockPoisoned("transport mutex"))?;
-
-            stream
+            writer
                 .write_all(&bytes_vec)
-                .and_then(|_| stream.flush())
+                .and_then(|_| writer.flush())
                 .map_err(|e| Error::TransportError(format!("TCP write error: {e}").into()))?;
 
             trace!("Sent {} bytes: {:02X?}", bytes_vec.len(), bytes_vec);
@@ -161,33 +158,30 @@ impl BlockingTransport for RawTcpTransport {
         })
     }
 
-    fn recv_blocking(&self) -> Result<Bytes> {
+    fn recv_blocking(&mut self) -> Result<Bytes> {
         // Don't retry receive operations to avoid protocol confusion
         self.recv_frame()
     }
 
-    fn recv_blocking_with_timeout(&self, timeout: Duration) -> Result<Bytes> {
-        // Temporarily set the timeout on the stream
-        let stream = self
-            .stream
-            .lock()
-            .map_err(|_| Error::LockPoisoned("transport mutex"))?;
-        let original_read_timeout = stream
+    fn recv_blocking_with_timeout(&mut self, timeout: Duration) -> Result<Bytes> {
+        // We need to temporarily modify the timeout on the stream
+        // Since we can't get a mutable reference while recv_frame borrows self mutably,
+        // we'll use a different approach: set timeout before recv and restore after
+
+        // Get the stream reference through the writer (which is a clone of the same stream)
+        let original_read_timeout = self
+            .writer
             .read_timeout()
             .map_err(|e| Error::TransportError(format!("Failed to get timeout: {e}").into()))?;
-        stream
+
+        self.writer
             .set_read_timeout(Some(timeout))
             .map_err(|e| Error::TransportError(format!("Failed to set timeout: {e}").into()))?;
-        drop(stream);
 
         let result = self.recv_frame();
 
         // Restore original timeout
-        let stream = self
-            .stream
-            .lock()
-            .map_err(|_| Error::LockPoisoned("transport mutex"))?;
-        stream
+        self.writer
             .set_read_timeout(original_read_timeout)
             .map_err(|e| Error::TransportError(format!("Failed to restore timeout: {e}").into()))?;
 
@@ -198,13 +192,13 @@ impl BlockingTransport for RawTcpTransport {
 /// Raw UDP transport for blocking I/O.
 #[derive(Debug)]
 pub struct RawUdpTransport {
-    socket: Arc<UdpSocket>,
-    buffer_manager: Arc<BufferManager>,
-    read_buffer: Arc<Mutex<BytesMut>>,
+    socket: UdpSocket,
+    buffer_manager: BufferManager,
+    read_buffer: BytesMut,
     retry_executor: RetryExecutor,
     config: RawIpConfig,
     /// Track last sent command for retry on timeout
-    last_command: Arc<Mutex<Option<Vec<u8>>>>,
+    last_command: Option<Vec<u8>>,
 }
 
 impl RawUdpTransport {
@@ -240,33 +234,29 @@ impl RawUdpTransport {
         debug!("Connected to {addr}");
 
         // Create buffer manager with UDP optimized sizes
-        let buffer_manager = Arc::new(BufferManager::new(BufferConfig::for_udp()));
+        let buffer_manager = BufferManager::new(BufferConfig::for_udp());
 
         // Create retry executor with the configured retry settings
         let retry_executor = RetryExecutor::new(config.retry_config);
 
         Ok(Self {
-            socket: Arc::new(socket),
-            buffer_manager: buffer_manager.clone(),
-            read_buffer: buffer_manager.alloc_async_shared_buffer(),
+            socket,
+            buffer_manager,
+            read_buffer: buffer_manager.alloc_recv_buffer(),
             retry_executor,
             config,
-            last_command: Arc::new(Mutex::new(None)),
+            last_command: None,
         })
     }
 
     /// Receive a complete VISCA frame.
-    fn recv_frame(&self) -> Result<Bytes> {
-        let mut buffer = self
-            .read_buffer
-            .lock()
-            .map_err(|_| Error::LockPoisoned("transport mutex"))?;
+    fn recv_frame(&mut self) -> Result<Bytes> {
         let mut temp_buf = self.buffer_manager.alloc_vec_buffer();
 
         loop {
             // Check if we have a complete frame in the buffer
-            if let Some(pos) = buffer.iter().position(|&b| b == VISCA_TERMINATOR) {
-                let frame = buffer.split_to(pos + 1);
+            if let Some(pos) = self.read_buffer.iter().position(|&b| b == VISCA_TERMINATOR) {
+                let frame = self.read_buffer.split_to(pos + 1);
                 trace!("Received frame: {:02X?}", frame);
                 return Ok(frame.freeze());
             }
@@ -274,7 +264,7 @@ impl RawUdpTransport {
             // Read more data
             match self.socket.recv(&mut temp_buf) {
                 Ok(n) if n > 0 => {
-                    buffer.extend_from_slice(&temp_buf[..n]);
+                    self.read_buffer.extend_from_slice(&temp_buf[..n]);
                     trace!("Read {n} bytes from UDP");
                 }
                 Ok(_) => {
@@ -292,22 +282,19 @@ impl RawUdpTransport {
 }
 
 impl BlockingTransport for RawUdpTransport {
-    fn send_blocking(&self, bytes: &[u8]) -> Result<()> {
+    fn send_blocking(&mut self, bytes: &[u8]) -> Result<()> {
         // Store the command for potential retry on receive timeout
-        {
-            let mut last_cmd = self
-                .last_command
-                .lock()
-                .map_err(|_| Error::LockPoisoned("transport mutex"))?;
-            *last_cmd = Some(bytes.to_vec());
-        }
+        self.last_command = Some(bytes.to_vec());
 
         // Clone bytes for the closure
         let bytes_vec = bytes.to_vec();
 
+        // Create a reference to socket for the retry closure
+        let socket = &self.socket;
+
         // Use the retry executor for automatic retry handling
         self.retry_executor.execute(|| {
-            self.socket
+            socket
                 .send(&bytes_vec)
                 .map_err(|e| Error::TransportError(format!("UDP send error: {e}").into()))?;
 
@@ -316,7 +303,7 @@ impl BlockingTransport for RawUdpTransport {
         })
     }
 
-    fn recv_blocking(&self) -> Result<Bytes> {
+    fn recv_blocking(&mut self) -> Result<Bytes> {
         let mut attempts = 0;
         let start_time = Instant::now();
 
@@ -327,13 +314,7 @@ impl BlockingTransport for RawUdpTransport {
                     if self.config.retry_config.should_retry(attempts, start_time) =>
                 {
                     // For UDP, timeout might mean packet loss - resend last command
-                    let last_cmd = self
-                        .last_command
-                        .lock()
-                        .map_err(|_| Error::LockPoisoned("transport mutex"))?
-                        .clone();
-
-                    if let Some(cmd) = last_cmd {
+                    if let Some(cmd) = self.last_command.clone() {
                         attempts += 1;
                         let delay = self
                             .config
@@ -380,7 +361,7 @@ impl BlockingTransport for RawUdpTransport {
         }
     }
 
-    fn recv_blocking_with_timeout(&self, timeout: Duration) -> Result<Bytes> {
+    fn recv_blocking_with_timeout(&mut self, timeout: Duration) -> Result<Bytes> {
         // Temporarily set the timeout on the socket
         let original_read_timeout = self
             .socket

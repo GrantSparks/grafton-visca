@@ -23,13 +23,14 @@ use std::sync::{
 };
 
 #[cfg(feature = "async")]
+use scheduler::{LinkEvent, RxEvent, Scheduler, SchedulerMetrics, SocketId, TxItem, ViscaError};
+
+#[cfg(feature = "async")]
 use crate::{
     command::response::ViscaResponse,
     error::{Error, Result},
     transport::AsyncTransport,
 };
-#[cfg(feature = "async")]
-use scheduler::{LinkEvent, RxEvent, Scheduler, SchedulerMetrics, SocketId, TxItem, ViscaError};
 
 /// Helper function to spawn runtime tasks properly for different executor types.
 #[cfg(feature = "async")]
@@ -132,7 +133,7 @@ impl RuntimeHandle {
     ///
     /// This spawns a background task to handle communication with the camera.
     #[cfg(feature = "async")]
-    pub async fn new<T: AsyncTransport + 'static, E: crate::executor::Executor>(
+    pub async fn new<T: AsyncTransport + Send + 'static, E: crate::executor::Executor>(
         transport: T,
         executor: Arc<E>,
     ) -> Result<Self> {
@@ -149,7 +150,10 @@ impl RuntimeHandle {
     /// * `executor` - The async executor to spawn tasks on
     /// * `tick_interval_ms` - Optional tick interval in milliseconds (default: 50ms)
     #[cfg(feature = "async")]
-    pub async fn with_tick_interval<T: AsyncTransport + 'static, E: crate::executor::Executor>(
+    pub async fn with_tick_interval<
+        T: AsyncTransport + Send + 'static,
+        E: crate::executor::Executor,
+    >(
         transport: T,
         executor: Arc<E>,
         tick_interval_ms: Option<u64>,
@@ -416,8 +420,11 @@ impl RuntimeHandle {
 
 /// Main runtime loop with configurable tick interval.
 #[cfg(feature = "async")]
-async fn runtime_loop_with_config<T: AsyncTransport, E: crate::executor::Executor>(
-    transport: T,
+async fn runtime_loop_with_config<
+    T: AsyncTransport + Send + 'static,
+    E: crate::executor::Executor,
+>(
+    mut transport: T,
     submit_rx: Receiver<TxItem>,
     event_tx: Sender<RxEvent>,
     metrics_rx: Receiver<Sender<MetricsSummary>>,
@@ -444,7 +451,7 @@ async fn runtime_loop_with_config<T: AsyncTransport, E: crate::executor::Executo
         // Check for submit items non-blockingly first
         if let Ok(item) = submit_rx.try_recv() {
             match handle_tx_item(
-                &transport,
+                &mut transport,
                 &mut scheduler,
                 item,
                 &event_tx,
@@ -459,7 +466,7 @@ async fn runtime_loop_with_config<T: AsyncTransport, E: crate::executor::Executo
                     // Process command queue with retry budget check
                     let allow_retry_defer = consecutive_retries < 8;
                     if let Err(e) = process_command_queue(
-                        &transport,
+                        &mut transport,
                         &mut scheduler,
                         &event_tx,
                         executor.as_ref(),
@@ -525,7 +532,7 @@ async fn runtime_loop_with_config<T: AsyncTransport, E: crate::executor::Executo
 
                     // Send the retry immediately
                     if let Err(e) = handle_tx_item(
-                        &transport,
+                        &mut transport,
                         &mut scheduler,
                         tx_item,
                         &event_tx,
@@ -546,9 +553,6 @@ async fn runtime_loop_with_config<T: AsyncTransport, E: crate::executor::Executo
             }
         }
 
-        // Set up the transport receive future
-        let recv_fut = async { Operation::Recv(transport.recv().await) };
-
         // Dynamic tick scheduling: sleep until the earliest retry deadline or housekeeping tick
         let now = time_utils::now_from_executor_arc(&executor);
         let sleep_dur = if let Some(deadline) = scheduler.next_retry_deadline() {
@@ -558,13 +562,17 @@ async fn runtime_loop_with_config<T: AsyncTransport, E: crate::executor::Executo
         } else {
             tick_duration
         };
-        let tick_fut = async {
-            executor.sleep(sleep_dur).await;
-            Operation::Tick
-        };
 
-        // Race recv and tick futures
-        let operation = futures_lite::future::race(recv_fut, tick_fut).await;
+        // Use select to handle both recv and tick operations
+        let operation = {
+            use futures_lite::future;
+
+            future::or(async { Operation::Recv(transport.recv().await) }, async {
+                executor.sleep(sleep_dur).await;
+                Operation::Tick
+            })
+            .await
+        };
 
         match operation {
             Operation::Recv(recv_result) => {
@@ -581,7 +589,7 @@ async fn runtime_loop_with_config<T: AsyncTransport, E: crate::executor::Executo
 
                         for frame in frames {
                             if let Err(e) = handle_response(
-                                &transport,
+                                &mut transport,
                                 &mut scheduler,
                                 &frame,
                                 &event_tx,
@@ -700,7 +708,7 @@ async fn runtime_loop_with_config<T: AsyncTransport, E: crate::executor::Executo
                         };
 
                         if let Err(e) = handle_tx_item(
-                            &transport,
+                            &mut transport,
                             &mut scheduler,
                             item,
                             &event_tx,
@@ -739,8 +747,8 @@ async fn runtime_loop_with_config<T: AsyncTransport, E: crate::executor::Executo
 
 /// Process queued commands when a socket becomes available.
 #[cfg(feature = "async")]
-async fn process_command_queue<T: AsyncTransport, E: crate::executor::Executor>(
-    transport: &T,
+async fn process_command_queue<T: AsyncTransport + Send, E: crate::executor::Executor>(
+    transport: &mut T,
     scheduler: &mut Scheduler,
     event_tx: &Sender<RxEvent>,
     executor: &E,
@@ -782,8 +790,8 @@ async fn process_command_queue<T: AsyncTransport, E: crate::executor::Executor>(
 
 /// Handle a submitted TX item.
 #[cfg(feature = "async")]
-async fn handle_tx_item<T: AsyncTransport, E: crate::executor::Executor>(
-    transport: &T,
+async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
+    transport: &mut T,
     scheduler: &mut Scheduler,
     item: TxItem,
     event_tx: &Sender<RxEvent>,
@@ -935,8 +943,8 @@ async fn handle_tx_item<T: AsyncTransport, E: crate::executor::Executor>(
 
 /// Handle a VISCA response frame.
 #[cfg(feature = "async")]
-async fn handle_response<T: AsyncTransport, E: crate::executor::Executor>(
-    transport: &T,
+async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>(
+    transport: &mut T,
     scheduler: &mut Scheduler,
     frame: &[u8],
     event_tx: &Sender<RxEvent>,
@@ -1494,18 +1502,22 @@ mod tests {
     #[allow(clippy::expect_used)]
     async fn test_runtime_loop_shutdown() {
         use bytes::Bytes;
+        use std::future::Future;
 
         // Mock transport that never returns data
         struct MockTransport;
 
+        #[allow(clippy::manual_async_fn)]
         impl AsyncTransport for MockTransport {
-            async fn send(&self, _bytes: &[u8]) -> Result<(), Error> {
-                Ok(())
+            fn send(&mut self, _bytes: &[u8]) -> impl Future<Output = Result<(), Error>> + Send {
+                async move { Ok(()) }
             }
 
-            async fn recv(&self) -> Result<Bytes, Error> {
-                // Never return, simulating waiting for data
-                std::future::pending().await
+            fn recv(&mut self) -> impl Future<Output = Result<Bytes, Error>> + Send {
+                async move {
+                    // Never return, simulating waiting for data
+                    std::future::pending().await
+                }
             }
         }
 
