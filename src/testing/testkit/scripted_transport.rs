@@ -340,6 +340,19 @@ where
                 }
             }
 
+            // ARCHITECTURAL NOTE: This implementation has a fundamental issue:
+            // - For DeterministicExecutor tests, we need non-blocking behavior (try_recv)
+            // - For real async runtime tests, we need blocking behavior (recv_async)
+            // 
+            // The current implementation uses recv_async which works for real runtimes
+            // but cannot be controlled by DeterministicExecutor's virtual time.
+            // This means timeout testing with DeterministicExecutor is not possible.
+            //
+            // Potential solutions:
+            // 1. Create separate test transports for deterministic vs real async
+            // 2. Add a runtime-aware timeout mechanism using the Executor trait
+            // 3. Accept that timeout testing requires real time
+            
             // Receive response from channel
             match response_rx.recv_async().await {
                 Ok(Ok(response)) => {
