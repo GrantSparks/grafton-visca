@@ -64,6 +64,9 @@ pub(crate) mod tokio;
 #[cfg(feature = "rt-async-std")]
 pub(crate) mod async_std;
 
+#[cfg(feature = "rt-smol")]
+pub(crate) mod smol;
+
 use std::time::{Duration, Instant};
 
 #[cfg(feature = "async")]

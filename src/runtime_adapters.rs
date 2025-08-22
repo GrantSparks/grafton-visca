@@ -62,6 +62,21 @@ pub mod async_std {
 /// These transports are optimized for use with the smol runtime and require
 /// the `rt-smol` feature to be enabled.
 ///
-/// NOTE: These implementations are not yet available.
-/// This module is reserved for future smol transport support.
-pub mod smol {}
+/// # Example
+///
+/// ```rust,no_run
+/// # #[cfg(feature = "rt-smol")]
+/// use grafton_visca::runtime_adapters::smol::{TcpTransport, UdpTransport};
+/// use grafton_visca::transport::AsyncTransport;
+///
+/// # #[cfg(feature = "rt-smol")]
+/// # smol::block_on(async {
+/// let tcp = TcpTransport::connect("192.168.0.110:5678").await?;
+/// let udp = UdpTransport::connect("192.168.0.110:1259").await?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// # }).unwrap();
+/// ```
+pub mod smol {
+    pub use crate::transport::smol::tcp::Tcp as TcpTransport;
+    pub use crate::transport::smol::udp::Udp as UdpTransport;
+}
