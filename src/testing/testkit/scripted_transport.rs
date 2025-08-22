@@ -825,9 +825,7 @@ mod tests {
         use crate::{Error, TokioExecutor};
         use std::sync::Arc;
 
-        let exec = Arc::new(TokioExecutor::from_handle(
-            tokio::runtime::Handle::current(),
-        ));
+        let exec = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
 
         // Arrange: first recv() should see a transport-level timeout error
         let mut transport: ScriptedTransport<TokioExecutor> =

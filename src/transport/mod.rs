@@ -61,6 +61,9 @@ pub mod timeout;
 #[cfg(feature = "rt-tokio")]
 pub(crate) mod tokio;
 
+#[cfg(feature = "rt-async-std")]
+pub(crate) mod async_std;
+
 use std::time::{Duration, Instant};
 
 #[cfg(feature = "async")]

@@ -87,14 +87,15 @@ mod timeout_tests {
     #[tokio::test(start_paused = true)]
     async fn test_scripted_transport_no_response() {
         use grafton_visca::testing::testkit::helpers::errors;
-        
+
         // Test ScriptedTransport with injected timeout error to avoid stalling
         let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
 
         // Use injected timeout error instead of expecting recv() to timeout on its own
         let mut transport = ScriptedTransport::new(vec![
-            errors::transport_timeout(),  // Inject timeout error for recv()
-        ]).with_executor(executor.clone());
+            errors::transport_timeout(), // Inject timeout error for recv()
+        ])
+        .with_executor(executor.clone());
 
         // Send a command
         transport
