@@ -143,6 +143,28 @@ impl<E> ScriptedTransport<E> {
         let _ = self.response_tx.send(Ok(response));
     }
 
+    /// Schedule a response to be delivered after `delay`.
+    /// This provides a convenient way to add delayed responses without
+    /// having to pre-script them in the constructor.
+    #[cfg(feature = "async")]
+    pub fn add_after(&self, delay: Duration, response: Vec<u8>)
+    where
+        E: Executor + ExecutorExt + 'static,
+    {
+        if let Some(executor) = &self.executor {
+            let tx = self.response_tx.clone();
+            let exec = executor.clone();
+            let exec_clone = exec.clone();
+            exec.spawn_bg(async move {
+                exec_clone.sleep(delay).await;
+                let _ = tx.send_async(Ok(response)).await;
+            });
+        } else {
+            // Without an executor, deliver immediately (consistent with Step::After fallback).
+            let _ = self.response_tx.send(Ok(response));
+        }
+    }
+
     /// Process any pending Step::After steps (static version for use in async blocks).
     fn process_after_steps_static(
         steps: Arc<Mutex<VecDeque<Step>>>,
@@ -343,7 +365,7 @@ where
             // ARCHITECTURAL NOTE: This implementation has a fundamental issue:
             // - For DeterministicExecutor tests, we need non-blocking behavior (try_recv)
             // - For real async runtime tests, we need blocking behavior (recv_async)
-            // 
+            //
             // The current implementation uses recv_async which works for real runtimes
             // but cannot be controlled by DeterministicExecutor's virtual time.
             // This means timeout testing with DeterministicExecutor is not possible.
@@ -352,7 +374,7 @@ where
             // 1. Create separate test transports for deterministic vs real async
             // 2. Add a runtime-aware timeout mechanism using the Executor trait
             // 3. Accept that timeout testing requires real time
-            
+
             // Receive response from channel
             match response_rx.recv_async().await {
                 Ok(Ok(response)) => {
@@ -795,47 +817,70 @@ mod tests {
         assert_eq!(sent[0], vec![0x81, 0x01, 0x04, 0x00, VISCA_TERMINATOR]);
     }
 
-    // DISABLED: This test demonstrates an architectural incompatibility between
-    // DeterministicExecutor and real async runtimes. The test attempts to verify
-    // timeout behavior, but:
-    // 1. With recv_async(), it hangs forever when no response is queued
-    // 2. With try_recv(), it works but breaks real async behavior
-    // 
-    // The root issue is that ScriptedTransport cannot simultaneously support:
-    // - Virtual time testing with DeterministicExecutor
-    // - Real async behavior with tokio/async-std
-    //
-    // See issue: TODO: Create issue for tracking test transport architecture
-    #[cfg(feature = "async")]
-    #[tokio::test]
-    #[ignore = "Hangs due to architectural mismatch between DeterministicExecutor and real async"]
+    #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
+    #[tokio::test(start_paused = true)]
     #[allow(clippy::unwrap_used)]
-    async fn test_scripted_transport_delayed_response_manual() {
-        use crate::TokioExecutor;
-        
-        let mut transport = ScriptedTransport::<TokioExecutor>::new(vec![]);
+    async fn test_scripted_transport_immediate_timeout_via_injected_error() {
+        use crate::testing::testkit::helpers::errors;
+        use crate::{Error, TokioExecutor};
+        use std::sync::Arc;
 
-        // Send a command without any scripted responses
+        let exec = Arc::new(TokioExecutor::from_handle(
+            tokio::runtime::Handle::current(),
+        ));
+
+        // Arrange: first recv() should see a transport-level timeout error
+        let mut transport: ScriptedTransport<TokioExecutor> =
+            ScriptedTransport::new(vec![errors::transport_timeout()]).with_executor(exec);
+
+        // Act: send anything (no response will be produced)
         transport
             .send(&[0x81, 0x01, 0x04, 0x00, VISCA_TERMINATOR])
             .await
             .unwrap();
 
-        // Should timeout since no response is available
-        // WARNING: This will hang forever because recv_async() has no timeout
-        let result = transport.recv().await;
-        assert!(matches!(result, Err(Error::Timeout)));
+        // Assert: recv yields Err(Timeout) immediately (no hangs)
+        let err = transport.recv().await.unwrap_err();
+        assert!(matches!(err, Error::Timeout));
+    }
 
-        // Manually add a response (simulating a delayed response)
-        transport.add_response(vec![0x90, 0x41, VISCA_TERMINATOR]);
+    #[cfg(all(test, feature = "test-utils", feature = "async"))]
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_scripted_transport_delayed_response_with_deterministic_executor() {
+        use crate::testing::testkit::deterministic_executor::DeterministicExecutor;
+        use crate::testing::testkit::Step;
+        use std::time::Duration;
 
-        // Now the response should be available immediately
-        let response = transport.recv().await.unwrap();
-        assert_eq!(response.as_ref(), &[0x90, 0x41, VISCA_TERMINATOR]);
-        
-        // Verify the command was recorded
-        let sent = transport.sent();
-        assert_eq!(sent.len(), 1);
-        assert_eq!(sent[0], vec![0x81, 0x01, 0x04, 0x00, VISCA_TERMINATOR]);
+        let (executor, clock) = DeterministicExecutor::new();
+
+        executor.clone().block_on_bg(async move {
+            let cmd = vec![0x81, 0x01, 0x04, 0x00, VISCA_TERMINATOR];
+
+            let steps = vec![
+                Step::OnSend {
+                    matches: None,
+                    responses: vec![],
+                },
+                Step::After {
+                    delay: Duration::from_millis(100),
+                    responses: vec![vec![0x90, 0x41, VISCA_TERMINATOR]], // ACK after 100ms
+                },
+            ];
+
+            let mut transport = ScriptedTransport::new(steps).with_executor(executor.clone());
+
+            // Kick off send, then concurrently wait for recv
+            transport.send(&cmd).await.unwrap();
+
+            // Spawn the recv future and advance time to deliver the delayed response
+            let recv_fut = transport.recv();
+            executor.drive_until_idle();
+            clock.advance(Duration::from_millis(100));
+            executor.drive_until_idle();
+
+            let bytes = recv_fut.await.expect("Delayed response should arrive");
+            assert_eq!(bytes.as_ref(), &[0x90, 0x41, VISCA_TERMINATOR]);
+        });
     }
 }
