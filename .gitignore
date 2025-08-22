@@ -21,3 +21,4 @@ Cargo.lock
 CLAUDE.md
 .claude/settings.local.json
 .serena
+all_source.txt

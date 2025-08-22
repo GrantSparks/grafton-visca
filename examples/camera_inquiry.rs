@@ -140,7 +140,7 @@ async fn main() -> grafton_visca::Result<()> {
             methods::inquiry::{InquiryControl, PanTiltInquiryControl},
             profiles::PtzOpticsG2,
         },
-        transport::tokio::Tcp,
+        runtime_adapters::tokio::TcpTransport as Tcp,
         CameraBuilder,
     };
 

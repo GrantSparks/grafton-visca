@@ -7,15 +7,11 @@
 use bytes::{Bytes, BytesMut};
 use log::{debug, trace, warn};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpStream, UdpSocket};
-use tokio::sync::Mutex;
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::{
-    atomic::{AtomicU32, Ordering},
-    Arc,
-};
 
 use crate::{
     error::{Error, Result},
@@ -38,10 +34,11 @@ type PendingCommand = ();
 /// on network errors. This is a true async implementation without blocking operations.
 #[derive(Debug)]
 pub struct Tcp {
-    stream: Arc<Mutex<TcpStream>>,
-    sequence: Arc<AtomicU32>,
-    pending: Arc<Mutex<HashMap<u32, PendingCommand>>>,
-    read_buffer: Arc<Mutex<BytesMut>>,
+    reader: OwnedReadHalf,
+    writer: OwnedWriteHalf,
+    sequence: u32,
+    pending: HashMap<u32, PendingCommand>,
+    read_buffer: BytesMut,
 }
 
 impl Tcp {
@@ -69,11 +66,15 @@ impl Tcp {
 
         debug!("Connected to {} (async)", config.address);
 
+        // Split into read and write halves
+        let (reader, writer) = stream.into_split();
+
         Ok(Self {
-            stream: Arc::new(Mutex::new(stream)),
-            sequence: Arc::new(AtomicU32::new(1)),
-            pending: Arc::new(Mutex::new(HashMap::new())),
-            read_buffer: Arc::new(Mutex::new(BytesMut::with_capacity(1024))),
+            reader,
+            writer,
+            sequence: 1,
+            pending: HashMap::new(),
+            read_buffer: BytesMut::with_capacity(1024),
         })
     }
 
@@ -88,7 +89,7 @@ impl Tcp {
     }
 
     /// Send a command with Sony header.
-    async fn send_with_header(&self, bytes: &[u8], sequence: u32) -> Result<()> {
+    async fn send_with_header(&mut self, bytes: &[u8], sequence: u32) -> Result<()> {
         // Check if this is an inquiry (second byte is 0x09)
         let is_inquiry = bytes.len() >= 2 && bytes[1] == 0x09;
         let header = if is_inquiry {
@@ -102,9 +103,8 @@ impl Tcp {
         packet.extend_from_slice(bytes);
 
         // Send packet
-        let mut stream = self.stream.lock().await;
-        stream.write_all(&packet).await?;
-        stream.flush().await?;
+        self.writer.write_all(&packet).await?;
+        self.writer.flush().await?;
 
         trace!(
             "Sent packet with seq {}: header={:02X?} payload={:02X?}",
@@ -117,21 +117,20 @@ impl Tcp {
     }
 
     /// Receive a Sony encapsulated frame.
-    async fn recv_sony_frame(&self) -> Result<(SonyHeader, Bytes)> {
-        let mut buffer = self.read_buffer.lock().await;
-        let mut stream = self.stream.lock().await;
+    async fn recv_sony_frame(&mut self) -> Result<(SonyHeader, Bytes)> {
         let mut temp_buf = vec![0u8; 256];
 
         loop {
             // Check if we have a complete header
-            if buffer.len() >= SonyHeader::SIZE {
-                let payload_length = u16::from_be_bytes([buffer[2], buffer[3]]) as usize;
+            if self.read_buffer.len() >= SonyHeader::SIZE {
+                let payload_length =
+                    u16::from_be_bytes([self.read_buffer[2], self.read_buffer[3]]) as usize;
 
                 // Check if we have the complete payload
-                if buffer.len() >= SonyHeader::SIZE + payload_length {
+                if self.read_buffer.len() >= SonyHeader::SIZE + payload_length {
                     // Extract frame
-                    let header_bytes = buffer.split_to(SonyHeader::SIZE);
-                    let payload = buffer.split_to(payload_length);
+                    let header_bytes = self.read_buffer.split_to(SonyHeader::SIZE);
+                    let payload = self.read_buffer.split_to(payload_length);
 
                     let header = SonyHeader::decode(&header_bytes).ok_or_else(|| {
                         Error::InvalidResponse {
@@ -153,10 +152,10 @@ impl Tcp {
             }
 
             // Read more data
-            match stream.read(&mut temp_buf).await {
+            match self.reader.read(&mut temp_buf).await {
                 Ok(0) => return Err(Error::ConnectionClosed),
                 Ok(n) => {
-                    buffer.extend_from_slice(&temp_buf[..n]);
+                    self.read_buffer.extend_from_slice(&temp_buf[..n]);
                     trace!("Read {} bytes from TCP", n);
                 }
                 Err(e) => {
@@ -167,30 +166,32 @@ impl Tcp {
     }
 }
 
+#[allow(clippy::manual_async_fn)]
 impl AsyncTransport for Tcp {
-    async fn send(&self, bytes: &[u8]) -> Result<()> {
-        let sequence = self.sequence.fetch_add(1, Ordering::SeqCst);
+    fn send(&mut self, bytes: &[u8]) -> impl std::future::Future<Output = Result<()>> + Send {
+        async move {
+            self.sequence += 1;
+            let sequence = self.sequence;
 
-        // Store pending command for potential retry
-        {
-            let mut pending = self.pending.lock().await;
-            pending.insert(sequence, ());
+            // Store pending command for potential retry
+            self.pending.insert(sequence, ());
+
+            // Send with header
+            self.send_with_header(bytes, sequence).await?;
+
+            Ok(())
         }
-
-        // Send with header
-        self.send_with_header(bytes, sequence).await?;
-
-        Ok(())
     }
 
-    async fn recv(&self) -> Result<Bytes> {
-        loop {
-            match self.recv_sony_frame().await {
-                Ok((header, payload)) => {
-                    // Only accept replies that match a pending command
-                    if header.payload_type == PayloadType::ViscaReply {
-                        let mut pending = self.pending.lock().await;
-                        if pending.remove(&header.sequence_number).is_none() {
+    fn recv(&mut self) -> impl std::future::Future<Output = Result<Bytes>> + Send {
+        async move {
+            loop {
+                match self.recv_sony_frame().await {
+                    Ok((header, payload)) => {
+                        // Only accept replies that match a pending command
+                        if header.payload_type == PayloadType::ViscaReply
+                            && self.pending.remove(&header.sequence_number).is_none()
+                        {
                             // Late or duplicate reply - discard it
                             warn!(
                                 "TCP: Discarding late/duplicate reply with seq {} (not in pending)",
@@ -198,10 +199,10 @@ impl AsyncTransport for Tcp {
                             );
                             continue;
                         }
+                        return Ok(payload);
                     }
-                    return Ok(payload);
+                    Err(e) => return Err(e),
                 }
-                Err(e) => return Err(e),
             }
         }
     }
@@ -214,9 +215,9 @@ impl AsyncTransport for Tcp {
 /// on network errors. This is a true async implementation without blocking operations.
 #[derive(Debug)]
 pub struct Udp {
-    socket: Arc<UdpSocket>,
-    sequence: Arc<AtomicU32>,
-    pending: Arc<Mutex<HashMap<u32, PendingCommand>>>,
+    socket: UdpSocket,
+    sequence: u32,
+    pending: HashMap<u32, PendingCommand>,
     config: SonyIpConfig,
 }
 
@@ -259,9 +260,9 @@ impl Udp {
         debug!("Connected to {} (async UDP)", config.address);
 
         Ok(Self {
-            socket: Arc::new(socket),
-            sequence: Arc::new(AtomicU32::new(1)),
-            pending: Arc::new(Mutex::new(HashMap::new())),
+            socket,
+            sequence: 1,
+            pending: HashMap::new(),
             config: config.clone(),
         })
     }
@@ -277,7 +278,7 @@ impl Udp {
     }
 
     /// Send a command with Sony header.
-    async fn send_with_header(&self, bytes: &[u8], sequence: u32) -> Result<()> {
+    async fn send_with_header(&mut self, bytes: &[u8], sequence: u32) -> Result<()> {
         // Check if this is an inquiry (second byte is 0x09)
         let is_inquiry = bytes.len() >= 2 && bytes[1] == 0x09;
         let header = if is_inquiry {
@@ -299,7 +300,7 @@ impl Udp {
     }
 
     /// Receive a Sony encapsulated frame.
-    async fn recv_sony_frame(&self) -> Result<(SonyHeader, Bytes)> {
+    async fn recv_sony_frame(&mut self) -> Result<(SonyHeader, Bytes)> {
         let mut buf = vec![0u8; 1024];
 
         match self.socket.recv(&mut buf).await {
@@ -342,32 +343,36 @@ impl Udp {
     }
 }
 
+#[allow(clippy::manual_async_fn)]
 impl AsyncTransport for Udp {
-    async fn send(&self, bytes: &[u8]) -> Result<()> {
-        let sequence = self.sequence.fetch_add(1, Ordering::SeqCst);
+    fn send(&mut self, bytes: &[u8]) -> impl std::future::Future<Output = Result<()>> + Send {
+        async move {
+            self.sequence += 1;
+            let sequence = self.sequence;
 
-        // Store pending command for potential retry
-        {
-            let mut pending = self.pending.lock().await;
-            pending.insert(sequence, ());
+            // Store pending command for potential retry
+            self.pending.insert(sequence, ());
+
+            // Send with header
+            self.send_with_header(bytes, sequence).await?;
+
+            Ok(())
         }
-
-        // Send with header
-        self.send_with_header(bytes, sequence).await?;
-
-        Ok(())
     }
 
-    async fn recv(&self) -> Result<Bytes> {
-        // For UDP, we may need to implement retry logic
-        // For now, keeping it simple
-        loop {
-            match tokio::time::timeout(self.config.response_timeout, self.recv_sony_frame()).await {
-                Ok(Ok((header, payload))) => {
-                    // Only accept replies that match a pending command
-                    if header.payload_type == PayloadType::ViscaReply {
-                        let mut pending = self.pending.lock().await;
-                        if pending.remove(&header.sequence_number).is_none() {
+    fn recv(&mut self) -> impl std::future::Future<Output = Result<Bytes>> + Send {
+        async move {
+            // For UDP, we may need to implement retry logic
+            // For now, keeping it simple
+            loop {
+                match tokio::time::timeout(self.config.response_timeout, self.recv_sony_frame())
+                    .await
+                {
+                    Ok(Ok((header, payload))) => {
+                        // Only accept replies that match a pending command
+                        if header.payload_type == PayloadType::ViscaReply
+                            && self.pending.remove(&header.sequence_number).is_none()
+                        {
                             // Late or duplicate reply - discard it
                             warn!(
                                 "UDP: Discarding late/duplicate reply with seq {} (not in pending)",
@@ -375,13 +380,13 @@ impl AsyncTransport for Udp {
                             );
                             continue;
                         }
+                        return Ok(payload);
                     }
-                    return Ok(payload);
-                }
-                Ok(Err(e)) => return Err(e),
-                Err(_) => {
-                    // Timeout - in a real implementation, we might retry here
-                    return Err(Error::Timeout);
+                    Ok(Err(e)) => return Err(e),
+                    Err(_) => {
+                        // Timeout - in a real implementation, we might retry here
+                        return Err(Error::Timeout);
+                    }
                 }
             }
         }

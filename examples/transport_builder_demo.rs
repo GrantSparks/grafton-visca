@@ -110,7 +110,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .connect_timeout(Duration::from_secs(10))
             .tcp_nodelay(true);
         println!("     Created tokio TCP builder");
-        println!("     Would connect with: .build_async().await");
+        println!("     Would connect with: .build_tcp_async().await");
 
         // Example 7b: Native async UDP transport builder
         println!("\n  7b. Native async UDP transport:");
@@ -119,7 +119,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .ttl(64)
             .max_retries(5);
         println!("     Created tokio UDP builder");
-        println!("     Would connect with: .build_async().await");
+        println!("     Would connect with: .build_udp_async().await");
 
         // Example 7c: Native async transports only
         println!("\n  7c. Native async transports:");

@@ -3,6 +3,8 @@
 //! This module provides functions for parsing VISCA responses including
 //! ACK, Completion, Data Reply, and Error messages.
 
+use crate::command::const_encoding::VISCA_TERMINATOR;
+
 #[cfg(feature = "async")]
 use log::{debug, trace, warn};
 
@@ -60,7 +62,7 @@ pub(crate) fn parse_response(frame: &[u8]) -> ViscaResponse {
     }
 
     // Check for terminator
-    if frame[frame.len() - 1] != 0xFF {
+    if frame[frame.len() - 1] != VISCA_TERMINATOR {
         warn!("ViscaResponse missing terminator: {:02X?}", frame);
         return ViscaResponse::Unknown {
             data: frame.to_vec(),
@@ -203,7 +205,7 @@ pub(crate) fn extract_inquiry_value(data: &[u8]) -> Option<u32> {
 /// for proper frame boundary detection. Currently only used in tests.
 #[allow(dead_code)]
 pub(crate) fn is_complete_frame(data: &[u8]) -> bool {
-    !data.is_empty() && data[data.len() - 1] == 0xFF
+    !data.is_empty() && data[data.len() - 1] == VISCA_TERMINATOR
 }
 
 /// Find the next complete frame in a buffer.
@@ -211,7 +213,7 @@ pub(crate) fn is_complete_frame(data: &[u8]) -> bool {
 /// Returns the frame and remaining data.
 #[cfg(feature = "async")]
 pub(crate) fn find_next_frame(buffer: &[u8]) -> Option<(Vec<u8>, &[u8])> {
-    if let Some(pos) = buffer.iter().position(|&b| b == 0xFF) {
+    if let Some(pos) = buffer.iter().position(|&b| b == VISCA_TERMINATOR) {
         let frame = buffer[..=pos].to_vec();
         let remaining = &buffer[pos + 1..];
         Some((frame, remaining))

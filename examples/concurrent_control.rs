@@ -71,7 +71,7 @@ async fn multi_camera_control() -> Result<()> {
     let transport1 = TransportBuilder::tokio_tcp()
         .address("192.168.0.109:5678")
         .connect_timeout(Duration::from_secs(5))
-        .build_async()
+        .build_tcp_async()
         .await
         .map_err(|e| {
             eprintln!("Failed to connect to camera 1: {e}");
@@ -81,7 +81,7 @@ async fn multi_camera_control() -> Result<()> {
     let transport2 = TransportBuilder::tokio_tcp()
         .address("192.168.0.110:5678")
         .connect_timeout(Duration::from_secs(5))
-        .build_async()
+        .build_tcp_async()
         .await
         .map_err(|e| {
             eprintln!("Failed to connect to camera 2: {e}");
@@ -91,7 +91,7 @@ async fn multi_camera_control() -> Result<()> {
     let transport3 = TransportBuilder::tokio_tcp()
         .address("192.168.0.111:5678")
         .connect_timeout(Duration::from_secs(5))
-        .build_async()
+        .build_tcp_async()
         .await
         .map_err(|e| {
             eprintln!("Failed to connect to camera 3: {e}");
@@ -191,7 +191,7 @@ async fn parallel_single_camera() -> Result<()> {
     let transport = TransportBuilder::tokio_tcp()
         .address("192.168.0.110:5678")
         .connect_timeout(Duration::from_secs(5))
-        .build_async()
+        .build_tcp_async()
         .await
         .map_err(|e| {
             eprintln!("Failed to connect to camera: {e}");
@@ -267,7 +267,7 @@ async fn producer_consumer_pattern() -> Result<()> {
 
     let transport = TransportBuilder::tokio_tcp()
         .address("192.168.0.110:5678")
-        .build_async()
+        .build_tcp_async()
         .await?;
     let camera = Arc::new(
         CameraBuilder::tokio()?
@@ -356,7 +356,7 @@ async fn synchronized_movement() -> Result<()> {
     for addr in camera_addrs {
         let transport = TransportBuilder::tokio_tcp()
             .address(format!("{}:5678", addr))
-            .build_async()
+            .build_tcp_async()
             .await?;
         let camera = Arc::new(
             CameraBuilder::tokio()?

@@ -53,19 +53,19 @@ pub trait MotionSyncControl {
 /// Blocking version of motion sync control methods.
 pub trait MotionSyncControlBlocking {
     /// Sets the motion sync mode (on/off).
-    fn set_motion_sync_mode(&self, mode: MotionSyncMode) -> Result<(), Error>;
+    fn set_motion_sync_mode(&mut self, mode: MotionSyncMode) -> Result<(), Error>;
 
     /// Sets the motion sync speed.
-    fn set_motion_sync_speed(&self, speed: u8) -> Result<(), Error>;
+    fn set_motion_sync_speed(&mut self, speed: u8) -> Result<(), Error>;
 
     /// Sets the motion sync speed using a preset value.
-    fn set_motion_sync_preset_speed(&self, speed: MotionSyncSpeed) -> Result<(), Error>;
+    fn set_motion_sync_preset_speed(&mut self, speed: MotionSyncSpeed) -> Result<(), Error>;
 
     /// Gets the current motion sync mode.
-    fn get_motion_sync_mode(&self) -> Result<MotionSyncMode, Error>;
+    fn get_motion_sync_mode(&mut self) -> Result<MotionSyncMode, Error>;
 
     /// Gets the current motion sync speed.
-    fn get_motion_sync_speed(&self) -> Result<MotionSyncSpeed, Error>;
+    fn get_motion_sync_speed(&mut self) -> Result<MotionSyncSpeed, Error>;
 }
 
 // Async implementation for Camera with AsyncMode
@@ -134,9 +134,9 @@ impl<P, T> MotionSyncControlBlocking
     for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile + crate::capabilities::motion_sync::MotionSync,
-    T: crate::transport::BlockingTransport + Send + Sync + 'static,
+    T: crate::transport::BlockingTransport + Send + 'static,
 {
-    fn set_motion_sync_mode(&self, mode: MotionSyncMode) -> Result<(), Error> {
+    fn set_motion_sync_mode(&mut self, mode: MotionSyncMode) -> Result<(), Error> {
         use crate::command::motion_sync::MotionSyncModeCmd;
 
         let cmd = MotionSyncModeCmd::new(mode);
@@ -144,7 +144,7 @@ where
         Ok(())
     }
 
-    fn set_motion_sync_speed(&self, speed: u8) -> Result<(), Error> {
+    fn set_motion_sync_speed(&mut self, speed: u8) -> Result<(), Error> {
         use crate::command::motion_sync::MotionSyncSpeedCmd;
 
         let cmd = MotionSyncSpeedCmd::new(speed).map_err(|_| Error::InvalidParameter {
@@ -156,7 +156,7 @@ where
         Ok(())
     }
 
-    fn set_motion_sync_preset_speed(&self, speed: MotionSyncSpeed) -> Result<(), Error> {
+    fn set_motion_sync_preset_speed(&mut self, speed: MotionSyncSpeed) -> Result<(), Error> {
         use crate::command::motion_sync::MotionSyncSpeedCmd;
 
         let cmd = MotionSyncSpeedCmd::from_preset(speed);
@@ -164,7 +164,7 @@ where
         Ok(())
     }
 
-    fn get_motion_sync_mode(&self) -> Result<MotionSyncMode, Error> {
+    fn get_motion_sync_mode(&mut self) -> Result<MotionSyncMode, Error> {
         use crate::command::{
             inquiry::MotionSyncModeInquiry, response::ViscaResponse, InquiryResponse,
         };
@@ -176,7 +176,7 @@ where
         }
     }
 
-    fn get_motion_sync_speed(&self) -> Result<MotionSyncSpeed, Error> {
+    fn get_motion_sync_speed(&mut self) -> Result<MotionSyncSpeed, Error> {
         use crate::command::{
             inquiry::MotionSyncSpeedInquiry, response::ViscaResponse, InquiryResponse,
         };

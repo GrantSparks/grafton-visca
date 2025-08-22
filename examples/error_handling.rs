@@ -337,7 +337,7 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     let transport = match TransportBuilder::tokio_tcp()
         .address(camera_addr)
         .connect_timeout(Duration::from_secs(5))
-        .build_async() // .build_async() for native async transport
+        .build_tcp_async() // .build_async() for native async transport
         .await
     {
         Ok(t) => {

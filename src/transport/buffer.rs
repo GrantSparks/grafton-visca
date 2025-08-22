@@ -5,8 +5,6 @@
 
 use bytes::{Bytes, BytesMut};
 
-use std::sync::{Arc, Mutex};
-
 /// Default buffer size for most VISCA operations.
 /// VISCA commands are typically small (< 20 bytes) and responses rarely exceed 64 bytes.
 pub(crate) const DEFAULT_BUFFER_SIZE: usize = 128;
@@ -104,6 +102,8 @@ impl BufferManager {
     }
 
     /// Create a new buffer manager with default configuration.
+    /// Only available in tests to simplify test setup.
+    #[cfg(test)]
     pub fn with_defaults() -> Self {
         Self::new(BufferConfig::default())
     }
@@ -122,11 +122,6 @@ impl BufferManager {
     /// Allocate a vector buffer for simple operations.
     pub fn alloc_vec_buffer(&self) -> Vec<u8> {
         vec![0u8; self.config.recv_buffer_size]
-    }
-
-    /// Create a shared buffer for async concurrent access.
-    pub fn alloc_async_shared_buffer(&self) -> Arc<Mutex<BytesMut>> {
-        Arc::new(Mutex::new(self.alloc_recv_buffer()))
     }
 
     /// Resize a buffer if needed, respecting max size limits.

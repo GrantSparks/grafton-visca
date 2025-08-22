@@ -3,11 +3,11 @@
 use bytes::Bytes;
 
 use std::net::UdpSocket;
-use std::sync::Mutex;
 use std::time::Duration;
 
 use crate::transport::address::AddressResolver;
 use crate::transport::buffer::{BufferConfig, BufferManager};
+use crate::transport::builder::TransportConfig;
 use crate::transport::retry::RetryExecutor;
 use crate::transport::{BlockingTransport, RetryConfig};
 use crate::Error;
@@ -17,7 +17,7 @@ use crate::Error;
 /// This transport supports DNS resolution and both IPv4 and IPv6 addresses.
 #[derive(Debug)]
 pub struct Udp {
-    socket: Mutex<UdpSocket>,
+    socket: UdpSocket,
     retry_executor: RetryExecutor,
     buffer_manager: BufferManager,
 }
@@ -29,6 +29,19 @@ impl Udp {
     /// The socket will bind to the appropriate unspecified address based on the
     /// target address family.
     pub fn connect(address: &str) -> Result<Self, Error> {
+        let config = TransportConfig {
+            read_timeout: Duration::from_secs(5),
+            write_timeout: Duration::from_secs(5),
+            buffer_config: BufferConfig::for_udp(),
+            ..Default::default()
+        };
+        Self::connect_with_config(address, config)
+    }
+
+    /// Connect with a full configuration.
+    ///
+    /// This method provides full control over connection and socket parameters.
+    pub fn connect_with_config(address: &str, config: TransportConfig) -> Result<Self, Error> {
         // Use the common address resolver
         let resolver = AddressResolver::new();
         let target_addr = resolver.resolve_first(address)?;
@@ -39,14 +52,23 @@ impl Udp {
         let socket = UdpSocket::bind(bind_addr)?;
         socket.connect(target_addr)?;
 
-        // Set timeouts
-        socket.set_read_timeout(Some(Duration::from_secs(5)))?;
-        socket.set_write_timeout(Some(Duration::from_secs(5)))?;
+        // Apply socket options from config
+        socket.set_read_timeout(Some(config.read_timeout))?;
+        socket.set_write_timeout(Some(config.write_timeout))?;
+        if let Some(ttl) = config.ttl {
+            socket.set_ttl(ttl)?;
+        }
+
+        // Create buffer manager with config
+        let buffer_manager = BufferManager::new(config.buffer_config);
+
+        // Create retry executor with config
+        let retry_executor = RetryExecutor::new(config.retry_config);
 
         Ok(Self {
-            socket: Mutex::new(socket),
-            retry_executor: RetryExecutor::with_defaults(),
-            buffer_manager: BufferManager::new(BufferConfig::for_udp()),
+            socket,
+            retry_executor,
+            buffer_manager,
         })
     }
 
@@ -62,83 +84,57 @@ impl Udp {
 
     /// Set the read timeout for receive operations.
     pub fn set_read_timeout(&mut self, timeout: Option<Duration>) -> Result<(), Error> {
-        let socket = self
-            .socket
-            .lock()
-            .map_err(|_| Error::LockPoisoned("socket"))?;
-        socket.set_read_timeout(timeout)?;
+        self.socket.set_read_timeout(timeout)?;
         Ok(())
     }
 
     /// Set the write timeout for send operations.
     pub fn set_write_timeout(&mut self, timeout: Option<Duration>) -> Result<(), Error> {
-        let socket = self
-            .socket
-            .lock()
-            .map_err(|_| Error::LockPoisoned("socket"))?;
-        socket.set_write_timeout(timeout)?;
+        self.socket.set_write_timeout(timeout)?;
         Ok(())
     }
 
     /// Set TTL (Time To Live) for packets.
     pub fn set_ttl(&mut self, ttl: u32) -> Result<(), Error> {
-        let socket = self
-            .socket
-            .lock()
-            .map_err(|_| Error::LockPoisoned("socket"))?;
-        socket.set_ttl(ttl)?;
+        self.socket.set_ttl(ttl)?;
         Ok(())
     }
 }
 
 impl BlockingTransport for Udp {
-    fn send_blocking(&self, data: &[u8]) -> Result<(), Error> {
+    fn send_blocking(&mut self, data: &[u8]) -> Result<(), Error> {
         // Clone data for retry closure
         let data_vec = data.to_vec();
 
         self.retry_executor.execute(|| {
-            let socket = self
-                .socket
-                .lock()
-                .map_err(|_| Error::LockPoisoned("socket"))?;
-            socket.send(&data_vec)?;
+            self.socket.send(&data_vec)?;
             Ok(())
         })
     }
 
-    fn recv_blocking(&self) -> Result<Bytes, Error> {
-        let socket = self
-            .socket
-            .lock()
-            .map_err(|_| Error::LockPoisoned("socket"))?;
+    fn recv_blocking(&mut self) -> Result<Bytes, Error> {
         let mut buffer = self.buffer_manager.alloc_vec_buffer();
 
-        match socket.recv(&mut buffer) {
+        match self.socket.recv(&mut buffer) {
             Ok(n) => Ok(self.buffer_manager.process_recv_data(&mut buffer, n)),
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Err(Error::Timeout),
             Err(e) => Err(e.into()),
         }
     }
 
-    fn recv_blocking_with_timeout(&self, duration: Duration) -> Result<Bytes, Error> {
-        // Get the socket
-        let socket = self
-            .socket
-            .lock()
-            .map_err(|_| Error::LockPoisoned("socket"))?;
-
+    fn recv_blocking_with_timeout(&mut self, duration: Duration) -> Result<Bytes, Error> {
         // Save the current timeout
-        let original_timeout = socket.read_timeout()?;
+        let original_timeout = self.socket.read_timeout()?;
 
         // Set the new timeout for this operation
-        socket.set_read_timeout(Some(duration))?;
+        self.socket.set_read_timeout(Some(duration))?;
 
         // Perform the receive operation
         let mut buffer = self.buffer_manager.alloc_vec_buffer();
-        let result = socket.recv(&mut buffer);
+        let result = self.socket.recv(&mut buffer);
 
         // Restore the original timeout
-        socket.set_read_timeout(original_timeout)?;
+        self.socket.set_read_timeout(original_timeout)?;
 
         // Handle the result
         match result {

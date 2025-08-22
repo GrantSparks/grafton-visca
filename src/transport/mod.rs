@@ -29,13 +29,13 @@
 //! For async transports (with tokio):
 //! ```rust,no_run
 //! # #[cfg(feature = "rt-tokio")]
-//! use grafton_visca::transport::tokio::tcp::Tcp;
+//! use grafton_visca::runtime_adapters::tokio::TcpTransport;
 //! # #[cfg(feature = "rt-tokio")]
 //! use grafton_visca::transport::AsyncTransport;
 //!
 //! # #[cfg(feature = "rt-tokio")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let transport = Tcp::connect("192.168.0.110:5678").await?;
+//! let transport = TcpTransport::connect("192.168.0.110:5678").await?;
 //! // transport is ready to use with Camera<P, T: AsyncTransport>
 //! # Ok(())
 //! # }
@@ -55,8 +55,11 @@ pub mod retry;
 #[cfg(feature = "serial")]
 pub mod serial;
 pub mod timeout;
+
+// Runtime-specific transport implementations are feature-gated extensions
+// They should be accessed through the runtime_adapters module
 #[cfg(feature = "rt-tokio")]
-pub mod tokio;
+pub(crate) mod tokio;
 
 use std::time::{Duration, Instant};
 

@@ -139,7 +139,7 @@ use grafton_visca::{
         zoom::ZoomControl,
     },
     camera::profiles::SonyFR7,
-    transport::tokio::tcp::Tcp,
+    runtime_adapters::tokio::TcpTransport as Tcp,
     types::SpeedLevel,
     units::Degrees,
     CameraBuilder, Error,

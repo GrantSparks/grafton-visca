@@ -192,7 +192,7 @@ async fn main() -> grafton_visca::Result<()> {
 
     use grafton_visca::{
         camera::methods::inquiry::{InquiryControl, PanTiltInquiryControl},
-        transport::tokio::tcp::Tcp,
+        runtime_adapters::tokio::TcpTransport as Tcp,
         CameraBuilder,
     };
 

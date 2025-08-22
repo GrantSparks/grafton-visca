@@ -359,6 +359,10 @@ mod error;
 /// Transport layer for implementing custom transports
 pub mod transport;
 
+/// Runtime-specific transport adapters
+#[cfg(feature = "async")]
+pub mod runtime_adapters;
+
 /// Protocol encoding and decoding utilities
 pub mod protocol;
 

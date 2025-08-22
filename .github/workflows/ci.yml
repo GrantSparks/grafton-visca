@@ -44,10 +44,53 @@ jobs:
       - run: cargo fmt --all -- --check
 
 
-  # Test on multiple platforms and Rust versions
+  # Test on minimal platform for feature branches
+  test-minimal:
+    name: Test (ubuntu-latest / stable)
+    # Only run on feature branch pushes
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/feature/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      # Install system dependencies for serialport
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev
+      
+      - name: Install Rust stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+      
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-cache-ubuntu-latest-stable"
+      
+      # Test the three main configurations
+      - name: Test blocking mode (no features)
+        run: cargo test --no-default-features --verbose
+        env:
+          TMPDIR: ${{ runner.temp }}
+      
+      - name: Test async mode
+        run: cargo test --no-default-features --features async --verbose
+        env:
+          TMPDIR: ${{ runner.temp }}
+      
+      - name: Test with tokio runtime
+        run: cargo test --no-default-features --features rt-tokio --verbose
+        env:
+          TMPDIR: ${{ runner.temp }}
+      
+      - name: Test all features
+        run: cargo test --all-features --verbose
+        env:
+          TMPDIR: ${{ runner.temp }}
+
+  # Test on multiple platforms and Rust versions (skip on feature branches)
   test:
     name: Test (${{ matrix.os }} / ${{ matrix.rust }})
-    # Skip comprehensive tests on feature branch pushes
+    # Skip on feature branch pushes (use test-minimal instead)
     if: github.event_name != 'push' || !startsWith(github.ref, 'refs/heads/feature/')
     strategy:
       fail-fast: false

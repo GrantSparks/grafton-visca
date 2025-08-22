@@ -51,7 +51,7 @@ fn main() -> Result<(), Error> {
         })?;
 
     // Build camera using the builder pattern for clarity and extensibility
-    let camera = CameraBuilder::new().build_blocking::<PtzOpticsG2, _>(transport);
+    let mut camera = CameraBuilder::new().build_blocking::<PtzOpticsG2, _>(transport);
 
     println!("✅ Connected successfully!\n");
 

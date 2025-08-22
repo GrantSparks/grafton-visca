@@ -58,7 +58,7 @@ async fn main() -> Result<(), Error> {
     let transport = TransportBuilder::tokio_tcp()
         .address(camera_addr)
         .connect_timeout(Duration::from_secs(5))
-        .build_async() // .build_async() returns impl AsyncTransport for native async
+        .build_tcp_async() // .build_async() returns impl AsyncTransport for native async
         .await?;
 
     let camera = CameraBuilder::tokio()?

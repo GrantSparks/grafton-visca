@@ -3,9 +3,10 @@
 //! This module provides the refactored Camera<P, T> struct that uses
 //! the unified Executor trait instead of separate Runtime and Spawner.
 
+use std::marker::PhantomData;
+
 #[cfg(feature = "async")]
-use std::sync::Mutex;
-use std::{marker::PhantomData, sync::Arc};
+use std::sync::Arc;
 
 #[cfg(feature = "async")]
 use crate::{camera::AsyncMode, executor::Executor, runtime, transport::AsyncTransport};
@@ -19,6 +20,14 @@ use crate::{
     timeout::TimeoutConfig,
     transport::{envelope::TransportEnvelope, BlockingTransport},
 };
+
+// Type aliases for backward compatibility and ergonomics
+/// Blocking camera handle that owns the transport and requires `&mut self` for operations.
+pub type CameraBlocking<P, T> = Camera<BlockingMode, P, T, ()>;
+
+/// Async camera handle with shared runtime that allows `&self` operations.
+#[cfg(feature = "async")]
+pub type CameraAsync<P, T, E> = Camera<AsyncMode, P, T, E>;
 
 /// Generic camera client with compile-time mode and profile selection.
 ///
@@ -54,13 +63,13 @@ pub struct Camera<M, P, T, E = ()>
 where
     P: Profile,
 {
-    // For blocking mode, we keep the transport
-    // For async mode, the transport is moved into the runtime Camera
-    transport: Option<Arc<T>>,
+    // For blocking mode, we own the transport directly (no Arc)
+    // For async mode, the transport is moved into the runtime
+    transport: Option<T>,
     camera_id: CameraId,
-    // Runtime camera for async command handling
+    // Runtime handle for async command handling (directly clonable)
     #[cfg(feature = "async")]
-    runtime_camera: Arc<Mutex<Option<Arc<runtime::RuntimeHandle>>>>,
+    runtime_handle: Option<Arc<runtime::RuntimeHandle>>,
     envelope: TransportEnvelope,
     #[cfg(feature = "async")]
     executor: Arc<E>,
@@ -79,10 +88,10 @@ where
     /// Create a new blocking camera with the specified transport.
     pub fn new(transport: T) -> Self {
         Self {
-            transport: Some(Arc::new(transport)),
+            transport: Some(transport), // Own directly, no Arc
             camera_id: CameraId::default(),
             #[cfg(feature = "async")]
-            runtime_camera: Arc::new(Mutex::new(None)),
+            runtime_handle: None,
             envelope: TransportEnvelope::new(P::PROTOCOL_STYLE),
             #[cfg(feature = "async")]
             executor: Arc::new(()),
@@ -101,14 +110,17 @@ where
     }
 
     /// Send a command to the camera and wait for a response (blocking).
-    pub fn send_command<C>(&self, command: &C) -> Result<ViscaResponse, Error>
+    ///
+    /// Note: This method requires `&mut self` because the underlying transport
+    /// requires mutable access for sending and receiving.
+    pub fn send_command<C>(&mut self, command: &C) -> Result<ViscaResponse, Error>
     where
         C: EncodeVisca,
     {
-        // Get the transport
+        // Get the transport mutably
         let transport =
             self.transport
-                .as_ref()
+                .as_mut()
                 .ok_or(Error::InvalidState(std::borrow::Cow::Borrowed(
                     "Transport not available",
                 )))?;
@@ -187,15 +199,15 @@ where
     pub async fn with_executor(transport: T, executor: E) -> Result<Self, Error> {
         let executor_arc = Arc::new(executor);
 
-        // Create the runtime camera immediately
-        let runtime_camera =
+        // Create the runtime handle immediately
+        let runtime_handle =
             runtime::RuntimeHandle::new(transport, Arc::clone(&executor_arc)).await?;
 
         Ok(Self {
             // No transport stored - it's owned by the runtime
             transport: None,
             camera_id: CameraId::default(),
-            runtime_camera: Arc::new(Mutex::new(Some(Arc::new(runtime_camera)))),
+            runtime_handle: Some(Arc::new(runtime_handle)),
             envelope: TransportEnvelope::new(P::PROTOCOL_STYLE),
             executor: executor_arc,
             timeout_config: TimeoutConfig::default(),
@@ -249,19 +261,20 @@ where
     }
 }
 
-impl<M, P, T, E> Clone for Camera<M, P, T, E>
+// Clone is only available for async mode where the runtime handle is shareable
+#[cfg(feature = "async")]
+impl<P, T, E> Clone for Camera<AsyncMode, P, T, E>
 where
     P: Profile,
-    E: Clone,
+    T: AsyncTransport + 'static,
+    E: Executor,
 {
     fn clone(&self) -> Self {
         Self {
-            transport: self.transport.as_ref().map(Arc::clone),
+            transport: None, // Transport is owned by runtime
             camera_id: self.camera_id,
-            #[cfg(feature = "async")]
-            runtime_camera: self.runtime_camera.clone(),
+            runtime_handle: self.runtime_handle.as_ref().map(Arc::clone),
             envelope: TransportEnvelope::new(P::PROTOCOL_STYLE),
-            #[cfg(feature = "async")]
             executor: Arc::clone(&self.executor),
             timeout_config: self.timeout_config,
             _mode: PhantomData,
@@ -271,24 +284,22 @@ where
     }
 }
 
+// Blocking mode cameras cannot be cloned since they own the transport
+
 // Implement Drop for Camera to ensure graceful shutdown for async mode
 impl<M, P, T, E> Drop for Camera<M, P, T, E>
 where
     P: Profile,
 {
     fn drop(&mut self) {
-        // Only handle runtime camera shutdown for async mode
+        // Only handle runtime handle shutdown for async mode
         #[cfg(feature = "async")]
         {
-            if let Ok(mut runtime_camera_lock) = self.runtime_camera.try_lock() {
-                if let Some(runtime_camera) = runtime_camera_lock.take() {
-                    // Trigger shutdown asynchronously since Drop is not async
-                    // The runtime will shut down when its submit channel is dropped
-                    drop(runtime_camera);
-                    log::debug!("Runtime camera dropped during Camera drop");
-                }
-            } else {
-                log::debug!("Could not acquire runtime camera lock during Camera drop");
+            if let Some(runtime_handle) = self.runtime_handle.take() {
+                // Trigger shutdown by dropping the Arc reference
+                // The runtime will shut down when all references are dropped
+                drop(runtime_handle);
+                log::debug!("Runtime handle dropped during Camera drop");
             }
         }
     }
@@ -303,15 +314,11 @@ where
         debug
             .field("profile", &P::MODEL_NAME)
             .field("camera_id", &self.camera_id)
-            .field("transport", &"<Transport>");
+            .field("transport", &self.transport.is_some());
         #[cfg(feature = "async")]
         {
             debug.field("executor", &"<Executor>");
-            if let Ok(rc) = self.runtime_camera.try_lock() {
-                debug.field("runtime_camera", &rc.is_some());
-            } else {
-                debug.field("runtime_camera", &"<locked>");
-            }
+            debug.field("runtime_handle", &self.runtime_handle.is_some());
         }
         debug.finish()
     }
@@ -356,35 +363,19 @@ where
     T: AsyncTransport + 'static,
     E: Executor,
 {
-    /// Send a command via the runtime camera.
+    /// Send a command via the runtime handle.
     pub async fn send_command<C>(&self, command: &C) -> Result<ViscaResponse, Error>
     where
         C: EncodeVisca,
     {
-        // Get runtime camera handle (it's always initialized in async mode)
-        let runtime_camera = {
-            let runtime_camera_lock = self
-                .runtime_camera
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            Arc::clone(runtime_camera_lock.as_ref().ok_or(Error::InvalidState(
-                std::borrow::Cow::Borrowed("Runtime camera not available"),
-            ))?)
-        };
+        // Get runtime handle (it's always initialized in async mode)
+        let runtime_handle =
+            self.runtime_handle
+                .as_ref()
+                .ok_or(Error::InvalidState(std::borrow::Cow::Borrowed(
+                    "Runtime handle not available",
+                )))?;
 
-        self.send_command_via_runtime(command, &runtime_camera)
-            .await
-    }
-
-    /// Send command via runtime camera (internal implementation).
-    async fn send_command_via_runtime<C>(
-        &self,
-        command: &C,
-        runtime_camera: &Arc<runtime::RuntimeHandle>,
-    ) -> Result<ViscaResponse, Error>
-    where
-        C: EncodeVisca,
-    {
         // Check if this is an inquiry command
         let mut buffer = [0u8; 64];
         let _size = command.encode_into(self.camera_id, &mut buffer)?;
@@ -398,9 +389,9 @@ where
 
         // Use the appropriate runtime method
         if is_inquiry {
-            runtime_camera.send_inquiry(command, self.camera_id).await
+            runtime_handle.send_inquiry(command, self.camera_id).await
         } else {
-            runtime_camera
+            runtime_handle
                 .send_command(command, self.camera_id, None)
                 .await
         }

@@ -163,7 +163,7 @@ macro_rules! delegate_methods {
                 for<'a> T::RecvFut<'a>: Send,
             {
                 $(
-                    fn $method(&self $(, $($param: $ptype),*)?) -> $ret {
+                    fn $method(&mut self $(, $($param: $ptype),*)?) -> $ret {
                         delegate_methods!(@call $($disambiguate_trait)?, $method, self.0, $($($param),*)?)
                     }
                 )+
@@ -258,7 +258,7 @@ macro_rules! impl_camera_ops {
 
     // Blocking variant
     (blocking, $trait_name:ident,
-     $(fn $method:ident(&self $(, $param:ident: $ptype:ty)*) -> $ret:ty; $(,)? )*
+     $(fn $method:ident(&mut self $(, $param:ident: $ptype:ty)*) -> $ret:ty; $(,)? )*
     ) => {
         #[cfg(not(feature = "async"))]
         impl<P, T> $trait_name for $crate::camera::Camera<$crate::camera::BlockingMode, P, T>
@@ -266,7 +266,7 @@ macro_rules! impl_camera_ops {
             P: $crate::capabilities::Profile,
             T: $crate::transport::BlockingTransport + Send + Sync + 'static,
         {
-            $( fn $method(&self $(, $param: $ptype)*) -> $ret {
+            $( fn $method(&mut self $(, $param: $ptype)*) -> $ret {
                 self.$method($($param),*)
             } )*
         }

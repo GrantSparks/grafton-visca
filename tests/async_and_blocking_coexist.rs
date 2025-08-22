@@ -1,7 +1,9 @@
 //! Test that both async and blocking APIs can coexist in the same build.
 
 #[cfg(feature = "rt-tokio")]
-use grafton_visca::{camera::AsyncMode, transport::tokio::tcp::Tcp as AsyncTcp, TokioExecutor};
+use grafton_visca::{
+    camera::AsyncMode, runtime_adapters::tokio::TcpTransport as AsyncTcp, TokioExecutor,
+};
 use grafton_visca::{
     camera::{profiles::PtzOpticsG2, BlockingMode, Camera},
     transport::blocking::Tcp as BlockingTcp,

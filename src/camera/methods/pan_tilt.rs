@@ -59,14 +59,14 @@ pub trait PanTiltControl: Sized {
 /// Pan/Tilt operations (blocking).
 pub trait PanTiltControlBlocking: Sized {
     /// Stop all pan/tilt movement.
-    fn pan_tilt_stop(&self) -> Result<(), Error>;
+    fn pan_tilt_stop(&mut self) -> Result<(), Error>;
 
     /// Move to home position (0, 0).
-    fn pan_tilt_home(&self) -> Result<(), Error>;
+    fn pan_tilt_home(&mut self) -> Result<(), Error>;
 
     /// Move to absolute pan/tilt position in degrees.
     fn pan_tilt_absolute(
-        &self,
+        &mut self,
         pan: Degrees,
         tilt: Degrees,
         speed: SpeedLevel,
@@ -74,7 +74,7 @@ pub trait PanTiltControlBlocking: Sized {
 
     /// Move relative to current position in degrees.
     fn pan_tilt_relative(
-        &self,
+        &mut self,
         pan: Degrees,
         tilt: Degrees,
         speed: SpeedLevel,
@@ -82,25 +82,25 @@ pub trait PanTiltControlBlocking: Sized {
 
     /// Move pan/tilt in a specific direction.
     fn pan_tilt_move(
-        &self,
+        &mut self,
         direction: PanTiltDirection,
         pan_speed: PanSpeed,
         tilt_speed: TiltSpeed,
     ) -> Result<(), Error>;
 
     /// Reset pan/tilt to default position.
-    fn pan_tilt_reset(&self) -> Result<(), Error>;
+    fn pan_tilt_reset(&mut self) -> Result<(), Error>;
 
     /// Set pan/tilt movement limit for a specific corner.
     fn pan_tilt_limit_set(
-        &self,
+        &mut self,
         corner: PanTiltLimitCorner,
         pan: PanPosition,
         tilt: TiltPosition,
     ) -> Result<(), Error>;
 
     /// Clear pan/tilt movement limit for a specific corner.
-    fn pan_tilt_limit_clear(&self, corner: PanTiltLimitCorner) -> Result<(), Error>;
+    fn pan_tilt_limit_clear(&mut self, corner: PanTiltLimitCorner) -> Result<(), Error>;
 }
 
 // Async implementation for Camera with AsyncMode
@@ -228,9 +228,9 @@ where
 impl<P, T> PanTiltControlBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile,
-    T: crate::transport::BlockingTransport + Send + Sync + 'static,
+    T: crate::transport::BlockingTransport + Send + 'static,
 {
-    fn pan_tilt_stop(&self) -> Result<(), Error> {
+    fn pan_tilt_stop(&mut self) -> Result<(), Error> {
         use crate::command::pan_tilt::PanTilt;
 
         let cmd = PanTilt::Move {
@@ -242,7 +242,7 @@ where
         Ok(())
     }
 
-    fn pan_tilt_home(&self) -> Result<(), Error> {
+    fn pan_tilt_home(&mut self) -> Result<(), Error> {
         use crate::command::pan_tilt::PanTilt;
 
         let cmd = PanTilt::Home;
@@ -251,7 +251,7 @@ where
     }
 
     fn pan_tilt_absolute(
-        &self,
+        &mut self,
         pan: Degrees,
         tilt: Degrees,
         speed: SpeedLevel,
@@ -274,7 +274,7 @@ where
     }
 
     fn pan_tilt_relative(
-        &self,
+        &mut self,
         pan: Degrees,
         tilt: Degrees,
         speed: SpeedLevel,
@@ -297,7 +297,7 @@ where
     }
 
     fn pan_tilt_move(
-        &self,
+        &mut self,
         direction: PanTiltDirection,
         pan_speed: PanSpeed,
         tilt_speed: TiltSpeed,
@@ -313,7 +313,7 @@ where
         Ok(())
     }
 
-    fn pan_tilt_reset(&self) -> Result<(), Error> {
+    fn pan_tilt_reset(&mut self) -> Result<(), Error> {
         use crate::command::pan_tilt::PanTilt;
 
         let cmd = PanTilt::Reset;
@@ -322,7 +322,7 @@ where
     }
 
     fn pan_tilt_limit_set(
-        &self,
+        &mut self,
         corner: PanTiltLimitCorner,
         pan: PanPosition,
         tilt: TiltPosition,
@@ -334,7 +334,7 @@ where
         Ok(())
     }
 
-    fn pan_tilt_limit_clear(&self, corner: PanTiltLimitCorner) -> Result<(), Error> {
+    fn pan_tilt_limit_clear(&mut self, corner: PanTiltLimitCorner) -> Result<(), Error> {
         use crate::command::pan_tilt::PanTilt;
 
         let cmd = PanTilt::LimitClear { corner };

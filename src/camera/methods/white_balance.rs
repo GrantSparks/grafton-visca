@@ -42,31 +42,34 @@ pub trait WhiteBalanceControl: Sized {
 /// White balance operations (blocking).
 pub trait WhiteBalanceControlBlocking: Sized {
     /// Set white balance mode to any supported mode.
-    fn set_white_balance_mode(&self, mode: WhiteBalanceMode) -> Result<(), Error>;
+    fn set_white_balance_mode(&mut self, mode: WhiteBalanceMode) -> Result<(), Error>;
 
     /// Set auto white balance mode.
-    fn white_balance_auto(&self) -> Result<(), Error>;
+    fn white_balance_auto(&mut self) -> Result<(), Error>;
 
     /// Set indoor white balance preset (optimized for incandescent/tungsten lighting).
-    fn white_balance_indoor(&self) -> Result<(), Error>;
+    fn white_balance_indoor(&mut self) -> Result<(), Error>;
 
     /// Set outdoor white balance preset (optimized for daylight).
-    fn white_balance_outdoor(&self) -> Result<(), Error>;
+    fn white_balance_outdoor(&mut self) -> Result<(), Error>;
 
     /// Set one-push white balance mode (calibrate once based on current scene).
-    fn white_balance_one_push(&self) -> Result<(), Error>;
+    fn white_balance_one_push(&mut self) -> Result<(), Error>;
 
     /// Set auto tracking white balance (Sony FR7 specific).
-    fn white_balance_atw(&self) -> Result<(), Error>;
+    fn white_balance_atw(&mut self) -> Result<(), Error>;
 
     /// Set manual white balance mode.
-    fn white_balance_manual(&self) -> Result<(), Error>;
+    fn white_balance_manual(&mut self) -> Result<(), Error>;
 
     /// Set color temperature white balance mode.
-    fn white_balance_color_temperature(&self) -> Result<(), Error>;
+    fn white_balance_color_temperature(&mut self) -> Result<(), Error>;
 
     /// Set AWB sensitivity level (PtzOptics specific).
-    fn set_awb_sensitivity(&self, sensitivity: AutoWhiteBalanceSensitivity) -> Result<(), Error>;
+    fn set_awb_sensitivity(
+        &mut self,
+        sensitivity: AutoWhiteBalanceSensitivity,
+    ) -> Result<(), Error>;
 }
 
 // Async implementation for Camera with AsyncMode
@@ -131,9 +134,9 @@ impl<P, T> WhiteBalanceControlBlocking
     for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile,
-    T: crate::transport::BlockingTransport + Send + Sync + 'static,
+    T: crate::transport::BlockingTransport + Send + 'static,
 {
-    fn set_white_balance_mode(&self, mode: WhiteBalanceMode) -> Result<(), Error> {
+    fn set_white_balance_mode(&mut self, mode: WhiteBalanceMode) -> Result<(), Error> {
         use crate::command::white_balance::WhiteBalanceCommand;
 
         let cmd = WhiteBalanceCommand { mode };
@@ -141,35 +144,38 @@ where
         Ok(())
     }
 
-    fn white_balance_auto(&self) -> Result<(), Error> {
+    fn white_balance_auto(&mut self) -> Result<(), Error> {
         self.set_white_balance_mode(WhiteBalanceMode::Auto)
     }
 
-    fn white_balance_indoor(&self) -> Result<(), Error> {
+    fn white_balance_indoor(&mut self) -> Result<(), Error> {
         self.set_white_balance_mode(WhiteBalanceMode::Indoor)
     }
 
-    fn white_balance_outdoor(&self) -> Result<(), Error> {
+    fn white_balance_outdoor(&mut self) -> Result<(), Error> {
         self.set_white_balance_mode(WhiteBalanceMode::Outdoor)
     }
 
-    fn white_balance_one_push(&self) -> Result<(), Error> {
+    fn white_balance_one_push(&mut self) -> Result<(), Error> {
         self.set_white_balance_mode(WhiteBalanceMode::OnePush)
     }
 
-    fn white_balance_atw(&self) -> Result<(), Error> {
+    fn white_balance_atw(&mut self) -> Result<(), Error> {
         self.set_white_balance_mode(WhiteBalanceMode::ATW)
     }
 
-    fn white_balance_manual(&self) -> Result<(), Error> {
+    fn white_balance_manual(&mut self) -> Result<(), Error> {
         self.set_white_balance_mode(WhiteBalanceMode::Manual)
     }
 
-    fn white_balance_color_temperature(&self) -> Result<(), Error> {
+    fn white_balance_color_temperature(&mut self) -> Result<(), Error> {
         self.set_white_balance_mode(WhiteBalanceMode::ColorTemperature)
     }
 
-    fn set_awb_sensitivity(&self, sensitivity: AutoWhiteBalanceSensitivity) -> Result<(), Error> {
+    fn set_awb_sensitivity(
+        &mut self,
+        sensitivity: AutoWhiteBalanceSensitivity,
+    ) -> Result<(), Error> {
         use crate::command::white_balance::AWBSensitivityCommand;
 
         let cmd = AWBSensitivityCommand { sensitivity };

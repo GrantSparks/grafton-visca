@@ -55,7 +55,7 @@ pub trait VariableSpeedControlBlocking {
     ///
     /// # Returns
     /// Result indicating success or error
-    fn set_variable_speed_mode(&self, mode: VariableSpeedMode) -> Result<(), Error>;
+    fn set_variable_speed_mode(&mut self, mode: VariableSpeedMode) -> Result<(), Error>;
 }
 
 // Blocking implementation for Camera with BlockingMode
@@ -65,9 +65,9 @@ where
     P: crate::capabilities::Profile
         + crate::capabilities::VariableSpeed
         + crate::capabilities::HasVariableSpeed,
-    T: crate::transport::BlockingTransport + Send + Sync + 'static,
+    T: crate::transport::BlockingTransport + Send + 'static,
 {
-    fn set_variable_speed_mode(&self, mode: VariableSpeedMode) -> Result<(), Error> {
+    fn set_variable_speed_mode(&mut self, mode: VariableSpeedMode) -> Result<(), Error> {
         // No runtime check needed - compile-time guarantee via HasVariableSpeed marker trait
         let cmd = VariableSpeedModeCmd::new(mode);
         match self.send_command(&cmd)? {
