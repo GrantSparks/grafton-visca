@@ -143,28 +143,6 @@ impl<E> ScriptedTransport<E> {
         let _ = self.response_tx.send(Ok(response));
     }
 
-    /// Schedule a response to be delivered after `delay`.
-    /// This provides a convenient way to add delayed responses without
-    /// having to pre-script them in the constructor.
-    #[cfg(feature = "async")]
-    pub fn add_after(&self, delay: Duration, response: Vec<u8>)
-    where
-        E: Executor + ExecutorExt + 'static,
-    {
-        if let Some(executor) = &self.executor {
-            let tx = self.response_tx.clone();
-            let exec = executor.clone();
-            let exec_clone = exec.clone();
-            exec.spawn_bg(async move {
-                exec_clone.sleep(delay).await;
-                let _ = tx.send_async(Ok(response)).await;
-            });
-        } else {
-            // Without an executor, deliver immediately (consistent with Step::After fallback).
-            let _ = self.response_tx.send(Ok(response));
-        }
-    }
-
     /// Process any pending Step::After steps (static version for use in async blocks).
     fn process_after_steps_static(
         steps: Arc<Mutex<VecDeque<Step>>>,
@@ -361,19 +339,6 @@ where
                     return Err(error);
                 }
             }
-
-            // ARCHITECTURAL NOTE: This implementation has a fundamental issue:
-            // - For DeterministicExecutor tests, we need non-blocking behavior (try_recv)
-            // - For real async runtime tests, we need blocking behavior (recv_async)
-            //
-            // The current implementation uses recv_async which works for real runtimes
-            // but cannot be controlled by DeterministicExecutor's virtual time.
-            // This means timeout testing with DeterministicExecutor is not possible.
-            //
-            // Potential solutions:
-            // 1. Create separate test transports for deterministic vs real async
-            // 2. Add a runtime-aware timeout mechanism using the Executor trait
-            // 3. Accept that timeout testing requires real time
 
             // Receive response from channel
             match response_rx.recv_async().await {
