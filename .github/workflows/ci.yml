@@ -47,14 +47,37 @@ jobs:
   # Test on multiple platforms and Rust versions
   test:
     name: Test (${{ matrix.os }} / ${{ matrix.rust }})
-    # Skip comprehensive tests on feature branch pushes
-    if: github.event_name != 'push' || !startsWith(github.ref, 'refs/heads/feature/')
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        rust: [stable, beta]
+        # Run reduced matrix on feature branch pushes
+        # Full matrix on: main branch, PRs, and manual dispatch
+        include:
+          - os: ubuntu-latest
+            rust: stable
+          - os: windows-latest
+            rust: stable
+            # Skip Windows on feature branch pushes to save CI time
+            skip-on-feature: true
+          - os: macos-latest
+            rust: stable
+            # Skip macOS on feature branch pushes to save CI time
+            skip-on-feature: true
+          - os: ubuntu-latest
+            rust: beta
+            # Skip beta on feature branch pushes to save CI time
+            skip-on-feature: true
+          - os: windows-latest
+            rust: beta
+            # Skip beta on feature branch pushes to save CI time
+            skip-on-feature: true
+          - os: macos-latest
+            rust: beta
+            # Skip beta on feature branch pushes to save CI time
+            skip-on-feature: true
     runs-on: ${{ matrix.os }}
+    # Skip jobs marked skip-on-feature when pushing to feature branches
+    if: matrix.skip-on-feature != true || github.event_name != 'push' || !startsWith(github.ref, 'refs/heads/feature/')
     steps:
       - uses: actions/checkout@v4
       
