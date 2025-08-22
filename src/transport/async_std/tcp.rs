@@ -1,9 +1,9 @@
 //! async-std TCP transport implementation with zero-cost async.
 
-use bytes::Bytes;
-use async_std::io::{BufReader, prelude::*};
+use async_std::io::{prelude::*, BufReader};
 use async_std::net::TcpStream;
 use async_std::prelude::FutureExt;
+use bytes::Bytes;
 
 use std::borrow::Cow;
 use std::time::Duration;
@@ -102,7 +102,7 @@ impl Tcp {
     /// ```
     pub fn split(self) -> (TcpReader, TcpWriter) {
         let stream_clone = self.stream.clone();
-        
+
         let reader = TcpReader {
             stream: self.stream,
         };

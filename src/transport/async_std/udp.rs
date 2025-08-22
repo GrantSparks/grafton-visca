@@ -1,7 +1,7 @@
 //! async-std UDP transport implementation with zero-cost async and IPv6 support.
 
-use bytes::Bytes;
 use async_std::net::UdpSocket;
+use bytes::Bytes;
 
 use crate::transport::address::AddressResolver;
 use crate::transport::buffer::{BufferConfig, BufferManager};
