@@ -441,3 +441,13 @@ pub use crate::{
 pub mod profiles {
     pub use crate::camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7};
 }
+
+// Re-export camera type aliases for convenience
+#[cfg(all(feature = "async", feature = "rt-tokio"))]
+pub use crate::camera::TokioCamera;
+
+#[cfg(all(feature = "async", feature = "rt-async-std"))]
+pub use crate::camera::AsyncStdCamera;
+
+#[cfg(all(feature = "async", feature = "rt-smol"))]
+pub use crate::camera::SmolCamera;

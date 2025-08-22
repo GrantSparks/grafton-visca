@@ -129,14 +129,12 @@ impl SonyHeader {
 #[cfg(any(feature = "async", feature = "serial", test))]
 #[derive(Debug)]
 pub(crate) struct FrameBuilder {
-    #[allow(dead_code)] // Used when feature combinations differ
     buffer: BytesMut,
 }
 
 #[cfg(any(feature = "async", feature = "serial", test))]
 impl FrameBuilder {
     /// Create a new command builder.
-    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             buffer: BytesMut::with_capacity(16),

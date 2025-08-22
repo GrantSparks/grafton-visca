@@ -48,7 +48,6 @@ pub mod blocking_transport;
 pub mod buffer;
 pub mod builder;
 pub mod envelope;
-pub mod frame_parser;
 pub mod ip_raw;
 pub mod ip_sony;
 pub mod retry;

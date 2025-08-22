@@ -3,6 +3,7 @@
 //! This module provides functions for parsing VISCA responses including
 //! ACK, Completion, Data Reply, and Error messages.
 
+#[cfg(any(feature = "async", test))]
 use crate::command::const_encoding::VISCA_TERMINATOR;
 
 #[cfg(feature = "async")]
@@ -169,11 +170,8 @@ pub(crate) fn parse_response(frame: &[u8]) -> ViscaResponse {
 /// - Single byte: 90 50 0p FF (value = p)
 /// - Two nibbles: 90 50 0p 0q FF (value = pq)
 /// - Four nibbles: 90 50 0p 0q 0r 0s FF (value = pqrs)
-///
-/// TODO: This utility function should be used in actual inquiry response parsing
-/// instead of inline parsing. Currently only used in tests.
-#[allow(dead_code)]
-pub(crate) fn extract_inquiry_value(data: &[u8]) -> Option<u32> {
+#[cfg(test)]
+fn extract_inquiry_value(data: &[u8]) -> Option<u32> {
     match data.len() {
         1 => {
             // Single nibble value
@@ -197,16 +195,6 @@ pub(crate) fn extract_inquiry_value(data: &[u8]) -> Option<u32> {
     }
 }
 
-/// Check if a frame is a complete VISCA message.
-///
-/// VISCA messages are terminated with 0xFF.
-///
-/// TODO: This utility should be used in transport receive logic
-/// for proper frame boundary detection. Currently only used in tests.
-#[allow(dead_code)]
-pub(crate) fn is_complete_frame(data: &[u8]) -> bool {
-    !data.is_empty() && data[data.len() - 1] == VISCA_TERMINATOR
-}
 
 /// Find the next complete frame in a buffer.
 ///

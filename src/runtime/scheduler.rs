@@ -65,45 +65,45 @@ pub(crate) enum RxEvent {
     /// Acknowledgment that a command has been accepted.
     Ack {
         /// Socket that received the ACK.
-        #[allow(dead_code)] // Used in runtime event processing
+        #[allow(dead_code)]
         socket: SocketId,
         /// Command ID that was acknowledged.
-        #[allow(dead_code)] // Used in runtime event processing
+        #[allow(dead_code)]
         id: u32,
     },
     /// Command has completed execution.
     Completion {
         /// Socket that completed.
-        #[allow(dead_code)] // Used in runtime event processing
+        #[allow(dead_code)]
         socket: SocketId,
         /// Command ID that completed.
-        #[allow(dead_code)] // Used in runtime event processing
+        #[allow(dead_code)]
         id: u32,
     },
     /// Data reply from an inquiry.
     DataReply {
         /// Inquiry ID that received data.
-        #[allow(dead_code)] // Used in runtime event processing
+        #[allow(dead_code)]
         id: u32,
         /// ViscaResponse data bytes.
-        #[allow(dead_code)] // Used in runtime event processing
+        #[allow(dead_code)]
         data: Vec<u8>,
     },
     /// Error response from device.
     Error {
         /// Error code from VISCA protocol.
-        #[allow(dead_code)] // Used in runtime event processing
+        #[allow(dead_code)]
         code: ViscaError,
         /// Socket if error is socket-specific.
-        #[allow(dead_code)] // Used in runtime event processing
+        #[allow(dead_code)]
         socket: Option<SocketId>,
         /// Command/inquiry ID if applicable.
-        #[allow(dead_code)] // Used in runtime event processing
+        #[allow(dead_code)]
         id: Option<u32>,
     },
     /// Link state events.
     /// Reserved for future link state event handling for connection monitoring.
-    #[allow(dead_code)] // Field not accessed but variant is used for event categorization
+    #[allow(dead_code)]
     Link(LinkEvent),
 }
 
@@ -236,17 +236,14 @@ impl ViscaError {
 /// Link state events.
 #[cfg(feature = "async")]
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // Used for event categorization and future link monitoring
 pub(crate) enum LinkEvent {
-    /// Connected to device.
-    Connected,
-    /// Disconnected from device.
-    Disconnected,
     /// Retrying connection/command.
     Retry {
         /// Attempt number.
+        #[allow(dead_code)]
         attempt: u32,
         /// Reason for retry.
+        #[allow(dead_code)]
         reason: String,
     },
 }
@@ -725,12 +722,6 @@ impl Scheduler {
         }
     }
 
-    /// Check if a command is pending ACK.
-    #[allow(dead_code)] // Used in runtime flow but clippy can't see it
-    pub fn is_pending_ack(&self, id: u32) -> bool {
-        self.pending_ack.contains_key(&id)
-    }
-
     /// Check if we can send another command (have room for pending ACK).
     /// VISCA cameras support max 2 concurrent commands.
     pub fn can_send_command(&self) -> bool {
@@ -750,30 +741,6 @@ impl Scheduler {
     /// Get count of pending ACK commands.
     pub fn pending_ack_count(&self) -> usize {
         self.pending_ack.len()
-    }
-
-    /// Handle error for pending ACK commands.
-    /// When error arrives without socket (0x03 BufferFull), it applies to pending command.
-    #[allow(dead_code)] // Used in runtime/mod.rs
-    pub fn handle_pending_ack_error(
-        &mut self,
-        error: ViscaError,
-    ) -> Option<(u32, Priority, CommandCategory)> {
-        // Find oldest pending command that would get this error
-        let oldest = self
-            .pending_ack
-            .iter()
-            .min_by_key(|(_, (_, _, _, sent_time))| *sent_time)
-            .map(|(id, (_, priority, category, _))| (*id, *priority, *category))?;
-
-        // Remove from pending since it got an error
-        self.pending_ack.remove(&oldest.0);
-
-        debug!(
-            "Removed command {} from pending ACK due to error {:?}",
-            oldest.0, error
-        );
-        Some(oldest)
     }
 
     /// Handle error for pending ACK commands, returning bytes for retry.
