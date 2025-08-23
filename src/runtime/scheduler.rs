@@ -85,7 +85,7 @@ pub(crate) enum RxEvent {
         /// Inquiry ID that received data.
         #[allow(dead_code)]
         id: u32,
-        /// ViscaResponse data bytes.
+        /// Response data bytes.
         #[allow(dead_code)]
         data: Vec<u8>,
     },
@@ -101,16 +101,12 @@ pub(crate) enum RxEvent {
         #[allow(dead_code)]
         id: Option<u32>,
     },
-    /// Link state events.
-    /// Reserved for future link state event handling for connection monitoring.
-    #[allow(dead_code)]
-    Link(LinkEvent),
 }
 
 /// Socket identifier for VISCA commands.
 #[cfg(feature = "async")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum SocketId {
+pub enum SocketId {
     /// First command socket.
     Socket1,
     /// Second command socket.
@@ -158,94 +154,48 @@ pub enum Priority {
     Critical = 3,
 }
 
-/// VISCA protocol errors.
+/// VISCA protocol error codes wrapper.
+///
+/// This is a thin wrapper around error bytes for internal use in the scheduler.
+/// It delegates to the public Error type for actual error semantics.
 #[cfg(feature = "async")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ViscaError {
-    /// Syntax error in command.
-    SyntaxError,
-    /// Command buffer full (0x03) - always retryable.
-    BufferFull,
-    /// Command cancelled.
-    CommandCancelled,
-    /// Command not executable (0x41) - may be retryable based on context.
-    NotExecutable,
-    /// No socket available.
-    NoSocket,
-    /// Timeout waiting for response.
-    Timeout,
-    /// Unknown error code.
-    Unknown(u8),
-}
+pub(crate) struct ViscaError(u8);
 
 #[cfg(feature = "async")]
 impl ViscaError {
     /// Create from VISCA error byte.
-    ///
-    /// ## Error Code Mapping
-    ///
-    /// - 0x02: Syntax Error
-    /// - 0x03: Command Buffer Full (camera busy, should queue and retry)
-    /// - 0x04: Command Canceled
-    /// - 0x05: No Socket
-    /// - 0x41: Command Not Executable (command invalid in current state)
     pub fn from_byte(byte: u8) -> Self {
-        match byte {
-            0x02 => ViscaError::SyntaxError,
-            0x03 => ViscaError::BufferFull, // This is the actual "busy" error
-            0x04 => ViscaError::CommandCancelled,
-            0x05 => ViscaError::NoSocket,
-            0x41 => ViscaError::NotExecutable, // Command not valid in current state
-            other => ViscaError::Unknown(other),
-        }
+        ViscaError(byte)
     }
 
     /// Convert to VISCA error byte.
     pub fn as_byte(&self) -> u8 {
-        match self {
-            ViscaError::SyntaxError => 0x02,
-            ViscaError::BufferFull => 0x03,
-            ViscaError::CommandCancelled => 0x04,
-            ViscaError::NoSocket => 0x05,
-            ViscaError::NotExecutable => 0x41,
-            ViscaError::Timeout => 0x71, // Custom code for timeouts
-            ViscaError::Unknown(byte) => *byte,
-        }
+        self.0
     }
 
     /// Check if this error should trigger a retry.
     ///
-    /// - BufferFull (0x03) always triggers retry
-    /// - NotExecutable (0x41) may trigger retry based on command category
+    /// Delegates to the public Error type for consistency.
     pub fn is_retryable(&self, category: Option<CommandCategory>) -> bool {
-        match self {
-            ViscaError::BufferFull => true, // Always retry on buffer full
-            ViscaError::NotExecutable => {
-                // For certain command categories, 0x41 may indicate "still settling"
-                // This is profile-dependent but for now we retry movement/preset commands
-                matches!(
-                    category,
-                    Some(CommandCategory::Movement | CommandCategory::Preset)
-                )
-            }
-            _ => false,
+        // Convert to public error type to check retryability
+        let error = crate::Error::from_code(self.0);
+
+        // Check base retryability from Error type
+        if error.is_retryable() {
+            return true;
+        }
+
+        // Special case: 0x41 (CommandNotExecutable) may be retryable for movement/preset
+        if self.0 == 0x41 {
+            matches!(
+                category,
+                Some(CommandCategory::Movement | CommandCategory::Preset)
+            )
+        } else {
+            false
         }
     }
-}
-
-/// Link state events.
-#[cfg(feature = "async")]
-#[derive(Debug, Clone)]
-pub(crate) enum LinkEvent {
-    /// Retrying connection/command.
-    Retry {
-        /// Attempt number.
-        #[allow(dead_code)]
-        attempt: u32,
-        /// Reason for retry.
-        #[allow(dead_code)]
-        reason: String,
-    },
 }
 
 /// Socket state tracking.
@@ -572,7 +522,17 @@ impl PriorityQueueItem {
 #[cfg(feature = "async")]
 impl Scheduler {
     /// Create a new scheduler with given channels.
+    #[cfg(test)]
     pub fn new(_submit_rx: Receiver<TxItem>, _event_tx: Sender<RxEvent>) -> Self {
+        Self::with_timeout_config(_submit_rx, _event_tx, TimeoutConfig::default())
+    }
+
+    /// Create a new scheduler with custom timeout configuration.
+    pub fn with_timeout_config(
+        _submit_rx: Receiver<TxItem>,
+        _event_tx: Sender<RxEvent>,
+        timeout_config: TimeoutConfig,
+    ) -> Self {
         // Set default max retries per category
         let mut max_retries = HashMap::new();
         max_retries.insert(CommandCategory::Quick, 5); // Quick commands can retry more
@@ -585,7 +545,7 @@ impl Scheduler {
         Self {
             sockets: Default::default(),
             next_id: AtomicU32::new(1),
-            timeout_config: TimeoutConfig::default(),
+            timeout_config,
             #[cfg(feature = "async")]
             command_spacing: Duration::from_millis(50), // Default 50ms spacing
             #[cfg(feature = "async")]
@@ -601,6 +561,7 @@ impl Scheduler {
             pending_ack: HashMap::new(),
         }
     }
+
 
     /// Generate next command ID.
     pub fn next_id(&self) -> u32 {
@@ -825,10 +786,10 @@ impl Scheduler {
         // Check each pending ACK command
         let mut to_remove = Vec::new();
         for (id, (_, _, _category, sent_time)) in self.pending_ack.iter() {
-            // Use a shorter timeout for ACK (e.g., 2 seconds)
+            // Use ACK timeout from configuration
             // According to VISCA spec, ACK should arrive within ~33ms
-            // But we'll be generous to account for network delays
-            let ack_timeout = Duration::from_secs(2);
+            // But we're generous to account for network delays
+            let ack_timeout = self.timeout_config.ack_timeout;
 
             if now.duration_since(*sent_time) > ack_timeout {
                 warn!(
@@ -1319,44 +1280,35 @@ mod tests {
 
     #[test]
     fn test_visca_error_from_byte() {
-        assert_eq!(ViscaError::from_byte(0x02), ViscaError::SyntaxError);
-        assert_eq!(ViscaError::from_byte(0x03), ViscaError::BufferFull);
-        assert_eq!(ViscaError::from_byte(0x04), ViscaError::CommandCancelled);
-        assert_eq!(ViscaError::from_byte(0x05), ViscaError::NoSocket);
-        assert_eq!(ViscaError::from_byte(0x41), ViscaError::NotExecutable);
-        assert_eq!(ViscaError::from_byte(0xFF), ViscaError::Unknown(0xFF));
+        assert_eq!(ViscaError::from_byte(0x02).as_byte(), 0x02); // SyntaxError
+        assert_eq!(ViscaError::from_byte(0x03).as_byte(), 0x03); // BufferFull
+        assert_eq!(ViscaError::from_byte(0x04).as_byte(), 0x04); // CommandCancelled
+        assert_eq!(ViscaError::from_byte(0x05).as_byte(), 0x05); // NoSocket
+        assert_eq!(ViscaError::from_byte(0x41).as_byte(), 0x41); // NotExecutable
+        assert_eq!(ViscaError::from_byte(0xFF).as_byte(), 0xFF); // Unknown
     }
 
     #[test]
     fn test_visca_error_mapping_table() {
-        // Table-driven test for internal ViscaError mapping
-        // Ensures consistency between from_byte and to_byte
+        // Table-driven test for ViscaError byte mapping
+        // Ensures consistency between from_byte and as_byte
         let cases = [
-            (0x02, ViscaError::SyntaxError),
-            (0x03, ViscaError::BufferFull),
-            (0x04, ViscaError::CommandCancelled),
-            (0x05, ViscaError::NoSocket),
+            (0x02, "SyntaxError"),
+            (0x03, "BufferFull"),
+            (0x04, "CommandCancelled"),
+            (0x05, "NoSocket"),
             // VISCA 0x41 is "Command Not Executable" - command invalid in current state
-            (0x41, ViscaError::NotExecutable),
+            (0x41, "NotExecutable"),
         ];
 
-        for (byte, expected) in cases {
+        for (byte, name) in cases {
             let error = ViscaError::from_byte(byte);
+            let back_to_byte = error.as_byte();
             assert_eq!(
-                error, expected,
-                "Byte {:#04x} should map to {:?}",
-                byte, expected
+                back_to_byte, byte,
+                "Round-trip failed for {:#04x} ({}) -> {:#04x}",
+                byte, name, back_to_byte
             );
-
-            // Verify round-trip for non-Unknown variants
-            if !matches!(error, ViscaError::Unknown(_)) {
-                let back_to_byte = error.as_byte();
-                assert_eq!(
-                    back_to_byte, byte,
-                    "Round-trip failed for {:#04x} -> {:?} -> {:#04x}",
-                    byte, error, back_to_byte
-                );
-            }
         }
     }
 

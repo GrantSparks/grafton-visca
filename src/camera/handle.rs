@@ -6,7 +6,7 @@
 use std::marker::PhantomData;
 
 #[cfg(feature = "async")]
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 #[cfg(feature = "async")]
 use crate::{camera::AsyncMode, executor::Executor, runtime, transport::AsyncTransport};
@@ -398,13 +398,137 @@ where
     }
 
     /// Wait for a command completion message.
+    ///
+    /// This waits for a 0x51 completion message from the camera, indicating
+    /// that a movement command has finished executing.
     pub async fn wait_for_completion(&self) -> Result<(), Error> {
-        // For now, we don't have a direct wait_for_completion in the runtime
-        // This would need to be implemented by monitoring runtime events
-        log::debug!("wait_for_completion: not yet implemented with runtime camera");
+        self.wait_for_completion_with_timeout(Duration::from_secs(30))
+            .await
+    }
 
-        // Return OK for now to avoid breaking existing code
-        // TODO: Implement proper completion waiting through runtime events
-        Ok(())
+    /// Wait for a command completion message with a custom timeout.
+    pub async fn wait_for_completion_with_timeout(&self, timeout: Duration) -> Result<(), Error> {
+        // Monitor runtime events for completion
+        let start = std::time::Instant::now();
+
+        while start.elapsed() < timeout {
+            // Check runtime metrics to see if we're idle
+            let runtime = self
+                .runtime_handle
+                .as_ref()
+                .ok_or_else(|| Error::InvalidState("No runtime configured".into()))?;
+            let metrics = runtime.metrics().await?;
+
+            // If all queues are empty, we're done
+            if metrics.current_queue_depth == 0 && metrics.current_retry_queue_depth == 0 {
+                return Ok(());
+            }
+
+            // Small delay before checking again
+            self.executor.sleep(Duration::from_millis(50)).await;
+        }
+
+        Err(Error::Timeout)
+    }
+
+    /// Check if the runtime is idle (no pending commands).
+    pub async fn is_idle(&self) -> Result<bool, Error> {
+        let runtime = self
+            .runtime_handle
+            .as_ref()
+            .ok_or_else(|| Error::InvalidState("No runtime configured".into()))?;
+        let metrics = runtime.metrics().await?;
+        Ok(metrics.current_queue_depth == 0 && metrics.current_retry_queue_depth == 0)
+    }
+
+    /// Wait for all operations to complete (barrier synchronization).
+    ///
+    /// This waits until all command queues are empty, providing a
+    /// synchronization point for coordinated operations.
+    pub async fn wait_for_idle(&self, timeout: Duration) -> Result<(), Error> {
+        let start = std::time::Instant::now();
+
+        while start.elapsed() < timeout {
+            if self.is_idle().await? {
+                return Ok(());
+            }
+
+            // Small delay before checking again
+            self.executor.sleep(Duration::from_millis(50)).await;
+        }
+
+        Err(Error::Timeout)
+    }
+
+    /// Send a command and return a command ID and response future.
+    ///
+    /// This allows canceling the command by its ID.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let (cmd_id, response_future) = camera.send_command_with_id(&Zoom::TeleStandard).await?;
+    /// // Later, cancel the command
+    /// camera.cancel_command(cmd_id).await?;
+    /// ```
+    pub async fn send_command_with_id<C>(
+        &self,
+        command: &C,
+    ) -> Result<(u32, impl std::future::Future<Output = Result<ViscaResponse, Error>>), Error>
+    where
+        C: EncodeVisca,
+    {
+        // Get runtime handle
+        let runtime_handle = self
+            .runtime_handle
+            .as_ref()
+            .ok_or(Error::InvalidState(std::borrow::Cow::Borrowed(
+                "Runtime handle not available",
+            )))?;
+
+        // Use the runtime's send_command_with_id method
+        runtime_handle
+            .send_command_with_id(command, self.camera_id, None)
+            .await
+    }
+
+    /// Cancel a command by its ID.
+    ///
+    /// Note: Currently this cancels both sockets as command-to-socket mapping
+    /// is not yet implemented.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let (cmd_id, _) = camera.send_command_with_id(&Zoom::TeleStandard).await?;
+    /// camera.cancel_command(cmd_id).await?;
+    /// ```
+    pub async fn cancel_command(&self, command_id: u32) -> Result<(), Error> {
+        let runtime_handle = self
+            .runtime_handle
+            .as_ref()
+            .ok_or(Error::InvalidState(std::borrow::Cow::Borrowed(
+                "Runtime handle not available",
+            )))?;
+
+        runtime_handle.cancel(command_id).await
+    }
+
+    /// Cancel all commands on a specific socket.
+    ///
+    /// This directly cancels the specified socket without needing to know the command ID.
+    ///
+    /// # Example
+    /// ```ignore
+    /// use grafton_visca::runtime::SocketId;
+    /// camera.cancel_socket(SocketId::Socket1).await?;
+    /// ```
+    pub async fn cancel_socket(&self, socket: crate::runtime::SocketId) -> Result<(), Error> {
+        let runtime_handle = self
+            .runtime_handle
+            .as_ref()
+            .ok_or(Error::InvalidState(std::borrow::Cow::Borrowed(
+                "Runtime handle not available",
+            )))?;
+
+        runtime_handle.cancel_socket(socket).await
     }
 }
