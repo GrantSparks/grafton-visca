@@ -26,23 +26,23 @@
 //!     .build_async::<PtzOpticsG2, _>(transport)?;
 //! ```
 
+// Standard library
 #[cfg(not(feature = "async"))]
 use std::marker::PhantomData;
 
+// Local modules
 #[cfg(not(feature = "async"))]
 use crate::camera::handle::Camera as GenericCamera;
-
+use crate::{
+    camera::BlockingMode, camera_id::CameraId, capabilities::Profile, timeout::TimeoutConfig,
+    transport::BlockingTransport,
+};
 #[cfg(feature = "async")]
 use crate::{
     camera::{handle::Camera as GenericCamera, AsyncMode},
     error::Error,
     executor::Executor,
     transport::AsyncTransport,
-};
-
-use crate::{
-    camera::BlockingMode, camera_id::CameraId, capabilities::Profile, timeout::TimeoutConfig,
-    transport::BlockingTransport,
 };
 
 /// Builder for creating cameras with explicit executor configuration.

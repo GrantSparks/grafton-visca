@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use crate::error::{Error, Result};
 use crate::protocol::encode::{FrameBuilder, VISCA_TERMINATOR};
-use crate::transport::{AsyncTransport, BlockingTransport, RetryConfig};
+use crate::transport::{BlockingTransport, RetryConfig};
 
 /// Serial port configuration for VISCA communication.
 #[derive(Debug, Clone)]
@@ -129,77 +129,6 @@ impl SerialTransport {
         }
 
         Err(Error::MaxRetriesExceeded)
-    }
-
-    /// Internal send method that takes &self for use with interior mutability
-    /// Used by AsyncSerialTransport which needs to work with Arc<Self>
-    fn send_blocking_internal(&self, bytes: &[u8]) -> Result<()> {
-        // Add camera address and terminator if not already present
-        let cmd = if bytes[0] & 0xF0 == 0x80 {
-            // Already has address
-            bytes.to_vec()
-        } else {
-            // Build command with address
-            self.build_command(bytes)
-        };
-
-        // Send with retry logic
-        let mut attempts = 0;
-        let start_time = Instant::now();
-
-        loop {
-            match self.send_raw(&cmd) {
-                Ok(()) => return Ok(()),
-                Err(e)
-                    if e.is_retryable()
-                        && self.config.retry_config.should_retry(attempts, start_time) =>
-                {
-                    attempts += 1;
-                    let delay = self
-                        .config
-                        .retry_config
-                        .calculate_delay(attempts, e.suggested_retry_delay());
-
-                    if start_time.elapsed() + delay > self.config.retry_config.max_retry_duration {
-                        return Err(Error::MaxRetriesExceeded);
-                    }
-
-                    debug!("Retrying serial send (attempt {}): {:?}", attempts, e);
-                    std::thread::sleep(delay);
-                }
-                Err(e) => return Err(e),
-            }
-        }
-    }
-
-    /// Internal recv method that takes &self for use with interior mutability
-    fn recv_blocking_internal(&self) -> Result<Bytes> {
-        let mut attempts = 0;
-        let start_time = Instant::now();
-
-        loop {
-            match self.recv_frame() {
-                Ok(frame) => return Ok(frame),
-                Err(e)
-                    if e.is_retryable()
-                        && self.config.retry_config.should_retry(attempts, start_time) =>
-                {
-                    attempts += 1;
-                    let delay = self
-                        .config
-                        .retry_config
-                        .calculate_delay(attempts, e.suggested_retry_delay());
-
-                    if start_time.elapsed() + delay > self.config.retry_config.max_retry_duration {
-                        return Err(Error::Timeout);
-                    }
-
-                    debug!("Retrying serial recv (attempt {}): {:?}", attempts, e);
-                    std::thread::sleep(delay);
-                }
-                Err(e) => return Err(e),
-            }
-        }
     }
 
     /// Receive and parse Address Set response.
@@ -442,58 +371,9 @@ impl BlockingTransport for SerialTransport {
     }
 }
 
-/// Async serial transport implementation using tokio.
-#[cfg(feature = "rt-tokio")]
-#[derive(Debug)]
-// AsyncSerialTransport is temporarily private until native async serial is implemented
-// TODO: Implement native async serial using tokio-serial behind rt-tokio-serial feature
-#[allow(dead_code)]
-struct AsyncSerialTransport {
-    inner: Arc<SerialTransport>,
-}
-
-#[cfg(feature = "rt-tokio")]
-impl AsyncSerialTransport {
-    /// Create a new async serial transport.
-    #[allow(dead_code)] // Will be used when serial support is made public
-    pub async fn new(config: SerialConfig) -> Result<Self> {
-        let inner = tokio::task::spawn_blocking(move || SerialTransport::new(config))
-            .await
-            .map_err(|e| {
-                Error::TransportError(format!("Failed to create serial transport: {}", e).into())
-            })??;
-
-        Ok(Self {
-            inner: Arc::new(inner),
-        })
-    }
-}
-
-#[cfg(feature = "rt-tokio")]
-impl AsyncTransport for AsyncSerialTransport {
-    fn send(&mut self, bytes: &[u8]) -> impl std::future::Future<Output = Result<()>> + Send {
-        let inner = self.inner.clone();
-        let bytes = bytes.to_vec();
-
-        async move {
-            // Use the interior mutability methods that take &self
-            tokio::task::spawn_blocking(move || inner.send_blocking_internal(&bytes))
-                .await
-                .map_err(|e| Error::TransportError(format!("Async send error: {}", e).into()))?
-        }
-    }
-
-    fn recv(&mut self) -> impl std::future::Future<Output = Result<Bytes>> + Send {
-        let inner = self.inner.clone();
-
-        async move {
-            // Use the interior mutability methods that take &self
-            tokio::task::spawn_blocking(move || inner.recv_blocking_internal())
-                .await
-                .map_err(|e| Error::TransportError(format!("Async recv error: {}", e).into()))?
-        }
-    }
-}
+// Note: Async serial transport implementation removed.
+// If async serial support is needed in the future, consider using tokio-serial
+// or async-std-serial crates with proper native async implementations.
 
 #[cfg(test)]
 mod tests {

@@ -12,10 +12,14 @@ use log::{debug, trace, warn};
 #[cfg(feature = "async")]
 use crate::runtime::scheduler::{SocketId, ViscaError};
 
-/// VISCA response types.
+/// Protocol-level response types from VISCA frame parsing.
+///
+/// This is the internal representation used by the runtime for tracking
+/// socket states and protocol-level details. It differs from the public
+/// `ViscaResponse` type which provides a simpler API for users.
 #[cfg(feature = "async")]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum ViscaResponse {
+pub(crate) enum ProtocolResponse {
     /// Acknowledgment - command accepted (90 4y FF).
     Ack {
         /// Socket that acknowledged (y = 1 or 2).
@@ -28,7 +32,7 @@ pub(crate) enum ViscaResponse {
     },
     /// Data reply from inquiry (90 50 ... FF).
     DataReply {
-        /// ViscaResponse data (excluding header and terminator).
+        /// Response data (excluding header and terminator).
         data: Vec<u8>,
     },
     /// Error response (90 6y zz FF).
@@ -51,21 +55,21 @@ pub(crate) enum ViscaResponse {
 ///
 /// Takes a complete frame (including terminator) and returns the parsed response.
 #[cfg(feature = "async")]
-pub(crate) fn parse_response(frame: &[u8]) -> ViscaResponse {
+pub(crate) fn parse_response(frame: &[u8]) -> ProtocolResponse {
     trace!("Parsing VISCA response: {:02X?}", frame);
 
     // Minimum valid response is 3 bytes (e.g., 90 38 FF)
     if frame.len() < 3 {
-        warn!("ViscaResponse too short: {:02X?}", frame);
-        return ViscaResponse::Unknown {
+        warn!("Response too short: {:02X?}", frame);
+        return ProtocolResponse::Unknown {
             data: frame.to_vec(),
         };
     }
 
     // Check for terminator
     if frame[frame.len() - 1] != VISCA_TERMINATOR {
-        warn!("ViscaResponse missing terminator: {:02X?}", frame);
-        return ViscaResponse::Unknown {
+        warn!("Response missing terminator: {:02X?}", frame);
+        return ProtocolResponse::Unknown {
             data: frame.to_vec(),
         };
     }
@@ -73,13 +77,13 @@ pub(crate) fn parse_response(frame: &[u8]) -> ViscaResponse {
     // Check first byte (should be 9x for replies)
     if (frame[0] & 0xF0) != 0x90 {
         warn!("Invalid response header byte: {:02X}", frame[0]);
-        return ViscaResponse::Unknown {
+        return ProtocolResponse::Unknown {
             data: frame.to_vec(),
         };
     }
 
     let source_device = frame[0] & 0x0F;
-    debug!("ViscaResponse from device {}", source_device);
+    debug!("Response from device {}", source_device);
 
     // Parse based on second byte
     match frame[1] {
@@ -89,11 +93,11 @@ pub(crate) fn parse_response(frame: &[u8]) -> ViscaResponse {
             match SocketId::from_byte(socket_num) {
                 Some(socket) => {
                     debug!("ACK on {:?}", socket);
-                    ViscaResponse::Ack { socket }
+                    ProtocolResponse::Ack { socket }
                 }
                 None => {
                     warn!("Invalid socket number in ACK: {}", socket_num);
-                    ViscaResponse::Unknown {
+                    ProtocolResponse::Unknown {
                         data: frame.to_vec(),
                     }
                 }
@@ -109,20 +113,20 @@ pub(crate) fn parse_response(frame: &[u8]) -> ViscaResponse {
                 if frame.len() > 3 {
                     let data = frame[2..frame.len() - 1].to_vec();
                     debug!("Data reply: {:02X?}", data);
-                    ViscaResponse::DataReply { data }
+                    ProtocolResponse::DataReply { data }
                 } else {
                     debug!("Empty data reply");
-                    ViscaResponse::DataReply { data: vec![] }
+                    ProtocolResponse::DataReply { data: vec![] }
                 }
             } else {
                 match SocketId::from_byte(socket_num) {
                     Some(socket) => {
                         debug!("Completion on {:?}", socket);
-                        ViscaResponse::Completion { socket }
+                        ProtocolResponse::Completion { socket }
                     }
                     None => {
                         warn!("Invalid socket number in completion: {}", socket_num);
-                        ViscaResponse::Unknown {
+                        ProtocolResponse::Unknown {
                             data: frame.to_vec(),
                         }
                     }
@@ -139,10 +143,10 @@ pub(crate) fn parse_response(frame: &[u8]) -> ViscaResponse {
                 let error_code = frame[2];
                 let error = ViscaError::from_byte(error_code);
                 debug!("Error {:?} on socket {:?}", error, socket);
-                ViscaResponse::Error { socket, error }
+                ProtocolResponse::Error { socket, error }
             } else {
                 warn!("Error response too short: {:02X?}", frame);
-                ViscaResponse::Unknown {
+                ProtocolResponse::Unknown {
                     data: frame.to_vec(),
                 }
             }
@@ -151,13 +155,13 @@ pub(crate) fn parse_response(frame: &[u8]) -> ViscaResponse {
         // Network change (90 38 FF)
         0x38 => {
             debug!("Network change notification");
-            ViscaResponse::NetworkChange
+            ProtocolResponse::NetworkChange
         }
 
         // Unknown
         _ => {
             warn!("Unknown response type: {:02X?}", frame);
-            ViscaResponse::Unknown {
+            ProtocolResponse::Unknown {
                 data: frame.to_vec(),
             }
         }
@@ -194,7 +198,6 @@ fn extract_inquiry_value(data: &[u8]) -> Option<u32> {
         _ => None,
     }
 }
-
 
 /// Find the next complete frame in a buffer.
 ///
@@ -237,7 +240,7 @@ mod tests {
         let response = parse_response(&frame);
         assert_eq!(
             response,
-            ViscaResponse::Ack {
+            ProtocolResponse::Ack {
                 socket: SocketId::Socket1
             }
         );
@@ -246,7 +249,7 @@ mod tests {
         let response = parse_response(&frame);
         assert_eq!(
             response,
-            ViscaResponse::Ack {
+            ProtocolResponse::Ack {
                 socket: SocketId::Socket2
             }
         );
@@ -258,7 +261,7 @@ mod tests {
         let response = parse_response(&frame);
         assert_eq!(
             response,
-            ViscaResponse::Completion {
+            ProtocolResponse::Completion {
                 socket: SocketId::Socket1
             }
         );
@@ -267,7 +270,7 @@ mod tests {
         let response = parse_response(&frame);
         assert_eq!(
             response,
-            ViscaResponse::Completion {
+            ProtocolResponse::Completion {
                 socket: SocketId::Socket2
             }
         );
@@ -277,13 +280,13 @@ mod tests {
     fn test_parse_data_reply() {
         let frame = vec![0x90, 0x50, 0x02, VISCA_TERMINATOR];
         let response = parse_response(&frame);
-        assert_eq!(response, ViscaResponse::DataReply { data: vec![0x02] });
+        assert_eq!(response, ProtocolResponse::DataReply { data: vec![0x02] });
 
         let frame = vec![0x90, 0x50, 0x00, 0x01, 0x02, 0x03, VISCA_TERMINATOR];
         let response = parse_response(&frame);
         assert_eq!(
             response,
-            ViscaResponse::DataReply {
+            ProtocolResponse::DataReply {
                 data: vec![0x00, 0x01, 0x02, 0x03]
             }
         );
@@ -295,9 +298,9 @@ mod tests {
         let response = parse_response(&frame);
         assert_eq!(
             response,
-            ViscaResponse::Error {
+            ProtocolResponse::Error {
                 socket: None,
-                error: ViscaError::SyntaxError,
+                error: ViscaError::from_byte(0x02), // SyntaxError
             }
         );
 
@@ -305,9 +308,9 @@ mod tests {
         let response = parse_response(&frame);
         assert_eq!(
             response,
-            ViscaResponse::Error {
+            ProtocolResponse::Error {
                 socket: Some(SocketId::Socket1),
-                error: ViscaError::BufferFull,
+                error: ViscaError::from_byte(0x03), // BufferFull
             }
         );
     }
