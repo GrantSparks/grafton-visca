@@ -127,16 +127,15 @@ impl SonyHeader {
 
 /// Builder for VISCA commands.
 #[cfg(any(feature = "async", feature = "serial", test))]
-#[derive(Debug)]
+#[allow(dead_code)]
 pub(crate) struct FrameBuilder {
-    #[allow(dead_code)] // Used when feature combinations differ
     buffer: BytesMut,
 }
 
 #[cfg(any(feature = "async", feature = "serial", test))]
 impl FrameBuilder {
     /// Create a new command builder.
-    #[allow(dead_code)]
+    #[cfg(any(feature = "serial", test))]
     pub fn new() -> Self {
         Self {
             buffer: BytesMut::with_capacity(16),
@@ -192,7 +191,7 @@ impl FrameBuilder {
     }
 }
 
-#[cfg(any(feature = "async", feature = "serial", test))]
+#[cfg(any(feature = "serial", test))]
 impl Default for FrameBuilder {
     fn default() -> Self {
         Self::new()

@@ -208,52 +208,6 @@ impl<E> ScriptedTransport<E> {
             }
         }
     }
-
-    /// Process any pending Step::After steps.
-    /// This is called after a successful Step::OnSend to handle any delayed responses.
-    #[allow(dead_code)]
-    fn process_after_steps(&self)
-    where
-        E: Executor + ExecutorExt,
-    {
-        loop {
-            let step = {
-                let mut steps = self
-                    .steps
-                    .lock()
-                    .expect("ScriptedBlockingTransport mutex poisoned");
-
-                // Only process Step::After, leave others alone
-                match steps.front() {
-                    Some(Step::After { .. }) => steps.pop_front(),
-                    _ => None,
-                }
-            };
-
-            if let Some(Step::After { delay, responses }) = step {
-                // Schedule delayed responses if we have an executor
-                if let Some(executor) = &self.executor {
-                    let response_tx = self.response_tx.clone();
-                    let executor_clone = executor.clone();
-
-                    // Use spawn_bg for true fire-and-forget semantics
-                    executor.spawn_bg(async move {
-                        executor_clone.sleep(delay).await;
-                        for response in responses {
-                            let _ = response_tx.send_async(Ok(response)).await;
-                        }
-                    });
-                } else {
-                    // No executor available, send responses immediately
-                    for response in responses {
-                        let _ = self.response_tx.send(Ok(response));
-                    }
-                }
-            } else {
-                break;
-            }
-        }
-    }
 }
 
 #[cfg(feature = "async")]
@@ -825,9 +779,7 @@ mod tests {
         use crate::{Error, TokioExecutor};
         use std::sync::Arc;
 
-        let exec = Arc::new(TokioExecutor::from_handle(
-            tokio::runtime::Handle::current(),
-        ));
+        let exec = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
 
         // Arrange: first recv() should see a transport-level timeout error
         let mut transport: ScriptedTransport<TokioExecutor> =

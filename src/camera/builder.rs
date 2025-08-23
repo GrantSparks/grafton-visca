@@ -2,24 +2,47 @@
 //!
 //! This module provides a builder pattern for constructing cameras with
 //! the new unified Executor trait, preventing runtime/spawner mismatches.
+//!
+//! # Supported Runtimes
+//!
+//! The builder supports multiple async runtimes through convenience methods:
+//! - **Tokio**: `CameraBuilder::tokio()` (requires `rt-tokio` feature)
+//! - **async-std**: `CameraBuilder::async_std()` (requires `rt-async-std` feature)
+//! - **smol**: `CameraBuilder::smol()` (requires `rt-smol` feature)
+//!
+//! # Example
+//!
+//! ```ignore
+//! // Tokio
+//! let camera = CameraBuilder::tokio()?
+//!     .build_async::<PtzOpticsG2, _>(transport)?;
+//!
+//! // async-std
+//! let camera = CameraBuilder::async_std()
+//!     .build_async::<PtzOpticsG2, _>(transport)?;
+//!
+//! // smol
+//! let camera = CameraBuilder::smol()
+//!     .build_async::<PtzOpticsG2, _>(transport)?;
+//! ```
 
+// Standard library
 #[cfg(not(feature = "async"))]
 use std::marker::PhantomData;
 
+// Local modules
 #[cfg(not(feature = "async"))]
 use crate::camera::handle::Camera as GenericCamera;
-
+use crate::{
+    camera::BlockingMode, camera_id::CameraId, capabilities::Profile, timeout::TimeoutConfig,
+    transport::BlockingTransport,
+};
 #[cfg(feature = "async")]
 use crate::{
     camera::{handle::Camera as GenericCamera, AsyncMode},
     error::Error,
     executor::Executor,
     transport::AsyncTransport,
-};
-
-use crate::{
-    camera::BlockingMode, camera_id::CameraId, capabilities::Profile, timeout::TimeoutConfig,
-    transport::BlockingTransport,
 };
 
 /// Builder for creating cameras with explicit executor configuration.
@@ -161,6 +184,36 @@ impl CameraBuilder<crate::executor::TokioExecutor> {
     }
 }
 
+#[cfg(feature = "rt-async-std")]
+impl CameraBuilder<crate::executor::AsyncStdExecutor> {
+    /// Create a builder with the async-std executor.
+    ///
+    /// This provides the easiest way to create an async-std-based camera:
+    /// ```ignore
+    /// let camera = CameraBuilder::async_std()
+    ///     .build_async::<PtzOpticsG2, _>(transport)?;
+    /// ```
+    pub fn async_std() -> Self {
+        let executor = crate::executor::AsyncStdExecutor::new();
+        Self::with_executor(executor)
+    }
+}
+
+#[cfg(feature = "rt-smol")]
+impl CameraBuilder<crate::executor::SmolExecutor> {
+    /// Create a builder with the smol executor.
+    ///
+    /// This provides the easiest way to create a smol-based camera:
+    /// ```ignore
+    /// let camera = CameraBuilder::smol()
+    ///     .build_async::<PtzOpticsG2, _>(transport)?;
+    /// ```
+    pub fn smol() -> Self {
+        let executor = crate::executor::SmolExecutor::new();
+        Self::with_executor(executor)
+    }
+}
+
 /// Type aliases for common camera configurations with executors.
 #[cfg(all(feature = "async", feature = "rt-tokio"))]
 pub mod async_cameras {
@@ -168,6 +221,25 @@ pub mod async_cameras {
 
     /// A camera using the Tokio executor.
     pub type TokioCamera<P, T> = GenericCamera<AsyncMode, P, T, crate::executor::TokioExecutor>;
+}
+
+/// Type aliases for async-std camera configurations.
+#[cfg(all(feature = "async", feature = "rt-async-std"))]
+pub mod async_std_cameras {
+    use crate::camera::{handle::Camera as GenericCamera, AsyncMode};
+
+    /// A camera using the async-std executor.
+    pub type AsyncStdCamera<P, T> =
+        GenericCamera<AsyncMode, P, T, crate::executor::AsyncStdExecutor>;
+}
+
+/// Type aliases for smol camera configurations.
+#[cfg(all(feature = "async", feature = "rt-smol"))]
+pub mod smol_cameras {
+    use crate::camera::{handle::Camera as GenericCamera, AsyncMode};
+
+    /// A camera using the smol executor.
+    pub type SmolCamera<P, T> = GenericCamera<AsyncMode, P, T, crate::executor::SmolExecutor>;
 }
 
 /// Type aliases for blocking cameras.

@@ -303,6 +303,7 @@ impl Error {
     ///
     /// ## Error Code Mapping
     ///
+    /// - `0x01`: Message Length Error - message length incorrect
     /// - `0x02`: Syntax Error - command format invalid
     /// - `0x03`: Command Buffer Full - camera busy, always retry later
     /// - `0x04`: Command Canceled - command was canceled
@@ -315,6 +316,7 @@ impl Error {
     #[must_use]
     pub const fn from_code(code: u8) -> Self {
         match code {
+            0x01 => Self::MessageLengthError,
             0x02 => Self::SyntaxError,
             0x03 => Self::CommandBufferFull, // Always retryable
             0x04 => Self::CommandCanceled,
@@ -374,6 +376,7 @@ mod tests {
 
     #[test]
     fn test_visca_error_from_code() {
+        assert!(matches!(Error::from_code(0x01), Error::MessageLengthError));
         assert!(matches!(Error::from_code(0x02), Error::SyntaxError));
         assert!(matches!(Error::from_code(0x03), Error::CommandBufferFull));
         assert!(matches!(Error::from_code(0x04), Error::CommandCanceled));
@@ -390,6 +393,7 @@ mod tests {
         // Table-driven test for all known VISCA error codes
         // This ensures consistent mapping across all layers
         let cases = [
+            (0x01, "MessageLengthError"),
             (0x02, "SyntaxError"),
             (0x03, "CommandBufferFull"),
             (0x04, "CommandCanceled"),
@@ -401,6 +405,7 @@ mod tests {
         for (byte, expected_variant) in cases {
             let error = Error::from_code(byte);
             let variant_name = match error {
+                Error::MessageLengthError => "MessageLengthError",
                 Error::SyntaxError => "SyntaxError",
                 Error::CommandBufferFull => "CommandBufferFull",
                 Error::CommandCanceled => "CommandCanceled",
@@ -420,17 +425,7 @@ mod tests {
     #[test]
     fn test_unknown_error_code_maps_to_unknown() {
         // Test that unrecognized error codes map to Unknown variant
-        let unknown_codes = [
-            0x00,
-            0x01,
-            0x06,
-            0x10,
-            0x20,
-            0x30,
-            0x40,
-            0x42,
-            VISCA_TERMINATOR,
-        ];
+        let unknown_codes = [0x00, 0x06, 0x10, 0x20, 0x30, 0x40, 0x42, VISCA_TERMINATOR];
 
         for code in unknown_codes {
             let error = Error::from_code(code);

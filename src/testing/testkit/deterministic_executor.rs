@@ -978,3 +978,50 @@ mod tests {
         );
     }
 }
+
+// Add ExecutorExt implementations for AsyncStdExecutor and SmolExecutor
+#[cfg(all(feature = "async", feature = "rt-async-std"))]
+impl ExecutorExt for crate::executor::AsyncStdExecutor {
+    fn spawn_bg<F>(&self, fut: F)
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        // async-std::task::spawn returns a JoinHandle, but dropping it makes it fire-and-forget
+        drop(self.spawn(fut));
+    }
+
+    fn spawn_bg_ignore_result_with_logging<F, E>(&self, fut: F)
+    where
+        F: Future<Output = Result<(), E>> + Send + 'static,
+        E: std::fmt::Debug + Send + 'static,
+    {
+        self.spawn_bg(async move {
+            if let Err(e) = fut.await {
+                eprintln!("[async-std-runtime] background task returned error: {e:?}");
+            }
+        });
+    }
+}
+
+#[cfg(all(feature = "async", feature = "rt-smol"))]
+impl ExecutorExt for crate::executor::SmolExecutor {
+    fn spawn_bg<F>(&self, fut: F)
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        // smol::spawn returns a Task, but dropping it makes it fire-and-forget
+        drop(self.spawn(fut));
+    }
+
+    fn spawn_bg_ignore_result_with_logging<F, E>(&self, fut: F)
+    where
+        F: Future<Output = Result<(), E>> + Send + 'static,
+        E: std::fmt::Debug + Send + 'static,
+    {
+        self.spawn_bg(async move {
+            if let Err(e) = fut.await {
+                eprintln!("[smol-runtime] background task returned error: {e:?}");
+            }
+        });
+    }
+}

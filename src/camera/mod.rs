@@ -28,6 +28,16 @@ pub use mode::{AsyncMode, BlockingMode, CameraAsync, CameraBlocking, CameraMode}
 // Re-export builder types
 pub use builder::CameraBuilder;
 
+// Re-export camera type aliases for convenience
+#[cfg(all(feature = "async", feature = "rt-tokio"))]
+pub use builder::async_cameras::TokioCamera;
+
+#[cfg(all(feature = "async", feature = "rt-async-std"))]
+pub use builder::async_std_cameras::AsyncStdCamera;
+
+#[cfg(all(feature = "async", feature = "rt-smol"))]
+pub use builder::smol_cameras::SmolCamera;
+
 // Re-export movement detection types
 pub use movement_probe::{MovementConfig, PanTiltPosition};
 

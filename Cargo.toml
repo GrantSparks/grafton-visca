@@ -59,7 +59,7 @@ tokio = { version = "1.47", features = [
 ], optional = true }
 async-executor = { version = "1.8", optional = true }
 futures-lite = { version = "2.3", optional = true }
-async-std = { version = "1.12", features = ["unstable"], optional = true }
+async-std = { version = "1.12", features = ["unstable", "attributes"], optional = true }
 smol = { version = "2.0", optional = true }
 
 [dev-dependencies]
@@ -80,6 +80,10 @@ name = "quickstart"
 [[example]]
 name = "quickstart_async"
 required-features = ["rt-tokio"]
+
+[[example]]
+name = "quickstart_async_asyncstd"
+required-features = ["rt-async-std"]
 
 [[example]]
 name = "transports"

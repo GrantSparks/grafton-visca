@@ -7,6 +7,8 @@ pub mod scheduler;
 #[cfg(feature = "async")]
 mod time_utils;
 
+#[cfg(feature = "async")]
+pub use scheduler::SocketId;
 pub use scheduler::{MetricsSummary, Priority};
 
 #[cfg(feature = "async")]
@@ -18,17 +20,18 @@ use log::{debug, error, trace, warn};
 
 #[cfg(feature = "async")]
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU32, Ordering},
     Arc,
 };
 
 #[cfg(feature = "async")]
-use scheduler::{LinkEvent, RxEvent, Scheduler, SchedulerMetrics, SocketId, TxItem, ViscaError};
+use scheduler::{RxEvent, Scheduler, SchedulerMetrics, TxItem, ViscaError};
 
 #[cfg(feature = "async")]
 use crate::{
     command::response::ViscaResponse,
     error::{Error, Result},
+    timeout::TimeoutConfig,
     transport::AsyncTransport,
 };
 
@@ -125,6 +128,8 @@ pub struct RuntimeHandle {
     shutdown: Arc<AtomicBool>,
     /// Channel for requesting metrics from the runtime.
     metrics_tx: Sender<Sender<MetricsSummary>>,
+    /// Counter for generating unique command IDs.
+    next_command_id: Arc<AtomicU32>,
 }
 
 #[cfg(feature = "async")]
@@ -183,6 +188,7 @@ impl RuntimeHandle {
             events: event_rx,
             shutdown: Arc::new(AtomicBool::new(false)),
             metrics_tx,
+            next_command_id: Arc::new(AtomicU32::new(1)),
         })
     }
 
@@ -270,17 +276,34 @@ impl RuntimeHandle {
             .map_err(|_| Error::ChannelClosed)
     }
 
-    /// Cancel a command on the specified socket.
+    /// Cancel a command by its ID.
     ///
-    /// TODO: This currently cancels all commands on socket 1. Future implementation
-    /// should track command IDs to socket mappings for targeted cancellation.
+    /// TODO: This currently cancels both sockets as we don't track command-to-socket mapping.
+    /// Future implementation should track command IDs to socket mappings for targeted cancellation.
     pub async fn cancel(&self, _command_id: u32) -> Result<()> {
-        // Cancel on socket 1 as a placeholder until command_id to socket mapping is implemented
-        warn!("Cancel by command_id not fully implemented - cancelling socket 1");
+        // Since we don't track which socket a command is on, cancel both
+        warn!("Cancel by command_id not fully implemented - cancelling both sockets");
 
-        let cancel_item = TxItem::Cancel {
+        // Try to cancel on both sockets
+        let cancel_socket1 = TxItem::Cancel {
             socket: SocketId::Socket1,
         };
+        let cancel_socket2 = TxItem::Cancel {
+            socket: SocketId::Socket2,
+        };
+
+        // Send both cancel commands
+        let _ = self.submit.send_async(cancel_socket1).await;
+        let _ = self.submit.send_async(cancel_socket2).await;
+
+        Ok(())
+    }
+
+    /// Cancel all commands on a specific socket.
+    ///
+    /// This directly cancels the specified socket without needing to know the command ID.
+    pub async fn cancel_socket(&self, socket: SocketId) -> Result<()> {
+        let cancel_item = TxItem::Cancel { socket };
 
         self.submit
             .send_async(cancel_item)
@@ -296,15 +319,6 @@ impl RuntimeHandle {
         // This will cause the runtime loop to exit
         // Note: dropping a clone doesn't close the channel
         // We need to ensure no more sends can happen
-    }
-
-    /// Get the next event from the runtime.
-    ///
-    /// This can be used for monitoring or custom event handling.
-    /// Reserved for future runtime event monitoring features.
-    #[allow(dead_code)] // Intentionally kept for future monitoring features
-    pub(crate) async fn next_event(&self) -> Option<RxEvent> {
-        self.events.recv_async().await.ok()
     }
 
     /// Get current metrics from the runtime scheduler.
@@ -343,17 +357,47 @@ impl RuntimeHandle {
     where
         C: crate::command::encode_visca::EncodeVisca,
     {
+        let (_, response) = self.send_command_with_id(cmd, camera_id, priority).await?;
+        response.await
+    }
+
+    /// Send a VISCA command to the camera and return a command ID and response future.
+    ///
+    /// This method allows canceling commands by their ID.
+    ///
+    /// # Arguments
+    /// * `cmd` - A command implementing the EncodeVisca trait
+    /// * `camera_id` - The camera ID to send the command to
+    /// * `priority` - The priority level for the command (defaults to Normal)
+    ///
+    /// # Returns
+    /// A tuple of (command_id, response_future)
+    pub async fn send_command_with_id<C>(
+        &self,
+        cmd: &C,
+        camera_id: crate::camera_id::CameraId,
+        priority: Option<Priority>,
+    ) -> Result<(
+        u32,
+        impl std::future::Future<Output = Result<ViscaResponse>>,
+    )>
+    where
+        C: crate::command::encode_visca::EncodeVisca,
+    {
         // Encode the command
         let mut buffer = vec![0u8; C::MAX_SIZE];
         let len = cmd.encode_into(camera_id, &mut buffer)?;
         buffer.truncate(len);
+
+        // Generate command ID
+        let command_id = self.next_command_id.fetch_add(1, Ordering::Relaxed);
 
         // Create response channel
         let (response_tx, response_rx) = flume::bounded(1);
 
         // Create the TxItem
         let item = TxItem::Command {
-            id: 0, // Will be assigned by scheduler
+            id: command_id,
             bytes: buffer,
             priority: priority.unwrap_or(Priority::Normal),
             category: C::TIMEOUT_CATEGORY,
@@ -363,11 +407,15 @@ impl RuntimeHandle {
         // Submit the command
         self.command(item).await?;
 
-        // Wait for response
-        response_rx
-            .recv_async()
-            .await
-            .map_err(|_| Error::ChannelClosed)?
+        // Return command ID and future
+        let future = async move {
+            response_rx
+                .recv_async()
+                .await
+                .map_err(|_| Error::ChannelClosed)?
+        };
+
+        Ok((command_id, future))
     }
 
     /// Send a VISCA inquiry to the camera using the EncodeVisca trait.
@@ -431,7 +479,11 @@ async fn runtime_loop_with_config<
     tick_interval_ms: Option<u64>,
     executor: Arc<E>,
 ) -> Result<()> {
-    let mut scheduler = Scheduler::new(submit_rx.clone(), event_tx.clone());
+    let mut scheduler = Scheduler::with_timeout_config(
+        submit_rx.clone(),
+        event_tx.clone(),
+        TimeoutConfig::default(),
+    );
     let mut response_buffer = Vec::new();
     let mut consecutive_retries = 0usize;
 
@@ -623,8 +675,8 @@ async fn runtime_loop_with_config<
                     // Emit the structured RxEvent for observers/metrics
                     let _ = event_tx
                         .send_async(RxEvent::Error {
-                            code: ViscaError::Timeout,
-                            socket: None, // No socket assigned yet
+                            code: ViscaError::from_byte(0x71), // Timeout
+                            socket: None,                      // No socket assigned yet
                             id: Some(cmd_id),
                         })
                         .await;
@@ -641,7 +693,7 @@ async fn runtime_loop_with_config<
                     // Then emit the structured RxEvent for observers/metrics
                     let _ = event_tx
                         .send_async(RxEvent::Error {
-                            code: ViscaError::Timeout,
+                            code: ViscaError::from_byte(0x71), // Timeout
                             socket: Some(socket),
                             id: Some(cmd_id),
                         })
@@ -929,7 +981,7 @@ async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
                 scheduler.free_socket(socket);
                 let _ = event_tx
                     .send_async(RxEvent::Error {
-                        code: ViscaError::CommandCancelled,
+                        code: ViscaError::from_byte(0x04), // CommandCancelled
                         socket: Some(socket),
                         id: Some(cmd_id),
                     })
@@ -950,7 +1002,7 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
     event_tx: &Sender<RxEvent>,
     executor: &E,
 ) -> Result<()> {
-    use crate::protocol::decode::{parse_response, ViscaResponse};
+    use crate::protocol::decode::{parse_response, ProtocolResponse};
     use crate::protocol::encode::VISCA_TERMINATOR;
 
     let response = parse_response(frame);
@@ -958,7 +1010,7 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
     trace!("Parsed response: {:?}", response);
 
     match response {
-        ViscaResponse::Ack { socket } => {
+        ProtocolResponse::Ack { socket } => {
             // Camera has assigned a socket - handle the ACK
             let now = time_utils::now_from_executor(executor);
             if let Some(cmd_id) = scheduler.handle_ack(socket, now) {
@@ -980,7 +1032,7 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
             }
         }
 
-        ViscaResponse::Completion { socket } => {
+        ProtocolResponse::Completion { socket } => {
             if let Some(cmd_id) = scheduler.socket_command(socket) {
                 debug!("Completion received for command {} on {:?}", cmd_id, socket);
                 let _ = event_tx
@@ -1002,9 +1054,7 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
                         "Sending completion to response channel for command {}",
                         cmd_id
                     );
-                    if let Err(e) =
-                        response_tx.send(Ok(crate::command::response::ViscaResponse::Completion))
-                    {
+                    if let Err(e) = response_tx.send(Ok(ViscaResponse::Completion)) {
                         warn!("Failed to send completion to response channel: {:?}", e);
                     }
                 } else {
@@ -1029,7 +1079,7 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
             }
         }
 
-        ViscaResponse::DataReply { data } => {
+        ProtocolResponse::DataReply { data } => {
             debug!("Data reply received: {:02X?}", data);
 
             // For inquiries, we need to match this with the pending inquiry
@@ -1052,14 +1102,11 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
                     full_frame.push(VISCA_TERMINATOR);
 
                     // Parse with the expected response type
-                    match crate::command::response::ViscaResponse::parse_with_type(
-                        &full_frame,
-                        &response_type,
-                    ) {
+                    match ViscaResponse::parse_with_type(&full_frame, &response_type) {
                         Ok(parsed) => Ok(parsed),
                         Err(e) => {
                             warn!("Failed to parse inquiry response: {}", e);
-                            Ok(crate::command::response::ViscaResponse::Unknown {
+                            Ok(ViscaResponse::Unknown {
                                 response_type: Some(response_type),
                                 data: data.clone(),
                             })
@@ -1067,7 +1114,7 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
                     }
                 } else {
                     // No response type stored, return unknown
-                    Ok(crate::command::response::ViscaResponse::Unknown {
+                    Ok(ViscaResponse::Unknown {
                         response_type: None,
                         data: data.clone(),
                     })
@@ -1079,8 +1126,30 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
             }
         }
 
-        ViscaResponse::Error { socket, error } => {
+        ProtocolResponse::Error { socket, error } => {
             warn!("Error response: {:?} on socket {:?}", error, socket);
+
+            // First check if this is an error for a pending inquiry
+            // Inquiries don't have sockets, so if there's no socket or no command on the socket,
+            // and we have a pending inquiry, this error is for the inquiry
+            let has_pending_inquiry = scheduler.get_pending_inquiry().is_some();
+            let is_inquiry_error = socket.map_or(true, |s| scheduler.socket_command(s).is_none());
+
+            if has_pending_inquiry && is_inquiry_error {
+                // This error is for a pending inquiry
+                if let Some((inquiry_id, response_tx, _response_type)) =
+                    scheduler.get_pending_inquiry()
+                {
+                    debug!("Error {:?} for inquiry {}", error, inquiry_id);
+                    let error_code = error.as_byte();
+                    let _ = response_tx.send(Err(Error::from_code(error_code)));
+                    scheduler
+                        .metrics
+                        .commands_failed
+                        .fetch_add(1, Ordering::Relaxed);
+                    return Ok(());
+                }
+            }
 
             // Handle errors for commands that haven't received ACK yet
             // Check if we have pending ACK commands and no command assigned to the socket yet
@@ -1117,15 +1186,7 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
                             debug!("Command {} exhausted retries", cmd_id);
                         } else {
                             // Successfully queued for retry
-                            debug!("Command {} queued for retry", cmd_id);
-
-                            // Emit retry event
-                            let _ = event_tx
-                                .send_async(RxEvent::Link(LinkEvent::Retry {
-                                    attempt: 1,
-                                    reason: format!("Error {:?}", error),
-                                }))
-                                .await;
+                            debug!("Command {} queued for retry: {:?}", cmd_id, error);
                         }
                     } else {
                         // Non-retryable error - send error response immediately
@@ -1293,12 +1354,12 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
             }
         }
 
-        ViscaResponse::NetworkChange => {
+        ProtocolResponse::NetworkChange => {
             debug!("Network change notification received");
             // Could trigger a re-initialization or status check
         }
 
-        ViscaResponse::Unknown { data } => {
+        ProtocolResponse::Unknown { data } => {
             warn!("Unknown response received: {:02X?}", data);
         }
     }
@@ -1321,16 +1382,16 @@ mod tests {
     #[cfg(feature = "async")]
     #[test]
     fn test_response_parsing() {
-        use crate::protocol::decode::{parse_response, ViscaResponse};
+        use crate::protocol::decode::{parse_response, ProtocolResponse};
         use crate::protocol::encode::VISCA_TERMINATOR;
-        use crate::runtime::scheduler::{SocketId, ViscaError};
+        use crate::runtime::scheduler::SocketId;
 
         // Test ACK parsing
         let ack_frame = vec![0x90, 0x41, VISCA_TERMINATOR];
         let response = parse_response(&ack_frame);
         assert!(matches!(
             response,
-            ViscaResponse::Ack {
+            ProtocolResponse::Ack {
                 socket: SocketId::Socket1
             }
         ));
@@ -1340,7 +1401,7 @@ mod tests {
         let response = parse_response(&completion_frame);
         assert!(matches!(
             response,
-            ViscaResponse::Completion {
+            ProtocolResponse::Completion {
                 socket: SocketId::Socket2
             }
         ));
@@ -1348,18 +1409,20 @@ mod tests {
         // Test Data Reply parsing
         let data_frame = vec![0x90, 0x50, 0x02, VISCA_TERMINATOR];
         let response = parse_response(&data_frame);
-        assert!(matches!(response, ViscaResponse::DataReply { data } if data == vec![0x02]));
+        assert!(matches!(response, ProtocolResponse::DataReply { data } if data == vec![0x02]));
 
         // Test Error parsing
         let error_frame = vec![0x90, 0x61, 0x03, VISCA_TERMINATOR];
         let response = parse_response(&error_frame);
-        assert!(matches!(
-            response,
-            ViscaResponse::Error {
-                socket: Some(SocketId::Socket1),
-                error: ViscaError::BufferFull
+        match response {
+            ProtocolResponse::Error { socket, error } => {
+                assert_eq!(socket, Some(SocketId::Socket1));
+                assert_eq!(error.as_byte(), 0x03); // BufferFull
             }
-        ));
+            other => {
+                unreachable!("Expected Error response, got: {:?}", other);
+            }
+        }
     }
 
     #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]

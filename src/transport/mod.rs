@@ -48,7 +48,6 @@ pub mod blocking_transport;
 pub mod buffer;
 pub mod builder;
 pub mod envelope;
-pub mod frame_parser;
 pub mod ip_raw;
 pub mod ip_sony;
 pub mod retry;
@@ -60,6 +59,12 @@ pub mod timeout;
 // They should be accessed through the runtime_adapters module
 #[cfg(feature = "rt-tokio")]
 pub(crate) mod tokio;
+
+#[cfg(feature = "rt-async-std")]
+pub(crate) mod async_std;
+
+#[cfg(feature = "rt-smol")]
+pub(crate) mod smol;
 
 use std::time::{Duration, Instant};
 

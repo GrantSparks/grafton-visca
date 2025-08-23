@@ -37,48 +37,102 @@
 //! - **Transport Abstraction**: Implement your own transport (TCP, UDP, serial, etc.)
 //! - **Builder Patterns**: Create custom camera profiles for any VISCA camera
 //! - **Clean API Separation**: Choose blocking OR async at compile time - no mixed dependencies
-//! - **Runtime-Agnostic Async**: Optional async support works with ANY runtime (tokio, async-std, smol, etc.)
+//! - **Runtime-Agnostic Async**: Full support for Tokio, async-std, and smol runtimes
+//! - **Unified Error Handling**: Consistent error mapping across all transport types
+//! - **Configurable Timeouts**: Per-category timeout configuration for different command types
+//! - **Command Cancellation**: Cancel specific commands or entire socket operations
+//! - **Async Completion Tracking**: Wait for camera movements to complete with `wait_for_completion()`
 //!
 //! ## Quick Start
 //!
-//! ### Camera - No Generics Required!
+//! ### Blocking Example
 //! ```ignore
-//! use grafton_visca::{CameraBuilder, Error, prelude::blocking::*};
+//! use grafton_visca::{CameraBuilder, Error};
+//! use grafton_visca::transport::blocking::tcp::Tcp;
+//! use grafton_visca::camera::profiles::PtzOpticsG2;
 //!
 //! fn main() -> Result<(), Error> {
 //!     // Create camera using the builder pattern
-//!     let camera = CameraBuilder::tcp("192.168.0.110:52381")
-//!         .profile::<PtzOpticsG2>()
-//!         .build()?;
+//!     let transport = Tcp::connect("192.168.0.110:5678")?;
+//!     let camera = CameraBuilder::new()
+//!         .build_blocking::<PtzOpticsG2, _>(transport);
 //!
 //!     // Camera model is known at compile time
 //!     println!("Using PtzOptics G2 camera");
 //!
 //!     // Send commands with clean API
 //!     camera.power_on()?;
-//!     camera.zoom_in()?;
+//!     camera.zoom_tele_std()?;
 //!     
 //!     Ok(())
 //! }
 //! ```
 //!
-//! ### Async Example
+//! ### Async Example with Tokio
 //! ```ignore
-//! use grafton_visca::{CameraBuilder, Error, prelude::r#async::*};
+//! use grafton_visca::{CameraBuilder, Error};
+//! use grafton_visca::transport::tokio::tcp::Tcp;
+//! use grafton_visca::camera::profiles::PtzOpticsG2;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Error> {
-//!     // Create camera using the builder pattern
-//!     let camera = CameraBuilder::tokio_tcp("192.168.0.110:52381")
-//!         .profile::<PtzOpticsG2>()
-//!         .build()
+//!     // Create camera with Tokio runtime support
+//!     let transport = Tcp::connect("192.168.0.110:5678").await?;
+//!     let camera = CameraBuilder::tokio()?
+//!         .build_async::<PtzOpticsG2, _>(transport)
 //!         .await?;
 //!
 //!     // Same API, just with .await
 //!     camera.power_on().await?;
-//!     camera.zoom_in().await?;
+//!     camera.zoom_tele_std().await?;
+//!     
+//!     // Wait for zoom to complete
+//!     camera.wait_for_completion().await?;
 //!     
 //!     Ok(())
+//! }
+//! ```
+//!
+//! ### Async Example with async-std
+//! ```ignore
+//! use grafton_visca::{CameraBuilder, Error};
+//! use grafton_visca::transport::async_std::tcp::Tcp;
+//! use grafton_visca::camera::profiles::PtzOpticsG2;
+//!
+//! #[async_std::main]
+//! async fn main() -> Result<(), Error> {
+//!     // Create camera with async-std runtime support
+//!     let transport = Tcp::connect("192.168.0.110:5678").await?;
+//!     let camera = CameraBuilder::async_std()
+//!         .build_async::<PtzOpticsG2, _>(transport)
+//!         .await?;
+//!
+//!     camera.power_on().await?;
+//!     camera.zoom_tele_std().await?;
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
+//! ### Async Example with smol
+//! ```ignore
+//! use grafton_visca::{CameraBuilder, Error};
+//! use grafton_visca::transport::smol::tcp::Tcp;
+//! use grafton_visca::camera::profiles::PtzOpticsG2;
+//!
+//! fn main() -> Result<(), Error> {
+//!     smol::block_on(async {
+//!         // Create camera with smol runtime support
+//!         let transport = Tcp::connect("192.168.0.110:5678").await?;
+//!         let camera = CameraBuilder::smol()
+//!             .build_async::<PtzOpticsG2, _>(transport)
+//!             .await?;
+//!
+//!         camera.power_on().await?;
+//!         camera.zoom_tele_std().await?;
+//!         
+//!         Ok(())
+//!     })
 //! }
 //! ```
 //!
@@ -150,7 +204,10 @@
 //! ### Feature Flags
 //!
 //! - `async` - Enables async support without any specific runtime. You must provide your own runtime.
-//! - `rt-tokio` - Enables async with built-in tokio runtime support (implies `async`).
+//! - `rt-tokio` - Enables async with built-in Tokio runtime support (implies `async`).
+//! - `rt-async-std` - Enables async with built-in async-std runtime support (implies `async`).
+//! - `rt-smol` - Enables async with built-in smol runtime support (implies `async`).
+//! - `test-utils` - Testing utilities including ScriptedTransport and DeterministicExecutor (not for production).
 //!
 //! ### ⚠️ Important: Runtime Requirements for Async
 //!
@@ -165,35 +222,39 @@
 //!
 //! ### Runtime Requirements for Async
 //!
-//! You have two options for configuring a runtime:
+//! You have multiple options for configuring a runtime:
 //!
-//! #### Option 1: Use the built-in tokio runtime support (Easiest)
+//! #### Option 1: Use built-in runtime support (Easiest)
 //!
-//! Enable the `rt-tokio` feature in your `Cargo.toml`:
+//! Choose your preferred runtime and enable the corresponding feature in `Cargo.toml`:
 //!
 //! ```toml
 //! [dependencies]
+//! # For Tokio:
 //! grafton-visca = { version = "*", features = ["rt-tokio"] }
+//! # For async-std:
+//! grafton-visca = { version = "*", features = ["rt-async-std"] }
+//! # For smol:
+//! grafton-visca = { version = "*", features = ["rt-smol"] }
 //! ```
 //!
-//! Then use `CameraBuilder` with tokio support:
+//! Then use the corresponding `CameraBuilder` method:
 //!
 //! ```ignore
-//! use grafton_visca::{CameraBuilder, prelude::r#async::*};
+//! // Tokio
+//! let camera = CameraBuilder::tokio()?
+//!     .build_async::<PtzOpticsG2, _>(transport)
+//!     .await?;
 //!
-//! #[tokio::main]
-//! async fn main() -> Result<(), Error> {
-//!     // The tokio_tcp() method automatically configures the runtime
-//!     let camera = CameraBuilder::tokio_tcp("192.168.0.110:52381")
-//!         .profile::<PtzOpticsG2>()
-//!         .build()
-//!         .await?;
-//!     
-//!     // All async operations will work
-//!     camera.power_on().await?;
-//!     camera.zoom_in().await?;
-//!     Ok(())
-//! }
+//! // async-std
+//! let camera = CameraBuilder::async_std()
+//!     .build_async::<PtzOpticsG2, _>(transport)
+//!     .await?;
+//!
+//! // smol
+//! let camera = CameraBuilder::smol()
+//!     .build_async::<PtzOpticsG2, _>(transport)
+//!     .await?;
 //! ```
 //!
 //! #### Option 2: Provide your own runtime (Advanced)
@@ -325,15 +386,79 @@
 //! camera.home()?;
 //! ```
 //!
+//! ## Timeout Configuration
+//!
+//! Configure timeouts per command category based on your network and camera:
+//!
+//! ```ignore
+//! use grafton_visca::{CameraBuilder, TimeoutConfig};
+//! use std::time::Duration;
+//!
+//! let config = TimeoutConfig::builder()
+//!     .ack_timeout(Duration::from_millis(300))
+//!     .quick_commands(Duration::from_secs(3))
+//!     .movement_commands(Duration::from_secs(20))
+//!     .preset_operations(Duration::from_secs(60))
+//!     .build();
+//!
+//! let camera = CameraBuilder::new()
+//!     .timeout_config(config)
+//!     .build_blocking::<PtzOpticsG2, _>(transport);
+//! ```
+//!
+//! ## Command Cancellation (Async)
+//!
+//! Cancel specific commands or entire socket operations:
+//!
+//! ```ignore
+//! // Send a command and get its ID for cancellation
+//! let (cmd_id, response_future) = camera.send_command_with_id(command).await?;
+//!
+//! // Cancel the specific command
+//! camera.cancel_command(cmd_id).await?;
+//!
+//! // Or cancel all commands on a socket
+//! use grafton_visca::runtime::scheduler::SocketId;
+//! camera.cancel_socket(SocketId::Socket1).await?;
+//! ```
+//!
+//! ## Async Completion Tracking
+//!
+//! Wait for camera movements to complete:
+//!
+//! ```ignore
+//! // Start a pan/tilt movement
+//! camera.pan_tilt_absolute(45.0, 15.0, 10, 10).await?;
+//!
+//! // Wait for the movement to complete
+//! camera.wait_for_completion().await?;
+//!
+//! // Or wait with a custom timeout
+//! use std::time::Duration;
+//! camera.wait_for_completion_with_timeout(Duration::from_secs(10)).await?;
+//!
+//! // Check if the runtime is idle (no pending commands)
+//! if camera.is_idle().await? {
+//!     println!("All commands completed");
+//! }
+//!
+//! // Wait for all operations to complete (barrier synchronization)
+//! camera.wait_for_idle(Duration::from_secs(30)).await?;
+//! ```
+//!
 //! ## Error Handling
 //!
 //! The library provides comprehensive error types for all VISCA error conditions:
 //!
 //! ```ignore
-//! match camera.set_position(Degrees(180.0), Degrees(0.0)) {
+//! match camera.pan_tilt_absolute(180.0, 0.0, 10, 10).await {
 //!     Ok(_) => println!("Position set successfully"),
 //!     Err(Error::SyntaxError) => println!("Position out of range"),
 //!     Err(Error::CommandNotExecutable) => println!("Camera busy or powered off"),
+//!     Err(Error::CommandBufferFull) => {
+//!         // This error is automatically retried by the runtime
+//!         println!("Camera buffer full, command will retry");
+//!     }
 //!     Err(e) => println!("Other error: {e}"),
 //! }
 //! ```
@@ -441,3 +566,13 @@ pub use crate::{
 pub mod profiles {
     pub use crate::camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7};
 }
+
+// Re-export camera type aliases for convenience
+#[cfg(all(feature = "async", feature = "rt-tokio"))]
+pub use crate::camera::TokioCamera;
+
+#[cfg(all(feature = "async", feature = "rt-async-std"))]
+pub use crate::camera::AsyncStdCamera;
+
+#[cfg(all(feature = "async", feature = "rt-smol"))]
+pub use crate::camera::SmolCamera;
