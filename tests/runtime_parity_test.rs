@@ -223,7 +223,6 @@ mod parity_tests {
     // Test error handling parity
     #[cfg(feature = "rt-tokio")]
     #[tokio::test]
-    #[ignore = "TODO: Fix runtime initialization with ScriptedTransport executor"]
     async fn test_tokio_error_handling() {
         use grafton_visca::TokioExecutor;
 
@@ -247,7 +246,6 @@ mod parity_tests {
 
     #[cfg(feature = "rt-async-std")]
     #[async_std::test]
-    #[ignore = "TODO: Fix runtime initialization with ScriptedTransport executor"]
     async fn test_async_std_error_handling() {
         use grafton_visca::AsyncStdExecutor;
 
