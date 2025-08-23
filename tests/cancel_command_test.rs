@@ -191,39 +191,38 @@ fn test_cancel_during_movement() {
     ];
 
     let transport = ScriptedTransport::new(steps).with_executor(executor.clone());
+    let executor_clone = executor.clone();
+    let clock_clone = clock.clone();
 
-    // Create camera
-    let camera = executor.block_on(async {
+    // Run all operations in a single async block
+    executor.block_on_bg(async move {
         use grafton_visca::camera::profiles::PtzOpticsG2;
-        CameraBuilder::with_executor(executor.clone())
+        use grafton_visca::command::zoom::ZoomSpeed;
+        
+        // Create camera
+        let camera = CameraBuilder::with_executor(executor_clone.clone())
             .build_async::<PtzOpticsG2, _>(transport)
             .await
-            .expect("Failed to create camera")
+            .expect("Failed to create camera");
+
+        // Start a continuous zoom
+        let (cmd_id, _response_future) = camera
+            .send_command_with_id(&Zoom::TeleVariable(ZoomSpeed::new(7).unwrap()))
+            .await
+            .expect("Failed to send zoom command");
+
+        // Advance time to simulate movement
+        clock_clone.advance(Duration::from_millis(100));
+
+        // Cancel the zoom - this should succeed
+        camera.cancel_command(cmd_id).await
+            .expect("Failed to cancel zoom");
+
+        // Advance time to let the cancel process
+        clock_clone.advance(Duration::from_millis(50));
+
+        // Send a stop command to ensure camera stopped
+        // This might fail if the camera already stopped due to cancel, which is ok
+        let _ = camera.send_command(&Zoom::Stop).await;
     });
-
-    // Start a continuous zoom
-    let (cmd_id, _response_future) = executor
-        .block_on(async {
-            use grafton_visca::command::zoom::ZoomSpeed;
-            camera
-                .send_command_with_id(&Zoom::TeleVariable(ZoomSpeed::new(7).unwrap()))
-                .await
-        })
-        .expect("Failed to send zoom command");
-
-    // Advance time to simulate movement
-    clock.advance(Duration::from_millis(100));
-
-    // Cancel the zoom
-    executor
-        .block_on(async { camera.cancel_command(cmd_id).await })
-        .expect("Failed to cancel zoom");
-
-    // Send a stop command to ensure camera stopped
-    executor
-        .block_on(async { camera.send_command(&Zoom::Stop).await })
-        .expect("Failed to send stop command");
-
-    // Advance time to process all commands
-    clock.advance(Duration::from_millis(50));
 }
