@@ -348,17 +348,13 @@ mod smol_impl {
     use super::*;
 
     /// smol-based executor implementation.
-    #[derive(Debug, Clone)]
-    pub struct SmolExecutor {
-        executor: Arc<async_executor::Executor<'static>>,
-    }
+    #[derive(Debug, Clone, Copy)]
+    pub struct SmolExecutor;
 
     impl SmolExecutor {
         /// Create a new smol executor.
         pub fn new() -> Self {
-            Self {
-                executor: Arc::new(async_executor::Executor::new()),
-            }
+            Self
         }
     }
 
@@ -369,25 +365,6 @@ mod smol_impl {
     }
 
     // Custom join handle wrapper for smol
-    struct SmolJoin<T>(async_executor::Task<T>);
-
-    impl<T> Future for SmolJoin<T>
-    where
-        T: Send + 'static,
-    {
-        type Output = Result<T, ExecError>;
-
-        fn poll(
-            mut self: Pin<&mut Self>,
-            cx: &mut std::task::Context<'_>,
-        ) -> std::task::Poll<Self::Output> {
-            let task = Pin::new(&mut self.0);
-            match task.poll(cx) {
-                std::task::Poll::Ready(value) => std::task::Poll::Ready(Ok(value)),
-                std::task::Poll::Pending => std::task::Poll::Pending,
-            }
-        }
-    }
 
     impl Executor for SmolExecutor {
         type Join<T>
@@ -400,12 +377,24 @@ mod smol_impl {
             F: Future + Send + 'static,
             F::Output: Send + 'static,
         {
-            let task = self.executor.spawn(fut);
-            Box::pin(SmolJoin(task))
+            // Create a detached task that will run on the smol executor
+            let (sender, receiver) = flume::bounded(1);
+            smol::spawn(async move {
+                let result = fut.await;
+                let _ = sender.send_async(result).await;
+            })
+            .detach();
+
+            Box::pin(async move {
+                receiver
+                    .recv_async()
+                    .await
+                    .map_err(|e| ExecError::JoinFailed(e.to_string()))
+            })
         }
 
         fn block_on<F: Future>(&self, fut: F) -> F::Output {
-            smol::block_on(self.executor.run(fut))
+            smol::block_on(fut)
         }
 
         fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {

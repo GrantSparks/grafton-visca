@@ -81,44 +81,46 @@ mod parity_tests {
     }
 
     #[cfg(feature = "rt-async-std")]
-    #[async_std::test]
-    async fn test_async_std_runtime_operations() {
+    #[test]
+    fn test_async_std_runtime_operations() {
         use grafton_visca::AsyncStdExecutor;
-
         use std::sync::Arc;
-        let executor = Arc::new(AsyncStdExecutor::new());
-        let transport: ScriptedTransport<AsyncStdExecutor> =
-            ScriptedTransport::new(create_test_script()).with_executor(executor.clone());
 
-        let camera = CameraBuilder::with_executor(executor)
-            .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
-            .await
-            .expect("Failed to create camera");
+        async_std::task::block_on(async {
+            let executor = Arc::new(AsyncStdExecutor::new());
+            let transport: ScriptedTransport<AsyncStdExecutor> =
+                ScriptedTransport::new(create_test_script()).with_executor(executor.clone());
 
-        // Test power operations
-        let power_status = camera.power_inquiry().await.expect("Power inquiry failed");
-        assert!(power_status, "Expected power to be on");
+            let camera = CameraBuilder::with_executor(executor)
+                .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+                .await
+                .expect("Failed to create camera");
 
-        camera.power_off().await.expect("Power off failed");
+            // Test power operations
+            let power_status = camera.power_inquiry().await.expect("Power inquiry failed");
+            assert!(power_status, "Expected power to be on");
 
-        // Test zoom operations
-        camera.zoom_tele_std().await.expect("Zoom tele failed");
+            camera.power_off().await.expect("Power off failed");
 
-        // Test preset operations
-        use grafton_visca::command::preset::PresetNumber;
-        camera
-            .preset_recall(PresetNumber::new(1).unwrap())
-            .await
-            .expect("Preset recall failed");
+            // Test zoom operations
+            camera.zoom_tele_std().await.expect("Zoom tele failed");
+
+            // Test preset operations
+            use grafton_visca::command::preset::PresetNumber;
+            camera
+                .preset_recall(PresetNumber::new(1).unwrap())
+                .await
+                .expect("Preset recall failed");
+        });
     }
 
     #[cfg(feature = "rt-smol")]
     #[test]
     fn test_smol_runtime_operations() {
         use grafton_visca::SmolExecutor;
+        use std::sync::Arc;
 
         smol::block_on(async {
-            use std::sync::Arc;
             let executor = Arc::new(SmolExecutor::new());
             let transport: ScriptedTransport<SmolExecutor> =
                 ScriptedTransport::new(create_test_script()).with_executor(executor.clone());
@@ -171,26 +173,28 @@ mod parity_tests {
     }
 
     #[cfg(feature = "rt-async-std")]
-    #[async_std::test]
-    async fn test_async_std_builder_transport_creation() {
+    #[test]
+    fn test_async_std_builder_transport_creation() {
         use grafton_visca::AsyncStdExecutor;
         use std::sync::Arc;
 
-        let executor = Arc::new(AsyncStdExecutor::new());
-        let transport: ScriptedTransport<AsyncStdExecutor> =
-            ScriptedTransport::new(vec![Step::OnSend {
-                matches: Some(vec![0x81, 0x09, 0x04, 0x00, 0xFF]),
-                responses: vec![vec![0x90, 0x50, 0x03, 0xFF]], // Power off
-            }])
-            .with_executor(executor.clone());
+        async_std::task::block_on(async {
+            let executor = Arc::new(AsyncStdExecutor::new());
+            let transport: ScriptedTransport<AsyncStdExecutor> =
+                ScriptedTransport::new(vec![Step::OnSend {
+                    matches: Some(vec![0x81, 0x09, 0x04, 0x00, 0xFF]),
+                    responses: vec![vec![0x90, 0x50, 0x03, 0xFF]], // Power off
+                }])
+                .with_executor(executor.clone());
 
-        let camera = CameraBuilder::with_executor(executor)
-            .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
-            .await
-            .expect("Failed to build camera");
+            let camera = CameraBuilder::with_executor(executor)
+                .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+                .await
+                .expect("Failed to build camera");
 
-        let power_status = camera.power_inquiry().await.expect("Power inquiry failed");
-        assert!(!power_status, "Expected power to be off");
+            let power_status = camera.power_inquiry().await.expect("Power inquiry failed");
+            assert!(!power_status, "Expected power to be off");
+        });
     }
 
     #[cfg(feature = "rt-smol")]
@@ -243,35 +247,37 @@ mod parity_tests {
     }
 
     #[cfg(feature = "rt-async-std")]
-    #[async_std::test]
-    async fn test_async_std_error_handling() {
+    #[test]
+    fn test_async_std_error_handling() {
         use grafton_visca::AsyncStdExecutor;
-
         use std::sync::Arc;
-        let executor = Arc::new(AsyncStdExecutor::new());
-        let transport: ScriptedTransport<AsyncStdExecutor> =
-            ScriptedTransport::new(vec![Step::OnSend {
-                matches: Some(vec![0x81, 0x09, 0x04, 0x00, 0xFF]),
-                responses: vec![vec![0x90, 0x60, 0x02, 0xFF]], // Error response
-            }])
-            .with_executor(executor.clone());
 
-        let camera = CameraBuilder::with_executor(executor)
-            .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
-            .await
-            .expect("Failed to create camera");
+        async_std::task::block_on(async {
+            let executor = Arc::new(AsyncStdExecutor::new());
+            let transport: ScriptedTransport<AsyncStdExecutor> =
+                ScriptedTransport::new(vec![Step::OnSend {
+                    matches: Some(vec![0x81, 0x09, 0x04, 0x00, 0xFF]),
+                    responses: vec![vec![0x90, 0x60, 0x02, 0xFF]], // Error response
+                }])
+                .with_executor(executor.clone());
 
-        let result = camera.power_inquiry().await;
-        assert!(result.is_err(), "Expected error from error response");
+            let camera = CameraBuilder::with_executor(executor)
+                .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+                .await
+                .expect("Failed to create camera");
+
+            let result = camera.power_inquiry().await;
+            assert!(result.is_err(), "Expected error from error response");
+        });
     }
 
     #[cfg(feature = "rt-smol")]
     #[test]
     fn test_smol_error_handling() {
         use grafton_visca::SmolExecutor;
+        use std::sync::Arc;
 
         smol::block_on(async {
-            use std::sync::Arc;
             let executor = Arc::new(SmolExecutor::new());
             let transport: ScriptedTransport<SmolExecutor> =
                 ScriptedTransport::new(vec![Step::OnSend {
