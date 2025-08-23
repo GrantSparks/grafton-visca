@@ -13,6 +13,7 @@ use grafton_visca::{
         scripted_transport::{ScriptedTransport, Step},
         DeterministicExecutor,
     },
+    Executor,
 };
 use std::time::Duration;
 
@@ -53,7 +54,7 @@ fn test_cancel_command_by_id() {
 
     // Send a command with ID
     let (cmd_id, response_future) = executor
-        .block_on(async { camera.send_command_with_id(&Zoom::TeleStandard).await })
+        .block_on(async { camera.send_command_with_id(&Zoom::TeleStd).await })
         .expect("Failed to send command");
 
     // Advance time to process the ACK
@@ -103,9 +104,14 @@ fn test_cancel_socket_directly() {
     });
 
     // Send a pan/tilt command
+    let camera_clone = camera.clone();
     executor.spawn(async move {
-        let _ = camera
-            .send_command(&PanTilt::Direction(PanTiltDirection::UpRight, 5, 5, 3, 3))
+        let _ = camera_clone
+            .send_command(&PanTilt::Move {
+                direction: PanTiltDirection::UpRight,
+                pan_speed: 5.try_into().unwrap(),
+                tilt_speed: 5.try_into().unwrap(),
+            })
             .await;
     });
 
@@ -113,9 +119,8 @@ fn test_cancel_socket_directly() {
     clock.advance(Duration::from_millis(10));
 
     // Cancel socket 1 directly
-    let camera_clone = camera.clone();
     executor
-        .block_on(async { camera_clone.cancel_socket(SocketId::Socket1).await })
+        .block_on(async { camera.cancel_socket(SocketId::Socket1).await })
         .expect("Failed to cancel socket");
 
     // Advance time to process cancellation

@@ -5,7 +5,7 @@
 use grafton_visca::{
     camera::{profiles::PtzOpticsG2, AsyncMode},
     testing::testkit::{DeterministicExecutor, ScriptedTransport, Step},
-    Camera, Error, Executor,
+    Camera, CameraBuilder, Error, Executor,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -229,7 +229,7 @@ fn test_wait_for_idle_succeeds_when_commands_complete() {
 
 #[test]
 fn test_wait_for_idle_times_out_with_pending_commands() {
-    let executor = DeterministicExecutor::new();
+    let (executor_arc, _clock) = DeterministicExecutor::new();
     // Transport that never sends completion
     let transport = ScriptedTransport::new(vec![Step::OnSend {
         matches: Some(vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]), // Zoom in
@@ -239,7 +239,7 @@ fn test_wait_for_idle_times_out_with_pending_commands() {
     }])
     .with_executor(executor_arc.clone());
 
-    executor.block_on(async {
+    executor_arc.block_on(async {
         let camera = CameraBuilder::with_executor(executor_arc.clone())
             .with_transport(transport)
             .profile::<PtzOpticsG2>()
