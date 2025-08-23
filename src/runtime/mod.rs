@@ -1129,6 +1129,28 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
         ProtocolResponse::Error { socket, error } => {
             warn!("Error response: {:?} on socket {:?}", error, socket);
 
+            // First check if this is an error for a pending inquiry
+            // Inquiries don't have sockets, so if there's no socket or no command on the socket,
+            // and we have a pending inquiry, this error is for the inquiry
+            let has_pending_inquiry = scheduler.get_pending_inquiry().is_some();
+            let is_inquiry_error = socket.map_or(true, |s| scheduler.socket_command(s).is_none());
+
+            if has_pending_inquiry && is_inquiry_error {
+                // This error is for a pending inquiry
+                if let Some((inquiry_id, response_tx, _response_type)) =
+                    scheduler.get_pending_inquiry()
+                {
+                    debug!("Error {:?} for inquiry {}", error, inquiry_id);
+                    let error_code = error.as_byte();
+                    let _ = response_tx.send(Err(Error::from_code(error_code)));
+                    scheduler
+                        .metrics
+                        .commands_failed
+                        .fetch_add(1, Ordering::Relaxed);
+                    return Ok(());
+                }
+            }
+
             // Handle errors for commands that haven't received ACK yet
             // Check if we have pending ACK commands and no command assigned to the socket yet
             let is_pending_ack_error = if let Some(sock) = socket {
