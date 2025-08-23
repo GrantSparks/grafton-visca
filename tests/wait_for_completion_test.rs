@@ -126,8 +126,7 @@ fn test_wait_for_completion_receives_completion_event() {
 
 #[test]
 fn test_wait_for_completion_times_out_without_completion() {
-    let (executor, _clock) = DeterministicExecutor::new();
-    let executor_arc = Arc::new(executor.clone());
+    let (executor_arc, _clock) = DeterministicExecutor::new();
     let transport = ScriptedTransport::new(vec![Step::OnSend {
         matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]), // Power on
         responses: vec![
@@ -136,11 +135,10 @@ fn test_wait_for_completion_times_out_without_completion() {
     }])
     .with_executor(executor_arc.clone());
 
-    executor.block_on(async {
-        let camera = CameraBuilder::with_executor(executor_arc.clone())
-            .with_transport(transport)
-            .profile::<PtzOpticsG2>()
-            .build()
+    let executor_clone = executor_arc.clone();
+    executor_arc.block_on(async move {
+        let camera = CameraBuilder::with_executor(executor_clone)
+            .build_async::<PtzOpticsG2, _>(transport)
             .await
             .expect("Failed to build camera");
 
@@ -161,15 +159,13 @@ fn test_wait_for_completion_times_out_without_completion() {
 
 #[test]
 fn test_is_idle_when_no_pending_commands() {
-    let (executor, _clock) = DeterministicExecutor::new();
-    let executor_arc = Arc::new(executor.clone());
-    let transport = ScriptedTransport::new(vec![]).with_executor(Arc::new(executor.clone()));
+    let (executor_arc, _clock) = DeterministicExecutor::new();
+    let transport = ScriptedTransport::new(vec![]).with_executor(executor_arc.clone());
 
-    executor.block_on(async {
-        let camera = CameraBuilder::with_executor(executor_arc.clone())
-            .with_transport(transport)
-            .profile::<PtzOpticsG2>()
-            .build()
+    let executor_clone = executor_arc.clone();
+    executor_arc.block_on(async move {
+        let camera = CameraBuilder::with_executor(executor_clone)
+            .build_async::<PtzOpticsG2, _>(transport)
             .await
             .expect("Failed to build camera");
 
@@ -239,11 +235,10 @@ fn test_wait_for_idle_times_out_with_pending_commands() {
     }])
     .with_executor(executor_arc.clone());
 
-    executor_arc.block_on(async {
-        let camera = CameraBuilder::with_executor(executor_arc.clone())
-            .with_transport(transport)
-            .profile::<PtzOpticsG2>()
-            .build()
+    let executor_clone = executor_arc.clone();
+    executor_arc.block_on(async move {
+        let camera = CameraBuilder::with_executor(executor_clone)
+            .build_async::<PtzOpticsG2, _>(transport)
             .await
             .expect("Failed to build camera");
 

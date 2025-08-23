@@ -105,7 +105,7 @@ fn test_cancel_socket_directly() {
 
     // Send a pan/tilt command
     let camera_clone = camera.clone();
-    executor.spawn(async move {
+    std::mem::drop(executor.spawn(async move {
         let _ = camera_clone
             .send_command(&PanTilt::Move {
                 direction: PanTiltDirection::UpRight,
@@ -113,7 +113,7 @@ fn test_cancel_socket_directly() {
                 tilt_speed: 5.try_into().unwrap(),
             })
             .await;
-    });
+    }));
 
     // Advance time to process the command and ACK
     clock.advance(Duration::from_millis(10));
