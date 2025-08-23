@@ -6,11 +6,9 @@
 
 #![cfg(feature = "async")]
 
-use grafton_visca::{
-    camera::Camera,
-    command::zoom::{Zoom, ZoomSpeed},
-    runtime::SocketId,
-};
+// Most imports are only used in commented code examples
+#[allow(unused_imports)]
+use grafton_visca::runtime::SocketId;
 
 /// Test that cancel methods are available on Camera.
 /// This is a compilation test to ensure the API is properly exposed.

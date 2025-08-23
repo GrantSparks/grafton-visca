@@ -473,17 +473,23 @@ where
     pub async fn send_command_with_id<C>(
         &self,
         command: &C,
-    ) -> Result<(u32, impl std::future::Future<Output = Result<ViscaResponse, Error>>), Error>
+    ) -> Result<
+        (
+            u32,
+            impl std::future::Future<Output = Result<ViscaResponse, Error>>,
+        ),
+        Error,
+    >
     where
         C: EncodeVisca,
     {
         // Get runtime handle
-        let runtime_handle = self
-            .runtime_handle
-            .as_ref()
-            .ok_or(Error::InvalidState(std::borrow::Cow::Borrowed(
-                "Runtime handle not available",
-            )))?;
+        let runtime_handle =
+            self.runtime_handle
+                .as_ref()
+                .ok_or(Error::InvalidState(std::borrow::Cow::Borrowed(
+                    "Runtime handle not available",
+                )))?;
 
         // Use the runtime's send_command_with_id method
         runtime_handle
@@ -502,12 +508,12 @@ where
     /// camera.cancel_command(cmd_id).await?;
     /// ```
     pub async fn cancel_command(&self, command_id: u32) -> Result<(), Error> {
-        let runtime_handle = self
-            .runtime_handle
-            .as_ref()
-            .ok_or(Error::InvalidState(std::borrow::Cow::Borrowed(
-                "Runtime handle not available",
-            )))?;
+        let runtime_handle =
+            self.runtime_handle
+                .as_ref()
+                .ok_or(Error::InvalidState(std::borrow::Cow::Borrowed(
+                    "Runtime handle not available",
+                )))?;
 
         runtime_handle.cancel(command_id).await
     }
@@ -521,13 +527,13 @@ where
     /// use grafton_visca::runtime::SocketId;
     /// camera.cancel_socket(SocketId::Socket1).await?;
     /// ```
-    pub async fn cancel_socket(&self, socket: crate::runtime::SocketId) -> Result<(), Error> {
-        let runtime_handle = self
-            .runtime_handle
-            .as_ref()
-            .ok_or(Error::InvalidState(std::borrow::Cow::Borrowed(
-                "Runtime handle not available",
-            )))?;
+    pub async fn cancel_socket(&self, socket: runtime::SocketId) -> Result<(), Error> {
+        let runtime_handle =
+            self.runtime_handle
+                .as_ref()
+                .ok_or(Error::InvalidState(std::borrow::Cow::Borrowed(
+                    "Runtime handle not available",
+                )))?;
 
         runtime_handle.cancel_socket(socket).await
     }

@@ -7,7 +7,9 @@ pub mod scheduler;
 #[cfg(feature = "async")]
 mod time_utils;
 
-pub use scheduler::{MetricsSummary, Priority, SocketId};
+#[cfg(feature = "async")]
+pub use scheduler::SocketId;
+pub use scheduler::{MetricsSummary, Priority};
 
 #[cfg(feature = "async")]
 use flume::{Receiver, Sender};
@@ -375,7 +377,10 @@ impl RuntimeHandle {
         cmd: &C,
         camera_id: crate::camera_id::CameraId,
         priority: Option<Priority>,
-    ) -> Result<(u32, impl std::future::Future<Output = Result<ViscaResponse>>)>
+    ) -> Result<(
+        u32,
+        impl std::future::Future<Output = Result<ViscaResponse>>,
+    )>
     where
         C: crate::command::encode_visca::EncodeVisca,
     {
@@ -1387,11 +1392,14 @@ mod tests {
         // Test Error parsing
         let error_frame = vec![0x90, 0x61, 0x03, VISCA_TERMINATOR];
         let response = parse_response(&error_frame);
-        if let ProtocolResponse::Error { socket, error } = response {
-            assert_eq!(socket, Some(SocketId::Socket1));
-            assert_eq!(error.as_byte(), 0x03); // BufferFull
-        } else {
-            panic!("Expected Error response");
+        match response {
+            ProtocolResponse::Error { socket, error } => {
+                assert_eq!(socket, Some(SocketId::Socket1));
+                assert_eq!(error.as_byte(), 0x03); // BufferFull
+            }
+            other => {
+                unreachable!("Expected Error response, got: {:?}", other);
+            }
         }
     }
 

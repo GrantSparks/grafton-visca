@@ -562,7 +562,6 @@ impl Scheduler {
         }
     }
 
-
     /// Generate next command ID.
     pub fn next_id(&self) -> u32 {
         self.next_id.fetch_add(1, Ordering::SeqCst)

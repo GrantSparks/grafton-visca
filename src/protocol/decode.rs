@@ -3,7 +3,7 @@
 //! This module provides functions for parsing VISCA responses including
 //! ACK, Completion, Data Reply, and Error messages.
 
-#[cfg(any(feature = "async", test))]
+#[cfg(feature = "async")]
 use crate::command::const_encoding::VISCA_TERMINATOR;
 
 #[cfg(feature = "async")]
@@ -174,7 +174,7 @@ pub(crate) fn parse_response(frame: &[u8]) -> ProtocolResponse {
 /// - Single byte: 90 50 0p FF (value = p)
 /// - Two nibbles: 90 50 0p 0q FF (value = pq)
 /// - Four nibbles: 90 50 0p 0q 0r 0s FF (value = pqrs)
-#[cfg(test)]
+#[cfg(all(test, feature = "async"))]
 fn extract_inquiry_value(data: &[u8]) -> Option<u32> {
     match data.len() {
         1 => {

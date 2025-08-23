@@ -127,6 +127,7 @@ impl SonyHeader {
 
 /// Builder for VISCA commands.
 #[cfg(any(feature = "async", feature = "serial", test))]
+#[allow(dead_code)]
 pub(crate) struct FrameBuilder {
     buffer: BytesMut,
 }

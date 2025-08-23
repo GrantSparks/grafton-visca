@@ -20,13 +20,13 @@ use std::time::Duration;
 fn test_cancel_command_by_id() {
     // Create executor and transport
     let (executor, clock) = DeterministicExecutor::new();
-    
+
     // Create steps for the scripted transport
     let steps = vec![
         // Response to zoom command
         Step::OnSend {
             matches: Some(vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]), // Zoom Tele Standard
-            responses: vec![vec![0x90, 0x41, 0xFF]], // ACK on socket 1
+            responses: vec![vec![0x90, 0x41, 0xFF]],                 // ACK on socket 1
         },
         // Response to cancel socket 1
         Step::OnSend {
@@ -115,9 +115,7 @@ fn test_cancel_socket_directly() {
     // Cancel socket 1 directly
     let camera_clone = camera.clone();
     executor
-        .block_on(async {
-            camera_clone.cancel_socket(SocketId::Socket1).await
-        })
+        .block_on(async { camera_clone.cancel_socket(SocketId::Socket1).await })
         .expect("Failed to cancel socket");
 
     // Advance time to process cancellation
@@ -173,7 +171,7 @@ fn test_cancel_during_movement() {
         // Response to continuous zoom
         Step::OnSend {
             matches: Some(vec![0x81, 0x01, 0x04, 0x07, 0x27, 0xFF]), // Zoom Tele Variable speed 7
-            responses: vec![vec![0x90, 0x41, 0xFF]], // ACK on socket 1
+            responses: vec![vec![0x90, 0x41, 0xFF]],                 // ACK on socket 1
         },
         // Response to cancel command
         Step::OnSend {
@@ -200,9 +198,11 @@ fn test_cancel_during_movement() {
 
     // Start a continuous zoom
     let (cmd_id, _response_future) = executor
-        .block_on(async { 
+        .block_on(async {
             use grafton_visca::command::zoom::ZoomSpeed;
-            camera.send_command_with_id(&Zoom::TeleVariable(ZoomSpeed::new(7).unwrap())).await 
+            camera
+                .send_command_with_id(&Zoom::TeleVariable(ZoomSpeed::new(7).unwrap()))
+                .await
         })
         .expect("Failed to send zoom command");
 
