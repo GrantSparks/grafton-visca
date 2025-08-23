@@ -53,9 +53,10 @@ mod parity_tests {
     async fn test_tokio_runtime_operations() {
         use grafton_visca::TokioExecutor;
 
-        let executor = TokioExecutor::from_handle(tokio::runtime::Handle::current());
+        use std::sync::Arc;
+        let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
         let transport: ScriptedTransport<TokioExecutor> =
-            ScriptedTransport::new(create_test_script());
+            ScriptedTransport::new(create_test_script()).with_executor(executor.clone());
 
         let camera = CameraBuilder::with_executor(executor)
             .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
@@ -84,9 +85,10 @@ mod parity_tests {
     async fn test_async_std_runtime_operations() {
         use grafton_visca::AsyncStdExecutor;
 
-        let executor = AsyncStdExecutor::new();
+        use std::sync::Arc;
+        let executor = Arc::new(AsyncStdExecutor::new());
         let transport: ScriptedTransport<AsyncStdExecutor> =
-            ScriptedTransport::new(create_test_script());
+            ScriptedTransport::new(create_test_script()).with_executor(executor.clone());
 
         let camera = CameraBuilder::with_executor(executor)
             .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
@@ -116,9 +118,10 @@ mod parity_tests {
         use grafton_visca::SmolExecutor;
 
         smol::block_on(async {
-            let executor = SmolExecutor::new();
+            use std::sync::Arc;
+            let executor = Arc::new(SmolExecutor::new());
             let transport: ScriptedTransport<SmolExecutor> =
-                ScriptedTransport::new(create_test_script());
+                ScriptedTransport::new(create_test_script()).with_executor(executor.clone());
 
             let camera = CameraBuilder::with_executor(executor)
                 .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
@@ -171,18 +174,20 @@ mod parity_tests {
     #[async_std::test]
     async fn test_async_std_builder_transport_creation() {
         use grafton_visca::AsyncStdExecutor;
+        use std::sync::Arc;
 
+        let executor = Arc::new(AsyncStdExecutor::new());
         let transport: ScriptedTransport<AsyncStdExecutor> =
             ScriptedTransport::new(vec![Step::OnSend {
                 matches: Some(vec![0x81, 0x09, 0x04, 0x00, 0xFF]),
                 responses: vec![vec![0x90, 0x50, 0x03, 0xFF]], // Power off
-            }]);
+            }])
+            .with_executor(executor.clone());
 
-        let camera: AsyncStdCamera<grafton_visca::camera::profiles::PtzOpticsG2, _> =
-            CameraBuilder::async_std()
-                .build_async(transport)
-                .await
-                .expect("Failed to build camera");
+        let camera = CameraBuilder::with_executor(executor)
+            .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+            .await
+            .expect("Failed to build camera");
 
         let power_status = camera.power_inquiry().await.expect("Power inquiry failed");
         assert!(!power_status, "Expected power to be off");
@@ -219,13 +224,15 @@ mod parity_tests {
     async fn test_tokio_error_handling() {
         use grafton_visca::TokioExecutor;
 
+        use std::sync::Arc;
+        let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
         let transport: ScriptedTransport<TokioExecutor> =
             ScriptedTransport::new(vec![Step::OnSend {
                 matches: Some(vec![0x81, 0x09, 0x04, 0x00, 0xFF]),
                 responses: vec![vec![0x90, 0x60, 0x02, 0xFF]], // Error response
-            }]);
+            }])
+            .with_executor(executor.clone());
 
-        let executor = TokioExecutor::from_handle(tokio::runtime::Handle::current());
         let camera = CameraBuilder::with_executor(executor)
             .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
             .await
@@ -240,13 +247,15 @@ mod parity_tests {
     async fn test_async_std_error_handling() {
         use grafton_visca::AsyncStdExecutor;
 
+        use std::sync::Arc;
+        let executor = Arc::new(AsyncStdExecutor::new());
         let transport: ScriptedTransport<AsyncStdExecutor> =
             ScriptedTransport::new(vec![Step::OnSend {
                 matches: Some(vec![0x81, 0x09, 0x04, 0x00, 0xFF]),
                 responses: vec![vec![0x90, 0x60, 0x02, 0xFF]], // Error response
-            }]);
+            }])
+            .with_executor(executor.clone());
 
-        let executor = AsyncStdExecutor::new();
         let camera = CameraBuilder::with_executor(executor)
             .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
             .await
@@ -262,13 +271,15 @@ mod parity_tests {
         use grafton_visca::SmolExecutor;
 
         smol::block_on(async {
+            use std::sync::Arc;
+            let executor = Arc::new(SmolExecutor::new());
             let transport: ScriptedTransport<SmolExecutor> =
                 ScriptedTransport::new(vec![Step::OnSend {
                     matches: Some(vec![0x81, 0x09, 0x04, 0x00, 0xFF]),
                     responses: vec![vec![0x90, 0x60, 0x02, 0xFF]], // Error response
-                }]);
+                }])
+                .with_executor(executor.clone());
 
-            let executor = SmolExecutor::new();
             let camera = CameraBuilder::with_executor(executor)
                 .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
                 .await
@@ -304,9 +315,10 @@ mod all_runtimes_test {
         // Test with Tokio
         let tokio_result = {
             use grafton_visca::TokioExecutor;
-            let executor = TokioExecutor::from_handle(tokio::runtime::Handle::current());
+            use std::sync::Arc;
+            let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
             let transport: ScriptedTransport<TokioExecutor> =
-                ScriptedTransport::new(script.clone());
+                ScriptedTransport::new(script.clone()).with_executor(executor.clone());
             let camera = CameraBuilder::with_executor(executor)
                 .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
                 .await
@@ -317,9 +329,10 @@ mod all_runtimes_test {
         // Test with async-std
         let async_std_result = {
             use grafton_visca::AsyncStdExecutor;
-            let executor = AsyncStdExecutor::new();
+            use std::sync::Arc;
+            let executor = Arc::new(AsyncStdExecutor::new());
             let transport: ScriptedTransport<AsyncStdExecutor> =
-                ScriptedTransport::new(script.clone());
+                ScriptedTransport::new(script.clone()).with_executor(executor.clone());
             let camera = CameraBuilder::with_executor(executor)
                 .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
                 .await
@@ -330,8 +343,10 @@ mod all_runtimes_test {
         // Test with smol (in a blocking context since we're already in tokio)
         let smol_result = {
             use grafton_visca::SmolExecutor;
-            let executor = SmolExecutor::new();
-            let transport: ScriptedTransport<SmolExecutor> = ScriptedTransport::new(script.clone());
+            use std::sync::Arc;
+            let executor = Arc::new(SmolExecutor::new());
+            let transport: ScriptedTransport<SmolExecutor> =
+                ScriptedTransport::new(script.clone()).with_executor(executor.clone());
 
             // Run smol in a separate thread to avoid runtime conflicts
             std::thread::spawn(move || {
