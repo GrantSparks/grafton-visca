@@ -8,7 +8,7 @@
 #[cfg(feature = "test-utils")]
 mod parity_tests {
     use grafton_visca::{
-        camera::{AsyncMode, Camera, CameraBuilder},
+        camera::CameraBuilder,
         testing::testkit::{ScriptedTransport, Step},
         PowerControl, PresetsControl, ZoomControl,
     };
@@ -57,10 +57,10 @@ mod parity_tests {
         let transport: ScriptedTransport<TokioExecutor> =
             ScriptedTransport::new(create_test_script());
 
-        let camera: Camera<AsyncMode, grafton_visca::camera::profiles::PtzOpticsG2, _, _> =
-            Camera::with_executor(transport, executor)
-                .await
-                .expect("Failed to create camera");
+        let camera = CameraBuilder::with_executor(executor)
+            .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+            .await
+            .expect("Failed to create camera");
 
         // Test power operations
         let power_status = camera.power_inquiry().await.expect("Power inquiry failed");
@@ -88,10 +88,10 @@ mod parity_tests {
         let transport: ScriptedTransport<AsyncStdExecutor> =
             ScriptedTransport::new(create_test_script());
 
-        let camera: Camera<AsyncMode, grafton_visca::camera::profiles::PtzOpticsG2, _, _> =
-            Camera::with_executor(transport, executor)
-                .await
-                .expect("Failed to create camera");
+        let camera = CameraBuilder::with_executor(executor)
+            .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+            .await
+            .expect("Failed to create camera");
 
         // Test power operations
         let power_status = camera.power_inquiry().await.expect("Power inquiry failed");
@@ -120,10 +120,10 @@ mod parity_tests {
             let transport: ScriptedTransport<SmolExecutor> =
                 ScriptedTransport::new(create_test_script());
 
-            let camera: Camera<AsyncMode, grafton_visca::camera::profiles::PtzOpticsG2, _, _> =
-                Camera::with_executor(transport, executor)
-                    .await
-                    .expect("Failed to create camera");
+            let camera = CameraBuilder::with_executor(executor)
+                .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+                .await
+                .expect("Failed to create camera");
 
             // Test power operations
             let power_status = camera.power_inquiry().await.expect("Power inquiry failed");
@@ -147,20 +147,21 @@ mod parity_tests {
     #[cfg(feature = "rt-tokio")]
     #[tokio::test]
     async fn test_tokio_builder_transport_creation() {
-        use grafton_visca::{TokioCamera, TokioExecutor};
+        use grafton_visca::TokioExecutor;
+        use std::sync::Arc;
 
+        let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
         let transport: ScriptedTransport<TokioExecutor> =
             ScriptedTransport::new(vec![Step::OnSend {
                 matches: Some(vec![0x81, 0x09, 0x04, 0x00, 0xFF]),
                 responses: vec![vec![0x90, 0x50, 0x03, 0xFF]], // Power off
-            }]);
+            }])
+            .with_executor(executor.clone());
 
-        let camera: TokioCamera<grafton_visca::camera::profiles::PtzOpticsG2, _> =
-            CameraBuilder::tokio()
-                .expect("Failed to create builder")
-                .build_async(transport)
-                .await
-                .expect("Failed to build camera");
+        let camera = CameraBuilder::with_executor(executor)
+            .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+            .await
+            .expect("Failed to build camera");
 
         let power_status = camera.power_inquiry().await.expect("Power inquiry failed");
         assert!(!power_status, "Expected power to be off");
@@ -169,7 +170,7 @@ mod parity_tests {
     #[cfg(feature = "rt-async-std")]
     #[async_std::test]
     async fn test_async_std_builder_transport_creation() {
-        use grafton_visca::{AsyncStdCamera, AsyncStdExecutor};
+        use grafton_visca::AsyncStdExecutor;
 
         let transport: ScriptedTransport<AsyncStdExecutor> =
             ScriptedTransport::new(vec![Step::OnSend {
@@ -190,20 +191,22 @@ mod parity_tests {
     #[cfg(feature = "rt-smol")]
     #[test]
     fn test_smol_builder_transport_creation() {
-        use grafton_visca::{SmolCamera, SmolExecutor};
+        use grafton_visca::SmolExecutor;
+        use std::sync::Arc;
 
         smol::block_on(async {
+            let executor = Arc::new(SmolExecutor::new());
             let transport: ScriptedTransport<SmolExecutor> =
                 ScriptedTransport::new(vec![Step::OnSend {
                     matches: Some(vec![0x81, 0x09, 0x04, 0x00, 0xFF]),
                     responses: vec![vec![0x90, 0x50, 0x03, 0xFF]], // Power off
-                }]);
+                }])
+                .with_executor(executor.clone());
 
-            let camera: SmolCamera<grafton_visca::camera::profiles::PtzOpticsG2, _> =
-                CameraBuilder::smol()
-                    .build_async(transport)
-                    .await
-                    .expect("Failed to build camera");
+            let camera = CameraBuilder::with_executor(executor)
+                .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+                .await
+                .expect("Failed to build camera");
 
             let power_status = camera.power_inquiry().await.expect("Power inquiry failed");
             assert!(!power_status, "Expected power to be off");
@@ -223,10 +226,10 @@ mod parity_tests {
             }]);
 
         let executor = TokioExecutor::from_handle(tokio::runtime::Handle::current());
-        let camera: Camera<AsyncMode, grafton_visca::camera::profiles::PtzOpticsG2, _, _> =
-            Camera::with_executor(transport, executor)
-                .await
-                .expect("Failed to create camera");
+        let camera = CameraBuilder::with_executor(executor)
+            .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+            .await
+            .expect("Failed to create camera");
 
         let result = camera.power_inquiry().await;
         assert!(result.is_err(), "Expected error from error response");
@@ -244,10 +247,10 @@ mod parity_tests {
             }]);
 
         let executor = AsyncStdExecutor::new();
-        let camera: Camera<AsyncMode, grafton_visca::camera::profiles::PtzOpticsG2, _, _> =
-            Camera::with_executor(transport, executor)
-                .await
-                .expect("Failed to create camera");
+        let camera = CameraBuilder::with_executor(executor)
+            .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+            .await
+            .expect("Failed to create camera");
 
         let result = camera.power_inquiry().await;
         assert!(result.is_err(), "Expected error from error response");
@@ -266,10 +269,10 @@ mod parity_tests {
                 }]);
 
             let executor = SmolExecutor::new();
-            let camera: Camera<AsyncMode, grafton_visca::camera::profiles::PtzOpticsG2, _, _> =
-                Camera::with_executor(transport, executor)
-                    .await
-                    .expect("Failed to create camera");
+            let camera = CameraBuilder::with_executor(executor)
+                .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+                .await
+                .expect("Failed to create camera");
 
             let result = camera.power_inquiry().await;
             assert!(result.is_err(), "Expected error from error response");
@@ -285,7 +288,7 @@ mod parity_tests {
 ))]
 mod all_runtimes_test {
     use grafton_visca::{
-        camera::{AsyncMode, Camera},
+        camera::CameraBuilder,
         testing::testkit::{ScriptedTransport, Step},
         PowerControl,
     };
@@ -304,8 +307,10 @@ mod all_runtimes_test {
             let executor = TokioExecutor::from_handle(tokio::runtime::Handle::current());
             let transport: ScriptedTransport<TokioExecutor> =
                 ScriptedTransport::new(script.clone());
-            let camera: Camera<AsyncMode, grafton_visca::camera::profiles::PtzOpticsG2, _, _> =
-                Camera::with_executor(transport, executor).await.unwrap();
+            let camera = CameraBuilder::with_executor(executor)
+                .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+                .await
+                .unwrap();
             camera.power_inquiry().await.unwrap()
         };
 
@@ -315,8 +320,10 @@ mod all_runtimes_test {
             let executor = AsyncStdExecutor::new();
             let transport: ScriptedTransport<AsyncStdExecutor> =
                 ScriptedTransport::new(script.clone());
-            let camera: Camera<AsyncMode, grafton_visca::camera::profiles::PtzOpticsG2, _, _> =
-                Camera::with_executor(transport, executor).await.unwrap();
+            let camera = CameraBuilder::with_executor(executor)
+                .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+                .await
+                .unwrap();
             camera.power_inquiry().await.unwrap()
         };
 
@@ -329,12 +336,10 @@ mod all_runtimes_test {
             // Run smol in a separate thread to avoid runtime conflicts
             std::thread::spawn(move || {
                 smol::block_on(async {
-                    let camera: Camera<
-                        AsyncMode,
-                        grafton_visca::camera::profiles::PtzOpticsG2,
-                        _,
-                        _,
-                    > = Camera::with_executor(transport, executor).await.unwrap();
+                    let camera = CameraBuilder::with_executor(executor)
+                        .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+                        .await
+                        .unwrap();
                     camera.power_inquiry().await.unwrap()
                 })
             })

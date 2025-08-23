@@ -198,7 +198,7 @@ fn test_cancel_during_movement() {
     executor.block_on_bg(async move {
         use grafton_visca::camera::profiles::PtzOpticsG2;
         use grafton_visca::command::zoom::ZoomSpeed;
-        
+
         // Create camera
         let camera = CameraBuilder::with_executor(executor_clone.clone())
             .build_async::<PtzOpticsG2, _>(transport)
@@ -215,7 +215,9 @@ fn test_cancel_during_movement() {
         clock_clone.advance(Duration::from_millis(100));
 
         // Cancel the zoom - this should succeed
-        camera.cancel_command(cmd_id).await
+        camera
+            .cancel_command(cmd_id)
+            .await
             .expect("Failed to cancel zoom");
 
         // Advance time to let the cancel process
