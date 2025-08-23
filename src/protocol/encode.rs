@@ -135,6 +135,7 @@ pub(crate) struct FrameBuilder {
 #[cfg(any(feature = "async", feature = "serial", test))]
 impl FrameBuilder {
     /// Create a new command builder.
+    #[cfg(any(feature = "serial", test))]
     pub fn new() -> Self {
         Self {
             buffer: BytesMut::with_capacity(16),
@@ -190,7 +191,7 @@ impl FrameBuilder {
     }
 }
 
-#[cfg(any(feature = "async", feature = "serial", test))]
+#[cfg(any(feature = "serial", test))]
 impl Default for FrameBuilder {
     fn default() -> Self {
         Self::new()
