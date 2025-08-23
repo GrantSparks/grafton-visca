@@ -64,7 +64,7 @@ mod parity_tests {
 
         // Test power operations
         let power_status = camera.power_inquiry().await.expect("Power inquiry failed");
-        assert_eq!(power_status, true, "Expected power to be on");
+        assert!(power_status, "Expected power to be on");
 
         camera.power_off().await.expect("Power off failed");
 
@@ -95,7 +95,7 @@ mod parity_tests {
 
         // Test power operations
         let power_status = camera.power_inquiry().await.expect("Power inquiry failed");
-        assert_eq!(power_status, true, "Expected power to be on");
+        assert!(power_status, "Expected power to be on");
 
         camera.power_off().await.expect("Power off failed");
 
@@ -127,7 +127,7 @@ mod parity_tests {
 
             // Test power operations
             let power_status = camera.power_inquiry().await.expect("Power inquiry failed");
-            assert_eq!(power_status, true, "Expected power to be on");
+            assert!(power_status, "Expected power to be on");
 
             camera.power_off().await.expect("Power off failed");
 
@@ -163,7 +163,7 @@ mod parity_tests {
                 .expect("Failed to build camera");
 
         let power_status = camera.power_inquiry().await.expect("Power inquiry failed");
-        assert_eq!(power_status, false, "Expected power to be off");
+        assert!(!power_status, "Expected power to be off");
     }
 
     #[cfg(feature = "rt-async-std")]
@@ -184,7 +184,7 @@ mod parity_tests {
                 .expect("Failed to build camera");
 
         let power_status = camera.power_inquiry().await.expect("Power inquiry failed");
-        assert_eq!(power_status, false, "Expected power to be off");
+        assert!(!power_status, "Expected power to be off");
     }
 
     #[cfg(feature = "rt-smol")]
@@ -206,7 +206,7 @@ mod parity_tests {
                     .expect("Failed to build camera");
 
             let power_status = camera.power_inquiry().await.expect("Power inquiry failed");
-            assert_eq!(power_status, false, "Expected power to be off");
+            assert!(!power_status, "Expected power to be off");
         });
     }
 
@@ -351,6 +351,6 @@ mod all_runtimes_test {
             async_std_result, smol_result,
             "async-std and smol results differ"
         );
-        assert_eq!(tokio_result, true, "All runtimes should report power as on");
+        assert!(tokio_result, "All runtimes should report power as on");
     }
 }
