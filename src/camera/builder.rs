@@ -26,11 +26,9 @@
 //!     .build_async::<PtzOpticsG2, _>(transport)?;
 //! ```
 
-// Standard library
 #[cfg(not(feature = "async"))]
 use std::marker::PhantomData;
 
-// Local modules
 #[cfg(not(feature = "async"))]
 use crate::camera::handle::Camera as GenericCamera;
 use crate::{

@@ -5,10 +5,10 @@
 
 use grafton_visca::Error;
 
+use std::{borrow::Cow, time::Duration};
+
 #[cfg(any(not(feature = "async"), feature = "rt-tokio"))]
 use std::time::Instant;
-
-use std::{borrow::Cow, time::Duration};
 
 #[cfg(feature = "rt-tokio")]
 use grafton_visca::{

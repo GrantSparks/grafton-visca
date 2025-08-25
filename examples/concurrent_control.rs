@@ -34,6 +34,7 @@ use grafton_visca::{
     types::SpeedLevel,
     CameraBuilder, PanTiltDirection, PresetNumber, Result,
 };
+
 #[cfg(feature = "rt-tokio")]
 use tokio::time::{sleep, Duration};
 
