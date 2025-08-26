@@ -65,10 +65,9 @@ tokio = { version = "1.47", features = ["full", "test-util"] }
 trybuild = "1.0"
 async-io = "2.3"
 async-executor = "1.8"
-async-trait = "0.1"
 futures-lite = "2.3"
 rand = "0.9"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.7", features = ["env-filter"] }
 
 # Consolidated examples - clean, focused learning experience
 
