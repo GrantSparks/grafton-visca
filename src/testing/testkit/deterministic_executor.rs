@@ -569,23 +569,28 @@ impl Executor for DeterministicExecutor {
         future::block_on(self.executor.run(fut))
     }
 
-    fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-        Box::pin(self.clock.sleep(duration))
+    #[allow(clippy::manual_async_fn)]
+    fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
+        async move { self.clock.sleep(duration).await }
     }
 
+    #[allow(clippy::manual_async_fn)]
     fn timeout<'a, F, T>(
         &'a self,
         duration: Duration,
         fut: F,
-    ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'a>>
+    ) -> impl Future<Output = Result<T, Error>> + Send + 'a
     where
         F: Future<Output = T> + Send + 'a,
         T: Send + 'a,
     {
-        Box::pin(TimeoutFuture {
-            future: Box::pin(fut),
-            sleep: self.clock.sleep(duration),
-        })
+        async move {
+            let timeout_future = TimeoutFuture {
+                future: Box::pin(fut),
+                sleep: self.clock.sleep(duration),
+            };
+            timeout_future.await
+        }
     }
 
     fn now(&self) -> Instant {
@@ -726,20 +731,22 @@ impl Executor for Arc<DeterministicExecutor> {
         self.as_ref().block_on(fut)
     }
 
-    fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-        self.as_ref().sleep(duration)
+    #[allow(clippy::manual_async_fn)]
+    fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
+        async move { self.as_ref().sleep(duration).await }
     }
 
+    #[allow(clippy::manual_async_fn)]
     fn timeout<'a, F, T>(
         &'a self,
         duration: Duration,
         fut: F,
-    ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'a>>
+    ) -> impl Future<Output = Result<T, Error>> + Send + 'a
     where
         F: Future<Output = T> + Send + 'a,
         T: Send + 'a,
     {
-        self.as_ref().timeout(duration, fut)
+        async move { self.as_ref().timeout(duration, fut).await }
     }
 
     fn now(&self) -> Instant {

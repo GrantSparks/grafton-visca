@@ -94,35 +94,39 @@ fn main() {
             panic!("Demo executor - implement block_on() for your runtime")
         }
 
-        fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        #[allow(clippy::manual_async_fn)]
+        fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
             // Example: If using async-std, you would do:
-            // Box::pin(async_std::task::sleep(duration))
+            // async move { async_std::task::sleep(duration).await }
 
             // For this demo, we return immediately
-            Box::pin(async move {
+            async move {
                 println!("  Would sleep for {:?}", duration);
-            })
+            }
         }
 
+        #[allow(clippy::manual_async_fn)]
         fn timeout<'a, F, T>(
             &'a self,
             duration: Duration,
             future: F,
-        ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'a>>
+        ) -> impl Future<Output = Result<T, Error>> + Send + 'a
         where
             F: Future<Output = T> + Send + 'a,
             T: Send + 'a,
         {
             // Example: If using async-std, you would do:
-            // Box::pin(async move {
+            // async move {
             //     async_std::future::timeout(duration, future)
             //         .await
             //         .map_err(|_| Error::Timeout)
-            // })
+            // }
 
             // For this demo, we return timeout error
-            let _ = (duration, future);
-            Box::pin(async { Err(Error::Timeout) })
+            async move {
+                let _ = (duration, future);
+                Err(Error::Timeout)
+            }
         }
     }
 

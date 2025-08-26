@@ -79,8 +79,7 @@ pub trait Executor: Send + Sync + 'static {
     /// Sleep for the specified duration.
     ///
     /// Returns a future that completes after the specified duration.
-    fn sleep(&self, duration: std::time::Duration)
-        -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
+    fn sleep(&self, duration: std::time::Duration) -> impl Future<Output = ()> + Send + '_;
 
     /// Create a timeout future.
     ///
@@ -90,7 +89,7 @@ pub trait Executor: Send + Sync + 'static {
         &'a self,
         duration: std::time::Duration,
         fut: F,
-    ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'a>>
+    ) -> impl Future<Output = Result<T, Error>> + Send + 'a
     where
         F: Future<Output = T> + Send + 'a,
         T: Send + 'a;
@@ -201,25 +200,27 @@ mod tokio_impl {
             self.handle.block_on(fut)
         }
 
-        fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-            Box::pin(tokio::time::sleep(duration))
+        #[allow(clippy::manual_async_fn)]
+        fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
+            async move { tokio::time::sleep(duration).await }
         }
 
+        #[allow(clippy::manual_async_fn)]
         fn timeout<'a, F, T>(
             &'a self,
             duration: Duration,
             fut: F,
-        ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'a>>
+        ) -> impl Future<Output = Result<T, Error>> + Send + 'a
         where
             F: Future<Output = T> + Send + 'a,
             T: Send + 'a,
         {
-            Box::pin(async move {
+            async move {
                 match tokio::time::timeout(duration, fut).await {
                     Ok(value) => Ok(value),
                     Err(_) => Err(Error::Timeout),
                 }
-            })
+            }
         }
     }
 
@@ -255,20 +256,22 @@ mod tokio_impl {
             self.as_ref().block_on(fut)
         }
 
-        fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-            self.as_ref().sleep(duration)
+        #[allow(clippy::manual_async_fn)]
+        fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
+            async move { self.as_ref().sleep(duration).await }
         }
 
+        #[allow(clippy::manual_async_fn)]
         fn timeout<'a, F, T>(
             &'a self,
             duration: Duration,
             fut: F,
-        ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'a>>
+        ) -> impl Future<Output = Result<T, Error>> + Send + 'a
         where
             F: Future<Output = T> + Send + 'a,
             T: Send + 'a,
         {
-            self.as_ref().timeout(duration, fut)
+            async move { self.as_ref().timeout(duration, fut).await }
         }
     }
 }
@@ -356,25 +359,27 @@ mod async_std_impl {
             async_std::task::block_on(fut)
         }
 
-        fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-            Box::pin(async_std::task::sleep(duration))
+        #[allow(clippy::manual_async_fn)]
+        fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
+            async move { async_std::task::sleep(duration).await }
         }
 
+        #[allow(clippy::manual_async_fn)]
         fn timeout<'a, F, T>(
             &'a self,
             duration: Duration,
             fut: F,
-        ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'a>>
+        ) -> impl Future<Output = Result<T, Error>> + Send + 'a
         where
             F: Future<Output = T> + Send + 'a,
             T: Send + 'a,
         {
-            Box::pin(async move {
+            async move {
                 match async_std::future::timeout(duration, fut).await {
                     Ok(value) => Ok(value),
                     Err(_) => Err(Error::Timeout),
                 }
-            })
+            }
         }
     }
 
@@ -410,20 +415,22 @@ mod async_std_impl {
             self.as_ref().block_on(fut)
         }
 
-        fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-            self.as_ref().sleep(duration)
+        #[allow(clippy::manual_async_fn)]
+        fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
+            async move { self.as_ref().sleep(duration).await }
         }
 
+        #[allow(clippy::manual_async_fn)]
         fn timeout<'a, F, T>(
             &'a self,
             duration: Duration,
             fut: F,
-        ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'a>>
+        ) -> impl Future<Output = Result<T, Error>> + Send + 'a
         where
             F: Future<Output = T> + Send + 'a,
             T: Send + 'a,
         {
-            self.as_ref().timeout(duration, fut)
+            async move { self.as_ref().timeout(duration, fut).await }
         }
     }
 }
@@ -515,22 +522,24 @@ mod smol_impl {
             smol::block_on(fut)
         }
 
-        fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-            Box::pin(async move {
+        #[allow(clippy::manual_async_fn)]
+        fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
+            async move {
                 smol::Timer::after(duration).await;
-            })
+            }
         }
 
+        #[allow(clippy::manual_async_fn)]
         fn timeout<'a, F, T>(
             &'a self,
             duration: Duration,
             fut: F,
-        ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'a>>
+        ) -> impl Future<Output = Result<T, Error>> + Send + 'a
         where
             F: Future<Output = T> + Send + 'a,
             T: Send + 'a,
         {
-            Box::pin(async move {
+            async move {
                 // Create a timer future
                 let timer = smol::Timer::after(duration);
 
@@ -551,7 +560,7 @@ mod smol_impl {
                     // Yield to executor
                     futures_lite::future::yield_now().await;
                 }
-            })
+            }
         }
     }
 
@@ -587,20 +596,22 @@ mod smol_impl {
             self.as_ref().block_on(fut)
         }
 
-        fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-            self.as_ref().sleep(duration)
+        #[allow(clippy::manual_async_fn)]
+        fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
+            async move { self.as_ref().sleep(duration).await }
         }
 
+        #[allow(clippy::manual_async_fn)]
         fn timeout<'a, F, T>(
             &'a self,
             duration: Duration,
             fut: F,
-        ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'a>>
+        ) -> impl Future<Output = Result<T, Error>> + Send + 'a
         where
             F: Future<Output = T> + Send + 'a,
             T: Send + 'a,
         {
-            self.as_ref().timeout(duration, fut)
+            async move { self.as_ref().timeout(duration, fut).await }
         }
     }
 }
