@@ -8,7 +8,7 @@ use crate::Error;
 #[cfg(feature = "async")]
 use core::future::Future;
 
-#[cfg(feature = "async")]
+#[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
 use std::pin::Pin;
 #[cfg(feature = "async")]
 use std::time::Instant;
