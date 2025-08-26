@@ -33,7 +33,7 @@ pub trait ExecutorExt {
     ///
     /// Unlike the regular `spawn` method which returns a join handle that must be polled,
     /// this method spawns tasks that run independently in the background.
-    fn spawn_bg<F>(&self, fut: F)
+    fn spawn_detached<F>(&self, fut: F)
     where
         F: Future<Output = ()> + Send + 'static;
 
@@ -41,12 +41,12 @@ pub trait ExecutorExt {
     ///
     /// This is a convenience method for spawning tasks that return Result<(), Error>
     /// but where we want to ignore any errors in the background.
-    fn spawn_bg_ignore_result<F, T>(&self, fut: F)
+    fn spawn_detached_ignore_result<F, T>(&self, fut: F)
     where
         F: Future<Output = T> + Send + 'static,
         T: Send + 'static,
     {
-        self.spawn_bg(async move {
+        ExecutorExt::spawn_detached(self, async move {
             let _ = fut.await;
         });
     }
@@ -55,12 +55,12 @@ pub trait ExecutorExt {
     ///
     /// This variant logs errors to stderr for debugging purposes when tasks
     /// return Result<(), E> types, making failures visible during testing.
-    fn spawn_bg_ignore_result_with_logging<F, E>(&self, fut: F)
+    fn spawn_detached_ignore_result_with_logging<F, E>(&self, fut: F)
     where
         F: Future<Output = Result<(), E>> + Send + 'static,
         E: std::fmt::Debug + Send + 'static,
     {
-        self.spawn_bg(async move {
+        ExecutorExt::spawn_detached(self, async move {
             if let Err(e) = fut.await {
                 eprintln!("[det-runtime] background task returned error: {e:?}");
             }
@@ -541,11 +541,26 @@ impl Executor for DeterministicExecutor {
     where
         T: Send + 'static;
 
+    type LocalJoin<T>
+        = Pin<Box<dyn Future<Output = Result<T, crate::executor::ExecError>> + 'static>>
+    where
+        T: 'static;
+
     fn spawn<F>(&self, fut: F) -> Self::Join<F::Output>
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
+        let task = self.executor.spawn(fut);
+        Box::pin(async move { Ok(task.await) })
+    }
+
+    fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        // DeterministicExecutor runs tasks on a single-threaded executor in tests
         let task = self.executor.spawn(fut);
         Box::pin(async move { Ok(task.await) })
     }
@@ -571,6 +586,10 @@ impl Executor for DeterministicExecutor {
             future: Box::pin(fut),
             sleep: self.clock.sleep(duration),
         })
+    }
+
+    fn now(&self) -> Instant {
+        self.now()
     }
 }
 
@@ -608,7 +627,7 @@ where
 
 #[cfg(any(test, feature = "test-utils"))]
 impl ExecutorExt for DeterministicExecutor {
-    fn spawn_bg<F>(&self, fut: F)
+    fn spawn_detached<F>(&self, fut: F)
     where
         F: Future<Output = ()> + Send + 'static,
     {
@@ -616,12 +635,12 @@ impl ExecutorExt for DeterministicExecutor {
         self.executor.spawn(fut).detach();
     }
 
-    fn spawn_bg_ignore_result_with_logging<F, E>(&self, fut: F)
+    fn spawn_detached_ignore_result_with_logging<F, E>(&self, fut: F)
     where
         F: Future<Output = Result<(), E>> + Send + 'static,
         E: std::fmt::Debug + Send + 'static,
     {
-        self.spawn_bg(async move {
+        ExecutorExt::spawn_detached(self, async move {
             if let Err(e) = fut.await {
                 eprintln!("[det-runtime] background task returned error: {e:?}");
             }
@@ -632,7 +651,7 @@ impl ExecutorExt for DeterministicExecutor {
 // Implement ExecutorExt for TokioExecutor
 #[cfg(all(feature = "rt-tokio", any(test, feature = "test-utils")))]
 impl ExecutorExt for TokioExecutor {
-    fn spawn_bg<F>(&self, fut: F)
+    fn spawn_detached<F>(&self, fut: F)
     where
         F: Future<Output = ()> + Send + 'static,
     {
@@ -640,12 +659,12 @@ impl ExecutorExt for TokioExecutor {
         drop(self.spawn(fut));
     }
 
-    fn spawn_bg_ignore_result_with_logging<F, E>(&self, fut: F)
+    fn spawn_detached_ignore_result_with_logging<F, E>(&self, fut: F)
     where
         F: Future<Output = Result<(), E>> + Send + 'static,
         E: std::fmt::Debug + Send + 'static,
     {
-        self.spawn_bg(async move {
+        ExecutorExt::spawn_detached(self, async move {
             if let Err(e) = fut.await {
                 eprintln!("[det-runtime] background task returned error: {e:?}");
             }
@@ -659,19 +678,19 @@ impl<T> ExecutorExt for Arc<T>
 where
     T: ExecutorExt + ?Sized,
 {
-    fn spawn_bg<F>(&self, fut: F)
+    fn spawn_detached<F>(&self, fut: F)
     where
         F: Future<Output = ()> + Send + 'static,
     {
-        (**self).spawn_bg(fut);
+        ExecutorExt::spawn_detached(self.as_ref(), fut);
     }
 
-    fn spawn_bg_ignore_result_with_logging<F, E>(&self, fut: F)
+    fn spawn_detached_ignore_result_with_logging<F, E>(&self, fut: F)
     where
         F: Future<Output = Result<(), E>> + Send + 'static,
         E: std::fmt::Debug + Send + 'static,
     {
-        (**self).spawn_bg_ignore_result_with_logging(fut);
+        (**self).spawn_detached_ignore_result_with_logging(fut);
     }
 }
 
@@ -682,12 +701,25 @@ impl Executor for Arc<DeterministicExecutor> {
     where
         T: Send + 'static;
 
+    type LocalJoin<T>
+        = Pin<Box<dyn Future<Output = Result<T, crate::executor::ExecError>> + 'static>>
+    where
+        T: 'static;
+
     fn spawn<F>(&self, fut: F) -> Self::Join<F::Output>
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
         self.as_ref().spawn(fut)
+    }
+
+    fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        self.as_ref().spawn_local(fut)
     }
 
     fn block_on<F: Future>(&self, fut: F) -> F::Output {
@@ -708,6 +740,10 @@ impl Executor for Arc<DeterministicExecutor> {
         T: Send + 'a,
     {
         self.as_ref().timeout(duration, fut)
+    }
+
+    fn now(&self) -> Instant {
+        self.as_ref().now()
     }
 }
 
@@ -789,9 +825,9 @@ mod tests {
         let flag2 = flag.clone();
 
         // Use ExecutorExt::spawn_bg to properly spawn background task
-        use super::ExecutorExt;
+        // Use fully-qualified path for ExecutorExt to avoid ambiguity
 
-        executor.spawn_bg(async move {
+        ExecutorExt::spawn_detached(&executor, async move {
             flag2.store(true, Ordering::SeqCst);
         });
 
@@ -808,9 +844,8 @@ mod tests {
         let executor2 = executor.clone();
 
         // Use ExecutorExt::spawn_bg to properly spawn background task
-        use super::ExecutorExt;
 
-        executor.spawn_bg(async move {
+        ExecutorExt::spawn_detached(&executor, async move {
             executor2.sleep(Duration::from_millis(50)).await;
             flag2.store(true, Ordering::SeqCst);
         });
@@ -842,9 +877,7 @@ mod tests {
             let executor_clone = executor.clone();
             let expected_value = i;
 
-            use super::ExecutorExt;
-
-            executor.spawn_bg(async move {
+            ExecutorExt::spawn_detached(&executor, async move {
                 executor_clone
                     .sleep(Duration::from_millis(i as u64 * 10))
                     .await;
@@ -896,9 +929,8 @@ mod tests {
         let flag2 = flag.clone();
 
         // Spawn a task
-        use super::ExecutorExt;
 
-        executor.spawn_bg(async move {
+        ExecutorExt::spawn_detached(&executor, async move {
             flag2.store(true, Ordering::SeqCst);
         });
 
@@ -922,9 +954,8 @@ mod tests {
         let initial_time = clock.now();
 
         // Spawn a task with a sleep
-        use super::ExecutorExt;
 
-        executor.spawn_bg(async move {
+        ExecutorExt::spawn_detached(&executor, async move {
             executor2.sleep(Duration::from_millis(100)).await;
             flag2.store(true, Ordering::SeqCst);
         });
@@ -959,12 +990,8 @@ mod tests {
             let counter_clone = counter.clone();
             let executor_clone = executor.clone();
 
-            use super::ExecutorExt;
-
-            executor.spawn_bg(async move {
-                executor_clone
-                    .sleep(Duration::from_millis(i as u64 * 50))
-                    .await;
+            ExecutorExt::spawn_detached(&executor, async move {
+                executor_clone.sleep(Duration::from_millis(i * 50)).await;
                 counter_clone.fetch_add(1, Ordering::SeqCst);
             });
         }
@@ -982,7 +1009,7 @@ mod tests {
 // Add ExecutorExt implementations for AsyncStdExecutor and SmolExecutor
 #[cfg(all(feature = "async", feature = "rt-async-std"))]
 impl ExecutorExt for crate::executor::AsyncStdExecutor {
-    fn spawn_bg<F>(&self, fut: F)
+    fn spawn_detached<F>(&self, fut: F)
     where
         F: Future<Output = ()> + Send + 'static,
     {
@@ -990,12 +1017,12 @@ impl ExecutorExt for crate::executor::AsyncStdExecutor {
         drop(self.spawn(fut));
     }
 
-    fn spawn_bg_ignore_result_with_logging<F, E>(&self, fut: F)
+    fn spawn_detached_ignore_result_with_logging<F, E>(&self, fut: F)
     where
         F: Future<Output = Result<(), E>> + Send + 'static,
         E: std::fmt::Debug + Send + 'static,
     {
-        self.spawn_bg(async move {
+        ExecutorExt::spawn_detached(self, async move {
             if let Err(e) = fut.await {
                 eprintln!("[async-std-runtime] background task returned error: {e:?}");
             }
@@ -1005,7 +1032,7 @@ impl ExecutorExt for crate::executor::AsyncStdExecutor {
 
 #[cfg(all(feature = "async", feature = "rt-smol"))]
 impl ExecutorExt for crate::executor::SmolExecutor {
-    fn spawn_bg<F>(&self, fut: F)
+    fn spawn_detached<F>(&self, fut: F)
     where
         F: Future<Output = ()> + Send + 'static,
     {
@@ -1013,12 +1040,12 @@ impl ExecutorExt for crate::executor::SmolExecutor {
         drop(self.spawn(fut));
     }
 
-    fn spawn_bg_ignore_result_with_logging<F, E>(&self, fut: F)
+    fn spawn_detached_ignore_result_with_logging<F, E>(&self, fut: F)
     where
         F: Future<Output = Result<(), E>> + Send + 'static,
         E: std::fmt::Debug + Send + 'static,
     {
-        self.spawn_bg(async move {
+        ExecutorExt::spawn_detached(self, async move {
             if let Err(e) = fut.await {
                 eprintln!("[smol-runtime] background task returned error: {e:?}");
             }

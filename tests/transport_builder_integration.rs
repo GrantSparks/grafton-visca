@@ -1,4 +1,5 @@
 //! Integration tests for the transport builder pattern.
+#![cfg(not(feature = "async"))]
 //!
 //! These tests verify that the builder pattern correctly creates and configures
 //! transports with all the new components (BufferManager, RetryExecutor, etc.)

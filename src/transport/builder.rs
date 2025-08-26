@@ -6,7 +6,15 @@
 use std::time::Duration;
 
 use crate::transport::buffer::BufferConfig;
-use crate::transport::{BlockingTransport, RetryConfig};
+#[cfg(not(feature = "async"))]
+use crate::transport::BlockingTransport;
+use crate::transport::RetryConfig;
+#[cfg(any(
+    not(feature = "async"),
+    feature = "rt-tokio",
+    feature = "rt-async-std",
+    feature = "rt-smol"
+))]
 use crate::Error;
 
 /// Common configuration options for all transport types.
@@ -53,10 +61,14 @@ impl Default for TransportConfig {
 /// # Examples
 ///
 /// ```rust,no_run
+/// # #[cfg(not(feature = "async"))]
 /// use grafton_visca::transport::builder::TransportBuilder;
+/// # #[cfg(not(feature = "async"))]
 /// use std::time::Duration;
 ///
+/// # #[cfg(not(feature = "async"))]
 /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// # #[cfg(not(feature = "async"))]
 /// let transport = TransportBuilder::tcp()
 ///     .address("192.168.0.110:5678")
 ///     .connect_timeout(Duration::from_secs(10))
@@ -69,6 +81,14 @@ impl Default for TransportConfig {
 /// ```
 #[derive(Debug, Clone)]
 pub struct TransportBuilder {
+    #[cfg(any(
+        not(feature = "async"),           // Blocking mode
+        all(feature = "async", any(       // Async mode WITH a runtime
+            feature = "rt-tokio",
+            feature = "rt-async-std", 
+            feature = "rt-smol"
+        ))
+    ))]
     transport_type: TransportType,
     address: Option<String>,
     config: TransportConfig,
@@ -78,8 +98,10 @@ pub struct TransportBuilder {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransportType {
     /// TCP transport (blocking).
+    #[cfg(not(feature = "async"))]
     Tcp,
     /// UDP transport (blocking).
+    #[cfg(not(feature = "async"))]
     Udp,
     /// TCP transport (async with tokio).
     #[cfg(feature = "rt-tokio")]
@@ -87,10 +109,23 @@ pub enum TransportType {
     /// UDP transport (async with tokio).
     #[cfg(feature = "rt-tokio")]
     TokioUdp,
+    /// TCP transport (async with async-std).
+    #[cfg(feature = "rt-async-std")]
+    AsyncStdTcp,
+    /// UDP transport (async with async-std).
+    #[cfg(feature = "rt-async-std")]
+    AsyncStdUdp,
+    /// TCP transport (async with smol).
+    #[cfg(feature = "rt-smol")]
+    SmolTcp,
+    /// UDP transport (async with smol).
+    #[cfg(feature = "rt-smol")]
+    SmolUdp,
 }
 
 impl TransportBuilder {
     /// Create a new builder for a TCP transport.
+    #[cfg(not(feature = "async"))]
     pub fn tcp() -> Self {
         Self {
             transport_type: TransportType::Tcp,
@@ -100,6 +135,7 @@ impl TransportBuilder {
     }
 
     /// Create a new builder for a UDP transport.
+    #[cfg(not(feature = "async"))]
     pub fn udp() -> Self {
         Self {
             transport_type: TransportType::Udp,
@@ -123,6 +159,46 @@ impl TransportBuilder {
     pub fn tokio_udp() -> Self {
         Self {
             transport_type: TransportType::TokioUdp,
+            address: None,
+            config: TransportConfig::default(),
+        }
+    }
+
+    /// Create a new builder for an async-std TCP transport.
+    #[cfg(feature = "rt-async-std")]
+    pub fn async_std_tcp() -> Self {
+        Self {
+            transport_type: TransportType::AsyncStdTcp,
+            address: None,
+            config: TransportConfig::default(),
+        }
+    }
+
+    /// Create a new builder for an async-std UDP transport.
+    #[cfg(feature = "rt-async-std")]
+    pub fn async_std_udp() -> Self {
+        Self {
+            transport_type: TransportType::AsyncStdUdp,
+            address: None,
+            config: TransportConfig::default(),
+        }
+    }
+
+    /// Create a new builder for a smol TCP transport.
+    #[cfg(feature = "rt-smol")]
+    pub fn smol_tcp() -> Self {
+        Self {
+            transport_type: TransportType::SmolTcp,
+            address: None,
+            config: TransportConfig::default(),
+        }
+    }
+
+    /// Create a new builder for a smol UDP transport.
+    #[cfg(feature = "rt-smol")]
+    pub fn smol_udp() -> Self {
+        Self {
+            transport_type: TransportType::SmolUdp,
             address: None,
             config: TransportConfig::default(),
         }
@@ -262,6 +338,7 @@ impl TransportBuilder {
     /// - No address has been set
     /// - Connection fails
     /// - Socket configuration fails
+    #[cfg(not(feature = "async"))]
     pub fn build(self) -> Result<Box<dyn BlockingTransport>, Error> {
         let address = self.address.ok_or_else(|| Error::InvalidParameter {
             parameter: "address",
@@ -320,12 +397,12 @@ impl TransportBuilder {
     /// let tcp_transport = TransportBuilder::tokio_tcp()
     ///     .address("192.168.0.110:5678")
     ///     .tcp_nodelay(true)
-    ///     .build_tcp_async().await?;
+    ///     .build_tcp_tokio().await?;
     /// # Ok(())
     /// # }
     /// ```
     #[cfg(feature = "rt-tokio")]
-    pub async fn build_tcp_async(
+    pub async fn build_tcp_tokio(
         self,
     ) -> Result<crate::runtime_adapters::tokio::TcpTransport, Error> {
         if self.transport_type != TransportType::TokioTcp {
@@ -371,12 +448,12 @@ impl TransportBuilder {
     /// let udp_transport = TransportBuilder::tokio_udp()
     ///     .address("192.168.0.110:1259")
     ///     .max_retries(5)
-    ///     .build_udp_async().await?;
+    ///     .build_udp_tokio().await?;
     /// # Ok(())
     /// # }
     /// ```
     #[cfg(feature = "rt-tokio")]
-    pub async fn build_udp_async(
+    pub async fn build_udp_tokio(
         self,
     ) -> Result<crate::runtime_adapters::tokio::UdpTransport, Error> {
         if self.transport_type != TransportType::TokioUdp {
@@ -396,6 +473,98 @@ impl TransportBuilder {
         crate::runtime_adapters::tokio::UdpTransport::connect_with_config(&address, self.config)
             .await
     }
+
+    /// Build an async-std TCP transport.
+    #[cfg(feature = "rt-async-std")]
+    pub async fn build_tcp_async_std(
+        self,
+    ) -> Result<crate::runtime_adapters::async_std::TcpTransport, Error> {
+        if self.transport_type != TransportType::AsyncStdTcp {
+            return Err(Error::InvalidParameter {
+                parameter: "transport_type",
+                value: format!("{:?}", self.transport_type).into(),
+                reason: "This method is for AsyncStdTcp transports only".into(),
+            });
+        }
+
+        let address = self.address.ok_or_else(|| Error::InvalidParameter {
+            parameter: "address",
+            value: "None".into(),
+            reason: "No address specified for transport".into(),
+        })?;
+
+        crate::runtime_adapters::async_std::TcpTransport::connect_with_config(&address, self.config)
+            .await
+    }
+
+    /// Build an async-std UDP transport.
+    #[cfg(feature = "rt-async-std")]
+    pub async fn build_udp_async_std(
+        self,
+    ) -> Result<crate::runtime_adapters::async_std::UdpTransport, Error> {
+        if self.transport_type != TransportType::AsyncStdUdp {
+            return Err(Error::InvalidParameter {
+                parameter: "transport_type",
+                value: format!("{:?}", self.transport_type).into(),
+                reason: "This method is for AsyncStdUdp transports only".into(),
+            });
+        }
+
+        let address = self.address.ok_or_else(|| Error::InvalidParameter {
+            parameter: "address",
+            value: "None".into(),
+            reason: "No address specified for transport".into(),
+        })?;
+
+        crate::runtime_adapters::async_std::UdpTransport::connect_with_config(&address, self.config)
+            .await
+    }
+
+    /// Build a smol TCP transport.
+    #[cfg(feature = "rt-smol")]
+    pub async fn build_tcp_smol(
+        self,
+    ) -> Result<crate::runtime_adapters::smol::TcpTransport, Error> {
+        if self.transport_type != TransportType::SmolTcp {
+            return Err(Error::InvalidParameter {
+                parameter: "transport_type",
+                value: format!("{:?}", self.transport_type).into(),
+                reason: "This method is for SmolTcp transports only".into(),
+            });
+        }
+
+        let address = self.address.ok_or_else(|| Error::InvalidParameter {
+            parameter: "address",
+            value: "None".into(),
+            reason: "No address specified for transport".into(),
+        })?;
+
+        crate::runtime_adapters::smol::TcpTransport::connect_with_config(&address, self.config)
+            .await
+    }
+
+    /// Build a smol UDP transport.
+    #[cfg(feature = "rt-smol")]
+    pub async fn build_udp_smol(
+        self,
+    ) -> Result<crate::runtime_adapters::smol::UdpTransport, Error> {
+        if self.transport_type != TransportType::SmolUdp {
+            return Err(Error::InvalidParameter {
+                parameter: "transport_type",
+                value: format!("{:?}", self.transport_type).into(),
+                reason: "This method is for SmolUdp transports only".into(),
+            });
+        }
+
+        let address = self.address.ok_or_else(|| Error::InvalidParameter {
+            parameter: "address",
+            value: "None".into(),
+            reason: "No address specified for transport".into(),
+        })?;
+
+        crate::runtime_adapters::smol::UdpTransport::connect_with_config(&address, self.config)
+            .await
+    }
 }
 
 /// Extension trait for creating transports with a builder pattern.
@@ -404,12 +573,14 @@ pub trait TransportBuilderExt: Sized {
     fn builder() -> TransportBuilder;
 }
 
+#[cfg(not(feature = "async"))]
 impl TransportBuilderExt for crate::transport::blocking::Tcp {
     fn builder() -> TransportBuilder {
         TransportBuilder::tcp()
     }
 }
 
+#[cfg(not(feature = "async"))]
 impl TransportBuilderExt for crate::transport::blocking::Udp {
     fn builder() -> TransportBuilder {
         TransportBuilder::udp()
@@ -430,7 +601,35 @@ impl TransportBuilderExt for crate::runtime_adapters::tokio::UdpTransport {
     }
 }
 
-#[cfg(test)]
+#[cfg(feature = "rt-async-std")]
+impl TransportBuilderExt for crate::runtime_adapters::async_std::TcpTransport {
+    fn builder() -> TransportBuilder {
+        TransportBuilder::async_std_tcp()
+    }
+}
+
+#[cfg(feature = "rt-async-std")]
+impl TransportBuilderExt for crate::runtime_adapters::async_std::UdpTransport {
+    fn builder() -> TransportBuilder {
+        TransportBuilder::async_std_udp()
+    }
+}
+
+#[cfg(feature = "rt-smol")]
+impl TransportBuilderExt for crate::runtime_adapters::smol::TcpTransport {
+    fn builder() -> TransportBuilder {
+        TransportBuilder::smol_tcp()
+    }
+}
+
+#[cfg(feature = "rt-smol")]
+impl TransportBuilderExt for crate::runtime_adapters::smol::UdpTransport {
+    fn builder() -> TransportBuilder {
+        TransportBuilder::smol_udp()
+    }
+}
+
+#[cfg(all(test, not(feature = "async")))]
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;

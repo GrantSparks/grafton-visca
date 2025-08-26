@@ -108,9 +108,10 @@ where
 }
 
 // Blocking implementation for Camera with BlockingMode
+#[cfg(not(feature = "async"))]
 impl<P, T> MenuControlBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
-    P: crate::capabilities::Profile + crate::capabilities::MenuControl,
+    P: crate::capabilities::Profile + crate::capabilities::MenuControl + Default,
     T: crate::transport::BlockingTransport + Send + 'static,
 {
     fn set_menu_display(&mut self, display: bool) -> Result<(), Error> {
@@ -139,10 +140,11 @@ where
 }
 
 // Blocking implementation for DirectMenuControlOpsBlocking
+#[cfg(not(feature = "async"))]
 impl<P, T> DirectMenuControlBlocking
     for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
-    P: crate::capabilities::Profile + crate::capabilities::MenuControl,
+    P: crate::capabilities::Profile + crate::capabilities::MenuControl + Default,
     T: crate::transport::BlockingTransport + Send + 'static,
 {
     fn direct_menu_control(&mut self, control1: u8, control2: u8) -> Result<(), Error> {

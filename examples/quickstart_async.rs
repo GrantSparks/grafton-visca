@@ -43,7 +43,7 @@ use grafton_visca::{
 #[cfg(feature = "rt-tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    env_logger::init();
+    tracing_subscriber::fmt::init();
 
     let camera_addr = env::args()
         .nth(1)
@@ -58,7 +58,7 @@ async fn main() -> Result<(), Error> {
     let transport = TransportBuilder::tokio_tcp()
         .address(camera_addr)
         .connect_timeout(Duration::from_secs(5))
-        .build_tcp_async() // .build_async() returns impl AsyncTransport for native async
+        .build_tcp_tokio() // .build_tcp_tokio() returns TcpTransport for tokio runtime
         .await?;
 
     let camera = CameraBuilder::tokio()?

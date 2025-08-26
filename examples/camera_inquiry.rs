@@ -24,7 +24,7 @@ fn main() -> grafton_visca::Result<()> {
         CameraBuilder,
     };
 
-    env_logger::init();
+    tracing_subscriber::fmt::init();
 
     println!("=== Camera Inquiry Demo (Blocking) ===\n");
 
@@ -144,7 +144,7 @@ async fn main() -> grafton_visca::Result<()> {
         CameraBuilder,
     };
 
-    env_logger::init();
+    tracing_subscriber::fmt::init();
 
     println!("=== Camera Inquiry Demo (Async) ===\n");
 

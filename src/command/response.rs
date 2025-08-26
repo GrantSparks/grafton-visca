@@ -312,7 +312,7 @@ pub fn parse_response(
                 Ok(ViscaResponse::Completion)
             } else {
                 // Debug logging for inquiry responses
-                log::debug!(
+                tracing::debug!(
                     "Parsing inquiry response for {:?}, raw bytes: {:02X?}, payload bytes: {:02X?}",
                     expected_type,
                     data,
@@ -361,7 +361,7 @@ fn parse_inquiry_response(
                 // Extended format: Some cameras return 8 bytes
                 // This might include both optical and digital zoom info
                 // For now, use the first 4 bytes as the zoom position
-                log::warn!(
+                tracing::warn!(
                     "ZoomPosition: Received extended format (8 bytes). Payload: {payload:02X?}. Using first 4 bytes."
                 );
                 let position = combine_nibbles_u16(&payload[0..4]);
@@ -369,7 +369,7 @@ fn parse_inquiry_response(
                     position,
                 }))
             } else {
-                log::error!(
+                tracing::error!(
                     "ZoomPosition: Invalid response length. Expected 4 or 8 bytes, got {}. Payload: {:02X?}",
                     payload.len(),
                     payload
@@ -391,7 +391,7 @@ fn parse_inquiry_response(
             } else if payload.len() == 4 {
                 // Compact format: Some cameras return PP PP TT TT
                 // or all zeros when at home position
-                log::warn!(
+                tracing::warn!(
                     "PanTiltPosition: Received compact format (4 bytes). Payload: {payload:02X?}. Treating as home position."
                 );
                 // For now, treat 4-byte response as home position (0, 0)
@@ -411,7 +411,7 @@ fn parse_inquiry_response(
                     tilt,
                 }))
             } else {
-                log::error!(
+                tracing::error!(
                     "PanTiltPosition: Invalid response length. Expected 8 or 4 bytes, got {}. Payload: {:02X?}",
                     payload.len(),
                     payload

@@ -102,7 +102,7 @@ fn test_wait_for_completion_receives_completion_event() {
             .expect("Failed to build camera");
 
         // Send a power on command
-        let result = camera.send_command(&PowerOnCommand).await;
+        let result = camera.send_command_direct(&PowerOnCommand).await;
         assert!(result.is_ok(), "Failed to send power command: {:?}", result);
 
         // Wait for completion should succeed
@@ -143,7 +143,7 @@ fn test_wait_for_completion_times_out_without_completion() {
             .expect("Failed to build camera");
 
         // Send a power on command
-        let _ = camera.send_command(&PowerOnCommand).await;
+        let _ = camera.send_command_direct(&PowerOnCommand).await;
 
         // Advance time a bit to process the ACK
         clock_clone.advance(Duration::from_millis(10));
@@ -219,8 +219,8 @@ fn test_wait_for_idle_succeeds_when_commands_complete() {
             .expect("Failed to build camera");
 
         // Send multiple commands
-        let _ = camera.send_command(&ZoomInCommand).await;
-        let _ = camera.send_command(&PresetRecallCommand).await;
+        let _ = camera.send_command_direct(&ZoomInCommand).await;
+        let _ = camera.send_command_direct(&PresetRecallCommand).await;
 
         // Wait for idle should succeed after commands complete
         let wait_result = camera.wait_for_idle(Duration::from_secs(2)).await;
@@ -258,7 +258,7 @@ fn test_wait_for_idle_times_out_with_pending_commands() {
             .expect("Failed to build camera");
 
         // Send a command that won't complete
-        let _ = camera.send_command(&ZoomInCommand).await;
+        let _ = camera.send_command_direct(&ZoomInCommand).await;
 
         // Advance time a bit to process the ACK
         clock_clone.advance(Duration::from_millis(10));
@@ -321,9 +321,9 @@ fn test_barrier_synchronization_with_multiple_commands() {
             .expect("Failed to build camera");
 
         // Send multiple commands in rapid succession
-        let _ = camera.send_command(&PowerOnCommand).await;
-        let _ = camera.send_command(&ZoomInCommand).await;
-        let _ = camera.send_command(&PresetRecallCommand).await;
+        let _ = camera.send_command_direct(&PowerOnCommand).await;
+        let _ = camera.send_command_direct(&ZoomInCommand).await;
+        let _ = camera.send_command_direct(&PresetRecallCommand).await;
 
         // Use wait_for_idle as a barrier to ensure all commands complete
         let barrier_result = camera.wait_for_idle(Duration::from_secs(3)).await;

@@ -15,10 +15,9 @@ pub enum AsyncMode {}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlockingMode {}
 
-/// Type alias for async cameras.
-///
-/// This provides a convenient way to specify async cameras without the mode parameter.
-pub type CameraAsync<P, T> = super::Camera<AsyncMode, P, T>;
+// Intentionally NO public generic async camera alias.
+// Use runtime-specific aliases (TokioCamera, AsyncStdCamera, SmolCamera)
+// that fix the executor type for ergonomics and clarity.
 
 /// Type alias for blocking cameras.
 ///

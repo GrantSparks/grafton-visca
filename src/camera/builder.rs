@@ -31,10 +31,10 @@ use std::marker::PhantomData;
 
 #[cfg(not(feature = "async"))]
 use crate::camera::handle::Camera as GenericCamera;
-use crate::{
-    camera::BlockingMode, camera_id::CameraId, capabilities::Profile, timeout::TimeoutConfig,
-    transport::BlockingTransport,
-};
+#[cfg(not(feature = "async"))]
+use crate::camera::BlockingMode;
+#[cfg(not(feature = "async"))]
+use crate::transport::BlockingTransport;
 #[cfg(feature = "async")]
 use crate::{
     camera::{handle::Camera as GenericCamera, AsyncMode},
@@ -42,6 +42,7 @@ use crate::{
     executor::Executor,
     transport::AsyncTransport,
 };
+use crate::{camera_id::CameraId, capabilities::Profile, timeout::TimeoutConfig};
 
 /// Builder for creating cameras with explicit executor configuration.
 ///
@@ -124,7 +125,7 @@ where
         transport: T,
     ) -> Result<GenericCamera<AsyncMode, P, T, E>, Error>
     where
-        P: Profile,
+        P: Profile + Default,
         T: AsyncTransport + 'static,
     {
         let executor = self.executor.ok_or_else(|| {
@@ -153,12 +154,13 @@ impl CameraBuilder<()> {
     }
 
     /// Build a blocking camera with the specified profile and transport.
+    #[cfg(not(feature = "async"))]
     pub fn build_blocking<P, T>(self, transport: T) -> GenericCamera<BlockingMode, P, T, ()>
     where
-        P: Profile,
+        P: Profile + Default,
         T: BlockingTransport,
     {
-        let mut camera = GenericCamera::new(transport);
+        let mut camera = GenericCamera::<BlockingMode, P, T, ()>::new(transport);
         camera.set_camera_id(self.camera_id);
         camera.set_timeout_config(self.timeout_config);
 

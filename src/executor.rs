@@ -10,6 +10,8 @@ use core::future::Future;
 
 #[cfg(feature = "async")]
 use std::pin::Pin;
+#[cfg(feature = "async")]
+use std::time::Instant;
 
 /// Error type for executor operations.
 #[derive(Debug, thiserror::Error)]
@@ -46,10 +48,25 @@ pub trait Executor: Send + Sync + 'static {
     where
         T: Send + 'static;
 
+    /// The join handle type for locally spawned (non-Send) tasks.
+    type LocalJoin<T>: Future<Output = Result<T, ExecError>> + 'static
+    where
+        T: 'static;
+
     /// Spawn a future as a background task.
     ///
     /// Returns a join handle that can be used to await the task's completion.
     fn spawn<F>(&self, fut: F) -> Self::Join<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static;
+
+    /// Spawn a future on the current thread (local task).
+    ///
+    /// This has the same bounds as `spawn` by default in most executors,
+    /// but provides a dedicated API surface for runtimes that support
+    /// truly local (non-Send) tasks.
+    fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static;
@@ -77,6 +94,26 @@ pub trait Executor: Send + Sync + 'static {
     where
         F: Future<Output = T> + Send + 'a,
         T: Send + 'a;
+
+    /// Spawn a background task and detach the join handle.
+    ///
+    /// Provided default method so executors can override if needed.
+    fn spawn_bg<F>(&self, fut: F)
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        // Detach the join handle to run in background
+        drop(self.spawn(fut));
+    }
+
+    /// Get the current time according to this executor.
+    ///
+    /// Default implementation returns wall-clock time. Test executors
+    /// (e.g., DeterministicExecutor) should override to return virtual time.
+    fn now(&self) -> Instant {
+        Instant::now()
+    }
 }
 
 // Tokio executor implementation
@@ -137,7 +174,21 @@ mod tokio_impl {
         where
             T: Send + 'static;
 
+        type LocalJoin<T>
+            = Pin<Box<dyn Future<Output = Result<T, ExecError>> + 'static>>
+        where
+            T: 'static;
+
         fn spawn<F>(&self, fut: F) -> Self::Join<F::Output>
+        where
+            F: Future + Send + 'static,
+            F::Output: Send + 'static,
+        {
+            let handle = self.handle.spawn(fut);
+            Box::pin(TokioJoin(handle))
+        }
+
+        fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
         where
             F: Future + Send + 'static,
             F::Output: Send + 'static,
@@ -179,12 +230,25 @@ mod tokio_impl {
         where
             T: Send + 'static;
 
+        type LocalJoin<T>
+            = Pin<Box<dyn Future<Output = Result<T, ExecError>> + 'static>>
+        where
+            T: 'static;
+
         fn spawn<F>(&self, fut: F) -> Self::Join<F::Output>
         where
             F: Future + Send + 'static,
             F::Output: Send + 'static,
         {
             self.as_ref().spawn(fut)
+        }
+
+        fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
+        where
+            F: Future + Send + 'static,
+            F::Output: Send + 'static,
+        {
+            self.as_ref().spawn_local(fut)
         }
 
         fn block_on<F: Future>(&self, fut: F) -> F::Output {
@@ -264,11 +328,26 @@ mod async_std_impl {
         where
             T: Send + 'static;
 
+        type LocalJoin<T>
+            = Pin<Box<dyn Future<Output = Result<T, ExecError>> + 'static>>
+        where
+            T: 'static;
+
         fn spawn<F>(&self, fut: F) -> Self::Join<F::Output>
         where
             F: Future + Send + 'static,
             F::Output: Send + 'static,
         {
+            let handle = async_std::task::spawn(fut);
+            Box::pin(AsyncStdJoin(handle))
+        }
+
+        fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
+        where
+            F: Future + Send + 'static,
+            F::Output: Send + 'static,
+        {
+            // Fallback to global spawn; requires Send
             let handle = async_std::task::spawn(fut);
             Box::pin(AsyncStdJoin(handle))
         }
@@ -306,12 +385,25 @@ mod async_std_impl {
         where
             T: Send + 'static;
 
+        type LocalJoin<T>
+            = Pin<Box<dyn Future<Output = Result<T, ExecError>> + 'static>>
+        where
+            T: 'static;
+
         fn spawn<F>(&self, fut: F) -> Self::Join<F::Output>
         where
             F: Future + Send + 'static,
             F::Output: Send + 'static,
         {
             self.as_ref().spawn(fut)
+        }
+
+        fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
+        where
+            F: Future + Send + 'static,
+            F::Output: Send + 'static,
+        {
+            self.as_ref().spawn_local(fut)
         }
 
         fn block_on<F: Future>(&self, fut: F) -> F::Output {
@@ -372,12 +464,38 @@ mod smol_impl {
         where
             T: Send + 'static;
 
+        type LocalJoin<T>
+            = Pin<Box<dyn Future<Output = Result<T, ExecError>> + 'static>>
+        where
+            T: 'static;
+
         fn spawn<F>(&self, fut: F) -> Self::Join<F::Output>
         where
             F: Future + Send + 'static,
             F::Output: Send + 'static,
         {
             // Create a detached task that will run on the smol executor
+            let (sender, receiver) = flume::bounded(1);
+            smol::spawn(async move {
+                let result = fut.await;
+                let _ = sender.send_async(result).await;
+            })
+            .detach();
+
+            Box::pin(async move {
+                receiver
+                    .recv_async()
+                    .await
+                    .map_err(|e| ExecError::JoinFailed(e.to_string()))
+            })
+        }
+
+        fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
+        where
+            F: Future + Send + 'static,
+            F::Output: Send + 'static,
+        {
+            // Fallback to global spawn; requires Send internally
             let (sender, receiver) = flume::bounded(1);
             smol::spawn(async move {
                 let result = fut.await;
@@ -444,12 +562,25 @@ mod smol_impl {
         where
             T: Send + 'static;
 
+        type LocalJoin<T>
+            = Pin<Box<dyn Future<Output = Result<T, ExecError>> + 'static>>
+        where
+            T: 'static;
+
         fn spawn<F>(&self, fut: F) -> Self::Join<F::Output>
         where
             F: Future + Send + 'static,
             F::Output: Send + 'static,
         {
             self.as_ref().spawn(fut)
+        }
+
+        fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
+        where
+            F: Future + Send + 'static,
+            F::Output: Send + 'static,
+        {
+            self.as_ref().spawn_local(fut)
         }
 
         fn block_on<F: Future>(&self, fut: F) -> F::Output {

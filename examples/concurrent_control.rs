@@ -28,8 +28,10 @@ use grafton_visca::{
             zoom::ZoomControl,
         },
         profiles::PtzOpticsG2,
+        TokioCamera,
     },
     prelude::r#async::*,
+    runtime_adapters::tokio::TcpTransport,
     transport::builder::TransportBuilder,
     types::SpeedLevel,
     CameraBuilder, PanTiltDirection, PresetNumber, Result,
@@ -44,7 +46,7 @@ use std::sync::Arc;
 #[cfg(feature = "rt-tokio")]
 #[tokio::main]
 async fn main() -> Result<()> {
-    env_logger::init();
+    tracing_subscriber::fmt::init();
 
     println!("=== Concurrent Camera Control Demo ===\n");
 
@@ -72,7 +74,7 @@ async fn multi_camera_control() -> Result<()> {
     let transport1 = TransportBuilder::tokio_tcp()
         .address("192.168.0.109:5678")
         .connect_timeout(Duration::from_secs(5))
-        .build_tcp_async()
+        .build_tcp_tokio()
         .await
         .map_err(|e| {
             eprintln!("Failed to connect to camera 1: {e}");
@@ -82,7 +84,7 @@ async fn multi_camera_control() -> Result<()> {
     let transport2 = TransportBuilder::tokio_tcp()
         .address("192.168.0.110:5678")
         .connect_timeout(Duration::from_secs(5))
-        .build_tcp_async()
+        .build_tcp_tokio()
         .await
         .map_err(|e| {
             eprintln!("Failed to connect to camera 2: {e}");
@@ -92,7 +94,7 @@ async fn multi_camera_control() -> Result<()> {
     let transport3 = TransportBuilder::tokio_tcp()
         .address("192.168.0.111:5678")
         .connect_timeout(Duration::from_secs(5))
-        .build_tcp_async()
+        .build_tcp_tokio()
         .await
         .map_err(|e| {
             eprintln!("Failed to connect to camera 3: {e}");
@@ -100,19 +102,19 @@ async fn multi_camera_control() -> Result<()> {
         })?;
 
     // Build cameras with the Tokio executor using the builder pattern
-    let cam1 = Arc::new(
+    let cam1: Arc<TokioCamera<PtzOpticsG2, TcpTransport>> = Arc::new(
         CameraBuilder::tokio()?
             .build_async::<PtzOpticsG2, _>(transport1)
             .await?,
     );
 
-    let cam2 = Arc::new(
+    let cam2: Arc<TokioCamera<PtzOpticsG2, TcpTransport>> = Arc::new(
         CameraBuilder::tokio()?
             .build_async::<PtzOpticsG2, _>(transport2)
             .await?,
     );
 
-    let cam3 = Arc::new(
+    let cam3: Arc<TokioCamera<PtzOpticsG2, TcpTransport>> = Arc::new(
         CameraBuilder::tokio()?
             .build_async::<PtzOpticsG2, _>(transport3)
             .await?,
@@ -192,14 +194,14 @@ async fn parallel_single_camera() -> Result<()> {
     let transport = TransportBuilder::tokio_tcp()
         .address("192.168.0.110:5678")
         .connect_timeout(Duration::from_secs(5))
-        .build_tcp_async()
+        .build_tcp_tokio()
         .await
         .map_err(|e| {
             eprintln!("Failed to connect to camera: {e}");
             e
         })?;
 
-    let camera = Arc::new(
+    let camera: Arc<TokioCamera<PtzOpticsG2, TcpTransport>> = Arc::new(
         CameraBuilder::tokio()?
             .build_async::<PtzOpticsG2, _>(transport)
             .await?,
@@ -268,9 +270,9 @@ async fn producer_consumer_pattern() -> Result<()> {
 
     let transport = TransportBuilder::tokio_tcp()
         .address("192.168.0.110:5678")
-        .build_tcp_async()
+        .build_tcp_tokio()
         .await?;
-    let camera = Arc::new(
+    let camera: Arc<TokioCamera<PtzOpticsG2, TcpTransport>> = Arc::new(
         CameraBuilder::tokio()?
             .build_async::<PtzOpticsG2, _>(transport)
             .await?,
@@ -357,9 +359,9 @@ async fn synchronized_movement() -> Result<()> {
     for addr in camera_addrs {
         let transport = TransportBuilder::tokio_tcp()
             .address(format!("{}:5678", addr))
-            .build_tcp_async()
+            .build_tcp_tokio()
             .await?;
-        let camera = Arc::new(
+        let camera: Arc<TokioCamera<PtzOpticsG2, TcpTransport>> = Arc::new(
             CameraBuilder::tokio()?
                 .build_async::<PtzOpticsG2, _>(transport)
                 .await?,
@@ -371,7 +373,7 @@ async fn synchronized_movement() -> Result<()> {
         cameras.push(camera);
     }
 
-    let barrier = Arc::new(Barrier::new(cameras.len()));
+    let barrier: Arc<Barrier> = Arc::new(Barrier::new(cameras.len()));
 
     // Spawn synchronized tasks
     let mut handles = vec![];

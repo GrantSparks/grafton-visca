@@ -4,10 +4,11 @@
 
 #[cfg(feature = "async")]
 use grafton_visca::{
+    camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7},
     camera::AsyncMode,
-    prelude::r#async::{GenericViscaCam, PtzOpticsG2Cam, SonyFR7Cam},
     transport::async_transport::AsyncTransport,
 };
+
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::BlockingMode,
@@ -25,25 +26,26 @@ fn test_profile_type_aliases() {
 
     #[cfg(feature = "async")]
     {
-        fn _accepts_g2_camera_async<T>(_camera: PtzOpticsG2Cam<T>)
+        #[allow(dead_code)]
+        fn _accepts_g2_camera_async<T>(_camera: Camera<AsyncMode, PtzOpticsG2, T>)
         where
             T: AsyncTransport + Send + Sync + 'static,
         {
-            // PtzOpticsG2Cam is a type alias for Camera<AsyncMode, PtzOpticsG2, T>
+            // Generic Camera<AsyncMode, P, T> for all runtimes
         }
 
-        fn _accepts_fr7_camera_async<T>(_camera: SonyFR7Cam<T>)
+        #[allow(dead_code)]
+        fn _accepts_fr7_camera_async<T>(_camera: Camera<AsyncMode, SonyFR7, T>)
         where
             T: AsyncTransport + Send + Sync + 'static,
         {
-            // SonyFR7Cam is a type alias for Camera<AsyncMode, SonyFR7, T>
         }
 
-        fn _accepts_generic_camera_async<T>(_camera: GenericViscaCam<T>)
+        #[allow(dead_code)]
+        fn _accepts_generic_camera_async<T>(_camera: Camera<AsyncMode, GenericVisca, T>)
         where
             T: AsyncTransport + Send + Sync + 'static,
         {
-            // GenericViscaCam is a type alias for Camera<AsyncMode, GenericVisca, T>
         }
     }
 

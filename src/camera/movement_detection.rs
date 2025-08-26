@@ -5,25 +5,50 @@
 
 use std::time::{Duration, Instant};
 
+#[cfg(not(feature = "async"))]
+use crate::transport::BlockingTransport;
 use crate::{
     capabilities::{Profile, ProfileMetadata},
     command::inquiry::{FocusPositionInquiry, PanTiltPositionInquiry, ZoomPositionInquiry},
     error::Error,
-    transport::BlockingTransport,
 };
 #[cfg(feature = "async")]
 use crate::{executor::Executor, transport::AsyncTransport};
 
 #[cfg(feature = "async")]
 use super::AsyncMode;
-use super::{BlockingMode, Camera, MovementConfig, PanTiltPosition};
+#[cfg(not(feature = "async"))]
+use super::BlockingMode;
+use super::{Camera, MovementConfig, PanTiltPosition};
 
-// Blocking mode implementation is always available
+// Blocking mode implementation is only available without async feature
+#[cfg(not(feature = "async"))]
 impl<P, T> Camera<BlockingMode, P, T, ()>
 where
-    P: Profile + ProfileMetadata,
+    P: Profile + ProfileMetadata + Default,
     T: BlockingTransport,
 {
+    /// Wait for a command completion message or idle state using the default timeout.
+    ///
+    /// Uses `TimeoutConfig::movement_timeout` as the default limit and falls back
+    /// to state-query detection in blocking mode.
+    pub fn wait_for_completion(&mut self) -> Result<(), Error> {
+        let timeout = self.timeout_config().movement_timeout;
+        self.wait_for_completion_with_timeout(timeout)
+    }
+
+    /// Wait for a command completion message or idle state with a custom timeout.
+    ///
+    /// This mirrors the async API and provides a convenient entry point for
+    /// movement waits in blocking mode.
+    pub fn wait_for_completion_with_timeout(&mut self, timeout: Duration) -> Result<(), Error> {
+        let config = MovementConfig {
+            timeout,
+            debug: false,
+        };
+        self.wait_for_movement(&config)
+    }
+
     /// Wait for any movement operation to complete.
     ///
     /// This method uses VISCA completion messages (0x51) when supported by the camera
@@ -43,7 +68,7 @@ where
 
         // Use state querying (works in both blocking and async modes)
         if config.debug {
-            log::debug!("Using state-query movement detection");
+            tracing::debug!("Using state-query movement detection");
         }
 
         self.wait_using_state_query(config)
@@ -57,20 +82,20 @@ where
         loop {
             if start.elapsed() > config.timeout {
                 if config.debug {
-                    log::debug!("Movement detection timed out");
+                    tracing::debug!("Movement detection timed out");
                 }
                 return Err(Error::Timeout);
             }
 
             if !self.is_moving()? {
                 if config.debug {
-                    log::debug!("Movement completed (camera is idle)");
+                    tracing::debug!("Movement completed (camera is idle)");
                 }
                 return Ok(());
             }
 
-            // Yield to scheduler instead of sleeping
-            std::thread::yield_now();
+            // Sleep briefly to avoid busy-waiting while polling state
+            std::thread::sleep(Duration::from_millis(5));
         }
     }
 
@@ -86,7 +111,7 @@ where
         // Keep checking until pan/tilt stops moving
         let start = Instant::now();
         if config.debug {
-            log::debug!(
+            tracing::debug!(
                 "Waiting for pan/tilt movement to complete (timeout: {:?})",
                 config.timeout
             );
@@ -142,7 +167,7 @@ where
         // Keep checking until zoom stops moving
         let start = Instant::now();
         if config.debug {
-            log::debug!(
+            tracing::debug!(
                 "Waiting for zoom movement to complete (timeout: {:?})",
                 config.timeout
             );
@@ -190,7 +215,7 @@ where
         // Keep checking until focus stops moving
         let start = Instant::now();
         if config.debug {
-            log::debug!(
+            tracing::debug!(
                 "Waiting for focus movement to complete (timeout: {:?})",
                 config.timeout
             );
@@ -270,8 +295,8 @@ where
             _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
         };
 
-        // Yield to scheduler
-        std::thread::yield_now();
+        // Sleep briefly to allow state to change between samples
+        std::thread::sleep(Duration::from_millis(1));
 
         // Get second reading
         let pos2_pt_response = self.send_command(&PanTiltPositionInquiry)?;
@@ -325,7 +350,7 @@ where
 #[cfg(feature = "async")]
 impl<P, T, E> Camera<AsyncMode, P, T, E>
 where
-    P: Profile + ProfileMetadata,
+    P: Profile + ProfileMetadata + Default,
     T: AsyncTransport + 'static,
     E: Executor,
 {
@@ -338,29 +363,32 @@ where
         // Check if camera supports operation complete messages
         if P::SUPPORTS_OPERATION_COMPLETE {
             if config.debug {
-                log::debug!(
+                tracing::debug!(
                     "Using event-driven movement detection (camera supports completion messages)"
                 );
             }
 
             // Try to wait for completion message
-            match self.wait_for_completion().await {
+            // Respect MovementConfig timeout when waiting for completion
+            match self.wait_for_completion_with_timeout(config.timeout).await {
                 Ok(()) => {
                     if config.debug {
-                        log::debug!("Movement completed (received operation complete message)");
+                        tracing::debug!("Movement completed (received operation complete message)");
                     }
                     return Ok(());
                 }
                 Err(Error::Unsupported) => {
                     // Transport doesn't support waiting for completion
                     if config.debug {
-                        log::debug!("Transport doesn't support event-driven detection, falling back to state query");
+                        tracing::debug!("Transport doesn't support event-driven detection, falling back to state query");
                     }
                 }
                 Err(Error::Timeout) => {
                     // No completion message within timeout
                     if config.debug {
-                        log::debug!("No completion message received, falling back to state query");
+                        tracing::debug!(
+                            "No completion message received, falling back to state query"
+                        );
                     }
                 }
                 Err(e) => {
@@ -372,7 +400,7 @@ where
 
         // Fallback: Use state querying
         if config.debug {
-            log::debug!("Using state-query movement detection");
+            tracing::debug!("Using state-query movement detection");
         }
 
         self.wait_using_state_query_async(config).await
@@ -386,21 +414,22 @@ where
         loop {
             if start.elapsed() > config.timeout {
                 if config.debug {
-                    log::debug!("Movement detection timed out");
+                    tracing::debug!("Movement detection timed out");
                 }
                 return Err(Error::Timeout);
             }
 
             if !self.is_moving_async().await? {
                 if config.debug {
-                    log::debug!("Movement completed (camera is idle)");
+                    tracing::debug!("Movement completed (camera is idle)");
                 }
                 return Ok(());
             }
 
-            // Yield to scheduler using executor
+            // Yield to scheduler using a short sleep to avoid busy looping
+            // Keep cadence in line with blocking path (~5ms)
             let executor = self.executor();
-            executor.sleep(Duration::from_millis(1)).await;
+            executor.sleep(Duration::from_millis(5)).await;
         }
     }
 
@@ -416,7 +445,7 @@ where
         // Keep checking until pan/tilt stops moving
         let start = Instant::now();
         if config.debug {
-            log::debug!(
+            tracing::debug!(
                 "Waiting for pan/tilt movement to complete (timeout: {:?})",
                 config.timeout
             );
@@ -474,7 +503,7 @@ where
         // Keep checking until zoom stops moving
         let start = Instant::now();
         if config.debug {
-            log::debug!(
+            tracing::debug!(
                 "Waiting for zoom movement to complete (timeout: {:?})",
                 config.timeout
             );
@@ -524,7 +553,7 @@ where
         // Keep checking until focus stops moving
         let start = Instant::now();
         if config.debug {
-            log::debug!(
+            tracing::debug!(
                 "Waiting for focus movement to complete (timeout: {:?})",
                 config.timeout
             );

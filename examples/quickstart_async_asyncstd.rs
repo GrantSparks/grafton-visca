@@ -1,6 +1,7 @@
 //! Quickstart example using async-std runtime
 //!
-//! This example demonstrates basic async camera control using async-std runtime.
+//! This example demonstrates basic async camera control using async-std runtime,
+//! using the preferred high-level Camera API (not raw byte sends).
 //!
 //! Run with:
 //! ```bash
@@ -9,36 +10,47 @@
 
 #![cfg(feature = "rt-async-std")]
 
-use grafton_visca::runtime_adapters::async_std::TcpTransport;
-use grafton_visca::transport::AsyncTransport;
+use grafton_visca::{
+    camera::{
+        methods::{pan_tilt::PanTiltControl, power::PowerControl, zoom::ZoomControl},
+        profiles::PtzOpticsG2,
+    },
+    transport::builder::TransportBuilder,
+    CameraBuilder,
+};
 use std::error::Error;
 
 #[async_std::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    env_logger::init();
+    tracing_subscriber::fmt::init();
 
-    // Connect to camera
-    println!("Connecting to camera at 192.168.0.110:5678...");
-    let mut transport = TcpTransport::connect("192.168.0.110:5678").await?;
+    // Preferred: build a camera and use high-level methods
+    let addr = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "192.168.0.110:5678".into());
+    println!("Connecting to camera at {addr} with async-std...");
+    // Use TransportBuilder for native async-std TCP transport
+    let transport = TransportBuilder::async_std_tcp()
+        .address(&addr)
+        .build_tcp_async_std()
+        .await?;
 
-    // Send a simple power on command
-    let power_on = vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF];
-    println!("Sending power on command: {:02X?}", power_on);
-    transport.send(&power_on).await?;
+    let camera = CameraBuilder::async_std()
+        .build_async::<PtzOpticsG2, _>(transport)
+        .await?;
 
-    // Receive response
-    let response = transport.recv().await?;
-    println!("Received response: {:02X?}", response.as_ref());
+    // High-level control
+    println!("Powering on...\n");
+    camera.power_on().await?;
 
-    // Send a power inquiry command
-    let power_inquiry = vec![0x81, 0x09, 0x04, 0x00, 0xFF];
-    println!("Sending power inquiry: {:02X?}", power_inquiry);
-    transport.send(&power_inquiry).await?;
+    // High-level inquiry
+    let is_on = camera.power_inquiry().await?;
+    println!("Power state: {}", if is_on { "ON" } else { "OFF" });
 
-    // Receive response
-    let response = transport.recv().await?;
-    println!("Received response: {:02X?}", response.as_ref());
+    // A couple more high-level calls
+    camera.zoom_stop().await?;
+    camera.pan_tilt_home().await?;
 
-    println!("async-std example completed successfully!");
+    println!("async-std quickstart (high-level) completed successfully!");
     Ok(())
 }

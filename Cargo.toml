@@ -40,14 +40,12 @@ chrono = { version = "0.4", features = ["serde"] }
 flume = "0.11"
 grafton-visca-macros = { path = "grafton-visca-macros", version = "0.7.0" }
 hex = "0.4"
-log = "0.4.22"
-env_logger = "0.11.5"
+tracing = "0.1"
 nom = "8.0.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serialport = { version = "4.5", optional = true }
 thiserror = "2.0"
-tracing = "0.1"
 tokio = { version = "1.47", features = [
     "net",
     "sync",
@@ -70,6 +68,7 @@ async-executor = "1.8"
 async-trait = "0.1"
 futures-lite = "2.3"
 rand = "0.9"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Consolidated examples - clean, focused learning experience
 

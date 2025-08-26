@@ -2,8 +2,6 @@
 
 #[cfg(feature = "async")]
 use grafton_visca::camera::AsyncMode;
-#[cfg(feature = "async")]
-use grafton_visca::prelude::r#async::{PtzOpticsG2Cam, SonyFR7Cam};
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::camera::BlockingMode;
@@ -53,6 +51,8 @@ fn test_generic_camera_methods() {
     #[cfg(not(feature = "async"))]
     type _FR7Camera<T> = Camera<BlockingMode, SonyFR7, T, ()>;
 
+    #[cfg(not(feature = "async"))]
     type _G2Alias<T> = PtzOpticsG2Cam<T>;
+    #[cfg(not(feature = "async"))]
     type _FR7Alias<T> = SonyFR7Cam<T>;
 }

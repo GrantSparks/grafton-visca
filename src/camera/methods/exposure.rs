@@ -421,9 +421,10 @@ pub trait ExposureControlBlocking: Sized {
 }
 
 // Blocking implementation for Camera with BlockingMode
+#[cfg(not(feature = "async"))]
 impl<P, T> ExposureControlBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
-    P: crate::capabilities::Profile,
+    P: crate::capabilities::Profile + Default,
     T: crate::transport::BlockingTransport + Send + 'static,
 {
     fn set_exposure_mode(

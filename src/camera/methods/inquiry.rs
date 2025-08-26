@@ -1087,9 +1087,10 @@ where
 }
 
 // Blocking implementation
+#[cfg(not(feature = "async"))]
 impl<P, T> InquiryControlBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
-    P: crate::capabilities::Profile,
+    P: crate::capabilities::Profile + Default,
     T: crate::transport::BlockingTransport,
 {
     fn get_power_state(&mut self) -> Result<bool, Error> {
@@ -1804,10 +1805,11 @@ where
 }
 
 // Blocking implementation
+#[cfg(not(feature = "async"))]
 impl<P, T> PanTiltInquiryControlBlocking
     for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
-    P: crate::capabilities::Profile,
+    P: crate::capabilities::Profile + Default,
     T: crate::transport::BlockingTransport,
 {
     fn get_pan_tilt_position(&mut self) -> Result<(i16, i16), Error> {

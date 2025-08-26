@@ -519,30 +519,40 @@ pub mod testing;
 
 pub use grafton_visca_macros::{InquiryCommand, ViscaEncode, ViscaEnum, ViscaValue};
 
-pub use crate::{
-    camera::methods::{
-        focus::FocusControlBlocking,
-        inquiry::{InquiryControlBlocking, PanTiltInquiryControlBlocking},
-        pan_tilt::PanTiltControlBlocking,
-        power::PowerControlBlocking,
-        presets::PresetsControlBlocking,
-        zoom::ZoomControlBlocking,
-    },
-    camera::{Camera, CameraBuilder},
-    camera_id::CameraId,
-    command::{
-        exposure::ExposureMode,
-        focus::{AutoFocusSensitivity, FocusMode},
-        nd_filter::NDFilterMode,
-        pan_tilt::{PanTiltDirection, PanTiltLimitCorner},
-        preset::PresetNumber,
-        resolution::{PictureEffectMode, ResolutionMode},
-        system::{MotionSyncMode, MotionSyncSpeed},
-        white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode},
-    },
-    error::{Error, Result},
+// Core types always exported
+pub use crate::command::{
+    exposure::ExposureMode,
+    focus::{AutoFocusSensitivity, FocusMode},
+    nd_filter::NDFilterMode,
+    pan_tilt::{PanTiltDirection, PanTiltLimitCorner},
+    preset::PresetNumber,
+    resolution::{PictureEffectMode, ResolutionMode},
+    system::{MotionSyncMode, MotionSyncSpeed},
+    white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode},
+};
+pub use crate::error::{Error, Result};
+pub use crate::{camera::Camera, camera::CameraBuilder, camera_id::CameraId};
+
+// Blocking-only method traits
+#[cfg(not(feature = "async"))]
+pub use crate::camera::methods::{
+    focus::FocusControlBlocking,
+    inquiry::{InquiryControlBlocking, PanTiltInquiryControlBlocking},
+    pan_tilt::PanTiltControlBlocking,
+    power::PowerControlBlocking,
+    presets::PresetsControlBlocking,
+    zoom::ZoomControlBlocking,
 };
 
+#[cfg(feature = "async")]
+pub use crate::camera::methods::{
+    focus::FocusControl,
+    inquiry::{InquiryControl, PanTiltInquiryControl},
+    pan_tilt::PanTiltControl,
+    power::PowerControl,
+    presets::PresetsControl,
+    zoom::ZoomControl,
+};
 #[cfg(all(feature = "async", feature = "rt-async-std"))]
 pub use crate::executor::AsyncStdExecutor;
 #[cfg(all(feature = "async", feature = "rt-smol"))]
@@ -550,17 +560,7 @@ pub use crate::executor::SmolExecutor;
 #[cfg(all(feature = "async", feature = "rt-tokio"))]
 pub use crate::executor::TokioExecutor;
 #[cfg(feature = "async")]
-pub use crate::{
-    camera::methods::{
-        focus::FocusControl,
-        inquiry::{InquiryControl, PanTiltInquiryControl},
-        pan_tilt::PanTiltControl,
-        power::PowerControl,
-        presets::PresetsControl,
-        zoom::ZoomControl,
-    },
-    executor::{ExecError, Executor},
-};
+pub use crate::executor::{ExecError, Executor};
 
 /// Camera profiles with compositional capabilities
 pub mod profiles {

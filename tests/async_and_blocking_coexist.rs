@@ -1,28 +1,34 @@
-//! Test that both async and blocking APIs can coexist in the same build.
+//! Test that async and blocking APIs are properly separated and don't interfere with each other.
+//!
+//! These features are mutually exclusive by design.
+
+#[cfg(not(feature = "async"))]
+#[test]
+fn test_blocking_mode_compile() {
+    use grafton_visca::{
+        camera::{profiles::PtzOpticsG2, BlockingMode, Camera},
+        transport::blocking::Tcp as BlockingTcp,
+    };
+
+    type _BlockingCamera = Camera<BlockingMode, PtzOpticsG2, BlockingTcp, ()>;
+    fn _accepts_blocking(_camera: &_BlockingCamera) {}
+}
 
 #[cfg(feature = "rt-tokio")]
-use grafton_visca::{
-    camera::AsyncMode, runtime_adapters::tokio::TcpTransport as AsyncTcp, TokioExecutor,
-};
-use grafton_visca::{
-    camera::{profiles::PtzOpticsG2, BlockingMode, Camera},
-    transport::blocking::Tcp as BlockingTcp,
-};
-
 #[test]
-fn test_both_modes_compile() {
-    type _BlockingCamera = Camera<BlockingMode, PtzOpticsG2, BlockingTcp, ()>;
+fn test_async_mode_compile() {
+    use grafton_visca::{
+        camera::profiles::PtzOpticsG2, camera::AsyncMode, camera::Camera,
+        runtime_adapters::tokio::TcpTransport as AsyncTcp, TokioExecutor,
+    };
 
-    #[cfg(feature = "rt-tokio")]
     type _AsyncCamera = Camera<AsyncMode, PtzOpticsG2, AsyncTcp, TokioExecutor>;
-    fn _accepts_blocking(_camera: &_BlockingCamera) {}
-
-    #[cfg(feature = "rt-tokio")]
     fn _accepts_async(_camera: &_AsyncCamera) {}
 }
 
+#[cfg(not(feature = "async"))]
 #[test]
-fn test_blocking_traits_always_available() {
+fn test_blocking_traits_available() {
     use grafton_visca::{
         FocusControlBlocking, InquiryControlBlocking, PanTiltControlBlocking, PowerControlBlocking,
         PresetsControlBlocking, ZoomControlBlocking,
@@ -60,14 +66,23 @@ fn test_async_traits_with_feature() {
 }
 
 #[test]
-fn test_both_preludes_available() {
-    use grafton_visca::prelude::blocking as blocking_prelude;
+fn test_preludes_per_mode() {
+    #[cfg(not(feature = "async"))]
+    {
+        use grafton_visca::prelude::blocking as blocking_prelude;
+        use grafton_visca::transport::blocking::Tcp as BlockingTcp;
+        type _BlockingG2 = blocking_prelude::PtzOpticsG2Cam<BlockingTcp>;
+        let _ = core::any::type_name::<_BlockingG2>();
+    }
 
-    type _BlockingG2 = blocking_prelude::PtzOpticsG2Cam<BlockingTcp>;
     #[cfg(all(feature = "async", feature = "rt-tokio"))]
     {
         use grafton_visca::prelude::r#async as async_prelude;
-
-        type _AsyncG2 = async_prelude::PtzOpticsG2Cam<AsyncTcp>;
+        use grafton_visca::runtime_adapters::tokio::TcpTransport as AsyncTcp;
+        // The async prelude doesn't export type aliases like PtzOpticsG2Cam
+        // Instead, we use runtime-specific aliases or construct the type directly
+        use grafton_visca::TokioCamera;
+        type _AsyncG2 = TokioCamera<async_prelude::PtzOpticsG2, AsyncTcp>;
+        let _ = core::any::type_name::<_AsyncG2>();
     }
 }

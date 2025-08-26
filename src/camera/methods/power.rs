@@ -52,21 +52,17 @@ where
     }
 
     async fn power_inquiry(&self) -> Result<bool, Error> {
-        use crate::command::{inquiry::PowerInquiry, response::ViscaResponse, InquiryResponse};
+        use crate::command::inquiry_structs::PowerInquiry;
 
-        let inquiry = PowerInquiry {};
-        let response = self.send_command(&inquiry).await?;
-        match response {
-            ViscaResponse::Inquiry(InquiryResponse::Power { on }) => Ok(on),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_command_typed(&PowerInquiry).await
     }
 }
 
 // Blocking implementation for Camera with BlockingMode
+#[cfg(not(feature = "async"))]
 impl<P, T> PowerControlBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
-    P: crate::capabilities::Profile,
+    P: crate::capabilities::Profile + Default,
     T: crate::transport::BlockingTransport + Send + 'static,
 {
     fn power_on(&mut self) -> Result<(), Error> {
@@ -86,13 +82,8 @@ where
     }
 
     fn power_inquiry(&mut self) -> Result<bool, Error> {
-        use crate::command::{inquiry::PowerInquiry, response::ViscaResponse, InquiryResponse};
+        use crate::command::inquiry_structs::PowerInquiry;
 
-        let inquiry = PowerInquiry {};
-        let response = self.send_command(&inquiry)?;
-        match response {
-            ViscaResponse::Inquiry(InquiryResponse::Power { on }) => Ok(on),
-            _ => Err(Error::UnexpectedResponseType),
-        }
+        self.send_command_typed(&PowerInquiry)
     }
 }

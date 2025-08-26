@@ -130,10 +130,11 @@ where
 }
 
 // Blocking implementation for Camera with BlockingMode
+#[cfg(not(feature = "async"))]
 impl<P, T> MotionSyncControlBlocking
     for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
-    P: crate::capabilities::Profile + crate::capabilities::motion_sync::MotionSync,
+    P: crate::capabilities::Profile + crate::capabilities::motion_sync::MotionSync + Default,
     T: crate::transport::BlockingTransport + Send + 'static,
 {
     fn set_motion_sync_mode(&mut self, mode: MotionSyncMode) -> Result<(), Error> {

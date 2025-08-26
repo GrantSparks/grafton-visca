@@ -9,17 +9,20 @@
 //! The transport layer now uses two separate traits:
 //! - **AsyncTransport** - Native async functions for zero-cost async transports
 //! - **BlockingTransport** - Synchronous methods with OS-level timeout support
-//! - **ViscaProtocol** - Handles VISCA protocol logic (ACK/completion responses)
-//! - **Implementations** - TCP and UDP for both blocking and async
+//! - Implementations: TCP and UDP for both blocking and async
 //!
 //! ## Usage
 //!
 //! For blocking transports:
 //! ```rust,no_run
+//! # #[cfg(not(feature = "async"))]
 //! use grafton_visca::transport::blocking::Tcp;
+//! # #[cfg(not(feature = "async"))]
 //! use grafton_visca::transport::BlockingTransport;
 //!
+//! # #[cfg(not(feature = "async"))]
 //! # fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! # #[cfg(not(feature = "async"))]
 //! let transport = Tcp::connect("192.168.0.110:5678")?;
 //! // transport is ready to use with Camera<P, T: BlockingTransport>
 //! # Ok(())
@@ -42,28 +45,39 @@
 //! ```
 
 pub mod address;
+// Async transport trait and runtime-specific transports are only public with `async`
+#[cfg(feature = "async")]
 pub mod async_transport;
+// Blocking transports are only public when NOT in async mode
+#[cfg(not(feature = "async"))]
 pub mod blocking;
+#[cfg(not(feature = "async"))]
 pub mod blocking_transport;
 pub mod buffer;
 pub mod builder;
+pub mod sony_config;
+// Blocking-only helpers and transports should not compile in async builds
+#[cfg(not(feature = "async"))]
 pub mod envelope;
+#[cfg(not(feature = "async"))]
 pub mod ip_raw;
+#[cfg(not(feature = "async"))]
 pub mod ip_sony;
 pub mod retry;
-#[cfg(feature = "serial")]
+// Serial is a blocking-only transport, so only compile it when not using async
+#[cfg(all(feature = "serial", not(feature = "async")))]
 pub mod serial;
 pub mod timeout;
 
 // Runtime-specific transport implementations are feature-gated extensions
 // They should be accessed through the runtime_adapters module
-#[cfg(feature = "rt-tokio")]
+#[cfg(all(feature = "async", feature = "rt-tokio"))]
 pub(crate) mod tokio;
 
-#[cfg(feature = "rt-async-std")]
+#[cfg(all(feature = "async", feature = "rt-async-std"))]
 pub(crate) mod async_std;
 
-#[cfg(feature = "rt-smol")]
+#[cfg(all(feature = "async", feature = "rt-smol"))]
 pub(crate) mod smol;
 
 use std::time::{Duration, Instant};
@@ -73,6 +87,7 @@ pub use async_transport::AsyncTransport;
 // Gate blocking exports so they only appear without async
 #[cfg(not(feature = "async"))]
 pub use blocking::{Tcp as BlockingTcp, Udp as BlockingUdp};
+#[cfg(not(feature = "async"))]
 pub use blocking_transport::BlockingTransport;
 
 /// Retry configuration for transport layer operations.

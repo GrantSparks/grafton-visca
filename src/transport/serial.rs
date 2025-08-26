@@ -5,7 +5,7 @@
 //! Address Set and I/F Clear initialization.
 
 use bytes::{Bytes, BytesMut};
-use log::{debug, trace, warn};
+use tracing::{debug, trace, warn};
 
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
@@ -13,7 +13,10 @@ use std::time::{Duration, Instant};
 
 use crate::error::{Error, Result};
 use crate::protocol::encode::{FrameBuilder, VISCA_TERMINATOR};
-use crate::transport::{BlockingTransport, RetryConfig};
+use crate::transport::{
+    buffer::{BufferConfig, BufferManager},
+    BlockingTransport, RetryConfig,
+};
 
 /// Serial port configuration for VISCA communication.
 #[derive(Debug, Clone)]
@@ -75,10 +78,11 @@ impl SerialTransport {
         let if_clear = config.if_clear_on_connect;
         let address_set = config.address_set_on_connect;
 
+        let buffer_manager = BufferManager::new(BufferConfig::for_serial());
         let transport = Self {
             port: Arc::new(Mutex::new(port)),
             camera_address,
-            read_buffer: Arc::new(Mutex::new(BytesMut::with_capacity(256))),
+            read_buffer: Arc::new(Mutex::new(buffer_manager.alloc_recv_buffer())),
             config,
         };
 

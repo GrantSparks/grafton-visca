@@ -42,7 +42,7 @@ use grafton_visca::{
 
 #[cfg(not(feature = "async"))]
 fn main() -> Result<(), Error> {
-    env_logger::init();
+    tracing_subscriber::fmt::init();
 
     let camera_addr = env::args()
         .nth(1)

@@ -10,7 +10,7 @@ use grafton_visca::{
     command::{power::Power, zoom::Zoom},
     runtime::{Priority, RuntimeHandle},
     testing::testkit::{
-        deterministic_executor::{DeterministicExecutorExt, ExecutorExt},
+        deterministic_executor::DeterministicExecutorExt,
         helpers::{ack, buffer_full, complete, not_executable},
         DeterministicExecutor, ScriptedTransport, Step,
     },
@@ -26,7 +26,8 @@ fn test_buffer_full_always_retryable() {
     let (result_tx, result_rx) = flume::bounded(1);
 
     let executor_clone = executor.clone();
-    executor.clone().spawn_bg(async move {
+    use grafton_visca::testing::testkit::deterministic_executor::ExecutorExt;
+    executor.clone().spawn_detached(async move {
         // BufferFull should retry for ANY command type
         let steps = vec![
             Step::OnSend {
@@ -46,7 +47,8 @@ fn test_buffer_full_always_retryable() {
 
         // Spawn command in background
         let runtime_clone = runtime;
-        executor_clone.clone().spawn_bg(async move {
+        use grafton_visca::testing::testkit::deterministic_executor::ExecutorExt;
+        executor_clone.clone().spawn_detached(async move {
             let result = runtime_clone
                 .send_command(&Power::On, CameraId::default(), Some(Priority::Normal))
                 .await;
@@ -97,7 +99,8 @@ fn test_not_executable_retryable_for_movement() {
     let (result_tx, result_rx) = flume::bounded(1);
 
     let executor_clone = executor.clone();
-    executor.clone().spawn_bg(async move {
+    use grafton_visca::testing::testkit::deterministic_executor::ExecutorExt;
+    executor.clone().spawn_detached(async move {
         let steps = vec![
             Step::OnSend {
                 matches: None,
@@ -119,7 +122,8 @@ fn test_not_executable_retryable_for_movement() {
 
         // Spawn command in background
         let runtime_clone = runtime;
-        executor_clone.clone().spawn_bg(async move {
+        use grafton_visca::testing::testkit::deterministic_executor::ExecutorExt;
+        executor_clone.clone().spawn_detached(async move {
             let result = runtime_clone
                 .send_command(&zoom_cmd, CameraId::default(), Some(Priority::Normal))
                 .await;
@@ -187,7 +191,8 @@ fn test_not_executable_not_retryable_for_quick() {
         // Test with Quick command (Power) - should NOT retry
         let executor_clone = executor.clone();
         let clock_clone = clock.clone();
-        executor.spawn_bg(async move {
+        use grafton_visca::testing::testkit::deterministic_executor::ExecutorExt;
+        executor.spawn_detached(async move {
             // Drive executor to process any retries
             for _ in 0..5 {
                 executor_clone.drive_until_idle();

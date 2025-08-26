@@ -59,12 +59,14 @@ pub trait VariableSpeedControlBlocking {
 }
 
 // Blocking implementation for Camera with BlockingMode
+#[cfg(not(feature = "async"))]
 impl<P, T> VariableSpeedControlBlocking
     for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
     P: crate::capabilities::Profile
         + crate::capabilities::VariableSpeed
-        + crate::capabilities::HasVariableSpeed,
+        + crate::capabilities::HasVariableSpeed
+        + Default,
     T: crate::transport::BlockingTransport + Send + 'static,
 {
     fn set_variable_speed_mode(&mut self, mode: VariableSpeedMode) -> Result<(), Error> {

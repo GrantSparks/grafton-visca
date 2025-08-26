@@ -6,7 +6,7 @@
 #[cfg(feature = "async")]
 use flume::{Receiver, Sender};
 #[cfg(feature = "async")]
-use log::{debug, trace, warn};
+use tracing::{debug, trace, warn};
 
 #[cfg(feature = "async")]
 use std::{

@@ -116,7 +116,7 @@ fn test_busy_with_max_retries() {
         // Create a task to periodically advance time while command executes
         let executor_clone = executor.clone();
         let clock_clone = clock.clone();
-        executor.spawn_bg(async move {
+        executor.spawn_detached(async move {
             for _ in 0..20 {
                 executor_clone.drive_until_idle();
                 clock_clone.advance(Duration::from_millis(100));

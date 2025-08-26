@@ -2,6 +2,11 @@
 
 This directory contains comprehensive examples demonstrating how to use the grafton-visca library for controlling VISCA-compatible PTZ cameras.
 
+Preferred usage: Use the high-level Camera API wherever possible.
+- Build cameras via `CameraBuilder` and a concrete profile.
+- Call methods from `camera::methods` (power, pan_tilt, zoom, focus, exposure, presets, inquiry).
+- Avoid sending raw VISCA bytes directly in applications; that is reserved for advanced demos.
+
 ## Important: Feature Flags
 
 This library uses feature flags to control dependencies:
@@ -17,15 +22,15 @@ This library uses feature flags to control dependencies:
 
 If you're new to the library, start with these examples in order:
 
-1. **[quickstart.rs](quickstart.rs)** - Comprehensive blocking example with all camera features
-2. **[quickstart_async.rs](quickstart_async.rs)** - Comprehensive async example with concurrent operations
+1. **[quickstart.rs](quickstart.rs)** - Blocking example using high-level methods (preferred)
+2. **[quickstart_async.rs](quickstart_async.rs)** - Async example using high-level methods (preferred)
 3. **[error_handling.rs](error_handling.rs)** - Learn proper error handling patterns
 
 ## Examples by Category
 
 ### Basic Usage
-- **[quickstart.rs](quickstart.rs)** - Comprehensive blocking example covering movement, presets, and imaging
-- **[quickstart_async.rs](quickstart_async.rs)** - Async version with concurrent operations and state management
+- **[quickstart.rs](quickstart.rs)** - Blocking example covering movement, presets, and imaging (high-level)
+- **[quickstart_async.rs](quickstart_async.rs)** - Async version with concurrent operations and state management (high-level)
 - **[runtime_agnostic.rs](runtime_agnostic.rs)** - Works with any async runtime (smol, async-std, etc.)
 
 ### Camera Control
@@ -36,13 +41,13 @@ If you're new to the library, start with these examples in order:
 ### Connection & Transport
 - **[transports.rs](transports.rs)** - Compare TCP vs UDP transports, configuration options
 - **[builder_api.rs](builder_api.rs)** - Explore all CameraBuilder patterns and options
-- **[sony_encapsulation.rs](sony_encapsulation.rs)** - Sony encapsulated protocol with 8-byte header
+- **[sony_encapsulation.rs](sony_encapsulation.rs)** - Sony encapsulated protocol with 8-byte header (advanced)
 
 ### Advanced Patterns
 - **[concurrent_control.rs](concurrent_control.rs)** - Thread-safe operations from multiple threads
 - **[error_handling.rs](error_handling.rs)** - Comprehensive error handling and recovery strategies
-- **[runtime_demo.rs](runtime_demo.rs)** - Protocol-compliant runtime execution with ACK/Completion
-- **[inquiry_demo.rs](inquiry_demo.rs)** - Advanced camera state queries and monitoring
+- **[runtime_demo.rs](runtime_demo.rs)** - Runtime internals and low-level flows (advanced)
+- **[inquiry_demo.rs](inquiry_demo.rs)** - Camera state queries using high-level inquiry methods
 
 ## Running Examples
 

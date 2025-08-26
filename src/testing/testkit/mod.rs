@@ -11,7 +11,9 @@ pub mod scripted_transport;
 
 #[cfg(feature = "async")]
 pub use deterministic_executor::{DeterministicClock, DeterministicExecutor};
-pub use scripted_transport::{helpers, ScriptedBlockingTransport, Step};
+#[cfg(not(feature = "async"))]
+pub use scripted_transport::ScriptedBlockingTransport;
+pub use scripted_transport::{helpers, Step};
 
 #[cfg(feature = "async")]
 pub use scripted_transport::ScriptedTransport;

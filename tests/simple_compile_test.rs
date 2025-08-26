@@ -2,15 +2,14 @@
 
 #[cfg(feature = "async")]
 use grafton_visca::{
+    camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7},
     camera::{AsyncMode, Camera},
-    prelude::r#async::{GenericViscaCam, PtzOpticsG2Cam, SonyFR7Cam},
     transport::async_transport::AsyncTransport,
 };
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{BlockingMode, Camera},
-    prelude::blocking::{GenericViscaCam, PtzOpticsG2Cam, SonyFR7Cam},
     transport::BlockingTransport,
 };
 
@@ -18,9 +17,19 @@ use grafton_visca::capabilities::{NDFilter, Profile};
 
 #[test]
 fn test_compilation_succeeds() {
-    type _G2Camera<T> = PtzOpticsG2Cam<T>;
-    type _FR7Camera<T> = SonyFR7Cam<T>;
-    type _GenericCamera<T> = GenericViscaCam<T>;
+    #[cfg(feature = "async")]
+    type _G2Camera<T> = Camera<AsyncMode, PtzOpticsG2, T>;
+    #[cfg(feature = "async")]
+    type _FR7Camera<T> = Camera<AsyncMode, SonyFR7, T>;
+    #[cfg(feature = "async")]
+    type _GenericCamera<T> = Camera<AsyncMode, GenericVisca, T>;
+
+    #[cfg(not(feature = "async"))]
+    type _G2Camera<T> = grafton_visca::prelude::blocking::PtzOpticsG2Cam<T>;
+    #[cfg(not(feature = "async"))]
+    type _FR7Camera<T> = grafton_visca::prelude::blocking::SonyFR7Cam<T>;
+    #[cfg(not(feature = "async"))]
+    type _GenericCamera<T> = grafton_visca::prelude::blocking::GenericViscaCam<T>;
 }
 
 #[test]

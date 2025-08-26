@@ -7,7 +7,7 @@
 //! use the same executor type.
 //!
 //! Use the type aliases for cleaner syntax:
-//! - `CameraAsync<P, T>` for async cameras (requires executor)
+//! - Runtime-specific aliases: `TokioCamera<P, T>`, `AsyncStdCamera<P, T>`, `SmolCamera<P, T>` for async cameras
 //! - `CameraBlocking<P, T>` for blocking cameras
 
 pub mod builder;
@@ -23,7 +23,11 @@ pub mod profiles;
 pub use handle::Camera;
 
 // Re-export mode markers and type aliases
-pub use mode::{AsyncMode, BlockingMode, CameraAsync, CameraBlocking, CameraMode};
+pub use mode::{AsyncMode, BlockingMode, CameraMode};
+// Strictly gated public aliases to avoid mixed surfaces
+#[cfg(not(feature = "async"))]
+pub use mode::CameraBlocking;
+// Runtime-specific aliases are re-exported below (TokioCamera, AsyncStdCamera, SmolCamera)
 
 // Re-export builder types
 pub use builder::CameraBuilder;

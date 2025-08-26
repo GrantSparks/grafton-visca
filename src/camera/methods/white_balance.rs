@@ -130,10 +130,11 @@ where
 }
 
 // Blocking implementation for Camera with BlockingMode
+#[cfg(not(feature = "async"))]
 impl<P, T> WhiteBalanceControlBlocking
     for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
-    P: crate::capabilities::Profile,
+    P: crate::capabilities::Profile + Default,
     T: crate::transport::BlockingTransport + Send + 'static,
 {
     fn set_white_balance_mode(&mut self, mode: WhiteBalanceMode) -> Result<(), Error> {

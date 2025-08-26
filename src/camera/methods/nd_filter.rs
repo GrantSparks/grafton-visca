@@ -119,9 +119,10 @@ where
 }
 
 // Blocking implementation for Camera with BlockingMode
+#[cfg(not(feature = "async"))]
 impl<P, T> NdFilterControlBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
-    P: crate::capabilities::Profile + crate::capabilities::nd_filter::NDFilter,
+    P: crate::capabilities::Profile + crate::capabilities::nd_filter::NDFilter + Default,
     T: crate::transport::BlockingTransport + Send + 'static,
 {
     fn set_nd_filter_mode(&mut self, mode: CommandNDFilterMode) -> Result<(), Error> {

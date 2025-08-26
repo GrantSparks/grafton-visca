@@ -63,9 +63,10 @@ where
 }
 
 // Blocking implementation for Camera with BlockingMode
+#[cfg(not(feature = "async"))]
 impl<P, T> SystemControlBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
 where
-    P: crate::capabilities::Profile,
+    P: crate::capabilities::Profile + Default,
     T: crate::transport::BlockingTransport + Send + 'static,
 {
     fn trigger_address_assignment(&mut self) -> Result<(), Error> {

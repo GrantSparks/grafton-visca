@@ -98,7 +98,7 @@ async fn test_position_inquiries_integration() {
 /// Test exposure-related inquiries
 #[tokio::test(start_paused = true)]
 async fn test_exposure_inquiries_integration() {
-    let _ = env_logger::builder().is_test(true).try_init();
+    let _ = tracing_subscriber::fmt().with_test_writer().try_init();
     use grafton_visca::TokioExecutor;
 
     let executor = TokioExecutor::from_current().unwrap();

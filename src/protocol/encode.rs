@@ -3,15 +3,23 @@
 //! This module provides functions for encoding VISCA commands and handling
 //! different transport encapsulation formats (raw, Sony header).
 
-#[cfg(any(feature = "serial", test))]
+#[cfg(any(all(feature = "serial", not(feature = "async")), test))]
 use bytes::BufMut;
-#[cfg(any(feature = "async", feature = "serial", test))]
+#[cfg(any(all(feature = "serial", not(feature = "async")), test))]
 use bytes::BytesMut;
 
 /// VISCA frame terminator byte.
 pub(crate) const VISCA_TERMINATOR: u8 = 0xFF;
 
 /// Sony encapsulated header payload types.
+///
+/// Only compiled when used by either blocking Sony IP transport or Tokio runtime,
+/// or in tests.
+#[cfg(any(
+    not(feature = "async"),
+    all(feature = "async", feature = "rt-tokio"),
+    test
+))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PayloadType {
     /// VISCA command payload (0x01 0x00).
@@ -29,8 +37,15 @@ pub(crate) enum PayloadType {
 }
 
 /// Sony encapsulated header for VISCA over IP.
+///
+/// Only compiled when used by either blocking Sony IP transport or Tokio runtime,
+/// or in tests.
+#[cfg(any(
+    not(feature = "async"),
+    all(feature = "async", feature = "rt-tokio"),
+    test
+))]
 #[derive(Debug, Clone, Copy)]
-
 pub(crate) struct SonyHeader {
     /// Payload type.
     pub payload_type: PayloadType,
@@ -40,6 +55,11 @@ pub(crate) struct SonyHeader {
     pub sequence_number: u32,
 }
 
+#[cfg(any(
+    not(feature = "async"),
+    all(feature = "async", feature = "rt-tokio"),
+    test
+))]
 impl SonyHeader {
     /// Header size in bytes.
     pub const SIZE: usize = 8;
@@ -54,6 +74,7 @@ impl SonyHeader {
     }
 
     /// Create a new inquiry header with the given sequence.
+    #[cfg(any(not(feature = "async"), all(feature = "async", feature = "rt-tokio")))]
     pub fn new_inquiry(payload_len: usize, sequence: u32) -> Self {
         Self {
             payload_type: PayloadType::ViscaInquiry,
@@ -126,16 +147,14 @@ impl SonyHeader {
 }
 
 /// Builder for VISCA commands.
-#[cfg(any(feature = "async", feature = "serial", test))]
-#[allow(dead_code)]
+#[cfg(any(all(feature = "serial", not(feature = "async")), test))]
 pub(crate) struct FrameBuilder {
     buffer: BytesMut,
 }
 
-#[cfg(any(feature = "async", feature = "serial", test))]
+#[cfg(any(all(feature = "serial", not(feature = "async")), test))]
 impl FrameBuilder {
     /// Create a new command builder.
-    #[cfg(any(feature = "serial", test))]
     pub fn new() -> Self {
         Self {
             buffer: BytesMut::with_capacity(16),
@@ -143,7 +162,6 @@ impl FrameBuilder {
     }
 
     /// Add the device address byte (usually 0x81 for device 1).
-    #[cfg(any(feature = "serial", test))]
     pub fn device(mut self, device_id: u8) -> Self {
         self.buffer.put_u8(0x80 | (device_id & 0x0F));
         self
@@ -157,7 +175,7 @@ impl FrameBuilder {
     }
 
     /// Add multiple bytes.
-    #[cfg(feature = "serial")]
+    #[cfg(all(feature = "serial", not(feature = "async")))]
     pub fn bytes(mut self, bytes: &[u8]) -> Self {
         self.buffer.extend_from_slice(bytes);
         self
@@ -182,7 +200,6 @@ impl FrameBuilder {
     }
 
     /// Build the final command with terminator.
-    #[cfg(any(feature = "serial", test))]
     pub fn build(mut self) -> Vec<u8> {
         if !self.buffer.ends_with(&[VISCA_TERMINATOR]) {
             self.buffer.put_u8(VISCA_TERMINATOR);
@@ -191,7 +208,7 @@ impl FrameBuilder {
     }
 }
 
-#[cfg(any(feature = "serial", test))]
+#[cfg(any(all(feature = "serial", not(feature = "async")), test))]
 impl Default for FrameBuilder {
     fn default() -> Self {
         Self::new()
@@ -205,13 +222,13 @@ pub(crate) fn encode_cancel(socket: u8) -> Vec<u8> {
 }
 
 /// Interface clear command (serial only).
-#[cfg(any(feature = "serial", test))]
+#[cfg(any(all(feature = "serial", not(feature = "async")), test))]
 pub(crate) fn encode_if_clear() -> Vec<u8> {
     vec![0x88, 0x01, 0x00, 0x01, VISCA_TERMINATOR]
 }
 
 /// Address set command (serial only).
-#[cfg(any(feature = "serial", test))]
+#[cfg(any(all(feature = "serial", not(feature = "async")), test))]
 pub(crate) fn encode_address_set() -> Vec<u8> {
     vec![0x88, 0x30, 0x01, VISCA_TERMINATOR]
 }

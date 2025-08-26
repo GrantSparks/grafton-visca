@@ -19,7 +19,7 @@ use grafton_visca::{
 fn main() -> Result<()> {
     use grafton_visca::transport::{BlockingTcp, BlockingUdp};
 
-    env_logger::init();
+    tracing_subscriber::fmt::init();
 
     println!("=== CameraBuilder API Demo (Blocking) ===\n");
 
@@ -69,7 +69,7 @@ fn main() -> Result<()> {
 async fn main() -> Result<()> {
     use grafton_visca::runtime_adapters::tokio::{TcpTransport as Tcp, UdpTransport as Udp};
 
-    env_logger::init();
+    tracing_subscriber::fmt::init();
 
     println!("=== CameraBuilder API Demo (Async) ===\n");
 
@@ -90,7 +90,9 @@ async fn main() -> Result<()> {
     println!("\n--- Example 3: Concurrent Creation ---");
     use tokio::join;
 
-    async fn create_camera<P: grafton_visca::capabilities::Profile>(addr: &str) -> Result<()> {
+    async fn create_camera<P: grafton_visca::capabilities::Profile + Default>(
+        addr: &str,
+    ) -> Result<()> {
         let transport = Tcp::connect(addr).await?;
         let _camera = CameraBuilder::tokio()?
             .build_async::<P, _>(transport)

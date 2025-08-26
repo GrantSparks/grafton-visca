@@ -82,23 +82,18 @@ impl Udp {
     }
 }
 
-#[allow(clippy::manual_async_fn)]
 impl AsyncTransport for Udp {
-    fn send(&mut self, data: &[u8]) -> impl std::future::Future<Output = Result<(), Error>> + Send {
-        async move {
-            // Note: Retry logic for async UDP would require more complex refactoring
-            // For now, send directly without retry
-            self.socket.send(data).await?;
-            Ok(())
-        }
+    async fn send(&mut self, data: &[u8]) -> Result<(), Error> {
+        // Note: Retry logic for async UDP would require more complex refactoring
+        // For now, send directly without retry
+        self.socket.send(data).await?;
+        Ok(())
     }
 
-    fn recv(&mut self) -> impl std::future::Future<Output = Result<Bytes, Error>> + Send {
-        async move {
-            // Receiving is typically not retried to avoid protocol confusion
-            let mut buffer = self.buffer_manager.alloc_vec_buffer();
-            let n = self.socket.recv(&mut buffer).await?;
-            Ok(self.buffer_manager.process_recv_data(&mut buffer, n))
-        }
+    async fn recv(&mut self) -> Result<Bytes, Error> {
+        // Receiving is typically not retried to avoid protocol confusion
+        let mut buffer = self.buffer_manager.alloc_vec_buffer();
+        let n = self.socket.recv(&mut buffer).await?;
+        Ok(self.buffer_manager.process_recv_data(&mut buffer, n))
     }
 }

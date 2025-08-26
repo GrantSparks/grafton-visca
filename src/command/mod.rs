@@ -12,7 +12,7 @@ pub mod gain;
 pub mod image;
 pub mod image_adjustment;
 pub mod inquiry;
-mod inquiry_structs; // Internal module for macro-generated inquiry commands
+pub(crate) mod inquiry_structs; // Internal module for macro-generated inquiry commands
 pub mod inquiry_types;
 pub mod menu;
 pub mod motion_sync;
@@ -25,6 +25,7 @@ pub mod response;
 pub mod streaming;
 pub mod system;
 pub mod tally;
+pub mod typed;
 pub mod variable_speed;
 pub mod white_balance;
 pub mod zoom;

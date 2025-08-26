@@ -4,6 +4,7 @@
 
 use std::time::Duration;
 
+use grafton_visca::testing::testkit::deterministic_executor::ExecutorExt;
 use grafton_visca::{
     runtime::{Priority, RuntimeHandle},
     testing::testkit::{
@@ -225,8 +226,6 @@ fn test_deterministic_executor_handles_busy_exhaustion() {
 
 #[test]
 fn test_det_drives_spawned_tasks_smokescreen() {
-    use grafton_visca::testing::testkit::deterministic_executor::ExecutorExt;
-
     use std::sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -236,7 +235,7 @@ fn test_det_drives_spawned_tasks_smokescreen() {
     let flag = Arc::new(AtomicBool::new(false));
     let flag2 = flag.clone();
 
-    executor.spawn_bg(async move {
+    executor.spawn_detached(async move {
         flag2.store(true, Ordering::SeqCst);
     });
 
@@ -246,8 +245,6 @@ fn test_det_drives_spawned_tasks_smokescreen() {
 
 #[test]
 fn test_det_sleep_fires_only_when_time_advances_smokescreen() {
-    use grafton_visca::testing::testkit::deterministic_executor::ExecutorExt;
-
     use std::sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -258,7 +255,7 @@ fn test_det_sleep_fires_only_when_time_advances_smokescreen() {
     let flag2 = flag.clone();
     let executor2 = executor.clone();
 
-    executor.spawn_bg(async move {
+    executor.spawn_detached(async move {
         executor2.sleep(Duration::from_millis(50)).await;
         flag2.store(true, Ordering::SeqCst);
     });

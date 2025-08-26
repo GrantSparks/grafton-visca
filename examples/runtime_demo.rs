@@ -1,6 +1,10 @@
 //! Demo of the new flume-based runtime API.
 //!
-//! This example shows how to use the new Camera runtime with the EncodeVisca trait.
+//! Advanced: Camera runtime and low-level EncodeVisca usage
+//!
+//! Note: Preferred user-facing usage is via the high-level Camera methods
+//! (see quickstart and quickstart_async examples). This demo intentionally
+//! showcases lower-level runtime interactions for power users and contributors.
 
 #[cfg(not(all(feature = "async", feature = "rt-tokio")))]
 fn main() {
@@ -23,7 +27,7 @@ use std::sync::Arc;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
-    env_logger::init();
+    tracing_subscriber::fmt::init();
 
     // Camera configuration
     let camera_address = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.0.100".to_string());

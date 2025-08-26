@@ -5,7 +5,7 @@
 use grafton_visca::{
     camera::CameraBuilder,
     command::{
-        pan_tilt::{PanTilt, PanTiltDirection},
+        pan_tilt::PanTiltDirection,
         zoom::Zoom,
     },
     runtime::SocketId,
@@ -103,15 +103,12 @@ fn test_cancel_socket_directly() {
             .expect("Failed to create camera")
     });
 
-    // Send a pan/tilt command
+    // Send a pan/tilt command using the public API
     let camera_clone = camera.clone();
     std::mem::drop(executor.spawn(async move {
+        use grafton_visca::camera::methods::pan_tilt::PanTiltControl;
         let _ = camera_clone
-            .send_command(&PanTilt::Move {
-                direction: PanTiltDirection::UpRight,
-                pan_speed: 5.try_into().unwrap(),
-                tilt_speed: 5.try_into().unwrap(),
-            })
+            .pan_tilt_move(PanTiltDirection::UpRight, 5.try_into().unwrap(), 5.try_into().unwrap())
             .await;
     }));
 
@@ -225,6 +222,7 @@ fn test_cancel_during_movement() {
 
         // Send a stop command to ensure camera stopped
         // This might fail if the camera already stopped due to cancel, which is ok
-        let _ = camera.send_command(&Zoom::Stop).await;
+        use grafton_visca::camera::methods::zoom::ZoomControl;
+        let _ = camera.zoom_stop().await;
     });
 }

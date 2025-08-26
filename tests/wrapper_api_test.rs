@@ -10,7 +10,7 @@ fn test_blocking_wrapper_api() {
         ZoomControlBlocking,
     };
 
-    fn _example<P: Profile, T>(
+    fn _example<P: Profile + Default, T>(
         camera: &mut Camera<BlockingMode, P, T, ()>,
     ) -> Result<(), grafton_visca::Error>
     where
@@ -70,7 +70,7 @@ fn test_wrapper_creation() {
     }
 
     #[cfg(not(feature = "async"))]
-    fn _check_camera_type<P: Profile, T: BlockingTransport + Send + Sync + 'static>() {
+    fn _check_camera_type<P: Profile + Default, T: BlockingTransport + Send + Sync + 'static>() {
         let _: Option<Camera<BlockingMode, P, T>> = None;
     }
 

@@ -3,7 +3,7 @@
 //! This module provides abstraction for protocol envelopes, specifically
 //! handling Sony's 8-byte encapsulated VISCA protocol vs raw VISCA bytes.
 
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 
 use std::{
     borrow::Cow,
@@ -11,6 +11,7 @@ use std::{
 };
 
 use crate::capabilities::ProtocolStyle;
+use crate::transport::buffer::BufferManager;
 
 /// Transport envelope that handles protocol-specific framing.
 ///
@@ -35,12 +36,17 @@ impl TransportEnvelope {
     /// Frame a VISCA command according to the protocol style.
     ///
     /// For raw VISCA, returns the command bytes unchanged.
-    /// For Sony encapsulated, wraps with 8-byte header.
-    pub fn frame_command(&self, visca_bytes: &[u8], is_inquiry: bool) -> Bytes {
+    /// For Sony encapsulated, wraps with 8-byte header using the provided buffer manager.
+    pub fn frame_command(
+        &self,
+        visca_bytes: &[u8],
+        is_inquiry: bool,
+        buffer_manager: &BufferManager,
+    ) -> Bytes {
         match self.style {
             ProtocolStyle::RawVisca => Bytes::copy_from_slice(visca_bytes),
             ProtocolStyle::SonyEncapsulated { use_sequence } => {
-                self.sony_encapsulate(visca_bytes, is_inquiry, use_sequence)
+                self.sony_encapsulate(visca_bytes, is_inquiry, use_sequence, buffer_manager)
             }
         }
     }
@@ -69,7 +75,13 @@ impl TransportEnvelope {
     /// │ Payload-Type │ Length │ Sequence-No. ││ 8x … payload … FF │  
     /// └──────────────────────────────────────┘└─────────────────────┘
     /// ```
-    fn sony_encapsulate(&self, visca_bytes: &[u8], is_inquiry: bool, use_sequence: bool) -> Bytes {
+    fn sony_encapsulate(
+        &self,
+        visca_bytes: &[u8],
+        is_inquiry: bool,
+        use_sequence: bool,
+        buffer_manager: &BufferManager,
+    ) -> Bytes {
         let payload_type = if is_inquiry {
             SonyPayloadType::Inquiry
         } else {
@@ -83,7 +95,8 @@ impl TransportEnvelope {
             0
         };
 
-        let mut envelope = BytesMut::with_capacity(8 + visca_bytes.len());
+        let mut envelope = buffer_manager.alloc_send_buffer();
+        envelope.reserve(8 + visca_bytes.len());
 
         // Payload Type (2 bytes)
         envelope.extend_from_slice(&payload_type.to_bytes());
@@ -124,7 +137,7 @@ impl TransportEnvelope {
                 // Expected for camera responses
             }
             Some(other) => {
-                log::warn!("Unexpected Sony payload type in response: {other:?}");
+                tracing::warn!("Unexpected Sony payload type in response: {other:?}");
             }
             None => {
                 return Err(crate::Error::ParseError(Cow::Owned(format!(
@@ -183,13 +196,18 @@ impl SonyPayloadType {
 mod tests {
     use super::*;
     use crate::command::const_encoding::VISCA_TERMINATOR;
+    use crate::transport::buffer::BufferConfig;
+
+    fn test_buffer_manager() -> BufferManager {
+        BufferManager::new(BufferConfig::default())
+    }
 
     #[test]
     fn test_raw_visca_passthrough() {
         let envelope = TransportEnvelope::new(ProtocolStyle::RawVisca);
         let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]; // Power On
 
-        let framed = envelope.frame_command(&visca_cmd, false);
+        let framed = envelope.frame_command(&visca_cmd, false, &test_buffer_manager());
         assert_eq!(&framed[..], &visca_cmd[..]);
 
         let extracted = envelope
@@ -205,7 +223,7 @@ mod tests {
         });
         let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]; // Power On
 
-        let framed = envelope.frame_command(&visca_cmd, false);
+        let framed = envelope.frame_command(&visca_cmd, false, &test_buffer_manager());
 
         // Should be 8-byte header + 6-byte VISCA command = 14 bytes
         assert_eq!(framed.len(), 14);
@@ -225,7 +243,7 @@ mod tests {
             TransportEnvelope::new(ProtocolStyle::SonyEncapsulated { use_sequence: true });
         let visca_inquiry = vec![0x81, 0x09, 0x04, 0x00, VISCA_TERMINATOR]; // Power Status Inquiry
 
-        let framed = envelope.frame_command(&visca_inquiry, true);
+        let framed = envelope.frame_command(&visca_inquiry, true, &test_buffer_manager());
 
         // Should be 8-byte header + 5-byte VISCA inquiry = 13 bytes
         assert_eq!(framed.len(), 13);
@@ -265,8 +283,8 @@ mod tests {
             TransportEnvelope::new(ProtocolStyle::SonyEncapsulated { use_sequence: true });
         let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
 
-        let framed1 = envelope.frame_command(&visca_cmd, false);
-        let framed2 = envelope.frame_command(&visca_cmd, false);
+        let framed1 = envelope.frame_command(&visca_cmd, false, &test_buffer_manager());
+        let framed2 = envelope.frame_command(&visca_cmd, false, &test_buffer_manager());
 
         // Extract sequence numbers
         let seq1 = u32::from_be_bytes([framed1[4], framed1[5], framed1[6], framed1[7]]);
@@ -406,12 +424,12 @@ mod tests {
         let dummy_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
 
         for _ in 0..100 {
-            let framed = envelope.frame_command(&dummy_cmd, false);
+            let framed = envelope.frame_command(&dummy_cmd, false, &test_buffer_manager());
             assert!(framed.len() > 8, "Should produce framed output");
         }
 
-        let frame1 = envelope.frame_command(&dummy_cmd, false);
-        let frame2 = envelope.frame_command(&dummy_cmd, false);
+        let frame1 = envelope.frame_command(&dummy_cmd, false, &test_buffer_manager());
+        let frame2 = envelope.frame_command(&dummy_cmd, false, &test_buffer_manager());
 
         let seq1 = u32::from_be_bytes([frame1[4], frame1[5], frame1[6], frame1[7]]);
         let seq2 = u32::from_be_bytes([frame2[4], frame2[5], frame2[6], frame2[7]]);
@@ -444,7 +462,7 @@ mod tests {
         let envelope = TransportEnvelope::new(ProtocolStyle::RawVisca);
 
         let empty: &[u8] = &[];
-        let framed = envelope.frame_command(empty, false);
+        let framed = envelope.frame_command(empty, false, &test_buffer_manager());
         assert_eq!(framed.len(), 0, "Should handle empty command");
 
         let extracted = envelope.extract_response(empty);
@@ -457,7 +475,7 @@ mod tests {
         let envelope = TransportEnvelope::new(ProtocolStyle::RawVisca);
 
         let large_cmd = vec![0x81; 1000];
-        let framed = envelope.frame_command(&large_cmd, false);
+        let framed = envelope.frame_command(&large_cmd, false, &test_buffer_manager());
         assert_eq!(framed.len(), 1000, "Should pass through large commands");
 
         let extracted = envelope.extract_response(&large_cmd);
@@ -470,7 +488,7 @@ mod tests {
         let envelope = TransportEnvelope::new(ProtocolStyle::RawVisca);
 
         let original = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
-        let framed = envelope.frame_command(&original, false);
+        let framed = envelope.frame_command(&original, false, &test_buffer_manager());
 
         let cloned = framed.clone();
         assert_eq!(framed, cloned);
@@ -490,10 +508,10 @@ mod tests {
         let cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
 
         for _ in 0..100 {
-            let raw_framed = raw_envelope.frame_command(&cmd, false);
+            let raw_framed = raw_envelope.frame_command(&cmd, false, &test_buffer_manager());
             assert_eq!(raw_framed.len(), 6);
 
-            let sony_framed = sony_envelope.frame_command(&cmd, false);
+            let sony_framed = sony_envelope.frame_command(&cmd, false, &test_buffer_manager());
             assert_eq!(sony_framed.len(), 14);
         }
     }
@@ -504,7 +522,7 @@ mod tests {
 
         let large_cmd = vec![0x81; 1000];
 
-        let framed1 = envelope.frame_command(&large_cmd, false);
+        let framed1 = envelope.frame_command(&large_cmd, false, &test_buffer_manager());
         let framed2 = framed1.clone(); // Should be cheap (reference counted)
 
         assert_eq!(framed1, framed2);

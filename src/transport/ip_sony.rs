@@ -5,7 +5,7 @@
 //! matching and automatic retry on network errors.
 
 use bytes::{Bytes, BytesMut};
-use log::{debug, error, trace, warn};
+use tracing::{debug, error, trace, warn};
 
 use std::{
     collections::HashMap,
@@ -15,48 +15,20 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(not(feature = "async"))]
+use crate::protocol::encode::PayloadType;
+#[cfg(not(feature = "async"))]
+use crate::transport::BlockingTransport;
 use crate::{
     error::{Error, Result},
-    protocol::encode::{PayloadType, SonyHeader},
+    protocol::encode::SonyHeader,
     transport::{
         address::AddressResolver,
         buffer::{BufferConfig, BufferManager},
-        BlockingTransport,
     },
 };
 
-/// Configuration for Sony encapsulated IP transport.
-#[derive(Debug, Clone)]
-pub struct SonyIpConfig {
-    /// Remote address and port.
-    pub address: String,
-    /// Connection timeout.
-    pub connect_timeout: Duration,
-    /// Read timeout.
-    pub read_timeout: Duration,
-    /// Write timeout.
-    pub write_timeout: Duration,
-    /// Maximum retries for failed commands.
-    pub max_retries: u32,
-    /// Timeout for waiting for a response.
-    pub response_timeout: Duration,
-    /// Whether to use TCP (true) or UDP (false).
-    pub use_tcp: bool,
-}
-
-impl Default for SonyIpConfig {
-    fn default() -> Self {
-        Self {
-            address: "192.168.0.110:52381".to_string(), // Sony default port
-            connect_timeout: Duration::from_secs(5),
-            read_timeout: Duration::from_millis(100),
-            write_timeout: Duration::from_millis(100),
-            max_retries: 3,
-            response_timeout: Duration::from_secs(2),
-            use_tcp: true,
-        }
-    }
-}
+pub use crate::transport::sony_config::SonyIpConfig;
 
 /// Pending command information for retry handling.
 #[derive(Debug, Clone)]
@@ -137,7 +109,7 @@ impl SonyTcpTransport {
         } else {
             SonyHeader::new_command(bytes.len(), sequence)
         };
-        let mut packet = BytesMut::with_capacity(SonyHeader::SIZE + bytes.len());
+        let mut packet = self.buffer_manager.alloc_send_buffer();
 
         // Use the header's encode method for consistency
         packet.extend_from_slice(&header.encode());
@@ -274,6 +246,7 @@ impl SonyTcpTransport {
     }
 }
 
+#[cfg(not(feature = "async"))]
 impl BlockingTransport for SonyTcpTransport {
     fn send_blocking(&mut self, bytes: &[u8]) -> Result<()> {
         let sequence = self.sequence.fetch_add(1, Ordering::SeqCst);
@@ -428,7 +401,7 @@ impl SonyUdpTransport {
         } else {
             SonyHeader::new_command(bytes.len(), sequence)
         };
-        let mut packet = BytesMut::with_capacity(SonyHeader::SIZE + bytes.len());
+        let mut packet = self.buffer_manager.alloc_send_buffer();
 
         // Use the header's encode method for consistency
         packet.extend_from_slice(&header.encode());
@@ -503,6 +476,7 @@ impl SonyUdpTransport {
     }
 }
 
+#[cfg(not(feature = "async"))]
 impl BlockingTransport for SonyUdpTransport {
     fn send_blocking(&mut self, bytes: &[u8]) -> Result<()> {
         let sequence = self.sequence.fetch_add(1, Ordering::SeqCst);
@@ -607,6 +581,7 @@ impl BlockingTransport for SonyUdpTransport {
 }
 
 /// Create a Sony transport based on configuration.
+#[cfg(not(feature = "async"))]
 pub fn create_transport(config: SonyIpConfig) -> Result<Box<dyn BlockingTransport>> {
     if config.use_tcp {
         Ok(Box::new(SonyTcpTransport::connect(config)?))

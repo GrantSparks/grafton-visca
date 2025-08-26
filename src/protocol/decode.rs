@@ -7,7 +7,7 @@
 use crate::command::const_encoding::VISCA_TERMINATOR;
 
 #[cfg(feature = "async")]
-use log::{debug, trace, warn};
+use tracing::{debug, trace, warn};
 
 #[cfg(feature = "async")]
 use crate::runtime::scheduler::{SocketId, ViscaError};

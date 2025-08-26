@@ -305,13 +305,13 @@ impl ViscaCameraSimulator {
     /// Generate inquiry response based on the inquiry command
     async fn generate_inquiry_response(&self, data: &[u8]) -> Option<Vec<u8>> {
         if data.len() < 4 || data[1] != 0x09 {
-            log::debug!("Not an inquiry command: {:02X?}", data);
+            tracing::debug!("Not an inquiry command: {:02X?}", data);
             return None;
         }
 
         let state = self.inner.camera_state.read().await;
 
-        log::debug!(
+        tracing::debug!(
             "Processing inquiry: cmd[2]={:02X?}, cmd[3]={:02X?}, full command: {:02X?}",
             data.get(2),
             data.get(3),
@@ -408,7 +408,7 @@ impl ViscaCameraSimulator {
                     nibble_low,
                     VISCA_TERMINATOR,
                 ];
-                log::debug!("Exposure compensation inquiry response: {:02X?}", response);
+                tracing::debug!("Exposure compensation inquiry response: {:02X?}", response);
                 Some(response)
             }
 
@@ -611,7 +611,7 @@ impl ViscaCameraSimulator {
             (Some(0x04), Some(0x63)) => Some(vec![0x90, 0x50, state.resolution, VISCA_TERMINATOR]),
 
             _ => {
-                log::warn!(
+                tracing::warn!(
                     "Unhandled inquiry command: cmd[2]={:02X?}, cmd[3]={:02X?}, full: {:02X?}",
                     data.get(2),
                     data.get(3),
@@ -673,141 +673,137 @@ impl ViscaCameraSimulator {
 }
 
 impl AsyncTransport for ViscaCameraSimulator {
-    fn send(&mut self, data: &[u8]) -> impl std::future::Future<Output = Result<(), Error>> + Send {
+    async fn send(&mut self, data: &[u8]) -> Result<(), Error> {
         let data_vec = data.to_vec();
         let inner = self.inner.clone();
         let receiver = self.receiver.clone();
 
-        async move {
-            // Create a simulator instance for method calls
+        // Create a simulator instance for method calls
+        let simulator = ViscaCameraSimulator {
+            inner: inner.clone(),
+            receiver: receiver.clone(),
+        };
+
+        // Update stats
+        {
+            let mut stats = inner.stats.write().await;
+            stats.commands_received += 1;
+        }
+
+        tracing::trace!("Simulator received command: {:02X?}", data_vec);
+
+        // Simulate packet loss
+        if ViscaCameraSimulator::should_drop_packet(&ViscaCameraSimulator {
+            inner: inner.clone(),
+            receiver: None,
+        }) {
+            let mut stats = inner.stats.write().await;
+            stats.packets_dropped += 1;
+            return Err(Error::Timeout);
+        }
+
+        // Check if this is an inquiry command
+        let cmd_type = ViscaCameraSimulator::parse_command_type(&data_vec);
+        if cmd_type == CommandType::Inquiry {
+            // Handle inquiry immediately - generate and broadcast Data Reply
+            if let Some(response) = simulator.generate_inquiry_response(&data_vec).await {
+                // Add a small delay to ensure receivers are ready
+                // This simulates real network latency and prevents race conditions in tests
+                sleep(Duration::from_millis(10)).await;
+
+                // Broadcast inquiry response immediately (no ACK for inquiries)
+                tracing::debug!("Broadcasting inquiry response: {:02X?}", response);
+                match inner.response_broadcaster.send(response.clone()) {
+                    Ok(count) => {
+                        tracing::debug!("Inquiry response broadcast to {} receivers", count);
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to broadcast inquiry response: {:?}", e);
+                    }
+                }
+                return Ok(());
+            } else {
+                tracing::warn!(
+                    "No response generated for inquiry command: {:02X?}",
+                    data_vec
+                );
+            }
+        }
+
+        // Try to allocate a socket for non-inquiry commands
+        let socket_num = {
             let simulator = ViscaCameraSimulator {
                 inner: inner.clone(),
-                receiver: receiver.clone(),
-            };
-
-            // Update stats
-            {
-                let mut stats = inner.stats.write().await;
-                stats.commands_received += 1;
-            }
-
-            log::trace!("Simulator received command: {:02X?}", data_vec);
-
-            // Simulate packet loss
-            if ViscaCameraSimulator::should_drop_packet(&ViscaCameraSimulator {
-                inner: inner.clone(),
                 receiver: None,
-            }) {
-                let mut stats = inner.stats.write().await;
-                stats.packets_dropped += 1;
-                return Err(Error::Timeout);
-            }
-
-            // Check if this is an inquiry command
-            let cmd_type = ViscaCameraSimulator::parse_command_type(&data_vec);
-            if cmd_type == CommandType::Inquiry {
-                // Handle inquiry immediately - generate and broadcast Data Reply
-                if let Some(response) = simulator.generate_inquiry_response(&data_vec).await {
-                    // Add a small delay to ensure receivers are ready
-                    // This simulates real network latency and prevents race conditions in tests
-                    sleep(Duration::from_millis(10)).await;
-
-                    // Broadcast inquiry response immediately (no ACK for inquiries)
-                    log::debug!("Broadcasting inquiry response: {:02X?}", response);
-                    match inner.response_broadcaster.send(response.clone()) {
-                        Ok(count) => {
-                            log::debug!("Inquiry response broadcast to {} receivers", count);
-                        }
-                        Err(e) => {
-                            log::error!("Failed to broadcast inquiry response: {:?}", e);
-                        }
-                    }
-                    return Ok(());
-                } else {
-                    log::warn!(
-                        "No response generated for inquiry command: {:02X?}",
-                        data_vec
-                    );
-                }
-            }
-
-            // Try to allocate a socket for non-inquiry commands
-            let socket_num = {
-                let simulator = ViscaCameraSimulator {
-                    inner: inner.clone(),
-                    receiver: None,
-                };
-                simulator.allocate_socket().await
             };
+            simulator.allocate_socket().await
+        };
 
-            if let Some(socket_num) = socket_num {
-                // Socket allocated - send ACK and schedule completion
-                let default_duration = Duration::from_millis(50);
-                let execution_time = inner
-                    .config
-                    .command_execution_times
-                    .get(&cmd_type)
-                    .unwrap_or(&default_duration);
+        if let Some(socket_num) = socket_num {
+            // Socket allocated - send ACK and schedule completion
+            let default_duration = Duration::from_millis(50);
+            let execution_time = inner
+                .config
+                .command_execution_times
+                .get(&cmd_type)
+                .unwrap_or(&default_duration);
 
-                // Mark socket as executing
-                {
-                    let mut socket_states = inner.socket_states.write().await;
-                    let socket_idx = (socket_num - 1) as usize;
-                    socket_states[socket_idx] = SocketState::Executing {
-                        completion_time: Instant::now() + *execution_time,
-                    };
-                }
-
-                // Send ACK immediately
-                let ack = make_ack_response(socket_num);
-                let _ = inner.response_broadcaster.send(ack);
-
-                Ok(())
-            } else {
-                // All sockets busy - send busy response
-                let mut stats = inner.stats.write().await;
-                stats.busy_responses_sent += 1;
-
-                let busy = make_busy_response(1);
-                let _ = inner.response_broadcaster.send(busy);
-
-                Ok(())
+            // Mark socket as executing
+            {
+                let mut socket_states = inner.socket_states.write().await;
+                let socket_idx = (socket_num - 1) as usize;
+                socket_states[socket_idx] = SocketState::Executing {
+                    completion_time: Instant::now() + *execution_time,
+                };
             }
+
+            // Send ACK immediately
+            let ack = make_ack_response(socket_num);
+            let _ = inner.response_broadcaster.send(ack);
+
+            Ok(())
+        } else {
+            // All sockets busy - send busy response
+            let mut stats = inner.stats.write().await;
+            stats.busy_responses_sent += 1;
+
+            let busy = make_busy_response(1);
+            let _ = inner.response_broadcaster.send(busy);
+
+            Ok(())
         }
     }
 
-    fn recv(&mut self) -> impl std::future::Future<Output = Result<Bytes, Error>> + Send {
+    async fn recv(&mut self) -> Result<Bytes, Error> {
         let inner = self.inner.clone();
         let receiver = self.receiver.clone();
         let jitter = self.calculate_jitter();
 
-        async move {
-            // Add network jitter
-            if jitter > Duration::from_millis(0) {
-                sleep(jitter).await;
+        // Add network jitter
+        if jitter > Duration::from_millis(0) {
+            sleep(jitter).await;
+        }
+
+        // Use persistent receiver if available
+        if let Some(ref receiver) = receiver {
+            let receiver = receiver.clone();
+            let mut rx = receiver.lock().await;
+
+            // Wait for response with timeout
+            match tokio::time::timeout(Duration::from_secs(30), rx.recv()).await {
+                Ok(Ok(response)) => Ok(Bytes::from(response)),
+                Ok(Err(_)) => Err(Error::Timeout),
+                Err(_) => Err(Error::Timeout),
             }
+        } else {
+            // Fallback: create a new subscriber
+            let mut rx = inner.response_broadcaster.subscribe();
 
-            // Use persistent receiver if available
-            if let Some(ref receiver) = receiver {
-                let receiver = receiver.clone();
-                let mut rx = receiver.lock().await;
-
-                // Wait for response with timeout
-                match tokio::time::timeout(Duration::from_secs(30), rx.recv()).await {
-                    Ok(Ok(response)) => Ok(Bytes::from(response)),
-                    Ok(Err(_)) => Err(Error::Timeout),
-                    Err(_) => Err(Error::Timeout),
-                }
-            } else {
-                // Fallback: create a new subscriber
-                let mut rx = inner.response_broadcaster.subscribe();
-
-                // Wait for response with timeout
-                match tokio::time::timeout(Duration::from_secs(30), rx.recv()).await {
-                    Ok(Ok(response)) => Ok(Bytes::from(response)),
-                    Ok(Err(_)) => Err(Error::Timeout),
-                    Err(_) => Err(Error::Timeout),
-                }
+            // Wait for response with timeout
+            match tokio::time::timeout(Duration::from_secs(30), rx.recv()).await {
+                Ok(Ok(response)) => Ok(Bytes::from(response)),
+                Ok(Err(_)) => Err(Error::Timeout),
+                Err(_) => Err(Error::Timeout),
             }
         }
     }

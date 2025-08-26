@@ -1,6 +1,7 @@
 //! Example of using grafton-visca with the smol runtime.
 //!
-//! This example demonstrates how to use the library with smol for async operations.
+//! This example demonstrates how to use the library with smol for async operations,
+//! using the preferred high-level Camera API (not raw byte sends).
 //!
 //! # Usage
 //! ```bash
@@ -20,31 +21,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(feature = "rt-smol")]
 async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
-    use grafton_visca::runtime_adapters::smol::TcpTransport;
-    use grafton_visca::transport::AsyncTransport;
+    use grafton_visca::{
+        camera::{
+            methods::{pan_tilt::PanTiltControl, power::PowerControl, zoom::ZoomControl},
+            profiles::PtzOpticsG2,
+        },
+        transport::builder::TransportBuilder,
+        CameraBuilder,
+    };
 
-    // Connect to camera
-    println!("Connecting to camera at 192.168.0.110:5678...");
-    let mut transport = TcpTransport::connect("192.168.0.110:5678").await?;
+    // Preferred: build a camera and use high-level methods
+    let addr = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "192.168.0.110:5678".into());
+    println!("Connecting to camera at {addr} with smol...");
+    // Use TransportBuilder for native smol TCP transport
+    let transport = TransportBuilder::smol_tcp()
+        .address(&addr)
+        .build_tcp_smol()
+        .await?;
 
-    // Send a simple power on command
-    let power_on = vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF];
-    println!("Sending power on command: {:02X?}", power_on);
-    transport.send(&power_on).await?;
+    let camera = CameraBuilder::smol()
+        .build_async::<PtzOpticsG2, _>(transport)
+        .await?;
 
-    // Receive response
-    let response = transport.recv().await?;
-    println!("Received response: {:02X?}", response.as_ref());
+    println!("Powering on...\n");
+    camera.power_on().await?;
 
-    // Send a power inquiry command
-    let power_inquiry = vec![0x81, 0x09, 0x04, 0x00, 0xFF];
-    println!("Sending power inquiry: {:02X?}", power_inquiry);
-    transport.send(&power_inquiry).await?;
+    let is_on = camera.power_inquiry().await?;
+    println!("Power state: {}", if is_on { "ON" } else { "OFF" });
 
-    // Receive response
-    let response = transport.recv().await?;
-    println!("Received response: {:02X?}", response.as_ref());
+    camera.zoom_stop().await?;
+    camera.pan_tilt_home().await?;
 
-    println!("smol example completed successfully!");
+    println!("smol quickstart (high-level) completed successfully!");
     Ok(())
 }

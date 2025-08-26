@@ -5,10 +5,10 @@
 //! any blocking operations or thread pool usage.
 
 use bytes::{Bytes, BytesMut};
-use log::{debug, trace, warn};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpStream, UdpSocket};
+use tracing::{debug, trace, warn};
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -16,11 +16,15 @@ use std::net::SocketAddr;
 use crate::{
     error::{Error, Result},
     protocol::encode::{PayloadType, SonyHeader},
-    transport::{builder::TransportConfig, AsyncTransport},
+    transport::{
+        buffer::{BufferConfig, BufferManager},
+        builder::TransportConfig,
+        AsyncTransport,
+    },
 };
 
 /// Configuration for async Sony encapsulated IP transport.
-pub use crate::transport::ip_sony::SonyIpConfig;
+pub use crate::transport::sony_config::SonyIpConfig;
 
 // Type alias for pending command tracking.
 // We just need to track which sequence numbers are pending.
@@ -39,6 +43,7 @@ pub struct Tcp {
     sequence: u32,
     pending: HashMap<u32, PendingCommand>,
     read_buffer: BytesMut,
+    buffer_manager: BufferManager,
 }
 
 impl Tcp {
@@ -75,6 +80,7 @@ impl Tcp {
             sequence: 1,
             pending: HashMap::new(),
             read_buffer: BytesMut::with_capacity(1024),
+            buffer_manager: BufferManager::new(BufferConfig::for_sony_ip()),
         })
     }
 
@@ -98,7 +104,8 @@ impl Tcp {
             SonyHeader::new_command(bytes.len(), sequence)
         };
 
-        let mut packet = BytesMut::with_capacity(SonyHeader::SIZE + bytes.len());
+        let mut packet = self.buffer_manager.alloc_send_buffer();
+        packet.reserve(SonyHeader::SIZE + bytes.len());
         packet.extend_from_slice(&header.encode());
         packet.extend_from_slice(bytes);
 
@@ -219,6 +226,7 @@ pub struct Udp {
     sequence: u32,
     pending: HashMap<u32, PendingCommand>,
     config: SonyIpConfig,
+    buffer_manager: BufferManager,
 }
 
 impl Udp {
@@ -264,6 +272,7 @@ impl Udp {
             sequence: 1,
             pending: HashMap::new(),
             config: config.clone(),
+            buffer_manager: BufferManager::new(BufferConfig::for_sony_ip()),
         })
     }
 
@@ -287,7 +296,8 @@ impl Udp {
             SonyHeader::new_command(bytes.len(), sequence)
         };
 
-        let mut packet = BytesMut::with_capacity(SonyHeader::SIZE + bytes.len());
+        let mut packet = self.buffer_manager.alloc_send_buffer();
+        packet.reserve(SonyHeader::SIZE + bytes.len());
         packet.extend_from_slice(&header.encode());
         packet.extend_from_slice(bytes);
 

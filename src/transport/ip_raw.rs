@@ -4,12 +4,14 @@
 //! any additional encapsulation. This is the format used by PtzOptics cameras.
 
 use bytes::{Bytes, BytesMut};
-use log::{debug, trace};
+use tracing::{debug, trace};
 
 use std::io::{BufReader, Read, Write};
 use std::net::{TcpStream, UdpSocket};
 use std::time::{Duration, Instant};
 
+#[cfg(not(feature = "async"))]
+use crate::transport::BlockingTransport;
 use crate::{
     error::{Error, Result},
     protocol::encode::VISCA_TERMINATOR,
@@ -17,7 +19,7 @@ use crate::{
         address::AddressResolver,
         buffer::{BufferConfig, BufferManager},
         retry::RetryExecutor,
-        BlockingTransport, RetryConfig,
+        RetryConfig,
     },
 };
 
@@ -138,6 +140,7 @@ impl RawTcpTransport {
     }
 }
 
+#[cfg(not(feature = "async"))]
 impl BlockingTransport for RawTcpTransport {
     fn send_blocking(&mut self, bytes: &[u8]) -> Result<()> {
         // Clone bytes for the closure
@@ -281,6 +284,7 @@ impl RawUdpTransport {
     }
 }
 
+#[cfg(not(feature = "async"))]
 impl BlockingTransport for RawUdpTransport {
     fn send_blocking(&mut self, bytes: &[u8]) -> Result<()> {
         // Store the command for potential retry on receive timeout

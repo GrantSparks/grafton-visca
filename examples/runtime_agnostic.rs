@@ -51,6 +51,11 @@ fn main() {
         where
             T: Send + 'static;
 
+        type LocalJoin<T>
+            = Pin<Box<dyn Future<Output = Result<T, grafton_visca::ExecError>> + 'static>>
+        where
+            T: 'static;
+
         fn spawn<F>(&self, future: F) -> Self::Join<F::Output>
         where
             F: Future + Send + 'static,
@@ -69,6 +74,15 @@ fn main() {
                     "Demo executor - implement spawn() for your runtime".into(),
                 ))
             })
+        }
+
+        fn spawn_local<F>(&self, future: F) -> Self::LocalJoin<F::Output>
+        where
+            F: Future + Send + 'static,
+            F::Output: Send + 'static,
+        {
+            // For most runtimes without true local tasks, just delegate to spawn
+            self.spawn(future)
         }
 
         fn block_on<F: Future>(&self, future: F) -> F::Output {

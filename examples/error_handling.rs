@@ -55,7 +55,10 @@ fn main() {
 
 #[cfg(not(feature = "async"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_target(false)
+        .init();
 
     println!("=== VISCA Error Handling Demo ===\n");
     println!("This example demonstrates:");
@@ -85,7 +88,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(feature = "rt-tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_target(false)
+        .init();
 
     println!("=== VISCA Error Handling Demo ===\n");
     println!("This example demonstrates:");
@@ -337,7 +343,7 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     let transport = match TransportBuilder::tokio_tcp()
         .address(camera_addr)
         .connect_timeout(Duration::from_secs(5))
-        .build_tcp_async() // .build_async() for native async transport
+        .build_tcp_tokio() // .build_tcp_tokio() for native tokio transport
         .await
     {
         Ok(t) => {

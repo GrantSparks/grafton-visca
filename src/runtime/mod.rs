@@ -4,8 +4,6 @@
 //! managing command scheduling, socket allocation, and protocol timing.
 
 pub mod scheduler;
-#[cfg(feature = "async")]
-mod time_utils;
 
 #[cfg(feature = "async")]
 pub use scheduler::SocketId;
@@ -16,7 +14,7 @@ use flume::{Receiver, Sender};
 #[cfg(feature = "async")]
 use futures_lite;
 #[cfg(feature = "async")]
-use log::{debug, error, trace, warn};
+use tracing::{debug, error, instrument, trace, warn};
 
 #[cfg(feature = "async")]
 use std::sync::{
@@ -37,72 +35,14 @@ use crate::{
 
 /// Helper function to spawn runtime tasks properly for different executor types.
 #[cfg(feature = "async")]
+#[instrument(level = "debug", skip(executor, runtime_task))]
 fn spawn_runtime_task_properly<E: crate::executor::Executor>(
     executor: &E,
     runtime_task: impl std::future::Future<Output = Result<(), Error>> + Send + 'static,
 ) {
-    // For DeterministicExecutor in test mode, we need to detach the task
-    #[cfg(any(feature = "rt-tokio", feature = "test-utils"))]
-    {
-        use std::any::Any;
-
-        let executor_any: &dyn Any = executor;
-
-        // Debug logging to see what type we have
-        debug!(
-            "[spawn_runtime_task_properly] Attempting to spawn runtime task, executor type: {:?}",
-            std::any::type_name_of_val(&executor_any)
-        );
-
-        #[cfg(feature = "test-utils")]
-        {
-            // Try direct DeterministicExecutor
-            if let Some(det_exec) =
-                executor_any.downcast_ref::<crate::testing::testkit::DeterministicExecutor>()
-            {
-                debug!(
-                    "[spawn_runtime_task_properly] Detected DeterministicExecutor, using spawn_bg"
-                );
-                // Use ExecutorExt::spawn_bg which detaches the task
-                use crate::testing::testkit::deterministic_executor::ExecutorExt;
-
-                det_exec.spawn_bg(async move {
-                    debug!("[runtime task] Runtime task starting (DeterministicExecutor)");
-                    match runtime_task.await {
-                        Ok(()) => debug!("[runtime task] Runtime task completed successfully"),
-                        Err(e) => debug!("[runtime task] Runtime task failed: {}", e),
-                    }
-                });
-                debug!("[spawn_runtime_task_properly] spawn_bg called, returning");
-                return;
-            }
-
-            // Try Arc<DeterministicExecutor>
-            if let Some(arc_det) =
-                executor_any.downcast_ref::<Arc<crate::testing::testkit::DeterministicExecutor>>()
-            {
-                log::debug!("Detected Arc<DeterministicExecutor>, using spawn_bg");
-                // Use ExecutorExt::spawn_bg which detaches the task
-                use crate::testing::testkit::deterministic_executor::ExecutorExt;
-
-                arc_det.spawn_bg(async move {
-                    log::debug!("Runtime task starting (Arc<DeterministicExecutor>)");
-                    if let Err(e) = runtime_task.await {
-                        log::error!("Runtime task failed: {}", e);
-                    } else {
-                        log::debug!("Runtime task completed successfully");
-                    }
-                });
-                return;
-            }
-        }
-
-        log::debug!("DeterministicExecutor not detected, falling through to regular spawn");
-    }
-
-    // For all other executors, use regular spawn (handle gets dropped)
-    log::debug!("Using regular spawn for runtime task");
-    let _handle = executor.spawn(runtime_task);
+    // Spawn the runtime loop as a background task
+    tracing::debug!("Spawning runtime task using spawn_bg");
+    executor.spawn_bg(runtime_task);
 }
 
 /// VISCA runtime handle.
@@ -155,6 +95,7 @@ impl RuntimeHandle {
     /// * `executor` - The async executor to spawn tasks on
     /// * `tick_interval_ms` - Optional tick interval in milliseconds (default: 50ms)
     #[cfg(feature = "async")]
+    #[instrument(level = "debug", skip(transport, executor), fields(tick_ms = tick_interval_ms))]
     pub async fn with_tick_interval<
         T: AsyncTransport + Send + 'static,
         E: crate::executor::Executor,
@@ -468,6 +409,7 @@ impl RuntimeHandle {
 
 /// Main runtime loop with configurable tick interval.
 #[cfg(feature = "async")]
+#[instrument(level = "debug", name = "visca_runtime_loop", skip(transport, submit_rx, event_tx, metrics_rx, executor), fields(tick_ms = tick_interval_ms))]
 async fn runtime_loop_with_config<
     T: AsyncTransport + Send + 'static,
     E: crate::executor::Executor,
@@ -545,7 +487,7 @@ async fn runtime_loop_with_config<
 
         // Pre-drain any retries that are due now to avoid race conditions
         // This ensures deterministic behavior when retry deadline == now
-        let now = time_utils::now_from_executor_arc(&executor);
+        let now = executor.as_ref().now();
         if scheduler.can_send_command() {
             while let Some(deadline) = scheduler.next_retry_deadline() {
                 if deadline > now {
@@ -606,7 +548,7 @@ async fn runtime_loop_with_config<
         }
 
         // Dynamic tick scheduling: sleep until the earliest retry deadline or housekeeping tick
-        let now = time_utils::now_from_executor_arc(&executor);
+        let now = executor.as_ref().now();
         let sleep_dur = if let Some(deadline) = scheduler.next_retry_deadline() {
             // Wake exactly when a retry becomes eligible (but never later than the housekeeping tick)
             let until_retry = deadline.saturating_duration_since(now);
@@ -661,7 +603,7 @@ async fn runtime_loop_with_config<
             Operation::Tick => {
                 // debug!("[runtime loop] Tick fired");
                 // Handle tick - check for timeouts and retries
-                let now = time_utils::now_from_executor_arc(&executor);
+                let now = executor.as_ref().now();
 
                 // Check for commands that have timed out waiting for ACK
                 let pending_ack_timeouts = scheduler.check_pending_ack_timeouts(now);
@@ -720,7 +662,7 @@ async fn runtime_loop_with_config<
                 if scheduler.can_send_command() && scheduler.has_retries() {
                     debug!("[runtime loop] Has free socket and retries to process");
                     // get_next_retry() now handles exhausted retries internally
-                    let now = time_utils::now_from_executor_arc(&executor);
+                    let now = executor.as_ref().now();
                     if let Some(retry_cmd) = scheduler.get_next_retry(now) {
                         debug!(
                             "[runtime loop] Retrying command {} (attempt {})",
@@ -799,6 +741,11 @@ async fn runtime_loop_with_config<
 
 /// Process queued commands when a socket becomes available.
 #[cfg(feature = "async")]
+#[instrument(
+    level = "trace",
+    skip(transport, scheduler, event_tx, executor),
+    fields(allow_retry_defer)
+)]
 async fn process_command_queue<T: AsyncTransport + Send, E: crate::executor::Executor>(
     transport: &mut T,
     scheduler: &mut Scheduler,
@@ -810,7 +757,7 @@ async fn process_command_queue<T: AsyncTransport + Send, E: crate::executor::Exe
     // But check if there's a higher priority retry ready first
     while scheduler.can_send_command() && !scheduler.is_queue_empty() {
         // Check if there's a retry ready that has higher or equal priority than the next queued command
-        let now = time_utils::now_from_executor(executor);
+        let now = executor.now();
         if allow_retry_defer {
             if let Some(next_queue_priority) = scheduler.peek_queue_priority() {
                 if let Some(retry_priority) = scheduler.peek_ready_retry_priority(now) {
@@ -842,6 +789,7 @@ async fn process_command_queue<T: AsyncTransport + Send, E: crate::executor::Exe
 
 /// Handle a submitted TX item.
 #[cfg(feature = "async")]
+#[instrument(level = "trace", skip(transport, scheduler, event_tx, executor), fields(item = ?item))]
 async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
     transport: &mut T,
     scheduler: &mut Scheduler,
@@ -876,7 +824,7 @@ async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
 
             // Check if we can send immediately (not at 2-command limit)
             // NOTE: We don't allocate socket yet - camera assigns it in ACK
-            let now = time_utils::now_from_executor(executor);
+            let now = executor.now();
             if scheduler.can_send_command() {
                 // Enforce command spacing
                 scheduler.enforce_spacing_with(executor, now).await;
@@ -912,7 +860,7 @@ async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
                 scheduler.store_command_channel(id, response_tx.clone());
 
                 // Enqueue the command for later processing
-                let now = time_utils::now_from_executor(executor);
+                let now = executor.now();
                 scheduler.enqueue_command(
                     TxItem::Command {
                         id,
@@ -946,7 +894,7 @@ async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
                 .fetch_add(1, Ordering::Relaxed);
 
             // Inquiries don't need sockets
-            let now = time_utils::now_from_executor(executor);
+            let now = executor.now();
             scheduler.enforce_spacing_with(executor, now).await;
 
             // Send inquiry
@@ -995,6 +943,7 @@ async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
 
 /// Handle a VISCA response frame.
 #[cfg(feature = "async")]
+#[instrument(level = "trace", skip(transport, scheduler, frame, event_tx, executor))]
 async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>(
     transport: &mut T,
     scheduler: &mut Scheduler,
@@ -1012,7 +961,7 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
     match response {
         ProtocolResponse::Ack { socket } => {
             // Camera has assigned a socket - handle the ACK
-            let now = time_utils::now_from_executor(executor);
+            let now = executor.now();
             if let Some(cmd_id) = scheduler.handle_ack(socket, now) {
                 debug!(
                     "ACK received - command {} assigned to {:?} by camera",
@@ -1177,7 +1126,7 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
                     //     cmd_id, category, error, retryable);
 
                     if retryable {
-                        let now = time_utils::now_from_executor(executor);
+                        let now = executor.now();
                         let queued =
                             scheduler.queue_for_retry(cmd_id, bytes, priority, category, now);
                         // debug!("[handle_response] Queued for retry: {}", queued);
@@ -1247,7 +1196,7 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
                                 cmd_id, priority
                             );
                             // Queue the command for retry (returns false if exhausted)
-                            let now = time_utils::now_from_executor(executor);
+                            let now = executor.now();
                             let queued =
                                 scheduler.queue_for_retry(cmd_id, bytes, priority, category, now);
 
@@ -1565,22 +1514,18 @@ mod tests {
     #[allow(clippy::expect_used)]
     async fn test_runtime_loop_shutdown() {
         use bytes::Bytes;
-        use std::future::Future;
 
         // Mock transport that never returns data
         struct MockTransport;
 
-        #[allow(clippy::manual_async_fn)]
         impl AsyncTransport for MockTransport {
-            fn send(&mut self, _bytes: &[u8]) -> impl Future<Output = Result<(), Error>> + Send {
-                async move { Ok(()) }
+            async fn send(&mut self, _bytes: &[u8]) -> Result<(), Error> {
+                Ok(())
             }
 
-            fn recv(&mut self) -> impl Future<Output = Result<Bytes, Error>> + Send {
-                async move {
-                    // Never return, simulating waiting for data
-                    std::future::pending().await
-                }
+            async fn recv(&mut self) -> Result<Bytes, Error> {
+                // Never return, simulating waiting for data
+                std::future::pending().await
             }
         }
 
