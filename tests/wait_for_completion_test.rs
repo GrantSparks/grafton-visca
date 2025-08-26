@@ -56,9 +56,8 @@ fn test_is_idle_when_no_pending_commands() {
     let result = executor.block_on(async {
         // Simulate checking idle status with no pending commands
         let pending_commands = 0;
-        let is_idle = pending_commands == 0;
 
-        is_idle
+        pending_commands == 0
     });
 
     assert!(result, "Should be idle with no pending commands");
@@ -71,7 +70,7 @@ fn test_wait_for_idle_succeeds_when_commands_complete() {
 
     let result = executor.block_on(async {
         // Simulate sending commands and waiting for completion
-        let commands_sent = vec!["zoom", "preset"];
+        let commands_sent = ["zoom", "preset"];
         let commands_completed = commands_sent.len();
         let all_completed = commands_completed == commands_sent.len();
 

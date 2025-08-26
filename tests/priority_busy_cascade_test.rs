@@ -14,12 +14,7 @@ fn test_busy_cascade_across_priorities() {
 
     let result = executor.block_on(async {
         // Test that executor can handle prioritized operations
-        let mut operations = vec![];
-
-        // Simulate different priority operations
-        operations.push(("Critical", 0));
-        operations.push(("High", 1));
-        operations.push(("Normal", 2));
+        let mut operations = vec![("Critical", 0), ("High", 1), ("Normal", 2)];
 
         // Process in reverse priority order to verify concept
         operations.sort_by_key(|(_, priority)| *priority);
