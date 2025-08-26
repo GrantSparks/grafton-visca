@@ -594,7 +594,7 @@ where
     }
 
     /// Cancel all commands on a specific socket.
-    /// 
+    ///
     /// This method is only available when the `test-utils` feature is enabled.
     /// It provides direct access to socket-level cancellation for testing purposes.
     #[cfg(any(test, feature = "test-utils"))]
@@ -609,7 +609,7 @@ where
     }
 
     /// Send a command directly and get the response.
-    /// 
+    ///
     /// This method is only available when the `test-utils` feature is enabled.
     /// It provides low-level command sending for testing purposes.
     #[cfg(any(test, feature = "test-utils"))]
