@@ -10,6 +10,9 @@ use std::time::{Duration, Instant};
 use super::RetryConfig;
 use crate::Error;
 
+#[cfg(feature = "async")]
+use crate::executor::Executor;
+
 /// A trait for operations that can provide retry hints.
 pub trait RetryableOperation {
     /// Check if the operation should be retried based on the error.
@@ -118,17 +121,20 @@ where
 /// and the error type returned by the operation.
 ///
 /// # Arguments
+/// * `executor` - The executor to use for timing operations
 /// * `config` - The retry configuration to use
 /// * `operation` - An async closure that performs the operation and returns a Result
 ///
 /// # Returns
 /// The result of the operation, or the last error if all retries are exhausted
 #[cfg(feature = "async")]
-pub async fn execute_with_retry_async<T, F, Fut>(
+pub async fn execute_with_retry_async<E, T, F, Fut>(
+    executor: &E,
     config: &RetryConfig,
     mut operation: F,
 ) -> Result<T, Error>
 where
+    E: Executor,
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<T, Error>>,
 {
@@ -163,41 +169,8 @@ where
                 // Calculate delay for this retry attempt
                 let delay = config.calculate_delay(retries_done, error.suggested_retry_delay());
 
-                // Wait before retrying
-                #[cfg(feature = "rt-tokio")]
-                tokio::time::sleep(delay).await;
-
-                #[cfg(all(feature = "async", not(feature = "rt-tokio")))]
-                {
-                    // For async without tokio, we need to use a different sleep mechanism
-                    // This is a placeholder - actual implementation would depend on the async runtime
-                    use std::pin::Pin;
-                    use std::task::Poll;
-
-                    struct Sleep {
-                        deadline: Instant,
-                    }
-
-                    impl Future for Sleep {
-                        type Output = ();
-
-                        fn poll(
-                            self: Pin<&mut Self>,
-                            _cx: &mut std::task::Context<'_>,
-                        ) -> Poll<Self::Output> {
-                            if Instant::now() >= self.deadline {
-                                Poll::Ready(())
-                            } else {
-                                Poll::Pending
-                            }
-                        }
-                    }
-
-                    Sleep {
-                        deadline: Instant::now() + delay,
-                    }
-                    .await;
-                }
+                // Wait before retrying using the executor
+                executor.sleep(delay).await;
             }
         }
     }
@@ -232,12 +205,13 @@ impl RetryExecutor {
 
     /// Execute an async operation with retry logic.
     #[cfg(feature = "async")]
-    pub async fn execute_async<T, F, Fut>(&self, operation: F) -> Result<T, Error>
+    pub async fn execute_async<E, T, F, Fut>(&self, executor: &E, operation: F) -> Result<T, Error>
     where
+        E: Executor,
         F: FnMut() -> Fut,
         Fut: Future<Output = Result<T, Error>>,
     {
-        execute_with_retry_async(&self.config, operation).await
+        execute_with_retry_async(executor, &self.config, operation).await
     }
 
     /// Get the current retry configuration.
@@ -356,6 +330,8 @@ mod tests {
     #[cfg(feature = "rt-tokio")]
     #[tokio::test]
     async fn test_async_retry_with_success() {
+        use crate::executor::TokioExecutor;
+
         let config = RetryConfig {
             max_retries: 3,
             base_retry_delay: Duration::from_millis(10),
@@ -363,10 +339,11 @@ mod tests {
             exponential_backoff: false,
         };
 
+        let executor = TokioExecutor::from_current().expect("Failed to get Tokio executor");
         let counter = Arc::new(AtomicUsize::new(0));
         let counter_clone = counter.clone();
 
-        let result = execute_with_retry_async(&config, || {
+        let result = execute_with_retry_async(&executor, &config, || {
             let counter = counter_clone.clone();
             async move {
                 let count = counter.fetch_add(1, Ordering::SeqCst);
@@ -381,5 +358,70 @@ mod tests {
 
         assert_eq!(result.expect("Async executor test failed"), 200);
         assert_eq!(counter.load(Ordering::SeqCst), 3);
+    }
+
+    #[cfg(feature = "rt-async-std")]
+    #[async_std::test]
+    async fn test_async_retry_with_async_std() {
+        use crate::executor::AsyncStdExecutor;
+
+        let config = RetryConfig {
+            max_retries: 2,
+            base_retry_delay: Duration::from_millis(10),
+            max_retry_duration: Duration::from_secs(1),
+            exponential_backoff: false,
+        };
+
+        let executor = AsyncStdExecutor::new();
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = counter.clone();
+
+        let result = execute_with_retry_async(&executor, &config, || {
+            let counter = counter_clone.clone();
+            async move {
+                let count = counter.fetch_add(1, Ordering::SeqCst);
+                if count < 1 {
+                    Err(Error::CameraBusy)
+                } else {
+                    Ok(100)
+                }
+            }
+        })
+        .await;
+
+        assert_eq!(result.expect("AsyncStd executor test failed"), 100);
+        assert_eq!(counter.load(Ordering::SeqCst), 2);
+    }
+
+    #[cfg(feature = "rt-smol")]
+    #[test]
+    fn test_async_retry_with_smol() {
+        use crate::executor::SmolExecutor;
+
+        let config = RetryConfig {
+            max_retries: 2,
+            base_retry_delay: Duration::from_millis(10),
+            max_retry_duration: Duration::from_secs(1),
+            exponential_backoff: false,
+        };
+
+        let executor = SmolExecutor::new();
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = counter.clone();
+
+        let result = smol::block_on(execute_with_retry_async(&executor, &config, || {
+            let counter = counter_clone.clone();
+            async move {
+                let count = counter.fetch_add(1, Ordering::SeqCst);
+                if count < 1 {
+                    Err(Error::CameraBusy)
+                } else {
+                    Ok(50)
+                }
+            }
+        }));
+
+        assert_eq!(result.expect("Smol executor test failed"), 50);
+        assert_eq!(counter.load(Ordering::SeqCst), 2);
     }
 }
