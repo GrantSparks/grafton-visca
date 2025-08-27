@@ -6,10 +6,10 @@
 
 #![cfg(all(feature = "async", feature = "test-utils"))]
 
-use grafton_visca::transport::{
-    async_dyn::{BoxAsyncTransport, DynAsyncTransport},
-    Transport,
-};
+use grafton_visca::transport::Transport;
+
+#[cfg(feature = "rt-tokio")]
+use grafton_visca::transport::async_dyn::{BoxAsyncTransport, DynAsyncTransport};
 
 #[cfg(feature = "rt-tokio")]
 use grafton_visca::testing::testkit::{helpers, ScriptedTransport};

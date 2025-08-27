@@ -17,7 +17,7 @@ use grafton_visca::TokioExecutor;
 #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
 use grafton_visca::transport::Transport;
 
-#[cfg(all(feature = "async", feature = "test-utils"))]
+#[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
 use grafton_visca::transport::BoxAsyncTransport;
 
 /// Test that the Transport builder API remains stable.
