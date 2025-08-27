@@ -84,7 +84,10 @@ use std::time::{Duration, Instant};
 
 #[cfg(feature = "async")]
 pub use async_transport::AsyncTransport;
-#[cfg(feature = "async")]
+#[cfg(all(
+    feature = "async",
+    any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")
+))]
 pub use builder::{Transport, UnifiedTransport};
 // Gate blocking exports so they only appear without async
 #[cfg(not(feature = "async"))]

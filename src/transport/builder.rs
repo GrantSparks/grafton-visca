@@ -9,10 +9,10 @@
 //! selects the appropriate runtime implementation based on enabled features:
 //!
 //! ```rust,no_run
-//! # #[cfg(feature = "async")]
+//! # #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")))]
 //! use grafton_visca::transport::Transport;
 //!
-//! # #[cfg(feature = "async")]
+//! # #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")))]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Uniform API - runtime is automatically selected
 //! let transport = Transport::tcp()
@@ -35,8 +35,7 @@ use crate::transport::RetryConfig;
     not(feature = "async"),
     feature = "rt-tokio",
     feature = "rt-async-std",
-    feature = "rt-smol",
-    feature = "async"
+    feature = "rt-smol"
 ))]
 use crate::Error;
 
@@ -306,7 +305,10 @@ impl TransportBuilder {
 /// This enum allows the uniform transport API to return different concrete
 /// transport types while maintaining type safety and avoiding trait objects.
 #[derive(Debug)]
-#[cfg(feature = "async")]
+#[cfg(all(
+    feature = "async",
+    any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")
+))]
 pub enum UnifiedTransport {
     /// Tokio TCP transport.
     #[cfg(feature = "rt-tokio")]
@@ -328,7 +330,10 @@ pub enum UnifiedTransport {
     SmolUdp(crate::runtime_adapters::smol::UdpTransport),
 }
 
-#[cfg(feature = "async")]
+#[cfg(all(
+    feature = "async",
+    any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")
+))]
 impl crate::transport::AsyncTransport for UnifiedTransport {
     async fn send(&mut self, bytes: &[u8]) -> Result<(), Error> {
         match self {
@@ -370,7 +375,10 @@ impl crate::transport::AsyncTransport for UnifiedTransport {
 /// This provides a clean API where users don't need to specify the runtime
 /// (tokio, async-std, smol) - the library picks the right one based on enabled features.
 #[derive(Debug, Clone)]
-#[cfg(feature = "async")]
+#[cfg(all(
+    feature = "async",
+    any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")
+))]
 pub struct UniformTransportBuilder {
     protocol: Protocol,
     address: Option<String>,
@@ -378,13 +386,19 @@ pub struct UniformTransportBuilder {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg(feature = "async")]
+#[cfg(all(
+    feature = "async",
+    any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")
+))]
 enum Protocol {
     Tcp,
     Udp,
 }
 
-#[cfg(feature = "async")]
+#[cfg(all(
+    feature = "async",
+    any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")
+))]
 impl UniformTransportBuilder {
     /// Create a new TCP transport builder.
     fn new_tcp() -> Self {
@@ -662,20 +676,26 @@ impl UniformTransportBuilder {
 /// Provides a clean interface for creating transports without exposing runtime details.
 /// The runtime implementation is automatically selected based on enabled features.
 #[derive(Debug, Copy, Clone)]
-#[cfg(feature = "async")]
+#[cfg(all(
+    feature = "async",
+    any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")
+))]
 pub struct Transport;
 
-#[cfg(feature = "async")]
+#[cfg(all(
+    feature = "async",
+    any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")
+))]
 impl Transport {
     /// Create a TCP transport builder.
     ///
     /// # Example
     ///
     /// ```rust,no_run
-    /// # #[cfg(feature = "async")]
+    /// # #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")))]
     /// use grafton_visca::transport::Transport;
     ///
-    /// # #[cfg(feature = "async")]
+    /// # #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")))]
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let transport = Transport::tcp()
     ///     .address("192.168.0.110:5678")
@@ -694,10 +714,10 @@ impl Transport {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # #[cfg(feature = "async")]
+    /// # #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")))]
     /// use grafton_visca::transport::Transport;
     ///
-    /// # #[cfg(feature = "async")]
+    /// # #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")))]
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let transport = Transport::udp()
     ///     .address("192.168.0.110:5678")
