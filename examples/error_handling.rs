@@ -21,7 +21,7 @@ use grafton_visca::{
         AsyncMode, Camera,
     },
     prelude::r#async::*,
-    transport::builder::TransportBuilder,
+    transport::Transport,
     types::{PanSpeed, TiltSpeed},
     PanTiltDirection, PresetNumber, TokioExecutor,
 };
@@ -36,7 +36,7 @@ use grafton_visca::{
         BlockingMode, Camera,
     },
     prelude::blocking::*,
-    transport::builder::TransportBuilder,
+    transport::Transport,
     types::{PanSpeed, TiltSpeed},
     PanTiltDirection, PresetNumber,
 };
@@ -340,10 +340,10 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("   Attempting to connect to camera at {camera_addr}...");
 
     // Try to create transport using TransportBuilder for native async
-    let transport = match TransportBuilder::tokio_tcp()
+    let transport = match Transport::tcp()
         .address(camera_addr)
         .connect_timeout(Duration::from_secs(5))
-        .build_tcp_tokio() // .build_tcp_tokio() for native tokio transport
+        .connect() // .connect() for native tokio transport
         .await
     {
         Ok(t) => {

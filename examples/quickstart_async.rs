@@ -34,7 +34,7 @@ use grafton_visca::{
     },
     camera::profiles::PtzOpticsG2,
     command::preset::PresetNumber,
-    transport::builder::TransportBuilder,
+    transport::Transport,
     types::{PanSpeed, SpeedLevel, TiltSpeed},
     units::{Degrees, Normalized},
     CameraBuilder, Error, PanTiltDirection,
@@ -54,11 +54,11 @@ async fn main() -> Result<(), Error> {
     println!("Connecting to camera at {camera_addr}");
     println!();
 
-    // Using TransportBuilder for native async transport (requires tokio runtime)
-    let transport = TransportBuilder::tokio_tcp()
+    // Using uniform Transport API - runtime is automatically selected
+    let transport = Transport::tcp()
         .address(camera_addr)
         .connect_timeout(Duration::from_secs(5))
-        .build_tcp_tokio() // .build_tcp_tokio() returns TcpTransport for tokio runtime
+        .connect()
         .await?;
 
     let camera = CameraBuilder::tokio()?

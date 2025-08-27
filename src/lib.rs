@@ -68,16 +68,19 @@
 //! }
 //! ```
 //!
-//! ### Async Example with Tokio
+//! ### Async Example with Uniform Transport API
 //! ```ignore
 //! use grafton_visca::{CameraBuilder, Error};
-//! use grafton_visca::transport::tokio::tcp::Tcp;
+//! use grafton_visca::transport::Transport;
 //! use grafton_visca::camera::profiles::PtzOpticsG2;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Error> {
-//!     // Create camera with Tokio runtime support
-//!     let transport = Tcp::connect("192.168.0.110:5678").await?;
+//!     // Create camera with uniform Transport API (runtime auto-selected)
+//!     let transport = Transport::tcp()
+//!         .address("192.168.0.110:5678")
+//!         .connect()
+//!         .await?;
 //!     let camera = CameraBuilder::tokio()?
 //!         .build_async::<PtzOpticsG2, _>(transport)
 //!         .await?;

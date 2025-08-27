@@ -84,6 +84,8 @@ use std::time::{Duration, Instant};
 
 #[cfg(feature = "async")]
 pub use async_transport::AsyncTransport;
+#[cfg(feature = "async")]
+pub use builder::{Transport, UnifiedTransport};
 // Gate blocking exports so they only appear without async
 #[cfg(not(feature = "async"))]
 pub use blocking::{Tcp as BlockingTcp, Udp as BlockingUdp};

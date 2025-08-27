@@ -15,7 +15,7 @@ use grafton_visca::{
         methods::{pan_tilt::PanTiltControl, power::PowerControl, zoom::ZoomControl},
         profiles::PtzOpticsG2,
     },
-    transport::builder::TransportBuilder,
+    transport::Transport,
     CameraBuilder,
 };
 use std::error::Error;
@@ -30,10 +30,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .unwrap_or_else(|| "192.168.0.110:5678".into());
     println!("Connecting to camera at {addr} with async-std...");
     // Use TransportBuilder for native async-std TCP transport
-    let transport = TransportBuilder::async_std_tcp()
-        .address(&addr)
-        .build_tcp_async_std()
-        .await?;
+    let transport = Transport::tcp().address(&addr).connect().await?;
 
     let camera = CameraBuilder::async_std()
         .build_async::<PtzOpticsG2, _>(transport)

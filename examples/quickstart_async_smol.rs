@@ -26,7 +26,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
             methods::{pan_tilt::PanTiltControl, power::PowerControl, zoom::ZoomControl},
             profiles::PtzOpticsG2,
         },
-        transport::builder::TransportBuilder,
+        transport::Transport,
         CameraBuilder,
     };
 
@@ -36,10 +36,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| "192.168.0.110:5678".into());
     println!("Connecting to camera at {addr} with smol...");
     // Use TransportBuilder for native smol TCP transport
-    let transport = TransportBuilder::smol_tcp()
-        .address(&addr)
-        .build_tcp_smol()
-        .await?;
+    let transport = Transport::tcp().address(&addr).connect().await?;
 
     let camera = CameraBuilder::smol()
         .build_async::<PtzOpticsG2, _>(transport)

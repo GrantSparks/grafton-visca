@@ -24,9 +24,11 @@ use grafton_visca::{
         zoom::ZoomControlBlocking,
     },
     prelude::blocking::*,
-    transport::builder::TransportBuilder,
     CameraBuilder, Error,
 };
+
+#[cfg(not(feature = "async"))]
+use grafton_visca::transport::builder::TransportBuilder;
 
 #[cfg(not(feature = "async"))]
 fn main() -> Result<(), Error> {

@@ -5,7 +5,7 @@
 //!
 //! Run with: cargo run --example transport_builder_demo --features rt-tokio
 
-#[cfg(any(not(feature = "async"), feature = "rt-tokio"))]
+#[cfg(not(feature = "async"))]
 use grafton_visca::transport::builder::TransportBuilder;
 #[cfg(not(feature = "async"))]
 use grafton_visca::transport::RetryConfig;
@@ -111,33 +111,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("    - Exponential backoff: enabled\n");
     }
 
-    // Example 7: Async transport builder examples (requires rt-tokio feature)
+    // Example 7: Uniform async transport API (requires rt-tokio feature)
     #[cfg(feature = "rt-tokio")]
     {
-        println!("Example 7: Async transport builders (rt-tokio feature)");
+        use grafton_visca::transport::Transport;
+        println!("Example 7: Uniform async transport API (rt-tokio feature)");
 
-        // Example 7a: Native async TCP transport builder
-        println!("  7a. Native async TCP transport:");
-        let _async_tcp = TransportBuilder::tokio_tcp()
+        // Example 7a: Uniform TCP transport builder
+        println!("  7a. Uniform TCP transport:");
+        let _async_tcp = Transport::tcp()
             .address("192.168.0.110:5678")
             .connect_timeout(Duration::from_secs(10))
             .tcp_nodelay(true);
-        println!("     Created tokio TCP builder");
-        println!("     Would connect with: .build_tcp_tokio().await");
+        println!("     Created uniform TCP builder");
+        println!("     Would connect with: .connect().await (runtime auto-selected)");
 
-        // Example 7b: Native async UDP transport builder
-        println!("\n  7b. Native async UDP transport:");
-        let _async_udp = TransportBuilder::tokio_udp()
+        // Example 7b: Uniform UDP transport builder
+        println!("\n  7b. Uniform UDP transport:");
+        let _async_udp = Transport::udp()
             .address("192.168.0.110:5678")
             .ttl(64)
             .max_retries(5);
-        println!("     Created tokio UDP builder");
-        println!("     Would connect with: .build_udp_async().await");
+        println!("     Created uniform UDP builder");
+        println!("     Would connect with: .connect().await (runtime auto-selected)");
 
-        // Example 7c: Native async transports only
-        println!("\n  7c. Native async transports:");
-        println!("     All async transports are now native (no wrappers)");
-        println!("     Use .build_async().await for native async performance");
+        // Example 7c: Runtime auto-selection
+        println!("\n  7c. Runtime auto-selection:");
+        println!("     Transport::tcp().connect().await automatically selects:");
+        println!("     - tokio when rt-tokio feature is enabled");
+        println!("     - async-std when rt-async-std feature is enabled");
+        println!("     - smol when rt-smol feature is enabled");
+        println!("     No need to mention runtime in application code!");
         println!();
     }
 

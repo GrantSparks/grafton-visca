@@ -34,11 +34,13 @@ use grafton_visca::{
         Camera,
     },
     command::preset::PresetNumber,
-    transport::builder::TransportBuilder,
     types::{PanSpeed, SpeedLevel, TiltSpeed},
     units::{Degrees, Normalized},
     Error, PanTiltDirection,
 };
+
+#[cfg(not(feature = "async"))]
+use grafton_visca::transport::builder::TransportBuilder;
 
 #[cfg(not(feature = "async"))]
 fn main() -> Result<(), Error> {

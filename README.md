@@ -54,13 +54,16 @@ fn main() -> grafton_visca::Result<()> {
 use grafton_visca::{
     CameraBuilder,
     camera::profiles::PtzOpticsG2,
-    transport::tokio::tcp::Tcp,
+    transport::Transport,
 };
 
 #[tokio::main]
 async fn main() -> grafton_visca::Result<()> {
-    // Connect with tokio runtime
-    let transport = Tcp::connect("192.168.0.110:5678").await?;
+    // Connect with uniform Transport API - runtime auto-selected
+    let transport = Transport::tcp()
+        .address("192.168.0.110:5678")
+        .connect()
+        .await?;
     let camera = CameraBuilder::tokio()?
         .build_async::<PtzOpticsG2, _>(transport)
         .await?;
