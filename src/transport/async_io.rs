@@ -15,17 +15,21 @@ use crate::Error;
 /// Trait abstracting async read operations across different runtimes.
 ///
 /// This trait unifies the async read capabilities needed for VISCA communication
-/// across tokio, async-std, and smol runtimes.
+/// across tokio, async-std, and smol runtimes. Not all methods will be used by
+/// all runtimes, which is expected for a unified interface.
+#[allow(dead_code)]
 pub trait AsyncReadExt {
     /// Read data into a buffer, returning the number of bytes read.
     ///
     /// Returns 0 when the stream is closed.
+    /// This method is used by runtimes that implement byte-by-byte reading (smol).
     fn read(&mut self, buf: &mut [u8]) -> impl Future<Output = Result<usize, Error>> + Send;
 
     /// Read until a delimiter byte is encountered.
     ///
     /// The delimiter byte is included in the returned data.
     /// Returns the number of bytes read (including delimiter).
+    /// This method is used by runtimes with efficient buffered reading (tokio, async-std).
     fn read_until(
         &mut self,
         delimiter: u8,
@@ -50,7 +54,8 @@ pub trait AsyncWriteExt {
 /// Unified helper for reading VISCA frames from async streams.
 ///
 /// This function handles the common pattern of reading data until the VISCA
-/// terminator (0xFF) is found, which is used across all transport implementations.
+/// terminator (0xFF) is found, which is used by tokio and async-std implementations.
+#[cfg(any(feature = "rt-tokio", feature = "rt-async-std"))]
 pub async fn read_until_terminator<R: AsyncReadExt>(reader: &mut R) -> Result<Bytes, Error> {
     let mut buf = Vec::with_capacity(64);
 
@@ -69,6 +74,7 @@ pub async fn read_until_terminator<R: AsyncReadExt>(reader: &mut R) -> Result<By
 ///
 /// This function provides a fallback for runtimes that don't have efficient
 /// read_until implementations (like smol), reading one byte at a time.
+#[cfg(feature = "rt-smol")]
 pub async fn read_until_terminator_fallback<R: AsyncReadExt>(
     reader: &mut R,
 ) -> Result<Bytes, Error> {
