@@ -379,9 +379,9 @@ jobs:
           cargo build --example runtime_agnostic --no-default-features --features async
           echo "✅ Runtime agnostic example compiles with async only"
 
-  # Phase 6 specific tests - Send futures and API stability
-  phase6-tests:
-    name: Phase 6 Tests
+  # Async transport integration tests - Send futures, API stability, and connect_dyn
+  async-transport-integration:
+    name: Async Transport Integration Tests
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -398,11 +398,11 @@ jobs:
       - name: Install Rust stable toolchain
         uses: dtolnay/rust-toolchain@stable
         continue-on-error: true
-        id: stable-toolchain-phase6
+        id: stable-toolchain-async-transport
       
       # Fallback: retry with rustup directly if the action fails
       - name: Retry stable toolchain installation
-        if: steps.stable-toolchain-phase6.outcome == 'failure'
+        if: steps.stable-toolchain-async-transport.outcome == 'failure'
         run: |
           for i in {1..3}; do
             echo "Attempt $i of 3..."
@@ -563,7 +563,7 @@ jobs:
   # Publish job
   publish:
     name: Publish
-    needs: [format, test, lint-and-docs, feature-matrix, phase6-tests, package-check]
+    needs: [format, test, lint-and-docs, feature-matrix, async-transport-integration, package-check]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:

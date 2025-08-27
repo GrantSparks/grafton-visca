@@ -1,6 +1,6 @@
 //! Compile-time tests to verify that all async control trait futures are Send.
 //!
-//! This test suite validates that the RPITIT conversion in Phase 3 correctly
+//! This test suite validates that the RPITIT (Return Position Impl Trait In Trait) conversion correctly
 //! encodes Send bounds for all control trait method futures. These tests use
 //! compile-time assertions to ensure futures can be sent across threads.
 
