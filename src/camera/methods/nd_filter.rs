@@ -9,24 +9,39 @@ use crate::{
 
 /// ND filter operations (async).
 #[cfg(feature = "async")]
-pub trait NdFilterControl: Sized {
+pub trait NdFilterControl: Send + Sync + 'static + Sized {
     /// Set ND filter mode (preset or variable).
-    async fn set_nd_filter_mode(&self, mode: CommandNDFilterMode) -> Result<(), Error>;
+    fn set_nd_filter_mode(
+        &self,
+        mode: CommandNDFilterMode,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set ND filter value directly (for variable mode).
-    async fn set_nd_filter_value(&self, value: u16) -> Result<(), Error>;
+    fn set_nd_filter_value(
+        &self,
+        value: u16,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set ND filter by stop value (2.0 to 7.0 stops).
-    async fn set_nd_filter_stops(&self, stops: f32) -> Result<(), Error>;
+    fn set_nd_filter_stops(
+        &self,
+        stops: f32,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Step ND filter up or down.
-    async fn step_nd_filter(&self, direction: NDFilterStep) -> Result<(), Error>;
+    fn step_nd_filter(
+        &self,
+        direction: NDFilterStep,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Enable or disable auto ND.
-    async fn set_auto_nd(&self, enabled: bool) -> Result<(), Error>;
+    fn set_auto_nd(
+        &self,
+        enabled: bool,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Get current ND filter setting.
-    async fn get_nd_filter(&self) -> Result<u8, Error>;
+    fn get_nd_filter(&self) -> impl std::future::Future<Output = Result<u8, Error>> + Send + '_;
 }
 
 /// ND filter operations (blocking).

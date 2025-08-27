@@ -15,7 +15,10 @@ pub trait MotionSyncControl {
     ///
     /// # Errors
     /// Returns an error if the camera doesn't support motion sync.
-    async fn set_motion_sync_mode(&self, mode: MotionSyncMode) -> Result<(), Error>;
+    fn set_motion_sync_mode(
+        &self,
+        mode: MotionSyncMode,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Sets the motion sync speed.
     ///
@@ -26,7 +29,10 @@ pub trait MotionSyncControl {
     /// Returns an error if:
     /// - The camera doesn't support motion sync
     /// - The speed is outside the valid range (1-24)
-    async fn set_motion_sync_speed(&self, speed: u8) -> Result<(), Error>;
+    fn set_motion_sync_speed(
+        &self,
+        speed: u8,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Sets the motion sync speed using a preset value.
     ///
@@ -35,19 +41,26 @@ pub trait MotionSyncControl {
     ///
     /// # Errors
     /// Returns an error if the camera doesn't support motion sync.
-    async fn set_motion_sync_preset_speed(&self, speed: MotionSyncSpeed) -> Result<(), Error>;
+    fn set_motion_sync_preset_speed(
+        &self,
+        speed: MotionSyncSpeed,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Gets the current motion sync mode.
     ///
     /// # Errors
     /// Returns an error if the camera doesn't support motion sync.
-    async fn get_motion_sync_mode(&self) -> Result<MotionSyncMode, Error>;
+    fn get_motion_sync_mode(
+        &self,
+    ) -> impl std::future::Future<Output = Result<MotionSyncMode, Error>> + Send + '_;
 
     /// Gets the current motion sync speed.
     ///
     /// # Errors
     /// Returns an error if the camera doesn't support motion sync.
-    async fn get_motion_sync_speed(&self) -> Result<MotionSyncSpeed, Error>;
+    fn get_motion_sync_speed(
+        &self,
+    ) -> impl std::future::Future<Output = Result<MotionSyncSpeed, Error>> + Send + '_;
 }
 
 /// Blocking version of motion sync control methods.

@@ -11,61 +11,79 @@ use crate::{
 
 /// Focus operations (async).
 #[cfg(feature = "async")]
-pub trait FocusControl: Sized {
+pub trait FocusControl: Send + Sync + 'static + Sized {
     /// Set auto focus mode.
-    async fn focus_auto(&self) -> Result<(), Error>;
+    fn focus_auto(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set manual focus mode.
-    async fn focus_manual(&self) -> Result<(), Error>;
+    fn focus_manual(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Focus near at specified speed.
-    async fn focus_near(&self, speed: SpeedLevel) -> Result<(), Error>;
+    fn focus_near(
+        &self,
+        speed: SpeedLevel,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Focus far at specified speed.
-    async fn focus_far(&self, speed: SpeedLevel) -> Result<(), Error>;
+    fn focus_far(
+        &self,
+        speed: SpeedLevel,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Stop focus movement.
-    async fn focus_stop(&self) -> Result<(), Error>;
+    fn focus_stop(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Trigger one-push auto focus.
-    async fn focus_one_push(&self) -> Result<(), Error>;
+    fn focus_one_push(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set focus to a specific position.
-    async fn set_focus(&self, position: FocusPosition) -> Result<(), Error>;
+    fn set_focus(
+        &self,
+        position: FocusPosition,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set focus to infinity.
-    async fn focus_infinity(&self) -> Result<(), Error>;
+    fn focus_infinity(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Enable focus lock.
     /// Locks the current focus position to prevent changes.
-    async fn enable_focus_lock(&self) -> Result<(), Error>;
+    fn enable_focus_lock(&self)
+        -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Disable focus lock.
     /// Allows focus to be adjusted again.
-    async fn disable_focus_lock(&self) -> Result<(), Error>;
+    fn disable_focus_lock(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Press Push AF button.
     /// Temporarily activates auto focus while pressed.
-    async fn push_af_press(&self) -> Result<(), Error>;
+    fn push_af_press(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Release Push AF button.
     /// Returns to previous focus mode after temporary auto focus.
-    async fn push_af_release(&self) -> Result<(), Error>;
+    fn push_af_release(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set the focus zone.
     /// Determines which area of the image the camera uses for auto focus.
-    async fn set_focus_zone(&self, zone: FocusZone) -> Result<(), Error>;
+    fn set_focus_zone(
+        &self,
+        zone: FocusZone,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set auto focus sensitivity.
     /// Controls how responsive the auto focus system is to changes in the scene.
-    async fn set_auto_focus_sensitivity(
+    fn set_auto_focus_sensitivity(
         &self,
         sensitivity: AutoFocusSensitivity,
-    ) -> Result<(), Error>;
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set the focus near limit.
     /// Sets the minimum focus distance to prevent the camera from focusing on objects too close to the lens.
-    async fn set_focus_near_limit(&self, position: FocusPosition) -> Result<(), Error>;
+    fn set_focus_near_limit(
+        &self,
+        position: FocusPosition,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 }
 
 /// Focus operations (blocking).

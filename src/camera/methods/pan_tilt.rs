@@ -10,12 +10,12 @@ use crate::{
 
 /// Pan/Tilt operations (async).
 #[cfg(feature = "async")]
-pub trait PanTiltControl: Sized {
+pub trait PanTiltControl: Send + Sync + 'static + Sized {
     /// Stop all pan/tilt movement.
-    async fn pan_tilt_stop(&self) -> Result<(), Error>;
+    fn pan_tilt_stop(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Move to home position (0, 0).
-    async fn pan_tilt_home(&self) -> Result<(), Error>;
+    fn pan_tilt_home(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Move to absolute pan/tilt position in degrees.
     async fn pan_tilt_absolute(
@@ -42,7 +42,7 @@ pub trait PanTiltControl: Sized {
     ) -> Result<(), Error>;
 
     /// Reset pan/tilt to default position.
-    async fn pan_tilt_reset(&self) -> Result<(), Error>;
+    fn pan_tilt_reset(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set pan/tilt movement limit for a specific corner.
     async fn pan_tilt_limit_set(
@@ -53,7 +53,10 @@ pub trait PanTiltControl: Sized {
     ) -> Result<(), Error>;
 
     /// Clear pan/tilt movement limit for a specific corner.
-    async fn pan_tilt_limit_clear(&self, corner: PanTiltLimitCorner) -> Result<(), Error>;
+    fn pan_tilt_limit_clear(
+        &self,
+        corner: PanTiltLimitCorner,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 }
 
 /// Pan/Tilt operations (blocking).

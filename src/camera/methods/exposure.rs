@@ -4,112 +4,157 @@ use crate::Error;
 
 /// Exposure operations (async).
 #[cfg(feature = "async")]
-pub trait ExposureControl: Sized {
+pub trait ExposureControl: Send + Sync + 'static + Sized {
     /// Set exposure mode to any supported mode.
-    async fn set_exposure_mode(
+    fn set_exposure_mode(
         &self,
         mode: crate::command::exposure::ExposureMode,
-    ) -> Result<(), Error>;
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set auto exposure mode.
-    async fn exposure_auto(&self) -> Result<(), Error>;
+    fn exposure_auto(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set manual exposure mode.
-    async fn exposure_manual(&self) -> Result<(), Error>;
+    fn exposure_manual(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set shutter priority exposure mode.
     /// User controls shutter speed, camera adjusts other parameters.
-    async fn exposure_shutter_priority(&self) -> Result<(), Error>;
+    fn exposure_shutter_priority(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set iris priority exposure mode.
     /// User controls iris/aperture, camera adjusts other parameters.
-    async fn exposure_iris_priority(&self) -> Result<(), Error>;
+    fn exposure_iris_priority(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set brightness priority exposure mode.
     /// User controls brightness level, camera adjusts other parameters.
-    async fn exposure_bright_mode(&self) -> Result<(), Error>;
+    fn exposure_bright_mode(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set iris level.
-    async fn set_iris(&self, level: crate::types::IrisLevel) -> Result<(), Error>;
+    fn set_iris(
+        &self,
+        level: crate::types::IrisLevel,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Reset iris to default.
-    async fn reset_iris(&self) -> Result<(), Error>;
+    fn reset_iris(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Increase iris (open aperture).
-    async fn increase_iris(&self) -> Result<(), Error>;
+    fn increase_iris(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Decrease iris (close aperture).
-    async fn decrease_iris(&self) -> Result<(), Error>;
+    fn decrease_iris(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set brightness level.
-    async fn set_brightness(&self, level: crate::types::BrightnessLevel) -> Result<(), Error>;
+    fn set_brightness(
+        &self,
+        level: crate::types::BrightnessLevel,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Reset brightness to default.
-    async fn reset_brightness(&self) -> Result<(), Error>;
+    fn reset_brightness(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Increase brightness.
-    async fn increase_brightness(&self) -> Result<(), Error>;
+    fn increase_brightness(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Decrease brightness.
-    async fn decrease_brightness(&self) -> Result<(), Error>;
+    fn decrease_brightness(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set backlight compensation.
-    async fn set_backlight(&self, enabled: bool) -> Result<(), Error>;
+    fn set_backlight(
+        &self,
+        enabled: bool,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set gain value.
-    async fn set_gain(&self, gain: crate::types::GainLevel) -> Result<(), Error>;
+    fn set_gain(
+        &self,
+        gain: crate::types::GainLevel,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Reset gain to default.
-    async fn reset_gain(&self) -> Result<(), Error>;
+    fn reset_gain(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Increase gain by one step.
-    async fn increase_gain(&self) -> Result<(), Error>;
+    fn increase_gain(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Decrease gain by one step.
-    async fn decrease_gain(&self) -> Result<(), Error>;
+    fn decrease_gain(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set gain limit.
-    async fn set_gain_limit(&self, limit: crate::types::GainLimit) -> Result<(), Error>;
+    fn set_gain_limit(
+        &self,
+        limit: crate::types::GainLimit,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set dynamic range level.
-    async fn set_dynamic_range(&self, level: crate::types::DynamicRangeLevel) -> Result<(), Error>;
+    fn set_dynamic_range(
+        &self,
+        level: crate::types::DynamicRangeLevel,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set color temperature.
-    async fn set_color_temperature(&self, temp: crate::types::ColorTemp) -> Result<(), Error>;
+    fn set_color_temperature(
+        &self,
+        temp: crate::types::ColorTemp,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set shutter speed.
-    async fn set_shutter_speed(&self, speed: crate::types::ShutterSpeed) -> Result<(), Error>;
+    fn set_shutter_speed(
+        &self,
+        speed: crate::types::ShutterSpeed,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Reset shutter speed to default.
-    async fn reset_shutter_speed(&self) -> Result<(), Error>;
+    fn reset_shutter_speed(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Increase shutter speed (faster).
-    async fn increase_shutter_speed(&self) -> Result<(), Error>;
+    fn increase_shutter_speed(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Decrease shutter speed (slower).
-    async fn decrease_shutter_speed(&self) -> Result<(), Error>;
+    fn decrease_shutter_speed(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Enable spotlight mode (Sony models).
     /// Enhances exposure for specific subjects.
-    async fn enable_spotlight(&self) -> Result<(), Error>;
+    fn enable_spotlight(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Disable spotlight mode (Sony models).
-    async fn disable_spotlight(&self) -> Result<(), Error>;
+    fn disable_spotlight(&self)
+        -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Enable auto slow shutter mode.
     /// Automatically reduces shutter speed in low light conditions.
     /// Supported on Sony cameras and FR7, PtzOptics only via HTTP API.
-    async fn enable_auto_slow_shutter(&self) -> Result<(), Error>;
+    fn enable_auto_slow_shutter(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Disable auto slow shutter mode.
-    async fn disable_auto_slow_shutter(&self) -> Result<(), Error>;
+    fn disable_auto_slow_shutter(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set brightness using direct mode.
     /// This is supported on Sony models but not on FR7.
-    async fn set_brightness_direct(
+    fn set_brightness_direct(
         &self,
         level: crate::types::BrightnessLevel,
-    ) -> Result<(), Error>;
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 }
 
 // Async implementation for Camera with AsyncMode

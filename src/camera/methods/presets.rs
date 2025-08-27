@@ -4,15 +4,24 @@ use crate::{command::preset::PresetNumber, Error};
 
 /// Presets operations (async).
 #[cfg(feature = "async")]
-pub trait PresetsControl: Sized {
+pub trait PresetsControl: Send + Sync + 'static + Sized {
     /// Recall a preset position.
-    async fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error>;
+    fn preset_recall(
+        &self,
+        preset: PresetNumber,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set current position as a preset.
-    async fn preset_set(&self, preset: PresetNumber) -> Result<(), Error>;
+    fn preset_set(
+        &self,
+        preset: PresetNumber,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Reset/clear a preset.
-    async fn preset_reset(&self, preset: PresetNumber) -> Result<(), Error>;
+    fn preset_reset(
+        &self,
+        preset: PresetNumber,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 }
 
 /// Presets operations (blocking).

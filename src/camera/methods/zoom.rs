@@ -4,30 +4,44 @@ use crate::{command::zoom::ZoomSpeed, units::Normalized, Error};
 
 /// Zoom operations (async).
 #[cfg(feature = "async")]
-pub trait ZoomControl: Sized {
+pub trait ZoomControl: Send + Sync + 'static + Sized {
     /// Stop zooming.
-    async fn zoom_stop(&self) -> Result<(), Error>;
+    fn zoom_stop(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Start zooming in at standard speed.
-    async fn zoom_tele_std(&self) -> Result<(), Error>;
+    fn zoom_tele_std(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Start zooming out at standard speed.
-    async fn zoom_wide_std(&self) -> Result<(), Error>;
+    fn zoom_wide_std(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Start zooming in at variable speed.
-    async fn zoom_tele_variable(&self, speed: ZoomSpeed) -> Result<(), Error>;
+    fn zoom_tele_variable(
+        &self,
+        speed: ZoomSpeed,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Start zooming out at variable speed.
-    async fn zoom_wide_variable(&self, speed: ZoomSpeed) -> Result<(), Error>;
+    fn zoom_wide_variable(
+        &self,
+        speed: ZoomSpeed,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set zoom to absolute position (0.0 = wide, 1.0 = full tele).
-    async fn zoom_absolute(&self, position: Normalized) -> Result<(), Error>;
+    fn zoom_absolute(
+        &self,
+        position: Normalized,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set zoom to a specific position value.
-    async fn zoom_position(&self, position: crate::types::ZoomPosition) -> Result<(), Error>;
+    fn zoom_position(
+        &self,
+        position: crate::types::ZoomPosition,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Query the current zoom position.
-    async fn zoom_position_inquiry(&self) -> Result<crate::types::ZoomPosition, Error>;
+    fn zoom_position_inquiry(
+        &self,
+    ) -> impl std::future::Future<Output = Result<crate::types::ZoomPosition, Error>> + Send + '_;
 }
 
 /// Zoom operations (blocking).
