@@ -192,7 +192,7 @@ fn test_core_api_stability() {
 fn test_runtime_feature_detection() {
     #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
     let mut active_runtimes = 0;
-    
+
     #[cfg(not(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")))]
     let active_runtimes = 0;
 

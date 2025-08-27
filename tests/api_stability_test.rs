@@ -15,8 +15,10 @@ use grafton_visca::testing::testkit::ScriptedTransport;
 use grafton_visca::TokioExecutor;
 
 #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
-use grafton_visca::transport::{Transport, BoxAsyncTransport};
+use grafton_visca::transport::Transport;
 
+#[cfg(all(feature = "async", feature = "test-utils"))]
+use grafton_visca::transport::BoxAsyncTransport;
 
 /// Test that the Transport builder API remains stable.
 #[test]
@@ -77,7 +79,7 @@ fn test_dyn_async_transport_trait_stability() {
             T: DynAsyncTransport + ?Sized,
         {
         }
-        
+
         let mut mock_transport: BoxAsyncTransport =
             Box::new(ScriptedTransport::<TokioExecutor>::new(vec![]));
         accepts_dyn_transport(&mut *mock_transport);
@@ -112,7 +114,7 @@ fn test_runtime_feature_detection_stability() {
     // Test that exactly one runtime feature is active
     #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
     let mut active_runtimes = 0;
-    
+
     #[cfg(not(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")))]
     let active_runtimes = 0;
 
@@ -275,7 +277,7 @@ fn test_transport_module_structure() {
     use grafton_visca::transport::buffer::BufferConfig;
     use grafton_visca::transport::builder::TransportConfig;
     use grafton_visca::transport::RetryConfig;
-    
+
     #[cfg(all(feature = "async", feature = "rt-tokio", feature = "test-utils"))]
     use grafton_visca::transport::AsyncTransport;
 
@@ -295,7 +297,7 @@ fn test_transport_module_structure() {
             T: AsyncTransport,
         {
         }
-        
+
         let mock_transport = ScriptedTransport::<TokioExecutor>::new(vec![]);
         accepts_async_transport(mock_transport);
     }
