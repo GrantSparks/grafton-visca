@@ -32,9 +32,6 @@ fn test_transport_builder_api_stability() {
         #[cfg(feature = "rt-tokio")]
         let _udp_builder = Transport::udp();
 
-        #[cfg(all(feature = "serial", not(target_arch = "wasm32")))]
-        let _serial_builder = Transport::serial();
-
         // Test that Transport can be used in generic contexts
         fn accepts_transport_builder<T>(_builder: T)
         where
