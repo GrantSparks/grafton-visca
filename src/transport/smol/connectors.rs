@@ -1,0 +1,111 @@
+//! smol-specific implementations of unified async I/O connectors.
+
+use smol::io::{AsyncReadExt, AsyncWriteExt};
+use smol::net::{TcpStream, UdpSocket};
+
+use crate::transport::address::AddressResolver;
+use crate::transport::async_io::{
+    AsyncReadExt as AsyncReadExtTrait, AsyncWriteExt as AsyncWriteExtTrait, TcpConnectionConfig,
+    UdpSocketConfig,
+};
+use crate::Error;
+
+/// Combined TCP stream wrapper that implements both read and write traits.
+#[derive(Debug)]
+pub struct SmolTcpStream {
+    stream: TcpStream,
+}
+
+impl SmolTcpStream {
+    pub fn new(stream: TcpStream) -> Self {
+        Self { stream }
+    }
+
+    pub fn clone_stream(&self) -> TcpStream {
+        self.stream.clone()
+    }
+}
+
+impl AsyncReadExtTrait for SmolTcpStream {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+        Ok(self.stream.read(buf).await?)
+    }
+
+    async fn read_until(&mut self, delimiter: u8, buf: &mut Vec<u8>) -> Result<usize, Error> {
+        // smol doesn't have read_until, so we read byte by byte
+        let mut total_read = 0;
+        loop {
+            let mut byte = [0u8; 1];
+            let n = self.stream.read(&mut byte).await?;
+            if n == 0 {
+                break;
+            }
+            buf.push(byte[0]);
+            total_read += 1;
+            if byte[0] == delimiter {
+                break;
+            }
+        }
+        Ok(total_read)
+    }
+}
+
+impl AsyncWriteExtTrait for SmolTcpStream {
+    async fn write_all(&mut self, buf: &[u8]) -> Result<(), Error> {
+        Ok(self.stream.write_all(buf).await?)
+    }
+
+    async fn flush(&mut self) -> Result<(), Error> {
+        Ok(self.stream.flush().await?)
+    }
+}
+
+/// Create a configured TCP connection using unified helpers.
+pub async fn connect_tcp(
+    address: &str,
+    config: TcpConnectionConfig,
+) -> Result<SmolTcpStream, Error> {
+    // Use smol's timeout functionality
+    let connect_future = TcpStream::connect(address);
+    let stream = smol::future::or(
+        async {
+            smol::Timer::after(config.connect_timeout).await;
+            Err(Error::Timeout)
+        },
+        async { connect_future.await.map_err(Error::from) },
+    )
+    .await?;
+
+    // Apply socket configuration
+    if let Some(nodelay) = config.nodelay {
+        stream.set_nodelay(nodelay)?;
+    } else {
+        stream.set_nodelay(true)?; // Default to low latency
+    }
+
+    if let Some(ttl) = config.ttl {
+        stream.set_ttl(ttl)?;
+    }
+
+    Ok(SmolTcpStream::new(stream))
+}
+
+/// Create a configured UDP socket using unified helpers.
+pub async fn connect_udp(address: &str, config: UdpSocketConfig) -> Result<UdpSocket, Error> {
+    // Use the common address resolver
+    let resolver = AddressResolver::new();
+    let target_addr = resolver.resolve_first(address)?;
+
+    // Bind to the appropriate unspecified address based on target family
+    let bind_addr = resolver.bind_address_for(&target_addr);
+
+    let socket = UdpSocket::bind(bind_addr).await?;
+    socket.connect(target_addr).await?;
+
+    // Apply socket options
+    if let Some(ttl) = config.ttl {
+        socket.set_ttl(ttl)?;
+    }
+
+    Ok(socket)
+}

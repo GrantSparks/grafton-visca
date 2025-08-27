@@ -3,5 +3,6 @@
 //! This module provides transport implementations optimized for the async-std runtime.
 //! All types in this module require the `rt-async-std` feature to be enabled.
 
+pub(crate) mod connectors;
 pub mod tcp;
 pub mod udp;

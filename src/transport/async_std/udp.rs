@@ -1,9 +1,10 @@
-//! async-std UDP transport implementation with zero-cost async and IPv6 support.
+//! async-std UDP transport implementation with zero-cost async and unified helpers.
 
 use async_std::net::UdpSocket;
 use bytes::Bytes;
 
-use crate::transport::address::AddressResolver;
+use crate::transport::async_io::UdpSocketConfig;
+use crate::transport::async_std::connectors::connect_udp;
 use crate::transport::buffer::{BufferConfig, BufferManager};
 use crate::transport::retry::RetryExecutor;
 use crate::transport::{builder::TransportConfig, AsyncTransport, RetryConfig};
@@ -59,20 +60,8 @@ impl Udp {
         address: &str,
         config: TransportConfig,
     ) -> Result<Self, Error> {
-        // Use the common address resolver
-        let resolver = AddressResolver::new();
-        let target_addr = resolver.resolve_first(address)?;
-
-        // Bind to the appropriate unspecified address based on target family
-        let bind_addr = resolver.bind_address_for(&target_addr);
-
-        let socket = UdpSocket::bind(bind_addr).await?;
-        socket.connect(target_addr).await?;
-
-        // Apply socket options
-        if let Some(ttl) = config.ttl {
-            socket.set_ttl(ttl)?;
-        }
+        let udp_config = UdpSocketConfig::from(config);
+        let socket = connect_udp(address, udp_config).await?;
 
         Ok(Self {
             socket,

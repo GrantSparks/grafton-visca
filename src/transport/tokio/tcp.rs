@@ -1,25 +1,20 @@
-//! Tokio TCP transport implementation with zero-cost async.
+//! Tokio TCP transport implementation with zero-cost async using unified helpers.
 
 use bytes::Bytes;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
-use tokio::net::TcpStream;
-
-use std::borrow::Cow;
 use std::time::Duration;
 
-use crate::command::const_encoding::VISCA_TERMINATOR;
+use crate::transport::async_io::{read_until_terminator, write_all_flush, TcpConnectionConfig};
+use crate::transport::tokio::connectors::{connect_tcp, TokioTcpStream};
 use crate::transport::{builder::TransportConfig, AsyncTransport};
 use crate::Error;
 
 /// TCP transport for async VISCA communication using tokio.
 ///
-/// This transport uses native async functions without boxing, providing
-/// zero-cost async transport operations.
+/// This transport uses native async functions without boxing and unified helpers
+/// to reduce code duplication across runtimes.
 #[derive(Debug)]
 pub struct Tcp {
-    reader: BufReader<OwnedReadHalf>,
-    writer: OwnedWriteHalf,
+    stream: TokioTcpStream,
 }
 
 impl Tcp {
@@ -34,21 +29,12 @@ impl Tcp {
     ///
     /// This method resolves hostnames and supports both IPv4 and IPv6 addresses.
     pub async fn connect_timeout(address: &str, timeout: Duration) -> Result<Self, Error> {
-        // TcpStream::connect already handles DNS resolution and IPv6
-        let stream = tokio::time::timeout(timeout, TcpStream::connect(address))
-            .await
-            .map_err(|_| Error::Timeout)??;
-
-        // Set TCP nodelay for low latency
-        stream.set_nodelay(true)?;
-
-        // Split into read and write halves
-        let (read_half, write_half) = stream.into_split();
-
-        Ok(Self {
-            reader: BufReader::new(read_half),
-            writer: write_half,
-        })
+        let config = TcpConnectionConfig {
+            connect_timeout: timeout,
+            ..Default::default()
+        };
+        let stream = connect_tcp(address, config).await?;
+        Ok(Self { stream })
     }
 
     /// Connect with a full configuration.
@@ -58,32 +44,10 @@ impl Tcp {
         address: &str,
         config: TransportConfig,
     ) -> Result<Self, Error> {
-        // TcpStream::connect already handles DNS resolution and IPv6
-        let stream = tokio::time::timeout(config.connect_timeout, TcpStream::connect(address))
-            .await
-            .map_err(|_| Error::Timeout)??;
+        let tcp_config = TcpConnectionConfig::from(config);
+        let stream = connect_tcp(address, tcp_config).await?;
 
-        // Apply socket options
-        if let Some(nodelay) = config.tcp_nodelay {
-            stream.set_nodelay(nodelay)?;
-        } else {
-            // Default to nodelay for low latency
-            stream.set_nodelay(true)?;
-        }
-
-        if let Some(ttl) = config.ttl {
-            stream.set_ttl(ttl)?;
-        }
-
-        // Note: keepalive configuration would require platform-specific code
-
-        // Split into read and write halves
-        let (read_half, write_half) = stream.into_split();
-
-        Ok(Self {
-            reader: BufReader::new(read_half),
-            writer: write_half,
-        })
+        Ok(Self { stream })
     }
 
     /// Split the TCP transport into separate reader and writer halves.
@@ -110,43 +74,23 @@ impl Tcp {
     /// # }
     /// ```
     pub fn split(self) -> (TcpReader, TcpWriter) {
-        let reader = TcpReader {
-            reader: self.reader,
-        };
+        let TokioTcpStream { reader, writer } = self.stream;
 
-        let writer = TcpWriter {
-            writer: self.writer,
-        };
+        let tcp_reader = TcpReader { reader };
+        let tcp_writer = TcpWriter { writer };
 
-        (reader, writer)
+        (tcp_reader, tcp_writer)
     }
 }
 
 #[allow(clippy::manual_async_fn)]
 impl AsyncTransport for Tcp {
     fn send(&mut self, data: &[u8]) -> impl std::future::Future<Output = Result<(), Error>> + Send {
-        async move {
-            self.writer.write_all(data).await?;
-            self.writer.flush().await?;
-            Ok(())
-        }
+        write_all_flush(&mut self.stream, data)
     }
 
     fn recv(&mut self) -> impl std::future::Future<Output = Result<Bytes, Error>> + Send {
-        async move {
-            let mut buf = Vec::with_capacity(64);
-
-            // Use buffered read_until to find VISCA terminator
-            let n = self.reader.read_until(VISCA_TERMINATOR, &mut buf).await?;
-
-            if n == 0 {
-                return Err(Error::ConnectionLost {
-                    reason: Cow::Borrowed("peer closed connection"),
-                });
-            }
-
-            Ok(Bytes::from(buf))
-        }
+        read_until_terminator(&mut self.stream)
     }
 }
 
@@ -156,24 +100,14 @@ impl AsyncTransport for Tcp {
 /// into separate reader and writer halves.
 #[derive(Debug)]
 pub struct TcpReader {
-    reader: BufReader<OwnedReadHalf>,
+    reader:
+        crate::transport::tokio::connectors::TokioBufferedReader<tokio::net::tcp::OwnedReadHalf>,
 }
 
 impl TcpReader {
     /// Receive data from the TCP connection.
     pub async fn recv(&mut self) -> Result<Bytes, Error> {
-        let mut buf = Vec::with_capacity(64);
-
-        // Use buffered read_until to find VISCA terminator
-        let n = self.reader.read_until(VISCA_TERMINATOR, &mut buf).await?;
-
-        if n == 0 {
-            return Err(Error::ConnectionLost {
-                reason: Cow::Borrowed("peer closed connection"),
-            });
-        }
-
-        Ok(Bytes::from(buf))
+        read_until_terminator(&mut self.reader).await
     }
 }
 
@@ -183,14 +117,12 @@ impl TcpReader {
 /// into separate reader and writer halves.
 #[derive(Debug)]
 pub struct TcpWriter {
-    writer: OwnedWriteHalf,
+    writer: crate::transport::tokio::connectors::TokioWriter<tokio::net::tcp::OwnedWriteHalf>,
 }
 
 impl TcpWriter {
     /// Send data over the TCP connection.
     pub async fn send(&mut self, data: &[u8]) -> Result<(), Error> {
-        self.writer.write_all(data).await?;
-        self.writer.flush().await?;
-        Ok(())
+        write_all_flush(&mut self.writer, data).await
     }
 }

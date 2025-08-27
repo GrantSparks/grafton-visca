@@ -1,24 +1,20 @@
-//! async-std TCP transport implementation with zero-cost async.
+//! async-std TCP transport implementation with zero-cost async using unified helpers.
 
-use async_std::io::{prelude::*, BufReader};
-use async_std::net::TcpStream;
-use async_std::prelude::FutureExt;
 use bytes::Bytes;
-
-use std::borrow::Cow;
 use std::time::Duration;
 
-use crate::command::const_encoding::VISCA_TERMINATOR;
+use crate::transport::async_io::{read_until_terminator, write_all_flush, TcpConnectionConfig};
+use crate::transport::async_std::connectors::{connect_tcp, AsyncStdTcpStream};
 use crate::transport::{builder::TransportConfig, AsyncTransport};
 use crate::Error;
 
 /// TCP transport for async VISCA communication using async-std.
 ///
-/// This transport uses native async functions without boxing, providing
-/// zero-cost async transport operations.
+/// This transport uses native async functions without boxing and unified helpers
+/// to reduce code duplication across runtimes.
 #[derive(Debug)]
 pub struct Tcp {
-    stream: TcpStream,
+    stream: AsyncStdTcpStream,
 }
 
 impl Tcp {
@@ -33,16 +29,11 @@ impl Tcp {
     ///
     /// This method resolves hostnames and supports both IPv4 and IPv6 addresses.
     pub async fn connect_timeout(address: &str, timeout: Duration) -> Result<Self, Error> {
-        // TcpStream::connect already handles DNS resolution and IPv6
-        let stream = TcpStream::connect(address)
-            .timeout(timeout)
-            .await
-            .map_err(|_| Error::Timeout)?
-            .map_err(Error::from)?;
-
-        // Set TCP nodelay for low latency
-        stream.set_nodelay(true)?;
-
+        let config = TcpConnectionConfig {
+            connect_timeout: timeout,
+            ..Default::default()
+        };
+        let stream = connect_tcp(address, config).await?;
         Ok(Self { stream })
     }
 
@@ -53,27 +44,8 @@ impl Tcp {
         address: &str,
         config: TransportConfig,
     ) -> Result<Self, Error> {
-        // TcpStream::connect already handles DNS resolution and IPv6
-        let stream = TcpStream::connect(address)
-            .timeout(config.connect_timeout)
-            .await
-            .map_err(|_| Error::Timeout)?
-            .map_err(Error::from)?;
-
-        // Apply socket options
-        if let Some(nodelay) = config.tcp_nodelay {
-            stream.set_nodelay(nodelay)?;
-        } else {
-            // Default to nodelay for low latency
-            stream.set_nodelay(true)?;
-        }
-
-        if let Some(ttl) = config.ttl {
-            stream.set_ttl(ttl)?;
-        }
-
-        // Note: keepalive configuration would require platform-specific code
-
+        let tcp_config = TcpConnectionConfig::from(config);
+        let stream = connect_tcp(address, tcp_config).await?;
         Ok(Self { stream })
     }
 
@@ -101,14 +73,14 @@ impl Tcp {
     /// # }
     /// ```
     pub fn split(self) -> (TcpReader, TcpWriter) {
-        let stream_clone = self.stream.clone();
+        let cloned_stream = AsyncStdTcpStream::new(self.stream.clone_stream());
 
         let reader = TcpReader {
             stream: self.stream,
         };
 
         let writer = TcpWriter {
-            stream: stream_clone,
+            stream: cloned_stream,
         };
 
         (reader, writer)
@@ -117,25 +89,11 @@ impl Tcp {
 
 impl AsyncTransport for Tcp {
     async fn send(&mut self, data: &[u8]) -> Result<(), Error> {
-        self.stream.write_all(data).await?;
-        self.stream.flush().await?;
-        Ok(())
+        write_all_flush(&mut self.stream, data).await
     }
 
     async fn recv(&mut self) -> Result<Bytes, Error> {
-        let mut reader = BufReader::new(&self.stream);
-        let mut buf = Vec::with_capacity(64);
-
-        // Use buffered read_until to find VISCA terminator
-        let n = reader.read_until(VISCA_TERMINATOR, &mut buf).await?;
-
-        if n == 0 {
-            return Err(Error::ConnectionLost {
-                reason: Cow::Borrowed("peer closed connection"),
-            });
-        }
-
-        Ok(Bytes::from(buf))
+        read_until_terminator(&mut self.stream).await
     }
 }
 
@@ -145,25 +103,13 @@ impl AsyncTransport for Tcp {
 /// into separate reader and writer halves.
 #[derive(Debug)]
 pub struct TcpReader {
-    stream: TcpStream,
+    stream: AsyncStdTcpStream,
 }
 
 impl TcpReader {
     /// Receive data from the TCP connection.
     pub async fn recv(&mut self) -> Result<Bytes, Error> {
-        let mut reader = BufReader::new(&self.stream);
-        let mut buf = Vec::with_capacity(64);
-
-        // Use buffered read_until to find VISCA terminator
-        let n = reader.read_until(VISCA_TERMINATOR, &mut buf).await?;
-
-        if n == 0 {
-            return Err(Error::ConnectionLost {
-                reason: Cow::Borrowed("peer closed connection"),
-            });
-        }
-
-        Ok(Bytes::from(buf))
+        read_until_terminator(&mut self.stream).await
     }
 }
 
@@ -173,14 +119,12 @@ impl TcpReader {
 /// into separate reader and writer halves.
 #[derive(Debug)]
 pub struct TcpWriter {
-    stream: TcpStream,
+    stream: AsyncStdTcpStream,
 }
 
 impl TcpWriter {
     /// Send data over the TCP connection.
     pub async fn send(&mut self, data: &[u8]) -> Result<(), Error> {
-        self.stream.write_all(data).await?;
-        self.stream.flush().await?;
-        Ok(())
+        write_all_flush(&mut self.stream, data).await
     }
 }
