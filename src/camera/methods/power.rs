@@ -4,15 +4,15 @@ use crate::Error;
 
 /// Power operations (async).
 #[cfg(feature = "async")]
-pub trait PowerControl: Sized {
+pub trait PowerControl: Send + Sync + 'static + Sized {
     /// Power on the camera.
-    async fn power_on(&self) -> Result<(), Error>;
+    fn power_on(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Power off the camera.
-    async fn power_off(&self) -> Result<(), Error>;
+    fn power_off(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Query the current power status.
-    async fn power_inquiry(&self) -> Result<bool, Error>;
+    fn power_inquiry(&self) -> impl std::future::Future<Output = Result<bool, Error>> + Send + '_;
 }
 
 /// Power operations (blocking).

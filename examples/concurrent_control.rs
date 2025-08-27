@@ -28,11 +28,9 @@ use grafton_visca::{
             zoom::ZoomControl,
         },
         profiles::PtzOpticsG2,
-        TokioCamera,
     },
     prelude::r#async::*,
     transport::Transport,
-    transport::UnifiedTransport,
     types::SpeedLevel,
     CameraBuilder, PanTiltDirection, PresetNumber, Result,
 };
@@ -102,19 +100,19 @@ async fn multi_camera_control() -> Result<()> {
         })?;
 
     // Build cameras with the Tokio executor using the builder pattern
-    let cam1: Arc<TokioCamera<PtzOpticsG2, UnifiedTransport>> = Arc::new(
+    let cam1 = Arc::new(
         CameraBuilder::tokio()?
             .build_async::<PtzOpticsG2, _>(transport1)
             .await?,
     );
 
-    let cam2: Arc<TokioCamera<PtzOpticsG2, UnifiedTransport>> = Arc::new(
+    let cam2 = Arc::new(
         CameraBuilder::tokio()?
             .build_async::<PtzOpticsG2, _>(transport2)
             .await?,
     );
 
-    let cam3: Arc<TokioCamera<PtzOpticsG2, UnifiedTransport>> = Arc::new(
+    let cam3 = Arc::new(
         CameraBuilder::tokio()?
             .build_async::<PtzOpticsG2, _>(transport3)
             .await?,
@@ -201,7 +199,7 @@ async fn parallel_single_camera() -> Result<()> {
             e
         })?;
 
-    let camera: Arc<TokioCamera<PtzOpticsG2, UnifiedTransport>> = Arc::new(
+    let camera = Arc::new(
         CameraBuilder::tokio()?
             .build_async::<PtzOpticsG2, _>(transport)
             .await?,
@@ -272,7 +270,7 @@ async fn producer_consumer_pattern() -> Result<()> {
         .address("192.168.0.110:5678")
         .connect()
         .await?;
-    let camera: Arc<TokioCamera<PtzOpticsG2, UnifiedTransport>> = Arc::new(
+    let camera = Arc::new(
         CameraBuilder::tokio()?
             .build_async::<PtzOpticsG2, _>(transport)
             .await?,
@@ -361,7 +359,7 @@ async fn synchronized_movement() -> Result<()> {
             .address(format!("{}:5678", addr))
             .connect()
             .await?;
-        let camera: Arc<TokioCamera<PtzOpticsG2, UnifiedTransport>> = Arc::new(
+        let camera = Arc::new(
             CameraBuilder::tokio()?
                 .build_async::<PtzOpticsG2, _>(transport)
                 .await?,

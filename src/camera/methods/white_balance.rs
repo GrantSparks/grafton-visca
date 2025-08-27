@@ -7,30 +7,46 @@ use crate::{
 
 /// White balance operations (async).
 #[cfg(feature = "async")]
-pub trait WhiteBalanceControl: Sized {
+pub trait WhiteBalanceControl: Send + Sync + 'static + Sized {
     /// Set white balance mode to any supported mode.
-    async fn set_white_balance_mode(&self, mode: WhiteBalanceMode) -> Result<(), Error>;
+    fn set_white_balance_mode(
+        &self,
+        mode: WhiteBalanceMode,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set auto white balance mode.
-    async fn white_balance_auto(&self) -> Result<(), Error>;
+    fn white_balance_auto(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set indoor white balance preset (optimized for incandescent/tungsten lighting).
-    async fn white_balance_indoor(&self) -> Result<(), Error>;
+    fn white_balance_indoor(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set outdoor white balance preset (optimized for daylight).
-    async fn white_balance_outdoor(&self) -> Result<(), Error>;
+    fn white_balance_outdoor(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set one-push white balance mode (calibrate once based on current scene).
-    async fn white_balance_one_push(&self) -> Result<(), Error>;
+    fn white_balance_one_push(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set auto tracking white balance (Sony FR7 specific).
-    async fn white_balance_atw(&self) -> Result<(), Error>;
+    fn white_balance_atw(&self)
+        -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set manual white balance mode.
-    async fn white_balance_manual(&self) -> Result<(), Error>;
+    fn white_balance_manual(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set color temperature white balance mode.
-    async fn white_balance_color_temperature(&self) -> Result<(), Error>;
+    fn white_balance_color_temperature(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set AWB sensitivity level (PtzOptics specific).
     async fn set_awb_sensitivity(

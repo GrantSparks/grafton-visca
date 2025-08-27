@@ -66,7 +66,7 @@ jobs:
         with:
           shared-key: "rust-cache-ubuntu-latest-stable"
       
-      # Test the three main configurations
+      # Test the main configurations
       - name: Test blocking mode (no features)
         run: cargo test --no-default-features --verbose
         env:
@@ -82,8 +82,9 @@ jobs:
         env:
           TMPDIR: ${{ runner.temp }}
       
-      - name: Test all features
-        run: cargo test --all-features --verbose
+      # Test with additional features but avoid --all-features due to compile-time guards
+      - name: Test with tokio + serial features
+        run: cargo test --no-default-features --features rt-tokio,serial --verbose
         env:
           TMPDIR: ${{ runner.temp }}
 
@@ -154,9 +155,16 @@ jobs:
           echo "Testing tokio runtime (rt-tokio feature)..."
           cargo test --no-default-features --features rt-tokio --verbose
       
-      # Also test all features for completeness
-      - name: Test all features
-        run: cargo test --all-features --verbose
+      # Test additional runtime configurations
+      - name: Test async-std runtime
+        run: |
+          echo "Testing async-std runtime..."
+          cargo test --no-default-features --features rt-async-std --verbose
+      
+      - name: Test smol runtime
+        run: |
+          echo "Testing smol runtime..."
+          cargo test --no-default-features --features rt-smol --verbose
       
       # Test the macro crate specifically
       - name: Test grafton-visca-macros
@@ -227,24 +235,37 @@ jobs:
       - name: Clippy tokio mode (rt-tokio feature)
         run: cargo clippy --all-targets --no-default-features --features rt-tokio -- -D warnings
       
-      # Also check all features
-      - name: Clippy all features
-        run: cargo clippy --all-targets --all-features -- -D warnings
+      # Check additional runtime configurations
+      - name: Clippy async-std mode
+        run: cargo clippy --all-targets --no-default-features --features rt-async-std -- -D warnings
+      
+      - name: Clippy smol mode
+        run: cargo clippy --all-targets --no-default-features --features rt-smol -- -D warnings
+      
+      # Check with additional features but avoid --all-features due to compile-time guards
+      - name: Clippy tokio + serial features
+        run: cargo clippy --all-targets --no-default-features --features rt-tokio,serial -- -D warnings
       
       # Check the macro crate
       - name: Clippy grafton-visca-macros
         run: cargo clippy -p grafton-visca-macros --all-targets -- -D warnings
       
-      # Check examples specifically
+      # Check examples specifically (use tokio runtime for examples)
       - name: Clippy examples
-        run: cargo clippy --examples --all-features -- -D warnings
+        run: cargo clippy --examples --no-default-features --features rt-tokio -- -D warnings
       
       # Skip heavy documentation checks on feature branches
-      - name: Check documentation
+      - name: Check documentation (blocking)
         if: github.event_name != 'push' || !startsWith(github.ref, 'refs/heads/feature/')
         run: |
-          cargo doc --no-deps --all-features
-          cargo doc --document-private-items --no-deps --all-features
+          cargo doc --no-deps --no-default-features
+          cargo doc --document-private-items --no-deps --no-default-features
+      
+      - name: Check documentation (tokio)
+        if: github.event_name != 'push' || !startsWith(github.ref, 'refs/heads/feature/')
+        run: |
+          cargo doc --no-deps --no-default-features --features rt-tokio
+          cargo doc --document-private-items --no-deps --no-default-features --features rt-tokio
       
       # Check documentation for macro crate
       - name: Check macro crate documentation
@@ -252,9 +273,15 @@ jobs:
         run: cargo doc -p grafton-visca-macros --no-deps
       
       # Check for broken doc links
-      - name: Check doc links
+      - name: Check doc links (blocking)
         if: github.event_name != 'push' || !startsWith(github.ref, 'refs/heads/feature/')
-        run: cargo doc --no-deps --all-features
+        run: cargo doc --no-deps --no-default-features
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+      
+      - name: Check doc links (tokio)
+        if: github.event_name != 'push' || !startsWith(github.ref, 'refs/heads/feature/')
+        run: cargo doc --no-deps --no-default-features --features rt-tokio
         env:
           RUSTDOCFLAGS: "-D warnings"
 
@@ -352,6 +379,82 @@ jobs:
           cargo build --example runtime_agnostic --no-default-features --features async
           echo "✅ Runtime agnostic example compiles with async only"
 
+  # Async transport integration tests - Send futures, API stability, and connect_dyn
+  async-transport-integration:
+    name: Async Transport Integration Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        runtime: [rt-tokio, rt-async-std, rt-smol]
+    steps:
+      - uses: actions/checkout@v4
+      
+      # Install system dependencies for serialport
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev
+      
+      - name: Install Rust stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        continue-on-error: true
+        id: stable-toolchain-async-transport
+      
+      # Fallback: retry with rustup directly if the action fails
+      - name: Retry stable toolchain installation
+        if: steps.stable-toolchain-async-transport.outcome == 'failure'
+        run: |
+          for i in {1..3}; do
+            echo "Attempt $i of 3..."
+            rustup toolchain install stable --profile minimal && break
+            sleep 30
+          done
+      
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-cache-ubuntu-latest-stable"
+          save-if: false
+      
+      - name: Run Send futures compile tests (${{ matrix.runtime }})
+        run: |
+          cargo test --no-default-features --features async,${{ matrix.runtime }},test-utils \
+            --test send_futures_compile_test
+      
+      - name: Run API stability tests (${{ matrix.runtime }})
+        run: |
+          cargo test --no-default-features --features async,${{ matrix.runtime }} \
+            --test api_stability_test
+      
+      - name: Run connect_dyn() builder tests (${{ matrix.runtime }})
+        run: |
+          cargo test --no-default-features --features async,${{ matrix.runtime }},test-utils \
+            --test connect_dyn_builders_test
+      
+      # Test that multiple runtime features fail to compile (compile-time guards)
+      - name: Test compile-time runtime guards (${{ matrix.runtime }})
+        run: |
+          echo "Testing that multiple runtime features fail to compile..."
+          
+          # Test that combining this runtime with another fails
+          case "${{ matrix.runtime }}" in
+            "rt-tokio")
+              other_runtime="rt-async-std"
+              ;;
+            "rt-async-std")
+              other_runtime="rt-smol"
+              ;;
+            "rt-smol")
+              other_runtime="rt-tokio"
+              ;;
+          esac
+          
+          if cargo check --no-default-features --features async,${{ matrix.runtime }},$other_runtime 2>/dev/null; then
+            echo "ERROR: Multiple runtime features should fail to compile"
+            exit 1
+          else
+            echo "✅ Compile-time guard working correctly for ${{ matrix.runtime }} + $other_runtime"
+          fi
+
   # Semver compatibility check
   semver:
     name: Check semver
@@ -388,6 +491,11 @@ jobs:
           save-if: false  # Don't save cache in semver job
       
       - uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          # Use specific feature set to avoid triggering compile-time runtime guards
+          # Check blocking mode and one async runtime (tokio as most common)
+          feature-group: only-explicit-features
+          features: rt-tokio,serial
 
   # Check package metadata and dependencies
   package-check:
@@ -438,10 +546,10 @@ jobs:
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         run: |
           echo "Running build validation for non-release..."
-          # Verify the workspace builds with all features
-          cargo build --all-features --workspace
+          # Verify the workspace builds with tokio runtime (most common)
+          cargo build --no-default-features --features rt-tokio --workspace
           # Verify examples build
-          cargo build --examples --all-features
+          cargo build --examples --no-default-features --features rt-tokio
           # Quick check that the manifest is valid
           cargo metadata --format-version 1 > /dev/null
       
@@ -455,7 +563,7 @@ jobs:
   # Publish job
   publish:
     name: Publish
-    needs: [format, test, lint-and-docs, package-check]
+    needs: [format, test, lint-and-docs, feature-matrix, async-transport-integration, package-check]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:

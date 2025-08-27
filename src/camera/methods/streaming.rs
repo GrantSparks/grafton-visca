@@ -6,7 +6,7 @@ use crate::{types::NdiQuality, Result};
 
 /// Operations for controlling network and streaming features (async).
 #[cfg(feature = "async")]
-pub trait StreamingControl: Sized {
+pub trait StreamingControl: Send + Sync + 'static + Sized {
     /// Enable multicast streaming for Ndi cameras.
     ///
     /// # Errors

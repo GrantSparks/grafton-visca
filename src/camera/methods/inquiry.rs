@@ -10,91 +10,123 @@ use crate::{
 
 /// Inquiry operations (async).
 #[cfg(feature = "async")]
-pub trait InquiryControl: Sized {
+pub trait InquiryControl: Send + Sync + 'static + Sized {
     /// Get the current power state of the camera.
     /// Returns `true` if powered on, `false` if in standby.
-    async fn get_power_state(&self) -> Result<bool, Error>;
+    fn get_power_state(&self)
+        -> impl std::future::Future<Output = Result<bool, Error>> + Send + '_;
 
     /// Get the current zoom position.
-    async fn get_zoom_position(&self) -> Result<u16, Error>;
+    fn get_zoom_position(
+        &self,
+    ) -> impl std::future::Future<Output = Result<u16, Error>> + Send + '_;
 
     /// Get the current focus position.
-    async fn get_focus_position(&self) -> Result<u16, Error>;
+    fn get_focus_position(
+        &self,
+    ) -> impl std::future::Future<Output = Result<u16, Error>> + Send + '_;
 
     /// Get the focus near limit position.
-    async fn get_focus_near_limit(&self) -> Result<u16, Error>;
+    fn get_focus_near_limit(
+        &self,
+    ) -> impl std::future::Future<Output = Result<u16, Error>> + Send + '_;
 
     /// Get the current focus zone.
-    async fn get_focus_zone(&self) -> Result<FocusZone, Error>;
+    fn get_focus_zone(
+        &self,
+    ) -> impl std::future::Future<Output = Result<FocusZone, Error>> + Send + '_;
 
     /// Get the auto-focus sensitivity setting.
-    async fn get_auto_focus_sensitivity(&self) -> Result<AutoFocusSensitivity, Error>;
+    fn get_auto_focus_sensitivity(
+        &self,
+    ) -> impl std::future::Future<Output = Result<AutoFocusSensitivity, Error>> + Send + '_;
 
     /// Get the current exposure mode.
-    async fn get_exposure_mode(&self) -> Result<ExposureMode, Error>;
+    fn get_exposure_mode(
+        &self,
+    ) -> impl std::future::Future<Output = Result<ExposureMode, Error>> + Send + '_;
 
     /// Get the exposure compensation value.
-    async fn get_exposure_compensation(&self) -> Result<i8, Error>;
+    fn get_exposure_compensation(
+        &self,
+    ) -> impl std::future::Future<Output = Result<i8, Error>> + Send + '_;
 
     /// Check if exposure compensation is enabled.
-    async fn get_exposure_compensation_enabled(&self) -> Result<bool, Error>;
+    fn get_exposure_compensation_enabled(
+        &self,
+    ) -> impl std::future::Future<Output = Result<bool, Error>> + Send + '_;
 
     /// Get the current iris value.
-    async fn get_iris(&self) -> Result<u8, Error>;
+    fn get_iris(&self) -> impl std::future::Future<Output = Result<u8, Error>> + Send + '_;
 
     /// Get the current shutter speed.
-    async fn get_shutter(&self) -> Result<u16, Error>;
+    fn get_shutter(&self) -> impl std::future::Future<Output = Result<u16, Error>> + Send + '_;
 
     /// Get the current gain value.
-    async fn get_gain(&self) -> Result<u8, Error>;
+    fn get_gain(&self) -> impl std::future::Future<Output = Result<u8, Error>> + Send + '_;
 
     /// Get the gain limit value.
-    async fn get_gain_limit(&self) -> Result<u8, Error>;
+    fn get_gain_limit(&self) -> impl std::future::Future<Output = Result<u8, Error>> + Send + '_;
 
     /// Get the white balance mode.
-    async fn get_white_balance_mode(&self) -> Result<WhiteBalanceMode, Error>;
+    fn get_white_balance_mode(
+        &self,
+    ) -> impl std::future::Future<Output = Result<WhiteBalanceMode, Error>> + Send + '_;
 
     /// Get the current red gain.
-    async fn get_red_gain(&self) -> Result<u8, Error>;
+    fn get_red_gain(&self) -> impl std::future::Future<Output = Result<u8, Error>> + Send + '_;
 
     /// Get the current blue gain.
-    async fn get_blue_gain(&self) -> Result<u8, Error>;
+    fn get_blue_gain(&self) -> impl std::future::Future<Output = Result<u8, Error>> + Send + '_;
 
     /// Get the red tuning value.
-    async fn get_red_tuning(&self) -> Result<u8, Error>;
+    fn get_red_tuning(&self) -> impl std::future::Future<Output = Result<u8, Error>> + Send + '_;
 
     /// Get the blue tuning value.
-    async fn get_blue_tuning(&self) -> Result<u8, Error>;
+    fn get_blue_tuning(&self) -> impl std::future::Future<Output = Result<u8, Error>> + Send + '_;
 
     /// Get the current color temperature in Kelvin.
-    async fn get_color_temperature(&self) -> Result<u16, Error>;
+    fn get_color_temperature(
+        &self,
+    ) -> impl std::future::Future<Output = Result<u16, Error>> + Send + '_;
 
     /// Get the gamma level.
-    async fn get_gamma(&self) -> Result<u8, Error>;
+    fn get_gamma(&self) -> impl std::future::Future<Output = Result<u8, Error>> + Send + '_;
 
     /// Get the brightness level.
-    async fn get_brightness(&self) -> Result<u8, Error>;
+    fn get_brightness(&self) -> impl std::future::Future<Output = Result<u8, Error>> + Send + '_;
 
     /// Get the sharpness mode.
-    async fn get_sharpness_mode(&self) -> Result<SharpnessMode, Error>;
+    fn get_sharpness_mode(
+        &self,
+    ) -> impl std::future::Future<Output = Result<SharpnessMode, Error>> + Send + '_;
 
     /// Get the saturation level.
-    async fn get_saturation(&self) -> Result<u8, Error>;
+    fn get_saturation(&self) -> impl std::future::Future<Output = Result<u8, Error>> + Send + '_;
 
     /// Get the hue setting.
-    async fn get_hue(&self) -> Result<u8, Error>;
+    fn get_hue(&self) -> impl std::future::Future<Output = Result<u8, Error>> + Send + '_;
 
     /// Get the 2D noise reduction level.
-    async fn get_noise_reduction_2d(&self) -> Result<u8, Error>;
+    fn get_noise_reduction_2d(
+        &self,
+    ) -> impl std::future::Future<Output = Result<u8, Error>> + Send + '_;
 
     /// Get the 3D noise reduction level.
-    async fn get_noise_reduction_3d(&self) -> Result<u8, Error>;
+    fn get_noise_reduction_3d(
+        &self,
+    ) -> impl std::future::Future<Output = Result<u8, Error>> + Send + '_;
 
     /// Check if black and white mode is enabled.
-    async fn get_black_white(&self) -> Result<bool, Error>;
+    fn get_black_white(&self)
+        -> impl std::future::Future<Output = Result<bool, Error>> + Send + '_;
 
     /// Get the current video resolution mode.
-    async fn get_resolution(&self) -> Result<crate::command::resolution::ResolutionMode, Error>;
+    fn get_resolution(
+        &self,
+    ) -> impl std::future::Future<Output = Result<crate::command::resolution::ResolutionMode, Error>>
+           + Send
+           + '_;
 
     /// Get the current picture effect mode.
     async fn get_picture_effect(
@@ -107,52 +139,78 @@ pub trait InquiryControl: Sized {
     ) -> Result<crate::command::resolution::NDFilterPosition, Error>;
 
     /// Get the camera version information.
-    async fn get_version(&self) -> Result<crate::command::Version, Error>;
+    fn get_version(
+        &self,
+    ) -> impl std::future::Future<Output = Result<crate::command::Version, Error>> + Send + '_;
 
     /// Check if backlight compensation is enabled.
-    async fn get_backlight_enabled(&self) -> Result<bool, Error>;
+    fn get_backlight_enabled(
+        &self,
+    ) -> impl std::future::Future<Output = Result<bool, Error>> + Send + '_;
 
     /// Get the image flip settings (mirror/reverse).
-    async fn get_image_flip(&self) -> Result<crate::command::ImageFlipStatus, Error>;
+    fn get_image_flip(
+        &self,
+    ) -> impl std::future::Future<Output = Result<crate::command::ImageFlipStatus, Error>> + Send + '_;
 
     /// Get the dynamic range mode/level.
-    async fn get_dynamic_range(&self) -> Result<u8, Error>;
+    fn get_dynamic_range(&self)
+        -> impl std::future::Future<Output = Result<u8, Error>> + Send + '_;
 
     /// Get the current focus mode (Auto/Manual).
-    async fn get_focus_mode(&self) -> Result<FocusMode, Error>;
+    fn get_focus_mode(
+        &self,
+    ) -> impl std::future::Future<Output = Result<FocusMode, Error>> + Send + '_;
 
     /// Get the menu open/close status.
-    async fn get_menu_status(&self) -> Result<bool, Error>;
+    fn get_menu_status(&self)
+        -> impl std::future::Future<Output = Result<bool, Error>> + Send + '_;
 
     /// Get the auto focus on/off status.
-    async fn get_auto_focus_enabled(&self) -> Result<bool, Error>;
+    fn get_auto_focus_enabled(
+        &self,
+    ) -> impl std::future::Future<Output = Result<bool, Error>> + Send + '_;
 
     /// Get the tally light status (red and green).
-    async fn get_tally_light_status(&self) -> Result<crate::command::TallyStatus, Error>;
+    fn get_tally_light_status(
+        &self,
+    ) -> impl std::future::Future<Output = Result<crate::command::TallyStatus, Error>> + Send + '_;
 
     /// Get the night/day mode status.
-    async fn get_night_day_mode(&self) -> Result<crate::command::NightDayMode, Error>;
+    fn get_night_day_mode(
+        &self,
+    ) -> impl std::future::Future<Output = Result<crate::command::NightDayMode, Error>> + Send + '_;
 
     /// Get the current flip mode (combined horizontal/vertical).
-    async fn get_flip_mode(&self) -> Result<crate::command::FlipMode, Error>;
+    fn get_flip_mode(
+        &self,
+    ) -> impl std::future::Future<Output = Result<crate::command::FlipMode, Error>> + Send + '_;
 
     /// Get the standby mode status.
-    async fn get_standby_enabled(&self) -> Result<bool, Error>;
+    fn get_standby_enabled(
+        &self,
+    ) -> impl std::future::Future<Output = Result<bool, Error>> + Send + '_;
 
     /// Get the focus range setting.
-    async fn get_focus_range(&self) -> Result<crate::command::FocusRange, Error>;
+    fn get_focus_range(
+        &self,
+    ) -> impl std::future::Future<Output = Result<crate::command::FocusRange, Error>> + Send + '_;
 
     /// Get the iris control mode.
-    async fn get_iris_control(&self) -> Result<crate::command::IrisControl, Error>;
+    fn get_iris_control(
+        &self,
+    ) -> impl std::future::Future<Output = Result<crate::command::IrisControl, Error>> + Send + '_;
 
     /// Get the defog mode status.
-    async fn get_defog_mode(&self) -> Result<bool, Error>;
+    fn get_defog_mode(&self) -> impl std::future::Future<Output = Result<bool, Error>> + Send + '_;
 
     /// Get the defog level.
-    async fn get_defog_level(&self) -> Result<u8, Error>;
+    fn get_defog_level(&self) -> impl std::future::Future<Output = Result<u8, Error>> + Send + '_;
 
     /// Get the digital Ptz mode status.
-    async fn get_digital_ptz_enabled(&self) -> Result<bool, Error>;
+    fn get_digital_ptz_enabled(
+        &self,
+    ) -> impl std::future::Future<Output = Result<bool, Error>> + Send + '_;
 
     /// Get the auto white balance sensitivity setting.
     async fn get_auto_white_balance_sensitivity(
@@ -160,49 +218,79 @@ pub trait InquiryControl: Sized {
     ) -> Result<crate::command::AutoWhiteBalanceSensitivity, Error>;
 
     /// Get the exposure compensation position.
-    async fn get_exposure_compensation_position(&self) -> Result<u16, Error>;
+    fn get_exposure_compensation_position(
+        &self,
+    ) -> impl std::future::Future<Output = Result<u16, Error>> + Send + '_;
 
     /// Get the auto trace mode status.
-    async fn get_auto_trace_enabled(&self) -> Result<bool, Error>;
+    fn get_auto_trace_enabled(
+        &self,
+    ) -> impl std::future::Future<Output = Result<bool, Error>> + Send + '_;
 
     /// Get the focus unlock state.
-    async fn get_focus_unlock(&self) -> Result<bool, Error>;
+    fn get_focus_unlock(
+        &self,
+    ) -> impl std::future::Future<Output = Result<bool, Error>> + Send + '_;
 
     /// Get the current sharpness position.
-    async fn get_sharpness_position(&self) -> Result<u16, Error>;
+    fn get_sharpness_position(
+        &self,
+    ) -> impl std::future::Future<Output = Result<u16, Error>> + Send + '_;
 
     /// Get the noise reduction level.
-    async fn get_noise_reduction_level(&self) -> Result<u8, Error>;
+    fn get_noise_reduction_level(
+        &self,
+    ) -> impl std::future::Future<Output = Result<u8, Error>> + Send + '_;
 
     /// Get the broadcast domain setting.
-    async fn get_broadcast_domain(&self) -> Result<u8, Error>;
+    fn get_broadcast_domain(
+        &self,
+    ) -> impl std::future::Future<Output = Result<u8, Error>> + Send + '_;
 
     /// Get the noise reduction mode setting.
-    async fn get_noise_reduction_mode(&self) -> Result<crate::command::NrMode, Error>;
+    fn get_noise_reduction_mode(
+        &self,
+    ) -> impl std::future::Future<Output = Result<crate::command::NrMode, Error>> + Send + '_;
 
     /// Get the noise reduction speed setting.
-    async fn get_noise_reduction_speed(&self) -> Result<crate::command::NrSpeed, Error>;
+    fn get_noise_reduction_speed(
+        &self,
+    ) -> impl std::future::Future<Output = Result<crate::command::NrSpeed, Error>> + Send + '_;
 
     /// Get the black and white mode setting.
-    async fn get_black_white_mode(&self) -> Result<crate::command::BlackWhiteMode, Error>;
+    fn get_black_white_mode(
+        &self,
+    ) -> impl std::future::Future<Output = Result<crate::command::BlackWhiteMode, Error>> + Send + '_;
 
     /// Get the USB audio state.
-    async fn get_usb_audio_enabled(&self) -> Result<bool, Error>;
+    fn get_usb_audio_enabled(
+        &self,
+    ) -> impl std::future::Future<Output = Result<bool, Error>> + Send + '_;
 
     /// Get the two tone mode state.
-    async fn get_two_tone_mode_enabled(&self) -> Result<bool, Error>;
+    fn get_two_tone_mode_enabled(
+        &self,
+    ) -> impl std::future::Future<Output = Result<bool, Error>> + Send + '_;
 
     /// Get the ND filter preset setting.
-    async fn get_nd_filter_preset(&self) -> Result<u8, Error>;
+    fn get_nd_filter_preset(
+        &self,
+    ) -> impl std::future::Future<Output = Result<u8, Error>> + Send + '_;
 
     /// Get the digital mode state.
-    async fn get_digital_mode_enabled(&self) -> Result<bool, Error>;
+    fn get_digital_mode_enabled(
+        &self,
+    ) -> impl std::future::Future<Output = Result<bool, Error>> + Send + '_;
 
     /// Get the tally auto adjust state.
-    async fn get_tally_auto_adjust_enabled(&self) -> Result<bool, Error>;
+    fn get_tally_auto_adjust_enabled(
+        &self,
+    ) -> impl std::future::Future<Output = Result<bool, Error>> + Send + '_;
 
     /// Get the green tally light status (FR7 only).
-    async fn get_tally_green_enabled(&self) -> Result<bool, Error>;
+    fn get_tally_green_enabled(
+        &self,
+    ) -> impl std::future::Future<Output = Result<bool, Error>> + Send + '_;
 }
 
 /// Inquiry operations (blocking).
@@ -1772,9 +1860,11 @@ where
 
 /// Pan/Tilt-specific inquiry operations (async).
 #[cfg(feature = "async")]
-pub trait PanTiltInquiryControl: Sized {
+pub trait PanTiltInquiryControl: Send + Sync + 'static + Sized {
     /// Get the current pan and tilt position.
-    async fn get_pan_tilt_position(&self) -> Result<(i16, i16), Error>;
+    fn get_pan_tilt_position(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(i16, i16), Error>> + Send + '_;
 }
 
 /// Pan/Tilt-specific inquiry operations (blocking).

@@ -11,42 +11,72 @@ use crate::{
 
 /// Color operations (async).
 #[cfg(feature = "async")]
-pub trait ColorControl: Sized {
+pub trait ColorControl: Send + Sync + 'static + Sized {
     /// Trigger one-push white balance.
-    async fn one_push_trigger(&self) -> Result<(), Error>;
+    fn one_push_trigger(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set color temperature.
-    async fn set_color_temperature(&self, temp: ColorTemp) -> Result<(), Error>;
+    fn set_color_temperature(
+        &self,
+        temp: ColorTemp,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Reset color temperature to default value.
-    async fn reset_color_temperature(&self) -> Result<(), Error>;
+    fn reset_color_temperature(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Increase color temperature (makes image cooler/bluer).
-    async fn increase_color_temperature(&self) -> Result<(), Error>;
+    fn increase_color_temperature(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Decrease color temperature (makes image warmer/redder).
-    async fn decrease_color_temperature(&self) -> Result<(), Error>;
+    fn decrease_color_temperature(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set or query color temperature.
-    async fn color_temperature(&self, temp: Option<ColorTemp>) -> Result<(), Error>;
+    fn color_temperature(
+        &self,
+        temp: Option<ColorTemp>,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set red gain.
-    async fn set_red_gain(&self, gain: RedChannel) -> Result<(), Error>;
+    fn set_red_gain(
+        &self,
+        gain: RedChannel,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set, reset, increase or decrease red gain.
-    async fn red_gain(&self, command: RedGain) -> Result<(), Error>;
+    fn red_gain(
+        &self,
+        command: RedGain,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set blue gain.
-    async fn set_blue_gain(&self, gain: BlueChannel) -> Result<(), Error>;
+    fn set_blue_gain(
+        &self,
+        gain: BlueChannel,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set, reset, increase or decrease blue gain.
-    async fn blue_gain(&self, command: BlueGain) -> Result<(), Error>;
+    fn blue_gain(
+        &self,
+        command: BlueGain,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set red tuning.
-    async fn set_red_tuning(&self, tuning: RedTuning) -> Result<(), Error>;
+    fn set_red_tuning(
+        &self,
+        tuning: RedTuning,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set blue tuning.
-    async fn set_blue_tuning(&self, tuning: BlueTuning) -> Result<(), Error>;
+    fn set_blue_tuning(
+        &self,
+        tuning: BlueTuning,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 }
 
 /// Color operations (blocking).

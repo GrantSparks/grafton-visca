@@ -4,42 +4,48 @@ use crate::Error;
 
 /// Tally light control operations (async).
 #[cfg(feature = "async")]
-pub trait TallyControl: Sized {
+pub trait TallyControl: Send + Sync + 'static + Sized {
     /// Turn red tally light on.
-    async fn tally_red_on(&self) -> Result<(), Error>;
+    fn tally_red_on(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Turn red tally light off.
-    async fn tally_red_off(&self) -> Result<(), Error>;
+    fn tally_red_off(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set tally brightness to low.
-    async fn tally_bright_lo(&self) -> Result<(), Error>;
+    fn tally_bright_lo(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set tally brightness to high.
-    async fn tally_bright_hi(&self) -> Result<(), Error>;
+    fn tally_bright_hi(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Turn green tally light on.
-    async fn tally_green_on(&self) -> Result<(), Error>;
+    fn tally_green_on(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Turn green tally light off.
-    async fn tally_green_off(&self) -> Result<(), Error>;
+    fn tally_green_off(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Flash tally light.
-    async fn tally_flash(&self) -> Result<(), Error>;
+    fn tally_flash(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Turn tally light on.
-    async fn tally_on(&self) -> Result<(), Error>;
+    fn tally_on(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Turn tally light off.
-    async fn tally_off(&self) -> Result<(), Error>;
+    fn tally_off(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Get tally light status.
-    async fn get_tally_status(&self) -> Result<bool, Error>;
+    fn get_tally_status(
+        &self,
+    ) -> impl std::future::Future<Output = Result<bool, Error>> + Send + '_;
 
     /// Query red tally light state.
-    async fn get_red_tally_status(&self) -> Result<bool, Error>;
+    fn get_red_tally_status(
+        &self,
+    ) -> impl std::future::Future<Output = Result<bool, Error>> + Send + '_;
 
     /// Query green tally light state (FR7 specific).
-    async fn get_green_tally_status(&self) -> Result<bool, Error>;
+    fn get_green_tally_status(
+        &self,
+    ) -> impl std::future::Future<Output = Result<bool, Error>> + Send + '_;
 }
 
 /// Tally light control operations (blocking).

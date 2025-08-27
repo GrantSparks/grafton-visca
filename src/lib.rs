@@ -212,6 +212,15 @@
 //! - `rt-smol` - Enables async with built-in smol runtime support (implies `async`).
 //! - `test-utils` - Testing utilities including ScriptedTransport and DeterministicExecutor (not for production).
 //!
+//! ### Send Future Guarantees
+//!
+//! All public async traits in this crate guarantee that their returned futures are `Send`.
+//! This is enforced through explicit `+ Send` bounds in trait signatures using
+//! return-position impl trait in traits (RPITIT).
+//!
+//! This guarantee ensures spawn-safety across all async runtimes and prevents
+//! subtle `!Send` future errors in multi-threaded executors.
+//!
 //! ### ⚠️ Important: Runtime Requirements for Async
 //!
 //! **The async API REQUIRES a runtime to be configured.** Without a runtime, ALL async operations
@@ -465,6 +474,25 @@
 //!     Err(e) => println!("Other error: {e}"),
 //! }
 //! ```
+
+// Compile-time guards to ensure exactly one async runtime is enabled when async is used
+#[cfg(all(feature = "rt-tokio", feature = "rt-async-std"))]
+compile_error!(
+    "Enable at most one of: rt-tokio, rt-async-std, rt-smol. Found both rt-tokio and rt-async-std."
+);
+
+#[cfg(all(feature = "rt-tokio", feature = "rt-smol"))]
+compile_error!(
+    "Enable at most one of: rt-tokio, rt-async-std, rt-smol. Found both rt-tokio and rt-smol."
+);
+
+#[cfg(all(feature = "rt-async-std", feature = "rt-smol"))]
+compile_error!(
+    "Enable at most one of: rt-tokio, rt-async-std, rt-smol. Found both rt-async-std and rt-smol."
+);
+
+#[cfg(all(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
+compile_error!("Enable at most one of: rt-tokio, rt-async-std, rt-smol. Found all three enabled.");
 
 /// Camera profile system for type-safe, model-specific control
 pub mod camera;

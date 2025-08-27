@@ -83,14 +83,13 @@ impl Tcp {
     }
 }
 
-#[allow(clippy::manual_async_fn)]
 impl AsyncTransport for Tcp {
-    fn send(&mut self, data: &[u8]) -> impl std::future::Future<Output = Result<(), Error>> + Send {
-        write_all_flush(&mut self.stream, data)
+    async fn send(&mut self, data: &[u8]) -> Result<(), Error> {
+        write_all_flush(&mut self.stream, data).await
     }
 
-    fn recv(&mut self) -> impl std::future::Future<Output = Result<Bytes, Error>> + Send {
-        read_until_terminator(&mut self.stream)
+    async fn recv(&mut self) -> Result<Bytes, Error> {
+        read_until_terminator(&mut self.stream).await
     }
 }
 

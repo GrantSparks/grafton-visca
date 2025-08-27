@@ -4,16 +4,21 @@ use crate::{command::system::Socket, Error};
 
 /// System operations (async).
 #[cfg(feature = "async")]
-pub trait SystemControl: Sized {
+pub trait SystemControl: Send + Sync + 'static + Sized {
     /// Trigger automatic address assignment (broadcast command for serial bus).
     /// Note: This doesn't set a specific address but triggers the auto-addressing process.
-    async fn trigger_address_assignment(&self) -> Result<(), Error>;
+    fn trigger_address_assignment(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Clear interface (reset communication).
-    async fn interface_clear(&self) -> Result<(), Error>;
+    fn interface_clear(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Cancel command on specific socket.
-    async fn cancel_command(&self, socket: Socket) -> Result<(), Error>;
+    fn cancel_command(
+        &self,
+        socket: Socket,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 }
 
 /// System operations (blocking).

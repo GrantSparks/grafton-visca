@@ -10,7 +10,7 @@ use crate::{
 
 /// Async methods for variable speed mode control.
 #[cfg(feature = "async")]
-pub trait VariableSpeedControl {
+pub trait VariableSpeedControl: Send + Sync + 'static {
     /// Set the variable speed mode (24-step or 50-step).
     ///
     /// Only available on Sony FR7.
@@ -20,7 +20,10 @@ pub trait VariableSpeedControl {
     ///
     /// # Returns
     /// Result indicating success or error
-    async fn set_variable_speed_mode(&self, mode: VariableSpeedMode) -> Result<(), Error>;
+    fn set_variable_speed_mode(
+        &self,
+        mode: VariableSpeedMode,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 }
 
 // Async implementation for Camera with AsyncMode

@@ -11,18 +11,22 @@ use crate::{
 
 /// Image processing operations (async).
 #[cfg(feature = "async")]
-pub trait ImageProcessingControl: Sized {
+pub trait ImageProcessingControl: Send + Sync + 'static + Sized {
     /// Enable image flip.
-    async fn enable_flip(&self) -> Result<(), Error>;
+    fn enable_flip(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Disable image flip.
-    async fn disable_flip(&self) -> Result<(), Error>;
+    fn disable_flip(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Enable horizontal flip (mirror).
-    async fn enable_horizontal_flip(&self) -> Result<(), Error>;
+    fn enable_horizontal_flip(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Disable horizontal flip (mirror).
-    async fn disable_horizontal_flip(&self) -> Result<(), Error>;
+    fn disable_horizontal_flip(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set contrast level.
     async fn set_contrast(&mut self, level: ContrastLevel) -> Result<(), Error>;
@@ -37,13 +41,17 @@ pub trait ImageProcessingControl: Sized {
     ) -> Result<(), Error>;
 
     /// Reset sharpness to default.
-    async fn reset_sharpness(&self) -> Result<(), Error>;
+    fn reset_sharpness(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Increase sharpness by one step.
-    async fn increase_sharpness(&self) -> Result<(), Error>;
+    fn increase_sharpness(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Decrease sharpness by one step.
-    async fn decrease_sharpness(&self) -> Result<(), Error>;
+    fn decrease_sharpness(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set saturation level.
     async fn set_saturation(&mut self, level: SaturationLevel) -> Result<(), Error>;
@@ -52,16 +60,26 @@ pub trait ImageProcessingControl: Sized {
     async fn set_hue(&mut self, level: HueLevel) -> Result<(), Error>;
 
     /// Set noise reduction 2D level.
-    async fn set_noise_reduction_2d(&self, level: NoiseReduction2DLevel) -> Result<(), Error>;
+    fn set_noise_reduction_2d(
+        &self,
+        level: NoiseReduction2DLevel,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Disable noise reduction 2D.
-    async fn disable_noise_reduction_2d(&self) -> Result<(), Error>;
+    fn disable_noise_reduction_2d(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set noise reduction 3D level.
-    async fn set_noise_reduction_3d(&self, level: NoiseReduction3DLevel) -> Result<(), Error>;
+    fn set_noise_reduction_3d(
+        &self,
+        level: NoiseReduction3DLevel,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Disable noise reduction 3D.
-    async fn disable_noise_reduction_3d(&self) -> Result<(), Error>;
+    fn disable_noise_reduction_3d(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set image flip mode (combined horizontal and vertical).
     async fn set_image_flip(&mut self, mode: ImageFlipMode) -> Result<(), Error>;
@@ -71,19 +89,23 @@ pub trait ImageProcessingControl: Sized {
 
     /// Enable image freeze.
     /// Freezes the camera's video output on the last frame.
-    async fn enable_freeze(&self) -> Result<(), Error>;
+    fn enable_freeze(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Disable image freeze.
     /// Resumes normal video output.
-    async fn disable_freeze(&self) -> Result<(), Error>;
+    fn disable_freeze(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Enable black and white mode.
     /// Switches the camera output to monochrome (black and white).
-    async fn enable_black_white(&self) -> Result<(), Error>;
+    fn enable_black_white(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Disable black and white mode.
     /// Switches the camera output to color mode.
-    async fn disable_black_white(&self) -> Result<(), Error>;
+    fn disable_black_white(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set picture effect mode.
     /// Controls various artistic effects like negative, sepia, sketch, etc.

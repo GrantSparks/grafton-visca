@@ -7,25 +7,38 @@ use crate::{
 
 /// Async menu control methods for cameras that support menu navigation.
 #[cfg(feature = "async")]
-pub trait MenuControl: Send + Sync {
+pub trait MenuControl: Send + Sync + 'static {
     /// Show or hide the on-screen menu.
-    async fn set_menu_display(&self, display: bool) -> Result<(), Error>;
+    fn set_menu_display(
+        &self,
+        display: bool,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Navigate the menu cursor.
-    async fn menu_navigate(&self, direction: MenuDirection) -> Result<(), Error>;
+    fn menu_navigate(
+        &self,
+        direction: MenuDirection,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Perform a menu action (select or cancel).
-    async fn menu_action(&self, action: MenuAction) -> Result<(), Error>;
+    fn menu_action(
+        &self,
+        action: MenuAction,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 }
 
 /// Async direct menu control methods for cameras that support advanced menu control.
 #[cfg(feature = "async")]
 pub trait DirectMenuControl: MenuControl {
     /// Send a direct menu control command.
-    async fn direct_menu_control(&mut self, control1: u8, control2: u8) -> Result<(), Error>;
+    fn direct_menu_control(
+        &mut self,
+        control1: u8,
+        control2: u8,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Toggle menu open/close.
-    async fn toggle_menu(&self) -> Result<(), Error>;
+    fn toggle_menu(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 }
 
 /// Blocking menu control methods for cameras that support menu navigation.

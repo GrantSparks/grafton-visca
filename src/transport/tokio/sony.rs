@@ -173,43 +173,38 @@ impl Tcp {
     }
 }
 
-#[allow(clippy::manual_async_fn)]
 impl AsyncTransport for Tcp {
-    fn send(&mut self, bytes: &[u8]) -> impl std::future::Future<Output = Result<()>> + Send {
-        async move {
-            self.sequence += 1;
-            let sequence = self.sequence;
+    async fn send(&mut self, bytes: &[u8]) -> Result<()> {
+        self.sequence += 1;
+        let sequence = self.sequence;
 
-            // Store pending command for potential retry
-            self.pending.insert(sequence, ());
+        // Store pending command for potential retry
+        self.pending.insert(sequence, ());
 
-            // Send with header
-            self.send_with_header(bytes, sequence).await?;
+        // Send with header
+        self.send_with_header(bytes, sequence).await?;
 
-            Ok(())
-        }
+        Ok(())
     }
 
-    fn recv(&mut self) -> impl std::future::Future<Output = Result<Bytes>> + Send {
-        async move {
-            loop {
-                match self.recv_sony_frame().await {
-                    Ok((header, payload)) => {
-                        // Only accept replies that match a pending command
-                        if header.payload_type == PayloadType::ViscaReply
-                            && self.pending.remove(&header.sequence_number).is_none()
-                        {
-                            // Late or duplicate reply - discard it
-                            warn!(
-                                "TCP: Discarding late/duplicate reply with seq {} (not in pending)",
-                                header.sequence_number
-                            );
-                            continue;
-                        }
-                        return Ok(payload);
+    async fn recv(&mut self) -> Result<Bytes> {
+        loop {
+            match self.recv_sony_frame().await {
+                Ok((header, payload)) => {
+                    // Only accept replies that match a pending command
+                    if header.payload_type == PayloadType::ViscaReply
+                        && self.pending.remove(&header.sequence_number).is_none()
+                    {
+                        // Late or duplicate reply - discard it
+                        warn!(
+                            "TCP: Discarding late/duplicate reply with seq {} (not in pending)",
+                            header.sequence_number
+                        );
+                        continue;
                     }
-                    Err(e) => return Err(e),
+                    return Ok(payload);
                 }
+                Err(e) => return Err(e),
             }
         }
     }
@@ -353,50 +348,43 @@ impl Udp {
     }
 }
 
-#[allow(clippy::manual_async_fn)]
 impl AsyncTransport for Udp {
-    fn send(&mut self, bytes: &[u8]) -> impl std::future::Future<Output = Result<()>> + Send {
-        async move {
-            self.sequence += 1;
-            let sequence = self.sequence;
+    async fn send(&mut self, bytes: &[u8]) -> Result<()> {
+        self.sequence += 1;
+        let sequence = self.sequence;
 
-            // Store pending command for potential retry
-            self.pending.insert(sequence, ());
+        // Store pending command for potential retry
+        self.pending.insert(sequence, ());
 
-            // Send with header
-            self.send_with_header(bytes, sequence).await?;
+        // Send with header
+        self.send_with_header(bytes, sequence).await?;
 
-            Ok(())
-        }
+        Ok(())
     }
 
-    fn recv(&mut self) -> impl std::future::Future<Output = Result<Bytes>> + Send {
-        async move {
-            // For UDP, we may need to implement retry logic
-            // For now, keeping it simple
-            loop {
-                match tokio::time::timeout(self.config.response_timeout, self.recv_sony_frame())
-                    .await
-                {
-                    Ok(Ok((header, payload))) => {
-                        // Only accept replies that match a pending command
-                        if header.payload_type == PayloadType::ViscaReply
-                            && self.pending.remove(&header.sequence_number).is_none()
-                        {
-                            // Late or duplicate reply - discard it
-                            warn!(
-                                "UDP: Discarding late/duplicate reply with seq {} (not in pending)",
-                                header.sequence_number
-                            );
-                            continue;
-                        }
-                        return Ok(payload);
+    async fn recv(&mut self) -> Result<Bytes> {
+        // For UDP, we may need to implement retry logic
+        // For now, keeping it simple
+        loop {
+            match tokio::time::timeout(self.config.response_timeout, self.recv_sony_frame()).await {
+                Ok(Ok((header, payload))) => {
+                    // Only accept replies that match a pending command
+                    if header.payload_type == PayloadType::ViscaReply
+                        && self.pending.remove(&header.sequence_number).is_none()
+                    {
+                        // Late or duplicate reply - discard it
+                        warn!(
+                            "UDP: Discarding late/duplicate reply with seq {} (not in pending)",
+                            header.sequence_number
+                        );
+                        continue;
                     }
-                    Ok(Err(e)) => return Err(e),
-                    Err(_) => {
-                        // Timeout - in a real implementation, we might retry here
-                        return Err(Error::Timeout);
-                    }
+                    return Ok(payload);
+                }
+                Ok(Err(e)) => return Err(e),
+                Err(_) => {
+                    // Timeout - in a real implementation, we might retry here
+                    return Err(Error::Timeout);
                 }
             }
         }

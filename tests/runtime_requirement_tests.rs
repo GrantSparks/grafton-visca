@@ -5,7 +5,7 @@
 
 #![cfg(feature = "async")]
 
-#[cfg(feature = "test-utils")]
+#[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
 use grafton_visca::testing::testkit::{helpers, ScriptedTransport};
 
 #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]

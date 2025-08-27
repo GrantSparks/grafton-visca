@@ -51,6 +51,9 @@ pub(crate) mod async_io;
 // Async transport trait and runtime-specific transports are only public with `async`
 #[cfg(feature = "async")]
 pub mod async_transport;
+// Object-safe dynamic async transport for ergonomic usage
+#[cfg(feature = "async")]
+pub mod async_dyn;
 // Blocking transports are only public when NOT in async mode
 #[cfg(not(feature = "async"))]
 pub mod blocking;
@@ -86,12 +89,14 @@ pub(crate) mod smol;
 use std::time::{Duration, Instant};
 
 #[cfg(feature = "async")]
+pub use async_dyn::{BoxAsyncTransport, DynAsyncTransport};
+#[cfg(feature = "async")]
 pub use async_transport::AsyncTransport;
 #[cfg(all(
     feature = "async",
     any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")
 ))]
-pub use builder::{Transport, UnifiedTransport};
+pub use builder::Transport;
 // Gate blocking exports so they only appear without async
 #[cfg(not(feature = "async"))]
 pub use blocking::{Tcp as BlockingTcp, Udp as BlockingUdp};

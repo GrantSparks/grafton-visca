@@ -32,7 +32,7 @@ rt-tokio = ["async", "dep:tokio"]
 rt-async-std = ["async", "dep:async-std"]
 rt-smol = ["async", "dep:smol", "dep:async-executor"]
 serial = ["dep:serialport"]
-test-utils = ["dep:async-executor", "dep:futures-lite"]  # Feature for exposing test utilities
+test-utils = ["dep:async-executor", "dep:futures-lite"]
 
 [dependencies]
 bytes = "1.5"
@@ -44,7 +44,7 @@ tracing = "0.1"
 nom = "8.0.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-serialport = { version = "4.5", optional = true }
+serialport = { version = "4.7", optional = true }
 thiserror = "2.0"
 tokio = { version = "1.47", features = [
     "net",
@@ -55,7 +55,7 @@ tokio = { version = "1.47", features = [
     "macros",
     "io-util",
 ], optional = true }
-async-executor = { version = "1.8", optional = true }
+async-executor = { version = "1.13", optional = true }
 futures-lite = { version = "2.3", optional = true }
 async-std = { version = "1.12", features = ["unstable", "attributes"], optional = true }
 smol = { version = "2.0", optional = true }
@@ -69,11 +69,8 @@ futures-lite = "2.3"
 rand = "0.9"
 tracing-subscriber = { version = "0.3.7", features = ["env-filter"] }
 
-# Consolidated examples - clean, focused learning experience
-
 [[example]]
 name = "quickstart"
-# Basic blocking example - no features required
 
 [[example]]
 name = "quickstart_async"
@@ -85,7 +82,6 @@ required-features = ["rt-async-std"]
 
 [[example]]
 name = "transports"
-# Transport comparison - no features required for blocking
 
 [[example]]
 name = "builder_api"
@@ -105,11 +101,9 @@ required-features = ["rt-tokio"]
 
 [[example]]
 name = "preset_demo"
-# Preset management - no features required
 
 [[example]]
 name = "type_safe_commands"
-# Type-safe command builder demonstration - no features required
 
 [[example]]
 name = "runtime_agnostic"
