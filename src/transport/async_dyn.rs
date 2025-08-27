@@ -7,6 +7,8 @@
 //! # Usage
 //!
 //! ```rust,no_run
+//! # #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
+//! # {
 //! use grafton_visca::transport::async_dyn::BoxAsyncTransport;
 //! use grafton_visca::transport::Transport;
 //!
@@ -20,6 +22,7 @@
 //! // Use the transport - each call allocates but type is stable across features
 //! // transport.send(b"some data").await?;
 //! # Ok(())
+//! # }
 //! # }
 //! ```
 
