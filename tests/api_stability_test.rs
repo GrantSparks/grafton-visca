@@ -108,21 +108,36 @@ fn test_control_traits_api_stability() {
 /// Test that runtime feature detection works correctly.
 #[test]
 fn test_runtime_feature_detection_stability() {
-    // Count active runtime features using const expressions
-    const TOKIO_ENABLED: usize = if cfg!(feature = "rt-tokio") { 1 } else { 0 };
-    const ASYNC_STD_ENABLED: usize = if cfg!(feature = "rt-async-std") { 1 } else { 0 };
-    const SMOL_ENABLED: usize = if cfg!(feature = "rt-smol") { 1 } else { 0 };
+    // Count active runtime features using runtime variables to avoid const evaluation
+    #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
+    let mut active_runtimes = 0;
 
-    const ACTIVE_RUNTIMES: usize = TOKIO_ENABLED + ASYNC_STD_ENABLED + SMOL_ENABLED;
+    #[cfg(not(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")))]
+    let active_runtimes = 0;
+
+    #[cfg(feature = "rt-tokio")]
+    {
+        active_runtimes += 1;
+    }
+
+    #[cfg(feature = "rt-async-std")]
+    {
+        active_runtimes += 1;
+    }
+
+    #[cfg(feature = "rt-smol")]
+    {
+        active_runtimes += 1;
+    }
 
     #[cfg(feature = "async")]
     {
         // When async feature is enabled, we should have either:
         // 0 runtimes (runtime-agnostic async) OR exactly 1 runtime (specific runtime)
         assert!(
-            ACTIVE_RUNTIMES == 0 || ACTIVE_RUNTIMES == 1,
+            active_runtimes == 0 || active_runtimes == 1,
             "With async feature: should have 0 runtimes (runtime-agnostic) or exactly 1 runtime, got {}",
-            ACTIVE_RUNTIMES
+            active_runtimes
         );
     }
 
@@ -130,9 +145,9 @@ fn test_runtime_feature_detection_stability() {
     {
         // In blocking mode, there should be no runtime features
         assert_eq!(
-            ACTIVE_RUNTIMES, 0,
+            active_runtimes, 0,
             "Blocking mode should not have any async runtime features, got {}",
-            ACTIVE_RUNTIMES
+            active_runtimes
         );
     }
 }
