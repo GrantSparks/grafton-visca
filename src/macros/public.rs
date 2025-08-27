@@ -156,11 +156,7 @@ macro_rules! delegate_methods {
     // Blocking variant with optional trait disambiguation
     ($wrapper:ident, blocking, $($trait_name:ident : $($method:ident $(@ $disambiguate_trait:ident)? $(($($param:ident : $ptype:ty),* $(,)?))? -> $ret:ty),+ ;)+) => {
         $(
-            impl<P: $crate::capabilities::Profile, T: $crate::transport::Transport + Send + Sync + 'static + $crate::transport::core::BlockingTransport> $trait_name for $wrapper<P, T>
-            where
-                T::Error: Into<$crate::Error> + Send,
-                for<'a> T::SendFut<'a>: Send,
-                for<'a> T::RecvFut<'a>: Send,
+            impl<P: $crate::capabilities::Profile, T: $crate::transport::BlockingTransport + Send + Sync + 'static> $trait_name for $wrapper<P, T>
             {
                 $(
                     fn $method(&mut self $(, $($param: $ptype),*)?) -> $ret {
@@ -174,11 +170,7 @@ macro_rules! delegate_methods {
     // Async variant with optional trait disambiguation
     ($wrapper:ident, async, $($trait_name:ident : $($method:ident $(@ $disambiguate_trait:ident)? $(($($param:ident : $ptype:ty),* $(,)?))? -> $ret:ty),+ ;)+) => {
         $(
-            impl<P: $crate::capabilities::Profile, T: $crate::transport::Transport + Send + Sync + 'static> $trait_name for $wrapper<P, T>
-            where
-                T::Error: Into<$crate::Error> + Send,
-                for<'a> T::SendFut<'a>: Send,
-                for<'a> T::RecvFut<'a>: Send,
+            impl<P: $crate::capabilities::Profile, T: $crate::transport::AsyncTransport + Send + Sync + 'static> $trait_name for $wrapper<P, T>
             {
                 $(
                     async fn $method(&self $(, $($param: $ptype),*)?) -> $ret {
