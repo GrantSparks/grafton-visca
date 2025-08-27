@@ -10,6 +10,10 @@ use std::{sync::Arc, time::Duration};
 
 #[cfg(feature = "async")]
 use crate::{camera::AsyncMode, executor::Executor, runtime, transport::AsyncTransport};
+#[cfg(feature = "async")]
+use crate::transport::envelope::TransportEnvelope;
+#[cfg(feature = "async")]
+use crate::transport::buffer::{BufferConfig, BufferManager};
 
 #[cfg(not(feature = "async"))]
 use crate::camera::BlockingMode;
@@ -91,6 +95,8 @@ enum CameraInner<T, E> {
     Async {
         runtime_handle: Arc<runtime::RuntimeHandle>,
         executor: Arc<E>,
+        envelope: TransportEnvelope,
+        envelope_buffer_manager: BufferManager,
         _phantom_t: core::marker::PhantomData<T>,
     },
 }
@@ -251,6 +257,8 @@ where
             inner: CameraInner::Async {
                 runtime_handle: Arc::new(runtime_handle),
                 executor: executor_arc,
+                envelope: TransportEnvelope::new(P::PROTOCOL_STYLE),
+                envelope_buffer_manager: BufferManager::new(BufferConfig::default()),
                 _phantom_t: core::marker::PhantomData,
             },
             _phantom_t: core::marker::PhantomData,
@@ -316,12 +324,14 @@ where
     E: Executor,
 {
     fn clone(&self) -> Self {
-        let (runtime_handle, executor) = match &self.inner {
+        let (runtime_handle, executor, envelope, envelope_buffer_manager) = match &self.inner {
             CameraInner::Async {
                 runtime_handle,
                 executor,
+                envelope,
+                envelope_buffer_manager,
                 ..
-            } => (Arc::clone(runtime_handle), Arc::clone(executor)),
+            } => (Arc::clone(runtime_handle), Arc::clone(executor), envelope.clone(), envelope_buffer_manager.clone()),
             #[allow(unreachable_patterns)]
             _ => unreachable!("attempted to clone blocking camera as async"),
         };
@@ -332,6 +342,8 @@ where
             inner: CameraInner::Async {
                 runtime_handle,
                 executor,
+                envelope,
+                envelope_buffer_manager,
                 _phantom_t: core::marker::PhantomData,
             },
             _phantom_t: core::marker::PhantomData,

@@ -159,6 +159,16 @@ impl TransportEnvelope {
     }
 }
 
+impl Clone for TransportEnvelope {
+    fn clone(&self) -> Self {
+        Self {
+            style: self.style,
+            // Clone the current sequence counter value, not the atomic itself
+            sequence_counter: AtomicU32::new(self.sequence_counter.load(Ordering::Relaxed)),
+        }
+    }
+}
+
 /// Sony payload types for the 8-byte header.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SonyPayloadType {

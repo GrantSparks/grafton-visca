@@ -405,6 +405,74 @@ impl RuntimeHandle {
             .await
             .map_err(|_| Error::ChannelClosed)?
     }
+
+    /// Send a pre-framed command via the runtime.
+    ///
+    /// This method accepts bytes that have already been framed according to the 
+    /// transport protocol (Raw VISCA or Sony encapsulated) and sends them directly.
+    /// Used by the unified async camera layer.
+    pub async fn send_command_framed(
+        &self,
+        framed_bytes: &[u8],
+        camera_id: crate::camera_id::CameraId,
+        priority: Option<Priority>,
+        category: crate::timeout::CommandCategory,
+    ) -> Result<ViscaResponse> {
+        // Generate command ID
+        let command_id = self.next_command_id.fetch_add(1, Ordering::Relaxed);
+
+        // Create response channel
+        let (response_tx, response_rx) = flume::bounded(1);
+
+        // Create the TxItem with pre-framed bytes
+        let item = TxItem::Command {
+            id: command_id,
+            bytes: framed_bytes.to_vec(),
+            priority: priority.unwrap_or(Priority::Normal),
+            category,
+            response_tx,
+        };
+
+        // Submit the command
+        self.command(item).await?;
+
+        // Wait for response
+        response_rx
+            .recv_async()
+            .await
+            .map_err(|_| Error::ChannelClosed)?
+    }
+
+    /// Send a pre-framed inquiry via the runtime.
+    ///
+    /// This method accepts bytes that have already been framed according to the 
+    /// transport protocol and sends them directly.
+    pub async fn send_inquiry_framed(
+        &self,
+        framed_bytes: &[u8],
+        camera_id: crate::camera_id::CameraId,
+        response_type: Option<crate::command::response::ViscaResponseType>,
+    ) -> Result<ViscaResponse> {
+        // Create response channel
+        let (response_tx, response_rx) = flume::bounded(1);
+
+        // Create the TxItem with pre-framed bytes
+        let item = TxItem::Inquiry {
+            id: 0, // Will be assigned by scheduler
+            bytes: framed_bytes.to_vec(),
+            response_type,
+            response_tx,
+        };
+
+        // Submit the inquiry
+        self.inquire(item).await?;
+
+        // Wait for response
+        response_rx
+            .recv_async()
+            .await
+            .map_err(|_| Error::ChannelClosed)?
+    }
 }
 
 /// Main runtime loop with configurable tick interval.
