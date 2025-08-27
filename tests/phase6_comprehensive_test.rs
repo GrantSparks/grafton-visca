@@ -9,11 +9,13 @@
 #![cfg(feature = "async")]
 
 use grafton_visca::camera::methods::{power::PowerControl, zoom::ZoomControl};
+
+#[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
 use grafton_visca::transport::async_dyn::{BoxAsyncTransport, DynAsyncTransport};
 
-/// Test that async control trait futures are Send.
+/// Test that control trait futures are Send.
 #[test]
-fn test_rpitit_futures_are_send() {
+fn test_control_trait_futures_are_send() {
     /// Mock camera for testing trait implementations
     struct MockCamera;
 
@@ -188,7 +190,11 @@ fn test_core_api_stability() {
 /// Test runtime feature detection works correctly.
 #[test]
 fn test_runtime_feature_detection() {
+    #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
     let mut active_runtimes = 0;
+    
+    #[cfg(not(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")))]
+    let active_runtimes = 0;
 
     #[cfg(feature = "rt-tokio")]
     {
