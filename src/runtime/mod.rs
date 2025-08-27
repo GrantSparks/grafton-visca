@@ -159,28 +159,6 @@ impl RuntimeHandle {
         Self::new(transport, executor).await
     }
 
-    /// Create a new camera runtime with Sony TCP transport.
-    #[cfg(all(feature = "async", feature = "rt-tokio"))]
-    pub async fn new_tcp_sony<E: crate::executor::Executor>(
-        address: impl AsRef<str>,
-        executor: Arc<E>,
-    ) -> Result<Self> {
-        // Use native tokio Sony TCP transport
-        let transport = crate::transport::tokio::sony::Tcp::connect(address.as_ref()).await?;
-        Self::new(transport, executor).await
-    }
-
-    /// Create a new camera runtime with Sony UDP transport.
-    #[cfg(all(feature = "async", feature = "rt-tokio"))]
-    pub async fn new_udp_sony<E: crate::executor::Executor>(
-        address: impl AsRef<str>,
-        executor: Arc<E>,
-    ) -> Result<Self> {
-        // Use native tokio Sony UDP transport
-        let transport = crate::transport::tokio::sony::Udp::connect(address.as_ref()).await?;
-        Self::new(transport, executor).await
-    }
-
     // TODO: Uncomment when native async serial is implemented with tokio-serial
     // /// Create a new camera runtime with serial transport.
     // #[cfg(all(feature = "async", feature = "serial", feature = "rt-tokio"))]
@@ -408,13 +386,13 @@ impl RuntimeHandle {
 
     /// Send a pre-framed command via the runtime.
     ///
-    /// This method accepts bytes that have already been framed according to the 
+    /// This method accepts bytes that have already been framed according to the
     /// transport protocol (Raw VISCA or Sony encapsulated) and sends them directly.
     /// Used by the unified async camera layer.
     pub async fn send_command_framed(
         &self,
         framed_bytes: &[u8],
-        camera_id: crate::camera_id::CameraId,
+        _camera_id: crate::camera_id::CameraId,
         priority: Option<Priority>,
         category: crate::timeout::CommandCategory,
     ) -> Result<ViscaResponse> {
@@ -445,12 +423,12 @@ impl RuntimeHandle {
 
     /// Send a pre-framed inquiry via the runtime.
     ///
-    /// This method accepts bytes that have already been framed according to the 
+    /// This method accepts bytes that have already been framed according to the
     /// transport protocol and sends them directly.
     pub async fn send_inquiry_framed(
         &self,
         framed_bytes: &[u8],
-        camera_id: crate::camera_id::CameraId,
+        _camera_id: crate::camera_id::CameraId,
         response_type: Option<crate::command::response::ViscaResponseType>,
     ) -> Result<ViscaResponse> {
         // Create response channel

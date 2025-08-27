@@ -55,6 +55,9 @@ impl TransportEnvelope {
     ///
     /// For raw VISCA, returns the bytes unchanged.
     /// For Sony encapsulated, extracts payload from 8-byte header.
+    ///
+    /// This method is used by blocking cameras and may be used by external consumers.
+    #[allow(dead_code)] // Used in blocking mode and by external API consumers
     pub fn extract_response(&self, framed_bytes: &[u8]) -> Result<Bytes, crate::Error> {
         match self.style {
             ProtocolStyle::RawVisca => Ok(Bytes::copy_from_slice(framed_bytes)),
@@ -114,6 +117,7 @@ impl TransportEnvelope {
     }
 
     /// Extract VISCA payload from Sony encapsulated response.
+    #[allow(dead_code)] // Used by extract_response method
     fn sony_extract_payload(&self, framed_bytes: &[u8]) -> Result<Bytes, crate::Error> {
         if framed_bytes.len() < 8 {
             return Err(crate::Error::ParseError(Cow::Borrowed(
@@ -171,6 +175,7 @@ impl Clone for TransportEnvelope {
 
 /// Sony payload types for the 8-byte header.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // Variants used in protocol parsing and tests
 enum SonyPayloadType {
     /// Command packet (0x01 0x00)
     Command,
@@ -191,6 +196,7 @@ impl SonyPayloadType {
     }
 
     /// Parse payload type from bytes.
+    #[allow(dead_code)] // Used in protocol parsing
     fn from_bytes(bytes: [u8; 2]) -> Option<Self> {
         match bytes {
             [0x01, 0x00] => Some(SonyPayloadType::Command),

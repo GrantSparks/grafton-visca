@@ -62,8 +62,8 @@ pub mod blocking_transport;
 pub mod buffer;
 pub mod builder;
 pub mod sony_config;
-// Blocking-only helpers and transports should not compile in async builds
-#[cfg(not(feature = "async"))]
+// The envelope module is now needed for both blocking and async modes
+// since async cameras now do their own protocol framing
 pub mod envelope;
 #[cfg(not(feature = "async"))]
 pub mod ip_raw;

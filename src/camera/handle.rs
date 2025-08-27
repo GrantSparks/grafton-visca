@@ -9,11 +9,13 @@
 use std::{sync::Arc, time::Duration};
 
 #[cfg(feature = "async")]
-use crate::{camera::AsyncMode, executor::Executor, runtime, transport::AsyncTransport};
+use crate::command::const_encoding::VISCA_TERMINATOR;
+#[cfg(feature = "async")]
+use crate::transport::buffer::{BufferConfig, BufferManager};
 #[cfg(feature = "async")]
 use crate::transport::envelope::TransportEnvelope;
 #[cfg(feature = "async")]
-use crate::transport::buffer::{BufferConfig, BufferManager};
+use crate::{camera::AsyncMode, executor::Executor, runtime, transport::AsyncTransport};
 
 #[cfg(not(feature = "async"))]
 use crate::camera::BlockingMode;
@@ -331,7 +333,12 @@ where
                 envelope,
                 envelope_buffer_manager,
                 ..
-            } => (Arc::clone(runtime_handle), Arc::clone(executor), envelope.clone(), envelope_buffer_manager.clone()),
+            } => (
+                Arc::clone(runtime_handle),
+                Arc::clone(executor),
+                envelope.clone(),
+                envelope_buffer_manager.clone(),
+            ),
             #[allow(unreachable_patterns)]
             _ => unreachable!("attempted to clone blocking camera as async"),
         };
@@ -427,12 +434,28 @@ where
     where
         C: EncodeVisca,
     {
-        // Get runtime handle (always present for async cameras)
-        let runtime_handle = match &self.inner {
-            CameraInner::Async { runtime_handle, .. } => runtime_handle,
+        // Get runtime handle and envelope (always present for async cameras)
+        let (runtime_handle, envelope, envelope_buffer_manager) = match &self.inner {
+            CameraInner::Async {
+                runtime_handle,
+                envelope,
+                envelope_buffer_manager,
+                ..
+            } => (runtime_handle, envelope, envelope_buffer_manager),
             #[allow(unreachable_patterns)]
             _ => unreachable!("runtime handle requested on blocking Camera variant"),
         };
+
+        // Encode command bytes using EncodeVisca
+        let mut buffer = [0u8; 64];
+        let size = command.encode_into(self.camera_id, &mut buffer)?;
+        let cmd_bytes = &buffer[..size];
+
+        // Add VISCA terminator if not present
+        let mut cmd_vec = cmd_bytes.to_vec();
+        if !cmd_vec.ends_with(&[VISCA_TERMINATOR]) {
+            cmd_vec.push(VISCA_TERMINATOR);
+        }
 
         // Determine inquiry by response_type to avoid double-encoding
         let is_inquiry = command.response_type().is_some();
@@ -443,12 +466,17 @@ where
             command.response_type()
         );
 
-        // Use the appropriate runtime method
+        // Frame the command using the transport envelope (same as blocking cameras)
+        let framed_bytes = envelope.frame_command(&cmd_vec, is_inquiry, envelope_buffer_manager);
+
+        // Use the pre-framed runtime method
         if is_inquiry {
-            runtime_handle.send_inquiry(command, self.camera_id).await
+            runtime_handle
+                .send_inquiry_framed(&framed_bytes, self.camera_id, command.response_type())
+                .await
         } else {
             runtime_handle
-                .send_command(command, self.camera_id, None)
+                .send_command_framed(&framed_bytes, self.camera_id, None, C::TIMEOUT_CATEGORY)
                 .await
         }
     }
