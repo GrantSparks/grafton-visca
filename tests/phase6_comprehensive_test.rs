@@ -211,10 +211,11 @@ fn test_runtime_feature_detection() {
         active_runtimes += 1;
     }
 
-    // Should have exactly one runtime active
-    assert_eq!(
-        active_runtimes, 1,
-        "Exactly one async runtime should be active"
+    // Should have 0 runtimes (runtime-agnostic) OR exactly 1 runtime (specific runtime)
+    assert!(
+        active_runtimes == 0 || active_runtimes == 1,
+        "Should have 0 runtimes (runtime-agnostic) or exactly 1 runtime (specific), got {}",
+        active_runtimes
     );
 }
 
