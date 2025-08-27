@@ -45,8 +45,8 @@
 //! ```
 
 pub mod address;
-// Unified async I/O helpers for reducing code duplication
-#[cfg(feature = "async")]
+// Unified async I/O helpers for reducing code duplication across runtimes
+#[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
 pub(crate) mod async_io;
 // Async transport trait and runtime-specific transports are only public with `async`
 #[cfg(feature = "async")]
