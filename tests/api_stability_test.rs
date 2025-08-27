@@ -108,33 +108,33 @@ fn test_control_traits_api_stability() {
 /// Test that runtime feature detection works correctly.
 #[test]
 fn test_runtime_feature_detection_stability() {
-    // Test that exactly one runtime feature is active
-    #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
-    let mut active_runtimes = 0;
+    // Count active runtime features using const expressions
+    const TOKIO_ENABLED: usize = if cfg!(feature = "rt-tokio") { 1 } else { 0 };
+    const ASYNC_STD_ENABLED: usize = if cfg!(feature = "rt-async-std") { 1 } else { 0 };
+    const SMOL_ENABLED: usize = if cfg!(feature = "rt-smol") { 1 } else { 0 };
 
-    #[cfg(not(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")))]
-    let active_runtimes = 0;
+    const ACTIVE_RUNTIMES: usize = TOKIO_ENABLED + ASYNC_STD_ENABLED + SMOL_ENABLED;
 
-    #[cfg(feature = "rt-tokio")]
+    #[cfg(feature = "async")]
     {
-        active_runtimes += 1;
+        // When async feature is enabled, we should have either:
+        // 0 runtimes (runtime-agnostic async) OR exactly 1 runtime (specific runtime)
+        assert!(
+            ACTIVE_RUNTIMES == 0 || ACTIVE_RUNTIMES == 1,
+            "With async feature: should have 0 runtimes (runtime-agnostic) or exactly 1 runtime, got {}",
+            ACTIVE_RUNTIMES
+        );
     }
 
-    #[cfg(feature = "rt-async-std")]
+    #[cfg(not(feature = "async"))]
     {
-        active_runtimes += 1;
+        // In blocking mode, there should be no runtime features
+        assert_eq!(
+            ACTIVE_RUNTIMES, 0,
+            "Blocking mode should not have any async runtime features, got {}",
+            ACTIVE_RUNTIMES
+        );
     }
-
-    #[cfg(feature = "rt-smol")]
-    {
-        active_runtimes += 1;
-    }
-
-    // Should have exactly one runtime active for async features
-    assert_eq!(
-        active_runtimes, 1,
-        "Exactly one async runtime should be active"
-    );
 }
 
 /// Test that blocking API remains unchanged and stable.

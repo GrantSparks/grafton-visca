@@ -491,6 +491,11 @@ jobs:
           save-if: false  # Don't save cache in semver job
       
       - uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          # Use specific feature set to avoid triggering compile-time runtime guards
+          # Check blocking mode and one async runtime (tokio as most common)
+          feature-group: only-explicit-features
+          features: rt-tokio,serial
 
   # Check package metadata and dependencies
   package-check:
