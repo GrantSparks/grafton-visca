@@ -10,11 +10,14 @@
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::methods::{power::PowerControlBlocking, zoom::ZoomControlBlocking},
-    camera::{BlockingMode, Camera},
+    camera::Camera,
     profiles::GenericVisca,
     transport::blocking::Tcp,
     Error,
+    InquiryControl,
+    // Import unified traits
+    PowerControl,
+    ZoomControl,
 };
 #[cfg(not(feature = "async"))]
 use std::time::Duration;
@@ -30,7 +33,7 @@ fn main() -> Result<(), Error> {
 
     let transport = Tcp::connect(&address)?;
 
-    let mut camera: Camera<BlockingMode, GenericVisca, _> = Camera::new(transport);
+    let mut camera = Camera::<GenericVisca, _>::new(transport);
 
     println!("\n=== High-Level API Inquiry Demo ===\n");
 

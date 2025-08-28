@@ -17,18 +17,19 @@ use std::{env, thread::sleep, time::Duration};
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::methods::{
-        inquiry::{InquiryControlBlocking, PanTiltInquiryControlBlocking},
-        pan_tilt::PanTiltControlBlocking,
-        presets::PresetsControlBlocking,
-        zoom::ZoomControlBlocking,
-    },
-    prelude::blocking::*,
-    CameraBuilder, Error,
+    camera::{profiles::PtzOpticsG2, Camera},
+    transport::builder::TransportBuilder,
+    types::SpeedLevel,
+    units::{Degrees, Normalized},
+    Error,
+    // Import unified traits that work for both blocking and async
+    InquiryControl,
+    PanTiltControl,
+    PanTiltInquiryControl,
+    PresetNumber,
+    PresetsControl,
+    ZoomControl,
 };
-
-#[cfg(not(feature = "async"))]
-use grafton_visca::transport::builder::TransportBuilder;
 
 #[cfg(not(feature = "async"))]
 fn main() -> Result<(), Error> {
@@ -53,7 +54,7 @@ fn main() -> Result<(), Error> {
         })?;
 
     // Build camera using the builder pattern for clarity and extensibility
-    let mut camera = CameraBuilder::new().build_blocking::<PtzOpticsG2, _>(transport);
+    let mut camera = Camera::<PtzOpticsG2, _>::new(transport);
 
     println!("✅ Connected successfully!\n");
 
