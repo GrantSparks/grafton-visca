@@ -254,13 +254,6 @@ pub trait ImageProcessingControl {
     fn set_picture_effect(&mut self, mode: PictureEffectMode) -> Result<(), Error>;
 }
 
-/// Async image processing control trait (deprecated, use ImageProcessingControl instead).
-#[cfg(feature = "async")]
-pub trait ImageProcessingControlAsync: ImageProcessingControl {}
-
-/// Blocking image processing control trait (deprecated, use ImageProcessingControl instead).
-pub trait ImageProcessingControlBlocking: ImageProcessingControl {}
-
 // Async implementation
 #[cfg(feature = "async")]
 impl<P, Tr, Exec> ImageProcessingControl for crate::camera::AsyncCamera<P, Tr, Exec>
@@ -269,14 +262,11 @@ where
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
     Exec: crate::executor::Executor,
 {
-    fn enable_flip(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_ {
-        async move {
-            let cmd = crate::command::flip::ImageFlip::new(crate::command::flip::Flip::On);
-            self.send_command(&cmd).await?;
-            Ok(())
-        }
+    async fn enable_flip(&self) -> Result<(), Error> {
+        let cmd = crate::command::flip::ImageFlip::new(crate::command::flip::Flip::On);
+        self.send_command(&cmd).await?;
+        Ok(())
     }
-
     async fn disable_flip(&self) -> Result<(), Error> {
         let cmd = crate::command::flip::ImageFlip::new(crate::command::flip::Flip::Off);
         self.send_command(&cmd).await?;
@@ -427,17 +417,16 @@ where
 
 // Blocking implementation
 #[cfg(not(feature = "async"))]
-impl<P, T> ImageProcessingControl for crate::camera::BlockingCamera<P, T>
+impl<P, Tr> ImageProcessingControl for crate::camera::BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile + Default,
-    T: crate::transport::BlockingTransport + Send + 'static,
+    Tr: crate::transport::BlockingTransport + Send + 'static,
 {
     fn enable_flip(&mut self) -> Result<(), Error> {
         let cmd = crate::command::flip::ImageFlip::new(crate::command::flip::Flip::On);
         self.send_command(&cmd)?;
         Ok(())
     }
-
     fn disable_flip(&mut self) -> Result<(), Error> {
         let cmd = crate::command::flip::ImageFlip::new(crate::command::flip::Flip::Off);
         self.send_command(&cmd)?;
@@ -581,22 +570,4 @@ where
         self.send_command(&cmd)?;
         Ok(())
     }
-}
-
-// Deprecated trait aliases for backward compatibility
-#[cfg(feature = "async")]
-impl<P, Tr, Exec> ImageProcessingControlAsync for crate::camera::AsyncCamera<P, Tr, Exec>
-where
-    P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
-    Exec: crate::executor::Executor,
-{
-}
-
-#[cfg(not(feature = "async"))]
-impl<P, T> ImageProcessingControlBlocking for crate::camera::BlockingCamera<P, T>
-where
-    P: crate::capabilities::Profile + Default,
-    T: crate::transport::BlockingTransport + Send + 'static,
-{
 }

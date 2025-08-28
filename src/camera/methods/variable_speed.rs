@@ -63,16 +63,9 @@ where
         }
     }
 }
-
 // Keep the old trait names for backward compatibility during transition
-#[cfg(feature = "async")]
 /// Async variable speed control trait (deprecated, use VariableSpeedControl instead).
-pub trait VariableSpeedControlAsync: VariableSpeedControl {}
-
-#[cfg(not(feature = "async"))]
 /// Blocking variable speed control trait (deprecated, use VariableSpeedControl instead).
-pub trait VariableSpeedControlBlocking: VariableSpeedControl {}
-
 // Blocking implementation for BlockingCamera
 #[cfg(not(feature = "async"))]
 impl<P, Tr> VariableSpeedControl for crate::camera::BlockingCamera<P, Tr>
@@ -94,33 +87,9 @@ where
     }
 }
 
-// Backward compatibility implementations
-#[cfg(feature = "async")]
-impl<P, Tr, Exec> VariableSpeedControlAsync for crate::camera::AsyncCamera<P, Tr, Exec>
-where
-    P: crate::capabilities::Profile
-        + crate::capabilities::VariableSpeed
-        + crate::capabilities::HasVariableSpeed
-        + Default,
-    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
-    Exec: crate::executor::Executor,
-{
-}
-
-#[cfg(not(feature = "async"))]
-impl<P, Tr> VariableSpeedControlBlocking for crate::camera::BlockingCamera<P, Tr>
-where
-    P: crate::capabilities::Profile
-        + crate::capabilities::VariableSpeed
-        + crate::capabilities::HasVariableSpeed
-        + Default,
-    Tr: crate::transport::BlockingTransport + Send + 'static,
-{
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::command::{VariableSpeedMode, VariableSpeedModeCmd};
 
     #[test]
     fn test_variable_speed_mode_command_creation() {

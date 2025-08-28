@@ -4,7 +4,7 @@
 //! through trait bounds and mode markers rather than runtime checks.
 
 #[cfg(feature = "async")]
-use grafton_visca::{camera::AsyncCamera, transport::AsyncTransport};
+use grafton_visca::{camera::AsyncCamera, transport::AsyncTransport, Executor};
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{camera::BlockingCamera, transport::BlockingTransport};
@@ -25,6 +25,7 @@ fn test_nd_filter_compile_time_safety() {
     where
         P: Profile + NDFilter,
         T: AsyncTransport + Send + Sync + 'static,
+        E: Executor,
     {
         // This function can only be called with cameras that have ND filter
         // The trait bound P: NDFilter enforces this at compile time
@@ -54,6 +55,7 @@ fn test_motion_sync_compile_time_safety() {
     ) where
         P: Profile + MotionSync,
         T: AsyncTransport + Send + Sync + 'static,
+        E: Executor,
     {
         // Only cameras with MotionSync can compile this function
     }
@@ -83,6 +85,7 @@ fn test_variable_speed_compile_time_safety() {
     ) where
         P: Profile + VariableSpeed,
         T: AsyncTransport + Send + Sync + 'static,
+        E: Executor,
     {
         // Only cameras with VariableSpeed can compile this function
     }
@@ -112,6 +115,7 @@ fn test_basic_features_available_to_all() {
         where
             P: Profile,
             T: AsyncTransport + Send + Sync + 'static,
+            E: Executor,
         {
             // All cameras can use basic operations like:
             // - Power on/off
@@ -148,6 +152,7 @@ fn test_profile_specific_compile_time_checks() {
         fn _sony_fr7_features_async<T, E>(_camera: &AsyncCamera<SonyFR7, T, E>)
         where
             T: AsyncTransport + Send + Sync + 'static,
+            E: Executor,
         {
             // This compiles because SonyFR7 implements NDFilter and VariableSpeed
             fn requires_nd<P: NDFilter>() {}
@@ -161,6 +166,7 @@ fn test_profile_specific_compile_time_checks() {
         fn _ptzoptics_g2_features_async<T, E>(_camera: &AsyncCamera<PtzOpticsG2, T, E>)
         where
             T: AsyncTransport + Send + Sync + 'static,
+            E: Executor,
         {
             // This compiles because PtzOpticsG2 implements MotionSync
             fn requires_motion_sync<P: MotionSync>() {}
@@ -172,6 +178,7 @@ fn test_profile_specific_compile_time_checks() {
         fn _generic_visca_features_async<T, E>(_camera: &AsyncCamera<GenericVisca, T, E>)
         where
             T: AsyncTransport + Send + Sync + 'static,
+            E: Executor,
         {
             // GenericVisca doesn't have NDFilter, MotionSync, or VariableSpeed
             // So we can only use basic Profile features
@@ -226,6 +233,7 @@ fn test_mode_transport_consistency() {
         where
             P: Profile,
             T: AsyncTransport,
+            E: Executor,
         {
             // Correct pairing
         }

@@ -78,14 +78,8 @@ pub trait NdFilterControl {
 }
 
 // Keep the old trait names for backward compatibility during transition
-#[cfg(feature = "async")]
 /// Async ND filter control trait (deprecated, use NdFilterControl instead).
-pub trait NdFilterControlAsync: NdFilterControl {}
-
-#[cfg(not(feature = "async"))]
 /// Blocking ND filter control trait (deprecated, use NdFilterControl instead).
-pub trait NdFilterControlBlocking: NdFilterControl {}
-
 // Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
 impl<P, Tr, Exec> NdFilterControl for crate::camera::AsyncCamera<P, Tr, Exec>
@@ -96,7 +90,6 @@ where
 {
     async fn set_nd_filter_mode(&self, mode: CommandNDFilterMode) -> Result<(), Error> {
         use crate::command::nd_filter::NdFilterModeCmd;
-
         let cmd = NdFilterModeCmd::new(mode);
         self.send_command(&cmd).await?;
         Ok(())
@@ -163,7 +156,6 @@ where
 {
     fn set_nd_filter_mode(&mut self, mode: CommandNDFilterMode) -> Result<(), Error> {
         use crate::command::nd_filter::NdFilterModeCmd;
-
         let cmd = NdFilterModeCmd::new(mode);
         self.send_command(&cmd)?;
         Ok(())
@@ -219,22 +211,4 @@ where
             _ => Err(Error::UnexpectedResponseType),
         }
     }
-}
-
-// Backward compatibility implementations
-#[cfg(feature = "async")]
-impl<P, Tr, Exec> NdFilterControlAsync for crate::camera::AsyncCamera<P, Tr, Exec>
-where
-    P: crate::capabilities::Profile + crate::capabilities::nd_filter::NDFilter + Default,
-    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
-    Exec: crate::executor::Executor,
-{
-}
-
-#[cfg(not(feature = "async"))]
-impl<P, Tr> NdFilterControlBlocking for crate::camera::BlockingCamera<P, Tr>
-where
-    P: crate::capabilities::Profile + crate::capabilities::nd_filter::NDFilter + Default,
-    Tr: crate::transport::BlockingTransport + Send + 'static,
-{
 }

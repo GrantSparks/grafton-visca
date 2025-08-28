@@ -326,14 +326,8 @@ pub trait ExposureControl {
 }
 
 // Keep the old trait names for backward compatibility during transition
-#[cfg(feature = "async")]
 /// Async exposure control trait (deprecated, use ExposureControl instead).
-pub trait ExposureControlAsync: ExposureControl {}
-
-#[cfg(not(feature = "async"))]
 /// Blocking exposure control trait (deprecated, use ExposureControl instead).
-pub trait ExposureControlBlocking: ExposureControl {}
-
 // Async implementation for AsyncCamera
 #[cfg(feature = "async")]
 impl<P, Tr, Exec> ExposureControl for crate::camera::AsyncCamera<P, Tr, Exec>
@@ -350,7 +344,6 @@ where
         self.send_command(&cmd).await?;
         Ok(())
     }
-
     async fn exposure_auto(&self) -> Result<(), Error> {
         self.set_exposure_mode(crate::command::exposure::ExposureMode::Auto)
             .await
@@ -551,7 +544,6 @@ where
         self.send_command(&cmd)?;
         Ok(())
     }
-
     fn exposure_auto(&mut self) -> Result<(), Error> {
         self.set_exposure_mode(crate::command::exposure::ExposureMode::Auto)
     }
@@ -796,31 +788,4 @@ pub trait ExposureCompensationControl {
     /// Set exposure compensation level (-7 to +7).
     #[cfg(not(feature = "async"))]
     fn set_exposure_compensation_level(&mut self, level: i8) -> Result<(), Error>;
-}
-
-// Keep the old trait names for backward compatibility during transition
-#[cfg(feature = "async")]
-/// Async exposure compensation control trait (deprecated, use ExposureCompensationControl instead).
-pub trait ExposureCompensationControlAsync: ExposureCompensationControl {}
-
-#[cfg(not(feature = "async"))]
-/// Blocking exposure compensation control trait (deprecated, use ExposureCompensationControl instead).
-pub trait ExposureCompensationControlBlocking: ExposureCompensationControl {}
-
-// Backward compatibility implementations
-#[cfg(feature = "async")]
-impl<P, Tr, Exec> ExposureControlAsync for crate::camera::AsyncCamera<P, Tr, Exec>
-where
-    P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
-    Exec: crate::executor::Executor,
-{
-}
-
-#[cfg(not(feature = "async"))]
-impl<P, Tr> ExposureControlBlocking for crate::camera::BlockingCamera<P, Tr>
-where
-    P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::BlockingTransport + Send + 'static,
-{
 }

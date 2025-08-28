@@ -88,14 +88,8 @@ pub trait ZoomControl {
 }
 
 // Keep the old trait names for backward compatibility during transition
-#[cfg(feature = "async")]
 /// Async zoom control trait (deprecated, use ZoomControl instead).
-pub trait ZoomControlAsync: ZoomControl {}
-
-#[cfg(not(feature = "async"))]
 /// Blocking zoom control trait (deprecated, use ZoomControl instead).
-pub trait ZoomControlBlocking: ZoomControl {}
-
 // Async implementation for AsyncCamera
 #[cfg(feature = "async")]
 impl<P, Tr, Exec> ZoomControl for crate::camera::AsyncCamera<P, Tr, Exec>
@@ -106,7 +100,6 @@ where
 {
     async fn zoom_stop(&self) -> Result<(), Error> {
         use crate::command::zoom::Zoom;
-
         let cmd = Zoom::Stop;
         self.send_command(&cmd).await?;
         Ok(())
@@ -178,7 +171,6 @@ where
 {
     fn zoom_stop(&mut self) -> Result<(), Error> {
         use crate::command::zoom::Zoom;
-
         let cmd = Zoom::Stop;
         self.send_command(&cmd)?;
         Ok(())
@@ -239,22 +231,4 @@ where
 
         self.send_command_typed(&ZoomPositionInquiry)
     }
-}
-
-// Backward compatibility implementations
-#[cfg(feature = "async")]
-impl<P, Tr, Exec> ZoomControlAsync for crate::camera::AsyncCamera<P, Tr, Exec>
-where
-    P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
-    Exec: crate::executor::Executor,
-{
-}
-
-#[cfg(not(feature = "async"))]
-impl<P, Tr> ZoomControlBlocking for crate::camera::BlockingCamera<P, Tr>
-where
-    P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::BlockingTransport + Send + 'static,
-{
 }

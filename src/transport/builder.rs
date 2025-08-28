@@ -593,7 +593,8 @@ impl UniformTransportBuilder {
             };
         }
 
-        #[cfg(all(feature = "rt-async-std", not(feature = "rt-tokio")))]
+        #[cfg(feature = "rt-async-std")]
+        #[cfg(not(feature = "rt-tokio"))]
         {
             return match self.protocol {
                 Protocol::Tcp => {
@@ -617,11 +618,9 @@ impl UniformTransportBuilder {
             };
         }
 
-        #[cfg(all(
-            feature = "rt-smol",
-            not(feature = "rt-tokio"),
-            not(feature = "rt-async-std")
-        ))]
+        #[cfg(feature = "rt-smol")]
+        #[cfg(not(feature = "rt-tokio"))]
+        #[cfg(not(feature = "rt-async-std"))]
         {
             return match self.protocol {
                 Protocol::Tcp => {
@@ -701,7 +700,8 @@ impl UniformTransportBuilder {
             };
         }
 
-        #[cfg(all(feature = "rt-async-std", not(feature = "rt-tokio")))]
+        #[cfg(feature = "rt-async-std")]
+        #[cfg(not(feature = "rt-tokio"))]
         {
             return match self.protocol {
                 Protocol::Tcp => {
@@ -725,11 +725,9 @@ impl UniformTransportBuilder {
             };
         }
 
-        #[cfg(all(
-            feature = "rt-smol",
-            not(feature = "rt-tokio"),
-            not(feature = "rt-async-std")
-        ))]
+        #[cfg(feature = "rt-smol")]
+        #[cfg(not(feature = "rt-tokio"))]
+        #[cfg(not(feature = "rt-async-std"))]
         {
             return match self.protocol {
                 Protocol::Tcp => {

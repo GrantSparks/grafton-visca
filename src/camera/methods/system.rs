@@ -41,14 +41,8 @@ pub trait SystemControl {
 }
 
 // Keep the old trait names for backward compatibility during transition
-#[cfg(feature = "async")]
 /// Async system control trait (deprecated, use SystemControl instead).
-pub trait SystemControlAsync: SystemControl {}
-
-#[cfg(not(feature = "async"))]
 /// Blocking system control trait (deprecated, use SystemControl instead).
-pub trait SystemControlBlocking: SystemControl {}
-
 // Async implementation for AsyncCamera
 #[cfg(feature = "async")]
 impl<P, Tr, Exec> SystemControl for crate::camera::AsyncCamera<P, Tr, Exec>
@@ -59,7 +53,6 @@ where
 {
     async fn trigger_address_assignment(&self) -> Result<(), Error> {
         use crate::command::system::AddressSetCommand;
-
         let cmd = AddressSetCommand::new();
         self.send_command(&cmd).await?;
         Ok(())
@@ -91,7 +84,6 @@ where
 {
     fn trigger_address_assignment(&mut self) -> Result<(), Error> {
         use crate::command::system::AddressSetCommand;
-
         let cmd = AddressSetCommand::new();
         self.send_command(&cmd)?;
         Ok(())
@@ -112,22 +104,4 @@ where
         self.send_command(&cmd)?;
         Ok(())
     }
-}
-
-// Backward compatibility implementations
-#[cfg(feature = "async")]
-impl<P, Tr, Exec> SystemControlAsync for crate::camera::AsyncCamera<P, Tr, Exec>
-where
-    P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
-    Exec: crate::executor::Executor,
-{
-}
-
-#[cfg(not(feature = "async"))]
-impl<P, Tr> SystemControlBlocking for crate::camera::BlockingCamera<P, Tr>
-where
-    P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::BlockingTransport + Send + 'static,
-{
 }

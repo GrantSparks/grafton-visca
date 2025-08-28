@@ -143,14 +143,8 @@ pub trait ColorControl {
 }
 
 // Keep the old trait names for backward compatibility during transition
-#[cfg(feature = "async")]
 /// Async color control trait (deprecated, use ColorControl instead).
-pub trait ColorControlAsync: ColorControl {}
-
-#[cfg(not(feature = "async"))]
 /// Blocking color control trait (deprecated, use ColorControl instead).
-pub trait ColorControlBlocking: ColorControl {}
-
 // Async implementation for AsyncCamera
 #[cfg(feature = "async")]
 impl<P, Tr, Exec> ColorControl for crate::camera::AsyncCamera<P, Tr, Exec>
@@ -163,7 +157,6 @@ where
         self.send_command(&OnePushTriggerCommand).await?;
         Ok(())
     }
-
     async fn set_color_temperature(&self, temp: ColorTemp) -> Result<(), Error> {
         self.send_command(&ColorTemperature::SetTemperature(temp))
             .await?;
@@ -240,7 +233,6 @@ where
         self.send_command(&OnePushTriggerCommand)?;
         Ok(())
     }
-
     fn set_color_temperature(&mut self, temp: ColorTemp) -> Result<(), Error> {
         self.send_command(&ColorTemperature::SetTemperature(temp))?;
         Ok(())
@@ -300,22 +292,4 @@ where
         self.send_command(&BlueTuningCommand::new(tuning))?;
         Ok(())
     }
-}
-
-// Backward compatibility implementations
-#[cfg(feature = "async")]
-impl<P, Tr, Exec> ColorControlAsync for crate::camera::AsyncCamera<P, Tr, Exec>
-where
-    P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
-    Exec: crate::executor::Executor,
-{
-}
-
-#[cfg(not(feature = "async"))]
-impl<P, Tr> ColorControlBlocking for crate::camera::BlockingCamera<P, Tr>
-where
-    P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::BlockingTransport + Send + 'static,
-{
 }

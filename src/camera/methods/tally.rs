@@ -112,14 +112,8 @@ pub trait TallyControl {
 }
 
 // Keep the old trait names for backward compatibility during transition
-#[cfg(feature = "async")]
 /// Async tally control trait (deprecated, use TallyControl instead).
-pub trait TallyControlAsync: TallyControl {}
-
-#[cfg(not(feature = "async"))]
 /// Blocking tally control trait (deprecated, use TallyControl instead).
-pub trait TallyControlBlocking: TallyControl {}
-
 // Async implementation for AsyncCamera
 #[cfg(feature = "async")]
 impl<P, Tr, Exec> TallyControl for crate::camera::AsyncCamera<P, Tr, Exec>
@@ -130,7 +124,6 @@ where
 {
     async fn tally_red_on(&self) -> Result<(), Error> {
         use crate::command::tally::Tally;
-
         let cmd = Tally::RedOn;
         self.send_command(&cmd).await?;
         Ok(())
@@ -243,7 +236,6 @@ where
 {
     fn tally_red_on(&mut self) -> Result<(), Error> {
         use crate::command::tally::Tally;
-
         let cmd = Tally::RedOn;
         self.send_command(&cmd)?;
         Ok(())
@@ -345,22 +337,4 @@ where
             _ => Err(Error::UnexpectedResponseType),
         }
     }
-}
-
-// Backward compatibility implementations
-#[cfg(feature = "async")]
-impl<P, Tr, Exec> TallyControlAsync for crate::camera::AsyncCamera<P, Tr, Exec>
-where
-    P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
-    Exec: crate::executor::Executor,
-{
-}
-
-#[cfg(not(feature = "async"))]
-impl<P, Tr> TallyControlBlocking for crate::camera::BlockingCamera<P, Tr>
-where
-    P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::BlockingTransport + Send + 'static,
-{
 }

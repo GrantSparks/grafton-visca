@@ -175,14 +175,8 @@ pub trait FocusControl {
 }
 
 // Keep the old trait names for backward compatibility during transition
-#[cfg(feature = "async")]
 /// Async focus control trait (deprecated, use FocusControl instead).
-pub trait FocusControlAsync: FocusControl {}
-
-#[cfg(not(feature = "async"))]
 /// Blocking focus control trait (deprecated, use FocusControl instead).
-pub trait FocusControlBlocking: FocusControl {}
-
 // Async implementation for AsyncCamera
 #[cfg(feature = "async")]
 impl<P, Tr, Exec> FocusControl for crate::camera::AsyncCamera<P, Tr, Exec>
@@ -196,7 +190,6 @@ where
         self.send_command(&cmd).await?;
         Ok(())
     }
-
     async fn focus_manual(&self) -> Result<(), Error> {
         let cmd = Focus::Manual;
         self.send_command(&cmd).await?;
@@ -304,7 +297,6 @@ where
         self.send_command(&cmd)?;
         Ok(())
     }
-
     fn focus_manual(&mut self) -> Result<(), Error> {
         let cmd = Focus::Manual;
         self.send_command(&cmd)?;
@@ -396,22 +388,4 @@ where
         self.send_command(&FocusNearLimitCommand { position })?;
         Ok(())
     }
-}
-
-// Backward compatibility implementations
-#[cfg(feature = "async")]
-impl<P, Tr, Exec> FocusControlAsync for crate::camera::AsyncCamera<P, Tr, Exec>
-where
-    P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
-    Exec: crate::executor::Executor,
-{
-}
-
-#[cfg(not(feature = "async"))]
-impl<P, Tr> FocusControlBlocking for crate::camera::BlockingCamera<P, Tr>
-where
-    P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::BlockingTransport + Send + 'static,
-{
 }

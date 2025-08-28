@@ -123,14 +123,8 @@ pub trait PanTiltControl {
 }
 
 // Keep the old trait names for backward compatibility during transition
-#[cfg(feature = "async")]
 /// Async pan/tilt control trait (deprecated, use PanTiltControl instead).
-pub trait PanTiltControlAsync: PanTiltControl {}
-
-#[cfg(not(feature = "async"))]
 /// Blocking pan/tilt control trait (deprecated, use PanTiltControl instead).
-pub trait PanTiltControlBlocking: PanTiltControl {}
-
 // Async implementation for AsyncCamera
 #[cfg(feature = "async")]
 impl<P, Tr, Exec> PanTiltControl for crate::camera::AsyncCamera<P, Tr, Exec>
@@ -141,7 +135,6 @@ where
 {
     async fn pan_tilt_stop(&self) -> Result<(), Error> {
         use crate::command::pan_tilt::PanTilt;
-
         let cmd = PanTilt::Move {
             direction: PanTiltDirection::Stop,
             pan_speed: PanSpeed::from(SpeedLevel::Medium),
@@ -261,7 +254,6 @@ where
 {
     fn pan_tilt_stop(&mut self) -> Result<(), Error> {
         use crate::command::pan_tilt::PanTilt;
-
         let cmd = PanTilt::Move {
             direction: PanTiltDirection::Stop,
             pan_speed: PanSpeed::from(SpeedLevel::Medium),
@@ -370,22 +362,4 @@ where
         self.send_command(&cmd)?;
         Ok(())
     }
-}
-
-// Backward compatibility implementations
-#[cfg(feature = "async")]
-impl<P, Tr, Exec> PanTiltControlAsync for crate::camera::AsyncCamera<P, Tr, Exec>
-where
-    P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
-    Exec: crate::executor::Executor,
-{
-}
-
-#[cfg(not(feature = "async"))]
-impl<P, Tr> PanTiltControlBlocking for crate::camera::BlockingCamera<P, Tr>
-where
-    P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::BlockingTransport + Send + 'static,
-{
 }

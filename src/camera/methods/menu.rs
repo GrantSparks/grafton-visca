@@ -120,20 +120,6 @@ pub trait DirectMenuControl: MenuControl {
     fn toggle_menu(&mut self) -> Result<(), Error>;
 }
 
-/// Async menu control trait (deprecated, use MenuControl instead).
-#[cfg(feature = "async")]
-pub trait MenuControlAsync: MenuControl {}
-
-/// Blocking menu control trait (deprecated, use MenuControl instead).
-pub trait MenuControlBlocking: MenuControl {}
-
-/// Async direct menu control trait (deprecated, use DirectMenuControl instead).
-#[cfg(feature = "async")]
-pub trait DirectMenuControlAsync: DirectMenuControl {}
-
-/// Blocking direct menu control trait (deprecated, use DirectMenuControl instead).
-pub trait DirectMenuControlBlocking: DirectMenuControl {}
-
 // Unified implementation of MenuControl for AsyncCamera
 #[cfg(feature = "async")]
 impl<P, Tr, Exec> MenuControl for crate::camera::AsyncCamera<P, Tr, Exec>
@@ -142,43 +128,27 @@ where
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
     Exec: crate::executor::Executor,
 {
-    fn set_menu_display(
-        &self,
-        display: bool,
-    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_ {
-        async move {
-            use crate::command::menu::MenuDisplayCommand;
-
-            let cmd = MenuDisplayCommand::new(display);
-            self.send_command(&cmd).await?;
-            Ok(())
-        }
+    async fn set_menu_display(&self, display: bool) -> Result<(), Error> {
+        use crate::command::menu::MenuDisplayCommand;
+        let cmd = MenuDisplayCommand::new(display);
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
-    fn menu_navigate(
-        &self,
-        direction: MenuDirection,
-    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_ {
-        async move {
-            use crate::command::menu::MenuNavigate;
+    async fn menu_navigate(&self, direction: MenuDirection) -> Result<(), Error> {
+        use crate::command::menu::MenuNavigate;
 
-            let cmd = MenuNavigate::new(direction);
-            self.send_command(&cmd).await?;
-            Ok(())
-        }
+        let cmd = MenuNavigate::new(direction);
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
-    fn menu_action(
-        &self,
-        action: MenuAction,
-    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_ {
-        async move {
-            use crate::command::menu::MenuActionCmd;
+    async fn menu_action(&self, action: MenuAction) -> Result<(), Error> {
+        use crate::command::menu::MenuActionCmd;
 
-            let cmd = MenuActionCmd::new(action);
-            self.send_command(&cmd).await?;
-            Ok(())
-        }
+        let cmd = MenuActionCmd::new(action);
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 }
 
@@ -190,41 +160,31 @@ where
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
     Exec: crate::executor::Executor,
 {
-    fn direct_menu_control(
-        &mut self,
-        control1: u8,
-        control2: u8,
-    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_ {
-        async move {
-            use crate::command::menu::DirectMenuControl;
-
-            let cmd = DirectMenuControl::new(control1, control2);
-            self.send_command(&cmd).await?;
-            Ok(())
-        }
+    async fn direct_menu_control(&mut self, control1: u8, control2: u8) -> Result<(), Error> {
+        use crate::command::menu::DirectMenuControl;
+        let cmd = DirectMenuControl::new(control1, control2);
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 
-    fn toggle_menu(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_ {
-        async move {
-            use crate::command::menu::DirectMenuControl;
+    async fn toggle_menu(&self) -> Result<(), Error> {
+        use crate::command::menu::DirectMenuControl;
 
-            let cmd = DirectMenuControl::open_close();
-            self.send_command(&cmd).await?;
-            Ok(())
-        }
+        let cmd = DirectMenuControl::open_close();
+        self.send_command(&cmd).await?;
+        Ok(())
     }
 }
 
 // Unified implementation of MenuControl for BlockingCamera
 #[cfg(not(feature = "async"))]
-impl<P, T> MenuControl for crate::camera::BlockingCamera<P, T>
+impl<P, Tr> MenuControl for crate::camera::BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile + crate::capabilities::MenuControl + Default,
-    T: crate::transport::BlockingTransport + Send + 'static,
+    Tr: crate::transport::BlockingTransport + Send + 'static,
 {
     fn set_menu_display(&mut self, display: bool) -> Result<(), Error> {
         use crate::command::menu::MenuDisplayCommand;
-
         let cmd = MenuDisplayCommand::new(display);
         self.send_command(&cmd)?;
         Ok(())
@@ -249,14 +209,13 @@ where
 
 // Unified implementation of DirectMenuControl for BlockingCamera
 #[cfg(not(feature = "async"))]
-impl<P, T> DirectMenuControl for crate::camera::BlockingCamera<P, T>
+impl<P, Tr> DirectMenuControl for crate::camera::BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile + crate::capabilities::MenuControl + Default,
-    T: crate::transport::BlockingTransport + Send + 'static,
+    Tr: crate::transport::BlockingTransport + Send + 'static,
 {
     fn direct_menu_control(&mut self, control1: u8, control2: u8) -> Result<(), Error> {
         use crate::command::menu::DirectMenuControl;
-
         let cmd = DirectMenuControl::new(control1, control2);
         self.send_command(&cmd)?;
         Ok(())
@@ -269,39 +228,4 @@ where
         self.send_command(&cmd)?;
         Ok(())
     }
-}
-
-// Deprecated trait aliases for backward compatibility
-#[cfg(feature = "async")]
-impl<P, Tr, Exec> MenuControlAsync for crate::camera::AsyncCamera<P, Tr, Exec>
-where
-    P: crate::capabilities::Profile + crate::capabilities::MenuControl + Default,
-    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
-    Exec: crate::executor::Executor,
-{
-}
-
-#[cfg(not(feature = "async"))]
-impl<P, T> MenuControlBlocking for crate::camera::BlockingCamera<P, T>
-where
-    P: crate::capabilities::Profile + crate::capabilities::MenuControl + Default,
-    T: crate::transport::BlockingTransport + Send + 'static,
-{
-}
-
-#[cfg(feature = "async")]
-impl<P, Tr, Exec> DirectMenuControlAsync for crate::camera::AsyncCamera<P, Tr, Exec>
-where
-    P: crate::capabilities::Profile + crate::capabilities::MenuControl + Default,
-    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
-    Exec: crate::executor::Executor,
-{
-}
-
-#[cfg(not(feature = "async"))]
-impl<P, T> DirectMenuControlBlocking for crate::camera::BlockingCamera<P, T>
-where
-    P: crate::capabilities::Profile + crate::capabilities::MenuControl + Default,
-    T: crate::transport::BlockingTransport + Send + 'static,
-{
 }

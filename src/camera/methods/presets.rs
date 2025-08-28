@@ -43,14 +43,8 @@ pub trait PresetsControl {
 }
 
 // Keep the old trait names for backward compatibility during transition
-#[cfg(feature = "async")]
 /// Async presets control trait (deprecated, use PresetsControl instead).
-pub trait PresetsControlAsync: PresetsControl {}
-
-#[cfg(not(feature = "async"))]
 /// Blocking presets control trait (deprecated, use PresetsControl instead).
-pub trait PresetsControlBlocking: PresetsControl {}
-
 // Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
 impl<P, Tr, Exec> PresetsControl for crate::camera::AsyncCamera<P, Tr, Exec>
@@ -61,7 +55,6 @@ where
 {
     async fn preset_recall(&self, preset: PresetNumber) -> Result<(), Error> {
         use crate::command::preset::{PresetAction, PresetCommand};
-
         let cmd = PresetCommand {
             action: PresetAction::Recall,
             preset_number: preset,
@@ -102,7 +95,6 @@ where
 {
     fn preset_recall(&mut self, preset: PresetNumber) -> Result<(), Error> {
         use crate::command::preset::{PresetAction, PresetCommand};
-
         let cmd = PresetCommand {
             action: PresetAction::Recall,
             preset_number: preset,
@@ -132,22 +124,4 @@ where
         self.send_command(&cmd)?;
         Ok(())
     }
-}
-
-// Backward compatibility implementations
-#[cfg(feature = "async")]
-impl<P, Tr, Exec> PresetsControlAsync for crate::camera::AsyncCamera<P, Tr, Exec>
-where
-    P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
-    Exec: crate::executor::Executor,
-{
-}
-
-#[cfg(not(feature = "async"))]
-impl<P, Tr> PresetsControlBlocking for crate::camera::BlockingCamera<P, Tr>
-where
-    P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::BlockingTransport + Send + 'static,
-{
 }

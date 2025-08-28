@@ -101,6 +101,7 @@ fn test_cancel_socket_directly() {
     });
 
     // Send a pan/tilt command using the public API
+    let camera = std::sync::Arc::new(camera);
     let camera_clone = camera.clone();
     std::mem::drop(executor.spawn(async move {
         use grafton_visca::camera::methods::pan_tilt::PanTiltControl;

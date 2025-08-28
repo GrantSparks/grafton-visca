@@ -34,13 +34,6 @@ pub trait PowerControl {
 }
 
 // Keep the old trait names for backward compatibility during transition
-#[cfg(feature = "async")]
-/// Async power control trait (deprecated, use PowerControl instead).
-pub trait PowerControlAsync: PowerControl {}
-
-#[cfg(not(feature = "async"))]
-/// Blocking power control trait (deprecated, use PowerControl instead).
-pub trait PowerControlBlocking: PowerControl {}
 
 // Async implementation for AsyncCamera
 #[cfg(feature = "async")]
@@ -101,22 +94,4 @@ where
 
         self.send_command_typed(&PowerInquiry)
     }
-}
-
-// Backward compatibility implementations
-#[cfg(feature = "async")]
-impl<P, Tr, Exec> PowerControlAsync for crate::camera::AsyncCamera<P, Tr, Exec>
-where
-    P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
-    Exec: crate::executor::Executor,
-{
-}
-
-#[cfg(not(feature = "async"))]
-impl<P, Tr> PowerControlBlocking for crate::camera::BlockingCamera<P, Tr>
-where
-    P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::BlockingTransport + Send + 'static,
-{
 }

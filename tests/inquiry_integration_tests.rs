@@ -431,10 +431,9 @@ async fn test_mixed_commands_and_inquiries() {
 
     let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera =
-        Camera::<AsyncMode, GenericVisca, _, _>::with_executor(simulator.clone(), executor)
-            .await
-            .unwrap();
+    let camera = AsyncCamera::<GenericVisca, _, _>::with_executor(simulator.clone(), executor)
+        .await
+        .unwrap();
     // Socket manager is now automatically initialized on first use
 
     // Execute a preset recall command

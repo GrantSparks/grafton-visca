@@ -107,14 +107,8 @@ pub trait WhiteBalanceControl {
 }
 
 // Keep the old trait names for backward compatibility during transition
-#[cfg(feature = "async")]
 /// Async white balance control trait (deprecated, use WhiteBalanceControl instead).
-pub trait WhiteBalanceControlAsync: WhiteBalanceControl {}
-
-#[cfg(not(feature = "async"))]
 /// Blocking white balance control trait (deprecated, use WhiteBalanceControl instead).
-pub trait WhiteBalanceControlBlocking: WhiteBalanceControl {}
-
 // Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
 impl<P, Tr, Exec> WhiteBalanceControl for crate::camera::AsyncCamera<P, Tr, Exec>
@@ -125,7 +119,6 @@ where
 {
     async fn set_white_balance_mode(&self, mode: WhiteBalanceMode) -> Result<(), Error> {
         use crate::command::white_balance::WhiteBalanceCommand;
-
         let cmd = WhiteBalanceCommand { mode };
         self.send_command(&cmd).await?;
         Ok(())
@@ -181,7 +174,6 @@ where
 {
     fn set_white_balance_mode(&mut self, mode: WhiteBalanceMode) -> Result<(), Error> {
         use crate::command::white_balance::WhiteBalanceCommand;
-
         let cmd = WhiteBalanceCommand { mode };
         self.send_command(&cmd)?;
         Ok(())
@@ -225,22 +217,4 @@ where
         self.send_command(&cmd)?;
         Ok(())
     }
-}
-
-// Backward compatibility implementations
-#[cfg(feature = "async")]
-impl<P, Tr, Exec> WhiteBalanceControlAsync for crate::camera::AsyncCamera<P, Tr, Exec>
-where
-    P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
-    Exec: crate::executor::Executor,
-{
-}
-
-#[cfg(not(feature = "async"))]
-impl<P, Tr> WhiteBalanceControlBlocking for crate::camera::BlockingCamera<P, Tr>
-where
-    P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::BlockingTransport + Send + 'static,
-{
 }
