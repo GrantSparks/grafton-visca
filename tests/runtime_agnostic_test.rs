@@ -6,10 +6,7 @@
 #![cfg(feature = "async")]
 
 #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
-use grafton_visca::{
-    camera::{AsyncMode, Camera},
-    PowerControl, TokioExecutor,
-};
+use grafton_visca::{camera::AsyncCamera, PowerControl, TokioExecutor};
 
 #[cfg(not(feature = "rt-tokio"))]
 #[test]
@@ -45,8 +42,8 @@ mod async_tests {
                 responses: vec![vec![0x90, 0x50, 0x02, 0xFF]],     // Power on response
             }]);
 
-        let camera: Camera<AsyncMode, grafton_visca::camera::profiles::PtzOpticsG2, _, _> =
-            Camera::with_executor(transport, executor)
+        let camera: AsyncCamera<grafton_visca::camera::profiles::PtzOpticsG2, _, _> =
+            AsyncCamera::with_executor(transport, executor)
                 .await
                 .expect("Failed to create camera");
 
@@ -70,8 +67,8 @@ mod async_tests {
                 responses: vec![vec![0x90, 0x50, 0x02, 0xFF]],     // Power on response
             }]);
 
-        let camera: Camera<AsyncMode, grafton_visca::camera::profiles::PtzOpticsG2, _, _> =
-            Camera::with_executor(transport, executor)
+        let camera: AsyncCamera<grafton_visca::camera::profiles::PtzOpticsG2, _, _> =
+            AsyncCamera::with_executor(transport, executor)
                 .await
                 .expect("Failed to create camera");
 
@@ -94,8 +91,8 @@ mod async_tests {
         let transport: ScriptedTransport<grafton_visca::TokioExecutor> =
             ScriptedTransport::new(vec![helpers::auto_respond_step()]);
 
-        let camera: Camera<AsyncMode, grafton_visca::camera::profiles::PtzOpticsG2, _, _> =
-            Camera::with_executor(transport, executor)
+        let camera: AsyncCamera<grafton_visca::camera::profiles::PtzOpticsG2, _, _> =
+            AsyncCamera::with_executor(transport, executor)
                 .await
                 .expect("Failed to create camera");
 
@@ -118,8 +115,8 @@ mod async_tests {
                 responses: vec![vec![0x90, 0x50, 0x02, 0xFF]],     // Power on response
             }]);
 
-        let camera: Camera<AsyncMode, grafton_visca::camera::profiles::PtzOpticsG2, _, _> =
-            Camera::with_executor(transport, executor)
+        let camera: AsyncCamera<grafton_visca::camera::profiles::PtzOpticsG2, _, _> =
+            AsyncCamera::with_executor(transport, executor)
                 .await
                 .expect("Failed to create camera");
 

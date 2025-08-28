@@ -13,10 +13,10 @@ mod blocking_tests {
     use grafton_visca::{
         camera::{
             methods::{
-                pan_tilt::PanTiltControlBlocking, power::PowerControlBlocking,
-                presets::PresetsControlBlocking, zoom::ZoomControlBlocking,
+                pan_tilt::PanTiltControl, power::PowerControl, presets::PresetsControl,
+                zoom::ZoomControl,
             },
-            BlockingMode, Camera,
+            BlockingCamera,
         },
         prelude::blocking::*,
         testing::testkit::{helpers, ScriptedBlockingTransport},
@@ -35,7 +35,7 @@ mod blocking_tests {
             1,
         )]);
 
-        let camera: Camera<BlockingMode, PtzOpticsG2, _, ()> = Camera::new(transport.clone());
+        let mut camera: BlockingCamera<PtzOpticsG2, _> = BlockingCamera::new(transport.clone());
 
         let result = camera.power_on();
         assert!(
@@ -55,7 +55,7 @@ mod blocking_tests {
             1,
         )]);
 
-        let camera: Camera<BlockingMode, PtzOpticsG2, _, ()> = Camera::new(transport.clone());
+        let mut camera: BlockingCamera<PtzOpticsG2, _> = BlockingCamera::new(transport.clone());
 
         let result = camera.pan_tilt_home();
         assert!(result.is_ok(), "Home command should succeed: {result:?}");
@@ -76,7 +76,7 @@ mod blocking_tests {
             helpers::command_response(zoom_out_cmd.clone(), 1),
         ]);
 
-        let camera: Camera<BlockingMode, PtzOpticsG2, _, ()> = Camera::new(transport.clone());
+        let mut camera: BlockingCamera<PtzOpticsG2, _> = BlockingCamera::new(transport.clone());
 
         let stop_result = camera.zoom_stop();
         assert!(stop_result.is_ok(), "zoom_stop failed: {stop_result:?}");
@@ -101,7 +101,7 @@ mod blocking_tests {
         let transport =
             ScriptedBlockingTransport::new(vec![helpers::command_response(zoom_in_cmd, 1)]);
 
-        let camera: Camera<BlockingMode, PtzOpticsG2, _, ()> = Camera::new(transport);
+        let mut camera: BlockingCamera<PtzOpticsG2, _> = BlockingCamera::new(transport);
 
         let result = camera.zoom_tele_std();
         assert!(result.is_ok(), "zoom_in failed: {result:?}");
@@ -120,7 +120,7 @@ mod blocking_tests {
             ),
         ]);
 
-        let camera: Camera<BlockingMode, PtzOpticsG2, _, ()> = Camera::new(transport);
+        let mut camera: BlockingCamera<PtzOpticsG2, _> = BlockingCamera::new(transport);
 
         use grafton_visca::PresetNumber;
 
@@ -133,7 +133,7 @@ mod blocking_tests {
     fn test_camera_error_handling() {
         let transport = ScriptedBlockingTransport::new(vec![helpers::errors::syntax_error(1)]);
 
-        let camera: Camera<BlockingMode, PtzOpticsG2, _, ()> = Camera::new(transport);
+        let mut camera: BlockingCamera<PtzOpticsG2, _> = BlockingCamera::new(transport);
 
         let result = camera.power_on();
         assert!(result.is_err(), "Should get an error");
@@ -148,7 +148,7 @@ mod blocking_tests {
     fn test_camera_timeout() {
         let transport = ScriptedBlockingTransport::new(vec![]);
 
-        let camera: Camera<BlockingMode, PtzOpticsG2, _, ()> = Camera::new(transport);
+        let mut camera: BlockingCamera<PtzOpticsG2, _> = BlockingCamera::new(transport);
 
         let result = camera.pan_tilt_home();
         assert!(result.is_err(), "Should timeout");
@@ -167,7 +167,7 @@ mod blocking_tests {
             helpers::command_response(patterns::power::STANDBY.to_vec(), 1),
         ]);
 
-        let camera: Camera<BlockingMode, PtzOpticsG2, _, ()> = Camera::new(transport.clone());
+        let mut camera: BlockingCamera<PtzOpticsG2, _> = BlockingCamera::new(transport.clone());
 
         assert!(camera.pan_tilt_home().is_ok());
         assert!(camera.zoom_stop().is_ok());
@@ -187,7 +187,7 @@ mod blocking_tests {
             1,
         )]);
 
-        let camera: Camera<BlockingMode, PtzOpticsG2, _, ()> = Camera::new(transport.clone());
+        let mut camera: BlockingCamera<PtzOpticsG2, _> = BlockingCamera::new(transport.clone());
 
         camera.power_on().unwrap();
 
@@ -203,7 +203,7 @@ mod blocking_tests {
             helpers::command_response(patterns::pan_tilt::HOME.to_vec(), 2),
         ]);
 
-        let camera: Camera<BlockingMode, PtzOpticsG2, _, ()> = Camera::new(transport.clone());
+        let mut camera: BlockingCamera<PtzOpticsG2, _> = BlockingCamera::new(transport.clone());
 
         assert!(camera.power_on().is_ok());
         assert!(camera.pan_tilt_home().is_ok());

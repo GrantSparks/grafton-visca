@@ -6,11 +6,11 @@
 #[test]
 fn test_blocking_mode_compile() {
     use grafton_visca::{
-        camera::{profiles::PtzOpticsG2, BlockingMode, Camera},
+        camera::{profiles::PtzOpticsG2, BlockingCamera},
         transport::blocking::Tcp as BlockingTcp,
     };
 
-    type _BlockingCamera = Camera<BlockingMode, PtzOpticsG2, BlockingTcp, ()>;
+    type _BlockingCamera = BlockingCamera<PtzOpticsG2, BlockingTcp>;
     fn _accepts_blocking(_camera: &_BlockingCamera) {}
 }
 
@@ -18,11 +18,11 @@ fn test_blocking_mode_compile() {
 #[test]
 fn test_async_mode_compile() {
     use grafton_visca::{
-        camera::profiles::PtzOpticsG2, camera::AsyncMode, camera::Camera,
+        camera::profiles::PtzOpticsG2, camera::AsyncCamera,
         runtime_adapters::tokio::TcpTransport as AsyncTcp, TokioExecutor,
     };
 
-    type _AsyncCamera = Camera<AsyncMode, PtzOpticsG2, AsyncTcp, TokioExecutor>;
+    type _AsyncCamera = AsyncCamera<PtzOpticsG2, AsyncTcp, TokioExecutor>;
     fn _accepts_async(_camera: &_AsyncCamera) {}
 }
 
@@ -30,18 +30,17 @@ fn test_async_mode_compile() {
 #[test]
 fn test_blocking_traits_available() {
     use grafton_visca::{
-        FocusControlBlocking, InquiryControlBlocking, PanTiltControlBlocking, PowerControlBlocking,
-        PresetsControlBlocking, ZoomControlBlocking,
+        FocusControl, InquiryControl, PanTiltControl, PowerControl, PresetsControl, ZoomControl,
     };
 
     fn _uses_blocking_traits<T>()
     where
-        T: PowerControlBlocking
-            + ZoomControlBlocking
-            + FocusControlBlocking
-            + PanTiltControlBlocking
-            + PresetsControlBlocking
-            + InquiryControlBlocking,
+        T: PowerControl
+            + ZoomControl
+            + FocusControl
+            + PanTiltControl
+            + PresetsControl
+            + InquiryControl,
     {
     }
 }

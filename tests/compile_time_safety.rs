@@ -1,20 +1,18 @@
 //! Tests to verify compile-time safety of the generic camera API.
 
 #[cfg(feature = "async")]
-use grafton_visca::camera::AsyncMode;
+use grafton_visca::camera::AsyncCamera;
 
-#[cfg(not(feature = "async"))]
-use grafton_visca::camera::BlockingMode;
 #[cfg(not(feature = "async"))]
 use grafton_visca::prelude::blocking::{PtzOpticsG2Cam, SonyFR7Cam};
 
 use grafton_visca::{
-    camera::{
-        profiles::{GenericVisca, PtzOpticsG2, SonyFR7},
-        Camera,
-    },
+    camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7},
     capabilities::{PanTilt, Profile, ProfileMetadata, Zoom},
 };
+
+#[cfg(not(feature = "async"))]
+use grafton_visca::camera::BlockingCamera;
 
 #[test]
 fn test_profile_super_trait() {
@@ -42,14 +40,22 @@ fn test_profile_constants() {
 #[test]
 fn test_generic_camera_methods() {
     #[cfg(feature = "async")]
-    type _G2Camera<T, E> = Camera<AsyncMode, PtzOpticsG2, T, E>;
+    type _G2Camera<T, E> = Camera<PtzOpticsG2, T, E>;
     #[cfg(not(feature = "async"))]
-    type _G2Camera<T> = Camera<BlockingMode, PtzOpticsG2, T, ()>;
+    #[cfg(not(feature = "async"))]
+    type _G2Camera<T> = BlockingCamera<PtzOpticsG2, T>;
 
     #[cfg(feature = "async")]
-    type _FR7Camera<T, E> = Camera<AsyncMode, SonyFR7, T, E>;
+    type _G2Camera<T, E> = AsyncCamera<PtzOpticsG2, T, E>;
+
+    #[cfg(feature = "async")]
+    type _FR7Camera<T, E> = Camera<SonyFR7, T, E>;
     #[cfg(not(feature = "async"))]
-    type _FR7Camera<T> = Camera<BlockingMode, SonyFR7, T, ()>;
+    #[cfg(not(feature = "async"))]
+    type _FR7Camera<T> = BlockingCamera<SonyFR7, T>;
+
+    #[cfg(feature = "async")]
+    type _FR7Camera<T, E> = AsyncCamera<SonyFR7, T, E>;
 
     #[cfg(not(feature = "async"))]
     type _G2Alias<T> = PtzOpticsG2Cam<T>;

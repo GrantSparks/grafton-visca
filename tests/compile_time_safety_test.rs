@@ -5,14 +5,10 @@
 
 #[cfg(feature = "test-utils")]
 use grafton_visca::{
-    camera::methods::{
-        focus::FocusControlBlocking, pan_tilt::PanTiltControlBlocking, power::PowerControlBlocking,
-        presets::PresetsControlBlocking, zoom::ZoomControlBlocking,
-    },
     capabilities::*,
     prelude::blocking::{GenericViscaCam, PtzOpticsG2Cam, SonyFR7Cam},
     testing::testkit::{helpers, ScriptedBlockingTransport},
-    Error, PresetNumber,
+    Error, FocusControl, PanTiltControl, PowerControl, PresetNumber, PresetsControl, ZoomControl,
 };
 
 #[cfg(feature = "test-utils")]
@@ -26,7 +22,7 @@ fn test_ptzoptics_g2_capabilities() {
         helpers::auto_respond_step(), // preset_recall
     ]);
 
-    let camera = PtzOpticsG2Cam::from_transport(transport);
+    let mut camera = PtzOpticsG2Cam::from_transport(transport);
 
     assert!(camera.power_on().is_ok());
     assert!(camera.pan_tilt_home().is_ok());
@@ -44,7 +40,7 @@ fn test_sony_fr7_has_nd_filter() {
         helpers::sony_auto_respond_step(), // zoom_stop
     ]);
 
-    let camera = SonyFR7Cam::from_transport(transport);
+    let mut camera = SonyFR7Cam::from_transport(transport);
 
     assert!(camera.power_on().is_ok());
     assert!(camera.pan_tilt_home().is_ok());
@@ -55,7 +51,7 @@ fn test_sony_fr7_has_nd_filter() {
 #[test]
 fn test_compile_time_capability_checking() {
     fn adjust_nd_filter<P, T>(
-        _camera: &grafton_visca::camera::Camera<grafton_visca::camera::BlockingMode, P, T>,
+        _camera: &grafton_visca::camera::BlockingCamera<P, T>,
     ) -> Result<(), Error>
     where
         P: Profile + NDFilter,
@@ -77,14 +73,10 @@ fn test_compile_time_capability_checking() {
 #[test]
 fn test_generic_functions_with_trait_bounds() {
     fn basic_control<P>(
-        camera: &grafton_visca::camera::Camera<
-            grafton_visca::camera::BlockingMode,
-            P,
-            ScriptedBlockingTransport,
-        >,
+        camera: &mut grafton_visca::camera::BlockingCamera<P, ScriptedBlockingTransport>,
     ) -> Result<(), Error>
     where
-        P: Profile,
+        P: Profile + Default,
     {
         camera.power_on()?;
         camera.zoom_stop()?;
@@ -92,14 +84,10 @@ fn test_generic_functions_with_trait_bounds() {
     }
 
     fn motion_sync_control<P>(
-        _camera: &grafton_visca::camera::Camera<
-            grafton_visca::camera::BlockingMode,
-            P,
-            ScriptedBlockingTransport,
-        >,
+        _camera: &mut grafton_visca::camera::BlockingCamera<P, ScriptedBlockingTransport>,
     ) -> Result<(), Error>
     where
-        P: Profile + MotionSync,
+        P: Profile + MotionSync + Default,
     {
         Ok(())
     }
@@ -109,32 +97,32 @@ fn test_generic_functions_with_trait_bounds() {
         helpers::auto_respond_step(), // zoom_stop
         helpers::auto_respond_step(), // for motion_sync_control
     ]);
-    let g2 = PtzOpticsG2Cam::from_transport(g2_transport);
+    let mut g2 = PtzOpticsG2Cam::from_transport(g2_transport);
 
     let fr7_transport = ScriptedBlockingTransport::new(vec![
         helpers::sony_auto_respond_step(), // power_on
         helpers::sony_auto_respond_step(), // zoom_stop
     ]);
-    let fr7 = SonyFR7Cam::from_transport(fr7_transport);
+    let mut fr7 = SonyFR7Cam::from_transport(fr7_transport);
 
     let generic_transport = ScriptedBlockingTransport::new(vec![
         helpers::auto_respond_step(), // power_on
         helpers::auto_respond_step(), // zoom_stop
     ]);
-    let generic = GenericViscaCam::from_transport(generic_transport);
+    let mut generic = GenericViscaCam::from_transport(generic_transport);
 
     println!("Testing G2 camera...");
-    assert!(basic_control(&g2).is_ok());
+    assert!(basic_control(&mut g2).is_ok());
 
     println!("Testing FR7 camera...");
-    let fr7_result = basic_control(&fr7);
+    let fr7_result = basic_control(&mut fr7);
     if let Err(e) = &fr7_result {
         println!("FR7 error: {e:?}");
     }
     assert!(fr7_result.is_ok());
 
     println!("Testing generic camera...");
-    assert!(basic_control(&generic).is_ok());
+    assert!(basic_control(&mut generic).is_ok());
 
-    assert!(motion_sync_control(&g2).is_ok());
+    assert!(motion_sync_control(&mut g2).is_ok());
 }

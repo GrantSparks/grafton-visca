@@ -37,7 +37,7 @@
 //! - **Transport Abstraction**: Implement your own transport (TCP, UDP, serial, etc.)
 //! - **Builder Patterns**: Create custom camera profiles for any VISCA camera
 //! - **Clean API Separation**: Choose blocking OR async at compile time - no mixed dependencies
-//! - **Runtime-Agnostic Async**: Full support for Tokio, async-std, and smol runtimes
+//! - **Multi-Runtime Support**: Full support for Tokio, async-std, and smol runtimes (can coexist)
 //! - **Unified Error Handling**: Consistent error mapping across all transport types
 //! - **Configurable Timeouts**: Per-category timeout configuration for different command types
 //! - **Command Cancellation**: Cancel specific commands or entire socket operations
@@ -212,6 +212,10 @@
 //! - `rt-smol` - Enables async with built-in smol runtime support (implies `async`).
 //! - `test-utils` - Testing utilities including ScriptedTransport and DeterministicExecutor (not for production).
 //!
+//! **Multiple Runtime Support**: As of version 0.7.0, runtime features can be enabled simultaneously.
+//! This allows libraries to support multiple runtime ecosystems without forcing users to choose.
+//! Use explicit executor selection (`CameraBuilder::tokio()`, etc.) when multiple runtimes are available.
+//!
 //! ### Send Future Guarantees
 //!
 //! All public async traits in this crate guarantee that their returned futures are `Send`.
@@ -238,16 +242,18 @@
 //!
 //! #### Option 1: Use built-in runtime support (Easiest)
 //!
-//! Choose your preferred runtime and enable the corresponding feature in `Cargo.toml`:
+//! Choose your runtime(s) and enable the corresponding feature(s) in `Cargo.toml`:
 //!
 //! ```toml
 //! [dependencies]
-//! # For Tokio:
+//! # Single runtime:
 //! grafton-visca = { version = "*", features = ["rt-tokio"] }
-//! # For async-std:
 //! grafton-visca = { version = "*", features = ["rt-async-std"] }
-//! # For smol:
 //! grafton-visca = { version = "*", features = ["rt-smol"] }
+//!
+//! # Multiple runtimes (choose executor at construction time):
+//! grafton-visca = { version = "*", features = ["rt-tokio", "rt-async-std"] }
+//! grafton-visca = { version = "*", features = ["rt-tokio", "rt-smol", "rt-async-std"] }
 //! ```
 //!
 //! Then use the corresponding `CameraBuilder` method:
@@ -475,24 +481,8 @@
 //! }
 //! ```
 
-// Compile-time guards to ensure exactly one async runtime is enabled when async is used
-#[cfg(all(feature = "rt-tokio", feature = "rt-async-std"))]
-compile_error!(
-    "Enable at most one of: rt-tokio, rt-async-std, rt-smol. Found both rt-tokio and rt-async-std."
-);
-
-#[cfg(all(feature = "rt-tokio", feature = "rt-smol"))]
-compile_error!(
-    "Enable at most one of: rt-tokio, rt-async-std, rt-smol. Found both rt-tokio and rt-smol."
-);
-
-#[cfg(all(feature = "rt-async-std", feature = "rt-smol"))]
-compile_error!(
-    "Enable at most one of: rt-tokio, rt-async-std, rt-smol. Found both rt-async-std and rt-smol."
-);
-
-#[cfg(all(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
-compile_error!("Enable at most one of: rt-tokio, rt-async-std, rt-smol. Found all three enabled.");
+// Multiple async runtimes can now coexist - users choose which executor to use at construction time
+// This flexibility allows libraries to support multiple runtime ecosystems simultaneously
 
 /// Camera profile system for type-safe, model-specific control
 pub mod camera;
