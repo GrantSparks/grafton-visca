@@ -14,7 +14,6 @@ use grafton_visca::{
     profiles::GenericVisca,
     transport::blocking::Tcp,
     Error,
-    InquiryControl,
     // Import unified traits
     PowerControl,
     ZoomControl,
