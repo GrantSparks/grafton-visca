@@ -1,92 +1,119 @@
-//! White balance methods for cameras using mode markers.
+//! White balance methods for cameras.
 
 use crate::{
     command::white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode},
     Error,
 };
 
-/// White balance operations (async).
-#[cfg(feature = "async")]
-pub trait WhiteBalanceControl: Send + Sync + 'static + Sized {
+/// White balance operations for cameras.
+///
+/// This trait provides white balance control methods that work for both blocking and async cameras.
+/// The implementation differs based on the camera type - async cameras return futures,
+/// while blocking cameras perform operations synchronously.
+pub trait WhiteBalanceControl {
     /// Set white balance mode to any supported mode.
+    #[cfg(feature = "async")]
     fn set_white_balance_mode(
         &self,
         mode: WhiteBalanceMode,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Set white balance mode to any supported mode.
+    #[cfg(not(feature = "async"))]
+    fn set_white_balance_mode(&mut self, mode: WhiteBalanceMode) -> Result<(), Error>;
+
     /// Set auto white balance mode.
+    #[cfg(feature = "async")]
     fn white_balance_auto(
         &self,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Set auto white balance mode.
+    #[cfg(not(feature = "async"))]
+    fn white_balance_auto(&mut self) -> Result<(), Error>;
+
     /// Set indoor white balance preset (optimized for incandescent/tungsten lighting).
+    #[cfg(feature = "async")]
     fn white_balance_indoor(
         &self,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Set indoor white balance preset (optimized for incandescent/tungsten lighting).
+    #[cfg(not(feature = "async"))]
+    fn white_balance_indoor(&mut self) -> Result<(), Error>;
+
     /// Set outdoor white balance preset (optimized for daylight).
+    #[cfg(feature = "async")]
     fn white_balance_outdoor(
         &self,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Set outdoor white balance preset (optimized for daylight).
+    #[cfg(not(feature = "async"))]
+    fn white_balance_outdoor(&mut self) -> Result<(), Error>;
+
     /// Set one-push white balance mode (calibrate once based on current scene).
+    #[cfg(feature = "async")]
     fn white_balance_one_push(
         &self,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Set one-push white balance mode (calibrate once based on current scene).
+    #[cfg(not(feature = "async"))]
+    fn white_balance_one_push(&mut self) -> Result<(), Error>;
+
     /// Set auto tracking white balance (Sony FR7 specific).
+    #[cfg(feature = "async")]
     fn white_balance_atw(&self)
         -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Set auto tracking white balance (Sony FR7 specific).
+    #[cfg(not(feature = "async"))]
+    fn white_balance_atw(&mut self) -> Result<(), Error>;
+
     /// Set manual white balance mode.
+    #[cfg(feature = "async")]
     fn white_balance_manual(
         &self,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Set manual white balance mode.
+    #[cfg(not(feature = "async"))]
+    fn white_balance_manual(&mut self) -> Result<(), Error>;
+
     /// Set color temperature white balance mode.
+    #[cfg(feature = "async")]
     fn white_balance_color_temperature(
         &self,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
-    /// Set AWB sensitivity level (PtzOptics specific).
-    async fn set_awb_sensitivity(
-        &self,
-        sensitivity: AutoWhiteBalanceSensitivity,
-    ) -> Result<(), Error>;
-}
-
-/// White balance operations (blocking).
-pub trait WhiteBalanceControlBlocking: Sized {
-    /// Set white balance mode to any supported mode.
-    fn set_white_balance_mode(&mut self, mode: WhiteBalanceMode) -> Result<(), Error>;
-
-    /// Set auto white balance mode.
-    fn white_balance_auto(&mut self) -> Result<(), Error>;
-
-    /// Set indoor white balance preset (optimized for incandescent/tungsten lighting).
-    fn white_balance_indoor(&mut self) -> Result<(), Error>;
-
-    /// Set outdoor white balance preset (optimized for daylight).
-    fn white_balance_outdoor(&mut self) -> Result<(), Error>;
-
-    /// Set one-push white balance mode (calibrate once based on current scene).
-    fn white_balance_one_push(&mut self) -> Result<(), Error>;
-
-    /// Set auto tracking white balance (Sony FR7 specific).
-    fn white_balance_atw(&mut self) -> Result<(), Error>;
-
-    /// Set manual white balance mode.
-    fn white_balance_manual(&mut self) -> Result<(), Error>;
-
     /// Set color temperature white balance mode.
+    #[cfg(not(feature = "async"))]
     fn white_balance_color_temperature(&mut self) -> Result<(), Error>;
 
     /// Set AWB sensitivity level (PtzOptics specific).
+    #[cfg(feature = "async")]
+    fn set_awb_sensitivity(
+        &self,
+        sensitivity: AutoWhiteBalanceSensitivity,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
+
+    /// Set AWB sensitivity level (PtzOptics specific).
+    #[cfg(not(feature = "async"))]
     fn set_awb_sensitivity(
         &mut self,
         sensitivity: AutoWhiteBalanceSensitivity,
     ) -> Result<(), Error>;
 }
+
+// Keep the old trait names for backward compatibility during transition
+#[cfg(feature = "async")]
+/// Async white balance control trait (deprecated, use WhiteBalanceControl instead).
+pub trait WhiteBalanceControlAsync: WhiteBalanceControl {}
+
+#[cfg(not(feature = "async"))]
+/// Blocking white balance control trait (deprecated, use WhiteBalanceControl instead).
+pub trait WhiteBalanceControlBlocking: WhiteBalanceControl {}
 
 // Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
@@ -145,12 +172,12 @@ where
     }
 }
 
-// Blocking implementation for Camera with BlockingMode
+// Blocking implementation for BlockingCamera
 #[cfg(not(feature = "async"))]
-impl<P, T> WhiteBalanceControlBlocking for crate::camera::BlockingCamera<P, T>
+impl<P, Tr> WhiteBalanceControl for crate::camera::BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile + Default,
-    T: crate::transport::BlockingTransport + Send + 'static,
+    Tr: crate::transport::BlockingTransport + Send + 'static,
 {
     fn set_white_balance_mode(&mut self, mode: WhiteBalanceMode) -> Result<(), Error> {
         use crate::command::white_balance::WhiteBalanceCommand;
@@ -198,4 +225,22 @@ where
         self.send_command(&cmd)?;
         Ok(())
     }
+}
+
+// Backward compatibility implementations
+#[cfg(feature = "async")]
+impl<P, Tr, Exec> WhiteBalanceControlAsync for crate::camera::AsyncCamera<P, Tr, Exec>
+where
+    P: crate::capabilities::Profile + Default,
+    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
+    Exec: crate::executor::Executor,
+{
+}
+
+#[cfg(not(feature = "async"))]
+impl<P, Tr> WhiteBalanceControlBlocking for crate::camera::BlockingCamera<P, Tr>
+where
+    P: crate::capabilities::Profile + Default,
+    Tr: crate::transport::BlockingTransport + Send + 'static,
+{
 }

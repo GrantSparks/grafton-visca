@@ -6,7 +6,7 @@
 #![cfg(feature = "rt-tokio")]
 
 use grafton_visca::{
-    camera::{AsyncMode, Camera},
+    camera::AsyncCamera,
     command::{
         exposure::ExposureMode, focus::FocusMode, preset::PresetNumber,
         white_balance::WhiteBalanceMode,
@@ -24,7 +24,7 @@ async fn test_power_inquiry_integration() {
 
     let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera = Camera::<AsyncMode, GenericVisca, _, _>::with_executor(simulator, executor)
+    let camera = AsyncCamera::<GenericVisca, _, _>::with_executor(simulator, executor)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -44,7 +44,7 @@ async fn test_position_inquiries_integration() {
 
     let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera = Camera::<AsyncMode, GenericVisca, _, _>::with_executor(simulator, executor)
+    let camera = AsyncCamera::<GenericVisca, _, _>::with_executor(simulator, executor)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -103,7 +103,7 @@ async fn test_exposure_inquiries_integration() {
 
     let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera = Camera::<AsyncMode, GenericVisca, _, _>::with_executor(simulator, executor)
+    let camera = AsyncCamera::<GenericVisca, _, _>::with_executor(simulator, executor)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -179,7 +179,7 @@ async fn test_white_balance_color_inquiries_integration() {
 
     let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera = Camera::<AsyncMode, GenericVisca, _, _>::with_executor(simulator, executor)
+    let camera = AsyncCamera::<GenericVisca, _, _>::with_executor(simulator, executor)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -210,7 +210,7 @@ async fn test_image_adjustment_inquiries_integration() {
 
     let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera = Camera::<AsyncMode, GenericVisca, _, _>::with_executor(simulator, executor)
+    let camera = AsyncCamera::<GenericVisca, _, _>::with_executor(simulator, executor)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -259,7 +259,7 @@ async fn test_noise_reduction_inquiries_integration() {
 
     let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera = Camera::<AsyncMode, GenericVisca, _, _>::with_executor(simulator, executor)
+    let camera = AsyncCamera::<GenericVisca, _, _>::with_executor(simulator, executor)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -286,7 +286,7 @@ async fn test_focus_mode_inquiries_integration() {
 
     let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera = Camera::<AsyncMode, GenericVisca, _, _>::with_executor(simulator, executor)
+    let camera = AsyncCamera::<GenericVisca, _, _>::with_executor(simulator, executor)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -316,7 +316,7 @@ async fn test_resolution_inquiry_integration() {
 
     let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera = Camera::<AsyncMode, GenericVisca, _, _>::with_executor(simulator, executor)
+    let camera = AsyncCamera::<GenericVisca, _, _>::with_executor(simulator, executor)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -343,7 +343,7 @@ async fn test_concurrent_inquiries_integration() {
 
     let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera = Camera::<AsyncMode, GenericVisca, _, _>::with_executor(simulator, executor)
+    let camera = AsyncCamera::<GenericVisca, _, _>::with_executor(simulator, executor)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -377,7 +377,7 @@ async fn test_sequential_inquiries() {
 
     let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera = Camera::<AsyncMode, GenericVisca, _, _>::with_executor(simulator, executor)
+    let camera = AsyncCamera::<GenericVisca, _, _>::with_executor(simulator, executor)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -410,7 +410,7 @@ async fn test_inquiry_timeout_behavior() {
         .build();
 
     let executor = grafton_visca::TokioExecutor::from_current().unwrap();
-    let camera = Camera::<AsyncMode, GenericVisca, _, _>::with_executor(simulator, executor)
+    let camera = AsyncCamera::<GenericVisca, _, _>::with_executor(simulator, executor)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use

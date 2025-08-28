@@ -1,40 +1,55 @@
-//! System control methods for cameras using the new GAT architecture.
+//! System control methods for cameras.
 
 use crate::{command::system::Socket, Error};
 
-/// System operations (async).
-#[cfg(feature = "async")]
-pub trait SystemControl: Send + Sync + 'static + Sized {
+/// System operations for cameras.
+///
+/// This trait provides system control methods that work for both blocking and async cameras.
+/// The implementation differs based on the camera type - async cameras return futures,
+/// while blocking cameras perform operations synchronously.
+pub trait SystemControl {
     /// Trigger automatic address assignment (broadcast command for serial bus).
     /// Note: This doesn't set a specific address but triggers the auto-addressing process.
+    #[cfg(feature = "async")]
     fn trigger_address_assignment(
         &self,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Trigger automatic address assignment (broadcast command for serial bus).
+    /// Note: This doesn't set a specific address but triggers the auto-addressing process.
+    #[cfg(not(feature = "async"))]
+    fn trigger_address_assignment(&mut self) -> Result<(), Error>;
+
     /// Clear interface (reset communication).
+    #[cfg(feature = "async")]
     fn interface_clear(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Clear interface (reset communication).
+    #[cfg(not(feature = "async"))]
+    fn interface_clear(&mut self) -> Result<(), Error>;
+
     /// Cancel command on specific socket.
+    #[cfg(feature = "async")]
     fn cancel_command(
         &self,
         socket: Socket,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
-}
-
-/// System operations (blocking).
-pub trait SystemControlBlocking: Sized {
-    /// Trigger automatic address assignment (broadcast command for serial bus).
-    /// Note: This doesn't set a specific address but triggers the auto-addressing process.
-    fn trigger_address_assignment(&mut self) -> Result<(), Error>;
-
-    /// Clear interface (reset communication).
-    fn interface_clear(&mut self) -> Result<(), Error>;
 
     /// Cancel command on specific socket.
+    #[cfg(not(feature = "async"))]
     fn cancel_command(&mut self, socket: Socket) -> Result<(), Error>;
 }
 
-// Async implementation for Camera with AsyncMode
+// Keep the old trait names for backward compatibility during transition
+#[cfg(feature = "async")]
+/// Async system control trait (deprecated, use SystemControl instead).
+pub trait SystemControlAsync: SystemControl {}
+
+#[cfg(not(feature = "async"))]
+/// Blocking system control trait (deprecated, use SystemControl instead).
+pub trait SystemControlBlocking: SystemControl {}
+
+// Async implementation for AsyncCamera
 #[cfg(feature = "async")]
 impl<P, Tr, Exec> SystemControl for crate::camera::AsyncCamera<P, Tr, Exec>
 where
@@ -67,12 +82,12 @@ where
     }
 }
 
-// Blocking implementation for Camera with BlockingMode
+// Blocking implementation for BlockingCamera
 #[cfg(not(feature = "async"))]
-impl<P, T> SystemControlBlocking for crate::camera::BlockingCamera<P, T>
+impl<P, Tr> SystemControl for crate::camera::BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile + Default,
-    T: crate::transport::BlockingTransport + Send + 'static,
+    Tr: crate::transport::BlockingTransport + Send + 'static,
 {
     fn trigger_address_assignment(&mut self) -> Result<(), Error> {
         use crate::command::system::AddressSetCommand;
@@ -97,4 +112,22 @@ where
         self.send_command(&cmd)?;
         Ok(())
     }
+}
+
+// Backward compatibility implementations
+#[cfg(feature = "async")]
+impl<P, Tr, Exec> SystemControlAsync for crate::camera::AsyncCamera<P, Tr, Exec>
+where
+    P: crate::capabilities::Profile + Default,
+    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
+    Exec: crate::executor::Executor,
+{
+}
+
+#[cfg(not(feature = "async"))]
+impl<P, Tr> SystemControlBlocking for crate::camera::BlockingCamera<P, Tr>
+where
+    P: crate::capabilities::Profile + Default,
+    Tr: crate::transport::BlockingTransport + Send + 'static,
+{
 }

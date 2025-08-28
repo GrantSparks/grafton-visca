@@ -1,40 +1,55 @@
-//! Preset methods for cameras using the new GAT architecture.
+//! Preset methods for cameras.
 
 use crate::{command::preset::PresetNumber, Error};
 
-/// Presets operations (async).
-#[cfg(feature = "async")]
-pub trait PresetsControl: Send + Sync + 'static + Sized {
+/// Presets operations for cameras.
+///
+/// This trait provides preset control methods that work for both blocking and async cameras.
+/// The implementation differs based on the camera type - async cameras return futures,
+/// while blocking cameras perform operations synchronously.
+pub trait PresetsControl {
     /// Recall a preset position.
+    #[cfg(feature = "async")]
     fn preset_recall(
         &self,
         preset: PresetNumber,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Recall a preset position.
+    #[cfg(not(feature = "async"))]
+    fn preset_recall(&mut self, preset: PresetNumber) -> Result<(), Error>;
+
     /// Set current position as a preset.
+    #[cfg(feature = "async")]
     fn preset_set(
         &self,
         preset: PresetNumber,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Set current position as a preset.
+    #[cfg(not(feature = "async"))]
+    fn preset_set(&mut self, preset: PresetNumber) -> Result<(), Error>;
+
     /// Reset/clear a preset.
+    #[cfg(feature = "async")]
     fn preset_reset(
         &self,
         preset: PresetNumber,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
-}
-
-/// Presets operations (blocking).
-pub trait PresetsControlBlocking: Sized {
-    /// Recall a preset position.
-    fn preset_recall(&mut self, preset: PresetNumber) -> Result<(), Error>;
-
-    /// Set current position as a preset.
-    fn preset_set(&mut self, preset: PresetNumber) -> Result<(), Error>;
 
     /// Reset/clear a preset.
+    #[cfg(not(feature = "async"))]
     fn preset_reset(&mut self, preset: PresetNumber) -> Result<(), Error>;
 }
+
+// Keep the old trait names for backward compatibility during transition
+#[cfg(feature = "async")]
+/// Async presets control trait (deprecated, use PresetsControl instead).
+pub trait PresetsControlAsync: PresetsControl {}
+
+#[cfg(not(feature = "async"))]
+/// Blocking presets control trait (deprecated, use PresetsControl instead).
+pub trait PresetsControlBlocking: PresetsControl {}
 
 // Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
@@ -78,12 +93,12 @@ where
     }
 }
 
-// Blocking implementation for Camera with BlockingMode
+// Blocking implementation for BlockingCamera
 #[cfg(not(feature = "async"))]
-impl<P, T> PresetsControlBlocking for crate::camera::BlockingCamera<P, T>
+impl<P, Tr> PresetsControl for crate::camera::BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile + Default,
-    T: crate::transport::BlockingTransport + Send + 'static,
+    Tr: crate::transport::BlockingTransport + Send + 'static,
 {
     fn preset_recall(&mut self, preset: PresetNumber) -> Result<(), Error> {
         use crate::command::preset::{PresetAction, PresetCommand};
@@ -117,4 +132,22 @@ where
         self.send_command(&cmd)?;
         Ok(())
     }
+}
+
+// Backward compatibility implementations
+#[cfg(feature = "async")]
+impl<P, Tr, Exec> PresetsControlAsync for crate::camera::AsyncCamera<P, Tr, Exec>
+where
+    P: crate::capabilities::Profile + Default,
+    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
+    Exec: crate::executor::Executor,
+{
+}
+
+#[cfg(not(feature = "async"))]
+impl<P, Tr> PresetsControlBlocking for crate::camera::BlockingCamera<P, Tr>
+where
+    P: crate::capabilities::Profile + Default,
+    Tr: crate::transport::BlockingTransport + Send + 'static,
+{
 }

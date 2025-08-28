@@ -571,24 +571,23 @@ pub use crate::camera::BlockingCamera;
 #[cfg(feature = "async")]
 pub use crate::camera::AsyncCamera;
 
-// Blocking-only method traits
-#[cfg(not(feature = "async"))]
+// Export unified camera control traits that work with both blocking and async cameras
 pub use crate::camera::methods::{
-    focus::FocusControlBlocking,
-    inquiry::{InquiryControlBlocking, PanTiltInquiryControlBlocking},
-    pan_tilt::PanTiltControlBlocking,
-    power::PowerControlBlocking,
-    presets::PresetsControlBlocking,
-    zoom::ZoomControlBlocking,
-};
-
-#[cfg(feature = "async")]
-pub use crate::camera::methods::{
+    color::ColorControl,
+    exposure::ExposureControl,
     focus::FocusControl,
+    image_processing::ImageProcessingControl,
     inquiry::{InquiryControl, PanTiltInquiryControl},
+    menu::{DirectMenuControl, MenuControl},
+    nd_filter::NdFilterControl,
     pan_tilt::PanTiltControl,
     power::PowerControl,
     presets::PresetsControl,
+    streaming::StreamingControl,
+    system::SystemControl,
+    tally::TallyControl,
+    variable_speed::VariableSpeedControl,
+    white_balance::WhiteBalanceControl,
     zoom::ZoomControl,
 };
 #[cfg(all(feature = "async", feature = "rt-async-std"))]

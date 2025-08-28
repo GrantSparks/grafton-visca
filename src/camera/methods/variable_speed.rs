@@ -8,9 +8,12 @@ use crate::{
     error::Error,
 };
 
-/// Async methods for variable speed mode control.
-#[cfg(feature = "async")]
-pub trait VariableSpeedControl: Send + Sync + 'static {
+/// Variable speed mode control for cameras.
+///
+/// This trait provides variable speed control methods that work for both blocking and async cameras.
+/// The implementation differs based on the camera type - async cameras return futures,
+/// while blocking cameras perform operations synchronously.
+pub trait VariableSpeedControl {
     /// Set the variable speed mode (24-step or 50-step).
     ///
     /// Only available on Sony FR7.
@@ -20,10 +23,23 @@ pub trait VariableSpeedControl: Send + Sync + 'static {
     ///
     /// # Returns
     /// Result indicating success or error
+    #[cfg(feature = "async")]
     fn set_variable_speed_mode(
         &self,
         mode: VariableSpeedMode,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
+
+    /// Set the variable speed mode (24-step or 50-step).
+    ///
+    /// Only available on Sony FR7.
+    ///
+    /// # Arguments
+    /// * `mode` - The speed mode to set
+    ///
+    /// # Returns
+    /// Result indicating success or error
+    #[cfg(not(feature = "async"))]
+    fn set_variable_speed_mode(&mut self, mode: VariableSpeedMode) -> Result<(), Error>;
 }
 
 // Async implementation for Camera with AsyncMode
@@ -48,29 +64,24 @@ where
     }
 }
 
-/// Blocking methods for variable speed mode control.
-pub trait VariableSpeedControlBlocking {
-    /// Set the variable speed mode (24-step or 50-step).
-    ///
-    /// Only available on Sony FR7.
-    ///
-    /// # Arguments
-    /// * `mode` - The speed mode to set
-    ///
-    /// # Returns
-    /// Result indicating success or error
-    fn set_variable_speed_mode(&mut self, mode: VariableSpeedMode) -> Result<(), Error>;
-}
+// Keep the old trait names for backward compatibility during transition
+#[cfg(feature = "async")]
+/// Async variable speed control trait (deprecated, use VariableSpeedControl instead).
+pub trait VariableSpeedControlAsync: VariableSpeedControl {}
 
-// Blocking implementation for Camera with BlockingMode
 #[cfg(not(feature = "async"))]
-impl<P, T> VariableSpeedControlBlocking for crate::camera::BlockingCamera<P, T>
+/// Blocking variable speed control trait (deprecated, use VariableSpeedControl instead).
+pub trait VariableSpeedControlBlocking: VariableSpeedControl {}
+
+// Blocking implementation for BlockingCamera
+#[cfg(not(feature = "async"))]
+impl<P, Tr> VariableSpeedControl for crate::camera::BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile
         + crate::capabilities::VariableSpeed
         + crate::capabilities::HasVariableSpeed
         + Default,
-    T: crate::transport::BlockingTransport + Send + 'static,
+    Tr: crate::transport::BlockingTransport + Send + 'static,
 {
     fn set_variable_speed_mode(&mut self, mode: VariableSpeedMode) -> Result<(), Error> {
         // No runtime check needed - compile-time guarantee via HasVariableSpeed marker trait
@@ -81,6 +92,30 @@ where
             _ => Err(Error::UnexpectedResponseType),
         }
     }
+}
+
+// Backward compatibility implementations
+#[cfg(feature = "async")]
+impl<P, Tr, Exec> VariableSpeedControlAsync for crate::camera::AsyncCamera<P, Tr, Exec>
+where
+    P: crate::capabilities::Profile
+        + crate::capabilities::VariableSpeed
+        + crate::capabilities::HasVariableSpeed
+        + Default,
+    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
+    Exec: crate::executor::Executor,
+{
+}
+
+#[cfg(not(feature = "async"))]
+impl<P, Tr> VariableSpeedControlBlocking for crate::camera::BlockingCamera<P, Tr>
+where
+    P: crate::capabilities::Profile
+        + crate::capabilities::VariableSpeed
+        + crate::capabilities::HasVariableSpeed
+        + Default,
+    Tr: crate::transport::BlockingTransport + Send + 'static,
+{
 }
 
 #[cfg(test)]
