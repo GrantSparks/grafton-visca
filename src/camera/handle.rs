@@ -356,7 +356,7 @@ where
         // Send pre-framed bytes to runtime
         if is_inquiry {
             self.runtime_handle
-                .send_inquiry_framed(&framed_bytes, self.camera_id, None)
+                .send_inquiry_framed(&framed_bytes, self.camera_id, command.response_type())
                 .await
         } else {
             let category = C::TIMEOUT_CATEGORY;
