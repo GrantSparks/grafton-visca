@@ -337,7 +337,7 @@ where
                 Arc::clone(runtime_handle),
                 Arc::clone(executor),
                 envelope.clone(),
-                envelope_buffer_manager.clone(),
+                *envelope_buffer_manager,
             ),
             #[allow(unreachable_patterns)]
             _ => unreachable!("attempted to clone blocking camera as async"),
