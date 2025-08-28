@@ -19,7 +19,14 @@ pub mod movement_detection;
 pub mod movement_probe;
 pub mod profiles;
 
-// Re-export the new executor-based Camera as the primary Camera type
+// Re-export the new concrete camera types
+#[cfg(not(feature = "async"))]
+pub use handle::BlockingCamera;
+
+#[cfg(feature = "async")]
+pub use handle::AsyncCamera;
+
+// Re-export the generic Camera type alias for compatibility
 pub use handle::Camera;
 
 // Re-export mode markers and type aliases

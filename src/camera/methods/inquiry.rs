@@ -491,11 +491,11 @@ pub trait InquiryControlBlocking: Sized {
 
 // Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P, T, E> InquiryControl for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
+impl<P, Tr, Exec> InquiryControl for crate::camera::AsyncCamera<P, Tr, Exec>
 where
-    P: crate::capabilities::Profile,
-    T: crate::transport::AsyncTransport + Send + Sync + 'static,
-    E: crate::executor::Executor,
+    P: crate::capabilities::Profile + Default,
+    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
+    Exec: crate::executor::Executor,
 {
     async fn get_power_state(&self) -> Result<bool, Error> {
         let cmd = PowerInquiry;
@@ -1176,7 +1176,7 @@ where
 
 // Blocking implementation
 #[cfg(not(feature = "async"))]
-impl<P, T> InquiryControlBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
+impl<P, T> InquiryControlBlocking for crate::camera::BlockingCamera<P, T>
 where
     P: crate::capabilities::Profile + Default,
     T: crate::transport::BlockingTransport,
@@ -1875,11 +1875,11 @@ pub trait PanTiltInquiryControlBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P, T, E> PanTiltInquiryControl for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
+impl<P, Tr, Exec> PanTiltInquiryControl for crate::camera::AsyncCamera<P, Tr, Exec>
 where
-    P: crate::capabilities::Profile,
-    T: crate::transport::AsyncTransport + Send + Sync + 'static,
-    E: crate::executor::Executor,
+    P: crate::capabilities::Profile + Default,
+    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
+    Exec: crate::executor::Executor,
 {
     async fn get_pan_tilt_position(&self) -> Result<(i16, i16), Error> {
         let cmd = PanTiltPositionInquiry;
@@ -1896,8 +1896,7 @@ where
 
 // Blocking implementation
 #[cfg(not(feature = "async"))]
-impl<P, T> PanTiltInquiryControlBlocking
-    for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
+impl<P, T> PanTiltInquiryControlBlocking for crate::camera::BlockingCamera<P, T>
 where
     P: crate::capabilities::Profile + Default,
     T: crate::transport::BlockingTransport,

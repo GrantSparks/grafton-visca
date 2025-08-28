@@ -1,23 +1,28 @@
-//! Capability introspection methods for the generic camera.
+//! Capability introspection methods for cameras.
 //!
 //! This module provides read-only methods to inspect camera capabilities at runtime.
 //! These methods are only available when the camera profile implements specific
 //! optional capability traits. The actual control methods for these capabilities
 //! are provided by their respective trait modules in `src/camera/methods/`.
 
-use crate::{
-    camera::handle::Camera,
-    capabilities::{MotionSync, NDFilter, NDFilterMode as CapabilityNDFilterMode, Profile},
-};
+use crate::capabilities::{MotionSync, NDFilter, NDFilterMode as CapabilityNDFilterMode, Profile};
 
-// These methods are available for both async and blocking modes
-impl<M, P, T, E> Camera<M, P, T, E>
+#[cfg(not(feature = "async"))]
+use crate::transport::BlockingTransport;
+
+#[cfg(not(feature = "async"))]
+use crate::camera::handle::BlockingCamera;
+
+#[cfg(feature = "async")]
+use crate::{camera::handle::AsyncCamera, executor::Executor, transport::AsyncTransport};
+
+// Blocking camera capabilities
+#[cfg(not(feature = "async"))]
+impl<P, Tr> BlockingCamera<P, Tr>
 where
     P: Profile + NDFilter,
+    Tr: BlockingTransport,
 {
-    // ND filter setters are provided by NDFilterOps / NDFilterOpsBlocking traits
-    // in src/camera/methods/nd_filter.rs
-
     /// Get the ND filter mode from the camera profile.
     #[must_use]
     pub fn nd_filter_mode(&self) -> CapabilityNDFilterMode {
@@ -31,13 +36,53 @@ where
     }
 }
 
-impl<M, P, T, E> Camera<M, P, T, E>
+#[cfg(not(feature = "async"))]
+impl<P, Tr> BlockingCamera<P, Tr>
 where
     P: Profile + MotionSync,
+    Tr: BlockingTransport,
 {
-    // Motion sync setters are provided by MotionSyncControl / MotionSyncControlBlocking traits
-    // in src/camera/methods/motion_sync.rs
+    /// Check if motion sync is supported.
+    #[must_use]
+    pub fn supports_motion_sync(&self) -> bool {
+        P::SUPPORTS_MOTION_SYNC
+    }
 
+    /// Get the maximum motion sync speed.
+    #[must_use]
+    pub fn max_motion_sync_speed(&self) -> u8 {
+        P::MAX_MOTION_SYNC_SPEED
+    }
+}
+
+// Async camera capabilities
+#[cfg(feature = "async")]
+impl<P, Tr, Exec> AsyncCamera<P, Tr, Exec>
+where
+    P: Profile + NDFilter,
+    Tr: AsyncTransport,
+    Exec: Executor,
+{
+    /// Get the ND filter mode from the camera profile.
+    #[must_use]
+    pub fn nd_filter_mode(&self) -> CapabilityNDFilterMode {
+        P::ND_MODE
+    }
+
+    /// Check if the camera has variable ND filter.
+    #[must_use]
+    pub fn has_variable_nd_filter(&self) -> bool {
+        matches!(P::ND_MODE, CapabilityNDFilterMode::Variable)
+    }
+}
+
+#[cfg(feature = "async")]
+impl<P, Tr, Exec> AsyncCamera<P, Tr, Exec>
+where
+    P: Profile + MotionSync,
+    Tr: AsyncTransport,
+    Exec: Executor,
+{
     /// Check if motion sync is supported.
     #[must_use]
     pub fn supports_motion_sync(&self) -> bool {

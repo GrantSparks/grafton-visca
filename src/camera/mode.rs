@@ -22,7 +22,8 @@ pub enum BlockingMode {}
 /// Type alias for blocking cameras.
 ///
 /// This provides a convenient way to specify blocking cameras without the mode parameter.
-pub type CameraBlocking<P, T> = super::Camera<BlockingMode, P, T>;
+#[cfg(not(feature = "async"))]
+pub type CameraBlocking<P, T> = super::BlockingCamera<P, T>;
 
 /// Sealed trait to prevent external mode implementations.
 mod sealed {

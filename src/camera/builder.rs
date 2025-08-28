@@ -30,17 +30,10 @@
 use std::marker::PhantomData;
 
 #[cfg(not(feature = "async"))]
-use crate::camera::handle::Camera as GenericCamera;
-#[cfg(not(feature = "async"))]
-use crate::camera::BlockingMode;
-#[cfg(not(feature = "async"))]
 use crate::transport::BlockingTransport;
 #[cfg(feature = "async")]
 use crate::{
-    camera::{handle::Camera as GenericCamera, AsyncMode},
-    error::Error,
-    executor::Executor,
-    transport::AsyncTransport,
+    camera::handle::AsyncCamera, error::Error, executor::Executor, transport::AsyncTransport,
 };
 use crate::{camera_id::CameraId, capabilities::Profile, timeout::TimeoutConfig};
 
@@ -120,19 +113,17 @@ where
     /// Build an async camera with the specified profile and transport.
     ///
     /// The executor must have been set via `with_executor()`.
-    pub async fn build_async<P, T>(
-        self,
-        transport: T,
-    ) -> Result<GenericCamera<AsyncMode, P, T, E>, Error>
+    pub async fn build_async<P, T>(self, transport: T) -> Result<AsyncCamera<P, T, E>, Error>
     where
         P: Profile + Default,
-        T: AsyncTransport + 'static,
+        T: AsyncTransport + Send + Sync + 'static,
+        E: Clone,
     {
         let executor = self.executor.ok_or_else(|| {
             Error::InvalidState("Executor not configured for async camera".into())
         })?;
 
-        let mut camera = GenericCamera::with_executor(transport, executor).await?;
+        let mut camera = AsyncCamera::with_executor(transport, executor).await?;
         camera.set_camera_id(self.camera_id);
         camera.set_timeout_config(self.timeout_config);
 
@@ -155,12 +146,12 @@ impl CameraBuilder<()> {
 
     /// Build a blocking camera with the specified profile and transport.
     #[cfg(not(feature = "async"))]
-    pub fn build_blocking<P, T>(self, transport: T) -> GenericCamera<BlockingMode, P, T, ()>
+    pub fn build_blocking<P, T>(self, transport: T) -> crate::camera::handle::BlockingCamera<P, T>
     where
         P: Profile + Default,
         T: BlockingTransport,
     {
-        let mut camera = GenericCamera::<BlockingMode, P, T, ()>::new(transport);
+        let mut camera = crate::camera::handle::BlockingCamera::new(transport);
         camera.set_camera_id(self.camera_id);
         camera.set_timeout_config(self.timeout_config);
 
@@ -217,35 +208,35 @@ impl CameraBuilder<crate::executor::SmolExecutor> {
 /// Type aliases for common camera configurations with executors.
 #[cfg(all(feature = "async", feature = "rt-tokio"))]
 pub mod async_cameras {
-    use crate::camera::{handle::Camera as GenericCamera, AsyncMode};
+    use crate::camera::handle::AsyncCamera;
 
     /// A camera using the Tokio executor.
-    pub type TokioCamera<P, T> = GenericCamera<AsyncMode, P, T, crate::executor::TokioExecutor>;
+    pub type TokioCamera<P, T> = AsyncCamera<P, T, crate::executor::TokioExecutor>;
 }
 
 /// Type aliases for async-std camera configurations.
 #[cfg(all(feature = "async", feature = "rt-async-std"))]
 pub mod async_std_cameras {
-    use crate::camera::{handle::Camera as GenericCamera, AsyncMode};
+    use crate::camera::handle::AsyncCamera;
 
     /// A camera using the async-std executor.
-    pub type AsyncStdCamera<P, T> =
-        GenericCamera<AsyncMode, P, T, crate::executor::AsyncStdExecutor>;
+    pub type AsyncStdCamera<P, T> = AsyncCamera<P, T, crate::executor::AsyncStdExecutor>;
 }
 
 /// Type aliases for smol camera configurations.
 #[cfg(all(feature = "async", feature = "rt-smol"))]
 pub mod smol_cameras {
-    use crate::camera::{handle::Camera as GenericCamera, AsyncMode};
+    use crate::camera::handle::AsyncCamera;
 
     /// A camera using the smol executor.
-    pub type SmolCamera<P, T> = GenericCamera<AsyncMode, P, T, crate::executor::SmolExecutor>;
+    pub type SmolCamera<P, T> = AsyncCamera<P, T, crate::executor::SmolExecutor>;
 }
 
 /// Type aliases for blocking cameras.
+#[cfg(not(feature = "async"))]
 pub mod blocking_cameras {
-    use crate::camera::{handle::Camera as GenericCamera, BlockingMode};
+    use crate::camera::handle::BlockingCamera;
 
     /// A blocking camera (no executor needed).
-    pub type BlockingCamera<P, T> = GenericCamera<BlockingMode, P, T, ()>;
+    pub type Camera<P, T> = BlockingCamera<P, T>;
 }

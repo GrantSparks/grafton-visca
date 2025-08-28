@@ -85,6 +85,20 @@ impl RuntimeHandle {
         Self::with_tick_interval(transport, executor, None).await
     }
 
+    /// Create a new runtime handle with a transport and executor.
+    ///
+    /// This is an alias for `new` to match the expected API used by AsyncCamera.
+    #[cfg(feature = "async")]
+    pub async fn spawn_with_transport<
+        T: AsyncTransport + Send + 'static,
+        E: crate::executor::Executor,
+    >(
+        transport: T,
+        executor: E,
+    ) -> Result<Self> {
+        Self::new(transport, Arc::new(executor)).await
+    }
+
     /// Create a new camera runtime with a custom tick interval.
     ///
     /// The tick interval controls how often the runtime checks for timeouts

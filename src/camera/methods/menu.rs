@@ -64,11 +64,11 @@ pub trait DirectMenuControlBlocking: MenuControlBlocking {
 
 // Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P, T, E> MenuControl for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
+impl<P, Tr, Exec> MenuControl for crate::camera::AsyncCamera<P, Tr, Exec>
 where
-    P: crate::capabilities::Profile + crate::capabilities::MenuControl,
-    T: crate::transport::AsyncTransport + Send + Sync + 'static,
-    E: crate::executor::Executor,
+    P: crate::capabilities::Profile + crate::capabilities::MenuControl + Default,
+    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
+    Exec: crate::executor::Executor,
 {
     async fn set_menu_display(&self, display: bool) -> Result<(), Error> {
         use crate::command::menu::MenuDisplayCommand;
@@ -97,11 +97,11 @@ where
 
 // Async implementation for DirectMenuControlOps
 #[cfg(feature = "async")]
-impl<P, T, E> DirectMenuControl for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
+impl<P, Tr, Exec> DirectMenuControl for crate::camera::AsyncCamera<P, Tr, Exec>
 where
-    P: crate::capabilities::Profile + crate::capabilities::MenuControl,
-    T: crate::transport::AsyncTransport + Send + Sync + 'static,
-    E: crate::executor::Executor,
+    P: crate::capabilities::Profile + crate::capabilities::MenuControl + Default,
+    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
+    Exec: crate::executor::Executor,
 {
     async fn direct_menu_control(&mut self, control1: u8, control2: u8) -> Result<(), Error> {
         use crate::command::menu::DirectMenuControl;
@@ -122,7 +122,7 @@ where
 
 // Blocking implementation for Camera with BlockingMode
 #[cfg(not(feature = "async"))]
-impl<P, T> MenuControlBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
+impl<P, T> MenuControlBlocking for crate::camera::BlockingCamera<P, T>
 where
     P: crate::capabilities::Profile + crate::capabilities::MenuControl + Default,
     T: crate::transport::BlockingTransport + Send + 'static,
@@ -154,8 +154,7 @@ where
 
 // Blocking implementation for DirectMenuControlOpsBlocking
 #[cfg(not(feature = "async"))]
-impl<P, T> DirectMenuControlBlocking
-    for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
+impl<P, T> DirectMenuControlBlocking for crate::camera::BlockingCamera<P, T>
 where
     P: crate::capabilities::Profile + crate::capabilities::MenuControl + Default,
     T: crate::transport::BlockingTransport + Send + 'static,

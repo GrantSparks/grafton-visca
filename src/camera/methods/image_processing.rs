@@ -193,11 +193,11 @@ pub trait ImageProcessingControlBlocking: Sized {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P, T, E> ImageProcessingControl for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
+impl<P, Tr, Exec> ImageProcessingControl for crate::camera::AsyncCamera<P, Tr, Exec>
 where
-    P: crate::capabilities::Profile,
-    T: crate::transport::AsyncTransport + Send + Sync + 'static,
-    E: crate::executor::Executor,
+    P: crate::capabilities::Profile + Default,
+    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
+    Exec: crate::executor::Executor,
 {
     async fn enable_flip(&self) -> Result<(), Error> {
         let cmd = crate::command::flip::ImageFlip::new(crate::command::flip::Flip::On);
@@ -355,8 +355,7 @@ where
 
 // Blocking implementation
 #[cfg(not(feature = "async"))]
-impl<P, T> ImageProcessingControlBlocking
-    for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
+impl<P, T> ImageProcessingControlBlocking for crate::camera::BlockingCamera<P, T>
 where
     P: crate::capabilities::Profile + Default,
     T: crate::transport::BlockingTransport + Send + 'static,

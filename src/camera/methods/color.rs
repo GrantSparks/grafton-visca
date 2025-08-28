@@ -118,13 +118,13 @@ pub trait ColorControlBlocking: Sized {
     fn set_blue_tuning(&mut self, tuning: BlueTuning) -> Result<(), Error>;
 }
 
-// Async implementation for Camera with AsyncMode
+// Async implementation for AsyncCamera
 #[cfg(feature = "async")]
-impl<P, T, E> ColorControl for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
+impl<P, Tr, Exec> ColorControl for crate::camera::AsyncCamera<P, Tr, Exec>
 where
-    P: crate::capabilities::Profile,
-    T: crate::transport::AsyncTransport + Send + Sync + 'static,
-    E: crate::executor::Executor,
+    P: crate::capabilities::Profile + Default,
+    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
+    Exec: crate::executor::Executor,
 {
     async fn one_push_trigger(&self) -> Result<(), Error> {
         self.send_command(&OnePushTriggerCommand).await?;
@@ -198,7 +198,7 @@ where
 
 // Blocking implementation for Camera with BlockingMode
 #[cfg(not(feature = "async"))]
-impl<P, T> ColorControlBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
+impl<P, T> ColorControlBlocking for crate::camera::BlockingCamera<P, T>
 where
     P: crate::capabilities::Profile + Default,
     T: crate::transport::BlockingTransport + Send + 'static,

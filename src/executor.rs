@@ -618,3 +618,17 @@ mod smol_impl {
 
 #[cfg(feature = "rt-smol")]
 pub use smol_impl::SmolExecutor;
+
+// Default executor type alias based on enabled runtime features
+#[cfg(feature = "rt-tokio")]
+pub type DefaultExecutor = TokioExecutor;
+
+#[cfg(all(feature = "rt-async-std", not(feature = "rt-tokio")))]
+pub type DefaultExecutor = AsyncStdExecutor;
+
+#[cfg(all(
+    feature = "rt-smol",
+    not(feature = "rt-tokio"),
+    not(feature = "rt-async-std")
+))]
+pub type DefaultExecutor = SmolExecutor;

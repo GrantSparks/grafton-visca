@@ -36,11 +36,11 @@ pub trait SystemControlBlocking: Sized {
 
 // Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P, T, E> SystemControl for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
+impl<P, Tr, Exec> SystemControl for crate::camera::AsyncCamera<P, Tr, Exec>
 where
-    P: crate::capabilities::Profile,
-    T: crate::transport::AsyncTransport + Send + Sync + 'static,
-    E: crate::executor::Executor,
+    P: crate::capabilities::Profile + Default,
+    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
+    Exec: crate::executor::Executor,
 {
     async fn trigger_address_assignment(&self) -> Result<(), Error> {
         use crate::command::system::AddressSetCommand;
@@ -69,7 +69,7 @@ where
 
 // Blocking implementation for Camera with BlockingMode
 #[cfg(not(feature = "async"))]
-impl<P, T> SystemControlBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
+impl<P, T> SystemControlBlocking for crate::camera::BlockingCamera<P, T>
 where
     P: crate::capabilities::Profile + Default,
     T: crate::transport::BlockingTransport + Send + 'static,

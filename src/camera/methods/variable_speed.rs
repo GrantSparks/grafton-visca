@@ -28,13 +28,14 @@ pub trait VariableSpeedControl: Send + Sync + 'static {
 
 // Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P, T, E> VariableSpeedControl for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
+impl<P, Tr, Exec> VariableSpeedControl for crate::camera::AsyncCamera<P, Tr, Exec>
 where
     P: crate::capabilities::Profile
         + crate::capabilities::VariableSpeed
-        + crate::capabilities::HasVariableSpeed,
-    T: crate::transport::AsyncTransport + Send + Sync + 'static,
-    E: crate::executor::Executor,
+        + crate::capabilities::HasVariableSpeed
+        + Default,
+    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
+    Exec: crate::executor::Executor,
 {
     async fn set_variable_speed_mode(&self, mode: VariableSpeedMode) -> Result<(), Error> {
         // No runtime check needed - compile-time guarantee via HasVariableSpeed marker trait
@@ -63,8 +64,7 @@ pub trait VariableSpeedControlBlocking {
 
 // Blocking implementation for Camera with BlockingMode
 #[cfg(not(feature = "async"))]
-impl<P, T> VariableSpeedControlBlocking
-    for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
+impl<P, T> VariableSpeedControlBlocking for crate::camera::BlockingCamera<P, T>
 where
     P: crate::capabilities::Profile
         + crate::capabilities::VariableSpeed

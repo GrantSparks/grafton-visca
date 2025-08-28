@@ -564,6 +564,13 @@ pub use crate::command::{
 pub use crate::error::{Error, Result};
 pub use crate::{camera::Camera, camera::CameraBuilder, camera_id::CameraId};
 
+// Re-export the new concrete camera types
+#[cfg(not(feature = "async"))]
+pub use crate::camera::BlockingCamera;
+
+#[cfg(feature = "async")]
+pub use crate::camera::AsyncCamera;
+
 // Blocking-only method traits
 #[cfg(not(feature = "async"))]
 pub use crate::camera::methods::{
