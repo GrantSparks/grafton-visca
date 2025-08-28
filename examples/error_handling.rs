@@ -12,33 +12,33 @@ use std::time::Instant;
 
 #[cfg(feature = "rt-tokio")]
 use grafton_visca::{
-    camera::{
-        methods::{
-            pan_tilt::PanTiltControl, power::PowerControl, presets::PresetsControl,
-            zoom::ZoomControl,
-        },
-        profiles::G2PresetId,
-        AsyncMode, Camera,
-    },
-    prelude::r#async::*,
+    camera::profiles::{G2PresetId, PtzOpticsG2},
     transport::Transport,
     types::{PanSpeed, TiltSpeed},
-    PanTiltDirection, PresetNumber, TokioExecutor,
+    CameraBuilder,
+    // Import unified traits that work for both blocking and async
+    PanTiltControl,
+    PanTiltDirection,
+    PowerControl,
+    PresetNumber,
+    PresetsControl,
+    ZoomControl,
 };
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{
-        methods::{
-            pan_tilt::PanTiltControlBlocking, power::PowerControlBlocking,
-            presets::PresetsControlBlocking, zoom::ZoomControlBlocking,
-        },
-        profiles::G2PresetId,
-        BlockingMode, Camera,
+        profiles::{G2PresetId, PtzOpticsG2},
+        Camera,
     },
-    prelude::blocking::*,
-    transport::Transport,
+    transport::builder::TransportBuilder,
     types::{PanSpeed, TiltSpeed},
-    PanTiltDirection, PresetNumber,
+    // Same unified traits work for blocking mode
+    PanTiltControl,
+    PanTiltDirection,
+    PowerControl,
+    PresetNumber,
+    PresetsControl,
+    ZoomControl,
 };
 
 #[cfg(all(feature = "async", not(feature = "rt-tokio")))]
@@ -200,7 +200,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         }
     };
 
-    let camera: Camera<BlockingMode, GenericVisca, _, ()> = Camera::new(transport);
+    let mut camera = Camera::<PtzOpticsG2, _>::new(transport);
 
     // Demonstrate retry pattern
     println!("\n3. Retry Pattern Implementation:");
@@ -357,9 +357,9 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         }
     };
 
-    let executor = TokioExecutor::from_current().expect("Failed to get current runtime");
-    let camera: Camera<AsyncMode, PtzOpticsG2, _, _> =
-        Camera::with_executor(transport, executor).await?;
+    let camera = CameraBuilder::tokio()?
+        .build_async::<PtzOpticsG2, _>(transport)
+        .await?;
 
     // Demonstrate retry pattern
     println!("\n3. Retry Pattern Implementation:");

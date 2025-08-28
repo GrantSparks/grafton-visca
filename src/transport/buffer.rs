@@ -3,24 +3,7 @@
 //! This module provides unified buffer management across all transport implementations,
 //! ensuring consistent buffer sizes and allocation strategies.
 
-#[cfg(any(
-    not(feature = "async"),           // Blocking mode
-    all(feature = "async", any(       // Async mode WITH a runtime
-        feature = "rt-tokio",
-        feature = "rt-async-std", 
-        feature = "rt-smol"
-    ))
-))]
-use bytes::Bytes;
-#[cfg(any(
-    not(feature = "async"),           // Blocking mode
-    all(feature = "async", any(       // Async mode WITH a runtime (needs BytesMut for headers)
-        feature = "rt-tokio",
-        feature = "rt-async-std",
-        feature = "rt-smol"
-    ))
-))]
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 
 /// Default buffer size for most VISCA operations.
 /// VISCA commands are typically small (< 20 bytes) and responses rarely exceed 64 bytes.
@@ -106,31 +89,14 @@ impl BufferConfig {
 }
 
 /// Manager for buffer allocation and lifecycle.
-/// Only available when transports are compiled (blocking or async with runtime).
-#[cfg(any(
-    not(feature = "async"),           // Blocking mode
-    all(feature = "async", any(       // Async mode WITH a runtime
-        feature = "rt-tokio",
-        feature = "rt-async-std", 
-        feature = "rt-smol"
-    ))
-))]
+/// Available for all transport configurations.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct BufferManager {
     config: BufferConfig,
 }
 
-#[cfg(any(
-    not(feature = "async"),           // Blocking mode
-    all(feature = "async", any(       // Async mode WITH a runtime
-        feature = "rt-tokio",
-        feature = "rt-async-std", 
-        feature = "rt-smol"
-    ))
-))]
 impl BufferManager {
     /// Create a new buffer manager with the given configuration.
-    /// Available when transports are compiled (blocking or async with runtime).
     pub fn new(config: BufferConfig) -> Self {
         Self { config }
     }
@@ -138,6 +104,7 @@ impl BufferManager {
     /// Create a new buffer manager with default configuration.
     /// Only available in tests to simplify test setup.
     #[cfg(test)]
+    #[allow(dead_code)]
     pub fn with_defaults() -> Self {
         Self::new(BufferConfig::default())
     }
@@ -150,16 +117,8 @@ impl BufferManager {
     }
 
     /// Allocate a new send buffer.
-    /// Available for blocking transports and async runtime transports that need BytesMut.
+    /// Available for all transport configurations that need BytesMut.
     /// Some transports don't need send buffers (they send data directly).
-    #[cfg(any(
-        not(feature = "async"),           // Blocking mode
-        all(feature = "async", any(       // Async mode WITH a runtime (needs BytesMut for headers)
-            feature = "rt-tokio",
-            feature = "rt-async-std",
-            feature = "rt-smol"
-        ))
-    ))]
     #[allow(dead_code)] // Only used by transports that construct packets with headers
     pub fn alloc_send_buffer(&self) -> BytesMut {
         BytesMut::with_capacity(self.config.send_buffer_size)
@@ -167,6 +126,7 @@ impl BufferManager {
 
     /// Allocate a vector buffer for simple operations.
     /// Available for both blocking transports and async runtime transports.
+    #[allow(dead_code)]
     pub fn alloc_vec_buffer(&self) -> Vec<u8> {
         vec![0u8; self.config.recv_buffer_size]
     }
@@ -194,6 +154,7 @@ impl BufferManager {
 
     /// Process received data, handling buffer growth.
     /// Available for both blocking transports and async runtime transports.
+    #[allow(dead_code)]
     pub fn process_recv_data(&self, buffer: &mut Vec<u8>, received: usize) -> Bytes {
         buffer.truncate(received);
         Bytes::from(buffer.clone())

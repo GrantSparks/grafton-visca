@@ -9,12 +9,12 @@ A production-ready, pure Rust implementation of the VISCA protocol for controlli
 
 ## Features
 
+- **Unified API Architecture** - Single consistent interface for both blocking and async modes
 - **Type-safe camera profiles** - Compile-time validation of camera capabilities
-- **Clean API separation** - Choose blocking OR async at compile time
 - **Native blocking API** - Zero async dependencies when using blocking mode
-- **Runtime-agnostic async** - Works with any async runtime or custom executor
+- **Multi-runtime async support** - Works with Tokio, async-std, smol (supports coexistence)
 - **Protocol-compliant** - Full VISCA protocol implementation with proper ACK/completion handling
-- **Comprehensive command coverage** - 100+ VISCA commands implemented
+- **Comprehensive command coverage** - 130+ VISCA commands across 17 unified traits
 - **Intelligent timeout management** - Automatic command categorization and deadline handling
 - **Production-tested** - Used in professional broadcast and streaming environments
 - **Zero-cost abstractions** - Type safety without runtime overhead
@@ -26,21 +26,21 @@ A production-ready, pure Rust implementation of the VISCA protocol for controlli
 ```rust
 use grafton_visca::{
     Camera,
-    camera::{BlockingMode, profiles::PtzOpticsG2},
-    transport::blocking::tcp::Tcp,
+    camera::profiles::PtzOpticsG2,
+    transport::builder::TransportBuilder,
+    // Import unified traits that work for both blocking and async
+    ZoomControl,
+    PanTiltControl,
 };
 
 fn main() -> grafton_visca::Result<()> {
     // Connect to camera
-    let transport = Tcp::connect("192.168.0.110:5678")?;
-    let camera = Camera::<BlockingMode, PtzOpticsG2, _, _>::new(transport);
+    let transport = TransportBuilder::tcp()
+        .address("192.168.0.110:5678")
+        .build()?;
+    let mut camera = Camera::<PtzOpticsG2, _>::new(transport);
     
-    // Control the camera
-    use grafton_visca::camera::methods::{
-        zoom::ZoomControlBlocking,
-        pan_tilt::PanTiltControlBlocking,
-    };
-    
+    // Control the camera with unified API
     camera.pan_tilt_home()?;
     camera.zoom_tele_std()?;
     
@@ -55,6 +55,9 @@ use grafton_visca::{
     CameraBuilder,
     camera::profiles::PtzOpticsG2,
     transport::Transport,
+    // Same unified traits work for both blocking and async
+    ZoomControl,
+    PanTiltControl,
 };
 
 #[tokio::main]
@@ -68,12 +71,7 @@ async fn main() -> grafton_visca::Result<()> {
         .build_async::<PtzOpticsG2, _>(transport)
         .await?;
     
-    // Control the camera
-    use grafton_visca::camera::methods::{
-        zoom::ZoomControl,
-        pan_tilt::PanTiltControl,
-    };
-    
+    // Same unified API, just add .await
     camera.pan_tilt_home().await?;
     camera.zoom_tele_std().await?;
     
@@ -81,28 +79,30 @@ async fn main() -> grafton_visca::Result<()> {
 }
 ```
 
-### Runtime-Agnostic Async
+### Multi-Runtime Support
 
 ```rust
+// Supports coexistence of multiple runtimes!
 use grafton_visca::{
     CameraBuilder,
     camera::profiles::GenericVisca,
-    transport::AsyncTransport,
-    runtime::executor::Executor,
+    transport::Transport,
+    PowerControl, // Unified trait works everywhere
 };
 
-// Works with ANY async runtime - provide your executor and transport
-async fn control_camera<E, T>(executor: E, transport: T) -> grafton_visca::Result<()> 
-where
-    E: Executor,
-    T: AsyncTransport,
-{
-    let camera = CameraBuilder::with_executor(executor)
+#[tokio::main]
+async fn main() -> grafton_visca::Result<()> {
+    // Same Transport API auto-selects runtime (Tokio priority)
+    let transport = Transport::tcp()
+        .address("192.168.0.110:5678")
+        .connect()
+        .await?;
+    
+    let camera = CameraBuilder::tokio()?
         .build_async::<GenericVisca, _>(transport)
         .await?;
     
-    // Use methods from the appropriate trait
-    use grafton_visca::camera::methods::power::PowerControl;
+    // Unified API works consistently across runtimes
     camera.power_on().await?;
     Ok(())
 }
@@ -123,6 +123,10 @@ grafton-visca = { version = "0.7", features = ["async"] }
 [dependencies]
 grafton-visca = { version = "0.7", features = ["rt-tokio"] }
 tokio = { version = "1", features = ["full"] }
+
+# Multi-runtime support (NEW: runtimes can coexist!)
+[dependencies]
+grafton-visca = { version = "0.7", features = ["rt-tokio", "rt-async-std"] }
 ```
 
 ## Camera Profiles
@@ -148,31 +152,36 @@ Camera profiles use Rust's type system to ensure only supported commands are ava
 ```rust
 use grafton_visca::{
     Camera,
-    camera::{BlockingMode, profiles::*},
-    capabilities::{NDFilter, NDFilterMode, Profile},
-    transport::BlockingTransport,
+    camera::profiles::*,
+    capabilities::{NDFilter, Profile},
+    transport::builder::TransportBuilder,
+    NdFilterControl,  // Unified trait
+    command::nd_filter::CommandNDFilterMode,
 };
 
-fn configure_nd_filter<P, T>(camera: &Camera<BlockingMode, P, T, ()>) -> grafton_visca::Result<()>
+fn configure_nd_filter<P, T>(camera: &mut Camera<P, T>) -> grafton_visca::Result<()>
 where
     P: Profile + NDFilter,  // Only cameras with ND filter support
-    T: BlockingTransport,
+    T: grafton_visca::transport::BlockingTransport,
 {
-    use grafton_visca::camera::methods::nd_filter::{NDFilterControlBlocking, CommandNDFilterMode};
+    // Same unified trait works for blocking and async modes
     camera.set_nd_filter_mode(CommandNDFilterMode::Variable)?;
     Ok(())
 }
 
 // This compiles for Sony FR7
-use grafton_visca::transport::blocking::tcp::Tcp;
-let transport = Tcp::connect("192.168.0.110:52381")?;
-let sony = Camera::<BlockingMode, SonyFR7, _, _>::new(transport);
-configure_nd_filter(&sony)?;  // ✅ Works
+let transport = TransportBuilder::tcp()
+    .address("192.168.0.110:52381")
+    .build()?;
+let mut sony = Camera::<SonyFR7, _>::new(transport);
+configure_nd_filter(&mut sony)?;  // ✅ Works
 
 // This won't compile for PTZOptics G2
-let transport = Tcp::connect("192.168.0.111:5678")?;
-let ptz = Camera::<BlockingMode, PtzOpticsG2, _, _>::new(transport);
-// configure_nd_filter(&ptz)?;  // ❌ Compile error - no ND filter
+let transport = TransportBuilder::tcp()
+    .address("192.168.0.111:5678")
+    .build()?;
+let mut ptz = Camera::<PtzOpticsG2, _>::new(transport);
+// configure_nd_filter(&mut ptz)?;  // ❌ Compile error - no ND filter
 ```
 
 ## Examples
@@ -234,12 +243,11 @@ let camera = CameraBuilder::tokio()?
 The library provides detailed error information with retry guidance:
 
 ```rust
-use grafton_visca::camera::methods::zoom::ZoomControlBlocking;
-use grafton_visca::units::Normalized;
+use grafton_visca::{ZoomControl, units::Normalized};  // Unified trait
 use std::thread::sleep;
 
 loop {
-    match camera.zoom_to(Normalized::new(0.5)) {
+    match camera.zoom_absolute(Normalized::new(0.5)) {
         Ok(_) => break,
         Err(e) if e.is_retryable() => {
             // Camera busy, network issue, etc.
@@ -261,37 +269,39 @@ The library supports multiple transport implementations:
 
 ## Architecture
 
-The library is built on a layered, modular architecture:
+The library is built on a unified, layered architecture:
 
 ```
 ┌──────────────────────────────────────┐
-│         Camera API Layer             │  High-level methods & type-safe profiles
+│    Unified Camera API Layer          │  17 unified traits, 130+ methods
 ├──────────────────────────────────────┤
-│         Runtime Layer                │  Protocol compliance & execution
+│    Runtime Coexistence Layer         │  Multi-runtime support (Tokio/async-std/smol)
 ├──────────────────────────────────────┤
-│         Protocol Layer               │  VISCA encoding/decoding
+│    Protocol Layer                    │  VISCA encoding/decoding (envelope framing)
 ├──────────────────────────────────────┤
-│         Transport Layer              │  Network communication (TCP/UDP)
+│    Transport Layer                   │  Network communication (TCP/UDP/Serial)
 └──────────────────────────────────────┘
 ```
 
 ### Key Components
 
-- **Command System** - Type-safe command encoding with compile-time validation
-- **Response Parser** - Robust parsing with detailed error information
-- **Socket Manager** - Automatic socket allocation for ACK/Completion sequences
+- **Unified Trait System** - Single consistent API for both blocking and async modes
+- **Feature-Gated Methods** - Compile-time mode selection with zero runtime overhead
+- **Runtime Coexistence** - Multiple async runtimes can coexist with priority-based selection
+- **Socket Manager** - Automatic socket allocation for ACK/Completion sequences  
 - **Priority Scheduler** - Intelligent command prioritization and retry handling
 - **Timeout Manager** - Category-based timeout configuration
 
 ## Testing
 
-The library includes comprehensive testing infrastructure:
+The library includes comprehensive testing infrastructure with **930+ tests**:
 
-- **Unit tests** - Every command and response parser tested
+- **Unit tests** - Every command and response parser tested (459 blocking + 471 async)
 - **Integration tests** - Full protocol flow validation
 - **Protocol compliance** - VISCA specification adherence tests
 - **Deterministic testing** - Reproducible async execution with test-utils
 - **Mock transports** - Testing without physical cameras
+- **Multi-runtime testing** - Validates runtime coexistence and priority selection
 - **Property-based tests** - Fuzzing command encoding/decoding
 
 Run tests:
@@ -303,6 +313,9 @@ cargo test --all-features
 cargo test --no-default-features
 cargo test --no-default-features --features async
 cargo test --no-default-features --features rt-tokio
+
+# Multi-runtime testing
+cargo test --features rt-tokio,rt-async-std
 ```
 
 ## Performance

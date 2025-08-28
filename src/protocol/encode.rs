@@ -13,13 +13,8 @@ pub(crate) const VISCA_TERMINATOR: u8 = 0xFF;
 
 /// Sony encapsulated header payload types.
 ///
-/// Only compiled when used by either blocking Sony IP transport or Tokio runtime,
-/// or in tests.
-#[cfg(any(
-    not(feature = "async"),
-    all(feature = "async", feature = "rt-tokio"),
-    test
-))]
+/// Only compiled when blocking Sony IP transport is available.
+#[cfg(any(not(feature = "async"), test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PayloadType {
     /// VISCA command payload (0x01 0x00).
@@ -38,13 +33,8 @@ pub(crate) enum PayloadType {
 
 /// Sony encapsulated header for VISCA over IP.
 ///
-/// Only compiled when used by either blocking Sony IP transport or Tokio runtime,
-/// or in tests.
-#[cfg(any(
-    not(feature = "async"),
-    all(feature = "async", feature = "rt-tokio"),
-    test
-))]
+/// Only compiled when blocking Sony IP transport is available.
+#[cfg(any(not(feature = "async"), test))]
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct SonyHeader {
     /// Payload type.
@@ -55,11 +45,7 @@ pub(crate) struct SonyHeader {
     pub sequence_number: u32,
 }
 
-#[cfg(any(
-    not(feature = "async"),
-    all(feature = "async", feature = "rt-tokio"),
-    test
-))]
+#[cfg(any(not(feature = "async"), test))]
 impl SonyHeader {
     /// Header size in bytes.
     pub const SIZE: usize = 8;
@@ -74,7 +60,7 @@ impl SonyHeader {
     }
 
     /// Create a new inquiry header with the given sequence.
-    #[cfg(any(not(feature = "async"), all(feature = "async", feature = "rt-tokio")))]
+    #[cfg(not(feature = "async"))] // Only used by blocking Sony IP transport
     pub fn new_inquiry(payload_len: usize, sequence: u32) -> Self {
         Self {
             payload_type: PayloadType::ViscaInquiry,

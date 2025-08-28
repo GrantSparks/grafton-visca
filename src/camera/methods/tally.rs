@@ -1,103 +1,129 @@
-//! Tally light control methods for cameras.
+//! Tally light control methods for unified camera API.
 
 use crate::Error;
 
-/// Tally light control operations (async).
-#[cfg(feature = "async")]
-pub trait TallyControl: Send + Sync + 'static + Sized {
+/// Tally light control operations for cameras.
+///
+/// This trait provides tally light control methods that work for both blocking and async cameras.
+/// The implementation differs based on the camera type - async cameras return futures,
+/// while blocking cameras perform operations synchronously.
+pub trait TallyControl {
     /// Turn red tally light on.
+    #[cfg(feature = "async")]
     fn tally_red_on(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Turn red tally light on.
+    #[cfg(not(feature = "async"))]
+    fn tally_red_on(&mut self) -> Result<(), Error>;
+
     /// Turn red tally light off.
+    #[cfg(feature = "async")]
     fn tally_red_off(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Turn red tally light off.
+    #[cfg(not(feature = "async"))]
+    fn tally_red_off(&mut self) -> Result<(), Error>;
+
     /// Set tally brightness to low.
+    #[cfg(feature = "async")]
     fn tally_bright_lo(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Set tally brightness to low.
+    #[cfg(not(feature = "async"))]
+    fn tally_bright_lo(&mut self) -> Result<(), Error>;
+
     /// Set tally brightness to high.
+    #[cfg(feature = "async")]
     fn tally_bright_hi(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Set tally brightness to high.
+    #[cfg(not(feature = "async"))]
+    fn tally_bright_hi(&mut self) -> Result<(), Error>;
+
     /// Turn green tally light on.
+    #[cfg(feature = "async")]
     fn tally_green_on(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Turn green tally light on.
+    #[cfg(not(feature = "async"))]
+    fn tally_green_on(&mut self) -> Result<(), Error>;
+
     /// Turn green tally light off.
+    #[cfg(feature = "async")]
     fn tally_green_off(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Turn green tally light off.
+    #[cfg(not(feature = "async"))]
+    fn tally_green_off(&mut self) -> Result<(), Error>;
+
     /// Flash tally light.
+    #[cfg(feature = "async")]
     fn tally_flash(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Flash tally light.
+    #[cfg(not(feature = "async"))]
+    fn tally_flash(&mut self) -> Result<(), Error>;
+
     /// Turn tally light on.
+    #[cfg(feature = "async")]
     fn tally_on(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Turn tally light on.
+    #[cfg(not(feature = "async"))]
+    fn tally_on(&mut self) -> Result<(), Error>;
+
     /// Turn tally light off.
+    #[cfg(feature = "async")]
     fn tally_off(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Turn tally light off.
+    #[cfg(not(feature = "async"))]
+    fn tally_off(&mut self) -> Result<(), Error>;
+
     /// Get tally light status.
+    #[cfg(feature = "async")]
     fn get_tally_status(
         &self,
     ) -> impl std::future::Future<Output = Result<bool, Error>> + Send + '_;
 
+    /// Get tally light status.
+    #[cfg(not(feature = "async"))]
+    fn get_tally_status(&mut self) -> Result<bool, Error>;
+
     /// Query red tally light state.
+    #[cfg(feature = "async")]
     fn get_red_tally_status(
         &self,
     ) -> impl std::future::Future<Output = Result<bool, Error>> + Send + '_;
 
-    /// Query green tally light state (FR7 specific).
-    fn get_green_tally_status(
-        &self,
-    ) -> impl std::future::Future<Output = Result<bool, Error>> + Send + '_;
-}
-
-/// Tally light control operations (blocking).
-pub trait TallyControlBlocking: Sized {
-    /// Turn red tally light on.
-    fn tally_red_on(&mut self) -> Result<(), Error>;
-
-    /// Turn red tally light off.
-    fn tally_red_off(&mut self) -> Result<(), Error>;
-
-    /// Set tally brightness to low.
-    fn tally_bright_lo(&mut self) -> Result<(), Error>;
-
-    /// Set tally brightness to high.
-    fn tally_bright_hi(&mut self) -> Result<(), Error>;
-
-    /// Turn green tally light on.
-    fn tally_green_on(&mut self) -> Result<(), Error>;
-
-    /// Turn green tally light off.
-    fn tally_green_off(&mut self) -> Result<(), Error>;
-
-    /// Flash tally light.
-    fn tally_flash(&mut self) -> Result<(), Error>;
-
-    /// Turn tally light on.
-    fn tally_on(&mut self) -> Result<(), Error>;
-
-    /// Turn tally light off.
-    fn tally_off(&mut self) -> Result<(), Error>;
-
-    /// Get tally light status.
-    fn get_tally_status(&mut self) -> Result<bool, Error>;
-
     /// Query red tally light state.
+    #[cfg(not(feature = "async"))]
     fn get_red_tally_status(&mut self) -> Result<bool, Error>;
 
     /// Query green tally light state (FR7 specific).
+    #[cfg(feature = "async")]
+    fn get_green_tally_status(
+        &self,
+    ) -> impl std::future::Future<Output = Result<bool, Error>> + Send + '_;
+
+    /// Query green tally light state (FR7 specific).
+    #[cfg(not(feature = "async"))]
     fn get_green_tally_status(&mut self) -> Result<bool, Error>;
 }
 
-// Async implementation for Camera with AsyncMode
+// Keep the old trait names for backward compatibility during transition
+/// Async tally control trait (deprecated, use TallyControl instead).
+/// Blocking tally control trait (deprecated, use TallyControl instead).
+// Async implementation for AsyncCamera
 #[cfg(feature = "async")]
-impl<P, T, E> TallyControl for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
+impl<P, Tr, Exec> TallyControl for crate::camera::AsyncCamera<P, Tr, Exec>
 where
-    P: crate::capabilities::Profile,
-    T: crate::transport::AsyncTransport + Send + Sync + 'static,
-    E: crate::executor::Executor,
+    P: crate::capabilities::Profile + Default,
+    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
+    Exec: crate::executor::Executor,
 {
     async fn tally_red_on(&self) -> Result<(), Error> {
         use crate::command::tally::Tally;
-
         let cmd = Tally::RedOn;
         self.send_command(&cmd).await?;
         Ok(())
@@ -201,16 +227,15 @@ where
     }
 }
 
-// Blocking implementation for Camera with BlockingMode
+// Blocking implementation for BlockingCamera
 #[cfg(not(feature = "async"))]
-impl<P, T> TallyControlBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
+impl<P, Tr> TallyControl for crate::camera::BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile + Default,
-    T: crate::transport::BlockingTransport + Send + 'static,
+    Tr: crate::transport::BlockingTransport + Send + 'static,
 {
     fn tally_red_on(&mut self) -> Result<(), Error> {
         use crate::command::tally::Tally;
-
         let cmd = Tally::RedOn;
         self.send_command(&cmd)?;
         Ok(())

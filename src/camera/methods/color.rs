@@ -1,4 +1,4 @@
-//! Color adjustment methods for cameras using mode markers.
+//! Color adjustment methods for cameras.
 
 use crate::{
     command::color::{
@@ -9,128 +9,154 @@ use crate::{
     Error,
 };
 
-/// Color operations (async).
-#[cfg(feature = "async")]
-pub trait ColorControl: Send + Sync + 'static + Sized {
+/// Color operations for cameras.
+///
+/// This trait provides color control methods that work for both blocking and async cameras.
+/// The implementation differs based on the camera type - async cameras return futures,
+/// while blocking cameras perform operations synchronously.
+pub trait ColorControl {
     /// Trigger one-push white balance.
+    #[cfg(feature = "async")]
     fn one_push_trigger(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Trigger one-push white balance.
+    #[cfg(not(feature = "async"))]
+    fn one_push_trigger(&mut self) -> Result<(), Error>;
+
     /// Set color temperature.
+    #[cfg(feature = "async")]
     fn set_color_temperature(
         &self,
         temp: ColorTemp,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Set color temperature.
+    #[cfg(not(feature = "async"))]
+    fn set_color_temperature(&mut self, temp: ColorTemp) -> Result<(), Error>;
+
     /// Reset color temperature to default value.
+    #[cfg(feature = "async")]
     fn reset_color_temperature(
         &self,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Reset color temperature to default value.
+    #[cfg(not(feature = "async"))]
+    fn reset_color_temperature(&mut self) -> Result<(), Error>;
+
     /// Increase color temperature (makes image cooler/bluer).
+    #[cfg(feature = "async")]
     fn increase_color_temperature(
         &self,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Increase color temperature (makes image cooler/bluer).
+    #[cfg(not(feature = "async"))]
+    fn increase_color_temperature(&mut self) -> Result<(), Error>;
+
     /// Decrease color temperature (makes image warmer/redder).
+    #[cfg(feature = "async")]
     fn decrease_color_temperature(
         &self,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Decrease color temperature (makes image warmer/redder).
+    #[cfg(not(feature = "async"))]
+    fn decrease_color_temperature(&mut self) -> Result<(), Error>;
+
     /// Set or query color temperature.
+    #[cfg(feature = "async")]
     fn color_temperature(
         &self,
         temp: Option<ColorTemp>,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Set or query color temperature.
+    #[cfg(not(feature = "async"))]
+    fn color_temperature(&mut self, temp: Option<ColorTemp>) -> Result<(), Error>;
+
     /// Set red gain.
+    #[cfg(feature = "async")]
     fn set_red_gain(
         &self,
         gain: RedChannel,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Set red gain.
+    #[cfg(not(feature = "async"))]
+    fn set_red_gain(&mut self, gain: RedChannel) -> Result<(), Error>;
+
     /// Set, reset, increase or decrease red gain.
+    #[cfg(feature = "async")]
     fn red_gain(
         &self,
         command: RedGain,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Set, reset, increase or decrease red gain.
+    #[cfg(not(feature = "async"))]
+    fn red_gain(&mut self, command: RedGain) -> Result<(), Error>;
+
     /// Set blue gain.
+    #[cfg(feature = "async")]
     fn set_blue_gain(
         &self,
         gain: BlueChannel,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Set blue gain.
+    #[cfg(not(feature = "async"))]
+    fn set_blue_gain(&mut self, gain: BlueChannel) -> Result<(), Error>;
+
     /// Set, reset, increase or decrease blue gain.
+    #[cfg(feature = "async")]
     fn blue_gain(
         &self,
         command: BlueGain,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Set, reset, increase or decrease blue gain.
+    #[cfg(not(feature = "async"))]
+    fn blue_gain(&mut self, command: BlueGain) -> Result<(), Error>;
+
     /// Set red tuning.
+    #[cfg(feature = "async")]
     fn set_red_tuning(
         &self,
         tuning: RedTuning,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Set red tuning.
+    #[cfg(not(feature = "async"))]
+    fn set_red_tuning(&mut self, tuning: RedTuning) -> Result<(), Error>;
+
     /// Set blue tuning.
+    #[cfg(feature = "async")]
     fn set_blue_tuning(
         &self,
         tuning: BlueTuning,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
-}
-
-/// Color operations (blocking).
-pub trait ColorControlBlocking: Sized {
-    /// Trigger one-push white balance.
-    fn one_push_trigger(&mut self) -> Result<(), Error>;
-
-    /// Set color temperature.
-    fn set_color_temperature(&mut self, temp: ColorTemp) -> Result<(), Error>;
-
-    /// Reset color temperature to default value.
-    fn reset_color_temperature(&mut self) -> Result<(), Error>;
-
-    /// Increase color temperature (makes image cooler/bluer).
-    fn increase_color_temperature(&mut self) -> Result<(), Error>;
-
-    /// Decrease color temperature (makes image warmer/redder).
-    fn decrease_color_temperature(&mut self) -> Result<(), Error>;
-
-    /// Set or query color temperature.
-    fn color_temperature(&mut self, temp: Option<ColorTemp>) -> Result<(), Error>;
-
-    /// Set red gain.
-    fn set_red_gain(&mut self, gain: RedChannel) -> Result<(), Error>;
-
-    /// Set, reset, increase or decrease red gain.
-    fn red_gain(&mut self, command: RedGain) -> Result<(), Error>;
-
-    /// Set blue gain.
-    fn set_blue_gain(&mut self, gain: BlueChannel) -> Result<(), Error>;
-
-    /// Set, reset, increase or decrease blue gain.
-    fn blue_gain(&mut self, command: BlueGain) -> Result<(), Error>;
-
-    /// Set red tuning.
-    fn set_red_tuning(&mut self, tuning: RedTuning) -> Result<(), Error>;
 
     /// Set blue tuning.
+    #[cfg(not(feature = "async"))]
     fn set_blue_tuning(&mut self, tuning: BlueTuning) -> Result<(), Error>;
 }
 
-// Async implementation for Camera with AsyncMode
+// Keep the old trait names for backward compatibility during transition
+/// Async color control trait (deprecated, use ColorControl instead).
+/// Blocking color control trait (deprecated, use ColorControl instead).
+// Async implementation for AsyncCamera
 #[cfg(feature = "async")]
-impl<P, T, E> ColorControl for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
+impl<P, Tr, Exec> ColorControl for crate::camera::AsyncCamera<P, Tr, Exec>
 where
-    P: crate::capabilities::Profile,
-    T: crate::transport::AsyncTransport + Send + Sync + 'static,
-    E: crate::executor::Executor,
+    P: crate::capabilities::Profile + Default,
+    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
+    Exec: crate::executor::Executor,
 {
     async fn one_push_trigger(&self) -> Result<(), Error> {
         self.send_command(&OnePushTriggerCommand).await?;
         Ok(())
     }
-
     async fn set_color_temperature(&self, temp: ColorTemp) -> Result<(), Error> {
         self.send_command(&ColorTemperature::SetTemperature(temp))
             .await?;
@@ -196,18 +222,17 @@ where
     }
 }
 
-// Blocking implementation for Camera with BlockingMode
+// Blocking implementation for BlockingCamera
 #[cfg(not(feature = "async"))]
-impl<P, T> ColorControlBlocking for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
+impl<P, Tr> ColorControl for crate::camera::BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile + Default,
-    T: crate::transport::BlockingTransport + Send + 'static,
+    Tr: crate::transport::BlockingTransport + Send + 'static,
 {
     fn one_push_trigger(&mut self) -> Result<(), Error> {
         self.send_command(&OnePushTriggerCommand)?;
         Ok(())
     }
-
     fn set_color_temperature(&mut self, temp: ColorTemp) -> Result<(), Error> {
         self.send_command(&ColorTemperature::SetTemperature(temp))?;
         Ok(())

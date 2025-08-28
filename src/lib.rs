@@ -30,37 +30,40 @@
 //!
 //! ## Features
 //!
+//! - **Unified API Architecture**: Single consistent interface with 17 traits covering 130+ methods
 //! - **Type-Safe Camera Profiles**: Compile-time validation with camera-specific profiles
-//! - **Complete Command Coverage**: Full support for PtzOptics G2 and other VISCA cameras
+//! - **Feature-Gated Methods**: Choose blocking or async at compile time with zero runtime overhead
+//! - **Multi-Runtime Support**: Tokio, async-std, smol can coexist with priority-based selection
+//! - **Complete Command Coverage**: Full VISCA protocol support across all camera types
 //! - **Profile-Aware Conversions**: Automatic unit conversions based on camera model
 //! - **Comprehensive Inquiry**: Query camera state for all supported features
-//! - **Transport Abstraction**: Implement your own transport (TCP, UDP, serial, etc.)
-//! - **Builder Patterns**: Create custom camera profiles for any VISCA camera
-//! - **Clean API Separation**: Choose blocking OR async at compile time - no mixed dependencies
-//! - **Runtime-Agnostic Async**: Full support for Tokio, async-std, and smol runtimes
+//! - **Transport Abstraction**: TCP, UDP, Serial, and custom transport implementations
+//! - **Builder Patterns**: Flexible camera and transport configuration
 //! - **Unified Error Handling**: Consistent error mapping across all transport types
 //! - **Configurable Timeouts**: Per-category timeout configuration for different command types
 //! - **Command Cancellation**: Cancel specific commands or entire socket operations
-//! - **Async Completion Tracking**: Wait for camera movements to complete with `wait_for_completion()`
+//! - **Async Completion Tracking**: Wait for camera movements to complete with await methods
 //!
 //! ## Quick Start
 //!
 //! ### Blocking Example
 //! ```ignore
-//! use grafton_visca::{CameraBuilder, Error};
-//! use grafton_visca::transport::blocking::tcp::Tcp;
-//! use grafton_visca::camera::profiles::PtzOpticsG2;
+//! use grafton_visca::{
+//!     Camera, Error,
+//!     camera::profiles::PtzOpticsG2,
+//!     transport::builder::TransportBuilder,
+//!     // Import unified traits that work for both blocking and async
+//!     PowerControl, ZoomControl,
+//! };
 //!
 //! fn main() -> Result<(), Error> {
-//!     // Create camera using the builder pattern
-//!     let transport = Tcp::connect("192.168.0.110:5678")?;
-//!     let camera = CameraBuilder::new()
-//!         .build_blocking::<PtzOpticsG2, _>(transport);
+//!     // Create camera using unified API
+//!     let transport = TransportBuilder::tcp()
+//!         .address("192.168.0.110:5678")
+//!         .build()?;
+//!     let mut camera = Camera::<PtzOpticsG2, _>::new(transport);
 //!
-//!     // Camera model is known at compile time
-//!     println!("Using PtzOptics G2 camera");
-//!
-//!     // Send commands with clean API
+//!     // Send commands with unified API - same traits work for async mode
 //!     camera.power_on()?;
 //!     camera.zoom_tele_std()?;
 //!     
@@ -68,11 +71,15 @@
 //! }
 //! ```
 //!
-//! ### Async Example with Uniform Transport API
+//! ### Async Example with Multi-Runtime Support
 //! ```ignore
-//! use grafton_visca::{CameraBuilder, Error};
-//! use grafton_visca::transport::Transport;
-//! use grafton_visca::camera::profiles::PtzOpticsG2;
+//! use grafton_visca::{
+//!     CameraBuilder, Error,
+//!     camera::profiles::PtzOpticsG2,
+//!     transport::Transport,
+//!     // Same unified traits work for async mode too
+//!     PowerControl, ZoomControl,
+//! };
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Error> {
@@ -85,31 +92,39 @@
 //!         .build_async::<PtzOpticsG2, _>(transport)
 //!         .await?;
 //!
-//!     // Same API, just with .await
+//!     // Same unified API, just add .await - no separate async traits needed
 //!     camera.power_on().await?;
 //!     camera.zoom_tele_std().await?;
-//!     
-//!     // Wait for zoom to complete
-//!     camera.wait_for_completion().await?;
 //!     
 //!     Ok(())
 //! }
 //! ```
 //!
-//! ### Async Example with async-std
+//! ### Runtime Coexistence Example
 //! ```ignore
-//! use grafton_visca::{CameraBuilder, Error};
-//! use grafton_visca::transport::async_std::tcp::Tcp;
-//! use grafton_visca::camera::profiles::PtzOpticsG2;
+//! // Multiple runtimes can coexist! Priority: tokio → async-std → smol
+//! [dependencies]
+//! grafton-visca = { version = "*", features = ["rt-tokio", "rt-async-std"] }
+//!
+//! use grafton_visca::{
+//!     CameraBuilder, Error,
+//!     camera::profiles::PtzOpticsG2,
+//!     transport::Transport,
+//!     PowerControl, ZoomControl,
+//! };
 //!
 //! #[async_std::main]
 //! async fn main() -> Result<(), Error> {
-//!     // Create camera with async-std runtime support
-//!     let transport = Tcp::connect("192.168.0.110:5678").await?;
-//!     let camera = CameraBuilder::async_std()
+//!     // Same Transport API - runtime auto-selected based on priority
+//!     let transport = Transport::tcp()
+//!         .address("192.168.0.110:5678")
+//!         .connect()  // Uses tokio if available, async-std otherwise
+//!         .await?;
+//!     let camera = CameraBuilder::async_std()?
 //!         .build_async::<PtzOpticsG2, _>(transport)
 //!         .await?;
 //!
+//!     // Same unified API across all runtimes
 //!     camera.power_on().await?;
 //!     camera.zoom_tele_std().await?;
 //!     
@@ -117,21 +132,29 @@
 //! }
 //! ```
 //!
-//! ### Async Example with smol
+//! ### Unified Trait Usage Example
 //! ```ignore
-//! use grafton_visca::{CameraBuilder, Error};
-//! use grafton_visca::transport::smol::tcp::Tcp;
-//! use grafton_visca::camera::profiles::PtzOpticsG2;
+//! use grafton_visca::{
+//!     CameraBuilder, Error,
+//!     camera::profiles::PtzOpticsG2,
+//!     transport::Transport,
+//!     PowerControl, ZoomControl, PanTiltControl,
+//! };
 //!
 //! fn main() -> Result<(), Error> {
 //!     smol::block_on(async {
-//!         // Create camera with smol runtime support
-//!         let transport = Tcp::connect("192.168.0.110:5678").await?;
-//!         let camera = CameraBuilder::smol()
+//!         // Same unified Transport API works across all runtimes  
+//!         let transport = Transport::tcp()
+//!             .address("192.168.0.110:5678")
+//!             .connect()  // Runtime auto-selected based on enabled features
+//!             .await?;
+//!         let camera = CameraBuilder::smol()?
 //!             .build_async::<PtzOpticsG2, _>(transport)
 //!             .await?;
 //!
+//!         // All 17 unified traits work consistently across runtimes
 //!         camera.power_on().await?;
+//!         camera.pan_tilt_home().await?;
 //!         camera.zoom_tele_std().await?;
 //!         
 //!         Ok(())
@@ -212,6 +235,10 @@
 //! - `rt-smol` - Enables async with built-in smol runtime support (implies `async`).
 //! - `test-utils` - Testing utilities including ScriptedTransport and DeterministicExecutor (not for production).
 //!
+//! **Multiple Runtime Support**: As of version 0.7.0, runtime features can be enabled simultaneously.
+//! This allows libraries to support multiple runtime ecosystems without forcing users to choose.
+//! Use explicit executor selection (`CameraBuilder::tokio()`, etc.) when multiple runtimes are available.
+//!
 //! ### Send Future Guarantees
 //!
 //! All public async traits in this crate guarantee that their returned futures are `Send`.
@@ -238,16 +265,18 @@
 //!
 //! #### Option 1: Use built-in runtime support (Easiest)
 //!
-//! Choose your preferred runtime and enable the corresponding feature in `Cargo.toml`:
+//! Choose your runtime(s) and enable the corresponding feature(s) in `Cargo.toml`:
 //!
 //! ```toml
 //! [dependencies]
-//! # For Tokio:
+//! # Single runtime:
 //! grafton-visca = { version = "*", features = ["rt-tokio"] }
-//! # For async-std:
 //! grafton-visca = { version = "*", features = ["rt-async-std"] }
-//! # For smol:
 //! grafton-visca = { version = "*", features = ["rt-smol"] }
+//!
+//! # Multiple runtimes (choose executor at construction time):
+//! grafton-visca = { version = "*", features = ["rt-tokio", "rt-async-std"] }
+//! grafton-visca = { version = "*", features = ["rt-tokio", "rt-smol", "rt-async-std"] }
 //! ```
 //!
 //! Then use the corresponding `CameraBuilder` method:
@@ -475,24 +504,8 @@
 //! }
 //! ```
 
-// Compile-time guards to ensure exactly one async runtime is enabled when async is used
-#[cfg(all(feature = "rt-tokio", feature = "rt-async-std"))]
-compile_error!(
-    "Enable at most one of: rt-tokio, rt-async-std, rt-smol. Found both rt-tokio and rt-async-std."
-);
-
-#[cfg(all(feature = "rt-tokio", feature = "rt-smol"))]
-compile_error!(
-    "Enable at most one of: rt-tokio, rt-async-std, rt-smol. Found both rt-tokio and rt-smol."
-);
-
-#[cfg(all(feature = "rt-async-std", feature = "rt-smol"))]
-compile_error!(
-    "Enable at most one of: rt-tokio, rt-async-std, rt-smol. Found both rt-async-std and rt-smol."
-);
-
-#[cfg(all(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
-compile_error!("Enable at most one of: rt-tokio, rt-async-std, rt-smol. Found all three enabled.");
+// Multiple async runtimes can now coexist - users choose which executor to use at construction time
+// This flexibility allows libraries to support multiple runtime ecosystems simultaneously
 
 /// Camera profile system for type-safe, model-specific control
 pub mod camera;
@@ -564,24 +577,30 @@ pub use crate::command::{
 pub use crate::error::{Error, Result};
 pub use crate::{camera::Camera, camera::CameraBuilder, camera_id::CameraId};
 
-// Blocking-only method traits
+// Re-export the new concrete camera types
 #[cfg(not(feature = "async"))]
-pub use crate::camera::methods::{
-    focus::FocusControlBlocking,
-    inquiry::{InquiryControlBlocking, PanTiltInquiryControlBlocking},
-    pan_tilt::PanTiltControlBlocking,
-    power::PowerControlBlocking,
-    presets::PresetsControlBlocking,
-    zoom::ZoomControlBlocking,
-};
+pub use crate::camera::BlockingCamera;
 
 #[cfg(feature = "async")]
+pub use crate::camera::AsyncCamera;
+
+// Export unified camera control traits that work with both blocking and async cameras
 pub use crate::camera::methods::{
+    color::ColorControl,
+    exposure::ExposureControl,
     focus::FocusControl,
+    image_processing::ImageProcessingControl,
     inquiry::{InquiryControl, PanTiltInquiryControl},
+    menu::{DirectMenuControl, MenuControl},
+    nd_filter::NdFilterControl,
     pan_tilt::PanTiltControl,
     power::PowerControl,
     presets::PresetsControl,
+    streaming::StreamingControl,
+    system::SystemControl,
+    tally::TallyControl,
+    variable_speed::VariableSpeedControl,
+    white_balance::WhiteBalanceControl,
     zoom::ZoomControl,
 };
 #[cfg(all(feature = "async", feature = "rt-async-std"))]

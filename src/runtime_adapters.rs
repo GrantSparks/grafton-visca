@@ -25,8 +25,6 @@
 /// # }
 /// ```
 pub mod tokio {
-
-    pub use crate::transport::tokio::sony::{Tcp as SonyTcp, Udp as SonyUdp};
     pub use crate::transport::tokio::tcp::Tcp as TcpTransport;
     pub use crate::transport::tokio::udp::Udp as UdpTransport;
 }

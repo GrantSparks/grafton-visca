@@ -3,7 +3,7 @@
 #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
 mod tokio_tests {
     use grafton_visca::{
-        camera::{profiles::PtzOpticsG2, AsyncMode, Camera},
+        camera::{profiles::PtzOpticsG2, AsyncCamera},
         testing::testkit::{helpers, ScriptedTransport},
         PowerControl, TokioExecutor, ZoomControl,
     };
@@ -43,10 +43,9 @@ mod tokio_tests {
         let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
         let transport = create_power_inquiry_transport().with_executor(executor.clone());
 
-        let camera =
-            Camera::<AsyncMode, PtzOpticsG2, _, _>::with_executor(transport.clone(), executor)
-                .await
-                .unwrap();
+        let camera = AsyncCamera::<PtzOpticsG2, _, _>::with_executor(transport.clone(), executor)
+            .await
+            .unwrap();
 
         // Socket manager is automatically initialized on first use
         // Test that an operation works, which will trigger auto-initialization
@@ -69,12 +68,10 @@ mod tokio_tests {
         let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
         let transport = create_auto_respond_transport().with_executor(executor.clone());
 
-        let camera = Camera::<grafton_visca::camera::AsyncMode, PtzOpticsG2, _, _>::with_executor(
-            transport.clone(),
-            executor.clone(),
-        )
-        .await
-        .unwrap();
+        let camera =
+            AsyncCamera::<PtzOpticsG2, _, _>::with_executor(transport.clone(), executor.clone())
+                .await
+                .unwrap();
 
         // Test zoom commands (deterministic timing with virtual clock)
         let result = camera.zoom_tele_std().await;
@@ -108,12 +105,10 @@ mod tokio_tests {
         let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
         let transport = create_auto_respond_transport().with_executor(executor.clone());
 
-        let camera = Camera::<grafton_visca::camera::AsyncMode, PtzOpticsG2, _, _>::with_executor(
-            transport.clone(),
-            executor.clone(),
-        )
-        .await
-        .unwrap();
+        let camera =
+            AsyncCamera::<PtzOpticsG2, _, _>::with_executor(transport.clone(), executor.clone())
+                .await
+                .unwrap();
 
         // Send commands sequentially with deterministic timing
         // This tests that socket manager can queue and handle multiple commands
@@ -136,12 +131,10 @@ mod tokio_tests {
         let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
         let transport = create_auto_respond_transport().with_executor(executor.clone());
 
-        let camera = Camera::<grafton_visca::camera::AsyncMode, PtzOpticsG2, _, _>::with_executor(
-            transport.clone(),
-            executor.clone(),
-        )
-        .await
-        .unwrap();
+        let camera =
+            AsyncCamera::<PtzOpticsG2, _, _>::with_executor(transport.clone(), executor.clone())
+                .await
+                .unwrap();
 
         // First command should trigger lazy initialization of socket manager
         let result = camera.power_off().await;
@@ -180,7 +173,7 @@ mod tokio_tests {
         // Create transport with no scripted responses - will timeout
         let transport = ScriptedTransport::new(vec![]).with_executor(executor.clone());
 
-        let camera = Camera::<AsyncMode, PtzOpticsG2, _, _>::with_executor(transport, executor)
+        let camera = AsyncCamera::<PtzOpticsG2, _, _>::with_executor(transport, executor)
             .await
             .unwrap();
 

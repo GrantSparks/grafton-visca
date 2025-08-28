@@ -3,7 +3,6 @@
 use crate::{error::Error, MotionSyncMode, MotionSyncSpeed};
 
 /// Motion Sync control methods for cameras that support this feature.
-#[cfg(feature = "async")]
 pub trait MotionSyncControl {
     /// Sets the motion sync mode (on/off).
     ///
@@ -15,9 +14,38 @@ pub trait MotionSyncControl {
     ///
     /// # Errors
     /// Returns an error if the camera doesn't support motion sync.
+    #[cfg(feature = "async")]
     fn set_motion_sync_mode(
         &self,
         mode: MotionSyncMode,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
+
+    /// Sets the motion sync mode (on/off).
+    ///
+    /// This PtzOptics-specific feature coordinates pan, tilt, and zoom movements
+    /// for smoother preset recalls.
+    ///
+    /// # Arguments
+    /// * `mode` - The motion sync mode to set
+    ///
+    /// # Errors
+    /// Returns an error if the camera doesn't support motion sync.
+    #[cfg(not(feature = "async"))]
+    fn set_motion_sync_mode(&mut self, mode: MotionSyncMode) -> Result<(), Error>;
+
+    /// Sets the motion sync speed.
+    ///
+    /// # Arguments
+    /// * `speed` - Speed value from 1 to 24
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - The camera doesn't support motion sync
+    /// - The speed is outside the valid range (1-24)
+    #[cfg(feature = "async")]
+    fn set_motion_sync_speed(
+        &self,
+        speed: u8,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Sets the motion sync speed.
@@ -29,9 +57,20 @@ pub trait MotionSyncControl {
     /// Returns an error if:
     /// - The camera doesn't support motion sync
     /// - The speed is outside the valid range (1-24)
-    fn set_motion_sync_speed(
+    #[cfg(not(feature = "async"))]
+    fn set_motion_sync_speed(&mut self, speed: u8) -> Result<(), Error>;
+
+    /// Sets the motion sync speed using a preset value.
+    ///
+    /// # Arguments
+    /// * `speed` - Preset speed (Slow, Normal, Fast)
+    ///
+    /// # Errors
+    /// Returns an error if the camera doesn't support motion sync.
+    #[cfg(feature = "async")]
+    fn set_motion_sync_preset_speed(
         &self,
-        speed: u8,
+        speed: MotionSyncSpeed,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Sets the motion sync speed using a preset value.
@@ -41,57 +80,52 @@ pub trait MotionSyncControl {
     ///
     /// # Errors
     /// Returns an error if the camera doesn't support motion sync.
-    fn set_motion_sync_preset_speed(
-        &self,
-        speed: MotionSyncSpeed,
-    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
+    #[cfg(not(feature = "async"))]
+    fn set_motion_sync_preset_speed(&mut self, speed: MotionSyncSpeed) -> Result<(), Error>;
 
     /// Gets the current motion sync mode.
     ///
     /// # Errors
     /// Returns an error if the camera doesn't support motion sync.
+    #[cfg(feature = "async")]
     fn get_motion_sync_mode(
         &self,
     ) -> impl std::future::Future<Output = Result<MotionSyncMode, Error>> + Send + '_;
 
+    /// Gets the current motion sync mode.
+    ///
+    /// # Errors
+    /// Returns an error if the camera doesn't support motion sync.
+    #[cfg(not(feature = "async"))]
+    fn get_motion_sync_mode(&mut self) -> Result<MotionSyncMode, Error>;
+
     /// Gets the current motion sync speed.
     ///
     /// # Errors
     /// Returns an error if the camera doesn't support motion sync.
+    #[cfg(feature = "async")]
     fn get_motion_sync_speed(
         &self,
     ) -> impl std::future::Future<Output = Result<MotionSyncSpeed, Error>> + Send + '_;
-}
-
-/// Blocking version of motion sync control methods.
-pub trait MotionSyncControlBlocking {
-    /// Sets the motion sync mode (on/off).
-    fn set_motion_sync_mode(&mut self, mode: MotionSyncMode) -> Result<(), Error>;
-
-    /// Sets the motion sync speed.
-    fn set_motion_sync_speed(&mut self, speed: u8) -> Result<(), Error>;
-
-    /// Sets the motion sync speed using a preset value.
-    fn set_motion_sync_preset_speed(&mut self, speed: MotionSyncSpeed) -> Result<(), Error>;
-
-    /// Gets the current motion sync mode.
-    fn get_motion_sync_mode(&mut self) -> Result<MotionSyncMode, Error>;
 
     /// Gets the current motion sync speed.
+    ///
+    /// # Errors
+    /// Returns an error if the camera doesn't support motion sync.
+    #[cfg(not(feature = "async"))]
     fn get_motion_sync_speed(&mut self) -> Result<MotionSyncSpeed, Error>;
 }
 
 // Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P, T, E> MotionSyncControl for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
+impl<P, Tr, Exec> MotionSyncControl for crate::camera::AsyncCamera<P, Tr, Exec>
 where
-    P: crate::capabilities::Profile + crate::capabilities::motion_sync::MotionSync,
-    T: crate::transport::AsyncTransport + Send + Sync + 'static,
-    E: crate::executor::Executor,
+    P: crate::capabilities::Profile + crate::capabilities::motion_sync::MotionSync + Default,
+    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
+    Exec: crate::executor::Executor,
 {
     async fn set_motion_sync_mode(&self, mode: MotionSyncMode) -> Result<(), Error> {
         use crate::command::motion_sync::MotionSyncModeCmd;
-
         let cmd = MotionSyncModeCmd::new(mode);
         self.send_command(&cmd).await?;
         Ok(())
@@ -142,17 +176,15 @@ where
     }
 }
 
-// Blocking implementation for Camera with BlockingMode
+// Blocking implementation for BlockingCamera
 #[cfg(not(feature = "async"))]
-impl<P, T> MotionSyncControlBlocking
-    for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
+impl<P, Tr> MotionSyncControl for crate::camera::BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile + crate::capabilities::motion_sync::MotionSync + Default,
-    T: crate::transport::BlockingTransport + Send + 'static,
+    Tr: crate::transport::BlockingTransport + Send + 'static,
 {
     fn set_motion_sync_mode(&mut self, mode: MotionSyncMode) -> Result<(), Error> {
         use crate::command::motion_sync::MotionSyncModeCmd;
-
         let cmd = MotionSyncModeCmd::new(mode);
         self.send_command(&cmd)?;
         Ok(())

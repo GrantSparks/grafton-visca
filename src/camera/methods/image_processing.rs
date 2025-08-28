@@ -9,202 +9,264 @@ use crate::{
     Error,
 };
 
-/// Image processing operations (async).
-#[cfg(feature = "async")]
-pub trait ImageProcessingControl: Send + Sync + 'static + Sized {
+/// Image processing operations.
+pub trait ImageProcessingControl {
     /// Enable image flip.
+    #[cfg(feature = "async")]
     fn enable_flip(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Enable image flip.
+    #[cfg(not(feature = "async"))]
+    fn enable_flip(&mut self) -> Result<(), Error>;
+
     /// Disable image flip.
+    #[cfg(feature = "async")]
     fn disable_flip(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Disable image flip.
+    #[cfg(not(feature = "async"))]
+    fn disable_flip(&mut self) -> Result<(), Error>;
+
     /// Enable horizontal flip (mirror).
+    #[cfg(feature = "async")]
     fn enable_horizontal_flip(
         &self,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Enable horizontal flip (mirror).
+    #[cfg(not(feature = "async"))]
+    fn enable_horizontal_flip(&mut self) -> Result<(), Error>;
+
     /// Disable horizontal flip (mirror).
+    #[cfg(feature = "async")]
     fn disable_horizontal_flip(
         &self,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Disable horizontal flip (mirror).
+    #[cfg(not(feature = "async"))]
+    fn disable_horizontal_flip(&mut self) -> Result<(), Error>;
+
     /// Set contrast level.
-    async fn set_contrast(&mut self, level: ContrastLevel) -> Result<(), Error>;
+    #[cfg(feature = "async")]
+    fn set_contrast(
+        &mut self,
+        level: ContrastLevel,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
+
+    /// Set contrast level.
+    #[cfg(not(feature = "async"))]
+    fn set_contrast(&mut self, level: ContrastLevel) -> Result<(), Error>;
 
     /// Set sharpness level.
-    async fn set_sharpness(&mut self, level: SharpnessLevel) -> Result<(), Error>;
+    #[cfg(feature = "async")]
+    fn set_sharpness(
+        &mut self,
+        level: SharpnessLevel,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
+
+    /// Set sharpness level.
+    #[cfg(not(feature = "async"))]
+    fn set_sharpness(&mut self, level: SharpnessLevel) -> Result<(), Error>;
 
     /// Set sharpness mode (auto or manual).
-    async fn set_sharpness_mode(
+    #[cfg(feature = "async")]
+    fn set_sharpness_mode(
         &mut self,
         mode: crate::command::SharpnessMode,
-    ) -> Result<(), Error>;
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
+
+    /// Set sharpness mode (auto or manual).
+    #[cfg(not(feature = "async"))]
+    fn set_sharpness_mode(&mut self, mode: crate::command::SharpnessMode) -> Result<(), Error>;
 
     /// Reset sharpness to default.
+    #[cfg(feature = "async")]
     fn reset_sharpness(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Reset sharpness to default.
+    #[cfg(not(feature = "async"))]
+    fn reset_sharpness(&mut self) -> Result<(), Error>;
+
     /// Increase sharpness by one step.
+    #[cfg(feature = "async")]
     fn increase_sharpness(
         &self,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Increase sharpness by one step.
+    #[cfg(not(feature = "async"))]
+    fn increase_sharpness(&mut self) -> Result<(), Error>;
+
     /// Decrease sharpness by one step.
+    #[cfg(feature = "async")]
     fn decrease_sharpness(
         &self,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Decrease sharpness by one step.
+    #[cfg(not(feature = "async"))]
+    fn decrease_sharpness(&mut self) -> Result<(), Error>;
+
     /// Set saturation level.
-    async fn set_saturation(&mut self, level: SaturationLevel) -> Result<(), Error>;
+    #[cfg(feature = "async")]
+    fn set_saturation(
+        &mut self,
+        level: SaturationLevel,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
+
+    /// Set saturation level.
+    #[cfg(not(feature = "async"))]
+    fn set_saturation(&mut self, level: SaturationLevel) -> Result<(), Error>;
 
     /// Set hue level.
-    async fn set_hue(&mut self, level: HueLevel) -> Result<(), Error>;
+    #[cfg(feature = "async")]
+    fn set_hue(
+        &mut self,
+        level: HueLevel,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
+
+    /// Set hue level.
+    #[cfg(not(feature = "async"))]
+    fn set_hue(&mut self, level: HueLevel) -> Result<(), Error>;
 
     /// Set noise reduction 2D level.
+    #[cfg(feature = "async")]
     fn set_noise_reduction_2d(
         &self,
         level: NoiseReduction2DLevel,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Set noise reduction 2D level.
+    #[cfg(not(feature = "async"))]
+    fn set_noise_reduction_2d(&mut self, level: NoiseReduction2DLevel) -> Result<(), Error>;
+
     /// Disable noise reduction 2D.
+    #[cfg(feature = "async")]
     fn disable_noise_reduction_2d(
         &self,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Disable noise reduction 2D.
+    #[cfg(not(feature = "async"))]
+    fn disable_noise_reduction_2d(&mut self) -> Result<(), Error>;
+
     /// Set noise reduction 3D level.
+    #[cfg(feature = "async")]
     fn set_noise_reduction_3d(
         &self,
         level: NoiseReduction3DLevel,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
+    /// Set noise reduction 3D level.
+    #[cfg(not(feature = "async"))]
+    fn set_noise_reduction_3d(&mut self, level: NoiseReduction3DLevel) -> Result<(), Error>;
+
     /// Disable noise reduction 3D.
+    #[cfg(feature = "async")]
     fn disable_noise_reduction_3d(
         &self,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
-    /// Set image flip mode (combined horizontal and vertical).
-    async fn set_image_flip(&mut self, mode: ImageFlipMode) -> Result<(), Error>;
-
-    /// Set luminance (brightness) level.
-    async fn set_luminance(&mut self, level: LuminanceLevel) -> Result<(), Error>;
-
-    /// Enable image freeze.
-    /// Freezes the camera's video output on the last frame.
-    fn enable_freeze(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
-
-    /// Disable image freeze.
-    /// Resumes normal video output.
-    fn disable_freeze(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
-
-    /// Enable black and white mode.
-    /// Switches the camera output to monochrome (black and white).
-    fn enable_black_white(
-        &self,
-    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
-
-    /// Disable black and white mode.
-    /// Switches the camera output to color mode.
-    fn disable_black_white(
-        &self,
-    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
-
-    /// Set picture effect mode.
-    /// Controls various artistic effects like negative, sepia, sketch, etc.
-    /// Note that not all effects are supported on all camera models.
-    async fn set_picture_effect(&mut self, mode: PictureEffectMode) -> Result<(), Error>;
-}
-
-/// Image processing operations (blocking).
-pub trait ImageProcessingControlBlocking: Sized {
-    /// Enable image flip.
-    fn enable_flip(&mut self) -> Result<(), Error>;
-
-    /// Disable image flip.
-    fn disable_flip(&mut self) -> Result<(), Error>;
-
-    /// Enable horizontal flip (mirror).
-    fn enable_horizontal_flip(&mut self) -> Result<(), Error>;
-
-    /// Disable horizontal flip (mirror).
-    fn disable_horizontal_flip(&mut self) -> Result<(), Error>;
-
-    /// Set contrast level.
-    fn set_contrast(&mut self, level: ContrastLevel) -> Result<(), Error>;
-
-    /// Set sharpness level.
-    fn set_sharpness(&mut self, level: SharpnessLevel) -> Result<(), Error>;
-
-    /// Set sharpness mode (auto or manual).
-    fn set_sharpness_mode(&mut self, mode: crate::command::SharpnessMode) -> Result<(), Error>;
-
-    /// Reset sharpness to default.
-    fn reset_sharpness(&mut self) -> Result<(), Error>;
-
-    /// Increase sharpness by one step.
-    fn increase_sharpness(&mut self) -> Result<(), Error>;
-
-    /// Decrease sharpness by one step.
-    fn decrease_sharpness(&mut self) -> Result<(), Error>;
-
-    /// Set saturation level.
-    fn set_saturation(&mut self, level: SaturationLevel) -> Result<(), Error>;
-
-    /// Set hue level.
-    fn set_hue(&mut self, level: HueLevel) -> Result<(), Error>;
-
-    /// Set noise reduction 2D level.
-    fn set_noise_reduction_2d(&mut self, level: NoiseReduction2DLevel) -> Result<(), Error>;
-
-    /// Disable noise reduction 2D.
-    fn disable_noise_reduction_2d(&mut self) -> Result<(), Error>;
-
-    /// Set noise reduction 3D level.
-    fn set_noise_reduction_3d(&mut self, level: NoiseReduction3DLevel) -> Result<(), Error>;
-
     /// Disable noise reduction 3D.
+    #[cfg(not(feature = "async"))]
     fn disable_noise_reduction_3d(&mut self) -> Result<(), Error>;
 
     /// Set image flip mode (combined horizontal and vertical).
+    #[cfg(feature = "async")]
+    fn set_image_flip(
+        &mut self,
+        mode: ImageFlipMode,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
+
+    /// Set image flip mode (combined horizontal and vertical).
+    #[cfg(not(feature = "async"))]
     fn set_image_flip(&mut self, mode: ImageFlipMode) -> Result<(), Error>;
 
     /// Set luminance (brightness) level.
+    #[cfg(feature = "async")]
+    fn set_luminance(
+        &mut self,
+        level: LuminanceLevel,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
+
+    /// Set luminance (brightness) level.
+    #[cfg(not(feature = "async"))]
     fn set_luminance(&mut self, level: LuminanceLevel) -> Result<(), Error>;
 
     /// Enable image freeze.
     /// Freezes the camera's video output on the last frame.
+    #[cfg(feature = "async")]
+    fn enable_freeze(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
+
+    /// Enable image freeze.
+    /// Freezes the camera's video output on the last frame.
+    #[cfg(not(feature = "async"))]
     fn enable_freeze(&mut self) -> Result<(), Error>;
 
     /// Disable image freeze.
     /// Resumes normal video output.
+    #[cfg(feature = "async")]
+    fn disable_freeze(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
+
+    /// Disable image freeze.
+    /// Resumes normal video output.
+    #[cfg(not(feature = "async"))]
     fn disable_freeze(&mut self) -> Result<(), Error>;
 
     /// Enable black and white mode.
     /// Switches the camera output to monochrome (black and white).
+    #[cfg(feature = "async")]
+    fn enable_black_white(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
+
+    /// Enable black and white mode.
+    /// Switches the camera output to monochrome (black and white).
+    #[cfg(not(feature = "async"))]
     fn enable_black_white(&mut self) -> Result<(), Error>;
 
     /// Disable black and white mode.
     /// Switches the camera output to color mode.
+    #[cfg(feature = "async")]
+    fn disable_black_white(
+        &self,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
+
+    /// Disable black and white mode.
+    /// Switches the camera output to color mode.
+    #[cfg(not(feature = "async"))]
     fn disable_black_white(&mut self) -> Result<(), Error>;
 
     /// Set picture effect mode.
     /// Controls various artistic effects like negative, sepia, sketch, etc.
     /// Note that not all effects are supported on all camera models.
+    #[cfg(feature = "async")]
+    fn set_picture_effect(
+        &mut self,
+        mode: PictureEffectMode,
+    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
+
+    /// Set picture effect mode.
+    /// Controls various artistic effects like negative, sepia, sketch, etc.
+    /// Note that not all effects are supported on all camera models.
+    #[cfg(not(feature = "async"))]
     fn set_picture_effect(&mut self, mode: PictureEffectMode) -> Result<(), Error>;
 }
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P, T, E> ImageProcessingControl for crate::camera::Camera<crate::camera::AsyncMode, P, T, E>
+impl<P, Tr, Exec> ImageProcessingControl for crate::camera::AsyncCamera<P, Tr, Exec>
 where
-    P: crate::capabilities::Profile,
-    T: crate::transport::AsyncTransport + Send + Sync + 'static,
-    E: crate::executor::Executor,
+    P: crate::capabilities::Profile + Default,
+    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
+    Exec: crate::executor::Executor,
 {
     async fn enable_flip(&self) -> Result<(), Error> {
         let cmd = crate::command::flip::ImageFlip::new(crate::command::flip::Flip::On);
         self.send_command(&cmd).await?;
         Ok(())
     }
-
     async fn disable_flip(&self) -> Result<(), Error> {
         let cmd = crate::command::flip::ImageFlip::new(crate::command::flip::Flip::Off);
         self.send_command(&cmd).await?;
@@ -355,18 +417,16 @@ where
 
 // Blocking implementation
 #[cfg(not(feature = "async"))]
-impl<P, T> ImageProcessingControlBlocking
-    for crate::camera::Camera<crate::camera::BlockingMode, P, T, ()>
+impl<P, Tr> ImageProcessingControl for crate::camera::BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile + Default,
-    T: crate::transport::BlockingTransport + Send + 'static,
+    Tr: crate::transport::BlockingTransport + Send + 'static,
 {
     fn enable_flip(&mut self) -> Result<(), Error> {
         let cmd = crate::command::flip::ImageFlip::new(crate::command::flip::Flip::On);
         self.send_command(&cmd)?;
         Ok(())
     }
-
     fn disable_flip(&mut self) -> Result<(), Error> {
         let cmd = crate::command::flip::ImageFlip::new(crate::command::flip::Flip::Off);
         self.send_command(&cmd)?;

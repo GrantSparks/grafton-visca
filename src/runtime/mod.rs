@@ -85,6 +85,20 @@ impl RuntimeHandle {
         Self::with_tick_interval(transport, executor, None).await
     }
 
+    /// Create a new runtime handle with a transport and executor.
+    ///
+    /// This is an alias for `new` to match the expected API used by AsyncCamera.
+    #[cfg(feature = "async")]
+    pub async fn spawn_with_transport<
+        T: AsyncTransport + Send + 'static,
+        E: crate::executor::Executor,
+    >(
+        transport: T,
+        executor: E,
+    ) -> Result<Self> {
+        Self::new(transport, Arc::new(executor)).await
+    }
+
     /// Create a new camera runtime with a custom tick interval.
     ///
     /// The tick interval controls how often the runtime checks for timeouts
@@ -156,28 +170,6 @@ impl RuntimeHandle {
     ) -> Result<Self> {
         // Use native tokio UDP transport for raw VISCA
         let transport = crate::transport::tokio::udp::Udp::connect(address.as_ref()).await?;
-        Self::new(transport, executor).await
-    }
-
-    /// Create a new camera runtime with Sony TCP transport.
-    #[cfg(all(feature = "async", feature = "rt-tokio"))]
-    pub async fn new_tcp_sony<E: crate::executor::Executor>(
-        address: impl AsRef<str>,
-        executor: Arc<E>,
-    ) -> Result<Self> {
-        // Use native tokio Sony TCP transport
-        let transport = crate::transport::tokio::sony::Tcp::connect(address.as_ref()).await?;
-        Self::new(transport, executor).await
-    }
-
-    /// Create a new camera runtime with Sony UDP transport.
-    #[cfg(all(feature = "async", feature = "rt-tokio"))]
-    pub async fn new_udp_sony<E: crate::executor::Executor>(
-        address: impl AsRef<str>,
-        executor: Arc<E>,
-    ) -> Result<Self> {
-        // Use native tokio Sony UDP transport
-        let transport = crate::transport::tokio::sony::Udp::connect(address.as_ref()).await?;
         Self::new(transport, executor).await
     }
 
@@ -392,6 +384,74 @@ impl RuntimeHandle {
         let item = TxItem::Inquiry {
             id: 0, // Will be assigned by scheduler
             bytes: buffer,
+            response_type,
+            response_tx,
+        };
+
+        // Submit the inquiry
+        self.inquire(item).await?;
+
+        // Wait for response
+        response_rx
+            .recv_async()
+            .await
+            .map_err(|_| Error::ChannelClosed)?
+    }
+
+    /// Send a pre-framed command via the runtime.
+    ///
+    /// This method accepts bytes that have already been framed according to the
+    /// transport protocol (Raw VISCA or Sony encapsulated) and sends them directly.
+    /// Used by the unified async camera layer.
+    pub async fn send_command_framed(
+        &self,
+        framed_bytes: &[u8],
+        _camera_id: crate::camera_id::CameraId,
+        priority: Option<Priority>,
+        category: crate::timeout::CommandCategory,
+    ) -> Result<ViscaResponse> {
+        // Generate command ID
+        let command_id = self.next_command_id.fetch_add(1, Ordering::Relaxed);
+
+        // Create response channel
+        let (response_tx, response_rx) = flume::bounded(1);
+
+        // Create the TxItem with pre-framed bytes
+        let item = TxItem::Command {
+            id: command_id,
+            bytes: framed_bytes.to_vec(),
+            priority: priority.unwrap_or(Priority::Normal),
+            category,
+            response_tx,
+        };
+
+        // Submit the command
+        self.command(item).await?;
+
+        // Wait for response
+        response_rx
+            .recv_async()
+            .await
+            .map_err(|_| Error::ChannelClosed)?
+    }
+
+    /// Send a pre-framed inquiry via the runtime.
+    ///
+    /// This method accepts bytes that have already been framed according to the
+    /// transport protocol and sends them directly.
+    pub async fn send_inquiry_framed(
+        &self,
+        framed_bytes: &[u8],
+        _camera_id: crate::camera_id::CameraId,
+        response_type: Option<crate::command::response::ViscaResponseType>,
+    ) -> Result<ViscaResponse> {
+        // Create response channel
+        let (response_tx, response_rx) = flume::bounded(1);
+
+        // Create the TxItem with pre-framed bytes
+        let item = TxItem::Inquiry {
+            id: 0, // Will be assigned by scheduler
+            bytes: framed_bytes.to_vec(),
             response_type,
             response_tx,
         };

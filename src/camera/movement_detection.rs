@@ -16,14 +16,14 @@ use crate::{
 use crate::{executor::Executor, transport::AsyncTransport};
 
 #[cfg(feature = "async")]
-use super::AsyncMode;
+use super::AsyncCamera;
 #[cfg(not(feature = "async"))]
-use super::BlockingMode;
-use super::{Camera, MovementConfig, PanTiltPosition};
+use super::BlockingCamera;
+use super::{MovementConfig, PanTiltPosition};
 
 // Blocking mode implementation is only available without async feature
 #[cfg(not(feature = "async"))]
-impl<P, T> Camera<BlockingMode, P, T, ()>
+impl<P, T> BlockingCamera<P, T>
 where
     P: Profile + ProfileMetadata + Default,
     T: BlockingTransport,
@@ -348,10 +348,10 @@ where
 }
 
 #[cfg(feature = "async")]
-impl<P, T, E> Camera<AsyncMode, P, T, E>
+impl<P, T, E> AsyncCamera<P, T, E>
 where
     P: Profile + ProfileMetadata + Default,
-    T: AsyncTransport + 'static,
+    T: AsyncTransport + Send + Sync + 'static,
     E: Executor,
 {
     /// Wait for any movement operation to complete (async version).
@@ -370,7 +370,7 @@ where
 
             // Try to wait for completion message
             // Respect MovementConfig timeout when waiting for completion
-            match self.wait_for_completion_with_timeout(config.timeout).await {
+            match self.wait_for_movement_internal(config).await {
                 Ok(()) => {
                     if config.debug {
                         tracing::debug!("Movement completed (received operation complete message)");
@@ -591,6 +591,58 @@ where
         }
     }
 
+    /// Wait for a command completion message or idle state with a custom timeout (async version).
+    ///
+    /// This mirrors the blocking API and provides a convenient entry point for
+    /// movement waits in async mode.
+    pub async fn wait_for_completion_with_timeout(&self, timeout: Duration) -> Result<(), Error> {
+        let config = MovementConfig {
+            timeout,
+            debug: false,
+        };
+        self.wait_for_movement_internal(&config).await
+    }
+
+    /// Internal helper for movement detection that doesn't call public APIs.
+    async fn wait_for_movement_internal(&self, config: &MovementConfig) -> Result<(), Error> {
+        // Check if camera supports operation complete messages
+        if P::SUPPORTS_OPERATION_COMPLETE {
+            if config.debug {
+                tracing::debug!(
+                    "Using event-driven movement detection (camera supports completion messages)"
+                );
+            }
+            // For cameras that support operation complete messages,
+            // we can use the runtime's completion listener
+            // This will be implemented when we have the runtime event system
+            return Err(Error::InvalidState(
+                "Event-driven movement detection not yet implemented".into(),
+            ));
+        }
+
+        // Fall back to state querying for all other cameras
+        if config.debug {
+            tracing::debug!("Using state-query movement detection (fallback mode)");
+        }
+
+        let start = Instant::now();
+        let executor = self.executor();
+
+        // Loop until timeout checking if camera has stopped moving
+        while start.elapsed() < config.timeout {
+            // Check if we're still moving
+            let moving = self.is_moving_async().await?;
+            if !moving {
+                return Ok(());
+            }
+
+            // Wait a bit before checking again
+            executor.sleep(Duration::from_millis(100)).await;
+        }
+
+        Err(Error::Timeout)
+    }
+
     /// Wait for all movements to complete (async version).
     ///
     /// Convenience method that waits for all motors (pan/tilt, zoom, focus) to stop.
@@ -599,7 +651,7 @@ where
             timeout,
             debug: false,
         };
-        self.wait_for_movement_async(&config).await
+        self.wait_for_movement_internal(&config).await
     }
 
     /// Check if the camera is currently moving (async version).

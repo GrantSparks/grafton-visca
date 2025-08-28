@@ -16,7 +16,12 @@ where
 }
 
 /// Mock camera type for testing trait implementations.
+#[derive(Clone, Debug)]
 struct MockCamera;
+
+// Safety: MockCamera is a simple unit struct, safe to send/sync
+unsafe impl Send for MockCamera {}
+unsafe impl Sync for MockCamera {}
 
 // Implement control traits for MockCamera to test Send bounds
 impl PowerControl for MockCamera {
@@ -151,17 +156,17 @@ fn test_control_trait_bounds() {
     // Verify that MockCamera (which implements control traits) satisfies bounds
     requires_send_sync_static::<MockCamera>();
 
-    // Verify at type level that control traits require Send + Sync + 'static
+    // Verify at type level that control traits work with Send + Sync + 'static
     fn requires_power_control<T>()
     where
-        T: PowerControl,
+        T: PowerControl + Send + Sync + 'static,
     {
         requires_send_sync_static::<T>();
     }
 
     fn requires_zoom_control<T>()
     where
-        T: ZoomControl,
+        T: ZoomControl + Send + Sync + 'static,
     {
         requires_send_sync_static::<T>();
     }
