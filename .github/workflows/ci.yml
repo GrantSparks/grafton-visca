@@ -430,12 +430,12 @@ jobs:
           cargo test --no-default-features --features async,${{ matrix.runtime }},test-utils \
             --test connect_dyn_builders_test
       
-      # Test that multiple runtime features fail to compile (compile-time guards)
-      - name: Test compile-time runtime guards (${{ matrix.runtime }})
+      # Test that multiple runtime features can coexist (runtime coexistence)
+      - name: Test runtime coexistence (${{ matrix.runtime }})
         run: |
-          echo "Testing that multiple runtime features fail to compile..."
+          echo "Testing that multiple runtime features can coexist..."
           
-          # Test that combining this runtime with another fails
+          # Test that combining this runtime with another succeeds (coexistence)
           case "${{ matrix.runtime }}" in
             "rt-tokio")
               other_runtime="rt-async-std"
@@ -449,10 +449,10 @@ jobs:
           esac
           
           if cargo check --no-default-features --features async,${{ matrix.runtime }},$other_runtime 2>/dev/null; then
-            echo "ERROR: Multiple runtime features should fail to compile"
-            exit 1
+            echo "✅ Runtime coexistence working correctly for ${{ matrix.runtime }} + $other_runtime"
           else
-            echo "✅ Compile-time guard working correctly for ${{ matrix.runtime }} + $other_runtime"
+            echo "ERROR: Multiple runtime features should be able to coexist"
+            exit 1
           fi
 
   # Semver compatibility check
