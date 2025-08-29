@@ -27,10 +27,9 @@
 
 use std::time::Duration;
 
-use crate::transport::buffer::BufferConfig;
 #[cfg(not(feature = "async"))]
 use crate::transport::BlockingTransport;
-use crate::transport::RetryConfig;
+use crate::transport::{buffer::BufferConfig, RetryConfig};
 #[cfg(any(
     not(feature = "async"),
     feature = "rt-tokio",

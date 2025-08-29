@@ -10,12 +10,11 @@ pub use scheduler::SocketId;
 pub use scheduler::{MetricsSummary, Priority};
 
 #[cfg(feature = "async")]
-use {
-    flume::{Receiver, Sender},
-    futures_lite,
-    scheduler::{RxEvent, Scheduler, SchedulerMetrics, TxItem, ViscaError},
-    tracing::{debug, error, instrument, trace, warn},
-};
+use flume::{Receiver, Sender};
+#[cfg(feature = "async")]
+use futures_lite;
+#[cfg(feature = "async")]
+use tracing::{debug, error, instrument, trace, warn};
 
 #[cfg(feature = "async")]
 use std::sync::{
@@ -30,6 +29,8 @@ use crate::{
     timeout::TimeoutConfig,
     transport::AsyncTransport,
 };
+#[cfg(feature = "async")]
+use scheduler::{RxEvent, Scheduler, SchedulerMetrics, TxItem, ViscaError};
 
 /// Helper function to spawn runtime tasks properly for different executor types.
 #[cfg(feature = "async")]
@@ -1220,21 +1221,15 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
                     let category = scheduler
                         .get_command_for_retry(cmd_id)
                         .map(|(_, _, cat)| cat);
-                    // let retryable = error.is_retryable(category);
-                    // debug!("[handle_response] Socket error - Command {} category {:?}, error {:?}, retryable: {}",
-                    //     cmd_id, category, error, retryable);
                     error.is_retryable(category)
                 } else {
-                    // debug!("[handle_response] Socket error but no command found for socket");
                     false
                 }
             } else {
-                // debug!("[handle_response] No socket specified in error");
                 false
             };
 
             if should_retry {
-                // debug!("[handle_response] Will retry error: {:?}", error);
                 if let Some(sock) = socket {
                     if let Some(cmd_id) = scheduler.socket_command(sock) {
                         debug!(
