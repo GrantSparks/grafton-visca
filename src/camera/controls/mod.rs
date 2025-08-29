@@ -17,6 +17,7 @@ pub mod presets;
 pub mod streaming;
 pub mod system;
 pub mod tally;
+pub mod unified_power;
 pub mod variable_speed;
 pub mod white_balance;
 pub mod zoom;
