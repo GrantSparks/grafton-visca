@@ -11,7 +11,7 @@ use std::borrow::Cow;
 // Workspace / local-crate imports
 use crate::{
     command::{
-        image_adjustment::{BlackWhiteMode, NrMode, NrSpeed, SharpnessMode},
+        image::{BlackWhiteMode, NrMode, NrSpeed, SharpnessMode},
         system::{MotionSyncMode, MotionSyncSpeed},
         AutoFocusSensitivity, AutoWhiteBalanceSensitivity, ExposureMode, FocusMode, FocusZone,
         InquiryResponse, WhiteBalanceMode,
@@ -1940,7 +1940,7 @@ pub fn parse_focus_range(data: &[u8]) -> Result<InquiryResponse, Error> {
 #[allow(clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;
-    use crate::command::const_encoding::VISCA_TERMINATOR;
+    use crate::command::bytes::VISCA_TERMINATOR;
 
     #[test]
     fn test_response_debug() {

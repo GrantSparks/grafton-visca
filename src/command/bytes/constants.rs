@@ -490,7 +490,7 @@ pub mod system_cmd {
 #[allow(clippy::unwrap_used)]
 mod validation_tests {
     use super::*;
-    use crate::command::const_encoding::VISCA_TERMINATOR;
+    use crate::command::bytes::VISCA_TERMINATOR;
 
     /// This test validates that all constants are correctly formed at compile time.
     /// The visca_bytes! and visca_prefix! macros already perform compile-time validation,
@@ -676,7 +676,7 @@ mod validation_tests {
     #[test]
     fn test_constant_usage_in_commands() {
         use crate::camera_id::CameraId;
-        use crate::command::encode_visca::EncodeVisca;
+        use crate::command::encode_visca::ViscaEncode;
 
         // Test gain commands use constants
         let mut buffer = [0u8; 32];

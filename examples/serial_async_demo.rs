@@ -12,7 +12,7 @@
 //! 3. Send some basic commands to verify operation
 
 use grafton_visca::{
-    camera::methods::inquiry::InquiryControl,
+    camera::controls::inquiry::InquiryControl,
     camera::profiles::GenericVisca,
     transport::serial_async::{AsyncSerialConfig, AsyncSerialTransport},
     CameraBuilder, Error,

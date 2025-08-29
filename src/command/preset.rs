@@ -4,9 +4,7 @@
 //! `PtzOptics` G2 cameras support up to 90 presets (0-89).
 
 use crate::{
-    command::{
-        const_encoding::builder::ConstCommandBuilder, encode_visca::EncodeVisca, ViscaResponseType,
-    },
+    command::{bytes::builder::ConstCommandBuilder, encode_visca::ViscaEncode, ViscaResponseType},
     error::Error,
     timeout::CommandCategory,
 };
@@ -49,7 +47,7 @@ pub(crate) struct PresetCommand {
 
 impl PresetCommand {}
 
-impl EncodeVisca for PresetCommand {
+impl ViscaEncode for PresetCommand {
     type ViscaResponse = ();
     const MAX_SIZE: usize = 7;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Preset;
@@ -59,7 +57,7 @@ impl EncodeVisca for PresetCommand {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::const_encoding::constants::preset;
+        use crate::command::bytes::constants::preset;
 
         ConstCommandBuilder::<7>::from_prefix(preset::CONTROL_PREFIX)
             .with_camera_id(camera_id)
@@ -77,7 +75,7 @@ impl EncodeVisca for PresetCommand {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
-    use crate::command::const_encoding::VISCA_TERMINATOR;
+    use crate::command::bytes::VISCA_TERMINATOR;
     use crate::macros::test_utils::visca_test;
 
     #[test]

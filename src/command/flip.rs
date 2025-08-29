@@ -22,13 +22,13 @@ visca_command! {
         /// Enable image flip.
         On => {
             Ok(ConstCommandBuilder::<16>::new()
-                .append(crate::command::const_encoding::constants::flip::PREFIX)
+                .append(crate::command::bytes::constants::flip::PREFIX)
                 .push(0x02))
         },
         /// Disable image flip.
         Off => {
             Ok(ConstCommandBuilder::<16>::new()
-                .append(crate::command::const_encoding::constants::flip::PREFIX)
+                .append(crate::command::bytes::constants::flip::PREFIX)
                 .push(0x03))
         },
     }
@@ -62,13 +62,13 @@ visca_command! {
         /// Enable horizontal flip (mirror).
         On => {
             Ok(ConstCommandBuilder::<16>::new()
-                .append(crate::command::const_encoding::constants::flip::HFLIP_PREFIX)
+                .append(crate::command::bytes::constants::flip::HFLIP_PREFIX)
                 .push(0x02))
         },
         /// Disable horizontal flip (mirror).
         Off => {
             Ok(ConstCommandBuilder::<16>::new()
-                .append(crate::command::const_encoding::constants::flip::HFLIP_PREFIX)
+                .append(crate::command::bytes::constants::flip::HFLIP_PREFIX)
                 .push(0x03))
         },
     }
@@ -102,13 +102,13 @@ visca_command! {
         /// Enable image freeze.
         On => {
             Ok(ConstCommandBuilder::<16>::new()
-                .append(crate::command::const_encoding::constants::flip::FREEZE_PREFIX)
+                .append(crate::command::bytes::constants::flip::FREEZE_PREFIX)
                 .push(0x02))
         },
         /// Disable image freeze.
         Off => {
             Ok(ConstCommandBuilder::<16>::new()
-                .append(crate::command::const_encoding::constants::flip::FREEZE_PREFIX)
+                .append(crate::command::bytes::constants::flip::FREEZE_PREFIX)
                 .push(0x03))
         },
     }
@@ -132,9 +132,9 @@ impl ImageFreezeCommand {
 )]
 mod tests {
     use super::*;
-    use crate::command::const_encoding::VISCA_TERMINATOR;
+    use crate::command::bytes::VISCA_TERMINATOR;
     use crate::macros::test_utils::visca_test;
-    use crate::{command::encode_visca::EncodeVisca, timeout::CommandCategory};
+    use crate::{command::encode_visca::ViscaEncode, timeout::CommandCategory};
 
     visca_test!(
         ImageFlip,
@@ -228,7 +228,7 @@ mod tests {
 
     #[test]
     fn test_command_trait_impl() {
-        // Verify ImageFlip implements EncodeVisca trait
+        // Verify ImageFlip implements ViscaEncode trait
         let cmd = ImageFlip::new(Flip::On);
         assert!(cmd
             .try_into_vec(crate::camera_id::CameraId::CAMERA_1)

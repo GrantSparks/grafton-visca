@@ -6,7 +6,7 @@
 
 #![cfg(feature = "async")]
 
-use grafton_visca::camera::methods::{power::PowerControl, zoom::ZoomControl};
+use grafton_visca::camera::controls::{power::PowerControl, zoom::ZoomControl};
 
 /// Helper function to assert that a future is Send.
 fn assert_send<F>(_f: F)

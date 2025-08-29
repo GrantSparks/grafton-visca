@@ -22,7 +22,7 @@
 //! ```
 
 use crate::{
-    command::{const_encoding::ConstCommandBuilder, encode_visca::EncodeVisca, ViscaResponseType},
+    command::{bytes::ConstCommandBuilder, encode_visca::ViscaEncode, ViscaResponseType},
     error::Error,
     timeout::CommandCategory,
     types::{SpeedLevel, ZoomPosition},
@@ -71,7 +71,7 @@ pub enum Zoom {
 
 impl Zoom {}
 
-impl EncodeVisca for Zoom {
+impl ViscaEncode for Zoom {
     type ViscaResponse = ();
     const MAX_SIZE: usize = 10;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
@@ -81,7 +81,7 @@ impl EncodeVisca for Zoom {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::const_encoding::constants::zoom;
+        use crate::command::bytes::constants::zoom;
 
         match self {
             Self::Stop => {
@@ -153,7 +153,7 @@ impl DigitalZoom {
     }
 }
 
-impl EncodeVisca for DigitalZoom {
+impl ViscaEncode for DigitalZoom {
     type ViscaResponse = ();
     const MAX_SIZE: usize = 6;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
@@ -163,7 +163,7 @@ impl EncodeVisca for DigitalZoom {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::const_encoding::constants::zoom::DIGITAL_ZOOM_PREFIX;
+        use crate::command::bytes::constants::zoom::DIGITAL_ZOOM_PREFIX;
 
         let builder = ConstCommandBuilder::<6>::from_prefix(DIGITAL_ZOOM_PREFIX)
             .with_camera_id(camera_id)

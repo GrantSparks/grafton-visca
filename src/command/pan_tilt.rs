@@ -28,7 +28,7 @@
 //! ```
 
 use crate::{
-    command::{const_encoding::ConstCommandBuilder, encode_visca::EncodeVisca, ViscaResponseType},
+    command::{bytes::ConstCommandBuilder, encode_visca::ViscaEncode, ViscaResponseType},
     error::Error,
     timeout::CommandCategory,
     types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed},
@@ -111,7 +111,7 @@ impl PanTiltDirection {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::command::const_encoding::VISCA_TERMINATOR;
+    use crate::command::bytes::VISCA_TERMINATOR;
     use crate::macros::test_utils::visca_test;
 
     visca_test!(
@@ -240,7 +240,7 @@ impl PanTilt {
     // ```
 }
 
-impl EncodeVisca for PanTilt {
+impl ViscaEncode for PanTilt {
     type ViscaResponse = ();
     const MAX_SIZE: usize = 15;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
@@ -250,7 +250,7 @@ impl EncodeVisca for PanTilt {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::const_encoding::constants::pan_tilt;
+        use crate::command::bytes::constants::pan_tilt;
 
         match self {
             Self::Home => {

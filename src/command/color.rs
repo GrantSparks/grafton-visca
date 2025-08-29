@@ -5,8 +5,8 @@
 
 use crate::{
     command::{
-        const_encoding::{ConstCommandBuilder, VISCA_TERMINATOR},
-        encode_visca::EncodeVisca,
+        bytes::{ConstCommandBuilder, VISCA_TERMINATOR},
+        encode_visca::ViscaEncode,
         response::ViscaResponseType,
     },
     error::Error,
@@ -45,7 +45,7 @@ visca_builder! {
         let encoded = level_offset as u8;
 
         builder
-            .append(crate::command::const_encoding::constants::color::RED_GAIN_DIRECT_PREFIX)
+            .append(crate::command::bytes::constants::color::RED_GAIN_DIRECT_PREFIX)
             .push(0x00) // High nibble always 0 for range 0x00-0x14
             .push(encoded)
     }
@@ -78,7 +78,7 @@ visca_builder! {
         let encoded = level_offset as u8;
 
         builder
-            .append(crate::command::const_encoding::constants::color::BLUE_GAIN_DIRECT_PREFIX)
+            .append(crate::command::bytes::constants::color::BLUE_GAIN_DIRECT_PREFIX)
             .push(0x00) // High nibble always 0 for range 0x00-0x14
             .push(encoded)
     }
@@ -104,7 +104,7 @@ visca_builder! {
     }
     builder<9> => |builder, level| {
         builder
-            .append(crate::command::const_encoding::constants::color::SATURATION_PREFIX)
+            .append(crate::command::bytes::constants::color::SATURATION_PREFIX)
             .push(level.value())
     }
     timeout = Quick;
@@ -129,7 +129,7 @@ visca_builder! {
     }
     builder<9> => |builder, level| {
         builder
-            .append(crate::command::const_encoding::constants::color::HUE_PREFIX)
+            .append(crate::command::bytes::constants::color::HUE_PREFIX)
             .push(level.value())
     }
     timeout = Quick;
@@ -161,7 +161,7 @@ pub enum ColorTemperature {
     SetTemperature(crate::types::ColorTemp),
 }
 
-impl EncodeVisca for ColorTemperature {
+impl ViscaEncode for ColorTemperature {
     type ViscaResponse = ();
     const MAX_SIZE: usize = 8;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
@@ -174,7 +174,7 @@ impl EncodeVisca for ColorTemperature {
         match self {
             ColorTemperature::Reset => {
                 let builder = ConstCommandBuilder::<6>::from_prefix(
-                    crate::command::const_encoding::constants::color::TEMPERATURE_PREFIX,
+                    crate::command::bytes::constants::color::TEMPERATURE_PREFIX,
                 )
                 .with_camera_id(camera_id)
                 .push(0x00);
@@ -182,7 +182,7 @@ impl EncodeVisca for ColorTemperature {
             }
             ColorTemperature::Up => {
                 let builder = ConstCommandBuilder::<6>::from_prefix(
-                    crate::command::const_encoding::constants::color::TEMPERATURE_PREFIX,
+                    crate::command::bytes::constants::color::TEMPERATURE_PREFIX,
                 )
                 .with_camera_id(camera_id)
                 .push(0x02);
@@ -190,7 +190,7 @@ impl EncodeVisca for ColorTemperature {
             }
             ColorTemperature::Down => {
                 let builder = ConstCommandBuilder::<6>::from_prefix(
-                    crate::command::const_encoding::constants::color::TEMPERATURE_PREFIX,
+                    crate::command::bytes::constants::color::TEMPERATURE_PREFIX,
                 )
                 .with_camera_id(camera_id)
                 .push(0x03);
@@ -198,7 +198,7 @@ impl EncodeVisca for ColorTemperature {
             }
             ColorTemperature::SetTemperature(temp) => {
                 let builder = ConstCommandBuilder::<7>::from_prefix(
-                    crate::command::const_encoding::constants::color::TEMPERATURE_PREFIX,
+                    crate::command::bytes::constants::color::TEMPERATURE_PREFIX,
                 )
                 .with_camera_id(camera_id)
                 .push_nibble_pair(temp.value());
@@ -230,7 +230,7 @@ pub enum RedGain {
     SetValue(crate::types::RedChannel),
 }
 
-impl EncodeVisca for RedGain {
+impl ViscaEncode for RedGain {
     type ViscaResponse = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
@@ -243,21 +243,21 @@ impl EncodeVisca for RedGain {
         match self {
             RedGain::Reset => {
                 let mut builder = ConstCommandBuilder::<6>::from_prefix(
-                    crate::command::const_encoding::constants::color::RED_GAIN_CONTROL_PREFIX,
+                    crate::command::bytes::constants::color::RED_GAIN_CONTROL_PREFIX,
                 );
                 builder = builder.with_camera_id(camera_id).push(0x00);
                 builder.build_into(buffer)
             }
             RedGain::Up => {
                 let mut builder = ConstCommandBuilder::<6>::from_prefix(
-                    crate::command::const_encoding::constants::color::RED_GAIN_CONTROL_PREFIX,
+                    crate::command::bytes::constants::color::RED_GAIN_CONTROL_PREFIX,
                 );
                 builder = builder.with_camera_id(camera_id).push(0x02);
                 builder.build_into(buffer)
             }
             RedGain::Down => {
                 let mut builder = ConstCommandBuilder::<6>::from_prefix(
-                    crate::command::const_encoding::constants::color::RED_GAIN_CONTROL_PREFIX,
+                    crate::command::bytes::constants::color::RED_GAIN_CONTROL_PREFIX,
                 );
                 builder = builder.with_camera_id(camera_id).push(0x03);
                 builder.build_into(buffer)
@@ -265,7 +265,7 @@ impl EncodeVisca for RedGain {
             RedGain::SetValue(value) => {
                 // Note: different command byte 0x43 for direct setting
                 let builder = ConstCommandBuilder::<9>::from_prefix(
-                    crate::command::const_encoding::constants::color::RED_GAIN_DIRECT_PREFIX,
+                    crate::command::bytes::constants::color::RED_GAIN_DIRECT_PREFIX,
                 )
                 .with_camera_id(camera_id)
                 .push_nibble_pair(u16::from(value.value()));
@@ -297,7 +297,7 @@ pub enum BlueGain {
     SetValue(crate::types::BlueChannel),
 }
 
-impl EncodeVisca for BlueGain {
+impl ViscaEncode for BlueGain {
     type ViscaResponse = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
@@ -310,7 +310,7 @@ impl EncodeVisca for BlueGain {
         match self {
             BlueGain::Reset => {
                 let builder = ConstCommandBuilder::<6>::from_prefix(
-                    crate::command::const_encoding::constants::color::BLUE_GAIN_CONTROL_PREFIX,
+                    crate::command::bytes::constants::color::BLUE_GAIN_CONTROL_PREFIX,
                 )
                 .with_camera_id(camera_id)
                 .push(0x00);
@@ -318,7 +318,7 @@ impl EncodeVisca for BlueGain {
             }
             BlueGain::Up => {
                 let builder = ConstCommandBuilder::<6>::from_prefix(
-                    crate::command::const_encoding::constants::color::BLUE_GAIN_CONTROL_PREFIX,
+                    crate::command::bytes::constants::color::BLUE_GAIN_CONTROL_PREFIX,
                 )
                 .with_camera_id(camera_id)
                 .push(0x02);
@@ -326,7 +326,7 @@ impl EncodeVisca for BlueGain {
             }
             BlueGain::Down => {
                 let builder = ConstCommandBuilder::<6>::from_prefix(
-                    crate::command::const_encoding::constants::color::BLUE_GAIN_CONTROL_PREFIX,
+                    crate::command::bytes::constants::color::BLUE_GAIN_CONTROL_PREFIX,
                 )
                 .with_camera_id(camera_id)
                 .push(0x03);
@@ -335,7 +335,7 @@ impl EncodeVisca for BlueGain {
             BlueGain::SetValue(value) => {
                 // Note: different command byte 0x44 for direct setting
                 let builder = ConstCommandBuilder::<9>::from_prefix(
-                    crate::command::const_encoding::constants::color::BLUE_GAIN_DIRECT_PREFIX,
+                    crate::command::bytes::constants::color::BLUE_GAIN_DIRECT_PREFIX,
                 )
                 .with_camera_id(camera_id)
                 .push_nibble_pair(u16::from(value.value()));
@@ -357,7 +357,7 @@ impl EncodeVisca for BlueGain {
 )]
 mod tests {
     use super::*;
-    use crate::command::encode_visca::EncodeVisca;
+    use crate::command::encode_visca::ViscaEncode;
     use crate::constants::CameraVariant;
     use crate::macros::test_utils::visca_test;
 

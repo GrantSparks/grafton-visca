@@ -4,7 +4,7 @@
 
 use crate::macros::internal::*;
 
-use crate::command::const_encoding::constants;
+use crate::command::bytes::constants;
 
 visca_command! {
     /// Command to control camera power state.
@@ -26,7 +26,7 @@ visca_command! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command::const_encoding::VISCA_TERMINATOR;
+    use crate::command::bytes::VISCA_TERMINATOR;
     use crate::macros::test_utils::visca_test;
 
     visca_test!(

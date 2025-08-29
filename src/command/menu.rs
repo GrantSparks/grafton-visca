@@ -4,7 +4,7 @@
 //! allowing remote navigation and configuration. These commands are particularly useful
 //! for Sony FR7 and other cameras with comprehensive on-screen menus.
 
-use crate::{command::const_encoding::constants, macros::internal::*};
+use crate::{command::bytes::constants, macros::internal::*};
 
 visca_bool_command! {
     /// Menu display control command.
@@ -140,7 +140,7 @@ impl DirectMenuControl {
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use crate::command::const_encoding::VISCA_TERMINATOR;
+    use crate::command::bytes::VISCA_TERMINATOR;
     use crate::macros::test_utils::visca_test;
 
     visca_test!(

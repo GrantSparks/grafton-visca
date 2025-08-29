@@ -290,13 +290,13 @@ where
     }
 
     async fn set_contrast(&mut self, level: ContrastLevel) -> Result<(), Error> {
-        let cmd = crate::command::image_adjustment::Contrast::new(level);
+        let cmd = crate::command::image::Contrast::new(level);
         self.send_command(&cmd).await?;
         Ok(())
     }
 
     async fn set_sharpness(&mut self, level: SharpnessLevel) -> Result<(), Error> {
-        let cmd = crate::command::image_adjustment::Sharpness::SetLevel {
+        let cmd = crate::command::image::Sharpness::SetLevel {
             value: level.value(),
         };
         self.send_command(&cmd).await?;
@@ -313,19 +313,19 @@ where
     }
 
     async fn reset_sharpness(&self) -> Result<(), Error> {
-        let cmd = crate::command::image_adjustment::Sharpness::Reset;
+        let cmd = crate::command::image::Sharpness::Reset;
         self.send_command(&cmd).await?;
         Ok(())
     }
 
     async fn increase_sharpness(&self) -> Result<(), Error> {
-        let cmd = crate::command::image_adjustment::Sharpness::Up;
+        let cmd = crate::command::image::Sharpness::Up;
         self.send_command(&cmd).await?;
         Ok(())
     }
 
     async fn decrease_sharpness(&self) -> Result<(), Error> {
-        let cmd = crate::command::image_adjustment::Sharpness::Down;
+        let cmd = crate::command::image::Sharpness::Down;
         self.send_command(&cmd).await?;
         Ok(())
     }
@@ -375,7 +375,7 @@ where
     }
 
     async fn set_luminance(&mut self, level: LuminanceLevel) -> Result<(), Error> {
-        let cmd = crate::command::image_adjustment::Luminance::new(level);
+        let cmd = crate::command::image::Luminance::new(level);
         self.send_command(&cmd).await?;
         Ok(())
     }
@@ -450,13 +450,13 @@ where
     }
 
     fn set_contrast(&mut self, level: ContrastLevel) -> Result<(), Error> {
-        let cmd = crate::command::image_adjustment::Contrast::new(level);
+        let cmd = crate::command::image::Contrast::new(level);
         self.send_command(&cmd)?;
         Ok(())
     }
 
     fn set_sharpness(&mut self, level: SharpnessLevel) -> Result<(), Error> {
-        let cmd = crate::command::image_adjustment::Sharpness::SetLevel {
+        let cmd = crate::command::image::Sharpness::SetLevel {
             value: level.value(),
         };
         self.send_command(&cmd)?;
@@ -470,19 +470,19 @@ where
     }
 
     fn reset_sharpness(&mut self) -> Result<(), Error> {
-        let cmd = crate::command::image_adjustment::Sharpness::Reset;
+        let cmd = crate::command::image::Sharpness::Reset;
         self.send_command(&cmd)?;
         Ok(())
     }
 
     fn increase_sharpness(&mut self) -> Result<(), Error> {
-        let cmd = crate::command::image_adjustment::Sharpness::Up;
+        let cmd = crate::command::image::Sharpness::Up;
         self.send_command(&cmd)?;
         Ok(())
     }
 
     fn decrease_sharpness(&mut self) -> Result<(), Error> {
-        let cmd = crate::command::image_adjustment::Sharpness::Down;
+        let cmd = crate::command::image::Sharpness::Down;
         self.send_command(&cmd)?;
         Ok(())
     }
@@ -532,7 +532,7 @@ where
     }
 
     fn set_luminance(&mut self, level: LuminanceLevel) -> Result<(), Error> {
-        let cmd = crate::command::image_adjustment::Luminance::new(level);
+        let cmd = crate::command::image::Luminance::new(level);
         self.send_command(&cmd)?;
         Ok(())
     }

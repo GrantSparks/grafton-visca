@@ -17,12 +17,12 @@
 // (none)
 
 // Workspace / local-crate imports
-use crate::command::const_encoding::VISCA_TERMINATOR;
+use crate::command::bytes::VISCA_TERMINATOR;
 use crate::macros::internal::*;
 
 use grafton_visca_macros::ViscaEnum;
 
-use crate::command::const_encoding::constants;
+use crate::command::bytes::constants;
 
 visca_const_command! {
     /// Command to set camera address (broadcast, serial only).
@@ -112,7 +112,7 @@ impl CommandCancelCommand {
 mod tests {
     use super::*;
     use crate::macros::test_utils::visca_test;
-    use crate::{command::encode_visca::EncodeVisca, timeout::CommandCategory};
+    use crate::{command::encode_visca::ViscaEncode, timeout::CommandCategory};
 
     visca_test!(
         AddressSetCommand,

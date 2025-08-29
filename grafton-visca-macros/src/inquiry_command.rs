@@ -66,7 +66,7 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
             );
 
             let expanded = quote! {
-                impl #crate_path::command::EncodeVisca for #struct_name {
+                impl #crate_path::command::ViscaEncode for #struct_name {
                     type ViscaResponse = #crate_path::command::InquiryResponse;
                     const MAX_SIZE: usize = 5;
 

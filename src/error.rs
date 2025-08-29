@@ -372,7 +372,7 @@ impl From<Infallible> for Error {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
-    use crate::command::const_encoding::VISCA_TERMINATOR;
+    use crate::command::bytes::VISCA_TERMINATOR;
 
     #[test]
     fn test_visca_error_from_code() {

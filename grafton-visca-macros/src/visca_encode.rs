@@ -5,7 +5,7 @@ use syn::{Data, DataEnum, DataStruct, DeriveInput, Fields, Ident};
 
 /// Implementation of the ViscaEncode derive macro.
 ///
-/// This generates the EncodeVisca trait implementation for structs and enums,
+/// This generates the ViscaEncode trait implementation for structs and enums,
 /// eliminating boilerplate for VISCA command encoding.
 pub fn derive_visca_encode_impl(input: DeriveInput) -> TokenStream {
     let name = input.ident;
@@ -26,7 +26,7 @@ pub fn derive_visca_encode_impl(input: DeriveInput) -> TokenStream {
 
     // Use crate:: for internal usage
     quote! {
-        impl #impl_generics crate::command::encode_visca::EncodeVisca for #name #ty_generics #where_clause {
+        impl #impl_generics crate::command::encode_visca::ViscaEncode for #name #ty_generics #where_clause {
             #implementation
         }
     }
@@ -104,7 +104,7 @@ fn generate_struct_impl(
         // If a prefix is provided, use it as the base
         let prefix_bytes = prefix.iter().map(|b| quote! { #b });
         quote! {
-            let mut builder = crate::command::const_encoding::ConstCommandBuilder::<#max_size>::new();
+            let mut builder = crate::command::bytes::ConstCommandBuilder::<#max_size>::new();
             #(builder = builder.push(#prefix_bytes);)*
 
             // Add any dynamic fields here
@@ -145,7 +145,7 @@ fn generate_struct_encoding(data_struct: &DataStruct) -> TokenStream {
         Fields::Named(_fields) => {
             quote! {
                 // TODO: Generate encoding based on named fields
-                let builder = crate::command::const_encoding::ConstCommandBuilder::<32>::new();
+                let builder = crate::command::bytes::ConstCommandBuilder::<32>::new();
                 let terminated = builder.with_camera_id(camera_id).terminate();
                 terminated.build_into(buffer)
             }
@@ -153,7 +153,7 @@ fn generate_struct_encoding(data_struct: &DataStruct) -> TokenStream {
         Fields::Unnamed(_fields) => {
             quote! {
                 // TODO: Generate encoding based on unnamed fields
-                let builder = crate::command::const_encoding::ConstCommandBuilder::<32>::new();
+                let builder = crate::command::bytes::ConstCommandBuilder::<32>::new();
                 let terminated = builder.with_camera_id(camera_id).terminate();
                 terminated.build_into(buffer)
             }
@@ -161,7 +161,7 @@ fn generate_struct_encoding(data_struct: &DataStruct) -> TokenStream {
         Fields::Unit => {
             quote! {
                 // Unit struct - just use the prefix if available
-                let builder = crate::command::const_encoding::ConstCommandBuilder::<32>::new();
+                let builder = crate::command::bytes::ConstCommandBuilder::<32>::new();
                 let terminated = builder.with_camera_id(camera_id).terminate();
                 terminated.build_into(buffer)
             }
@@ -201,7 +201,7 @@ fn generate_enum_impl(_name: &Ident, data_enum: DataEnum, attrs: &ViscaAttribute
                     let byte_literals = bytes.iter().map(|b| quote! { #b });
                     quote! {
                         Self::#variant_name => {
-                            let mut builder = crate::command::const_encoding::ConstCommandBuilder::<#max_size>::new();
+                            let mut builder = crate::command::bytes::ConstCommandBuilder::<#max_size>::new();
                             // First add the camera ID
                             builder = builder.push(camera_id.to_address_byte());
                             // Then add the command bytes

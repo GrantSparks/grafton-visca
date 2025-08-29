@@ -10,7 +10,7 @@
 //! - All ND filter commands - Sony FR7 specific
 //! - The FR7 supports variable ND filter (2 to 7 stops, continuously variable)
 
-use crate::{command::const_encoding::constants, error::Error, macros::internal::*};
+use crate::{command::bytes::constants, error::Error, macros::internal::*};
 
 /// ND filter mode for Sony FR7.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -166,7 +166,7 @@ visca_bool_command! {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::command::const_encoding::VISCA_TERMINATOR;
+    use crate::command::bytes::VISCA_TERMINATOR;
     use crate::macros::test_utils::visca_test;
 
     visca_test!(

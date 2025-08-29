@@ -27,7 +27,7 @@ use tokio::time::{sleep, Duration};
 
 #[cfg(feature = "rt-tokio")]
 use grafton_visca::{
-    camera::methods::{
+    camera::controls::{
         exposure::ExposureControl, focus::FocusControl, image_processing::ImageProcessingControl,
         pan_tilt::PanTiltControl, presets::PresetsControl, white_balance::WhiteBalanceControl,
         zoom::ZoomControl,

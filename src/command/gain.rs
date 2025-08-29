@@ -5,8 +5,7 @@
 
 use crate::{
     command::{
-        const_encoding::builder::ConstCommandBuilder, encode_visca::EncodeVisca,
-        response::ViscaResponseType,
+        bytes::builder::ConstCommandBuilder, encode_visca::ViscaEncode, response::ViscaResponseType,
     },
     error::Error,
     macros::internal::*,
@@ -33,7 +32,7 @@ pub enum Gain {
 }
 
 // Manual implementation to add model validation
-impl EncodeVisca for Gain {
+impl ViscaEncode for Gain {
     type ViscaResponse = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
@@ -53,7 +52,7 @@ impl EncodeVisca for Gain {
                 };
 
                 ConstCommandBuilder::<6>::from_prefix(
-                    crate::command::const_encoding::constants::gain::CONTROL_PREFIX,
+                    crate::command::bytes::constants::gain::CONTROL_PREFIX,
                 )
                 .with_camera_id(camera_id)
                 .push(control_byte)
@@ -65,7 +64,7 @@ impl EncodeVisca for Gain {
                 let low = value & 0x0F;
 
                 ConstCommandBuilder::<9>::from_prefix(
-                    crate::command::const_encoding::constants::gain::DIRECT_PREFIX,
+                    crate::command::bytes::constants::gain::DIRECT_PREFIX,
                 )
                 .with_camera_id(camera_id)
                 .push(high)
@@ -88,7 +87,7 @@ visca_builder! {
     }
     builder<6> => |builder, limit| {
         builder
-            .append(crate::command::const_encoding::constants::gain::GAIN_LIMIT_PREFIX)
+            .append(crate::command::bytes::constants::gain::GAIN_LIMIT_PREFIX)
             .push(limit.value())
     }
     timeout = Quick;
@@ -105,8 +104,8 @@ impl GainLimitCmd {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
-    use crate::command::const_encoding::VISCA_TERMINATOR;
-    use crate::command::encode_visca::EncodeVisca;
+    use crate::command::bytes::VISCA_TERMINATOR;
+    use crate::command::encode_visca::ViscaEncode;
     use crate::constants::CameraVariant;
     use crate::macros::test_utils::visca_test;
 

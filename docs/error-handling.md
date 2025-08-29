@@ -171,7 +171,7 @@ When encountering `CommandBufferFull`:
 ```rust
 use grafton_visca::{Error, Result};
 use grafton_visca::camera::{Camera, AsyncMode, BlockingMode};
-use grafton_visca::camera::methods::pan_tilt::{PanTiltControl, PanTiltControlBlocking};
+use grafton_visca::camera::controls::pan_tilt::{PanTiltControl, PanTiltControlBlocking};
 use grafton_visca::camera::profiles::Profile;
 use grafton_visca::transport::{AsyncTransport, BlockingTransport};
 use grafton_visca::runtime::executor::Executor;

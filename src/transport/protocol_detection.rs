@@ -8,7 +8,7 @@ use std::time::Duration;
 use tracing::{debug, info, warn};
 
 use crate::capabilities::ProtocolStyle;
-use crate::command::const_encoding::VISCA_TERMINATOR;
+use crate::command::bytes::VISCA_TERMINATOR;
 use crate::executor::Executor;
 use crate::transport::buffer::{BufferConfig, BufferManager};
 use crate::transport::envelope::TransportEnvelope;

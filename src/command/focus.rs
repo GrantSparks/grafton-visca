@@ -13,7 +13,7 @@
 use grafton_visca_macros::ViscaEnum;
 
 use crate::{
-    command::{encode_visca::EncodeVisca, ViscaResponseType},
+    command::{encode_visca::ViscaEncode, ViscaResponseType},
     error::Error,
     macros::internal::*,
     timeout::CommandCategory,
@@ -89,7 +89,7 @@ pub enum Focus {
     Infinity,
 }
 
-impl EncodeVisca for Focus {
+impl ViscaEncode for Focus {
     type ViscaResponse = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
@@ -99,7 +99,7 @@ impl EncodeVisca for Focus {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::const_encoding::{constants, ConstCommandBuilder};
+        use crate::command::bytes::{constants, ConstCommandBuilder};
 
         match self {
             Self::Stop | Self::Far | Self::Near => {
@@ -198,7 +198,7 @@ visca_builder! {
             FocusZone::Bottom => 0x02,
         };
         builder
-            .append(crate::command::const_encoding::constants::focus::ZONE_PREFIX)
+            .append(crate::command::bytes::constants::focus::ZONE_PREFIX)
             .push(zone_byte)
         // Terminator is added automatically by the macro
     }
@@ -231,7 +231,7 @@ visca_builder! {
             AutoFocusSensitivity::Low => 0x00,
         };
         builder
-            .append(crate::command::const_encoding::constants::focus::AF_SENSITIVITY_PREFIX)
+            .append(crate::command::bytes::constants::focus::AF_SENSITIVITY_PREFIX)
             .push(sens_byte)
         // Terminator is added automatically by the macro
     }
@@ -249,7 +249,7 @@ visca_builder! {
     }
     builder<9> => |builder, position| {
         builder
-            .append(crate::command::const_encoding::constants::focus::NEAR_LIMIT_PREFIX)
+            .append(crate::command::bytes::constants::focus::NEAR_LIMIT_PREFIX)
             .push_visca_u16(position.value())
         // Terminator is added automatically by the macro
     }
@@ -267,13 +267,13 @@ visca_command! {
         /// Enable focus lock
         On => {
             Ok(ConstCommandBuilder::<16>::new()
-                .append(crate::command::const_encoding::constants::focus::LOCK_PREFIX)
+                .append(crate::command::bytes::constants::focus::LOCK_PREFIX)
                 .push(0x02))
         },
         /// Disable focus lock
         Off => {
             Ok(ConstCommandBuilder::<16>::new()
-                .append(crate::command::const_encoding::constants::focus::LOCK_PREFIX)
+                .append(crate::command::bytes::constants::focus::LOCK_PREFIX)
                 .push(0x03))
         },
     }
@@ -293,7 +293,7 @@ pub enum PushAF {
     Release,
 }
 
-impl EncodeVisca for PushAF {
+impl ViscaEncode for PushAF {
     type ViscaResponse = ();
     const MAX_SIZE: usize = 8;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
@@ -303,7 +303,7 @@ impl EncodeVisca for PushAF {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::const_encoding::{constants, ConstCommandBuilder};
+        use crate::command::bytes::{constants, ConstCommandBuilder};
 
         let mut builder = ConstCommandBuilder::<8>::new();
         builder.append_mut(constants::focus::PUSH_AF_PREFIX);
@@ -323,8 +323,8 @@ impl EncodeVisca for PushAF {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
-    use crate::command::const_encoding::VISCA_TERMINATOR;
-    use crate::command::encode_visca::EncodeVisca;
+    use crate::command::bytes::VISCA_TERMINATOR;
+    use crate::command::encode_visca::ViscaEncode;
     use crate::macros::test_utils::visca_test;
 
     visca_test!(

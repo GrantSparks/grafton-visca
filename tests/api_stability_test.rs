@@ -248,7 +248,7 @@ fn test_capability_traits_stability() {
 #[cfg(feature = "async")]
 #[test]
 fn test_async_trait_method_signatures() {
-    use grafton_visca::camera::methods::power::PowerControl;
+    use grafton_visca::camera::controls::power::PowerControl;
     use grafton_visca::Error;
     use std::future::Future;
 

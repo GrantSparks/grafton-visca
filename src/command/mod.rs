@@ -10,7 +10,6 @@ pub mod flip;
 pub mod focus;
 pub mod gain;
 pub mod image;
-pub mod image_adjustment;
 pub mod inquiry;
 pub(crate) mod inquiry_structs; // Internal module for macro-generated inquiry commands
 pub mod inquiry_types;
@@ -30,10 +29,10 @@ pub mod variable_speed;
 pub mod white_balance;
 pub mod zoom;
 
-// New const encoding module
-pub mod const_encoding;
+// Command encoding module
+pub mod bytes;
 
-// New unified EncodeVisca trait
+// New unified ViscaEncode trait
 pub mod encode_visca;
 
 #[cfg(test)]
@@ -42,12 +41,11 @@ mod test_derive;
 // Re-export command types
 pub use self::{
     color::*,
-    encode_visca::EncodeVisca,
+    encode_visca::ViscaEncode,
     exposure::*,
     // flip::*,  // Commented out - unused
     focus::*,
     image::*,
-    image_adjustment::*,
     // inquiry::*,  // Individual types are re-exported from inquiry module
     inquiry_types::{FlipMode, ImageFlipStatus, IrisControl, NightDayMode, TallyStatus, Version},
     menu::*,
@@ -472,12 +470,12 @@ mod tests {
     // Local modules
     use crate::{
         camera_id::CameraId,
-        command::{const_encoding::VISCA_TERMINATOR, encode_visca::EncodeVisca},
+        command::{bytes::VISCA_TERMINATOR, encode_visca::ViscaEncode},
     };
 
     /// Helper to encode a command and verify it has a terminator
     #[allow(clippy::expect_used, clippy::unwrap_used)]
-    fn assert_command_has_terminator<C: EncodeVisca>(command: C, name: &str) {
+    fn assert_command_has_terminator<C: ViscaEncode>(command: C, name: &str) {
         let mut buffer = [0u8; 256];
         let result = command.encode_into(CameraId::CAMERA_1, &mut buffer);
 
@@ -629,7 +627,7 @@ mod tests {
 
     #[test]
     fn test_type_state_prevents_unterminated_commands() {
-        use crate::command::const_encoding::ConstCommandBuilder;
+        use crate::command::bytes::ConstCommandBuilder;
 
         // Create a builder and terminate it
         let builder = ConstCommandBuilder::<8>::new()

@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 #[cfg(feature = "async")]
-use crate::command::const_encoding::VISCA_TERMINATOR;
+use crate::command::bytes::VISCA_TERMINATOR;
 #[cfg(feature = "async")]
 use crate::transport::buffer::{BufferConfig, BufferManager};
 #[cfg(feature = "async")]
@@ -16,7 +16,7 @@ use crate::transport::envelope::TransportEnvelope;
 use crate::{executor::Executor, runtime, transport::AsyncTransport};
 
 #[cfg(not(feature = "async"))]
-use crate::command::const_encoding::VISCA_TERMINATOR;
+use crate::command::bytes::VISCA_TERMINATOR;
 #[cfg(not(feature = "async"))]
 use crate::transport::buffer::{BufferConfig, BufferManager};
 #[cfg(not(feature = "async"))]
@@ -24,7 +24,7 @@ use crate::transport::envelope::TransportEnvelope;
 use crate::{
     camera_id::CameraId,
     capabilities::Profile,
-    command::{response::ViscaResponse, typed::ViscaCommand, EncodeVisca},
+    command::{response::ViscaResponse, typed::ViscaCommand, ViscaEncode},
     error::Error,
     timeout::TimeoutConfig,
 };
@@ -177,7 +177,7 @@ where
     /// Send a command with typed response parsing.
     pub(crate) fn send_command_typed<C>(&mut self, command: &C) -> Result<C::Response, Error>
     where
-        C: EncodeVisca + ViscaCommand,
+        C: ViscaEncode + ViscaCommand,
     {
         let response = self.send_command(command)?;
         C::from_response(response)
@@ -189,9 +189,9 @@ where
     /// requires mutable access for sending and receiving.
     pub(crate) fn send_command<C>(&mut self, command: &C) -> Result<ViscaResponse, Error>
     where
-        C: EncodeVisca,
+        C: ViscaEncode,
     {
-        // Encode command bytes using EncodeVisca
+        // Encode command bytes using ViscaEncode
         let mut buffer = [0u8; 64];
         let size = command.encode_into(self.camera_id, &mut buffer)?;
         let cmd_bytes = &buffer[..size];
@@ -323,7 +323,7 @@ where
     /// Send a command with typed response parsing (async).
     pub(crate) async fn send_command_typed<C>(&self, command: &C) -> Result<C::Response, Error>
     where
-        C: EncodeVisca + ViscaCommand,
+        C: ViscaEncode + ViscaCommand,
     {
         let response = self.send_command(command).await?;
         C::from_response(response)
@@ -332,9 +332,9 @@ where
     /// Send a command to the camera (async).
     pub(crate) async fn send_command<C>(&self, command: &C) -> Result<ViscaResponse, Error>
     where
-        C: EncodeVisca,
+        C: ViscaEncode,
     {
-        // Encode command bytes using EncodeVisca
+        // Encode command bytes using ViscaEncode
         let mut buffer = [0u8; 64];
         let size = command.encode_into(self.camera_id, &mut buffer)?;
         let cmd_bytes = &buffer[..size];
@@ -381,7 +381,7 @@ where
         Error,
     >
     where
-        C: EncodeVisca,
+        C: ViscaEncode,
     {
         // Use the runtime's send_command_with_id method
         self.runtime_handle
@@ -408,7 +408,7 @@ where
     #[cfg(any(test, feature = "test-utils"))]
     pub async fn send_command_direct<C>(&self, command: &C) -> Result<ViscaResponse, Error>
     where
-        C: EncodeVisca,
+        C: ViscaEncode,
     {
         self.runtime_handle
             .send_command(command, self.camera_id, None)

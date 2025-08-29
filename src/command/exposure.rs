@@ -6,7 +6,7 @@
 use grafton_visca_macros::ViscaEnum;
 
 use crate::{
-    command::{const_encoding::constants, encode_visca::EncodeVisca, response::ViscaResponseType},
+    command::{bytes::constants, encode_visca::ViscaEncode, response::ViscaResponseType},
     error::Error,
     macros::internal::*,
     timeout::CommandCategory,
@@ -67,7 +67,7 @@ pub enum ExposureCompensation {
     SetLevel(ExposureCompensationLevel),
 }
 
-impl EncodeVisca for ExposureCompensation {
+impl ViscaEncode for ExposureCompensation {
     type ViscaResponse = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
@@ -77,7 +77,7 @@ impl EncodeVisca for ExposureCompensation {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::const_encoding::{constants, ConstCommandBuilder};
+        use crate::command::bytes::{constants, ConstCommandBuilder};
 
         match self {
             Self::On | Self::Off => {
@@ -160,7 +160,7 @@ pub enum Iris {
 }
 
 // Manual implementation to add model validation
-impl EncodeVisca for Iris {
+impl ViscaEncode for Iris {
     type ViscaResponse = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
@@ -170,7 +170,7 @@ impl EncodeVisca for Iris {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::const_encoding::{constants, ConstCommandBuilder};
+        use crate::command::bytes::{constants, ConstCommandBuilder};
 
         match self {
             Self::Reset | Self::Up | Self::Down => {
@@ -217,7 +217,7 @@ pub enum Shutter {
 }
 
 // Manual implementation to add model validation
-impl EncodeVisca for Shutter {
+impl ViscaEncode for Shutter {
     type ViscaResponse = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
@@ -227,7 +227,7 @@ impl EncodeVisca for Shutter {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::const_encoding::{constants, ConstCommandBuilder};
+        use crate::command::bytes::{constants, ConstCommandBuilder};
 
         match self {
             Self::Reset | Self::Up | Self::Down => {
@@ -271,7 +271,7 @@ pub enum Bright {
     Direct(BrightnessLevel),
 }
 
-impl EncodeVisca for Bright {
+impl ViscaEncode for Bright {
     type ViscaResponse = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
@@ -281,7 +281,7 @@ impl EncodeVisca for Bright {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::const_encoding::{constants, ConstCommandBuilder};
+        use crate::command::bytes::{constants, ConstCommandBuilder};
 
         match self {
             Self::Reset | Self::Up | Self::Down => {
@@ -363,8 +363,8 @@ visca_command! {
 #[allow(clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use crate::command::const_encoding::VISCA_TERMINATOR;
-    use crate::command::encode_visca::EncodeVisca;
+    use crate::command::bytes::VISCA_TERMINATOR;
+    use crate::command::encode_visca::ViscaEncode;
     use crate::constants::CameraVariant;
     use crate::macros::test_utils::visca_test;
 

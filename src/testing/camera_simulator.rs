@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::command::const_encoding::VISCA_TERMINATOR;
+use crate::command::bytes::VISCA_TERMINATOR;
 use crate::transport::AsyncTransport;
 use crate::Error;
 

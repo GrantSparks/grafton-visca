@@ -21,7 +21,7 @@ fn main() {
 #[cfg(feature = "rt-tokio")]
 use grafton_visca::{
     camera::{
-        methods::{
+        controls::{
             inquiry::{InquiryControl, PanTiltInquiryControl},
             pan_tilt::PanTiltControl,
             presets::PresetsControl,

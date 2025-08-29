@@ -5,7 +5,7 @@
 
 #![allow(clippy::expect_used)]
 
-use crate::{camera_id::CameraId, command::encode_visca::EncodeVisca, ViscaEncode};
+use crate::{camera_id::CameraId, command::encode_visca::ViscaEncode, ViscaEncode};
 
 #[derive(ViscaEncode, Debug, Copy, Clone)]
 #[visca_encode(max_size = 6, timeout = "Quick")]

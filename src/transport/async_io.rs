@@ -8,7 +8,7 @@ use std::borrow::Cow;
 use std::future::Future;
 use std::time::Duration;
 
-use crate::command::const_encoding::VISCA_TERMINATOR;
+use crate::command::bytes::VISCA_TERMINATOR;
 use crate::transport::builder::TransportConfig;
 use crate::Error;
 

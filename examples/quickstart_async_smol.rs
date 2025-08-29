@@ -23,7 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
     use grafton_visca::{
         camera::{
-            methods::{pan_tilt::PanTiltControl, power::PowerControl, zoom::ZoomControl},
+            controls::{pan_tilt::PanTiltControl, power::PowerControl, zoom::ZoomControl},
             profiles::PtzOpticsG2,
         },
         transport::Transport,

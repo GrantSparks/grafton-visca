@@ -104,7 +104,7 @@ fn test_cancel_socket_directly() {
     let camera = std::sync::Arc::new(camera);
     let camera_clone = camera.clone();
     std::mem::drop(executor.spawn(async move {
-        use grafton_visca::camera::methods::pan_tilt::PanTiltControl;
+        use grafton_visca::camera::controls::pan_tilt::PanTiltControl;
         let _ = camera_clone
             .pan_tilt_move(
                 PanTiltDirection::UpRight,

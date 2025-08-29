@@ -1,6 +1,6 @@
 //! Demo of the new flume-based runtime API.
 //!
-//! Advanced: Camera runtime and low-level EncodeVisca usage
+//! Advanced: Camera runtime and low-level ViscaEncode usage
 //!
 //! Note: Preferred user-facing usage is via the high-level Camera methods
 //! (see quickstart and quickstart_async examples). This demo intentionally

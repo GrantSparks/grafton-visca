@@ -211,7 +211,7 @@ impl SonyPayloadType {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::command::const_encoding::VISCA_TERMINATOR;
+    use crate::command::bytes::VISCA_TERMINATOR;
     use crate::transport::buffer::BufferConfig;
 
     fn test_buffer_manager() -> BufferManager {

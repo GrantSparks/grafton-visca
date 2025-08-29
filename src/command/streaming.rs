@@ -8,7 +8,7 @@ use crate::{macros::internal::*, types::NdiQuality};
 visca_bool_command! {
     /// Internal multicast streaming command
     struct MulticastStreamingInternal {
-        prefix: crate::command::const_encoding::constants::streaming::MULTICAST_PREFIX,
+        prefix: crate::command::bytes::constants::streaming::MULTICAST_PREFIX,
         on: 0x01,
         off: 0x02,
         address: 0x81,
@@ -36,7 +36,7 @@ impl From<MulticastStreaming> for MulticastStreamingInternal {
     }
 }
 
-impl crate::command::encode_visca::EncodeVisca for MulticastStreaming {
+impl crate::command::encode_visca::ViscaEncode for MulticastStreaming {
     type ViscaResponse = ();
     const MAX_SIZE: usize = MulticastStreamingInternal::MAX_SIZE;
     const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
@@ -61,7 +61,7 @@ visca_param_command! {
     struct NdiQualityCommandInternal {
         quality: NdiQuality,
     }
-    prefix = crate::command::const_encoding::constants::streaming::NDI_QUALITY_PREFIX;
+    prefix = crate::command::bytes::constants::streaming::NDI_QUALITY_PREFIX;
     param_byte = match quality {
         NdiQuality::High => 0x01,
         NdiQuality::Medium => 0x02,
@@ -82,7 +82,7 @@ pub struct NdiQualityCmd {
     pub quality: NdiQuality,
 }
 
-impl crate::command::encode_visca::EncodeVisca for NdiQualityCmd {
+impl crate::command::encode_visca::ViscaEncode for NdiQualityCmd {
     type ViscaResponse = ();
     const MAX_SIZE: usize = NdiQualityCommandInternal::MAX_SIZE;
     const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
@@ -118,7 +118,7 @@ impl NdiQualityCmd {
 mod tests {
     #![allow(clippy::expect_used, clippy::panic)]
     use super::*;
-    use crate::command::const_encoding::VISCA_TERMINATOR;
+    use crate::command::bytes::VISCA_TERMINATOR;
     use crate::macros::test_utils::visca_test;
 
     visca_test!(

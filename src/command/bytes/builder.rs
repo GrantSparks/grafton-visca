@@ -2,7 +2,7 @@
 
 use core::marker::PhantomData;
 
-use crate::command::const_encoding::VISCA_TERMINATOR;
+use crate::command::bytes::VISCA_TERMINATOR;
 
 /// Type state for an incomplete (unterminated) command
 #[derive(Debug, Clone, Copy)]
@@ -103,9 +103,7 @@ impl<const N: usize> ConstCommandBuilder<N, Incomplete> {
     /// Add camera ID byte at the beginning of the buffer.
     /// This replaces the default 0x81 with the provided camera ID.
     pub fn with_camera_id(mut self, camera_id: crate::camera_id::CameraId) -> Self {
-        if !self.buffer.is_empty()
-            && self.buffer[0] == crate::command::const_encoding::DEFAULT_ADDRESS
-        {
+        if !self.buffer.is_empty() && self.buffer[0] == crate::command::bytes::DEFAULT_ADDRESS {
             self.buffer[0] = camera_id.to_address_byte();
         }
         self
@@ -161,9 +159,7 @@ impl<const N: usize> ConstCommandBuilder<N, Incomplete> {
 
     /// Mutable camera ID method (for backward compatibility).
     pub fn with_camera_id_mut(&mut self, camera_id: crate::camera_id::CameraId) -> &mut Self {
-        if !self.buffer.is_empty()
-            && self.buffer[0] == crate::command::const_encoding::DEFAULT_ADDRESS
-        {
+        if !self.buffer.is_empty() && self.buffer[0] == crate::command::bytes::DEFAULT_ADDRESS {
             self.buffer[0] = camera_id.to_address_byte();
         }
         self

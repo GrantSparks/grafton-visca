@@ -8,7 +8,7 @@ use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::command::const_encoding::VISCA_TERMINATOR;
+use crate::command::bytes::VISCA_TERMINATOR;
 use crate::transport::address::AddressResolver;
 use crate::transport::buffer::BufferManager;
 use crate::transport::builder::TransportConfig;

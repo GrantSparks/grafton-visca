@@ -4,7 +4,7 @@
 //! ACK, Completion, Data Reply, and Error messages.
 
 #[cfg(feature = "async")]
-use crate::command::const_encoding::VISCA_TERMINATOR;
+use crate::command::bytes::VISCA_TERMINATOR;
 
 #[cfg(feature = "async")]
 use tracing::{debug, trace, warn};

@@ -40,7 +40,7 @@ where
     P: Profile + NDFilter,  // Compile-time requirement
     T: BlockingTransport,
 {
-    use grafton_visca::camera::methods::nd_filter::{NDFilterControlBlocking, CommandNDFilterMode};
+    use grafton_visca::camera::controls::nd_filter::{NDFilterControlBlocking, CommandNDFilterMode};
     camera.set_nd_filter_mode(CommandNDFilterMode::Variable)?;
     Ok(())
 }
@@ -159,7 +159,7 @@ use grafton_visca::Result;
 // Most cameras have zoom, but only some have ND filters
 
 // Usage - methods are available based on trait bounds
-use grafton_visca::camera::methods::zoom::ZoomControlBlocking;
+use grafton_visca::camera::controls::zoom::ZoomControlBlocking;
 
 fn zoom_demo<P, T>(camera: &Camera<BlockingMode, P, T, ()>) -> Result<()>
 where
@@ -178,7 +178,7 @@ where
 The camera provides high-level methods organized by feature:
 
 ```rust
-use grafton_visca::camera::methods::{
+use grafton_visca::camera::controls::{
     power::PowerControlBlocking,
     pan_tilt::PanTiltControlBlocking,
     zoom::ZoomControlBlocking,
@@ -229,7 +229,7 @@ let cmd = Zoom::TeleVariable(ZoomSpeed::new(5)?);
 camera.send_command(&cmd)?;
 
 // Or use the high-level methods which wrap these commands
-use grafton_visca::camera::methods::zoom::ZoomControlBlocking;
+use grafton_visca::camera::controls::zoom::ZoomControlBlocking;
 camera.zoom_tele_variable(ZoomSpeed::new(5)?)?;
 ```
 
@@ -238,7 +238,7 @@ camera.zoom_tele_variable(ZoomSpeed::new(5)?)?;
 Query camera state:
 
 ```rust
-use grafton_visca::camera::methods::inquiry::InquiryControlBlocking;
+use grafton_visca::camera::controls::inquiry::InquiryControlBlocking;
 
 // Get current position (returns raw values)
 let (pan, tilt) = camera.get_pan_tilt_position()?;
@@ -261,7 +261,7 @@ The library provides detailed error information:
 
 ```rust
 use grafton_visca::Error;
-use grafton_visca::camera::methods::zoom::ZoomControlBlocking;
+use grafton_visca::camera::controls::zoom::ZoomControlBlocking;
 
 match camera.zoom_tele_std() {
     Ok(_) => println!("Success"),
@@ -307,7 +307,7 @@ where
 }
 
 // Usage
-use grafton_visca::camera::methods::zoom::ZoomControlBlocking;
+use grafton_visca::camera::controls::zoom::ZoomControlBlocking;
 let result = execute_with_retry(|| camera.zoom_tele_std())?;
 ```
 
@@ -348,7 +348,7 @@ Zero dependencies, no runtime required:
 use grafton_visca::{Camera, camera::BlockingMode, Result};
 use grafton_visca::transport::blocking::tcp::Tcp;
 use grafton_visca::camera::profiles::PtzOpticsG2;
-use grafton_visca::camera::methods::{
+use grafton_visca::camera::controls::{
     zoom::ZoomControlBlocking,
     pan_tilt::PanTiltControlBlocking,
 };
@@ -372,7 +372,7 @@ use grafton_visca::{CameraBuilder, Result};
 use grafton_visca::transport::AsyncTransport;
 use grafton_visca::runtime::executor::Executor;
 use grafton_visca::camera::profiles::PtzOpticsG2;
-use grafton_visca::camera::methods::{
+use grafton_visca::camera::controls::{
     power::PowerControl,
     zoom::ZoomControl,
 };
@@ -399,7 +399,7 @@ Convenience methods for Tokio users:
 ```rust
 use grafton_visca::{CameraBuilder, transport::tokio::tcp::Tcp, Result};
 use grafton_visca::camera::profiles::PtzOpticsG2;
-use grafton_visca::camera::methods::{
+use grafton_visca::camera::controls::{
     power::PowerControl,
     zoom::ZoomControl,
 };
@@ -433,7 +433,7 @@ mod tests {
     use grafton_visca::{Camera, camera::BlockingMode};
     use grafton_visca::testing::testkit::{ScriptedBlockingTransport, ScriptEntry};
     use grafton_visca::camera::profiles::GenericVisca;
-    use grafton_visca::camera::methods::zoom::ZoomControlBlocking;
+    use grafton_visca::camera::controls::zoom::ZoomControlBlocking;
     
     #[test]
     fn test_zoom_command() {
@@ -460,7 +460,7 @@ For reproducible async tests:
 use grafton_visca::testing::testkit::{ScriptedTransport, ScriptEntry};
 use grafton_visca::testing::testkit::DeterministicExecutor;
 use grafton_visca::{CameraBuilder, camera::profiles::GenericVisca};
-use grafton_visca::camera::methods::power::PowerControl;
+use grafton_visca::camera::controls::power::PowerControl;
 
 #[test]
 fn test_protocol_compliance() {
@@ -502,7 +502,7 @@ fn test_protocol_compliance() {
 ### Sequential Operations
 
 ```rust
-use grafton_visca::camera::methods::{
+use grafton_visca::camera::controls::{
     power::PowerControlBlocking,
     presets::PresetsControlBlocking,
     pan_tilt::PanTiltControlBlocking,
@@ -515,7 +515,7 @@ camera.preset_recall(PresetNumber::new(1)?)?;
 camera.await_pan_tilt_idle(Duration::from_secs(10))?;
 
 // Async
-use grafton_visca::camera::methods::{
+use grafton_visca::camera::controls::{
     power::PowerControl,
     presets::PresetsControl,
     pan_tilt::PanTiltControl,
@@ -529,7 +529,7 @@ camera.await_pan_tilt_idle(Duration::from_secs(10)).await?;
 ### Concurrent Operations (Async)
 
 ```rust
-use grafton_visca::camera::methods::{
+use grafton_visca::camera::controls::{
     pan_tilt::PanTiltControl,
     zoom::ZoomControl,
 };
@@ -544,7 +544,7 @@ let (pan_result, zoom_result) = tokio::join!(
 ### State Monitoring
 
 ```rust
-use grafton_visca::camera::methods::{
+use grafton_visca::camera::controls::{
     pan_tilt::PanTiltControlBlocking,
     zoom::ZoomControlBlocking,
 };

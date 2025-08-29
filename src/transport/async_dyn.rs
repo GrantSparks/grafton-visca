@@ -65,7 +65,7 @@ pub trait DynAsyncTransport: Send {
 /// Stable dynamic handle for async transports.
 ///
 /// This type alias provides a convenient way to work with boxed dynamic transports.
-/// Unlike [`UnifiedTransport`](super::builder::UnifiedTransport), this type is stable across
+/// Unlike [`AnyTransport`](super::builder::AnyTransport), this type is stable across
 /// feature configurations and does not change shape based on enabled runtimes.
 pub type BoxAsyncTransport = Box<dyn DynAsyncTransport>;
 

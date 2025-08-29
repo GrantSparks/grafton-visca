@@ -137,7 +137,7 @@ fn main() -> grafton_visca::Result<()> {
 async fn main() -> grafton_visca::Result<()> {
     use grafton_visca::{
         camera::{
-            methods::inquiry::{InquiryControl, PanTiltInquiryControl},
+            controls::inquiry::{InquiryControl, PanTiltInquiryControl},
             profiles::PtzOpticsG2,
         },
         runtime_adapters::tokio::TcpTransport as Tcp,

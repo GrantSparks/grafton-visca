@@ -1,6 +1,6 @@
 //! Unified trait for encoding VISCA commands.
 //!
-//! This module provides the `EncodeVisca` trait which unifies the previous
+//! This module provides the `ViscaEncode` trait which unifies the previous
 //! `Command` and `ViscaCommand` traits into a single interface with zero-allocation
 //! encoding support.
 
@@ -22,7 +22,7 @@ use super::response::ViscaResponseType;
 #[inline]
 pub fn validate_terminator(buffer: &[u8], len: usize) {
     assert!(
-        len == 0 || buffer[len - 1] == crate::command::const_encoding::VISCA_TERMINATOR,
+        len == 0 || buffer[len - 1] == crate::command::bytes::VISCA_TERMINATOR,
         "VISCA command missing 0xFF terminator at position {}. Command bytes: {:02X?}",
         len - 1,
         &buffer[..len]
@@ -79,7 +79,7 @@ pub fn validate_command_structure(buffer: &[u8], len: usize) {
 /// # use grafton_visca::Error;
 /// struct MyCommand;
 ///
-/// impl EncodeVisca for MyCommand {
+/// impl ViscaEncode for MyCommand {
 ///     type ViscaResponse = ();
 ///     const MAX_SIZE: usize = 6;
 ///     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
@@ -106,7 +106,7 @@ pub fn validate_command_structure(buffer: &[u8], len: usize) {
 ///     }
 /// }
 /// ```
-pub trait EncodeVisca: Send + Sync {
+pub trait ViscaEncode: Send + Sync {
     /// The type of response expected from this command.
     type ViscaResponse;
 

@@ -12,8 +12,8 @@
 
 pub mod builder;
 pub mod capabilities;
+pub mod controls;
 pub mod handle;
-pub mod methods;
 pub mod mode;
 pub mod movement_detection;
 pub mod movement_probe;

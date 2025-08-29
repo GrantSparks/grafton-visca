@@ -12,7 +12,7 @@
 
 use grafton_visca::{
     camera::{
-        methods::{pan_tilt::PanTiltControl, power::PowerControl, zoom::ZoomControl},
+        controls::{pan_tilt::PanTiltControl, power::PowerControl, zoom::ZoomControl},
         profiles::PtzOpticsG2,
     },
     transport::Transport,

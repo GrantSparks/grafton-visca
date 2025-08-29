@@ -126,7 +126,7 @@ fn test_no_hardcoded_terminators_in_source() {
 
         error_message.push_str(
             "Please replace hardcoded 0xFF with VISCA_TERMINATOR constant.\n\
-             Add 'use crate::command::const_encoding::VISCA_TERMINATOR;' if needed.\n",
+             Add 'use crate::command::bytes::VISCA_TERMINATOR;' if needed.\n",
         );
 
         panic!("{}", error_message);

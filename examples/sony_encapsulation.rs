@@ -132,7 +132,7 @@ fn main() -> Result<(), Error> {
 
 #[cfg(feature = "rt-tokio")]
 use grafton_visca::{
-    camera::methods::{
+    camera::controls::{
         inquiry::{InquiryControl, PanTiltInquiryControl},
         pan_tilt::PanTiltControl,
         power::PowerControl,

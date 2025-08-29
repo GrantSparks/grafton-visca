@@ -4,7 +4,7 @@ This directory contains comprehensive examples demonstrating how to use the graf
 
 Preferred usage: Use the high-level Camera API wherever possible.
 - Build cameras via `CameraBuilder` and a concrete profile.
-- Call methods from `camera::methods` (power, pan_tilt, zoom, focus, exposure, presets, inquiry).
+- Call methods from `camera::controls` (power, pan_tilt, zoom, focus, exposure, presets, inquiry).
 - Avoid sending raw VISCA bytes directly in applications; that is reserved for advanced demos.
 
 ## Important: Feature Flags
@@ -139,7 +139,7 @@ let cam = CameraBuilder::with_executor(executor)
 
 ### Error Handling
 ```rust
-use grafton_visca::camera::methods::zoom::ZoomControlBlocking;
+use grafton_visca::camera::controls::zoom::ZoomControlBlocking;
 
 match cam.zoom_tele_std() {
     Ok(_) => println!("Success"),
@@ -153,7 +153,7 @@ match cam.zoom_tele_std() {
 
 ### Concurrent Operations (Async)
 ```rust
-use grafton_visca::camera::methods::{
+use grafton_visca::camera::controls::{
     pan_tilt::PanTiltControl,
     zoom::ZoomControl,
 };

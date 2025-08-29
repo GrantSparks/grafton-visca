@@ -271,12 +271,12 @@ impl RuntimeHandle {
             .map_err(|_| Error::ChannelClosed)
     }
 
-    /// Send a VISCA command to the camera using the EncodeVisca trait.
+    /// Send a VISCA command to the camera using the ViscaEncode trait.
     ///
     /// This method bridges the existing command system with the new runtime.
     ///
     /// # Arguments
-    /// * `cmd` - A command implementing the EncodeVisca trait
+    /// * `cmd` - A command implementing the ViscaEncode trait
     /// * `camera_id` - The camera ID to send the command to
     /// * `priority` - The priority level for the command (defaults to Normal)
     ///
@@ -289,7 +289,7 @@ impl RuntimeHandle {
         priority: Option<Priority>,
     ) -> Result<ViscaResponse>
     where
-        C: crate::command::encode_visca::EncodeVisca,
+        C: crate::command::encode_visca::ViscaEncode,
     {
         let (_, response) = self.send_command_with_id(cmd, camera_id, priority).await?;
         response.await
@@ -300,7 +300,7 @@ impl RuntimeHandle {
     /// This method allows canceling commands by their ID.
     ///
     /// # Arguments
-    /// * `cmd` - A command implementing the EncodeVisca trait
+    /// * `cmd` - A command implementing the ViscaEncode trait
     /// * `camera_id` - The camera ID to send the command to
     /// * `priority` - The priority level for the command (defaults to Normal)
     ///
@@ -316,7 +316,7 @@ impl RuntimeHandle {
         impl std::future::Future<Output = Result<ViscaResponse>>,
     )>
     where
-        C: crate::command::encode_visca::EncodeVisca,
+        C: crate::command::encode_visca::ViscaEncode,
     {
         // Encode the command
         let mut buffer = vec![0u8; C::MAX_SIZE];
@@ -352,12 +352,12 @@ impl RuntimeHandle {
         Ok((command_id, future))
     }
 
-    /// Send a VISCA inquiry to the camera using the EncodeVisca trait.
+    /// Send a VISCA inquiry to the camera using the ViscaEncode trait.
     ///
     /// This method bridges the existing inquiry system with the new runtime.
     ///
     /// # Arguments
-    /// * `inquiry` - An inquiry command implementing the EncodeVisca trait
+    /// * `inquiry` - An inquiry command implementing the ViscaEncode trait
     /// * `camera_id` - The camera ID to send the inquiry to
     ///
     /// # Returns
@@ -368,7 +368,7 @@ impl RuntimeHandle {
         camera_id: crate::camera_id::CameraId,
     ) -> Result<ViscaResponse>
     where
-        I: crate::command::encode_visca::EncodeVisca,
+        I: crate::command::encode_visca::ViscaEncode,
     {
         // Encode the inquiry
         let mut buffer = vec![0u8; I::MAX_SIZE];

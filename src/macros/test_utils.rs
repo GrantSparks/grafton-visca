@@ -25,7 +25,7 @@ macro_rules! visca_test {
         #[test]
         fn $test_name() {
             use $crate::camera_id::CameraId;
-            use $crate::command::encode_visca::EncodeVisca;
+            use $crate::command::encode_visca::ViscaEncode;
 
             let cmd = $cmd;
             let mut buffer = vec![0u8; 32];

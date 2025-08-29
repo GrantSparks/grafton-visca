@@ -596,7 +596,7 @@ pub struct TallyAutoAdjustInquiry;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command::const_encoding::constants;
+    use crate::command::bytes::constants;
     use crate::macros::test_utils::visca_test;
 
     visca_test!(
@@ -810,7 +810,7 @@ mod tests {
 #[derive(Debug, Copy, Clone)]
 pub struct TallyGreenInquiry;
 
-impl crate::command::encode_visca::EncodeVisca for TallyGreenInquiry {
+impl crate::command::encode_visca::ViscaEncode for TallyGreenInquiry {
     type ViscaResponse = crate::command::InquiryResponse;
     const MAX_SIZE: usize = 7;
     const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
@@ -821,11 +821,11 @@ impl crate::command::encode_visca::EncodeVisca for TallyGreenInquiry {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, crate::error::Error> {
-        use crate::command::const_encoding::ConstCommandBuilder;
+        use crate::command::bytes::ConstCommandBuilder;
 
         // Special format for green tally inquiry
         let builder = ConstCommandBuilder::<7>::new()
-            .append(crate::command::const_encoding::constants::inquiry::TALLY_GREEN)
+            .append(crate::command::bytes::constants::inquiry::TALLY_GREEN)
             .with_camera_id(camera_id)
             .terminate();
         builder.build_into(buffer)

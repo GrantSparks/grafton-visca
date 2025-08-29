@@ -585,7 +585,7 @@ pub use crate::camera::BlockingCamera;
 pub use crate::camera::AsyncCamera;
 
 // Export unified camera control traits that work with both blocking and async cameras
-pub use crate::camera::methods::{
+pub use crate::camera::controls::{
     color::ColorControl,
     exposure::ExposureControl,
     focus::FocusControl,

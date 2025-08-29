@@ -300,9 +300,9 @@ impl TransportBuilder {
     }
 }
 
-/// Unified transport wrapper that can hold any transport type.
+/// Any transport wrapper that can hold any transport type.
 ///
-/// This enum allows the uniform transport API to return different concrete
+/// This enum allows the transport API to return different concrete
 /// transport types while maintaining type safety and avoiding trait objects.
 ///
 /// This type is not exported from the public API of the library.
@@ -312,7 +312,7 @@ impl TransportBuilder {
     feature = "async",
     any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")
 ))]
-pub enum UnifiedTransport {
+pub enum AnyTransport {
     /// Tokio TCP transport.
     #[cfg(feature = "rt-tokio")]
     TokioTcp(crate::runtime_adapters::tokio::TcpTransport),
@@ -337,43 +337,43 @@ pub enum UnifiedTransport {
     feature = "async",
     any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")
 ))]
-impl crate::transport::AsyncTransport for UnifiedTransport {
+impl crate::transport::AsyncTransport for AnyTransport {
     async fn send(&mut self, bytes: &[u8]) -> Result<(), Error> {
         match self {
             #[cfg(feature = "rt-tokio")]
-            UnifiedTransport::TokioTcp(transport) => transport.send(bytes).await,
+            AnyTransport::TokioTcp(transport) => transport.send(bytes).await,
             #[cfg(feature = "rt-tokio")]
-            UnifiedTransport::TokioUdp(transport) => transport.send(bytes).await,
+            AnyTransport::TokioUdp(transport) => transport.send(bytes).await,
             #[cfg(feature = "rt-async-std")]
-            UnifiedTransport::AsyncStdTcp(transport) => transport.send(bytes).await,
+            AnyTransport::AsyncStdTcp(transport) => transport.send(bytes).await,
             #[cfg(feature = "rt-async-std")]
-            UnifiedTransport::AsyncStdUdp(transport) => transport.send(bytes).await,
+            AnyTransport::AsyncStdUdp(transport) => transport.send(bytes).await,
             #[cfg(feature = "rt-smol")]
-            UnifiedTransport::SmolTcp(transport) => transport.send(bytes).await,
+            AnyTransport::SmolTcp(transport) => transport.send(bytes).await,
             #[cfg(feature = "rt-smol")]
-            UnifiedTransport::SmolUdp(transport) => transport.send(bytes).await,
+            AnyTransport::SmolUdp(transport) => transport.send(bytes).await,
         }
     }
 
     async fn recv(&mut self) -> Result<bytes::Bytes, Error> {
         match self {
             #[cfg(feature = "rt-tokio")]
-            UnifiedTransport::TokioTcp(transport) => transport.recv().await,
+            AnyTransport::TokioTcp(transport) => transport.recv().await,
             #[cfg(feature = "rt-tokio")]
-            UnifiedTransport::TokioUdp(transport) => transport.recv().await,
+            AnyTransport::TokioUdp(transport) => transport.recv().await,
             #[cfg(feature = "rt-async-std")]
-            UnifiedTransport::AsyncStdTcp(transport) => transport.recv().await,
+            AnyTransport::AsyncStdTcp(transport) => transport.recv().await,
             #[cfg(feature = "rt-async-std")]
-            UnifiedTransport::AsyncStdUdp(transport) => transport.recv().await,
+            AnyTransport::AsyncStdUdp(transport) => transport.recv().await,
             #[cfg(feature = "rt-smol")]
-            UnifiedTransport::SmolTcp(transport) => transport.recv().await,
+            AnyTransport::SmolTcp(transport) => transport.recv().await,
             #[cfg(feature = "rt-smol")]
-            UnifiedTransport::SmolUdp(transport) => transport.recv().await,
+            AnyTransport::SmolUdp(transport) => transport.recv().await,
         }
     }
 }
 
-/// Uniform transport builder that automatically selects the runtime implementation.
+/// Any transport builder that automatically selects the runtime implementation.
 ///
 /// This provides a clean API where users don't need to specify the runtime
 /// (tokio, async-std, smol) - the library picks the right one based on enabled features.
@@ -382,7 +382,7 @@ impl crate::transport::AsyncTransport for UnifiedTransport {
     feature = "async",
     any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")
 ))]
-pub struct UniformTransportBuilder {
+pub struct AnyTransportBuilder {
     protocol: Protocol,
     address: Option<String>,
     config: TransportConfig,
@@ -402,7 +402,7 @@ enum Protocol {
     feature = "async",
     any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")
 ))]
-impl UniformTransportBuilder {
+impl AnyTransportBuilder {
     /// Create a new TCP transport builder.
     fn new_tcp() -> Self {
         Self {
@@ -561,7 +561,7 @@ impl UniformTransportBuilder {
     /// - Socket configuration fails
     #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
     #[allow(unreachable_code)]
-    pub async fn connect(self) -> Result<UnifiedTransport, Error> {
+    pub async fn connect(self) -> Result<AnyTransport, Error> {
         let address = self.address.ok_or_else(|| Error::InvalidParameter {
             parameter: "address",
             value: "None".into(),
@@ -579,7 +579,7 @@ impl UniformTransportBuilder {
                             self.config,
                         )
                         .await?;
-                    Ok(UnifiedTransport::TokioTcp(transport))
+                    Ok(AnyTransport::TokioTcp(transport))
                 }
                 Protocol::Udp => {
                     let transport =
@@ -588,7 +588,7 @@ impl UniformTransportBuilder {
                             self.config,
                         )
                         .await?;
-                    Ok(UnifiedTransport::TokioUdp(transport))
+                    Ok(AnyTransport::TokioUdp(transport))
                 }
             };
         }
@@ -604,7 +604,7 @@ impl UniformTransportBuilder {
                             self.config,
                         )
                         .await?;
-                    Ok(UnifiedTransport::AsyncStdTcp(transport))
+                    Ok(AnyTransport::AsyncStdTcp(transport))
                 }
                 Protocol::Udp => {
                     let transport =
@@ -613,7 +613,7 @@ impl UniformTransportBuilder {
                             self.config,
                         )
                         .await?;
-                    Ok(UnifiedTransport::AsyncStdUdp(transport))
+                    Ok(AnyTransport::AsyncStdUdp(transport))
                 }
             };
         }
@@ -630,7 +630,7 @@ impl UniformTransportBuilder {
                             self.config,
                         )
                         .await?;
-                    Ok(UnifiedTransport::SmolTcp(transport))
+                    Ok(AnyTransport::SmolTcp(transport))
                 }
                 Protocol::Udp => {
                     let transport =
@@ -639,7 +639,7 @@ impl UniformTransportBuilder {
                             self.config,
                         )
                         .await?;
-                    Ok(UnifiedTransport::SmolUdp(transport))
+                    Ok(AnyTransport::SmolUdp(transport))
                 }
             };
         }
@@ -672,7 +672,7 @@ impl UniformTransportBuilder {
     #[allow(unreachable_code)]
     pub async fn connect_with_auto_detection(
         self,
-    ) -> Result<(UnifiedTransport, super::DetectionResult), Error> {
+    ) -> Result<(AnyTransport, super::DetectionResult), Error> {
         let address = self
             .address
             .clone()
@@ -900,8 +900,8 @@ impl Transport {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn tcp() -> UniformTransportBuilder {
-        UniformTransportBuilder::new_tcp()
+    pub fn tcp() -> AnyTransportBuilder {
+        AnyTransportBuilder::new_tcp()
     }
 
     /// Create a UDP transport builder.
@@ -922,8 +922,8 @@ impl Transport {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn udp() -> UniformTransportBuilder {
-        UniformTransportBuilder::new_udp()
+    pub fn udp() -> AnyTransportBuilder {
+        AnyTransportBuilder::new_udp()
     }
 
     /// Connect to a camera with automatic protocol detection (EPIC task B3).
@@ -950,7 +950,7 @@ impl Transport {
     #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
     pub async fn auto_detect(
         address: impl Into<String>,
-    ) -> Result<(UnifiedTransport, super::DetectionResult), Error> {
+    ) -> Result<(AnyTransport, super::DetectionResult), Error> {
         Self::tcp()
             .address(address)
             .connect_with_auto_detection()

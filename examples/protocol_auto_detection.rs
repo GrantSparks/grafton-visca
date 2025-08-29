@@ -15,7 +15,7 @@
 //! 4. Display the difference in wire format between protocols
 
 use grafton_visca::{
-    camera::methods::inquiry::InquiryControl,
+    camera::controls::inquiry::InquiryControl,
     camera::profiles::GenericVisca, // Works with both Sony and PTZOptics
     transport::Transport,
     CameraBuilder,

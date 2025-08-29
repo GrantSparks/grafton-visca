@@ -12,7 +12,7 @@
 
 use grafton_visca_macros::ViscaEnum;
 
-use crate::{command::const_encoding::constants, macros::internal::*};
+use crate::{command::bytes::constants, macros::internal::*};
 
 /// White balance modes.
 ///
@@ -99,8 +99,8 @@ impl AWBSensitivityCommand {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
-    use crate::command::const_encoding::VISCA_TERMINATOR;
-    use crate::command::encode_visca::EncodeVisca;
+    use crate::command::bytes::VISCA_TERMINATOR;
+    use crate::command::encode_visca::ViscaEncode;
     use crate::macros::test_utils::visca_test;
     use crate::timeout::CommandCategory;
 

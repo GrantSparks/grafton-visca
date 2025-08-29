@@ -191,7 +191,7 @@ async fn main() -> grafton_visca::Result<()> {
     use tokio::time::{Duration, Instant};
 
     use grafton_visca::{
-        camera::methods::inquiry::{InquiryControl, PanTiltInquiryControl},
+        camera::controls::inquiry::{InquiryControl, PanTiltInquiryControl},
         runtime_adapters::tokio::TcpTransport as Tcp,
         CameraBuilder,
     };

@@ -113,7 +113,7 @@ pub fn derive_inquiry_command(input: TokenStream) -> TokenStream {
 
 /// Derive macro for automatic VISCA command encoding
 ///
-/// This macro automatically generates the `EncodeVisca` trait implementation
+/// This macro automatically generates the `ViscaEncode` trait implementation
 /// for commands, eliminating boilerplate code for byte sequence encoding.
 ///
 /// # Basic Usage
@@ -152,7 +152,7 @@ pub fn derive_inquiry_command(input: TokenStream) -> TokenStream {
 ///
 /// # Generated Implementation
 ///
-/// The macro generates a complete `EncodeVisca` trait implementation with:
+/// The macro generates a complete `ViscaEncode` trait implementation with:
 /// - Proper type-state pattern using CommandBuilder
 /// - Automatic terminator handling
 /// - Camera ID injection

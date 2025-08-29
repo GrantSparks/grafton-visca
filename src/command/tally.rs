@@ -11,9 +11,7 @@
 //! - Flash/solid modes (`Flash`, `On`, `Off`) - PtzOptics specific
 
 use crate::{
-    command::{
-        const_encoding::builder::ConstCommandBuilder, encode_visca::EncodeVisca, ViscaResponseType,
-    },
+    command::{bytes::builder::ConstCommandBuilder, encode_visca::ViscaEncode, ViscaResponseType},
     error::Error,
     macros::internal::*,
     timeout::CommandCategory,
@@ -29,55 +27,55 @@ visca_command! {
         /// Turn red tally light on
         RedOn => {
             Ok(ConstCommandBuilder::<16>::new()
-                .append(crate::command::const_encoding::constants::tally::TALLY_PREFIX)
+                .append(crate::command::bytes::constants::tally::TALLY_PREFIX)
                 .append(&[0x02]))
         },
         /// Turn red tally light off
         RedOff => {
             Ok(ConstCommandBuilder::<16>::new()
-                .append(crate::command::const_encoding::constants::tally::TALLY_PREFIX)
+                .append(crate::command::bytes::constants::tally::TALLY_PREFIX)
                 .append(&[0x03]))
         },
         /// Set tally brightness to low
         BrightLo => {
             Ok(ConstCommandBuilder::<16>::new()
-                .append(crate::command::const_encoding::constants::tally::TALLY_BRIGHT_PREFIX)
+                .append(crate::command::bytes::constants::tally::TALLY_BRIGHT_PREFIX)
                 .append(&[0x04]))
         },
         /// Set tally brightness to high
         BrightHi => {
             Ok(ConstCommandBuilder::<16>::new()
-                .append(crate::command::const_encoding::constants::tally::TALLY_BRIGHT_PREFIX)
+                .append(crate::command::bytes::constants::tally::TALLY_BRIGHT_PREFIX)
                 .append(&[0x05]))
         },
         /// Turn green tally light on (FR7 specific)
         GreenOn => {
             Ok(ConstCommandBuilder::<16>::new()
-                .append(crate::command::const_encoding::constants::tally::TALLY_GREEN_PREFIX)
+                .append(crate::command::bytes::constants::tally::TALLY_GREEN_PREFIX)
                 .append(&[0x02]))
         },
         /// Turn green tally light off (FR7 specific)
         GreenOff => {
             Ok(ConstCommandBuilder::<16>::new()
-                .append(crate::command::const_encoding::constants::tally::TALLY_GREEN_PREFIX)
+                .append(crate::command::bytes::constants::tally::TALLY_GREEN_PREFIX)
                 .append(&[0x03]))
         },
         /// Set tally to flash mode (PtzOptics specific)
         Flash => {
             Ok(ConstCommandBuilder::<16>::new()
-                .append(crate::command::const_encoding::constants::tally::TALLY_PTZO_PREFIX)
+                .append(crate::command::bytes::constants::tally::TALLY_PTZO_PREFIX)
                 .append(&[0x01]))
         },
         /// Set tally to solid on (PtzOptics specific)
         On => {
             Ok(ConstCommandBuilder::<16>::new()
-                .append(crate::command::const_encoding::constants::tally::TALLY_PTZO_PREFIX)
+                .append(crate::command::bytes::constants::tally::TALLY_PTZO_PREFIX)
                 .append(&[0x02]))
         },
         /// Turn tally off (PtzOptics specific)
         Off => {
             Ok(ConstCommandBuilder::<16>::new()
-                .append(crate::command::const_encoding::constants::tally::TALLY_PTZO_PREFIX)
+                .append(crate::command::bytes::constants::tally::TALLY_PTZO_PREFIX)
                 .append(&[0x03]))
         },
     }
@@ -94,7 +92,7 @@ pub enum TallyInquiry {
     Green,
 }
 
-impl EncodeVisca for TallyInquiry {
+impl ViscaEncode for TallyInquiry {
     type ViscaResponse = ();
     const MAX_SIZE: usize = 7;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
@@ -104,7 +102,7 @@ impl EncodeVisca for TallyInquiry {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::const_encoding::constants;
+        use crate::command::bytes::constants;
 
         match self {
             Self::Red => ConstCommandBuilder::<7>::from_prefix(constants::inquiry::TALLY_STATUS)

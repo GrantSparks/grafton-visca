@@ -4,9 +4,7 @@
 //! When in 50-step mode, pan/tilt speed values can range from 1-50 for finer control.
 
 use crate::{
-    command::{
-        const_encoding::builder::ConstCommandBuilder, encode_visca::EncodeVisca, ViscaResponseType,
-    },
+    command::{bytes::builder::ConstCommandBuilder, encode_visca::ViscaEncode, ViscaResponseType},
     error::Error,
     timeout::CommandCategory,
 };
@@ -39,7 +37,7 @@ impl VariableSpeedModeCmd {
     }
 }
 
-impl EncodeVisca for VariableSpeedModeCmd {
+impl ViscaEncode for VariableSpeedModeCmd {
     type ViscaResponse = ();
     const MAX_SIZE: usize = 7;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
@@ -49,7 +47,7 @@ impl EncodeVisca for VariableSpeedModeCmd {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::const_encoding::constants;
+        use crate::command::bytes::constants;
 
         let mode_byte = match self.mode {
             VariableSpeedMode::Standard24 => 0x01,
@@ -70,7 +68,7 @@ impl EncodeVisca for VariableSpeedModeCmd {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command::const_encoding::VISCA_TERMINATOR;
+    use crate::command::bytes::VISCA_TERMINATOR;
     use crate::macros::test_utils::visca_test;
 
     visca_test!(

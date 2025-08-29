@@ -6,7 +6,7 @@
 
 use crate::{
     command::{
-        const_encoding::builder::ConstCommandBuilder, encode_visca::EncodeVisca, MotionSyncMode,
+        bytes::builder::ConstCommandBuilder, encode_visca::ViscaEncode, MotionSyncMode,
         MotionSyncSpeed, ViscaResponseType,
     },
     error::Error,
@@ -29,7 +29,7 @@ impl MotionSyncModeCmd {
     }
 }
 
-impl EncodeVisca for MotionSyncModeCmd {
+impl ViscaEncode for MotionSyncModeCmd {
     type ViscaResponse = ();
     const MAX_SIZE: usize = 6;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
@@ -39,7 +39,7 @@ impl EncodeVisca for MotionSyncModeCmd {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::const_encoding::constants;
+        use crate::command::bytes::constants;
 
         let mode_byte = self.mode as u8;
 
@@ -95,7 +95,7 @@ impl MotionSyncSpeedCmd {
     }
 }
 
-impl EncodeVisca for MotionSyncSpeedCmd {
+impl ViscaEncode for MotionSyncSpeedCmd {
     type ViscaResponse = ();
     const MAX_SIZE: usize = 6;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
@@ -105,7 +105,7 @@ impl EncodeVisca for MotionSyncSpeedCmd {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::const_encoding::constants;
+        use crate::command::bytes::constants;
 
         // The VISCA protocol uses 0x01-0x18 for speeds 1-24
         ConstCommandBuilder::<6>::from_prefix(constants::motion_sync::SPEED_PREFIX)
@@ -123,7 +123,7 @@ impl EncodeVisca for MotionSyncSpeedCmd {
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use crate::command::const_encoding::VISCA_TERMINATOR;
+    use crate::command::bytes::VISCA_TERMINATOR;
     use crate::macros::test_utils::visca_test;
 
     visca_test!(
