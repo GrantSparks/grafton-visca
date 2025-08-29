@@ -8,6 +8,7 @@ use std::time::Duration;
 use tracing::{debug, info, warn};
 
 use crate::capabilities::ProtocolStyle;
+use crate::command::const_encoding::VISCA_TERMINATOR;
 use crate::transport::buffer::{BufferConfig, BufferManager};
 use crate::transport::envelope::TransportEnvelope;
 use crate::transport::{AsyncTransport, RetryConfig};
@@ -83,7 +84,7 @@ impl ProtocolDetector {
         info!("Starting VISCA protocol detection");
 
         // Test command: Version Inquiry - should be supported by all VISCA cameras
-        let test_command = &[0x81, 0x09, 0x00, 0x02, 0xFF];
+        let test_command = &[0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR];
 
         // Try Sony encapsulated format first (priority order from EPIC)
         debug!("Probing Sony encapsulated protocol (52381 style)");
@@ -222,7 +223,7 @@ impl ProtocolDetector {
         }
 
         // Must end with VISCA terminator
-        if payload[payload.len() - 1] != 0xFF {
+        if payload[payload.len() - 1] != VISCA_TERMINATOR {
             return false;
         }
 
@@ -251,6 +252,7 @@ impl Default for ProtocolDetector {
 }
 
 #[cfg(all(test, feature = "test-utils"))]
+#[allow(clippy::panic, clippy::assertions_on_constants)]
 mod tests {
     use super::*;
     use crate::executor::TokioExecutor;
@@ -264,17 +266,31 @@ mod tests {
             matches: Some(vec![0x01, 0x10]), // Sony inquiry payload type
             responses: vec![
                 vec![
-                    0x01, 0x11, 0x00, 0x06, 0x00, 0x00, 0x00, 0x01, // Sony header
-                    0x90, 0x50, 0x01, 0x02, 0x03, 0xFF,
+                    0x01,
+                    0x11,
+                    0x00,
+                    0x06,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x01, // Sony header
+                    0x90,
+                    0x50,
+                    0x01,
+                    0x02,
+                    0x03,
+                    VISCA_TERMINATOR,
                 ], // Version response
             ],
         }];
         let mut transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(steps);
 
         let detector = ProtocolDetector::new();
-        let result = detector.detect_protocol(&mut transport).await.unwrap();
-
-        assert_eq!(result, DetectionResult::SonyEncapsulated);
+        let result = detector.detect_protocol(&mut transport).await;
+        match result {
+            Ok(detection) => assert_eq!(detection, DetectionResult::SonyEncapsulated),
+            Err(e) => panic!("Detection should succeed but failed: {}", e),
+        }
     }
 
     #[tokio::test]
@@ -284,15 +300,17 @@ mod tests {
         let steps = vec![Step::OnSend {
             matches: Some(vec![0x81, 0x09]), // Raw VISCA inquiry
             responses: vec![
-                vec![0x90, 0x50, 0x01, 0x02, 0x03, 0xFF], // Version response
+                vec![0x90, 0x50, 0x01, 0x02, 0x03, VISCA_TERMINATOR], // Version response
             ],
         }];
         let mut transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(steps);
 
         let detector = ProtocolDetector::new();
-        let result = detector.detect_protocol(&mut transport).await.unwrap();
-
-        assert_eq!(result, DetectionResult::RawVisca);
+        let result = detector.detect_protocol(&mut transport).await;
+        match result {
+            Ok(detection) => assert_eq!(detection, DetectionResult::RawVisca),
+            Err(e) => panic!("Detection should succeed but failed: {}", e),
+        }
     }
 
     #[tokio::test]
@@ -301,9 +319,11 @@ mod tests {
         let mut transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(vec![]);
 
         let detector = ProtocolDetector::new();
-        let result = detector.detect_protocol(&mut transport).await.unwrap();
-
-        assert_eq!(result, DetectionResult::NoResponse);
+        let result = detector.detect_protocol(&mut transport).await;
+        match result {
+            Ok(detection) => assert_eq!(detection, DetectionResult::NoResponse),
+            Err(e) => panic!("Detection should succeed but failed: {}", e),
+        }
     }
 
     #[test]
@@ -311,25 +331,32 @@ mod tests {
         let detector = ProtocolDetector::new();
 
         // Valid version inquiry response
-        assert!(detector.is_valid_visca_response(&[0x90, 0x50, 0x01, 0x02, 0x03, 0xFF]));
+        assert!(detector.is_valid_visca_response(&[
+            0x90,
+            0x50,
+            0x01,
+            0x02,
+            0x03,
+            VISCA_TERMINATOR
+        ]));
 
         // Valid ACK response
-        assert!(detector.is_valid_visca_response(&[0x90, 0x41, 0xFF]));
+        assert!(detector.is_valid_visca_response(&[0x90, 0x41, VISCA_TERMINATOR]));
 
         // Valid completion response
-        assert!(detector.is_valid_visca_response(&[0x90, 0x51, 0xFF]));
+        assert!(detector.is_valid_visca_response(&[0x90, 0x51, VISCA_TERMINATOR]));
 
         // Valid error response
-        assert!(detector.is_valid_visca_response(&[0x90, 0x60, 0x02, 0xFF]));
+        assert!(detector.is_valid_visca_response(&[0x90, 0x60, 0x02, VISCA_TERMINATOR]));
 
         // Invalid - too short
-        assert!(!detector.is_valid_visca_response(&[0x90, 0xFF]));
+        assert!(!detector.is_valid_visca_response(&[0x90, VISCA_TERMINATOR]));
 
-        // Invalid - doesn't end with 0xFF
+        // Invalid - doesn't end with VISCA_TERMINATOR
         assert!(!detector.is_valid_visca_response(&[0x90, 0x50, 0x01, 0x00]));
 
         // Invalid - wrong header
-        assert!(!detector.is_valid_visca_response(&[0x80, 0x50, 0x01, 0xFF]));
+        assert!(!detector.is_valid_visca_response(&[0x80, 0x50, 0x01, VISCA_TERMINATOR]));
 
         // Empty payload
         assert!(!detector.is_valid_visca_response(&[]));

@@ -32,6 +32,7 @@ rt-tokio = ["async", "dep:tokio"]
 rt-async-std = ["async", "dep:async-std"]
 rt-smol = ["async", "dep:smol", "dep:async-executor"]
 serial = ["dep:serialport"]
+serial-async = ["async", "serial", "dep:tokio-serial"]
 test-utils = ["dep:async-executor", "dep:futures-lite"]
 
 [dependencies]
@@ -45,6 +46,7 @@ nom = "8.0.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serialport = { version = "4.7", optional = true }
+tokio-serial = { version = "5.4", optional = true }
 thiserror = "2.0"
 tokio = { version = "1.47", features = [
     "net",
@@ -120,3 +122,7 @@ required-features = ["rt-tokio"]
 [[example]]
 name = "protocol_auto_detection"
 required-features = ["rt-tokio"]
+
+[[example]]
+name = "serial_async_demo"
+required-features = ["serial-async", "rt-tokio"]

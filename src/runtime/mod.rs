@@ -173,22 +173,23 @@ impl RuntimeHandle {
         Self::new(transport, executor).await
     }
 
-    // TODO: Uncomment when native async serial is implemented with tokio-serial
-    // /// Create a new camera runtime with serial transport.
-    // #[cfg(all(feature = "async", feature = "serial", feature = "rt-tokio"))]
-    // pub async fn new_serial<E: crate::executor::Executor>(
-    //     port: impl AsRef<str>,
-    //     camera_address: u8,
-    //     executor: Arc<E>,
-    // ) -> Result<Self> {
-    //     let config = crate::transport::serial::SerialConfig {
-    //         port: port.as_ref().to_string(),
-    //         camera_address,
-    //         ..Default::default()
-    //     };
-    //     let transport = crate::transport::serial::AsyncSerialTransport::new(config).await?;
-    //     Self::new(transport, executor).await
-    // }
+    /// Create a new camera runtime with serial transport.
+    ///
+    /// Note: This method requires the "serial-async" feature as it uses tokio-serial for async serial I/O.
+    #[cfg(all(feature = "serial-async", feature = "rt-tokio"))]
+    pub async fn new_serial<E: crate::executor::Executor>(
+        port: impl AsRef<str>,
+        camera_address: u8,
+        executor: Arc<E>,
+    ) -> Result<Self> {
+        let config = crate::transport::serial_async::AsyncSerialConfig {
+            port: port.as_ref().to_string(),
+            camera_address,
+            ..Default::default()
+        };
+        let transport = crate::transport::serial_async::AsyncSerialTransport::new(config).await?;
+        Self::new(transport, executor).await
+    }
 
     /// Send a command item to the runtime.
     pub(crate) async fn command(&self, item: TxItem) -> Result<()> {

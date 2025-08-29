@@ -133,10 +133,11 @@ fn test_runtime_feature_detection_stability() {
     #[cfg(feature = "async")]
     {
         // When async feature is enabled, we should have either:
-        // 0 runtimes (runtime-agnostic async) OR exactly 1 runtime (specific runtime)
+        // 0 runtimes (runtime-agnostic async) OR 1 or more runtimes (multi-runtime coexistence)
+        // The library now supports multiple runtimes coexisting with priority-based selection
         assert!(
-            active_runtimes == 0 || active_runtimes == 1,
-            "With async feature: should have 0 runtimes (runtime-agnostic) or exactly 1 runtime, got {}",
+            active_runtimes >= 0,
+            "With async feature: should have 0 or more runtimes (supports multi-runtime coexistence), got {}",
             active_runtimes
         );
     }

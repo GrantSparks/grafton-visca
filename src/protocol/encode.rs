@@ -208,13 +208,21 @@ pub(crate) fn encode_cancel(socket: u8) -> Vec<u8> {
 }
 
 /// Interface clear command (serial only).
-#[cfg(any(all(feature = "serial", not(feature = "async")), test))]
+#[cfg(any(
+    all(feature = "serial", not(feature = "async")),
+    all(feature = "serial-async", feature = "async"),
+    test
+))]
 pub(crate) fn encode_if_clear() -> Vec<u8> {
     vec![0x88, 0x01, 0x00, 0x01, VISCA_TERMINATOR]
 }
 
 /// Address set command (serial only).
-#[cfg(any(all(feature = "serial", not(feature = "async")), test))]
+#[cfg(any(
+    all(feature = "serial", not(feature = "async")),
+    all(feature = "serial-async", feature = "async"),
+    test
+))]
 pub(crate) fn encode_address_set() -> Vec<u8> {
     vec![0x88, 0x30, 0x01, VISCA_TERMINATOR]
 }
