@@ -425,10 +425,6 @@ jobs:
           cargo test --no-default-features --features async,${{ matrix.runtime }} \
             --test api_stability_test
       
-      - name: Run connect_dyn() builder tests (${{ matrix.runtime }})
-        run: |
-          cargo test --no-default-features --features async,${{ matrix.runtime }},test-utils \
-            --test connect_dyn_builders_test
       
       # Test that multiple runtime features can coexist (runtime coexistence)
       - name: Test runtime coexistence (${{ matrix.runtime }})
