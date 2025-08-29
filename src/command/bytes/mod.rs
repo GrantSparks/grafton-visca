@@ -8,8 +8,6 @@ pub mod constants;
 
 pub use builder::ConstCommandBuilder;
 
-// pub use constants::*;  // Commented out - unused
-
 /// VISCA command terminator byte.
 pub const VISCA_TERMINATOR: u8 = 0xFF;
 
