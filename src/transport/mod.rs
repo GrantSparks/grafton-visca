@@ -91,16 +91,11 @@ use std::time::{Duration, Instant};
 
 #[cfg(feature = "async")]
 pub use async_transport::AsyncTransport;
-#[cfg(all(
-    feature = "async",
-    any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")
-))]
-pub use builder::Transport;
-#[cfg(feature = "async")]
-pub use protocol_detection::{DetectionResult, ProtocolDetector};
-// Gate blocking exports so they only appear without async
 #[cfg(not(feature = "async"))]
 pub use blocking::{Tcp as BlockingTcp, Udp as BlockingUdp};
+pub use builder::{NetTransportBuilder, Transport, TransportBuilderExt};
+#[cfg(feature = "async")]
+pub use protocol_detection::{DetectionResult, ProtocolDetector};
 #[cfg(not(feature = "async"))]
 pub use sync_transport::SyncTransport;
 

@@ -27,10 +27,9 @@
 
 use std::time::Duration;
 
-use crate::transport::{buffer::BufferConfig, RetryConfig};
-
 #[cfg(not(feature = "async"))]
 use crate::transport::SyncTransport;
+use crate::transport::{buffer::BufferConfig, RetryConfig};
 #[cfg(any(
     not(feature = "async"),
     feature = "rt-tokio",
@@ -375,38 +374,161 @@ impl crate::transport::AsyncTransport for AnyTransport {
     }
 }
 
-/// Any transport builder that automatically selects the runtime implementation.
+/// Uniform transport API.
 ///
-/// This provides a clean API where users don't need to specify the runtime
-/// (tokio, async-std, smol) - the library picks the right one based on enabled features.
+/// Provides a clean interface for creating transports without exposing runtime details.
+/// The runtime implementation is automatically selected based on enabled features.
+#[derive(Debug, Copy, Clone)]
+pub struct Transport;
+
+impl Transport {
+    /// Create a TCP transport builder.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use grafton_visca::transport::Transport;
+    /// # use std::time::Duration;
+    ///
+    /// # #[cfg(not(feature = "async"))]
+    /// # fn blocking_example() -> Result<(), Box<dyn std::error::Error>> {
+    /// // Building blocking transports
+    /// let transport = Transport::tcp()
+    ///     .address("192.168.0.110:5678")
+    ///     .tcp_nodelay(true)
+    ///     .build_blocking()?;
+    /// # Ok(())
+    /// # }
+    ///
+    /// # #[cfg(feature = "async")]
+    /// # async fn async_example() -> Result<(), Box<dyn std::error::Error>> {
+    /// // Building async transports
+    /// let transport = Transport::tcp()
+    ///     .address("192.168.0.110:5678")
+    ///     .tcp_nodelay(true)
+    ///     .build_async()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn tcp() -> NetTransportBuilder {
+        NetTransportBuilder::tcp()
+    }
+
+    /// Create a UDP transport builder.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use grafton_visca::transport::Transport;
+    /// # use std::time::Duration;
+    ///
+    /// # #[cfg(not(feature = "async"))]
+    /// # fn blocking_example() -> Result<(), Box<dyn std::error::Error>> {
+    /// // Building blocking transports
+    /// let transport = Transport::udp()
+    ///     .address("192.168.0.110:5678")
+    ///     .max_retries(5)
+    ///     .build_blocking()?;
+    /// # Ok(())
+    /// # }
+    ///
+    /// # #[cfg(feature = "async")]
+    /// # async fn async_example() -> Result<(), Box<dyn std::error::Error>> {
+    /// // Building async transports
+    /// let transport = Transport::udp()
+    ///     .address("192.168.0.110:5678")
+    ///     .max_retries(5)
+    ///     .build_async()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn udp() -> NetTransportBuilder {
+        NetTransportBuilder::udp()
+    }
+
+    /// Connect to a camera with automatic protocol detection (EPIC task B3).
+    ///
+    /// This is a convenience method that automatically detects whether the camera
+    /// uses Sony encapsulated format (8-byte header) or raw VISCA format.
+    ///
+    /// Defaults to TCP transport on the provided address.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")))]
+    /// use grafton_visca::transport::Transport;
+    ///
+    /// # #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")))]
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// // Auto-detect protocol for camera (could be Sony or PTZOptics)
+    /// let (transport, detected_protocol) = Transport::auto_detect("192.168.0.110:5678").await?;
+    /// println!("Detected protocol: {:?}", detected_protocol);
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
+    pub async fn auto_detect(
+        address: impl Into<String>,
+    ) -> Result<(AnyTransport, super::DetectionResult), Error> {
+        Self::tcp()
+            .address(address)
+            .build_async_with_auto_detection()
+            .await
+    }
+}
+
+/// Unified transport builder that can create both blocking and async transports.
+///
+/// This builder eliminates the need for separate `TransportBuilder` and `AnyTransportBuilder`
+/// types by providing `.build_blocking()` and `.build_async()` methods on a single builder.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// # #[cfg(any(feature = "async", not(feature = "async")))]
+/// use grafton_visca::transport::NetTransportBuilder;
+/// # use std::time::Duration;
+///
+/// # #[cfg(not(feature = "async"))]
+/// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// // Building blocking transports
+/// let blocking_transport = NetTransportBuilder::tcp()
+///     .address("192.168.0.110:5678")
+///     .connect_timeout(Duration::from_secs(10))
+///     .build_blocking()?;
+/// # Ok(())
+/// # }
+///
+/// # #[cfg(feature = "async")]
+/// # async fn async_example() -> Result<(), Box<dyn std::error::Error>> {
+/// // Building async transports
+/// let async_transport = NetTransportBuilder::tcp()
+///     .address("192.168.0.110:5678")
+///     .connect_timeout(Duration::from_secs(10))
+///     .build_async()
+///     .await?;
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone)]
-#[cfg(all(
-    feature = "async",
-    any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")
-))]
-pub struct AnyTransportBuilder {
+pub struct NetTransportBuilder {
     protocol: Protocol,
     address: Option<String>,
     config: TransportConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg(all(
-    feature = "async",
-    any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")
-))]
 enum Protocol {
     Tcp,
     Udp,
 }
 
-#[cfg(all(
-    feature = "async",
-    any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")
-))]
-impl AnyTransportBuilder {
+impl NetTransportBuilder {
     /// Create a new TCP transport builder.
-    fn new_tcp() -> Self {
+    pub fn tcp() -> Self {
         Self {
             protocol: Protocol::Tcp,
             address: None,
@@ -415,7 +537,7 @@ impl AnyTransportBuilder {
     }
 
     /// Create a new UDP transport builder.
-    fn new_udp() -> Self {
+    pub fn udp() -> Self {
         Self {
             protocol: Protocol::Udp,
             address: None,
@@ -424,6 +546,9 @@ impl AnyTransportBuilder {
     }
 
     /// Set the address to connect to.
+    ///
+    /// This can be a hostname with port (e.g., "camera.local:5678")
+    /// or an IP address with port (e.g., "192.168.0.110:5678").
     pub fn address(mut self, address: impl Into<String>) -> Self {
         self.address = Some(address.into());
         self
@@ -522,6 +647,7 @@ impl AnyTransportBuilder {
     }
 
     /// Enable or disable TCP nodelay (Nagle's algorithm).
+    ///
     /// This option only affects TCP transports.
     pub fn tcp_nodelay(mut self, enabled: bool) -> Self {
         self.config.tcp_nodelay = Some(enabled);
@@ -534,7 +660,55 @@ impl AnyTransportBuilder {
         self
     }
 
-    /// Connect to the transport.
+    /// Build a blocking transport.
+    ///
+    /// This method establishes the connection and returns a configured blocking transport instance.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - No address has been set
+    /// - Connection fails
+    /// - Socket configuration fails
+    /// - Async features are enabled without blocking support
+    #[cfg(not(feature = "async"))]
+    pub fn build_blocking(self) -> Result<Box<dyn SyncTransport>, Error> {
+        let address = self.address.ok_or_else(|| Error::InvalidParameter {
+            parameter: "address",
+            value: "None".into(),
+            reason: "No address specified for transport".into(),
+        })?;
+
+        match self.protocol {
+            Protocol::Tcp => {
+                let transport =
+                    crate::transport::blocking::Tcp::connect_with_config(&address, self.config)?;
+                Ok(Box::new(transport))
+            }
+            Protocol::Udp => {
+                let transport =
+                    crate::transport::blocking::Udp::connect_with_config(&address, self.config)?;
+                Ok(Box::new(transport))
+            }
+        }
+    }
+
+    /// Build a blocking transport.
+    ///
+    /// This method returns an error when async features are enabled, since blocking
+    /// transport creation is not supported in async mode.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error indicating that blocking transport creation is not available in async mode.
+    #[cfg(feature = "async")]
+    pub fn build_blocking(self) -> Result<(), Error> {
+        Err(Error::InvalidState(
+            "Blocking transport not available when async features are enabled".into(),
+        ))
+    }
+
+    /// Build an async transport.
     ///
     /// This method automatically selects the appropriate runtime implementation
     /// based on enabled features and establishes the connection.
@@ -555,7 +729,7 @@ impl AnyTransportBuilder {
     /// - Socket configuration fails
     #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
     #[allow(unreachable_code)]
-    pub async fn connect(self) -> Result<AnyTransport, Error> {
+    pub async fn build_async(self) -> Result<AnyTransport, Error> {
         let address = self.address.ok_or_else(|| Error::InvalidParameter {
             parameter: "address",
             value: "None".into(),
@@ -642,9 +816,9 @@ impl AnyTransportBuilder {
         unreachable!("No runtime available - this should be prevented by cfg guard")
     }
 
-    /// Connect to the transport with automatic protocol detection.
+    /// Build an async transport with automatic protocol detection (EPIC task B3).
     ///
-    /// This method implements EPIC task B3: automatic detection of Sony encapsulated
+    /// This method implements automatic detection of Sony encapsulated
     /// vs raw VISCA protocol modes. It probes the camera with both formats and
     /// returns a transport configured for the detected protocol.
     ///
@@ -664,7 +838,7 @@ impl AnyTransportBuilder {
     /// - No protocol response detected from camera
     #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
     #[allow(unreachable_code)]
-    pub async fn connect_with_auto_detection(
+    pub async fn build_async_with_auto_detection(
         self,
     ) -> Result<(AnyTransport, super::DetectionResult), Error> {
         let address = self
@@ -677,7 +851,7 @@ impl AnyTransportBuilder {
             })?;
 
         // First establish the connection
-        let mut transport = self.connect().await?;
+        let mut transport = self.build_async().await?;
 
         // For now, use a feature-specific executor approach
         // This will be improved when we have more specific builder methods
@@ -751,142 +925,103 @@ impl AnyTransportBuilder {
         // If no runtime features are enabled, return an error
         Err(Error::MissingRuntime)
     }
-}
 
-/// Uniform transport API.
-///
-/// Provides a clean interface for creating transports without exposing runtime details.
-/// The runtime implementation is automatically selected based on enabled features.
-#[derive(Debug, Copy, Clone)]
-#[cfg(all(
-    feature = "async",
-    any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")
-))]
-pub struct Transport;
-
-#[cfg(all(
-    feature = "async",
-    any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")
-))]
-impl Transport {
-    /// Create a TCP transport builder.
+    /// Build an async transport (not available without async runtime features).
     ///
-    /// # Example
+    /// This method returns an error when no async runtime features are enabled.
     ///
-    /// ```rust,no_run
-    /// # #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")))]
-    /// use grafton_visca::transport::Transport;
+    /// # Errors
     ///
-    /// # #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")))]
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let transport = Transport::tcp()
-    ///     .address("192.168.0.110:5678")
-    ///     .tcp_nodelay(true)
-    ///     .connect()
-    ///     .await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn tcp() -> AnyTransportBuilder {
-        AnyTransportBuilder::new_tcp()
+    /// Returns an error indicating that async transport creation requires runtime features.
+    #[cfg(all(
+        feature = "async",
+        not(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))
+    ))]
+    pub async fn build_async(self) -> Result<AnyTransport, Error> {
+        Err(Error::MissingRuntime)
     }
 
-    /// Create a UDP transport builder.
+    /// Build an async transport (not available without async features).
     ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")))]
-    /// use grafton_visca::transport::Transport;
-    ///
-    /// # #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")))]
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let transport = Transport::udp()
-    ///     .address("192.168.0.110:5678")
-    ///     .max_retries(5)
-    ///     .connect()
-    ///     .await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn udp() -> AnyTransportBuilder {
-        AnyTransportBuilder::new_udp()
+    /// This method is not available when async features are disabled.
+    #[cfg(not(feature = "async"))]
+    pub async fn build_async(self) -> Result<(), Error> {
+        Err(Error::InvalidState(
+            "Async transport not available without async features enabled".into(),
+        ))
     }
 
-    /// Connect to a camera with automatic protocol detection (EPIC task B3).
+    /// Build an async transport with auto-detection (not available without async runtime features).
     ///
-    /// This is a convenience method that automatically detects whether the camera
-    /// uses Sony encapsulated format (8-byte header) or raw VISCA format.
+    /// This method returns an error when no async runtime features are enabled.
     ///
-    /// Defaults to TCP transport on the provided address.
+    /// # Errors
     ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")))]
-    /// use grafton_visca::transport::Transport;
-    ///
-    /// # #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")))]
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// // Auto-detect protocol for camera (could be Sony or PTZOptics)
-    /// let (transport, detected_protocol) = Transport::auto_detect("192.168.0.110:5678").await?;
-    /// println!("Detected protocol: {:?}", detected_protocol);
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
-    pub async fn auto_detect(
-        address: impl Into<String>,
+    /// Returns an error indicating that async transport creation requires runtime features.
+    #[cfg(all(
+        feature = "async",
+        not(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))
+    ))]
+    pub async fn build_async_with_auto_detection(
+        self,
     ) -> Result<(AnyTransport, super::DetectionResult), Error> {
-        Self::tcp()
-            .address(address)
-            .connect_with_auto_detection()
-            .await
+        Err(Error::MissingRuntime)
+    }
+
+    /// Build an async transport with auto-detection (not available without async features).
+    ///
+    /// This method is not available when async features are disabled.
+    #[cfg(not(feature = "async"))]
+    pub async fn build_async_with_auto_detection(self) -> Result<(), Error> {
+        Err(Error::InvalidState(
+            "Async transport with auto-detection not available without async features enabled"
+                .into(),
+        ))
     }
 }
 
 /// Extension trait for creating transports with a builder pattern.
 pub trait TransportBuilderExt: Sized {
     /// Create a builder for this transport type.
-    fn builder() -> TransportBuilder;
+    fn builder() -> NetTransportBuilder;
 }
 
 #[cfg(not(feature = "async"))]
 impl TransportBuilderExt for crate::transport::blocking::Tcp {
-    fn builder() -> TransportBuilder {
-        TransportBuilder::tcp()
+    fn builder() -> NetTransportBuilder {
+        NetTransportBuilder::tcp()
     }
 }
 
 #[cfg(not(feature = "async"))]
 impl TransportBuilderExt for crate::transport::blocking::Udp {
-    fn builder() -> TransportBuilder {
-        TransportBuilder::udp()
+    fn builder() -> NetTransportBuilder {
+        NetTransportBuilder::udp()
     }
 }
 
-#[cfg(all(test, not(feature = "async")))]
+#[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_builder_default_config() {
-        let builder = TransportBuilder::tcp();
-        assert_eq!(builder.transport_type, TransportType::Tcp);
+    fn test_net_builder_default_config() {
+        let builder = NetTransportBuilder::tcp();
+        assert_eq!(builder.protocol, Protocol::Tcp);
         assert_eq!(builder.config.connect_timeout, Duration::from_secs(5));
         assert_eq!(builder.config.retry_config.max_retries, 3);
     }
 
     #[test]
-    fn test_builder_fluent_api() {
-        let builder = TransportBuilder::udp()
+    fn test_net_builder_fluent_api() {
+        let builder = NetTransportBuilder::udp()
             .address("192.168.0.110:5678")
             .connect_timeout(Duration::from_secs(10))
             .max_retries(5)
             .tcp_nodelay(true);
 
-        assert_eq!(builder.transport_type, TransportType::Udp);
+        assert_eq!(builder.protocol, Protocol::Udp);
         assert_eq!(builder.address, Some("192.168.0.110:5678".to_string()));
         assert_eq!(builder.config.connect_timeout, Duration::from_secs(10));
         assert_eq!(builder.config.retry_config.max_retries, 5);
@@ -894,18 +1029,19 @@ mod tests {
     }
 
     #[test]
-    fn test_builder_timeout_convenience() {
-        let builder = TransportBuilder::tcp().timeout(Duration::from_secs(3));
+    fn test_net_builder_timeout_convenience() {
+        let builder = NetTransportBuilder::tcp().timeout(Duration::from_secs(3));
 
         assert_eq!(builder.config.connect_timeout, Duration::from_secs(3));
         assert_eq!(builder.config.read_timeout, Duration::from_secs(3));
         assert_eq!(builder.config.write_timeout, Duration::from_secs(3));
     }
 
+    #[cfg(not(feature = "async"))]
     #[test]
-    fn test_builder_requires_address() {
-        let builder = TransportBuilder::tcp();
-        let result = builder.build();
+    fn test_net_builder_blocking_requires_address() {
+        let builder = NetTransportBuilder::tcp();
+        let result = builder.build_blocking();
         assert!(result.is_err());
 
         // Check that we get the correct error type
@@ -923,9 +1059,23 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "async")]
     #[test]
-    fn test_retry_config_builder() {
-        let builder = TransportBuilder::tcp()
+    fn test_net_builder_blocking_not_available_in_async_mode() {
+        let builder = NetTransportBuilder::tcp().address("192.168.0.110:5678");
+        let result = builder.build_blocking();
+        assert!(result.is_err());
+
+        let is_correct_error = matches!(result, Err(Error::InvalidState(_)));
+        assert!(
+            is_correct_error,
+            "Expected InvalidState error when building blocking transport in async mode"
+        );
+    }
+
+    #[test]
+    fn test_net_builder_retry_config() {
+        let builder = NetTransportBuilder::tcp()
             .max_retries(10)
             .retry_delay(Duration::from_millis(500))
             .max_retry_duration(Duration::from_secs(30))
@@ -941,5 +1091,14 @@ mod tests {
             Duration::from_secs(30)
         );
         assert!(!builder.config.retry_config.exponential_backoff);
+    }
+
+    #[test]
+    fn test_transport_api_convenience() {
+        let tcp_builder = Transport::tcp();
+        assert_eq!(tcp_builder.protocol, Protocol::Tcp);
+
+        let udp_builder = Transport::udp();
+        assert_eq!(udp_builder.protocol, Protocol::Udp);
     }
 }
