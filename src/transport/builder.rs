@@ -648,6 +648,63 @@ impl UniformTransportBuilder {
         unreachable!("No runtime available - this should be prevented by cfg guard")
     }
 
+    /// Connect to the transport with automatic protocol detection.
+    ///
+    /// This method implements EPIC task B3: automatic detection of Sony encapsulated
+    /// vs raw VISCA protocol modes. It probes the camera with both formats and
+    /// returns a transport configured for the detected protocol.
+    ///
+    /// # Protocol Detection Process
+    ///
+    /// 1. Try Sony encapsulated format first (8-byte header)
+    /// 2. If no response, fallback to raw VISCA format
+    /// 3. If neither works, return error
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - No address has been set
+    /// - No async runtime features are enabled
+    /// - Connection fails
+    /// - Socket configuration fails
+    /// - No protocol response detected from camera
+    #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
+    #[allow(unreachable_code)]
+    pub async fn connect_with_auto_detection(
+        self,
+    ) -> Result<(UnifiedTransport, super::DetectionResult), Error> {
+        let address = self
+            .address
+            .clone()
+            .ok_or_else(|| Error::InvalidParameter {
+                parameter: "address",
+                value: "None".into(),
+                reason: "No address specified for transport".into(),
+            })?;
+
+        // First establish the connection
+        let mut transport = self.connect().await?;
+
+        // Perform protocol detection
+        let detector = super::ProtocolDetector::new();
+        let detection_result = detector.detect_protocol(&mut transport).await?;
+
+        match detection_result {
+            super::DetectionResult::SonyEncapsulated | super::DetectionResult::RawVisca => {
+                Ok((transport, detection_result))
+            }
+            super::DetectionResult::NoResponse => {
+                Err(Error::ConnectionFailed {
+                    addr: address.into(),
+                    source: std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "No VISCA protocol response detected from camera - verify camera is powered on and address is correct"
+                    ),
+                })
+            }
+        }
+    }
+
     /// Connect to the transport and return a stable dynamic handle.
     ///
     /// Unlike [`connect()`](Self::connect), this method returns a [`BoxAsyncTransport`](super::BoxAsyncTransport)
@@ -814,6 +871,37 @@ impl Transport {
     /// ```
     pub fn udp() -> UniformTransportBuilder {
         UniformTransportBuilder::new_udp()
+    }
+
+    /// Connect to a camera with automatic protocol detection (EPIC task B3).
+    ///
+    /// This is a convenience method that automatically detects whether the camera
+    /// uses Sony encapsulated format (8-byte header) or raw VISCA format.
+    ///
+    /// Defaults to TCP transport on the provided address.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")))]
+    /// use grafton_visca::transport::Transport;
+    ///
+    /// # #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")))]
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// // Auto-detect protocol for camera (could be Sony or PTZOptics)
+    /// let (transport, detected_protocol) = Transport::auto_detect("192.168.0.110:5678").await?;
+    /// println!("Detected protocol: {:?}", detected_protocol);
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
+    pub async fn auto_detect(
+        address: impl Into<String>,
+    ) -> Result<(UnifiedTransport, super::DetectionResult), Error> {
+        Self::tcp()
+            .address(address)
+            .connect_with_auto_detection()
+            .await
     }
 }
 

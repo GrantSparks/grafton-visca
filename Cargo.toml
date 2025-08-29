@@ -116,3 +116,7 @@ required-features = ["rt-tokio"]
 [[example]]
 name = "inquiry_demo"
 required-features = ["rt-tokio"]
+
+[[example]]
+name = "protocol_auto_detection"
+required-features = ["rt-tokio"]
