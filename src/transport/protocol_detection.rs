@@ -9,6 +9,7 @@ use tracing::{debug, info, warn};
 
 use crate::capabilities::ProtocolStyle;
 use crate::command::const_encoding::VISCA_TERMINATOR;
+use crate::executor::Executor;
 use crate::transport::buffer::{BufferConfig, BufferManager};
 use crate::transport::envelope::TransportEnvelope;
 use crate::transport::{AsyncTransport, RetryConfig};
@@ -77,9 +78,14 @@ impl ProtocolDetector {
     ///
     /// The test command used is a simple Version Inquiry (81 09 00 02 FF)
     /// which should be supported by all VISCA cameras.
-    pub async fn detect_protocol<T>(&self, transport: &mut T) -> Result<DetectionResult, Error>
+    pub async fn detect_protocol<T, E>(
+        &self,
+        transport: &mut T,
+        executor: &E,
+    ) -> Result<DetectionResult, Error>
     where
         T: AsyncTransport,
+        E: Executor,
     {
         info!("Starting VISCA protocol detection");
 
@@ -91,6 +97,7 @@ impl ProtocolDetector {
         match self
             .try_protocol(
                 transport,
+                executor,
                 test_command,
                 ProtocolStyle::SonyEncapsulated { use_sequence: true },
             )
@@ -111,7 +118,7 @@ impl ProtocolDetector {
         // Fallback to raw VISCA format
         debug!("Probing raw VISCA protocol (1259/5678 style)");
         match self
-            .try_protocol(transport, test_command, ProtocolStyle::RawVisca)
+            .try_protocol(transport, executor, test_command, ProtocolStyle::RawVisca)
             .await
         {
             Ok(true) => {
@@ -131,14 +138,16 @@ impl ProtocolDetector {
     }
 
     /// Test a specific protocol format by sending a command and waiting for response
-    async fn try_protocol<T>(
+    async fn try_protocol<T, E>(
         &self,
         transport: &mut T,
+        executor: &E,
         command: &[u8],
         protocol_style: ProtocolStyle,
     ) -> Result<bool, Error>
     where
         T: AsyncTransport,
+        E: Executor,
     {
         let envelope = TransportEnvelope::new(protocol_style);
         let buffer_manager = BufferManager::new(BufferConfig::default());
@@ -168,7 +177,7 @@ impl ProtocolDetector {
             }
 
             // Wait for response with timeout
-            let response_result = tokio::time::timeout(DETECTION_TIMEOUT, transport.recv()).await;
+            let response_result = executor.timeout(DETECTION_TIMEOUT, transport.recv()).await;
 
             match response_result {
                 Ok(Ok(response_bytes)) => {
@@ -208,7 +217,7 @@ impl ProtocolDetector {
             // Wait before retry
             if attempt < self.retry_config.max_retries {
                 let delay = self.retry_config.calculate_delay(attempt, None);
-                tokio::time::sleep(delay).await;
+                executor.sleep(delay).await;
             }
         }
 
@@ -286,7 +295,11 @@ mod tests {
         let mut transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(steps);
 
         let detector = ProtocolDetector::new();
-        let result = detector.detect_protocol(&mut transport).await;
+        let executor = match TokioExecutor::from_current() {
+            Ok(executor) => executor,
+            Err(_) => panic!("Test requires Tokio runtime"),
+        };
+        let result = detector.detect_protocol(&mut transport, &executor).await;
         match result {
             Ok(detection) => assert_eq!(detection, DetectionResult::SonyEncapsulated),
             Err(e) => panic!("Detection should succeed but failed: {}", e),
@@ -306,7 +319,11 @@ mod tests {
         let mut transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(steps);
 
         let detector = ProtocolDetector::new();
-        let result = detector.detect_protocol(&mut transport).await;
+        let executor = match TokioExecutor::from_current() {
+            Ok(executor) => executor,
+            Err(_) => panic!("Test requires Tokio runtime"),
+        };
+        let result = detector.detect_protocol(&mut transport, &executor).await;
         match result {
             Ok(detection) => assert_eq!(detection, DetectionResult::RawVisca),
             Err(e) => panic!("Detection should succeed but failed: {}", e),
@@ -319,7 +336,11 @@ mod tests {
         let mut transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(vec![]);
 
         let detector = ProtocolDetector::new();
-        let result = detector.detect_protocol(&mut transport).await;
+        let executor = match TokioExecutor::from_current() {
+            Ok(executor) => executor,
+            Err(_) => panic!("Test requires Tokio runtime"),
+        };
+        let result = detector.detect_protocol(&mut transport, &executor).await;
         match result {
             Ok(detection) => assert_eq!(detection, DetectionResult::NoResponse),
             Err(e) => panic!("Detection should succeed but failed: {}", e),

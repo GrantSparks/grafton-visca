@@ -685,24 +685,77 @@ impl UniformTransportBuilder {
         // First establish the connection
         let mut transport = self.connect().await?;
 
-        // Perform protocol detection
-        let detector = super::ProtocolDetector::new();
-        let detection_result = detector.detect_protocol(&mut transport).await?;
-
-        match detection_result {
-            super::DetectionResult::SonyEncapsulated | super::DetectionResult::RawVisca => {
-                Ok((transport, detection_result))
-            }
-            super::DetectionResult::NoResponse => {
-                Err(Error::ConnectionFailed {
-                    addr: address.into(),
-                    source: std::io::Error::new(
-                        std::io::ErrorKind::TimedOut,
-                        "No VISCA protocol response detected from camera - verify camera is powered on and address is correct"
-                    ),
-                })
+        // For now, use a feature-specific executor approach
+        // This will be improved when we have more specific builder methods
+        #[cfg(feature = "rt-tokio")]
+        {
+            let executor = crate::executor::TokioExecutor::from_current()
+                .map_err(|_| Error::MissingRuntime)?;
+            let detector = super::ProtocolDetector::new();
+            let detection_result = detector.detect_protocol(&mut transport, &executor).await?;
+            match detection_result {
+                super::DetectionResult::SonyEncapsulated | super::DetectionResult::RawVisca => {
+                    return Ok((transport, detection_result));
+                }
+                super::DetectionResult::NoResponse => {
+                    return Err(Error::ConnectionFailed {
+                        addr: address.into(),
+                        source: std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "No VISCA protocol response detected from camera - verify camera is powered on and address is correct"
+                        ),
+                    });
+                }
             }
         }
+
+        #[cfg(all(feature = "rt-async-std", not(feature = "rt-tokio")))]
+        {
+            let executor = crate::executor::AsyncStdExecutor::new();
+            let detector = super::ProtocolDetector::new();
+            let detection_result = detector.detect_protocol(&mut transport, &executor).await?;
+            match detection_result {
+                super::DetectionResult::SonyEncapsulated | super::DetectionResult::RawVisca => {
+                    return Ok((transport, detection_result));
+                }
+                super::DetectionResult::NoResponse => {
+                    return Err(Error::ConnectionFailed {
+                        addr: address.into(),
+                        source: std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "No VISCA protocol response detected from camera - verify camera is powered on and address is correct"
+                        ),
+                    });
+                }
+            }
+        }
+
+        #[cfg(all(
+            feature = "rt-smol",
+            not(any(feature = "rt-tokio", feature = "rt-async-std"))
+        ))]
+        {
+            let executor = crate::executor::SmolExecutor::new();
+            let detector = super::ProtocolDetector::new();
+            let detection_result = detector.detect_protocol(&mut transport, &executor).await?;
+            match detection_result {
+                super::DetectionResult::SonyEncapsulated | super::DetectionResult::RawVisca => {
+                    return Ok((transport, detection_result));
+                }
+                super::DetectionResult::NoResponse => {
+                    return Err(Error::ConnectionFailed {
+                        addr: address.into(),
+                        source: std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "No VISCA protocol response detected from camera - verify camera is powered on and address is correct"
+                        ),
+                    });
+                }
+            }
+        }
+
+        // If no runtime features are enabled, return an error
+        Err(Error::MissingRuntime)
     }
 
     /// Connect to the transport and return a stable dynamic handle.
