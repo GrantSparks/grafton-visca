@@ -60,6 +60,7 @@ fn test_zero_cost_generic_transports() {
     }
 
     // Test that we can still work with generic constraints
+    #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
     fn requires_send_sync<T>()
     where
         T: Send + Sync + 'static,
