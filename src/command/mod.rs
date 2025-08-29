@@ -35,9 +35,6 @@ pub mod bytes;
 // New unified ViscaEncode trait
 pub mod encode_visca;
 
-#[cfg(test)]
-mod test_derive;
-
 // Re-export command types
 pub use self::{
     color::*,
