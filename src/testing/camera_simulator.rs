@@ -9,13 +9,13 @@ use bytes::Bytes;
 use tokio::sync::{broadcast, RwLock};
 use tokio::time::sleep;
 
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
-use crate::command::bytes::VISCA_TERMINATOR;
-use crate::transport::AsyncTransport;
-use crate::Error;
+use crate::{command::bytes::VISCA_TERMINATOR, transport::AsyncTransport, Error};
 
 /// Represents the state of a single VISCA socket
 #[derive(Debug, Clone)]

@@ -10,20 +10,18 @@ pub use scheduler::SocketId;
 pub use scheduler::{MetricsSummary, Priority};
 
 #[cfg(feature = "async")]
-use flume::{Receiver, Sender};
-#[cfg(feature = "async")]
-use futures_lite;
-#[cfg(feature = "async")]
-use tracing::{debug, error, instrument, trace, warn};
+use {
+    flume::{Receiver, Sender},
+    futures_lite,
+    scheduler::{RxEvent, Scheduler, SchedulerMetrics, TxItem, ViscaError},
+    tracing::{debug, error, instrument, trace, warn},
+};
 
 #[cfg(feature = "async")]
 use std::sync::{
     atomic::{AtomicBool, AtomicU32, Ordering},
     Arc,
 };
-
-#[cfg(feature = "async")]
-use scheduler::{RxEvent, Scheduler, SchedulerMetrics, TxItem, ViscaError};
 
 #[cfg(feature = "async")]
 use crate::{

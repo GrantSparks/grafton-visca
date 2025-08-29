@@ -27,9 +27,6 @@ fn test_derived_power_on() {
     assert!(result.is_ok(), "Failed to encode: {result:?}");
     let size = result.expect("Already checked that result is Ok");
 
-    println!("Encoded size: {size}");
-    println!("Buffer: {:02X?}", &buffer[..size]);
-
     // Should encode to: [0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]
     assert_eq!(size, 6, "Expected 6 bytes, got {size}");
     assert_eq!(buffer[0], 0x81); // Camera ID

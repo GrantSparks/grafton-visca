@@ -5,6 +5,7 @@
 //! brightness (luminance), contrast, and sharpness adjustments.
 
 use grafton_visca_macros::ViscaEnum;
+
 use std::borrow::Cow;
 
 use crate::{
