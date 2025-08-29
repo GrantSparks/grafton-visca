@@ -69,6 +69,9 @@ pub mod envelope;
 pub mod ip_raw;
 #[cfg(not(feature = "async"))]
 pub mod ip_sony;
+// Protocol auto-detection for VISCA cameras (EPIC task B3)
+#[cfg(feature = "async")]
+pub mod protocol_detection;
 pub mod retry;
 // Serial is a blocking-only transport, so only compile it when not using async
 #[cfg(all(feature = "serial", not(feature = "async")))]
@@ -97,6 +100,8 @@ pub use async_transport::AsyncTransport;
     any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")
 ))]
 pub use builder::Transport;
+#[cfg(feature = "async")]
+pub use protocol_detection::{DetectionResult, ProtocolDetector};
 // Gate blocking exports so they only appear without async
 #[cfg(not(feature = "async"))]
 pub use blocking::{Tcp as BlockingTcp, Udp as BlockingUdp};
