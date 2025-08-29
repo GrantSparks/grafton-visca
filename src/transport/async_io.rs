@@ -4,13 +4,10 @@
 //! to reduce code duplication while maintaining zero-cost abstractions.
 
 use bytes::Bytes;
-use std::borrow::Cow;
-use std::future::Future;
-use std::time::Duration;
 
-use crate::command::bytes::VISCA_TERMINATOR;
-use crate::transport::builder::TransportConfig;
-use crate::Error;
+use std::{borrow::Cow, future::Future, time::Duration};
+
+use crate::{command::bytes::VISCA_TERMINATOR, transport::builder::TransportConfig, Error};
 
 /// Trait abstracting async read operations across different runtimes.
 ///
@@ -54,44 +51,17 @@ pub trait AsyncWriteExt {
 /// Unified helper for reading VISCA frames from async streams.
 ///
 /// This function handles the common pattern of reading data until the VISCA
-/// terminator (0xFF) is found, which is used by tokio and async-std implementations.
-#[cfg(any(feature = "rt-tokio", feature = "rt-async-std"))]
+/// terminator (0xFF) is found. All runtimes (tokio, async-std, smol) now use
+/// this unified implementation through their read_until trait implementation.
 pub async fn read_until_terminator<R: AsyncReadExt>(reader: &mut R) -> Result<Bytes, Error> {
     let mut buf = Vec::with_capacity(64);
 
     let n = reader.read_until(VISCA_TERMINATOR, &mut buf).await?;
 
     if n == 0 {
-        return Err(Error::ConnectionLost {
-            reason: Cow::Borrowed("peer closed connection"),
+        return Err(Error::ConnectionClosed {
+            reason: Some(Cow::Borrowed("peer closed connection")),
         });
-    }
-
-    Ok(Bytes::from(buf))
-}
-
-/// Unified helper for reading VISCA frames with byte-by-byte fallback.
-///
-/// This function provides a fallback for runtimes that don't have efficient
-/// read_until implementations (like smol), reading one byte at a time.
-#[cfg(feature = "rt-smol")]
-pub async fn read_until_terminator_fallback<R: AsyncReadExt>(
-    reader: &mut R,
-) -> Result<Bytes, Error> {
-    let mut buf = Vec::with_capacity(64);
-
-    loop {
-        let mut byte = [0u8; 1];
-        let n = reader.read(&mut byte).await?;
-        if n == 0 {
-            return Err(Error::ConnectionLost {
-                reason: Cow::Borrowed("peer closed connection"),
-            });
-        }
-        buf.push(byte[0]);
-        if byte[0] == VISCA_TERMINATOR {
-            break;
-        }
     }
 
     Ok(Bytes::from(buf))

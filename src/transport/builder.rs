@@ -52,8 +52,6 @@ pub struct TransportConfig {
     pub retry_config: RetryConfig,
     /// Buffer configuration for managing buffers.
     pub buffer_config: BufferConfig,
-    /// Buffer size for buffered transports (e.g., TCP).
-    pub buffer_size: Option<usize>,
     /// Whether to enable TCP nodelay (disable Nagle's algorithm).
     pub tcp_nodelay: Option<bool>,
     /// TTL (Time To Live) for packets.
@@ -68,7 +66,6 @@ impl Default for TransportConfig {
             write_timeout: Duration::from_secs(5),
             retry_config: RetryConfig::default(),
             buffer_config: BufferConfig::default(),
-            buffer_size: None,
             tcp_nodelay: None,
             ttl: None,
         }
@@ -203,15 +200,6 @@ impl TransportBuilder {
     /// Enable or disable exponential backoff for retries.
     pub fn exponential_backoff(mut self, enabled: bool) -> Self {
         self.config.retry_config.exponential_backoff = enabled;
-        self
-    }
-
-    /// Set the buffer size for buffered transports (TCP).
-    pub fn buffer_size(mut self, size: usize) -> Self {
-        self.config.buffer_size = Some(size);
-        // Also update the buffer config
-        self.config.buffer_config.recv_buffer_size = size;
-        self.config.buffer_config.send_buffer_size = size;
         self
     }
 
@@ -494,14 +482,6 @@ impl AnyTransportBuilder {
     /// Enable or disable exponential backoff for retries.
     pub fn exponential_backoff(mut self, enabled: bool) -> Self {
         self.config.retry_config.exponential_backoff = enabled;
-        self
-    }
-
-    /// Set the buffer size for buffered transports (TCP).
-    pub fn buffer_size(mut self, size: usize) -> Self {
-        self.config.buffer_size = Some(size);
-        self.config.buffer_config.recv_buffer_size = size;
-        self.config.buffer_config.send_buffer_size = size;
         self
     }
 

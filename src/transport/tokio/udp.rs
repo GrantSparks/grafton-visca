@@ -3,12 +3,16 @@
 use bytes::Bytes;
 use tokio::net::UdpSocket;
 
-use crate::transport::async_io::UdpSocketConfig;
-use crate::transport::buffer::{BufferConfig, BufferManager};
-use crate::transport::retry::RetryExecutor;
-use crate::transport::tokio::connectors::connect_udp;
-use crate::transport::{builder::TransportConfig, AsyncTransport, RetryConfig};
-use crate::Error;
+use crate::{
+    transport::{
+        async_io::UdpSocketConfig,
+        buffer::{BufferConfig, BufferManager},
+        retry::RetryExecutor,
+        tokio::connectors::connect_udp,
+        {builder::TransportConfig, AsyncTransport, RetryConfig},
+    },
+    Error,
+};
 
 /// UDP transport for async VISCA communication using tokio.
 ///
@@ -83,6 +87,6 @@ impl AsyncTransport for Udp {
         // Receiving is typically not retried to avoid protocol confusion
         let mut buffer = self.buffer_manager.alloc_vec_buffer();
         let n = self.socket.recv(&mut buffer).await?;
-        Ok(self.buffer_manager.process_recv_data(&mut buffer, n))
+        Ok(self.buffer_manager.process_recv_data(buffer, n))
     }
 }

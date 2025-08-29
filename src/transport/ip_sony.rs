@@ -5,14 +5,16 @@
 //! matching and automatic retry on network errors.
 
 use bytes::{Bytes, BytesMut};
+use tracing::{debug, error, trace, warn};
+
 use std::{
+    borrow::Cow,
     collections::HashMap,
     io::{BufReader, Read, Write},
     net::TcpStream,
     sync::atomic::{AtomicU32, Ordering},
     time::{Duration, Instant},
 };
-use tracing::{debug, error, trace, warn};
 
 use crate::{
     error::{Error, Result},
@@ -187,7 +189,9 @@ impl SonyTcpTransport {
                     trace!("Read {n} bytes from TCP");
                 }
                 Ok(_) => {
-                    return Err(Error::ConnectionClosed);
+                    return Err(Error::ConnectionClosed {
+                        reason: Some(Cow::Borrowed("peer closed connection")),
+                    });
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                     return Err(Error::Timeout);

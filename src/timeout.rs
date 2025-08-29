@@ -550,12 +550,6 @@ impl Deadline {
     }
 }
 
-/// Policy for timeout classes used throughout the library.
-///
-/// This type aliases `CommandCategory` to provide a clearer interface
-/// for timeout policy configuration.
-pub type TimeoutClass = CommandCategory;
-
 /// Trait for commands that can provide timeout classification.
 ///
 /// This trait allows each command to specify its expected timeout category,
@@ -565,7 +559,7 @@ pub trait CommandTimeout {
     ///
     /// This determines how long to wait for the command to complete
     /// and affects retry behavior.
-    fn timeout_class(&self) -> TimeoutClass;
+    fn timeout_class(&self) -> CommandCategory;
 }
 
 /// Blanket implementation for all commands that implement ViscaEncode.
@@ -576,7 +570,7 @@ impl<T> CommandTimeout for T
 where
     T: crate::command::encode_visca::ViscaEncode,
 {
-    fn timeout_class(&self) -> TimeoutClass {
+    fn timeout_class(&self) -> CommandCategory {
         T::TIMEOUT_CATEGORY
     }
 }
@@ -599,13 +593,13 @@ impl TimeoutPolicy {
 
     /// Get the timeout duration for a specific class.
     #[must_use]
-    pub const fn get_timeout(&self, class: TimeoutClass) -> Duration {
+    pub const fn get_timeout(&self, class: CommandCategory) -> Duration {
         self.config.get_timeout(class)
     }
 
     /// Create a deadline for a specific timeout class.
     #[must_use]
-    pub fn deadline_for(&self, class: TimeoutClass) -> Deadline {
+    pub fn deadline_for(&self, class: CommandCategory) -> Deadline {
         Deadline::from_timeout(self.get_timeout(class))
     }
 
@@ -798,15 +792,15 @@ mod timeout_manager_tests {
         let policy = TimeoutPolicy::default();
 
         assert_eq!(
-            policy.get_timeout(TimeoutClass::Quick),
+            policy.get_timeout(CommandCategory::Quick),
             Duration::from_secs(5)
         );
         assert_eq!(
-            policy.get_timeout(TimeoutClass::Movement),
+            policy.get_timeout(CommandCategory::Movement),
             Duration::from_secs(30)
         );
 
-        let deadline = policy.deadline_for(TimeoutClass::Quick);
+        let deadline = policy.deadline_for(CommandCategory::Quick);
         assert!(!deadline.is_expired());
         assert_eq!(deadline.timeout, Duration::from_secs(5));
 
@@ -816,7 +810,7 @@ mod timeout_manager_tests {
         policy.update_config(new_config);
 
         assert_eq!(
-            policy.get_timeout(TimeoutClass::Quick),
+            policy.get_timeout(CommandCategory::Quick),
             Duration::from_secs(10)
         );
     }

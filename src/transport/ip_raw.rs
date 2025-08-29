@@ -4,12 +4,14 @@
 //! any additional encapsulation. This is the format used by PtzOptics cameras.
 
 use bytes::{Bytes, BytesMut};
+use tracing::{debug, trace};
+
 use std::{
+    borrow::Cow,
     io::{BufReader, Read, Write},
     net::{TcpStream, UdpSocket},
     time::{Duration, Instant},
 };
-use tracing::{debug, trace};
 
 #[cfg(not(feature = "async"))]
 use crate::transport::SyncTransport;
@@ -128,7 +130,9 @@ impl RawTcpTransport {
                     trace!("Read {n} bytes from TCP");
                 }
                 Ok(_) => {
-                    return Err(Error::ConnectionClosed);
+                    return Err(Error::ConnectionClosed {
+                        reason: Some(Cow::Borrowed("peer closed connection")),
+                    });
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                     return Err(Error::Timeout);
