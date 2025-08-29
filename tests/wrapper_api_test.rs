@@ -4,14 +4,14 @@
 #[test]
 fn test_blocking_wrapper_api() {
     use grafton_visca::{
-        camera::BlockingCamera, capabilities::Profile, transport::BlockingTransport, ZoomControl,
+        camera::BlockingCamera, capabilities::Profile, transport::SyncTransport, ZoomControl,
     };
 
     fn _example<P: Profile + Default, T>(
         camera: &mut BlockingCamera<P, T>,
     ) -> Result<(), grafton_visca::Error>
     where
-        T: BlockingTransport + Send + Sync + 'static,
+        T: SyncTransport + Send + Sync + 'static,
     {
         camera.zoom_stop()?;
         camera.zoom_tele_std()?;
@@ -56,7 +56,7 @@ fn test_wrapper_creation() {
     use grafton_visca::camera::BlockingCamera;
 
     #[cfg(not(feature = "async"))]
-    use grafton_visca::transport::BlockingTransport;
+    use grafton_visca::transport::SyncTransport;
 
     #[cfg(feature = "async")]
     fn _check_camera_type<
@@ -68,7 +68,7 @@ fn test_wrapper_creation() {
     }
 
     #[cfg(not(feature = "async"))]
-    fn _check_camera_type<P: Profile + Default, T: BlockingTransport + Send + Sync + 'static>() {
+    fn _check_camera_type<P: Profile + Default, T: SyncTransport + Send + Sync + 'static>() {
         let _: Option<BlockingCamera<P, T>> = None;
     }
 
@@ -85,7 +85,7 @@ fn test_wrapper_creation() {
     }
 
     #[cfg(not(feature = "async"))]
-    fn _check_specific_types<T: BlockingTransport + Send + Sync + 'static>() {
+    fn _check_specific_types<T: SyncTransport + Send + Sync + 'static>() {
         use grafton_visca::camera::profiles::{GenericVisca, SonyFR7};
 
         let _: Option<BlockingCamera<PtzOpticsG2, T>> = None;

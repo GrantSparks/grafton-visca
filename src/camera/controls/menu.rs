@@ -181,7 +181,7 @@ where
 impl<P, Tr> MenuControl for crate::camera::BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile + crate::capabilities::MenuControl + Default,
-    Tr: crate::transport::BlockingTransport + Send + 'static,
+    Tr: crate::transport::SyncTransport + Send + 'static,
 {
     fn set_menu_display(&mut self, display: bool) -> Result<(), Error> {
         use crate::command::menu::MenuDisplayCommand;
@@ -212,7 +212,7 @@ where
 impl<P, Tr> DirectMenuControl for crate::camera::BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile + crate::capabilities::MenuControl + Default,
-    Tr: crate::transport::BlockingTransport + Send + 'static,
+    Tr: crate::transport::SyncTransport + Send + 'static,
 {
     fn direct_menu_control(&mut self, control1: u8, control2: u8) -> Result<(), Error> {
         use crate::command::menu::DirectMenuControl;

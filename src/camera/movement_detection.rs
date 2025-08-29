@@ -6,7 +6,7 @@
 use std::time::{Duration, Instant};
 
 #[cfg(not(feature = "async"))]
-use crate::transport::BlockingTransport;
+use crate::transport::SyncTransport;
 use crate::{
     capabilities::{Profile, ProfileMetadata},
     command::inquiry::{FocusPositionInquiry, PanTiltPositionInquiry, ZoomPositionInquiry},
@@ -26,7 +26,7 @@ use super::{MovementConfig, PanTiltPosition};
 impl<P, T> BlockingCamera<P, T>
 where
     P: Profile + ProfileMetadata + Default,
-    T: BlockingTransport,
+    T: SyncTransport,
 {
     /// Wait for a command completion message or idle state using the default timeout.
     ///

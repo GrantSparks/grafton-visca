@@ -5,17 +5,20 @@
 //! Address Set and I/F Clear initialization.
 
 use bytes::{Bytes, BytesMut};
+use std::{
+    io::{Read, Write},
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 use tracing::{debug, trace, warn};
 
-use std::io::{Read, Write};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
-
-use crate::error::{Error, Result};
-use crate::protocol::encode::{FrameBuilder, VISCA_TERMINATOR};
-use crate::transport::{
-    buffer::{BufferConfig, BufferManager},
-    BlockingTransport, RetryConfig,
+use crate::{
+    error::{Error, Result},
+    protocol::encode::{FrameBuilder, VISCA_TERMINATOR},
+    transport::{
+        buffer::{BufferConfig, BufferManager},
+        RetryConfig, SyncTransport,
+    },
 };
 
 /// Serial port configuration for VISCA communication.
@@ -280,8 +283,8 @@ impl SerialTransport {
 
 // SerialTransport keeps using &self because it has interior mutability
 // This is necessary for hardware constraints
-impl BlockingTransport for SerialTransport {
-    fn send_blocking(&mut self, bytes: &[u8]) -> Result<()> {
+impl SyncTransport for SerialTransport {
+    fn send(&mut self, bytes: &[u8]) -> Result<()> {
         // Add camera address and terminator if not already present
         let cmd = if bytes[0] & 0xF0 == 0x80 {
             // Already has address
@@ -320,7 +323,7 @@ impl BlockingTransport for SerialTransport {
         }
     }
 
-    fn recv_blocking(&mut self) -> Result<Bytes> {
+    fn recv(&mut self) -> Result<Bytes> {
         let mut attempts = 0;
         let start_time = Instant::now();
 
@@ -349,7 +352,7 @@ impl BlockingTransport for SerialTransport {
         }
     }
 
-    fn recv_blocking_with_timeout(&mut self, timeout: Duration) -> Result<Bytes> {
+    fn recv_with_timeout(&mut self, timeout: Duration) -> Result<Bytes> {
         // Temporarily set the timeout on the port
         let mut port = self
             .port

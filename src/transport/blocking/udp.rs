@@ -1,16 +1,18 @@
 //! Blocking UDP transport implementation with IPv6 support.
 
 use bytes::Bytes;
+use std::{net::UdpSocket, time::Duration};
 
-use std::net::UdpSocket;
-use std::time::Duration;
-
-use crate::transport::address::AddressResolver;
-use crate::transport::buffer::{BufferConfig, BufferManager};
-use crate::transport::builder::TransportConfig;
-use crate::transport::retry::RetryExecutor;
-use crate::transport::{BlockingTransport, RetryConfig};
-use crate::Error;
+use crate::{
+    transport::{
+        address::AddressResolver,
+        buffer::{BufferConfig, BufferManager},
+        builder::TransportConfig,
+        retry::RetryExecutor,
+        RetryConfig, SyncTransport,
+    },
+    Error,
+};
 
 /// UDP transport for blocking VISCA communication.
 ///
@@ -101,8 +103,8 @@ impl Udp {
     }
 }
 
-impl BlockingTransport for Udp {
-    fn send_blocking(&mut self, data: &[u8]) -> Result<(), Error> {
+impl SyncTransport for Udp {
+    fn send(&mut self, data: &[u8]) -> Result<(), Error> {
         // Clone data for retry closure
         let data_vec = data.to_vec();
 
@@ -112,7 +114,7 @@ impl BlockingTransport for Udp {
         })
     }
 
-    fn recv_blocking(&mut self) -> Result<Bytes, Error> {
+    fn recv(&mut self) -> Result<Bytes, Error> {
         let mut buffer = self.buffer_manager.alloc_vec_buffer();
 
         match self.socket.recv(&mut buffer) {
@@ -122,7 +124,7 @@ impl BlockingTransport for Udp {
         }
     }
 
-    fn recv_blocking_with_timeout(&mut self, duration: Duration) -> Result<Bytes, Error> {
+    fn recv_with_timeout(&mut self, duration: Duration) -> Result<Bytes, Error> {
         // Save the current timeout
         let original_timeout = self.socket.read_timeout()?;
 

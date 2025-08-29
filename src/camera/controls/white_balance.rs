@@ -170,7 +170,7 @@ where
 impl<P, Tr> WhiteBalanceControl for crate::camera::BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::BlockingTransport + Send + 'static,
+    Tr: crate::transport::SyncTransport + Send + 'static,
 {
     fn set_white_balance_mode(&mut self, mode: WhiteBalanceMode) -> Result<(), Error> {
         use crate::command::white_balance::WhiteBalanceCommand;

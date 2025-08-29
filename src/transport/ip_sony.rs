@@ -5,8 +5,6 @@
 //! matching and automatic retry on network errors.
 
 use bytes::{Bytes, BytesMut};
-use tracing::{debug, error, trace, warn};
-
 use std::{
     collections::HashMap,
     io::{BufReader, Read, Write},
@@ -14,11 +12,8 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
     time::{Duration, Instant},
 };
+use tracing::{debug, error, trace, warn};
 
-#[cfg(not(feature = "async"))]
-use crate::protocol::encode::PayloadType;
-#[cfg(not(feature = "async"))]
-use crate::transport::BlockingTransport;
 use crate::{
     error::{Error, Result},
     protocol::encode::SonyHeader,
@@ -27,6 +22,8 @@ use crate::{
         buffer::{BufferConfig, BufferManager},
     },
 };
+#[cfg(not(feature = "async"))]
+use crate::{protocol::encode::PayloadType, transport::SyncTransport};
 
 pub use crate::transport::sony_config::SonyIpConfig;
 
@@ -247,8 +244,8 @@ impl SonyTcpTransport {
 }
 
 #[cfg(not(feature = "async"))]
-impl BlockingTransport for SonyTcpTransport {
-    fn send_blocking(&mut self, bytes: &[u8]) -> Result<()> {
+impl SyncTransport for SonyTcpTransport {
+    fn send(&mut self, bytes: &[u8]) -> Result<()> {
         let sequence = self.sequence.fetch_add(1, Ordering::SeqCst);
 
         // Store pending command for potential retry
@@ -270,7 +267,7 @@ impl BlockingTransport for SonyTcpTransport {
         Ok(())
     }
 
-    fn recv_blocking(&mut self) -> Result<Bytes> {
+    fn recv(&mut self) -> Result<Bytes> {
         loop {
             match self.recv_sony_frame() {
                 Ok((header, payload)) => {
@@ -313,9 +310,9 @@ impl BlockingTransport for SonyTcpTransport {
         }
     }
 
-    fn recv_blocking_with_timeout(&mut self, timeout: Duration) -> Result<Bytes> {
+    fn recv_with_timeout(&mut self, timeout: Duration) -> Result<Bytes> {
         // We need to temporarily modify the timeout on the stream
-        // Since we can't get a mutable reference while recv_blocking borrows self mutably,
+        // Since we can't get a mutable reference while recv borrows self mutably,
         // we'll use the writer (which is a clone of the same stream)
 
         let original_read_timeout = self
@@ -327,7 +324,7 @@ impl BlockingTransport for SonyTcpTransport {
             .set_read_timeout(Some(timeout))
             .map_err(|e| Error::TransportError(format!("Failed to set timeout: {e}").into()))?;
 
-        let result = self.recv_blocking();
+        let result = self.recv();
 
         // Restore original timeout
         self.writer
@@ -477,8 +474,8 @@ impl SonyUdpTransport {
 }
 
 #[cfg(not(feature = "async"))]
-impl BlockingTransport for SonyUdpTransport {
-    fn send_blocking(&mut self, bytes: &[u8]) -> Result<()> {
+impl SyncTransport for SonyUdpTransport {
+    fn send(&mut self, bytes: &[u8]) -> Result<()> {
         let sequence = self.sequence.fetch_add(1, Ordering::SeqCst);
 
         // Store pending command for potential retry
@@ -497,7 +494,7 @@ impl BlockingTransport for SonyUdpTransport {
         Ok(())
     }
 
-    fn recv_blocking(&mut self) -> Result<Bytes> {
+    fn recv(&mut self) -> Result<Bytes> {
         loop {
             match self.recv_sony_frame() {
                 Ok((header, payload)) => {
@@ -559,7 +556,7 @@ impl BlockingTransport for SonyUdpTransport {
         }
     }
 
-    fn recv_blocking_with_timeout(&mut self, timeout: Duration) -> Result<Bytes> {
+    fn recv_with_timeout(&mut self, timeout: Duration) -> Result<Bytes> {
         // Temporarily set the timeout on the socket
         let original_read_timeout = self
             .socket
@@ -569,7 +566,7 @@ impl BlockingTransport for SonyUdpTransport {
             .set_read_timeout(Some(timeout))
             .map_err(|e| Error::TransportError(format!("Failed to set timeout: {e}").into()))?;
 
-        let result = self.recv_blocking();
+        let result = self.recv();
 
         // Restore original timeout
         self.socket
@@ -582,7 +579,7 @@ impl BlockingTransport for SonyUdpTransport {
 
 /// Create a Sony transport based on configuration.
 #[cfg(not(feature = "async"))]
-pub fn create_transport(config: SonyIpConfig) -> Result<Box<dyn BlockingTransport>> {
+pub fn create_transport(config: SonyIpConfig) -> Result<Box<dyn SyncTransport>> {
     if config.use_tcp {
         Ok(Box::new(SonyTcpTransport::connect(config)?))
     } else {

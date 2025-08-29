@@ -152,7 +152,7 @@ where
 impl<P, Tr> NdFilterControl for crate::camera::BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile + crate::capabilities::nd_filter::NDFilter + Default,
-    Tr: crate::transport::BlockingTransport + Send + 'static,
+    Tr: crate::transport::SyncTransport + Send + 'static,
 {
     fn set_nd_filter_mode(&mut self, mode: CommandNDFilterMode) -> Result<(), Error> {
         use crate::command::nd_filter::NdFilterModeCmd;

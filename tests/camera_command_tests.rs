@@ -19,7 +19,7 @@ mod blocking_tests {
             BlockingCamera,
         },
         prelude::blocking::*,
-        testing::testkit::{helpers, ScriptedBlockingTransport},
+        testing::testkit::{helpers, ScriptedSyncTransport},
         Error,
     };
 
@@ -30,7 +30,7 @@ mod blocking_tests {
 
     #[test]
     fn test_camera_power_command() {
-        let transport = ScriptedBlockingTransport::new(vec![helpers::command_response(
+        let transport = ScriptedSyncTransport::new(vec![helpers::command_response(
             patterns::power::ON.to_vec(),
             1,
         )]);
@@ -50,7 +50,7 @@ mod blocking_tests {
 
     #[test]
     fn test_camera_home_command() {
-        let transport = ScriptedBlockingTransport::new(vec![helpers::command_response(
+        let transport = ScriptedSyncTransport::new(vec![helpers::command_response(
             patterns::pan_tilt::HOME.to_vec(),
             1,
         )]);
@@ -70,7 +70,7 @@ mod blocking_tests {
         let zoom_in_cmd = vec![0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR];
         let zoom_out_cmd = vec![0x81, 0x01, 0x04, 0x07, 0x03, VISCA_TERMINATOR];
 
-        let transport = ScriptedBlockingTransport::new(vec![
+        let transport = ScriptedSyncTransport::new(vec![
             helpers::command_response(patterns::zoom::STOP.to_vec(), 1),
             helpers::command_response(zoom_in_cmd.clone(), 2),
             helpers::command_response(zoom_out_cmd.clone(), 1),
@@ -98,8 +98,7 @@ mod blocking_tests {
     fn test_simple_zoom_in() {
         let zoom_in_cmd = vec![0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR];
 
-        let transport =
-            ScriptedBlockingTransport::new(vec![helpers::command_response(zoom_in_cmd, 1)]);
+        let transport = ScriptedSyncTransport::new(vec![helpers::command_response(zoom_in_cmd, 1)]);
 
         let mut camera: BlockingCamera<PtzOpticsG2, _> = BlockingCamera::new(transport);
 
@@ -109,7 +108,7 @@ mod blocking_tests {
 
     #[test]
     fn test_camera_preset_operations() {
-        let transport = ScriptedBlockingTransport::new(vec![
+        let transport = ScriptedSyncTransport::new(vec![
             helpers::command_response(
                 vec![0x81, 0x01, 0x04, 0x3F, 0x01, 0x05, VISCA_TERMINATOR],
                 1,
@@ -131,7 +130,7 @@ mod blocking_tests {
 
     #[test]
     fn test_camera_error_handling() {
-        let transport = ScriptedBlockingTransport::new(vec![helpers::errors::syntax_error(1)]);
+        let transport = ScriptedSyncTransport::new(vec![helpers::errors::syntax_error(1)]);
 
         let mut camera: BlockingCamera<PtzOpticsG2, _> = BlockingCamera::new(transport);
 
@@ -146,7 +145,7 @@ mod blocking_tests {
 
     #[test]
     fn test_camera_timeout() {
-        let transport = ScriptedBlockingTransport::new(vec![]);
+        let transport = ScriptedSyncTransport::new(vec![]);
 
         let mut camera: BlockingCamera<PtzOpticsG2, _> = BlockingCamera::new(transport);
 
@@ -161,7 +160,7 @@ mod blocking_tests {
 
     #[test]
     fn test_camera_command_sequence_with_scenario() {
-        let transport = ScriptedBlockingTransport::new(vec![
+        let transport = ScriptedSyncTransport::new(vec![
             helpers::command_response(patterns::pan_tilt::HOME.to_vec(), 1),
             helpers::command_response(patterns::zoom::STOP.to_vec(), 2),
             helpers::command_response(patterns::power::STANDBY.to_vec(), 1),
@@ -182,7 +181,7 @@ mod blocking_tests {
 
     #[test]
     fn test_camera_with_protocol_validation() {
-        let transport = ScriptedBlockingTransport::new(vec![helpers::command_response(
+        let transport = ScriptedSyncTransport::new(vec![helpers::command_response(
             patterns::power::ON.to_vec(),
             1,
         )]);
@@ -198,7 +197,7 @@ mod blocking_tests {
 
     #[test]
     fn test_camera_with_mock_builder() {
-        let transport = ScriptedBlockingTransport::new(vec![
+        let transport = ScriptedSyncTransport::new(vec![
             helpers::command_response(patterns::power::ON.to_vec(), 1),
             helpers::command_response(patterns::pan_tilt::HOME.to_vec(), 2),
         ]);

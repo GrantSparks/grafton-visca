@@ -91,7 +91,7 @@ where
 impl<P, Tr> PresetsControl for crate::camera::BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::BlockingTransport + Send + 'static,
+    Tr: crate::transport::SyncTransport + Send + 'static,
 {
     fn preset_recall(&mut self, preset: PresetNumber) -> Result<(), Error> {
         use crate::command::preset::{PresetAction, PresetCommand};

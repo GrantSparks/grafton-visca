@@ -8,7 +8,6 @@
 #![allow(clippy::expect_used)]
 
 use bytes::Bytes;
-
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
@@ -16,11 +15,10 @@ use std::{
 };
 
 #[cfg(not(feature = "async"))]
-use crate::transport::BlockingTransport;
-use crate::{Error, Result};
-
+use crate::transport::SyncTransport;
 #[cfg(feature = "async")]
 use crate::{executor::Executor, transport::AsyncTransport};
+use crate::{Error, Result};
 
 #[cfg(feature = "async")]
 use super::deterministic_executor::ExecutorExt;
@@ -136,7 +134,7 @@ impl<E> ScriptedTransport<E> {
     pub fn sent(&self) -> Vec<Vec<u8>> {
         self.sent
             .lock()
-            .expect("ScriptedBlockingTransport mutex poisoned")
+            .expect("ScriptedSyncTransport mutex poisoned")
             .clone()
     }
 
@@ -177,9 +175,7 @@ impl<E> ScriptedTransport<E> {
     {
         loop {
             let step = {
-                let mut steps_guard = steps
-                    .lock()
-                    .expect("ScriptedBlockingTransport mutex poisoned");
+                let mut steps_guard = steps.lock().expect("ScriptedSyncTransport mutex poisoned");
                 // Only process Step::After, leave others alone
                 match steps_guard.front() {
                     Some(Step::After { .. }) => steps_guard.pop_front(),
@@ -226,14 +222,12 @@ where
 
         // Record the sent command
         sent.lock()
-            .expect("ScriptedBlockingTransport mutex poisoned")
+            .expect("ScriptedSyncTransport mutex poisoned")
             .push(bytes_vec.clone());
 
         // Process any applicable steps
         let step = {
-            let mut steps_guard = steps
-                .lock()
-                .expect("ScriptedBlockingTransport mutex poisoned");
+            let mut steps_guard = steps.lock().expect("ScriptedSyncTransport mutex poisoned");
             steps_guard.pop_front()
         };
 
@@ -260,7 +254,7 @@ where
                         // Put the step back if it didn't match
                         steps
                             .lock()
-                            .expect("ScriptedBlockingTransport mutex poisoned")
+                            .expect("ScriptedSyncTransport mutex poisoned")
                             .push_front(Step::OnSend { matches, responses });
                     }
                 }
@@ -268,7 +262,7 @@ where
                     // Put it back to be processed by process_after_steps
                     steps
                         .lock()
-                        .expect("ScriptedBlockingTransport mutex poisoned")
+                        .expect("ScriptedSyncTransport mutex poisoned")
                         .push_front(Step::After { delay, responses });
                     // Process it now
                     ScriptedTransport::<E>::process_after_steps_static(
@@ -281,7 +275,7 @@ where
                     // Put the error step back to be handled on recv
                     steps
                         .lock()
-                        .expect("ScriptedBlockingTransport mutex poisoned")
+                        .expect("ScriptedSyncTransport mutex poisoned")
                         .push_front(Step::InjectError(error));
                 }
             }
@@ -296,9 +290,7 @@ where
 
         // Check for injected errors first
         {
-            let mut steps_guard = steps
-                .lock()
-                .expect("ScriptedBlockingTransport mutex poisoned");
+            let mut steps_guard = steps.lock().expect("ScriptedSyncTransport mutex poisoned");
             if let Some(Step::InjectError(_)) = steps_guard.front() {
                 let error = match steps_guard
                     .pop_front()
@@ -355,7 +347,7 @@ where
 /// blocking transport implementations.
 #[cfg(not(feature = "async"))]
 #[derive(Clone, Debug)]
-pub struct ScriptedBlockingTransport {
+pub struct ScriptedSyncTransport {
     sent: Arc<Mutex<Vec<Vec<u8>>>>,
     steps: Arc<Mutex<VecDeque<Step>>>,
     response_tx: flume::Sender<Result<Vec<u8>>>,
@@ -363,7 +355,7 @@ pub struct ScriptedBlockingTransport {
 }
 
 #[cfg(not(feature = "async"))]
-impl ScriptedBlockingTransport {
+impl ScriptedSyncTransport {
     /// Create a new scripted blocking transport with the given steps.
     pub fn new(steps: impl Into<Vec<Step>>) -> Self {
         let (response_tx, response_rx) = flume::unbounded();
@@ -379,7 +371,7 @@ impl ScriptedBlockingTransport {
     pub fn sent(&self) -> Vec<Vec<u8>> {
         self.sent
             .lock()
-            .expect("ScriptedBlockingTransport mutex poisoned")
+            .expect("ScriptedSyncTransport mutex poisoned")
             .clone()
     }
 
@@ -390,12 +382,12 @@ impl ScriptedBlockingTransport {
 }
 
 #[cfg(not(feature = "async"))]
-impl BlockingTransport for ScriptedBlockingTransport {
-    fn send_blocking(&mut self, bytes: &[u8]) -> Result<()> {
+impl SyncTransport for ScriptedSyncTransport {
+    fn send(&mut self, bytes: &[u8]) -> Result<()> {
         // Record the sent command
         self.sent
             .lock()
-            .expect("ScriptedBlockingTransport mutex poisoned")
+            .expect("ScriptedSyncTransport mutex poisoned")
             .push(bytes.to_vec());
 
         // Process any applicable steps
@@ -403,7 +395,7 @@ impl BlockingTransport for ScriptedBlockingTransport {
             let mut steps = self
                 .steps
                 .lock()
-                .expect("ScriptedBlockingTransport mutex poisoned");
+                .expect("ScriptedSyncTransport mutex poisoned");
             steps.pop_front()
         };
 
@@ -424,7 +416,7 @@ impl BlockingTransport for ScriptedBlockingTransport {
                         // Put the step back if it didn't match
                         self.steps
                             .lock()
-                            .expect("ScriptedBlockingTransport mutex poisoned")
+                            .expect("ScriptedSyncTransport mutex poisoned")
                             .push_front(Step::OnSend { matches, responses });
                     }
                 }
@@ -444,7 +436,7 @@ impl BlockingTransport for ScriptedBlockingTransport {
         Ok(())
     }
 
-    fn recv_blocking(&mut self) -> Result<Bytes> {
+    fn recv(&mut self) -> Result<Bytes> {
         // Try to get a response from the channel (blocking)
         match self.response_rx.recv_timeout(Duration::from_secs(10)) {
             Ok(Ok(response)) => Ok(Bytes::from(response)),
@@ -453,10 +445,10 @@ impl BlockingTransport for ScriptedBlockingTransport {
         }
     }
 
-    fn recv_blocking_with_timeout(&mut self, _timeout: Duration) -> Result<Bytes> {
-        // For the scripted transport, we just use the same logic as recv_blocking
+    fn recv_with_timeout(&mut self, _timeout: Duration) -> Result<Bytes> {
+        // For the scripted transport, we just use the same logic as recv
         // The timeout is handled by the script itself
-        self.recv_blocking()
+        self.recv()
     }
 }
 
@@ -707,18 +699,18 @@ mod tests {
     #[cfg(not(feature = "async"))]
     #[allow(clippy::unwrap_used)]
     fn test_scripted_blocking_transport_basic() {
-        let mut transport = ScriptedBlockingTransport::new(vec![Step::OnSend {
+        let mut transport = ScriptedSyncTransport::new(vec![Step::OnSend {
             matches: None,
             responses: vec![vec![0x90, 0x41, VISCA_TERMINATOR]], // ACK
         }]);
 
         // Send a command
         transport
-            .send_blocking(&[0x81, 0x01, 0x04, 0x00, VISCA_TERMINATOR])
+            .send(&[0x81, 0x01, 0x04, 0x00, VISCA_TERMINATOR])
             .unwrap();
 
         // Should receive the scripted response
-        let response = transport.recv_blocking().unwrap();
+        let response = transport.recv().unwrap();
         assert_eq!(response.as_ref(), &[0x90, 0x41, VISCA_TERMINATOR]);
 
         // Verify the command was recorded
@@ -731,15 +723,15 @@ mod tests {
     #[cfg(not(feature = "async"))]
     #[allow(clippy::unwrap_used)]
     fn test_scripted_blocking_transport_no_response() {
-        let mut transport = ScriptedBlockingTransport::new(vec![]);
+        let mut transport = ScriptedSyncTransport::new(vec![]);
 
         // Send a command
         transport
-            .send_blocking(&[0x81, 0x01, 0x04, 0x00, VISCA_TERMINATOR])
+            .send(&[0x81, 0x01, 0x04, 0x00, VISCA_TERMINATOR])
             .unwrap();
 
         // Should timeout since no response is scripted
-        let result = transport.recv_blocking();
+        let result = transport.recv();
         assert!(matches!(result, Err(Error::Timeout)));
     }
 

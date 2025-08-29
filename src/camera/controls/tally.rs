@@ -232,7 +232,7 @@ where
 impl<P, Tr> TallyControl for crate::camera::BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::BlockingTransport + Send + 'static,
+    Tr: crate::transport::SyncTransport + Send + 'static,
 {
     fn tally_red_on(&mut self) -> Result<(), Error> {
         use crate::command::tally::Tally;

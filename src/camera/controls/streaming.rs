@@ -163,7 +163,7 @@ where
 impl<P, Tr> StreamingControl for crate::camera::BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::BlockingTransport + Send + 'static,
+    Tr: crate::transport::SyncTransport + Send + 'static,
 {
     fn enable_multicast(&mut self) -> Result<()> {
         use crate::command::streaming::MulticastStreaming;

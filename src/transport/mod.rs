@@ -8,7 +8,7 @@
 //!
 //! The transport layer now uses two separate traits:
 //! - **AsyncTransport** - Native async functions for zero-cost async transports
-//! - **BlockingTransport** - Synchronous methods with OS-level timeout support
+//! - **SyncTransport** - Synchronous methods with OS-level timeout support
 //! - Implementations: TCP and UDP for both blocking and async
 //!
 //! ## Usage
@@ -18,13 +18,13 @@
 //! # #[cfg(not(feature = "async"))]
 //! use grafton_visca::transport::blocking::Tcp;
 //! # #[cfg(not(feature = "async"))]
-//! use grafton_visca::transport::BlockingTransport;
+//! use grafton_visca::transport::SyncTransport;
 //!
 //! # #[cfg(not(feature = "async"))]
 //! # fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! # #[cfg(not(feature = "async"))]
 //! let transport = Tcp::connect("192.168.0.110:5678")?;
-//! // transport is ready to use with Camera<P, T: BlockingTransport>
+//! // transport is ready to use with Camera<P, T: SyncTransport>
 //! # Ok(())
 //! # }
 //! ```
@@ -51,17 +51,14 @@ pub(crate) mod async_io;
 // Async transport trait and runtime-specific transports are only public with `async`
 #[cfg(feature = "async")]
 pub mod async_transport;
-// Object-safe dynamic async transport for ergonomic usage
-#[cfg(feature = "async")]
-pub mod async_dyn;
 // Blocking transports are only public when NOT in async mode
 #[cfg(not(feature = "async"))]
 pub mod blocking;
-#[cfg(not(feature = "async"))]
-pub mod blocking_transport;
 pub mod buffer;
 pub mod builder;
 pub mod sony_config;
+#[cfg(not(feature = "async"))]
+pub mod sync_transport;
 // The envelope module is now needed for both blocking and async modes
 // since async cameras now do their own protocol framing
 pub mod envelope;
@@ -78,7 +75,6 @@ pub mod retry;
 pub mod serial;
 #[cfg(all(feature = "serial-async", feature = "rt-tokio"))]
 pub mod serial_async;
-pub mod timeout;
 
 // Runtime-specific transport implementations are feature-gated extensions
 // They should be accessed through the runtime_adapters module
@@ -94,8 +90,6 @@ pub(crate) mod smol;
 use std::time::{Duration, Instant};
 
 #[cfg(feature = "async")]
-pub use async_dyn::{BoxAsyncTransport, DynAsyncTransport};
-#[cfg(feature = "async")]
 pub use async_transport::AsyncTransport;
 #[cfg(all(
     feature = "async",
@@ -108,7 +102,7 @@ pub use protocol_detection::{DetectionResult, ProtocolDetector};
 #[cfg(not(feature = "async"))]
 pub use blocking::{Tcp as BlockingTcp, Udp as BlockingUdp};
 #[cfg(not(feature = "async"))]
-pub use blocking_transport::BlockingTransport;
+pub use sync_transport::SyncTransport;
 
 /// Retry configuration for transport layer operations.
 ///

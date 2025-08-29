@@ -198,19 +198,19 @@
 //! The library provides transport traits that you can implement for any communication method:
 //!
 //! ```ignore
-//! use grafton_visca::{transport::BlockingTransport, Error};
+//! use grafton_visca::{transport::SyncTransport, Error};
 //!
 //! struct MyTransport {
 //!     // Your transport state
 //! }
 //!
-//! impl BlockingTransport for MyTransport {
-//!     fn send_blocking(&self, data: &[u8]) -> Result<(), Error> {
+//! impl SyncTransport for MyTransport {
+//!     fn send(&self, data: &[u8]) -> Result<(), Error> {
 //!         // Send data over your transport
 //!         Ok(())
 //!     }
 //!     
-//!     fn recv_blocking(&self) -> Result<Vec<u8>, Error> {
+//!     fn recv(&self) -> Result<Vec<u8>, Error> {
 //!         // Receive response from your transport
 //!         Ok(vec![])
 //!     }

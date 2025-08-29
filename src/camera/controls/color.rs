@@ -227,7 +227,7 @@ where
 impl<P, Tr> ColorControl for crate::camera::BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::BlockingTransport + Send + 'static,
+    Tr: crate::transport::SyncTransport + Send + 'static,
 {
     fn one_push_trigger(&mut self) -> Result<(), Error> {
         self.send_command(&OnePushTriggerCommand)?;

@@ -1,20 +1,22 @@
 //! Blocking TCP transport implementation with DNS resolution and IPv6 support.
 
 use bytes::Bytes;
+use std::{
+    borrow::Cow,
+    io::{BufRead, BufReader, Write},
+    net::TcpStream,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
-use std::borrow::Cow;
-use std::io::{BufRead, BufReader, Write};
-use std::net::TcpStream;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
-
-use crate::command::bytes::VISCA_TERMINATOR;
-use crate::transport::address::AddressResolver;
-use crate::transport::buffer::BufferManager;
-use crate::transport::builder::TransportConfig;
-use crate::transport::retry::RetryExecutor;
-use crate::transport::{BlockingTransport, RetryConfig};
-use crate::Error;
+use crate::{
+    command::bytes::VISCA_TERMINATOR,
+    transport::{
+        address::AddressResolver, buffer::BufferManager, builder::TransportConfig,
+        retry::RetryExecutor, RetryConfig, SyncTransport,
+    },
+    Error,
+};
 
 /// TCP transport for blocking VISCA communication.
 ///
@@ -190,8 +192,8 @@ impl Tcp {
     }
 }
 
-impl BlockingTransport for Tcp {
-    fn send_blocking(&mut self, data: &[u8]) -> Result<(), Error> {
+impl SyncTransport for Tcp {
+    fn send(&mut self, data: &[u8]) -> Result<(), Error> {
         // Clone data for retry closure
         let data_vec = data.to_vec();
 
@@ -202,7 +204,7 @@ impl BlockingTransport for Tcp {
         })
     }
 
-    fn recv_blocking(&mut self) -> Result<Bytes, Error> {
+    fn recv(&mut self) -> Result<Bytes, Error> {
         // Note: Receiving data is typically not retried as it might lead to
         // duplicate data or protocol confusion. However, we can retry on
         // specific transient errors like temporary network issues.
@@ -220,7 +222,7 @@ impl BlockingTransport for Tcp {
         Ok(self.buffer_manager.process_recv_data(&mut buffer, n))
     }
 
-    fn recv_blocking_with_timeout(&mut self, duration: Duration) -> Result<Bytes, Error> {
+    fn recv_with_timeout(&mut self, duration: Duration) -> Result<Bytes, Error> {
         // Save the current timeout
         let original_timeout = self.reader.get_ref().read_timeout()?;
 

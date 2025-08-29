@@ -1,10 +1,16 @@
-//! Timeout configuration for VISCA commands.
+//! Unified timeout configuration and management for VISCA commands.
 //!
 //! This module provides configurable timeout support for different categories of VISCA commands,
 //! allowing fine-tuned control over command execution timeouts based on the expected duration
-//! of each operation type.
+//! of each operation type. It also includes socket-level timeout management to prevent
+//! duplication across transport implementations.
 
-use std::time::Duration;
+use std::io;
+use std::net::{TcpStream, UdpSocket};
+use std::sync::MutexGuard;
+use std::time::{Duration, Instant};
+
+use crate::Error;
 
 /// Categories of VISCA commands with different timeout requirements.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -177,6 +183,7 @@ impl TimeoutConfigBuilder {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
 
@@ -277,5 +284,540 @@ mod tests {
         assert_eq!(config.preset_timeout, Duration::from_secs(30));
         assert_eq!(config.long_timeout, Duration::from_secs(120));
         assert_eq!(config.default_timeout, Duration::from_secs(15));
+    }
+}
+
+/// A trait for managing timeouts on socket operations.
+///
+/// This trait provides a consistent interface for saving, setting, and
+/// restoring timeout values across different socket types.
+pub trait TimeoutManager {
+    /// Execute a function with a temporary timeout.
+    ///
+    /// This method saves the current timeout, sets a new timeout for the
+    /// duration of the function execution, then restores the original timeout.
+    ///
+    /// # Arguments
+    ///
+    /// * `timeout` - The timeout duration to use
+    /// * `f` - The function to execute with the timeout
+    ///
+    /// # Returns
+    ///
+    /// The result of the function execution.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Getting or setting timeouts fails
+    /// - The provided function returns an error
+    fn with_timeout<F, R>(&mut self, timeout: Duration, f: F) -> Result<R, Error>
+    where
+        F: FnOnce(&mut Self) -> Result<R, Error>;
+
+    /// Get the current read timeout.
+    fn get_read_timeout(&self) -> io::Result<Option<Duration>>;
+
+    /// Set the read timeout.
+    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> io::Result<()>;
+
+    /// Get the current write timeout.
+    fn get_write_timeout(&self) -> io::Result<Option<Duration>>;
+
+    /// Set the write timeout.
+    fn set_write_timeout(&mut self, timeout: Option<Duration>) -> io::Result<()>;
+
+    /// Execute a function with a temporary read timeout.
+    ///
+    /// This is a convenience method that specifically manages read timeouts.
+    fn with_read_timeout<F, R>(&mut self, timeout: Duration, f: F) -> Result<R, Error>
+    where
+        F: FnOnce(&mut Self) -> Result<R, Error>,
+    {
+        // Save the current timeout
+        let original_timeout = self.get_read_timeout()?;
+
+        // Set the new timeout
+        self.set_read_timeout(Some(timeout))?;
+
+        // Execute the function
+        let result = f(self);
+
+        // Restore the original timeout
+        self.set_read_timeout(original_timeout)?;
+
+        result
+    }
+
+    /// Execute a function with a temporary write timeout.
+    ///
+    /// This is a convenience method that specifically manages write timeouts.
+    fn with_write_timeout<F, R>(&mut self, timeout: Duration, f: F) -> Result<R, Error>
+    where
+        F: FnOnce(&mut Self) -> Result<R, Error>,
+    {
+        // Save the current timeout
+        let original_timeout = self.get_write_timeout()?;
+
+        // Set the new timeout
+        self.set_write_timeout(Some(timeout))?;
+
+        // Execute the function
+        let result = f(self);
+
+        // Restore the original timeout
+        self.set_write_timeout(original_timeout)?;
+
+        result
+    }
+}
+
+/// Implement TimeoutManager for TcpStream.
+impl TimeoutManager for TcpStream {
+    fn with_timeout<F, R>(&mut self, timeout: Duration, f: F) -> Result<R, Error>
+    where
+        F: FnOnce(&mut Self) -> Result<R, Error>,
+    {
+        self.with_read_timeout(timeout, f)
+    }
+
+    fn get_read_timeout(&self) -> io::Result<Option<Duration>> {
+        self.read_timeout()
+    }
+
+    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> io::Result<()> {
+        TcpStream::set_read_timeout(self, timeout)
+    }
+
+    fn get_write_timeout(&self) -> io::Result<Option<Duration>> {
+        self.write_timeout()
+    }
+
+    fn set_write_timeout(&mut self, timeout: Option<Duration>) -> io::Result<()> {
+        TcpStream::set_write_timeout(self, timeout)
+    }
+}
+
+/// Implement TimeoutManager for UdpSocket.
+impl TimeoutManager for UdpSocket {
+    fn with_timeout<F, R>(&mut self, timeout: Duration, f: F) -> Result<R, Error>
+    where
+        F: FnOnce(&mut Self) -> Result<R, Error>,
+    {
+        self.with_read_timeout(timeout, f)
+    }
+
+    fn get_read_timeout(&self) -> io::Result<Option<Duration>> {
+        self.read_timeout()
+    }
+
+    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> io::Result<()> {
+        UdpSocket::set_read_timeout(self, timeout)
+    }
+
+    fn get_write_timeout(&self) -> io::Result<Option<Duration>> {
+        self.write_timeout()
+    }
+
+    fn set_write_timeout(&mut self, timeout: Option<Duration>) -> io::Result<()> {
+        UdpSocket::set_write_timeout(self, timeout)
+    }
+}
+
+/// A helper struct to manage timeouts on a socket within a closure.
+///
+/// This struct ensures that timeouts are properly restored even if the
+/// operation fails or panics.
+pub struct TimeoutGuard<'a, T: TimeoutManager> {
+    socket: &'a mut T,
+    original_read_timeout: Option<Duration>,
+    original_write_timeout: Option<Duration>,
+    restored: bool,
+}
+
+impl<T: TimeoutManager> std::fmt::Debug for TimeoutGuard<'_, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TimeoutGuard")
+            .field("original_read_timeout", &self.original_read_timeout)
+            .field("original_write_timeout", &self.original_write_timeout)
+            .field("restored", &self.restored)
+            .finish()
+    }
+}
+
+impl<'a, T: TimeoutManager> TimeoutGuard<'a, T> {
+    /// Create a new timeout guard with specified timeouts.
+    pub fn new(
+        socket: &'a mut T,
+        read_timeout: Option<Duration>,
+        write_timeout: Option<Duration>,
+    ) -> Result<Self, Error> {
+        let original_read_timeout = socket.get_read_timeout()?;
+        let original_write_timeout = socket.get_write_timeout()?;
+
+        if let Some(timeout) = read_timeout {
+            socket.set_read_timeout(Some(timeout))?;
+        }
+
+        if let Some(timeout) = write_timeout {
+            socket.set_write_timeout(Some(timeout))?;
+        }
+
+        Ok(Self {
+            socket,
+            original_read_timeout,
+            original_write_timeout,
+            restored: false,
+        })
+    }
+
+    /// Restore the original timeouts.
+    pub fn restore(&mut self) -> Result<(), Error> {
+        if !self.restored {
+            self.socket.set_read_timeout(self.original_read_timeout)?;
+            self.socket.set_write_timeout(self.original_write_timeout)?;
+            self.restored = true;
+        }
+        Ok(())
+    }
+}
+
+impl<T: TimeoutManager> Drop for TimeoutGuard<'_, T> {
+    fn drop(&mut self) {
+        // Best effort to restore timeouts
+        let _ = self.restore();
+    }
+}
+
+/// Execute a function with a temporary timeout on a MutexGuard-wrapped socket.
+///
+/// This is a utility function for working with sockets that are protected
+/// by a Mutex, which is common in the transport implementations.
+pub fn with_timeout_on_guard<T, F, R>(
+    guard: &mut MutexGuard<'_, T>,
+    timeout: Duration,
+    f: F,
+) -> Result<R, Error>
+where
+    T: TimeoutManager,
+    F: FnOnce(&mut T) -> Result<R, Error>,
+{
+    guard.with_read_timeout(timeout, f)
+}
+
+/// Deadline for timeout operations.
+///
+/// Provides a consistent way to calculate and check deadlines across
+/// different operation types in the library.
+#[derive(Debug, Clone, Copy)]
+pub struct Deadline {
+    /// The point in time when the operation should timeout.
+    pub deadline: Instant,
+    /// The original timeout duration.
+    pub timeout: Duration,
+}
+
+impl Deadline {
+    /// Create a new deadline from a timeout duration.
+    #[must_use]
+    pub fn from_timeout(timeout: Duration) -> Self {
+        let deadline = Instant::now() + timeout;
+        Self { deadline, timeout }
+    }
+
+    /// Create a new deadline from a specific instant.
+    #[must_use]
+    pub const fn from_instant(deadline: Instant, timeout: Duration) -> Self {
+        Self { deadline, timeout }
+    }
+
+    /// Check if the deadline has been exceeded.
+    #[must_use]
+    pub fn is_expired(&self) -> bool {
+        Instant::now() > self.deadline
+    }
+
+    /// Get the remaining time until the deadline.
+    #[must_use]
+    pub fn remaining(&self) -> Duration {
+        self.deadline.saturating_duration_since(Instant::now())
+    }
+
+    /// Get the elapsed time since the deadline was created.
+    #[must_use]
+    pub fn elapsed(&self) -> Duration {
+        self.timeout.saturating_sub(self.remaining())
+    }
+}
+
+/// Policy for timeout classes used throughout the library.
+///
+/// This type aliases `CommandCategory` to provide a clearer interface
+/// for timeout policy configuration.
+pub type TimeoutClass = CommandCategory;
+
+/// Trait for commands that can provide timeout classification.
+///
+/// This trait allows each command to specify its expected timeout category,
+/// enabling appropriate timeout and retry behavior.
+pub trait CommandTimeout {
+    /// Get the timeout class for this command.
+    ///
+    /// This determines how long to wait for the command to complete
+    /// and affects retry behavior.
+    fn timeout_class(&self) -> TimeoutClass;
+}
+
+/// Blanket implementation for all commands that implement ViscaEncode.
+///
+/// This automatically provides timeout classification for all VISCA commands
+/// based on their TIMEOUT_CATEGORY constant.
+impl<T> CommandTimeout for T
+where
+    T: crate::command::encode_visca::ViscaEncode,
+{
+    fn timeout_class(&self) -> TimeoutClass {
+        T::TIMEOUT_CATEGORY
+    }
+}
+
+/// Timeout policy configuration that maps classes to durations.
+///
+/// This provides a runtime-configurable way to adjust timeout behavior
+/// across different command categories.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TimeoutPolicy {
+    config: TimeoutConfig,
+}
+
+impl TimeoutPolicy {
+    /// Create a new timeout policy from a timeout configuration.
+    #[must_use]
+    pub const fn new(config: TimeoutConfig) -> Self {
+        Self { config }
+    }
+
+    /// Get the timeout duration for a specific class.
+    #[must_use]
+    pub const fn get_timeout(&self, class: TimeoutClass) -> Duration {
+        self.config.get_timeout(class)
+    }
+
+    /// Create a deadline for a specific timeout class.
+    #[must_use]
+    pub fn deadline_for(&self, class: TimeoutClass) -> Deadline {
+        Deadline::from_timeout(self.get_timeout(class))
+    }
+
+    /// Update the timeout configuration.
+    pub fn update_config(&mut self, config: TimeoutConfig) {
+        self.config = config;
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod timeout_manager_tests {
+    use super::*;
+    use std::net::{TcpListener, TcpStream, UdpSocket};
+    use std::thread;
+
+    #[test]
+    fn test_tcp_timeout_manager() {
+        // Start a TCP server
+        let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind test listener");
+        let addr = listener
+            .local_addr()
+            .expect("Failed to get listener address");
+
+        // Spawn a thread to accept connections
+        thread::spawn(move || {
+            let (_stream, _) = listener.accept().expect("Failed to accept connection");
+            // Keep the connection open
+            thread::sleep(Duration::from_secs(10));
+        });
+
+        // Connect to the server
+        let mut stream = TcpStream::connect(addr).expect("Failed to connect to test server");
+
+        // Test setting and getting timeouts
+        assert_eq!(
+            stream.get_read_timeout().expect("Failed to get timeout"),
+            None
+        );
+
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .expect("Failed to set timeout");
+        assert_eq!(
+            stream.get_read_timeout().expect("Failed to get timeout"),
+            Some(Duration::from_secs(5))
+        );
+
+        // Test with_read_timeout
+        let result = stream.with_read_timeout(Duration::from_secs(1), |s| {
+            // Verify timeout is set
+            assert_eq!(
+                s.get_read_timeout()
+                    .expect("Failed to get timeout in guard"),
+                Some(Duration::from_secs(1))
+            );
+            Ok(42)
+        });
+
+        assert_eq!(result.expect("Test operation failed"), 42);
+        // Verify timeout is restored
+        assert_eq!(
+            stream
+                .get_read_timeout()
+                .expect("Failed to get timeout after guard"),
+            Some(Duration::from_secs(5))
+        );
+    }
+
+    #[test]
+    fn test_udp_timeout_manager() {
+        let mut socket = UdpSocket::bind("127.0.0.1:0").expect("Failed to bind UDP socket");
+
+        // Test setting and getting timeouts
+        assert_eq!(
+            socket
+                .get_read_timeout()
+                .expect("Failed to get UDP timeout"),
+            None
+        );
+
+        socket
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .expect("Failed to set UDP timeout");
+        assert_eq!(
+            socket
+                .get_read_timeout()
+                .expect("Failed to get UDP timeout"),
+            Some(Duration::from_secs(3))
+        );
+
+        // Test with_read_timeout
+        let result = socket.with_read_timeout(Duration::from_secs(2), |s| {
+            // Verify timeout is set
+            assert_eq!(
+                s.get_read_timeout()
+                    .expect("Failed to get UDP timeout in guard"),
+                Some(Duration::from_secs(2))
+            );
+            Ok("success")
+        });
+
+        assert_eq!(result.expect("UDP test operation failed"), "success");
+        // Verify timeout is restored
+        assert_eq!(
+            socket
+                .get_read_timeout()
+                .expect("Failed to get UDP timeout after guard"),
+            Some(Duration::from_secs(3))
+        );
+    }
+
+    #[test]
+    fn test_timeout_guard() {
+        let mut socket = UdpSocket::bind("127.0.0.1:0").expect("Failed to bind UDP socket");
+
+        // Set initial timeouts
+        socket
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .expect("Failed to set read timeout");
+        socket
+            .set_write_timeout(Some(Duration::from_secs(10)))
+            .expect("Failed to set write timeout");
+
+        // Verify initial timeouts
+        assert_eq!(
+            socket
+                .get_read_timeout()
+                .expect("Failed to get read timeout"),
+            Some(Duration::from_secs(5))
+        );
+        assert_eq!(
+            socket
+                .get_write_timeout()
+                .expect("Failed to get write timeout"),
+            Some(Duration::from_secs(10))
+        );
+
+        {
+            let mut _guard = TimeoutGuard::new(
+                &mut socket,
+                Some(Duration::from_secs(1)),
+                Some(Duration::from_secs(2)),
+            )
+            .expect("Failed to create timeout guard");
+
+            // Guard holds the mutable reference, so we can't access socket here
+            // The guard will automatically restore on drop
+        }
+
+        // Verify original timeouts are restored after guard is dropped
+        assert_eq!(
+            socket
+                .get_read_timeout()
+                .expect("Failed to get read timeout after guard"),
+            Some(Duration::from_secs(5))
+        );
+        assert_eq!(
+            socket
+                .get_write_timeout()
+                .expect("Failed to get write timeout after guard"),
+            Some(Duration::from_secs(10))
+        );
+    }
+
+    #[test]
+    fn test_deadline() {
+        let timeout = Duration::from_millis(100);
+        let deadline = Deadline::from_timeout(timeout);
+
+        assert!(!deadline.is_expired());
+        assert_eq!(deadline.timeout, timeout);
+
+        // Small delay
+        thread::sleep(Duration::from_millis(10));
+
+        assert!(!deadline.is_expired());
+        assert!(deadline.remaining() < timeout);
+        assert!(deadline.elapsed() > Duration::ZERO);
+
+        // Wait for expiration
+        thread::sleep(Duration::from_millis(150));
+
+        assert!(deadline.is_expired());
+        assert_eq!(deadline.remaining(), Duration::ZERO);
+    }
+
+    #[test]
+    fn test_timeout_policy() {
+        let policy = TimeoutPolicy::default();
+
+        assert_eq!(
+            policy.get_timeout(TimeoutClass::Quick),
+            Duration::from_secs(5)
+        );
+        assert_eq!(
+            policy.get_timeout(TimeoutClass::Movement),
+            Duration::from_secs(30)
+        );
+
+        let deadline = policy.deadline_for(TimeoutClass::Quick);
+        assert!(!deadline.is_expired());
+        assert_eq!(deadline.timeout, Duration::from_secs(5));
+
+        // Test config update
+        let mut policy = TimeoutPolicy::default();
+        let new_config = TimeoutConfig::uniform(Duration::from_secs(10));
+        policy.update_config(new_config);
+
+        assert_eq!(
+            policy.get_timeout(TimeoutClass::Quick),
+            Duration::from_secs(10)
+        );
     }
 }

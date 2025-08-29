@@ -16,7 +16,7 @@ use std::{
 use grafton_visca::{
     transport::{
         blocking::{Tcp, Udp},
-        BlockingTransport,
+        SyncTransport,
     },
     Error,
 };
@@ -75,7 +75,7 @@ fn test_tcp_blocking_timeout_enforcement() {
 
     for (timeout_duration, tolerance_ms) in test_cases {
         let start = Instant::now();
-        let result = transport.recv_blocking_with_timeout(timeout_duration);
+        let result = transport.recv_with_timeout(timeout_duration);
         let elapsed = start.elapsed();
 
         // Should get a timeout error
@@ -108,7 +108,7 @@ fn test_udp_blocking_timeout_enforcement() {
     let mut transport = Udp::connect(&addr).expect("Failed to connect");
 
     // Send something first to establish the "connection"
-    let _ = transport.send_blocking(b"\x81\x01\x04\x00\x02\xFF");
+    let _ = transport.send(b"\x81\x01\x04\x00\x02\xFF");
 
     // Test different timeout durations
     // Windows has less precise timing, especially in CI, so we need larger tolerances
@@ -126,7 +126,7 @@ fn test_udp_blocking_timeout_enforcement() {
 
     for (timeout_duration, tolerance_ms) in test_cases {
         let start = Instant::now();
-        let result = transport.recv_blocking_with_timeout(timeout_duration);
+        let result = transport.recv_with_timeout(timeout_duration);
         let elapsed = start.elapsed();
 
         // Should get a timeout error
@@ -168,7 +168,7 @@ fn test_blocking_timeout_no_polling() {
     let start = Instant::now();
 
     // Perform a blocking receive with timeout
-    let _ = transport.recv_blocking_with_timeout(Duration::from_millis(200));
+    let _ = transport.recv_with_timeout(Duration::from_millis(200));
 
     let elapsed_wall = start.elapsed();
 
@@ -188,17 +188,17 @@ fn test_blocking_timeout_no_polling() {
 #[test]
 fn test_timeout_restores_original_setting() {
     // This test verifies that the original timeout is restored after
-    // recv_blocking_with_timeout completes
+    // recv_with_timeout completes
 
     let addr = start_slow_tcp_server();
     let mut transport = Tcp::connect(&addr).expect("Failed to connect");
 
     // First timeout with a short duration
-    let _ = transport.recv_blocking_with_timeout(Duration::from_millis(100));
+    let _ = transport.recv_with_timeout(Duration::from_millis(100));
 
     // Second timeout with a different duration should also work correctly
     let start = Instant::now();
-    let _ = transport.recv_blocking_with_timeout(Duration::from_millis(500));
+    let _ = transport.recv_with_timeout(Duration::from_millis(500));
     let elapsed = start.elapsed();
 
     // The second timeout should take approximately 500ms, not be affected by the first

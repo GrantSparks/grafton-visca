@@ -167,7 +167,7 @@ where
 impl<P, Tr> ZoomControl for crate::camera::BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::BlockingTransport + Send + 'static,
+    Tr: crate::transport::SyncTransport + Send + 'static,
 {
     fn zoom_stop(&mut self) -> Result<(), Error> {
         use crate::command::zoom::Zoom;

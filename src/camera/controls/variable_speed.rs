@@ -74,7 +74,7 @@ where
         + crate::capabilities::VariableSpeed
         + crate::capabilities::HasVariableSpeed
         + Default,
-    Tr: crate::transport::BlockingTransport + Send + 'static,
+    Tr: crate::transport::SyncTransport + Send + 'static,
 {
     fn set_variable_speed_mode(&mut self, mode: VariableSpeedMode) -> Result<(), Error> {
         // No runtime check needed - compile-time guarantee via HasVariableSpeed marker trait

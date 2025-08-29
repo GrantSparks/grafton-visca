@@ -27,9 +27,10 @@
 
 use std::time::Duration;
 
-#[cfg(not(feature = "async"))]
-use crate::transport::BlockingTransport;
 use crate::transport::{buffer::BufferConfig, RetryConfig};
+
+#[cfg(not(feature = "async"))]
+use crate::transport::SyncTransport;
 #[cfg(any(
     not(feature = "async"),
     feature = "rt-tokio",
@@ -275,7 +276,7 @@ impl TransportBuilder {
     /// - Connection fails
     /// - Socket configuration fails
     #[cfg(not(feature = "async"))]
-    pub fn build(self) -> Result<Box<dyn BlockingTransport>, Error> {
+    pub fn build(self) -> Result<Box<dyn SyncTransport>, Error> {
         let address = self.address.ok_or_else(|| Error::InvalidParameter {
             parameter: "address",
             value: "None".into(),
@@ -285,14 +286,28 @@ impl TransportBuilder {
         match self.transport_type {
             TransportType::Tcp => {
                 // Use connect_with_config to apply all settings at once
+                #[cfg(not(feature = "async"))]
                 let transport =
                     crate::transport::blocking::Tcp::connect_with_config(&address, self.config)?;
+                #[cfg(feature = "async")]
+                let transport = {
+                    return Err(crate::Error::InvalidState(
+                        "Blocking transport not available in async mode".into(),
+                    ));
+                };
                 Ok(Box::new(transport))
             }
             TransportType::Udp => {
                 // Use connect_with_config to apply all settings at once
+                #[cfg(not(feature = "async"))]
                 let transport =
                     crate::transport::blocking::Udp::connect_with_config(&address, self.config)?;
+                #[cfg(feature = "async")]
+                let transport = {
+                    return Err(crate::Error::InvalidState(
+                        "Blocking transport not available in async mode".into(),
+                    ));
+                };
                 Ok(Box::new(transport))
             }
         }
@@ -305,7 +320,7 @@ impl TransportBuilder {
 /// transport types while maintaining type safety and avoiding trait objects.
 ///
 /// This type is not exported from the public API of the library.
-/// Use `BoxAsyncTransport` for stable dynamic transport handles.
+/// Use generic transport types for zero-cost abstractions.
 #[derive(Debug)]
 #[cfg(all(
     feature = "async",
@@ -755,113 +770,6 @@ impl AnyTransportBuilder {
 
         // If no runtime features are enabled, return an error
         Err(Error::MissingRuntime)
-    }
-
-    /// Connect to the transport and return a stable dynamic handle.
-    ///
-    /// Unlike [`connect()`](Self::connect), this method returns a [`BoxAsyncTransport`](super::BoxAsyncTransport)
-    /// which provides a stable type across feature configurations. The returned handle
-    /// uses heap allocation for each send/recv operation, making it unsuitable for
-    /// performance-critical code paths.
-    ///
-    /// This method selects the enabled runtime implementation and wraps it in
-    /// a boxed dynamic transport handle. Use this for plugin architectures,
-    /// dependency injection, or when you need a stable transport type.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - No address has been set
-    /// - No async runtime features are enabled
-    /// - Connection fails
-    /// - Socket configuration fails
-    #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
-    #[allow(unreachable_code)]
-    pub async fn connect_dyn(self) -> Result<super::BoxAsyncTransport, Error> {
-        let address = self.address.ok_or_else(|| Error::InvalidParameter {
-            parameter: "address",
-            value: "None".into(),
-            reason: "No address specified for transport".into(),
-        })?;
-
-        // Priority-based runtime selection when multiple runtimes are available
-        #[cfg(feature = "rt-tokio")]
-        {
-            return match self.protocol {
-                Protocol::Tcp => {
-                    let transport =
-                        crate::runtime_adapters::tokio::TcpTransport::connect_with_config(
-                            &address,
-                            self.config,
-                        )
-                        .await?;
-                    Ok(Box::new(transport))
-                }
-                Protocol::Udp => {
-                    let transport =
-                        crate::runtime_adapters::tokio::UdpTransport::connect_with_config(
-                            &address,
-                            self.config,
-                        )
-                        .await?;
-                    Ok(Box::new(transport))
-                }
-            };
-        }
-
-        #[cfg(feature = "rt-async-std")]
-        #[cfg(not(feature = "rt-tokio"))]
-        {
-            return match self.protocol {
-                Protocol::Tcp => {
-                    let transport =
-                        crate::runtime_adapters::async_std::TcpTransport::connect_with_config(
-                            &address,
-                            self.config,
-                        )
-                        .await?;
-                    Ok(Box::new(transport))
-                }
-                Protocol::Udp => {
-                    let transport =
-                        crate::runtime_adapters::async_std::UdpTransport::connect_with_config(
-                            &address,
-                            self.config,
-                        )
-                        .await?;
-                    Ok(Box::new(transport))
-                }
-            };
-        }
-
-        #[cfg(feature = "rt-smol")]
-        #[cfg(not(feature = "rt-tokio"))]
-        #[cfg(not(feature = "rt-async-std"))]
-        {
-            return match self.protocol {
-                Protocol::Tcp => {
-                    let transport =
-                        crate::runtime_adapters::smol::TcpTransport::connect_with_config(
-                            &address,
-                            self.config,
-                        )
-                        .await?;
-                    Ok(Box::new(transport))
-                }
-                Protocol::Udp => {
-                    let transport =
-                        crate::runtime_adapters::smol::UdpTransport::connect_with_config(
-                            &address,
-                            self.config,
-                        )
-                        .await?;
-                    Ok(Box::new(transport))
-                }
-            };
-        }
-
-        // This should never be reached due to the cfg guard at the function level
-        unreachable!("No runtime available - this should be prevented by cfg guard")
     }
 }
 

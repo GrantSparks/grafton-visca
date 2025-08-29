@@ -71,7 +71,7 @@ where
 impl<P, Tr> PowerControl for crate::camera::BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::BlockingTransport + Send + 'static,
+    Tr: crate::transport::SyncTransport + Send + 'static,
 {
     fn power_on(&mut self) -> Result<(), Error> {
         use crate::command::power::Power;

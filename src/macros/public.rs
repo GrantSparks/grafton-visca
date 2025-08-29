@@ -156,7 +156,7 @@ macro_rules! delegate_methods {
     // Blocking variant with optional trait disambiguation
     ($wrapper:ident, blocking, $($trait_name:ident : $($method:ident $(@ $disambiguate_trait:ident)? $(($($param:ident : $ptype:ty),* $(,)?))? -> $ret:ty),+ ;)+) => {
         $(
-            impl<P: $crate::capabilities::Profile, T: $crate::transport::BlockingTransport + Send + Sync + 'static> $trait_name for $wrapper<P, T>
+            impl<P: $crate::capabilities::Profile, T: $crate::transport::SyncTransport + Send + Sync + 'static> $trait_name for $wrapper<P, T>
             {
                 $(
                     fn $method(&mut self $(, $($param: $ptype),*)?) -> $ret {
@@ -256,7 +256,7 @@ macro_rules! impl_camera_ops {
         impl<P, T> $trait_name for $crate::camera::Camera<$crate::camera::BlockingMode, P, T>
         where
             P: $crate::capabilities::Profile,
-            T: $crate::transport::BlockingTransport + Send + Sync + 'static,
+            T: $crate::transport::SyncTransport + Send + Sync + 'static,
         {
             $( fn $method(&mut self $(, $param: $ptype)*) -> $ret {
                 self.$method($($param),*)

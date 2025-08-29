@@ -1327,7 +1327,7 @@ where
 impl<P, Tr> InquiryControl for crate::camera::BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::BlockingTransport + Send + 'static,
+    Tr: crate::transport::SyncTransport + Send + 'static,
 {
     fn get_power_state(&mut self) -> Result<bool, Error> {
         let cmd = PowerInquiry;
@@ -2032,7 +2032,7 @@ where
 impl<P, Tr> PanTiltInquiryControl for crate::camera::BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::BlockingTransport + Send + 'static,
+    Tr: crate::transport::SyncTransport + Send + 'static,
 {
     fn get_pan_tilt_position(&mut self) -> Result<(i16, i16), Error> {
         let cmd = PanTiltPositionInquiry;

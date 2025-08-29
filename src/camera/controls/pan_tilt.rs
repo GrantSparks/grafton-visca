@@ -1,6 +1,5 @@
 //! Pan/Tilt methods for unified camera API.
 
-// Local imports
 use crate::{
     command::pan_tilt::{PanTiltDirection, PanTiltLimitCorner},
     types::{PanPosition, PanSpeed, SpeedLevel, TiltPosition, TiltSpeed},
@@ -250,7 +249,7 @@ where
 impl<P, Tr> PanTiltControl for crate::camera::BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::BlockingTransport + Send + 'static,
+    Tr: crate::transport::SyncTransport + Send + 'static,
 {
     fn pan_tilt_stop(&mut self) -> Result<(), Error> {
         use crate::command::pan_tilt::PanTilt;

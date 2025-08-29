@@ -18,7 +18,7 @@ use grafton_visca::{
         profiles::{GenericVisca, PtzOpticsG2, SonyFR7},
         BlockingCamera,
     },
-    transport::BlockingTransport,
+    transport::SyncTransport,
 };
 
 use grafton_visca::capabilities::*;
@@ -61,21 +61,21 @@ fn test_profile_type_aliases() {
     {
         fn _accepts_g2_camera_blocking<T>(_camera: BlockingCamera<PtzOpticsG2, T>)
         where
-            T: BlockingTransport + Send + Sync + 'static,
+            T: SyncTransport + Send + Sync + 'static,
         {
             // BlockingCamera<P, T> for blocking mode
         }
 
         fn _accepts_fr7_camera_blocking<T>(_camera: BlockingCamera<SonyFR7, T>)
         where
-            T: BlockingTransport + Send + Sync + 'static,
+            T: SyncTransport + Send + Sync + 'static,
         {
             // BlockingCamera<P, T> for blocking mode
         }
 
         fn _accepts_generic_camera_blocking<T>(_camera: BlockingCamera<GenericVisca, T>)
         where
-            T: BlockingTransport + Send + Sync + 'static,
+            T: SyncTransport + Send + Sync + 'static,
         {
             // BlockingCamera<P, T> for blocking mode
         }
@@ -119,7 +119,7 @@ fn test_profile_capabilities_are_compile_time() {
         fn _requires_nd_filter_blocking<P, T>(_camera: &BlockingCamera<P, T>) -> bool
         where
             P: Profile + NDFilter,
-            T: BlockingTransport + Send + Sync + 'static,
+            T: SyncTransport + Send + Sync + 'static,
         {
             // At compile time, we know this camera supports ND filter
             true
@@ -129,7 +129,7 @@ fn test_profile_capabilities_are_compile_time() {
         fn _requires_only_basic_blocking<P, T>(_camera: &BlockingCamera<P, T>) -> bool
         where
             P: Profile,
-            T: BlockingTransport + Send + Sync + 'static,
+            T: SyncTransport + Send + Sync + 'static,
         {
             // All cameras have basic capabilities
             true
@@ -228,13 +228,13 @@ fn test_mode_separation() {
         fn _blocking_mode_only<P, T>(_camera: &BlockingCamera<P, T>)
         where
             P: Profile,
-            T: BlockingTransport,
+            T: SyncTransport,
         {
             // BlockingCamera has synchronous methods
         }
 
         // The following would NOT compile:
         // fn _wrong_mode<P, T>(_camera: &Camera<P, T>)
-        // where T: BlockingTransport { }
+        // where T: SyncTransport { }
     }
 }

@@ -7,21 +7,17 @@
 
 use crate::capabilities::{MotionSync, NDFilter, NDFilterMode as CapabilityNDFilterMode, Profile};
 
-#[cfg(not(feature = "async"))]
-use crate::transport::BlockingTransport;
-
-#[cfg(not(feature = "async"))]
-use crate::camera::handle::BlockingCamera;
-
 #[cfg(feature = "async")]
 use crate::{camera::handle::AsyncCamera, executor::Executor, transport::AsyncTransport};
+#[cfg(not(feature = "async"))]
+use crate::{camera::handle::BlockingCamera, transport::SyncTransport};
 
 // Blocking camera capabilities
 #[cfg(not(feature = "async"))]
 impl<P, Tr> BlockingCamera<P, Tr>
 where
     P: Profile + NDFilter,
-    Tr: BlockingTransport,
+    Tr: SyncTransport,
 {
     /// Get the ND filter mode from the camera profile.
     #[must_use]
@@ -40,7 +36,7 @@ where
 impl<P, Tr> BlockingCamera<P, Tr>
 where
     P: Profile + MotionSync,
-    Tr: BlockingTransport,
+    Tr: SyncTransport,
 {
     /// Check if motion sync is supported.
     #[must_use]

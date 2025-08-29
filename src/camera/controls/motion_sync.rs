@@ -181,7 +181,7 @@ where
 impl<P, Tr> MotionSyncControl for crate::camera::BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile + crate::capabilities::motion_sync::MotionSync + Default,
-    Tr: crate::transport::BlockingTransport + Send + 'static,
+    Tr: crate::transport::SyncTransport + Send + 'static,
 {
     fn set_motion_sync_mode(&mut self, mode: MotionSyncMode) -> Result<(), Error> {
         use crate::command::motion_sync::MotionSyncModeCmd;

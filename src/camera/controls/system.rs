@@ -80,7 +80,7 @@ where
 impl<P, Tr> SystemControl for crate::camera::BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::BlockingTransport + Send + 'static,
+    Tr: crate::transport::SyncTransport + Send + 'static,
 {
     fn trigger_address_assignment(&mut self) -> Result<(), Error> {
         use crate::command::system::AddressSetCommand;

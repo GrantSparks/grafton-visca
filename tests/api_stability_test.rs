@@ -17,9 +17,6 @@ use grafton_visca::TokioExecutor;
 #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
 use grafton_visca::transport::Transport;
 
-#[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
-use grafton_visca::transport::BoxAsyncTransport;
-
 /// Test that the Transport builder API remains stable.
 #[test]
 fn test_transport_builder_api_stability() {
@@ -45,47 +42,32 @@ fn test_transport_builder_api_stability() {
     }
 }
 
-/// Test that BoxAsyncTransport provides a stable dynamic interface.
+/// Test that zero-cost generic transports work correctly (replacing dyn patterns).
 #[test]
-fn test_box_async_transport_api_stability() {
-    use grafton_visca::transport::async_dyn::BoxAsyncTransport;
-
-    // Test that BoxAsyncTransport is publicly available
-    let _phantom: PhantomData<BoxAsyncTransport> = PhantomData;
-
-    // Test that BoxAsyncTransport can be used in generic contexts - call it to verify it compiles
+fn test_zero_cost_generic_transports() {
+    // Test that generic transport types are available and work correctly
     #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
     {
-        fn accepts_box_transport(_transport: BoxAsyncTransport) {}
-        accepts_box_transport(Box::new(ScriptedTransport::<TokioExecutor>::new(vec![])));
-    }
-
-    // Type signature validation - BoxAsyncTransport should exist and be usable
-}
-
-/// Test that DynAsyncTransport trait is publicly accessible for advanced usage.
-#[test]
-fn test_dyn_async_transport_trait_stability() {
-    use grafton_visca::transport::async_dyn::DynAsyncTransport;
-
-    // Test that DynAsyncTransport can be used as a trait bound - call it to verify it compiles
-    #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
-    {
-        fn accepts_dyn_transport<T>(_transport: &mut T)
+        // Test that generic transports can be used with type parameters
+        fn accepts_generic_transport<T>(_transport: T)
         where
-            T: DynAsyncTransport + ?Sized,
+            T: Send + 'static,
         {
         }
 
-        let mut mock_transport: BoxAsyncTransport =
-            Box::new(ScriptedTransport::<TokioExecutor>::new(vec![]));
-        accepts_dyn_transport(&mut *mock_transport);
+        let mock_transport = ScriptedTransport::<TokioExecutor>::new(vec![]);
+        accepts_generic_transport(mock_transport);
     }
 
-    // Test that the trait is object-safe by using it in dyn context
-    let _phantom: PhantomData<&dyn DynAsyncTransport> = PhantomData;
+    // Test that we can still work with generic constraints
+    fn requires_send_sync<T>()
+    where
+        T: Send + Sync + 'static,
+    {
+    }
 
-    // The trait object type existing proves the trait is object-safe
+    #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
+    requires_send_sync::<ScriptedTransport<TokioExecutor>>();
 }
 
 /// Test that async control traits maintain stable public signatures.
@@ -295,7 +277,7 @@ fn test_transport_module_structure() {
     use grafton_visca::transport::AsyncTransport;
 
     #[cfg(not(feature = "async"))]
-    use grafton_visca::transport::BlockingTransport;
+    use grafton_visca::transport::SyncTransport;
 
     // Test that configuration types can be constructed
     let _retry = RetryConfig::default();
@@ -318,7 +300,7 @@ fn test_transport_module_structure() {
     #[cfg(not(feature = "async"))]
     fn accepts_blocking_transport<T>(_transport: T)
     where
-        T: BlockingTransport,
+        T: SyncTransport,
     {
     }
 

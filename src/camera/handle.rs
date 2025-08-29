@@ -6,21 +6,6 @@
 #[cfg(feature = "async")]
 use std::sync::Arc;
 
-#[cfg(feature = "async")]
-use crate::command::bytes::VISCA_TERMINATOR;
-#[cfg(feature = "async")]
-use crate::transport::buffer::{BufferConfig, BufferManager};
-#[cfg(feature = "async")]
-use crate::transport::envelope::TransportEnvelope;
-#[cfg(feature = "async")]
-use crate::{executor::Executor, runtime, transport::AsyncTransport};
-
-#[cfg(not(feature = "async"))]
-use crate::command::bytes::VISCA_TERMINATOR;
-#[cfg(not(feature = "async"))]
-use crate::transport::buffer::{BufferConfig, BufferManager};
-#[cfg(not(feature = "async"))]
-use crate::transport::envelope::TransportEnvelope;
 use crate::{
     camera_id::CameraId,
     capabilities::Profile,
@@ -28,9 +13,26 @@ use crate::{
     error::Error,
     timeout::TimeoutConfig,
 };
-
+#[cfg(feature = "async")]
+use crate::{
+    command::bytes::VISCA_TERMINATOR,
+    executor::Executor,
+    runtime,
+    transport::{
+        buffer::{BufferConfig, BufferManager},
+        envelope::TransportEnvelope,
+        AsyncTransport,
+    },
+};
 #[cfg(not(feature = "async"))]
-use crate::transport::BlockingTransport;
+use crate::{
+    command::bytes::VISCA_TERMINATOR,
+    transport::{
+        buffer::{BufferConfig, BufferManager},
+        envelope::TransportEnvelope,
+        SyncTransport,
+    },
+};
 
 /// Blocking camera client with compile-time profile selection.
 ///
@@ -40,7 +42,7 @@ use crate::transport::BlockingTransport;
 /// # Type Parameters
 ///
 /// * `P` - Camera profile implementing the `Profile` trait
-/// * `Tr` - Blocking transport implementing the `BlockingTransport` trait
+/// * `Tr` - Blocking transport implementing the `SyncTransport` trait
 ///
 /// # Examples
 ///
@@ -57,7 +59,7 @@ use crate::transport::BlockingTransport;
 pub struct BlockingCamera<P, Tr>
 where
     P: Profile,
-    Tr: BlockingTransport,
+    Tr: SyncTransport,
 {
     camera_id: CameraId,
     envelope: TransportEnvelope,
@@ -121,7 +123,7 @@ pub use AsyncCamera as Camera;
 impl<P, Tr> BlockingCamera<P, Tr>
 where
     P: Profile + Default,
-    Tr: BlockingTransport,
+    Tr: SyncTransport,
 {
     /// Create a new blocking camera with the specified transport.
     pub fn new(transport: Tr) -> Self {
@@ -211,14 +213,14 @@ where
                 .frame_command(&cmd_vec, is_inquiry, &self.envelope_buffer_manager);
 
         // Send command
-        self.transport.send_blocking(&request)?;
+        self.transport.send(&request)?;
 
         // For non-inquiry commands, we need to handle ACK/Completion sequence
         if !is_inquiry {
             // Read first response (should be ACK or error) with ACK timeout
             let first_response_bytes = self
                 .transport
-                .recv_blocking_with_timeout(self.timeout_config.ack_timeout)?;
+                .recv_with_timeout(self.timeout_config.ack_timeout)?;
             let first_visca = self.envelope.extract_response(&first_response_bytes)?;
             let first_response = ViscaResponse::parse(&first_visca)?;
 
@@ -228,9 +230,8 @@ where
                     // Got ACK, now wait for completion
                     // Use per-category timeout for completion
                     let completion_timeout = self.timeout_config.get_timeout(C::TIMEOUT_CATEGORY);
-                    let second_response_bytes = self
-                        .transport
-                        .recv_blocking_with_timeout(completion_timeout)?;
+                    let second_response_bytes =
+                        self.transport.recv_with_timeout(completion_timeout)?;
                     let second_visca = self.envelope.extract_response(&second_response_bytes)?;
                     let second_response = ViscaResponse::parse(&second_visca)?;
 
@@ -246,7 +247,7 @@ where
         } else {
             // For inquiry commands, just read one response with quick timeout
             let quick_timeout = self.timeout_config.get_timeout(C::TIMEOUT_CATEGORY);
-            let response_bytes = self.transport.recv_blocking_with_timeout(quick_timeout)?;
+            let response_bytes = self.transport.recv_with_timeout(quick_timeout)?;
             let visca = self.envelope.extract_response(&response_bytes)?;
             ViscaResponse::parse(&visca)
         }

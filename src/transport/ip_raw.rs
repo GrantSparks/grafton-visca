@@ -4,14 +4,15 @@
 //! any additional encapsulation. This is the format used by PtzOptics cameras.
 
 use bytes::{Bytes, BytesMut};
+use std::{
+    io::{BufReader, Read, Write},
+    net::{TcpStream, UdpSocket},
+    time::{Duration, Instant},
+};
 use tracing::{debug, trace};
 
-use std::io::{BufReader, Read, Write};
-use std::net::{TcpStream, UdpSocket};
-use std::time::{Duration, Instant};
-
 #[cfg(not(feature = "async"))]
-use crate::transport::BlockingTransport;
+use crate::transport::SyncTransport;
 use crate::{
     error::{Error, Result},
     protocol::encode::VISCA_TERMINATOR,
@@ -141,8 +142,8 @@ impl RawTcpTransport {
 }
 
 #[cfg(not(feature = "async"))]
-impl BlockingTransport for RawTcpTransport {
-    fn send_blocking(&mut self, bytes: &[u8]) -> Result<()> {
+impl SyncTransport for RawTcpTransport {
+    fn send(&mut self, bytes: &[u8]) -> Result<()> {
         // Clone bytes for the closure
         let bytes_vec = bytes.to_vec();
 
@@ -161,12 +162,12 @@ impl BlockingTransport for RawTcpTransport {
         })
     }
 
-    fn recv_blocking(&mut self) -> Result<Bytes> {
+    fn recv(&mut self) -> Result<Bytes> {
         // Don't retry receive operations to avoid protocol confusion
         self.recv_frame()
     }
 
-    fn recv_blocking_with_timeout(&mut self, timeout: Duration) -> Result<Bytes> {
+    fn recv_with_timeout(&mut self, timeout: Duration) -> Result<Bytes> {
         // We need to temporarily modify the timeout on the stream
         // Since we can't get a mutable reference while recv_frame borrows self mutably,
         // we'll use a different approach: set timeout before recv and restore after
@@ -285,8 +286,8 @@ impl RawUdpTransport {
 }
 
 #[cfg(not(feature = "async"))]
-impl BlockingTransport for RawUdpTransport {
-    fn send_blocking(&mut self, bytes: &[u8]) -> Result<()> {
+impl SyncTransport for RawUdpTransport {
+    fn send(&mut self, bytes: &[u8]) -> Result<()> {
         // Store the command for potential retry on receive timeout
         self.last_command = Some(bytes.to_vec());
 
@@ -307,7 +308,7 @@ impl BlockingTransport for RawUdpTransport {
         })
     }
 
-    fn recv_blocking(&mut self) -> Result<Bytes> {
+    fn recv(&mut self) -> Result<Bytes> {
         let mut attempts = 0;
         let start_time = Instant::now();
 
@@ -365,7 +366,7 @@ impl BlockingTransport for RawUdpTransport {
         }
     }
 
-    fn recv_blocking_with_timeout(&mut self, timeout: Duration) -> Result<Bytes> {
+    fn recv_with_timeout(&mut self, timeout: Duration) -> Result<Bytes> {
         // Temporarily set the timeout on the socket
         let original_read_timeout = self
             .socket

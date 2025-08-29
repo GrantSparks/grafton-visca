@@ -14,7 +14,7 @@ use std::{
 use grafton_visca::{
     transport::{
         builder::{TransportBuilder, TransportBuilderExt},
-        BlockingTransport,
+        SyncTransport,
     },
     Error,
 };
@@ -61,9 +61,9 @@ fn test_builder_creates_configured_tcp_transport() {
     // Verify transport can send and receive
     let mut transport = transport.unwrap();
     transport
-        .send_blocking(&[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF])
+        .send(&[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF])
         .unwrap();
-    let response = transport.recv_blocking();
+    let response = transport.recv();
     assert!(response.is_ok(), "Should receive response");
 }
 
@@ -101,7 +101,7 @@ fn test_builder_creates_configured_udp_transport() {
 
     let mut transport = transport.unwrap();
     transport
-        .send_blocking(&[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF])
+        .send(&[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF])
         .unwrap();
 
     thread::sleep(Duration::from_millis(100));
@@ -161,7 +161,7 @@ fn test_builder_retry_configuration() {
 
     // This should succeed after retries
     transport
-        .send_blocking(&[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF])
+        .send(&[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF])
         .unwrap();
 
     // Give server time to process

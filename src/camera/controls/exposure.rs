@@ -534,7 +534,7 @@ where
 impl<P, Tr> ExposureControl for crate::camera::BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::BlockingTransport + Send + 'static,
+    Tr: crate::transport::SyncTransport + Send + 'static,
 {
     fn set_exposure_mode(
         &mut self,

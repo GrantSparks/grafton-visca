@@ -30,7 +30,7 @@
 use std::marker::PhantomData;
 
 #[cfg(not(feature = "async"))]
-use crate::transport::BlockingTransport;
+use crate::transport::SyncTransport;
 #[cfg(feature = "async")]
 use crate::{
     camera::handle::AsyncCamera, error::Error, executor::Executor, transport::AsyncTransport,
@@ -149,7 +149,7 @@ impl CameraBuilder<()> {
     pub fn build_blocking<P, T>(self, transport: T) -> crate::camera::handle::BlockingCamera<P, T>
     where
         P: Profile + Default,
-        T: BlockingTransport,
+        T: SyncTransport,
     {
         let mut camera = crate::camera::handle::BlockingCamera::new(transport);
         camera.set_camera_id(self.camera_id);

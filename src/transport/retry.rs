@@ -7,11 +7,14 @@
 use std::future::Future;
 use std::time::{Duration, Instant};
 
-use super::RetryConfig;
-use crate::Error;
-
 #[cfg(feature = "async")]
 use crate::executor::Executor;
+use crate::{
+    timeout::{CommandTimeout, Deadline, TimeoutPolicy},
+    Error,
+};
+
+use super::RetryConfig;
 
 /// A trait for operations that can provide retry hints.
 pub trait RetryableOperation {
@@ -223,6 +226,286 @@ impl RetryExecutor {
     pub fn set_config(&mut self, config: RetryConfig) {
         self.config = config;
     }
+
+    /// Execute a command with timeout-aware retry logic.
+    ///
+    /// This method automatically uses the command's timeout class to determine
+    /// appropriate timeout and retry behavior.
+    pub fn execute_command<C, T, F>(
+        &self,
+        command: &C,
+        timeout_policy: &TimeoutPolicy,
+        operation: F,
+    ) -> Result<T, Error>
+    where
+        C: CommandTimeout,
+        F: FnMut() -> Result<T, Error>,
+    {
+        execute_command_with_retry(command, timeout_policy, &self.config, operation)
+    }
+
+    /// Execute a command with timeout-aware async retry logic.
+    ///
+    /// This method automatically uses the command's timeout class to determine
+    /// appropriate timeout and retry behavior.
+    #[cfg(feature = "async")]
+    pub async fn execute_command_async<E, C, T, F, Fut>(
+        &self,
+        executor: &E,
+        command: &C,
+        timeout_policy: &TimeoutPolicy,
+        operation: F,
+    ) -> Result<T, Error>
+    where
+        E: Executor,
+        C: CommandTimeout,
+        F: FnMut() -> Fut,
+        Fut: Future<Output = Result<T, Error>>,
+    {
+        execute_command_with_retry_async(executor, command, timeout_policy, &self.config, operation)
+            .await
+    }
+
+    /// Execute an operation with deadline-based retry logic.
+    ///
+    /// This method uses a pre-calculated deadline instead of command classification.
+    pub fn execute_with_deadline<T, F>(&self, deadline: Deadline, operation: F) -> Result<T, Error>
+    where
+        F: FnMut() -> Result<T, Error>,
+    {
+        execute_with_deadline_retry(deadline, &self.config, operation)
+    }
+
+    /// Execute an operation with deadline-based async retry logic.
+    ///
+    /// This method uses a pre-calculated deadline instead of command classification.
+    #[cfg(feature = "async")]
+    pub async fn execute_with_deadline_async<E, T, F, Fut>(
+        &self,
+        executor: &E,
+        deadline: Deadline,
+        operation: F,
+    ) -> Result<T, Error>
+    where
+        E: Executor,
+        F: FnMut() -> Fut,
+        Fut: Future<Output = Result<T, Error>>,
+    {
+        execute_with_deadline_retry_async(executor, deadline, &self.config, operation).await
+    }
+}
+
+/// Execute a blocking operation with timeout-aware retry logic.
+///
+/// This function combines command timeout classification with retry logic,
+/// using the command's timeout class to determine appropriate timeout and retry behavior.
+///
+/// # Arguments
+/// * `command` - The command being executed (for timeout classification)
+/// * `timeout_policy` - The timeout policy to use for creating deadlines
+/// * `retry_config` - The retry configuration to use
+/// * `operation` - A closure that performs the operation and returns a Result
+///
+/// # Returns
+/// The result of the operation, or the last error if all retries are exhausted
+pub fn execute_command_with_retry<C, T, F>(
+    command: &C,
+    timeout_policy: &TimeoutPolicy,
+    retry_config: &RetryConfig,
+    operation: F,
+) -> Result<T, Error>
+where
+    C: CommandTimeout,
+    F: FnMut() -> Result<T, Error>,
+{
+    let timeout_class = command.timeout_class();
+    let deadline = timeout_policy.deadline_for(timeout_class);
+
+    execute_with_deadline_retry(deadline, retry_config, operation)
+}
+
+/// Execute a blocking operation with retry logic using a pre-calculated deadline.
+///
+/// This function uses a `Deadline` to determine when to stop retrying,
+/// providing more precise timeout control than duration-based retry.
+///
+/// # Arguments
+/// * `deadline` - The deadline for the overall operation
+/// * `retry_config` - The retry configuration to use
+/// * `operation` - A closure that performs the operation and returns a Result
+///
+/// # Returns
+/// The result of the operation, or the last error if all retries are exhausted
+pub fn execute_with_deadline_retry<T, F>(
+    deadline: Deadline,
+    retry_config: &RetryConfig,
+    operation: F,
+) -> Result<T, Error>
+where
+    F: FnMut() -> Result<T, Error>,
+{
+    let start_time = Instant::now();
+    let mut attempts = 0;
+    let mut operation = operation;
+
+    loop {
+        // Check if we've exceeded the overall deadline
+        if deadline.is_expired() {
+            return Err(Error::Timeout);
+        }
+
+        // Track attempts (initial + retries)
+        attempts += 1;
+
+        match operation() {
+            Ok(result) => return Ok(result),
+            Err(error) => {
+                // Check if error is retryable
+                if !error.is_retryable() {
+                    return Err(error);
+                }
+
+                // Calculate how many retries we've done (attempts - 1)
+                let retries_done = attempts - 1;
+
+                // Check if we've exceeded retry limits
+                if retries_done >= retry_config.max_retries {
+                    return Err(error);
+                }
+
+                // Check if we've exceeded the deadline or max retry duration
+                if deadline.is_expired() || start_time.elapsed() >= retry_config.max_retry_duration
+                {
+                    return Err(error);
+                }
+
+                // Calculate delay for this retry attempt, limited by remaining time
+                let retry_delay =
+                    retry_config.calculate_delay(retries_done, error.suggested_retry_delay());
+                let remaining_time = deadline.remaining();
+                let actual_delay = retry_delay.min(remaining_time);
+
+                // Don't wait if there's no time left
+                if actual_delay.is_zero() {
+                    return Err(error);
+                }
+
+                // Wait before retrying
+                std::thread::sleep(actual_delay);
+            }
+        }
+    }
+}
+
+/// Execute an async operation with timeout-aware retry logic.
+///
+/// This function combines command timeout classification with async retry logic,
+/// using the command's timeout class to determine appropriate timeout and retry behavior.
+///
+/// # Arguments
+/// * `executor` - The executor to use for timing operations
+/// * `command` - The command being executed (for timeout classification)
+/// * `timeout_policy` - The timeout policy to use for creating deadlines
+/// * `retry_config` - The retry configuration to use
+/// * `operation` - An async closure that performs the operation and returns a Result
+///
+/// # Returns
+/// The result of the operation, or the last error if all retries are exhausted
+#[cfg(feature = "async")]
+pub async fn execute_command_with_retry_async<E, C, T, F, Fut>(
+    executor: &E,
+    command: &C,
+    timeout_policy: &TimeoutPolicy,
+    retry_config: &RetryConfig,
+    operation: F,
+) -> Result<T, Error>
+where
+    E: Executor,
+    C: CommandTimeout,
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, Error>>,
+{
+    let timeout_class = command.timeout_class();
+    let deadline = timeout_policy.deadline_for(timeout_class);
+
+    execute_with_deadline_retry_async(executor, deadline, retry_config, operation).await
+}
+
+/// Execute an async operation with retry logic using a pre-calculated deadline.
+///
+/// This function uses a `Deadline` to determine when to stop retrying,
+/// providing more precise timeout control than duration-based retry.
+///
+/// # Arguments
+/// * `executor` - The executor to use for timing operations
+/// * `deadline` - The deadline for the overall operation
+/// * `retry_config` - The retry configuration to use
+/// * `operation` - An async closure that performs the operation and returns a Result
+///
+/// # Returns
+/// The result of the operation, or the last error if all retries are exhausted
+#[cfg(feature = "async")]
+pub async fn execute_with_deadline_retry_async<E, T, F, Fut>(
+    executor: &E,
+    deadline: Deadline,
+    retry_config: &RetryConfig,
+    mut operation: F,
+) -> Result<T, Error>
+where
+    E: Executor,
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, Error>>,
+{
+    let start_time = Instant::now();
+    let mut attempts = 0;
+
+    loop {
+        // Check if we've exceeded the overall deadline
+        if deadline.is_expired() {
+            return Err(Error::Timeout);
+        }
+
+        // Track attempts (initial + retries)
+        attempts += 1;
+
+        match operation().await {
+            Ok(result) => return Ok(result),
+            Err(error) => {
+                // Check if error is retryable
+                if !error.is_retryable() {
+                    return Err(error);
+                }
+
+                // Calculate how many retries we've done (attempts - 1)
+                let retries_done = attempts - 1;
+
+                // Check if we've exceeded retry limits
+                if retries_done >= retry_config.max_retries {
+                    return Err(error);
+                }
+
+                // Check if we've exceeded the deadline or max retry duration
+                if deadline.is_expired() || start_time.elapsed() >= retry_config.max_retry_duration
+                {
+                    return Err(error);
+                }
+
+                // Calculate delay for this retry attempt, limited by remaining time
+                let retry_delay =
+                    retry_config.calculate_delay(retries_done, error.suggested_retry_delay());
+                let remaining_time = deadline.remaining();
+                let actual_delay = retry_delay.min(remaining_time);
+
+                // Don't wait if there's no time left
+                if actual_delay.is_zero() {
+                    return Err(error);
+                }
+
+                // Wait before retrying using the executor
+                executor.sleep(actual_delay).await;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -423,5 +706,164 @@ mod tests {
 
         assert_eq!(result.expect("Smol executor test failed"), 50);
         assert_eq!(counter.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn test_command_timeout_classification() {
+        use crate::command::power::Power;
+        use crate::timeout::{CommandTimeout, TimeoutClass};
+
+        // Test that power commands have the correct timeout class
+        let power_on = Power::On;
+        assert_eq!(power_on.timeout_class(), TimeoutClass::Quick);
+
+        // Verify timeout class matches the expected value
+        let power_standby = Power::Standby;
+        assert_eq!(power_standby.timeout_class(), TimeoutClass::Quick);
+    }
+
+    #[test]
+    fn test_deadline_based_retry() {
+        use crate::timeout::Deadline;
+        use std::time::Duration;
+
+        let config = RetryConfig {
+            max_retries: 3,
+            base_retry_delay: Duration::from_millis(10),
+            max_retry_duration: Duration::from_secs(1),
+            exponential_backoff: false,
+        };
+
+        // Create a deadline with a short timeout
+        let deadline = Deadline::from_timeout(Duration::from_millis(50));
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = counter.clone();
+
+        let result = execute_with_deadline_retry(deadline, &config, || {
+            let count = counter_clone.fetch_add(1, Ordering::SeqCst);
+            if count < 5 {
+                // Always fail but with a retryable error
+                Err(Error::CameraBusy)
+            } else {
+                Ok(100)
+            }
+        });
+
+        // Should fail due to deadline expiration
+        assert!(matches!(result, Err(Error::Timeout)));
+
+        // Should have made at least one attempt
+        assert!(counter.load(Ordering::SeqCst) >= 1);
+    }
+
+    #[test]
+    fn test_command_with_timeout_policy() {
+        use crate::command::power::Power;
+        use crate::timeout::{TimeoutConfig, TimeoutPolicy};
+        use std::time::Duration;
+
+        let config = RetryConfig {
+            max_retries: 2,
+            base_retry_delay: Duration::from_millis(10),
+            max_retry_duration: Duration::from_secs(1),
+            exponential_backoff: false,
+        };
+
+        // Create a timeout policy with short timeouts for testing
+        let timeout_config = TimeoutConfig {
+            ack_timeout: Duration::from_millis(100),
+            quick_timeout: Duration::from_millis(50), // Very short for testing
+            movement_timeout: Duration::from_millis(100),
+            preset_timeout: Duration::from_millis(200),
+            long_timeout: Duration::from_millis(500),
+            network_timeout: Duration::from_millis(100),
+            default_timeout: Duration::from_millis(150),
+        };
+        let timeout_policy = TimeoutPolicy::new(timeout_config);
+
+        let power_command = Power::On;
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = counter.clone();
+
+        let result = execute_command_with_retry(&power_command, &timeout_policy, &config, || {
+            let count = counter_clone.fetch_add(1, Ordering::SeqCst);
+            if count < 10 {
+                // Always fail but sleep briefly to use up deadline time
+                std::thread::sleep(Duration::from_millis(15));
+                Err(Error::CameraBusy)
+            } else {
+                Ok("success")
+            }
+        });
+
+        // Should fail due to timeout (deadline should expire quickly)
+        assert!(matches!(result, Err(Error::Timeout)));
+
+        // Should have made at least one attempt before timeout
+        assert!(counter.load(Ordering::SeqCst) >= 1);
+    }
+
+    #[test]
+    fn test_retry_executor_with_command() {
+        use crate::command::power::Power;
+        use crate::timeout::{TimeoutConfig, TimeoutPolicy};
+        use std::time::Duration;
+
+        let executor = RetryExecutor::with_defaults();
+
+        // Use longer timeouts to allow successful completion
+        let timeout_config = TimeoutConfig {
+            ack_timeout: Duration::from_millis(500),
+            quick_timeout: Duration::from_secs(2), // Long enough for the test
+            movement_timeout: Duration::from_secs(5),
+            preset_timeout: Duration::from_secs(10),
+            long_timeout: Duration::from_secs(30),
+            network_timeout: Duration::from_secs(2),
+            default_timeout: Duration::from_secs(5),
+        };
+        let timeout_policy = TimeoutPolicy::new(timeout_config);
+
+        let power_command = Power::On;
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = counter.clone();
+
+        let result = executor.execute_command(&power_command, &timeout_policy, || {
+            let count = counter_clone.fetch_add(1, Ordering::SeqCst);
+            if count < 2 {
+                Err(Error::CameraBusy)
+            } else {
+                Ok("success")
+            }
+        });
+
+        assert_eq!(
+            result.expect("Retry executor command test failed"),
+            "success"
+        );
+        assert_eq!(counter.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn test_different_command_categories_have_different_timeouts() {
+        use crate::command::{
+            power::Power, preset::PresetAction, preset::PresetCommand, preset::PresetNumber,
+        };
+        use crate::timeout::{CommandTimeout, TimeoutClass};
+
+        // Test different command categories
+        let power_cmd = Power::On;
+        assert_eq!(power_cmd.timeout_class(), TimeoutClass::Quick);
+
+        // Create a preset command (should be Preset category)
+        if let Ok(preset_num) = PresetNumber::new(1) {
+            let preset_cmd = PresetCommand {
+                action: PresetAction::Recall,
+                preset_number: preset_num,
+            };
+            assert_eq!(preset_cmd.timeout_class(), TimeoutClass::Preset);
+        }
+
+        // Verify they're different
+        assert_ne!(TimeoutClass::Quick, TimeoutClass::Preset);
     }
 }

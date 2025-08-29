@@ -420,7 +420,7 @@ where
 impl<P, Tr> ImageProcessingControl for crate::camera::BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::BlockingTransport + Send + 'static,
+    Tr: crate::transport::SyncTransport + Send + 'static,
 {
     fn enable_flip(&mut self) -> Result<(), Error> {
         let cmd = crate::command::flip::ImageFlip::new(crate::command::flip::Flip::On);
