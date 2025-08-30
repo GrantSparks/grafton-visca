@@ -53,7 +53,7 @@ fn spawn_runtime_task_properly<E: crate::executor::Executor>(
 /// Note: This type is only available when the "async" feature is enabled,
 /// as it requires async runtime support for communication.
 #[cfg(feature = "async")]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RuntimeHandle {
     /// Channel for submitting commands and inquiries.
     submit: Sender<TxItem>,

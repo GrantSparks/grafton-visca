@@ -10,6 +10,8 @@
 
 #![cfg(feature = "rt-async-std")]
 
+use std::error::Error;
+
 use grafton_visca::{
     camera::{
         controls::{pan_tilt::PanTiltControl, power::PowerControl, zoom::ZoomControl},
@@ -18,7 +20,6 @@ use grafton_visca::{
     transport::Transport,
     CameraBuilder,
 };
-use std::error::Error;
 
 #[async_std::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -30,7 +31,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .unwrap_or_else(|| "192.168.0.110:5678".into());
     println!("Connecting to camera at {addr} with async-std...");
     // Use TransportBuilder for native async-std TCP transport
-    let transport = Transport::tcp().address(&addr).connect().await?;
+    let transport = Transport::tcp().address(&addr).build_async().await?;
 
     let camera = CameraBuilder::async_std()
         .build_async::<PtzOpticsG2, _>(transport)

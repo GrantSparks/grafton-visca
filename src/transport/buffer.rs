@@ -152,12 +152,20 @@ impl BufferManager {
         }
     }
 
-    /// Process received data, handling buffer growth.
+    /// Process received data using zero-copy when possible.
     /// Available for both blocking transports and async runtime transports.
     #[allow(dead_code)]
-    pub fn process_recv_data(&self, buffer: &mut Vec<u8>, received: usize) -> Bytes {
+    pub fn process_recv_data(&self, mut buffer: Vec<u8>, received: usize) -> Bytes {
         buffer.truncate(received);
-        Bytes::from(buffer.clone())
+        Bytes::from(buffer) // Takes ownership, no copy
+    }
+
+    /// Process received data from a mutable reference (fallback for when we can't take ownership).
+    /// Available for both blocking transports and async runtime transports.
+    #[allow(dead_code)]
+    pub fn process_recv_data_borrowed(&self, buffer: &mut Vec<u8>, received: usize) -> Bytes {
+        buffer.truncate(received);
+        Bytes::copy_from_slice(buffer) // Only when we can't take ownership
     }
 }
 
@@ -258,7 +266,22 @@ mod tests {
         buffer[1] = 0x01;
         buffer[2] = 0xFF;
 
-        let result = manager.process_recv_data(&mut buffer, 3);
+        let result = manager.process_recv_data(buffer, 3);
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], 0x81);
+        assert_eq!(result[1], 0x01);
+        assert_eq!(result[2], 0xFF);
+    }
+
+    #[test]
+    fn test_process_recv_data_borrowed() {
+        let manager = BufferManager::with_defaults();
+        let mut buffer = vec![0u8; 10];
+        buffer[0] = 0x81;
+        buffer[1] = 0x01;
+        buffer[2] = 0xFF;
+
+        let result = manager.process_recv_data_borrowed(&mut buffer, 3);
         assert_eq!(result.len(), 3);
         assert_eq!(result[0], 0x81);
         assert_eq!(result[1], 0x01);

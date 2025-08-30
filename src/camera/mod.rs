@@ -18,6 +18,7 @@ pub mod mode;
 pub mod movement_detection;
 pub mod movement_probe;
 pub mod profiles;
+pub mod unified;
 
 // Re-export the new concrete camera types
 #[cfg(not(feature = "async"))]

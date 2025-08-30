@@ -551,6 +551,8 @@ pub mod units;
 
 pub mod timeout;
 
+pub mod mode;
+
 #[cfg(feature = "async")]
 pub(crate) mod executor;
 

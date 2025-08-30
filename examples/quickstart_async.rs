@@ -20,19 +20,21 @@
 //! ```
 
 #[cfg(feature = "rt-tokio")]
-use std::env;
-
-#[cfg(feature = "rt-tokio")]
 use tokio::time::{sleep, Duration};
 
 #[cfg(feature = "rt-tokio")]
+use std::env;
+
+#[cfg(feature = "rt-tokio")]
 use grafton_visca::{
-    camera::controls::{
-        exposure::ExposureControl, focus::FocusControl, image_processing::ImageProcessingControl,
-        pan_tilt::PanTiltControl, presets::PresetsControl, white_balance::WhiteBalanceControl,
-        zoom::ZoomControl,
+    camera::{
+        controls::{
+            exposure::ExposureControl, focus::FocusControl,
+            image_processing::ImageProcessingControl, pan_tilt::PanTiltControl,
+            presets::PresetsControl, white_balance::WhiteBalanceControl, zoom::ZoomControl,
+        },
+        profiles::PtzOpticsG2,
     },
-    camera::profiles::PtzOpticsG2,
     command::preset::PresetNumber,
     transport::Transport,
     types::{PanSpeed, SpeedLevel, TiltSpeed},
@@ -58,7 +60,7 @@ async fn main() -> Result<(), Error> {
     let transport = Transport::tcp()
         .address(camera_addr)
         .connect_timeout(Duration::from_secs(5))
-        .connect()
+        .build_async()
         .await?;
 
     let camera = CameraBuilder::tokio()?

@@ -8,6 +8,7 @@
 #![allow(clippy::expect_used)]
 
 use bytes::Bytes;
+
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
@@ -56,7 +57,7 @@ impl Clone for Step {
             },
             Step::InjectError(err) => Step::InjectError(match err {
                 Error::Timeout => Error::Timeout,
-                Error::ConnectionLost { reason } => Error::ConnectionLost {
+                Error::ConnectionClosed { reason } => Error::ConnectionClosed {
                     reason: reason.clone(),
                 },
                 Error::InvalidState(msg) => Error::InvalidState(msg.clone()),
@@ -680,8 +681,8 @@ pub mod helpers {
         }
 
         pub fn connection_lost() -> Step {
-            Step::InjectError(Error::ConnectionLost {
-                reason: "Test connection lost".into(),
+            Step::InjectError(Error::ConnectionClosed {
+                reason: Some("Test connection lost".into()),
             })
         }
     }

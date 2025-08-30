@@ -214,12 +214,14 @@ impl SyncTransport for Tcp {
         let n = self.reader.read_until(VISCA_TERMINATOR, &mut buffer)?;
 
         if n == 0 {
-            return Err(Error::ConnectionLost {
-                reason: Cow::Borrowed("peer closed connection"),
+            return Err(Error::ConnectionClosed {
+                reason: Some(Cow::Borrowed("peer closed connection")),
             });
         }
 
-        Ok(self.buffer_manager.process_recv_data(&mut buffer, n))
+        Ok(self
+            .buffer_manager
+            .process_recv_data_borrowed(&mut buffer, n))
     }
 
     fn recv_with_timeout(&mut self, duration: Duration) -> Result<Bytes, Error> {
@@ -238,10 +240,12 @@ impl SyncTransport for Tcp {
 
         // Handle the result
         match result {
-            Ok(0) => Err(Error::ConnectionLost {
-                reason: Cow::Borrowed("peer closed connection"),
+            Ok(0) => Err(Error::ConnectionClosed {
+                reason: Some(Cow::Borrowed("peer closed connection")),
             }),
-            Ok(n) => Ok(self.buffer_manager.process_recv_data(&mut buffer, n)),
+            Ok(n) => Ok(self
+                .buffer_manager
+                .process_recv_data_borrowed(&mut buffer, n)),
             Err(e)
                 if e.kind() == std::io::ErrorKind::TimedOut
                     || e.kind() == std::io::ErrorKind::WouldBlock =>
@@ -280,12 +284,12 @@ impl TcpReader {
         let n = reader.read_until(VISCA_TERMINATOR, &mut buffer)?;
 
         if n == 0 {
-            return Err(Error::ConnectionLost {
-                reason: Cow::Borrowed("peer closed connection"),
+            return Err(Error::ConnectionClosed {
+                reason: Some(Cow::Borrowed("peer closed connection")),
             });
         }
 
-        Ok(buffer_manager.process_recv_data(&mut buffer, n))
+        Ok(buffer_manager.process_recv_data_borrowed(&mut buffer, n))
     }
 
     /// Receive data with a custom timeout.
@@ -314,10 +318,10 @@ impl TcpReader {
 
         // Handle the result
         match result {
-            Ok(0) => Err(Error::ConnectionLost {
-                reason: Cow::Borrowed("peer closed connection"),
+            Ok(0) => Err(Error::ConnectionClosed {
+                reason: Some(Cow::Borrowed("peer closed connection")),
             }),
-            Ok(n) => Ok(buffer_manager.process_recv_data(&mut buffer, n)),
+            Ok(n) => Ok(buffer_manager.process_recv_data_borrowed(&mut buffer, n)),
             Err(e)
                 if e.kind() == std::io::ErrorKind::TimedOut
                     || e.kind() == std::io::ErrorKind::WouldBlock =>

@@ -1,14 +1,17 @@
 //! smol TCP transport implementation with zero-cost async using unified helpers.
 
 use bytes::Bytes;
+
 use std::time::Duration;
 
-use crate::transport::async_io::{
-    read_until_terminator_fallback, write_all_flush, TcpConnectionConfig,
+use crate::{
+    transport::{
+        async_io::{read_until_terminator, write_all_flush, TcpConnectionConfig},
+        smol::connectors::{connect_tcp, SmolTcpStream},
+        {builder::TransportConfig, AsyncTransport},
+    },
+    Error,
 };
-use crate::transport::smol::connectors::{connect_tcp, SmolTcpStream};
-use crate::transport::{builder::TransportConfig, AsyncTransport};
-use crate::Error;
 
 /// TCP transport for async VISCA communication using smol.
 ///
@@ -95,7 +98,7 @@ impl AsyncTransport for Tcp {
     }
 
     async fn recv(&mut self) -> Result<Bytes, Error> {
-        read_until_terminator_fallback(&mut self.stream).await
+        read_until_terminator(&mut self.stream).await
     }
 }
 
@@ -111,7 +114,7 @@ pub struct TcpReader {
 impl TcpReader {
     /// Receive data from the TCP connection.
     pub async fn recv(&mut self) -> Result<Bytes, Error> {
-        read_until_terminator_fallback(&mut self.stream).await
+        read_until_terminator(&mut self.stream).await
     }
 }
 

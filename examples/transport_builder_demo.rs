@@ -5,12 +5,11 @@
 //!
 //! Run with: cargo run --example transport_builder_demo --features rt-tokio
 
-#[cfg(not(feature = "async"))]
-use grafton_visca::transport::builder::TransportBuilder;
-#[cfg(not(feature = "async"))]
-use grafton_visca::transport::RetryConfig;
 #[cfg(any(not(feature = "async"), feature = "rt-tokio"))]
 use std::time::Duration;
+
+#[cfg(not(feature = "async"))]
+use grafton_visca::transport::{builder::TransportBuilder, RetryConfig};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Transport Builder Pattern Demo");
@@ -124,7 +123,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .connect_timeout(Duration::from_secs(10))
             .tcp_nodelay(true);
         println!("     Created uniform TCP builder");
-        println!("     Would connect with: .connect().await (runtime auto-selected)");
+        println!("     Would connect with: .build_async().await (runtime auto-selected)");
 
         // Example 7b: Uniform UDP transport builder
         println!("\n  7b. Uniform UDP transport:");
@@ -133,11 +132,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .ttl(64)
             .max_retries(5);
         println!("     Created uniform UDP builder");
-        println!("     Would connect with: .connect().await (runtime auto-selected)");
+        println!("     Would connect with: .build_async().await (runtime auto-selected)");
 
         // Example 7c: Runtime auto-selection
         println!("\n  7c. Runtime auto-selection:");
-        println!("     Transport::tcp().connect().await automatically selects:");
+        println!("     Transport::tcp().build_async().await automatically selects:");
         println!("     - tokio when rt-tokio feature is enabled");
         println!("     - async-std when rt-async-std feature is enabled");
         println!("     - smol when rt-smol feature is enabled");

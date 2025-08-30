@@ -1,7 +1,5 @@
-// External crates
 use thiserror::Error as ThisError;
 
-// Standard library
 use std::{borrow::Cow, convert::Infallible, io, time::Duration};
 
 /// Custom result type for VISCA operations.
@@ -26,11 +24,11 @@ pub enum Error {
         source: io::Error,
     },
 
-    /// Connection to the camera was lost during operation.
-    #[error("Connection lost: {reason}")]
-    ConnectionLost {
-        /// Reason for the connection loss.
-        reason: Cow<'static, str>,
+    /// Connection to the camera was closed.
+    #[error("Connection closed{}", reason.as_ref().map(|r| format!(": {}", r)).unwrap_or_default())]
+    ConnectionClosed {
+        /// Optional reason for the connection closure.
+        reason: Option<Cow<'static, str>>,
     },
 
     /// Command execution exceeded the configured timeout.
@@ -200,10 +198,6 @@ pub enum Error {
     /// Maximum retry attempts exceeded.
     #[error("Maximum retries exceeded")]
     MaxRetriesExceeded,
-
-    /// Connection was closed unexpectedly.
-    #[error("Connection closed")]
-    ConnectionClosed,
 
     /// Operation is not supported by this implementation.
     #[error("Operation not supported")]

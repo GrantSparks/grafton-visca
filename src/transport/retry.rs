@@ -711,15 +711,15 @@ mod tests {
     #[test]
     fn test_command_timeout_classification() {
         use crate::command::power::Power;
-        use crate::timeout::{CommandTimeout, TimeoutClass};
+        use crate::timeout::{CommandCategory, CommandTimeout};
 
         // Test that power commands have the correct timeout class
         let power_on = Power::On;
-        assert_eq!(power_on.timeout_class(), TimeoutClass::Quick);
+        assert_eq!(power_on.timeout_class(), CommandCategory::Quick);
 
         // Verify timeout class matches the expected value
         let power_standby = Power::Standby;
-        assert_eq!(power_standby.timeout_class(), TimeoutClass::Quick);
+        assert_eq!(power_standby.timeout_class(), CommandCategory::Quick);
     }
 
     #[test]
@@ -822,10 +822,11 @@ mod tests {
         let counter = Arc::new(AtomicUsize::new(0));
         let counter_clone = counter.clone();
 
-        let result: Result<&str, Error> = execute_with_deadline_retry(expired_deadline, &config, || {
-            counter_clone.fetch_add(1, Ordering::SeqCst);
-            Err(Error::CameraBusy)
-        });
+        let result: Result<&str, Error> =
+            execute_with_deadline_retry(expired_deadline, &config, || {
+                counter_clone.fetch_add(1, Ordering::SeqCst);
+                Err(Error::CameraBusy)
+            });
 
         // Should immediately timeout due to expired deadline without calling operation
         assert!(matches!(result, Err(Error::Timeout)));
@@ -835,19 +836,21 @@ mod tests {
         let short_deadline = Deadline::from_timeout(Duration::from_millis(10));
         counter.store(0, Ordering::SeqCst); // Reset counter
 
-        let result: Result<&str, Error> = execute_with_deadline_retry(short_deadline, &config, || {
-            let count = counter_clone.fetch_add(1, Ordering::SeqCst);
-            if count == 0 {
-                // First attempt: sleep to consume deadline time
-                std::thread::sleep(Duration::from_millis(15));
-            }
-            Err(Error::CameraBusy) // Always fail
-        });
+        let result: Result<&str, Error> =
+            execute_with_deadline_retry(short_deadline, &config, || {
+                let count = counter_clone.fetch_add(1, Ordering::SeqCst);
+                if count == 0 {
+                    // First attempt: sleep to consume deadline time
+                    std::thread::sleep(Duration::from_millis(15));
+                }
+                Err(Error::CameraBusy) // Always fail
+            });
 
         // Should fail either due to timeout or max retries, but not succeed
         assert!(matches!(result, Err(Error::Timeout)) || matches!(result, Err(Error::CameraBusy)));
         assert!(counter.load(Ordering::SeqCst) >= 1); // At least one attempt
-        assert!(counter.load(Ordering::SeqCst) <= (config.max_retries + 1) as usize); // Not more than configured attempts
+        assert!(counter.load(Ordering::SeqCst) <= (config.max_retries + 1) as usize);
+        // Not more than configured attempts
     }
 
     #[test]
@@ -895,11 +898,11 @@ mod tests {
         use crate::command::{
             power::Power, preset::PresetAction, preset::PresetCommand, preset::PresetNumber,
         };
-        use crate::timeout::{CommandTimeout, TimeoutClass};
+        use crate::timeout::{CommandCategory, CommandTimeout};
 
         // Test different command categories
         let power_cmd = Power::On;
-        assert_eq!(power_cmd.timeout_class(), TimeoutClass::Quick);
+        assert_eq!(power_cmd.timeout_class(), CommandCategory::Quick);
 
         // Create a preset command (should be Preset category)
         if let Ok(preset_num) = PresetNumber::new(1) {
@@ -907,10 +910,10 @@ mod tests {
                 action: PresetAction::Recall,
                 preset_number: preset_num,
             };
-            assert_eq!(preset_cmd.timeout_class(), TimeoutClass::Preset);
+            assert_eq!(preset_cmd.timeout_class(), CommandCategory::Preset);
         }
 
         // Verify they're different
-        assert_ne!(TimeoutClass::Quick, TimeoutClass::Preset);
+        assert_ne!(CommandCategory::Quick, CommandCategory::Preset);
     }
 }
