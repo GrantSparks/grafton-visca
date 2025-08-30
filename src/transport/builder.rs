@@ -19,7 +19,7 @@
 //!     .address("192.168.0.110:5678")
 //!     .connect_timeout(std::time::Duration::from_secs(10))
 //!     .tcp_nodelay(true)
-//!     .connect()
+//!     .build_async()
 //!     .await?;
 //! # Ok(())
 //! # }
