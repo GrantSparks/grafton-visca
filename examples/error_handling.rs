@@ -3,12 +3,11 @@
 //! This example demonstrates error handling patterns with the Camera API,
 //! including retry logic and error classification.
 
-use grafton_visca::Error;
-
-use std::{borrow::Cow, time::Duration};
-
 #[cfg(any(not(feature = "async"), feature = "rt-tokio"))]
 use std::time::Instant;
+use std::{borrow::Cow, time::Duration};
+
+use grafton_visca::Error;
 
 #[cfg(feature = "rt-tokio")]
 use grafton_visca::{
@@ -343,8 +342,8 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     let transport = match Transport::tcp()
         .address(camera_addr)
         .connect_timeout(Duration::from_secs(5))
-        .connect() // .connect() for native tokio transport
-        .await
+        .build_async()
+        .await // .build_async().await for native tokio transport
     {
         Ok(t) => {
             println!("   ✓ Transport created successfully");

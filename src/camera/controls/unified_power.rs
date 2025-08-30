@@ -53,37 +53,32 @@ impl<M, P, Tr, Exec> UnifiedPowerControl<M> for crate::camera::unified::Camera<M
 where
     M: Mode + 'static,
     P: crate::capabilities::Profile + Default,
+    Tr: Send + Sync,
 {
     fn power_on(&self) -> M::Ret<Result<(), Error>> {
-        // Simplified implementation that works for both modes
-        // Real implementation would dispatch based on the mode type
         use crate::command::power::Power;
-        let _cmd = Power::On;
-
-        // For now, just return success for both modes
-        M::ret(Ok(()))
+        let cmd = Power::On;
+        self.send_command(&cmd)
     }
 
     fn power_off(&self) -> M::Ret<Result<(), Error>> {
         use crate::command::power::Power;
-        let _cmd = Power::Standby;
-
-        // For now, just return success for both modes
-        M::ret(Ok(()))
+        let cmd = Power::Standby;
+        self.send_command(&cmd)
     }
 
     fn power_inquiry(&self) -> M::Ret<Result<bool, Error>> {
         use crate::command::inquiry_structs::PowerInquiry;
-        let _cmd = PowerInquiry;
+        let cmd = PowerInquiry;
 
-        // For now, just return power on status for both modes
-        M::ret(Ok(true))
+        // Use send_command_typed to get the typed response
+        // This now connects to actual transport operations
+        self.send_command_typed(&cmd)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     #[tokio::test]
     async fn test_unified_power_control_concept() {

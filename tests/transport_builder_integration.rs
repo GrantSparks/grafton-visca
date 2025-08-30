@@ -94,7 +94,7 @@ fn test_builder_creates_configured_udp_transport() {
     let transport = TransportBuilder::udp()
         .address(addr.to_string().as_str())
         .connect_timeout(Duration::from_secs(2))
-        .buffer_size(512)
+        .recv_buffer_size(512)
         .build();
 
     assert!(transport.is_ok(), "Builder should create UDP transport");
@@ -117,7 +117,7 @@ fn test_builder_buffer_configuration() {
     // We can't access private fields, but we can verify the builder accepts these methods
     let _builder = TransportBuilder::tcp()
         .address("192.168.0.110:5678")
-        .buffer_size(256)
+        .recv_buffer_size(256)
         .recv_buffer_size(512)
         .send_buffer_size(128);
 
@@ -224,7 +224,7 @@ fn test_complete_configuration_flow() {
         .write_timeout(Duration::from_secs(3))
         .tcp_nodelay(true)
         .ttl(64)
-        .buffer_size(512)
+        .recv_buffer_size(512)
         .max_retries(7)
         .retry_delay(Duration::from_millis(200))
         .exponential_backoff(true)

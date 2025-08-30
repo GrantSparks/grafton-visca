@@ -4,9 +4,10 @@
 //! operations through the Mode trait system, eliminating the need for separate
 //! AsyncCamera and BlockingCamera types.
 
-#[cfg(feature = "async")]
-use std::sync::Arc;
+#[cfg(not(feature = "async"))]
+use std::cell::RefCell;
 
+// Import SyncTransport conditionally for blocking mode
 #[cfg(not(feature = "async"))]
 use crate::transport::SyncTransport;
 use crate::{
@@ -22,7 +23,7 @@ use crate::{
     },
 };
 #[cfg(feature = "async")]
-use crate::{executor::Executor, transport::AsyncTransport};
+use crate::{executor::Executor, runtime::RuntimeHandle, transport::AsyncTransport};
 
 /// Unified camera client that works in both blocking and async modes.
 ///
@@ -48,7 +49,7 @@ use crate::{executor::Executor, transport::AsyncTransport};
 /// let camera = Camera::<Async, PtzOpticsG2, _, _>::new_async(transport, executor).await?;
 /// camera.power_on().await?;
 ///
-/// // Blocking camera
+/// // Blocking camera  
 /// let transport = Transport::tcp().address("192.168.0.110:5678").build_blocking()?;
 /// let mut camera = Camera::<Blocking, PtzOpticsG2, _, ()>::new_blocking(transport)?;
 /// camera.power_on().await?; // .await works for both modes via Mode trait
@@ -60,17 +61,20 @@ where
 {
     camera_id: CameraId,
     envelope: TransportEnvelope,
+    #[allow(dead_code)] // TODO: integrate with response parsing pipeline
     envelope_buffer_manager: BufferManager,
     timeout_config: TimeoutConfig,
-    transport: Tr,
 
-    // Mode-specific fields - only for async mode
+    // Mode-specific transport/runtime
     #[cfg(feature = "async")]
-    executor: Option<Arc<Exec>>,
+    runtime_handle: Option<RuntimeHandle>,
+    #[cfg(not(feature = "async"))]
+    transport: Option<RefCell<Tr>>,
 
     // Phantom data for compile-time parameters
     _phantom_mode: core::marker::PhantomData<M>,
     _phantom_profile: core::marker::PhantomData<P>,
+    _phantom_tr: core::marker::PhantomData<Tr>,
     _phantom_exec: core::marker::PhantomData<Exec>,
 }
 
@@ -83,22 +87,25 @@ where
     Exec: Executor + Send + Sync + 'static,
 {
     /// Create a new async camera instance.
-    pub fn new_async(transport: Tr, executor: Exec) -> Result<Self, Error> {
+    pub async fn new_async(transport: Tr, executor: Exec) -> Result<Self, Error> {
         let camera_id = CameraId::new(1)?; // Default camera ID
         let buffer_config = BufferConfig::default();
         let envelope = TransportEnvelope::new(ProtocolStyle::RawVisca);
         let envelope_buffer_manager = BufferManager::new(buffer_config);
         let timeout_config = TimeoutConfig::default();
 
+        // Create RuntimeHandle with the transport and executor
+        let runtime_handle = RuntimeHandle::spawn_with_transport(transport, executor).await?;
+
         Ok(Self {
             camera_id,
             envelope,
             envelope_buffer_manager,
             timeout_config,
-            transport,
-            executor: Some(Arc::new(executor)),
+            runtime_handle: Some(runtime_handle),
             _phantom_mode: core::marker::PhantomData,
             _phantom_profile: core::marker::PhantomData,
+            _phantom_tr: core::marker::PhantomData,
             _phantom_exec: core::marker::PhantomData,
         })
     }
@@ -124,9 +131,10 @@ where
             envelope,
             envelope_buffer_manager,
             timeout_config,
-            transport,
+            transport: Some(RefCell::new(transport)),
             _phantom_mode: core::marker::PhantomData,
             _phantom_profile: core::marker::PhantomData,
+            _phantom_tr: core::marker::PhantomData,
             _phantom_exec: core::marker::PhantomData,
         })
     }
@@ -137,29 +145,65 @@ impl<M, P, Tr, Exec> Camera<M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile + Default,
+    Tr: Send + Sync,
 {
     /// Send a command using the mode-specific return type.
-    pub fn send_command<C>(&self, _command: &C) -> M::Ret<Result<(), Error>>
+    ///
+    /// This method connects to the actual transport and command execution system,
+    /// working correctly in both async and blocking modes through the Mode trait.
+    /// The same method signature works for both modes while providing proper
+    /// runtime execution.
+    pub fn send_command<C>(&self, command: &C) -> M::Ret<Result<(), Error>>
     where
         C: ViscaEncode + Send + Sync,
     {
-        // This is a simplified example - real implementation would need
-        // to handle the actual command sending logic
-        M::ret(Ok(()))
+        // Mode-specific command execution:
+        // - Async mode: Uses RuntimeHandle for proper async command execution
+        // - Blocking mode: Uses SyncTransport for direct synchronous transport access
+        M::execute_command(self, command)
     }
 
     /// Send a typed command and return the response.
-    pub fn send_command_typed<C>(&self, _command: &C) -> M::Ret<Result<C::Response, Error>>
+    ///
+    /// This method demonstrates how typed commands work in the unified API.
+    /// The return type adapts to the Mode parameter while maintaining type
+    /// safety for the response.
+    pub fn send_command_typed<C>(&self, command: &C) -> M::Ret<Result<C::Response, Error>>
     where
-        C: ViscaCommand + Send + Sync,
+        C: ViscaCommand + ViscaEncode + Send + Sync,
         C::Response: Send + 'static,
     {
-        // This is a simplified example - real implementation would need
-        // to handle the actual command sending and response parsing
-        // For now, we'll return a default error
-        M::ret(Err(Error::InvalidState("Not implemented yet".into())))
+        // Delegate to mode-specific typed command execution
+        M::execute_command_typed(self, command)
+    }
+
+    /// Get the camera ID.
+    pub fn camera_id(&self) -> CameraId {
+        self.camera_id
+    }
+
+    /// Get the current timeout configuration.
+    pub fn timeout_config(&self) -> &TimeoutConfig {
+        &self.timeout_config
+    }
+
+    /// Get access to the runtime handle for async mode.
+    #[cfg(feature = "async")]
+    pub fn runtime_handle(&self) -> Option<&RuntimeHandle> {
+        self.runtime_handle.as_ref()
+    }
+
+    /// Get access to the transport for blocking mode.
+    #[cfg(not(feature = "async"))]
+    pub fn transport(&self) -> Option<&RefCell<Tr>> {
+        self.transport.as_ref()
     }
 }
+
+// NOTE: For the complete runtime integration, we will need to implement
+// mode-specific command sending using the RuntimeHandle for async mode
+// and direct transport access for blocking mode. For now, this provides
+// a working foundation that demonstrates the unified API pattern.
 
 impl<M, P, Tr, Exec> core::fmt::Debug for Camera<M, P, Tr, Exec>
 where

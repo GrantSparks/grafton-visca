@@ -30,12 +30,6 @@ use std::time::Duration;
 #[cfg(not(feature = "async"))]
 use crate::transport::SyncTransport;
 use crate::transport::{buffer::BufferConfig, RetryConfig};
-#[cfg(any(
-    not(feature = "async"),
-    feature = "rt-tokio",
-    feature = "rt-async-std",
-    feature = "rt-smol"
-))]
 use crate::Error;
 
 /// Common configuration options for all transport types.
@@ -469,7 +463,10 @@ impl Transport {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
+    #[cfg(all(
+        feature = "async",
+        any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")
+    ))]
     pub async fn auto_detect(
         address: impl Into<String>,
     ) -> Result<(AnyTransport, super::DetectionResult), Error> {
@@ -515,6 +512,16 @@ impl Transport {
 /// ```
 #[derive(Debug, Clone)]
 pub struct NetTransportBuilder {
+    #[cfg_attr(
+        not(any(
+            not(feature = "async"),
+            feature = "rt-tokio",
+            feature = "rt-async-std",
+            feature = "rt-smol",
+            test
+        )),
+        allow(dead_code)
+    )]
     protocol: Protocol,
     address: Option<String>,
     config: TransportConfig,
@@ -836,7 +843,10 @@ impl NetTransportBuilder {
     /// - Connection fails
     /// - Socket configuration fails
     /// - No protocol response detected from camera
-    #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
+    #[cfg(all(
+        feature = "async",
+        any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")
+    ))]
     #[allow(unreachable_code)]
     pub async fn build_async_with_auto_detection(
         self,
@@ -937,7 +947,7 @@ impl NetTransportBuilder {
         feature = "async",
         not(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))
     ))]
-    pub async fn build_async(self) -> Result<AnyTransport, Error> {
+    pub async fn build_async(self) -> Result<(), Error> {
         Err(Error::MissingRuntime)
     }
 
@@ -964,7 +974,7 @@ impl NetTransportBuilder {
     ))]
     pub async fn build_async_with_auto_detection(
         self,
-    ) -> Result<(AnyTransport, super::DetectionResult), Error> {
+    ) -> Result<((), super::DetectionResult), Error> {
         Err(Error::MissingRuntime)
     }
 
