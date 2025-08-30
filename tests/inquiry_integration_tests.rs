@@ -218,20 +218,6 @@ async fn test_image_adjustment_inquiries_integration() {
     // NOTE: Sharpness and contrast inquiries are not documented in VISCA specs
     // and have been disabled until proper documentation is found.
 
-    // // Test sharpness inquiry
-    // let sharpness = camera
-    //     .sharpness_inquiry()
-    //     .await
-    //     .expect("sharpness inquiry should succeed");
-    // assert_eq!(sharpness, 0x07, "Sharpness should be at default");
-
-    // // Test contrast inquiry
-    // let contrast = camera
-    //     .contrast_inquiry()
-    //     .await
-    //     .expect("contrast inquiry should succeed");
-    // assert_eq!(contrast, 0x07, "Contrast should be at default");
-
     // Test saturation inquiry
     let saturation = camera
         .get_saturation()
@@ -300,13 +286,6 @@ async fn test_focus_mode_inquiries_integration() {
 
     // NOTE: AutoFocus inquiry is not documented in VISCA specs
     // and has been disabled until proper documentation is found.
-
-    // // Test auto focus inquiry
-    // let auto_focus = camera
-    //     .auto_focus_inquiry()
-    //     .await
-    //     .expect("auto focus inquiry should succeed");
-    // assert!(auto_focus, "Auto focus should be enabled");
 }
 
 /// Test resolution inquiry

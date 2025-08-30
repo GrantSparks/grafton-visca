@@ -19,10 +19,10 @@ fn main() {
 }
 
 #[cfg(feature = "rt-tokio")]
-use std::sync::Arc;
+use tokio::time::{sleep, Duration};
 
 #[cfg(feature = "rt-tokio")]
-use tokio::time::{sleep, Duration};
+use std::sync::Arc;
 
 #[cfg(feature = "rt-tokio")]
 use grafton_visca::{
