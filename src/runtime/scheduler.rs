@@ -21,6 +21,7 @@ use crate::{
     command::response::ViscaResponse,
     error::Result,
     timeout::{CommandCategory, TimeoutConfig},
+    visca_socket::ViscaSocket,
 };
 
 /// Represents an item to be transmitted (command, inquiry, or cancel).
@@ -104,42 +105,10 @@ pub(crate) enum RxEvent {
 }
 
 /// Socket identifier for VISCA commands.
+///
+/// This is now a type alias to the unified ViscaSocket type.
 #[cfg(feature = "async")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum SocketId {
-    /// First command socket.
-    Socket1,
-    /// Second command socket.
-    Socket2,
-}
-
-#[cfg(feature = "async")]
-impl SocketId {
-    /// Convert to zero-based index.
-    pub fn as_index(&self) -> usize {
-        match self {
-            SocketId::Socket1 => 0,
-            SocketId::Socket2 => 1,
-        }
-    }
-
-    /// Convert to VISCA socket byte (0x01 or 0x02).
-    pub fn as_byte(&self) -> u8 {
-        match self {
-            SocketId::Socket1 => 0x01,
-            SocketId::Socket2 => 0x02,
-        }
-    }
-
-    /// Create from VISCA socket byte.
-    pub fn from_byte(byte: u8) -> Option<Self> {
-        match byte & 0x0F {
-            1 => Some(SocketId::Socket1),
-            2 => Some(SocketId::Socket2),
-            _ => None,
-        }
-    }
-}
+pub type SocketId = ViscaSocket;
 
 /// Command priority levels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -587,11 +556,7 @@ impl Scheduler {
                 socket.started_at = Some(now);
                 socket.category = Some(category);
 
-                let socket_id = if idx == 0 {
-                    SocketId::Socket1
-                } else {
-                    SocketId::Socket2
-                };
+                let socket_id = if idx == 0 { SocketId::S1 } else { SocketId::S2 };
                 debug!("Allocated {:?} for command {}", socket_id, command_id);
                 return Some(socket_id);
             }
@@ -759,11 +724,7 @@ impl Scheduler {
                 {
                     let timeout = self.timeout_config.get_timeout(category);
                     if now.duration_since(started) > timeout {
-                        let socket_id = if idx == 0 {
-                            SocketId::Socket1
-                        } else {
-                            SocketId::Socket2
-                        };
+                        let socket_id = if idx == 0 { SocketId::S1 } else { SocketId::S2 };
                         warn!(
                             "Command {} on {:?} timed out after {:?}",
                             cmd_id, socket_id, timeout
@@ -1246,35 +1207,35 @@ mod tests {
         assert!(!scheduler.can_send_command()); // Now at limit
 
         // Simulate ACK for first command - assigns socket 1
-        let cmd_id = scheduler.handle_ack(SocketId::Socket1, now).unwrap();
+        let cmd_id = scheduler.handle_ack(SocketId::S1, now).unwrap();
         assert_eq!(cmd_id, 1);
         assert!(!scheduler.can_send_command()); // Still at limit (1 pending + 1 allocated)
 
         // Simulate ACK for second command - assigns socket 2
-        let cmd_id = scheduler.handle_ack(SocketId::Socket2, now).unwrap();
+        let cmd_id = scheduler.handle_ack(SocketId::S2, now).unwrap();
         assert_eq!(cmd_id, 2);
         assert!(!scheduler.can_send_command()); // Still at limit (0 pending + 2 allocated)
 
         // Free socket 1
-        scheduler.free_socket(SocketId::Socket1);
+        scheduler.free_socket(SocketId::S1);
         assert!(scheduler.can_send_command()); // Now have room for 1
 
         // Free socket 2
-        scheduler.free_socket(SocketId::Socket2);
+        scheduler.free_socket(SocketId::S2);
         assert!(scheduler.can_send_command()); // Back to full capacity
     }
 
     #[test]
     fn test_socket_id_conversion() {
-        assert_eq!(SocketId::Socket1.as_index(), 0);
-        assert_eq!(SocketId::Socket2.as_index(), 1);
-        assert_eq!(SocketId::Socket1.as_byte(), 0x01);
-        assert_eq!(SocketId::Socket2.as_byte(), 0x02);
+        assert_eq!(SocketId::S1.as_index(), 0);
+        assert_eq!(SocketId::S2.as_index(), 1);
+        assert_eq!(SocketId::S1.as_protocol_byte(), 0x01);
+        assert_eq!(SocketId::S2.as_protocol_byte(), 0x02);
 
-        assert_eq!(SocketId::from_byte(0x01), Some(SocketId::Socket1));
-        assert_eq!(SocketId::from_byte(0x02), Some(SocketId::Socket2));
-        assert_eq!(SocketId::from_byte(0x41), Some(SocketId::Socket1)); // With high nibble
-        assert_eq!(SocketId::from_byte(0x03), None);
+        assert_eq!(SocketId::from_protocol_byte(0x01), Some(SocketId::S1));
+        assert_eq!(SocketId::from_protocol_byte(0x02), Some(SocketId::S2));
+        assert_eq!(SocketId::from_protocol_byte(0x41), Some(SocketId::S1)); // With high nibble
+        assert_eq!(SocketId::from_protocol_byte(0x03), None);
     }
 
     #[test]
@@ -1324,12 +1285,12 @@ mod tests {
 
         // Allocate first socket
         let socket1 = scheduler.allocate_socket(1, CommandCategory::Movement, now);
-        assert_eq!(socket1, Some(SocketId::Socket1));
+        assert_eq!(socket1, Some(SocketId::S1));
         assert!(scheduler.has_free_socket());
 
         // Allocate second socket
         let socket2 = scheduler.allocate_socket(2, CommandCategory::Quick, now);
-        assert_eq!(socket2, Some(SocketId::Socket2));
+        assert_eq!(socket2, Some(SocketId::S2));
         assert!(!scheduler.has_free_socket());
 
         // Try to allocate when none free
@@ -1337,12 +1298,12 @@ mod tests {
         assert_eq!(socket3, None);
 
         // Free a socket
-        scheduler.free_socket(SocketId::Socket1);
+        scheduler.free_socket(SocketId::S1);
         assert!(scheduler.has_free_socket());
 
         // Can allocate again
         let socket4 = scheduler.allocate_socket(4, CommandCategory::Movement, now);
-        assert_eq!(socket4, Some(SocketId::Socket1));
+        assert_eq!(socket4, Some(SocketId::S1));
     }
 
     #[test]

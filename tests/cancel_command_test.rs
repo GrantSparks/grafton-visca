@@ -5,12 +5,11 @@
 use grafton_visca::{
     camera::CameraBuilder,
     command::{pan_tilt::PanTiltDirection, zoom::Zoom},
-    runtime::SocketId,
     testing::testkit::{
         scripted_transport::{ScriptedTransport, Step},
         DeterministicExecutor,
     },
-    Executor,
+    Executor, ViscaSocket,
 };
 use std::time::Duration;
 
@@ -119,7 +118,7 @@ fn test_cancel_socket_directly() {
 
     // Cancel socket 1 directly
     executor
-        .block_on(async { camera.cancel_socket(SocketId::Socket1).await })
+        .block_on(async { camera.cancel_socket(ViscaSocket::S1).await })
         .expect("Failed to cancel socket");
 
     // Advance time to process cancellation

@@ -125,16 +125,16 @@ where
     Exec: crate::executor::Executor,
 {
     async fn set_motion_sync_mode(&self, mode: MotionSyncMode) -> Result<(), Error> {
-        use crate::command::motion_sync::MotionSyncModeCmd;
-        let cmd = MotionSyncModeCmd::new(mode);
+        use crate::command::motion_sync::MotionSyncModeCommand;
+        let cmd = MotionSyncModeCommand::new(mode);
         self.send_command(&cmd).await?;
         Ok(())
     }
 
     async fn set_motion_sync_speed(&self, speed: u8) -> Result<(), Error> {
-        use crate::command::motion_sync::MotionSyncSpeedCmd;
+        use crate::command::motion_sync::MotionSyncSpeedCommand;
 
-        let cmd = MotionSyncSpeedCmd::new(speed).map_err(|_| Error::InvalidParameter {
+        let cmd = MotionSyncSpeedCommand::new(speed).map_err(|_| Error::InvalidParameter {
             parameter: "speed",
             value: speed.to_string().into(),
             reason: "must be between 1 and 24".into(),
@@ -144,9 +144,9 @@ where
     }
 
     async fn set_motion_sync_preset_speed(&self, speed: MotionSyncSpeed) -> Result<(), Error> {
-        use crate::command::motion_sync::MotionSyncSpeedCmd;
+        use crate::command::motion_sync::MotionSyncSpeedCommand;
 
-        let cmd = MotionSyncSpeedCmd::from_preset(speed);
+        let cmd = MotionSyncSpeedCommand::from_preset(speed);
         self.send_command(&cmd).await?;
         Ok(())
     }
@@ -184,16 +184,16 @@ where
     Tr: crate::transport::SyncTransport + Send + 'static,
 {
     fn set_motion_sync_mode(&mut self, mode: MotionSyncMode) -> Result<(), Error> {
-        use crate::command::motion_sync::MotionSyncModeCmd;
-        let cmd = MotionSyncModeCmd::new(mode);
+        use crate::command::motion_sync::MotionSyncModeCommand;
+        let cmd = MotionSyncModeCommand::new(mode);
         self.send_command(&cmd)?;
         Ok(())
     }
 
     fn set_motion_sync_speed(&mut self, speed: u8) -> Result<(), Error> {
-        use crate::command::motion_sync::MotionSyncSpeedCmd;
+        use crate::command::motion_sync::MotionSyncSpeedCommand;
 
-        let cmd = MotionSyncSpeedCmd::new(speed).map_err(|_| Error::InvalidParameter {
+        let cmd = MotionSyncSpeedCommand::new(speed).map_err(|_| Error::InvalidParameter {
             parameter: "speed",
             value: speed.to_string().into(),
             reason: "must be between 1 and 24".into(),
@@ -203,9 +203,9 @@ where
     }
 
     fn set_motion_sync_preset_speed(&mut self, speed: MotionSyncSpeed) -> Result<(), Error> {
-        use crate::command::motion_sync::MotionSyncSpeedCmd;
+        use crate::command::motion_sync::MotionSyncSpeedCommand;
 
-        let cmd = MotionSyncSpeedCmd::from_preset(speed);
+        let cmd = MotionSyncSpeedCommand::from_preset(speed);
         self.send_command(&cmd)?;
         Ok(())
     }

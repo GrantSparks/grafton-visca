@@ -4,31 +4,17 @@
 use std::{borrow::Cow, fmt};
 
 // Local imports
-use crate::{error::Error, units::Percentage, ViscaValue};
+use crate::{error::Error, units::Percentage, ViscaSocket, ViscaValue};
 
 /// Socket identifier for VISCA command execution slots.
 ///
-/// VISCA cameras maintain two concurrent command execution slots (sockets) to allow
-/// up to two commands to be processed simultaneously. Socket 0 is typically used for
-/// commands, while Socket 1 is used for inquiries, though this varies by implementation.
+/// This is now a type alias to the unified ViscaSocket type which provides
+/// consistent socket numbering across the entire codebase.
 ///
-/// From VISCA protocol: Each camera can process at most two commands concurrently.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ViscaValue)]
-#[visca_value(valid_values = "[0, 1]", display_prefix = "Socket")]
-pub struct SocketId(u8);
-
-impl SocketId {
-    /// Socket 0 - First command execution slot.
-    pub const SOCKET_0: Self = Self(0);
-    /// Socket 1 - Second command execution slot.
-    pub const SOCKET_1: Self = Self(1);
-}
-
-impl Default for SocketId {
-    fn default() -> Self {
-        Self::SOCKET_0
-    }
-}
+/// **Breaking Change**: This previously used 0/1 indexing but now uses the
+/// VISCA-compliant 1/2 socket numbering. Use `ViscaSocket::S1` and `ViscaSocket::S2`
+/// instead of the old `SOCKET_0` and `SOCKET_1` constants.
+pub type SocketId = ViscaSocket;
 
 /// Gain level value for direct gain control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
@@ -787,13 +773,15 @@ mod tests {
 
     #[test]
     fn test_socket_id() {
-        assert!(SocketId::new(0).is_ok());
-        assert!(SocketId::new(1).is_ok());
-        assert!(SocketId::new(2).is_err());
+        // Test that we can create sockets from indices
+        assert_eq!(SocketId::from_index(0), Some(SocketId::S1));
+        assert_eq!(SocketId::from_index(1), Some(SocketId::S2));
+        assert_eq!(SocketId::from_index(2), None);
 
-        assert_eq!(SocketId::SOCKET_0.value(), 0);
-        assert_eq!(SocketId::SOCKET_1.value(), 1);
-        assert_eq!(SocketId::default(), SocketId::SOCKET_0);
+        // Test socket numbering
+        assert_eq!(SocketId::S1.as_socket_number(), 1);
+        assert_eq!(SocketId::S2.as_socket_number(), 2);
+        assert_eq!(SocketId::default(), SocketId::S1);
     }
 
     #[test]

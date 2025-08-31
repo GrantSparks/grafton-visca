@@ -87,7 +87,7 @@ visca_param_command! {
     /// Performs menu selection (Enter) or cancellation (Back) actions.
     ///
     /// VISCA format: `81 01 06 06 0p FF` where p = 5 (Select) or 4 (Cancel)
-    pub struct MenuActionCmd {
+    pub struct MenuActionCommand {
         action: MenuAction,
     }
     prefix = constants::menu::TOGGLE_PREFIX;
@@ -95,7 +95,7 @@ visca_param_command! {
     timeout = Quick;
 }
 
-impl MenuActionCmd {
+impl MenuActionCommand {
     /// Create a new menu action command.
     pub fn new(action: MenuAction) -> Self {
         Self { action }
@@ -226,16 +226,16 @@ mod tests {
     );
 
     visca_test!(
-        MenuActionCmd,
+        MenuActionCommand,
         test_menu_select,
-        MenuActionCmd::new(MenuAction::Select),
+        MenuActionCommand::new(MenuAction::Select),
         &[0x81, 0x01, 0x06, 0x06, 0x05, VISCA_TERMINATOR]
     );
 
     visca_test!(
-        MenuActionCmd,
+        MenuActionCommand,
         test_menu_cancel,
-        MenuActionCmd::new(MenuAction::Cancel),
+        MenuActionCommand::new(MenuAction::Cancel),
         &[0x81, 0x01, 0x06, 0x06, 0x04, VISCA_TERMINATOR]
     );
 

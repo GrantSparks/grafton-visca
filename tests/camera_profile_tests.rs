@@ -93,7 +93,7 @@ fn test_profile_capabilities_are_compile_time() {
         // This function can only accept async cameras with ND filter support
         fn _requires_nd_filter_async<P, T, E>(_camera: &AsyncCamera<P, T, E>) -> bool
         where
-            P: Profile + NDFilter,
+            P: Profile + NdFilter,
             T: AsyncTransport + Send + Sync + 'static,
             E: Executor + Send + Sync + 'static,
         {
@@ -118,7 +118,7 @@ fn test_profile_capabilities_are_compile_time() {
         // This function can only accept blocking cameras with ND filter support
         fn _requires_nd_filter_blocking<P, T>(_camera: &BlockingCamera<P, T>) -> bool
         where
-            P: Profile + NDFilter,
+            P: Profile + NdFilter,
             T: SyncTransport + Send + Sync + 'static,
         {
             // At compile time, we know this camera supports ND filter
@@ -137,8 +137,8 @@ fn test_profile_capabilities_are_compile_time() {
     }
 
     // These demonstrate compile-time checking:
-    // - SonyFR7 has NDFilter, so it can use requires_nd_filter
-    // - GenericVisca doesn't have NDFilter, so it cannot
+    // - SonyFR7 has NdFilter, so it can use requires_nd_filter
+    // - GenericVisca doesn't have NdFilter, so it cannot
     // - Both can use requires_only_basic
 }
 
@@ -183,7 +183,7 @@ fn test_profile_traits_composition() {
 #[test]
 fn test_optional_capabilities() {
     // Test which profiles have optional capabilities
-    fn has_nd_filter<T: NDFilter>() {}
+    fn has_nd_filter<T: NdFilter>() {}
     fn has_motion_sync<T: MotionSync>() {}
     fn has_variable_speed<T: VariableSpeed>() {}
 

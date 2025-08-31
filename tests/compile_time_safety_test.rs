@@ -54,7 +54,7 @@ fn test_compile_time_capability_checking() {
         _camera: &grafton_visca::camera::BlockingCamera<P, T>,
     ) -> Result<(), Error>
     where
-        P: Profile + NDFilter,
+        P: Profile + NdFilter,
         T: grafton_visca::transport::SyncTransport + Send + Sync + 'static,
     {
         Ok(())

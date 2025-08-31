@@ -25,19 +25,19 @@ pub enum VariableSpeedMode {
 /// - p = 1 (24-step mode)
 /// - p = 2 (50-step mode)
 #[derive(Debug, Clone, Copy)]
-pub struct VariableSpeedModeCmd {
+pub struct VariableSpeedModeCommand {
     /// The speed mode to set.
     pub mode: VariableSpeedMode,
 }
 
-impl VariableSpeedModeCmd {
+impl VariableSpeedModeCommand {
     /// Create a new variable speed mode command.
     pub fn new(mode: VariableSpeedMode) -> Self {
         Self { mode }
     }
 }
 
-impl ViscaEncode for VariableSpeedModeCmd {
+impl ViscaEncode for VariableSpeedModeCommand {
     type ViscaResponse = ();
     const MAX_SIZE: usize = 7;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
@@ -72,16 +72,16 @@ mod tests {
     use crate::macros::test_utils::visca_test;
 
     visca_test!(
-        VariableSpeedModeCmd,
+        VariableSpeedModeCommand,
         test_variable_speed_mode_standard24,
-        VariableSpeedModeCmd::new(VariableSpeedMode::Standard24),
+        VariableSpeedModeCommand::new(VariableSpeedMode::Standard24),
         &[0x81, 0x01, 0x7E, 0x04, 0x1B, 0x01, VISCA_TERMINATOR]
     );
 
     visca_test!(
-        VariableSpeedModeCmd,
+        VariableSpeedModeCommand,
         test_variable_speed_mode_fine50,
-        VariableSpeedModeCmd::new(VariableSpeedMode::Fine50),
+        VariableSpeedModeCommand::new(VariableSpeedMode::Fine50),
         &[0x81, 0x01, 0x7E, 0x04, 0x1B, 0x02, VISCA_TERMINATOR]
     );
 }

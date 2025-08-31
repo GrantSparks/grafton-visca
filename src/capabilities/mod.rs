@@ -33,7 +33,7 @@ pub use profile_metadata::{
     HasLuminance,
     HasMenuControl,
     HasMotionSync,
-    HasNDFilter,
+    HasNdFilter,
     HasOnePushFocus,
     HasOnePushWhiteBalance,
     // Marker traits for compile-time capability detection
@@ -56,7 +56,7 @@ pub use focus::Focus;
 pub use image_processing::ImageProcessing;
 pub use menu_control::{HasDirectMenuControl, MenuControl};
 pub use motion_sync::MotionSync;
-pub use nd_filter::{NDFilter, NDFilterMode};
+pub use nd_filter::{NdFilter, NdFilterMode};
 pub use pan_tilt::PanTilt;
 pub use power::Power;
 pub use presets::Presets;

@@ -10,7 +10,7 @@ use grafton_visca::{
 #[cfg(not(feature = "async"))]
 use grafton_visca::{camera::BlockingCamera, transport::SyncTransport};
 
-use grafton_visca::capabilities::{NDFilter, Profile};
+use grafton_visca::capabilities::{NdFilter, Profile};
 
 #[test]
 fn test_compilation_succeeds() {
@@ -34,7 +34,7 @@ fn test_compile_time_safety() {
     #[cfg(feature = "async")]
     fn _use_nd_filter_async<P, T, E>(_camera: &AsyncCamera<P, T, E>)
     where
-        P: Profile + NDFilter,
+        P: Profile + NdFilter,
         T: AsyncTransport + Send + Sync + 'static,
         E: grafton_visca::Executor,
     {
@@ -43,7 +43,7 @@ fn test_compile_time_safety() {
     #[cfg(not(feature = "async"))]
     fn _use_nd_filter_blocking<P, T>(_camera: &BlockingCamera<P, T>)
     where
-        P: Profile + NDFilter,
+        P: Profile + NdFilter,
         T: SyncTransport + Send + Sync + 'static,
     {
     }

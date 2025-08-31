@@ -77,12 +77,12 @@ visca_param_command! {
 ///
 /// Vendor-specific command for PtzOptics Ndi cameras to set the Ndi stream bandwidth/quality
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct NdiQualityCmd {
+pub struct NdiQualityCommand {
     /// The Ndi quality setting to apply
     pub quality: NdiQuality,
 }
 
-impl crate::command::encode_visca::ViscaEncode for NdiQualityCmd {
+impl crate::command::encode_visca::ViscaEncode for NdiQualityCommand {
     type ViscaResponse = ();
     const MAX_SIZE: usize = NdiQualityCommandInternal::MAX_SIZE;
     const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
@@ -107,7 +107,7 @@ impl crate::command::encode_visca::ViscaEncode for NdiQualityCmd {
     }
 }
 
-impl NdiQualityCmd {
+impl NdiQualityCommand {
     /// Create a new Ndi quality command
     pub fn new(quality: NdiQuality) -> Self {
         Self { quality }
@@ -138,28 +138,28 @@ mod tests {
     visca_test!(
         NdiQuality,
         test_ndi_quality_high_encoding,
-        NdiQualityCmd::new(NdiQuality::High),
+        NdiQualityCommand::new(NdiQuality::High),
         &[0x81, 0x0B, 0x01, 0x01, 0x01, VISCA_TERMINATOR]
     );
 
     visca_test!(
         NdiQuality,
         test_ndi_quality_medium_encoding,
-        NdiQualityCmd::new(NdiQuality::Medium),
+        NdiQualityCommand::new(NdiQuality::Medium),
         &[0x81, 0x0B, 0x01, 0x01, 0x02, VISCA_TERMINATOR]
     );
 
     visca_test!(
         NdiQuality,
         test_ndi_quality_low_encoding,
-        NdiQualityCmd::new(NdiQuality::Low),
+        NdiQualityCommand::new(NdiQuality::Low),
         &[0x81, 0x0B, 0x01, 0x01, 0x03, VISCA_TERMINATOR]
     );
 
     visca_test!(
         NdiQuality,
         test_ndi_quality_off_encoding,
-        NdiQualityCmd::new(NdiQuality::Off),
+        NdiQualityCommand::new(NdiQuality::Off),
         &[0x81, 0x0B, 0x01, 0x01, 0x04, VISCA_TERMINATOR]
     );
 }

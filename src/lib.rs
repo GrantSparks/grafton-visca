@@ -179,10 +179,10 @@
 //! // This function only accepts cameras with ND filter support
 //! fn adjust_nd_filter<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
 //! where
-//!     P: Profile + NDFilter,
+//!     P: Profile + NdFilter,
 //!     T: Transport + Send + Sync,
 //! {
-//!     camera.set_nd_filter_mode(NDFilterMode::Clear)
+//!     camera.set_nd_filter_mode(NdFilterMode::Clear)
 //! }
 //!
 //! // This would compile for SonyFR7 but not for PtzOpticsG2
@@ -459,8 +459,8 @@
 //! camera.cancel_command(cmd_id).await?;
 //!
 //! // Or cancel all commands on a socket
-//! use grafton_visca::runtime::scheduler::SocketId;
-//! camera.cancel_socket(SocketId::Socket1).await?;
+//! use grafton_visca::ViscaSocket;
+//! camera.cancel_socket(ViscaSocket::S1).await?;
 //! ```
 //!
 //! ## Async Completion Tracking
@@ -549,6 +549,9 @@ pub mod types;
 /// Semantic unit types for intuitive API usage
 pub mod units;
 
+/// Unified VISCA socket type
+pub mod visca_socket;
+
 pub mod timeout;
 
 pub mod mode;
@@ -569,7 +572,7 @@ pub use grafton_visca_macros::{InquiryCommand, ViscaEncode, ViscaEnum, ViscaValu
 pub use crate::command::{
     exposure::ExposureMode,
     focus::{AutoFocusSensitivity, FocusMode},
-    nd_filter::NDFilterMode,
+    nd_filter::NdFilterMode,
     pan_tilt::{PanTiltDirection, PanTiltLimitCorner},
     preset::PresetNumber,
     resolution::{PictureEffectMode, ResolutionMode},
@@ -577,6 +580,7 @@ pub use crate::command::{
     white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode},
 };
 pub use crate::error::{Error, Result};
+pub use crate::visca_socket::ViscaSocket;
 pub use crate::{camera::Camera, camera::CameraBuilder, camera_id::CameraId};
 
 // Re-export the new concrete camera types

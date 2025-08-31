@@ -1,9 +1,9 @@
 //! ND filter methods for cameras that support ND filters.
 //!
-//! These methods ONLY exist for cameras that implement NDFilter.
+//! These methods ONLY exist for cameras that implement NdFilter.
 
 use crate::{
-    command::{NDFilterMode as CommandNDFilterMode, NDFilterStep},
+    command::{NdFilterMode as CommandNdFilterMode, NdFilterStep},
     Error,
 };
 
@@ -17,12 +17,12 @@ pub trait NdFilterControl {
     #[cfg(feature = "async")]
     fn set_nd_filter_mode(
         &self,
-        mode: CommandNDFilterMode,
+        mode: CommandNdFilterMode,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Set ND filter mode (preset or variable).
     #[cfg(not(feature = "async"))]
-    fn set_nd_filter_mode(&mut self, mode: CommandNDFilterMode) -> Result<(), Error>;
+    fn set_nd_filter_mode(&mut self, mode: CommandNdFilterMode) -> Result<(), Error>;
 
     /// Set ND filter value directly (for variable mode).
     #[cfg(feature = "async")]
@@ -50,12 +50,12 @@ pub trait NdFilterControl {
     #[cfg(feature = "async")]
     fn step_nd_filter(
         &self,
-        direction: NDFilterStep,
+        direction: NdFilterStep,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Step ND filter up or down.
     #[cfg(not(feature = "async"))]
-    fn step_nd_filter(&mut self, direction: NDFilterStep) -> Result<(), Error>;
+    fn step_nd_filter(&mut self, direction: NdFilterStep) -> Result<(), Error>;
 
     /// Enable or disable auto ND.
     #[cfg(feature = "async")]
@@ -84,21 +84,21 @@ pub trait NdFilterControl {
 #[cfg(feature = "async")]
 impl<P, Tr, Exec> NdFilterControl for crate::camera::AsyncCamera<P, Tr, Exec>
 where
-    P: crate::capabilities::Profile + crate::capabilities::nd_filter::NDFilter + Default,
+    P: crate::capabilities::Profile + crate::capabilities::nd_filter::NdFilter + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
     Exec: crate::executor::Executor,
 {
-    async fn set_nd_filter_mode(&self, mode: CommandNDFilterMode) -> Result<(), Error> {
-        use crate::command::nd_filter::NdFilterModeCmd;
-        let cmd = NdFilterModeCmd::new(mode);
+    async fn set_nd_filter_mode(&self, mode: CommandNdFilterMode) -> Result<(), Error> {
+        use crate::command::nd_filter::NdFilterModeCommand;
+        let cmd = NdFilterModeCommand::new(mode);
         self.send_command(&cmd).await?;
         Ok(())
     }
 
     async fn set_nd_filter_value(&self, value: u16) -> Result<(), Error> {
-        use crate::command::nd_filter::NDFilterValue;
+        use crate::command::nd_filter::NdFilterValue;
 
-        let cmd = NDFilterValue::new(value).map_err(|_| Error::InvalidParameter {
+        let cmd = NdFilterValue::new(value).map_err(|_| Error::InvalidParameter {
             parameter: "value",
             value: value.to_string().into(),
             reason: "ND filter value out of range".into(),
@@ -108,9 +108,9 @@ where
     }
 
     async fn set_nd_filter_stops(&self, stops: f32) -> Result<(), Error> {
-        use crate::command::nd_filter::NDFilterValue;
+        use crate::command::nd_filter::NdFilterValue;
 
-        let cmd = NDFilterValue::from_stops(stops).map_err(|_| Error::InvalidParameter {
+        let cmd = NdFilterValue::from_stops(stops).map_err(|_| Error::InvalidParameter {
             parameter: "stops",
             value: stops.to_string().into(),
             reason: "ND filter stops must be between 2.0 and 7.0".into(),
@@ -119,18 +119,18 @@ where
         Ok(())
     }
 
-    async fn step_nd_filter(&self, direction: NDFilterStep) -> Result<(), Error> {
-        use crate::command::nd_filter::NdFilterStepCmd;
+    async fn step_nd_filter(&self, direction: NdFilterStep) -> Result<(), Error> {
+        use crate::command::nd_filter::NdFilterStepCommand;
 
-        let cmd = NdFilterStepCmd::new(direction);
+        let cmd = NdFilterStepCommand::new(direction);
         self.send_command(&cmd).await?;
         Ok(())
     }
 
     async fn set_auto_nd(&self, enabled: bool) -> Result<(), Error> {
-        use crate::command::nd_filter::AutoNDCommand;
+        use crate::command::nd_filter::AutoNdCommand;
 
-        let cmd = AutoNDCommand::new(enabled);
+        let cmd = AutoNdCommand::new(enabled);
         self.send_command(&cmd).await?;
         Ok(())
     }
@@ -151,20 +151,20 @@ where
 #[cfg(not(feature = "async"))]
 impl<P, Tr> NdFilterControl for crate::camera::BlockingCamera<P, Tr>
 where
-    P: crate::capabilities::Profile + crate::capabilities::nd_filter::NDFilter + Default,
+    P: crate::capabilities::Profile + crate::capabilities::nd_filter::NdFilter + Default,
     Tr: crate::transport::SyncTransport + Send + 'static,
 {
-    fn set_nd_filter_mode(&mut self, mode: CommandNDFilterMode) -> Result<(), Error> {
-        use crate::command::nd_filter::NdFilterModeCmd;
-        let cmd = NdFilterModeCmd::new(mode);
+    fn set_nd_filter_mode(&mut self, mode: CommandNdFilterMode) -> Result<(), Error> {
+        use crate::command::nd_filter::NdFilterModeCommand;
+        let cmd = NdFilterModeCommand::new(mode);
         self.send_command(&cmd)?;
         Ok(())
     }
 
     fn set_nd_filter_value(&mut self, value: u16) -> Result<(), Error> {
-        use crate::command::nd_filter::NDFilterValue;
+        use crate::command::nd_filter::NdFilterValue;
 
-        let cmd = NDFilterValue::new(value).map_err(|_| Error::InvalidParameter {
+        let cmd = NdFilterValue::new(value).map_err(|_| Error::InvalidParameter {
             parameter: "value",
             value: value.to_string().into(),
             reason: "ND filter value out of range".into(),
@@ -174,9 +174,9 @@ where
     }
 
     fn set_nd_filter_stops(&mut self, stops: f32) -> Result<(), Error> {
-        use crate::command::nd_filter::NDFilterValue;
+        use crate::command::nd_filter::NdFilterValue;
 
-        let cmd = NDFilterValue::from_stops(stops).map_err(|_| Error::InvalidParameter {
+        let cmd = NdFilterValue::from_stops(stops).map_err(|_| Error::InvalidParameter {
             parameter: "stops",
             value: stops.to_string().into(),
             reason: "ND filter stops must be between 2.0 and 7.0".into(),
@@ -185,18 +185,18 @@ where
         Ok(())
     }
 
-    fn step_nd_filter(&mut self, direction: NDFilterStep) -> Result<(), Error> {
-        use crate::command::nd_filter::NdFilterStepCmd;
+    fn step_nd_filter(&mut self, direction: NdFilterStep) -> Result<(), Error> {
+        use crate::command::nd_filter::NdFilterStepCommand;
 
-        let cmd = NdFilterStepCmd::new(direction);
+        let cmd = NdFilterStepCommand::new(direction);
         self.send_command(&cmd)?;
         Ok(())
     }
 
     fn set_auto_nd(&mut self, enabled: bool) -> Result<(), Error> {
-        use crate::command::nd_filter::AutoNDCommand;
+        use crate::command::nd_filter::AutoNdCommand;
 
-        let cmd = AutoNDCommand::new(enabled);
+        let cmd = AutoNdCommand::new(enabled);
         self.send_command(&cmd)?;
         Ok(())
     }

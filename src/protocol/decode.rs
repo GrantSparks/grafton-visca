@@ -6,6 +6,9 @@
 #[cfg(feature = "async")]
 use crate::command::bytes::VISCA_TERMINATOR;
 
+#[cfg(test)]
+use crate::ViscaSocket;
+
 #[cfg(feature = "async")]
 use tracing::{debug, trace, warn};
 
@@ -90,7 +93,7 @@ pub(crate) fn parse_response(frame: &[u8]) -> ProtocolResponse {
         // ACK (90 4y FF)
         byte if (byte & 0xF0) == 0x40 => {
             let socket_num = byte & 0x0F;
-            match SocketId::from_byte(socket_num) {
+            match SocketId::from_protocol_byte(socket_num) {
                 Some(socket) => {
                     debug!("ACK on {:?}", socket);
                     ProtocolResponse::Ack { socket }
@@ -119,7 +122,7 @@ pub(crate) fn parse_response(frame: &[u8]) -> ProtocolResponse {
                     ProtocolResponse::DataReply { data: vec![] }
                 }
             } else {
-                match SocketId::from_byte(socket_num) {
+                match SocketId::from_protocol_byte(socket_num) {
                     Some(socket) => {
                         debug!("Completion on {:?}", socket);
                         ProtocolResponse::Completion { socket }
@@ -137,7 +140,7 @@ pub(crate) fn parse_response(frame: &[u8]) -> ProtocolResponse {
         // Error (90 6y zz FF)
         byte if (byte & 0xF0) == 0x60 => {
             let socket_num = byte & 0x0F;
-            let socket = SocketId::from_byte(socket_num);
+            let socket = SocketId::from_protocol_byte(socket_num);
 
             if frame.len() >= 4 {
                 let error_code = frame[2];
@@ -241,7 +244,7 @@ mod tests {
         assert_eq!(
             response,
             ProtocolResponse::Ack {
-                socket: SocketId::Socket1
+                socket: ViscaSocket::S1
             }
         );
 
@@ -250,7 +253,7 @@ mod tests {
         assert_eq!(
             response,
             ProtocolResponse::Ack {
-                socket: SocketId::Socket2
+                socket: ViscaSocket::S2
             }
         );
     }
@@ -262,7 +265,7 @@ mod tests {
         assert_eq!(
             response,
             ProtocolResponse::Completion {
-                socket: SocketId::Socket1
+                socket: ViscaSocket::S1
             }
         );
 
@@ -271,7 +274,7 @@ mod tests {
         assert_eq!(
             response,
             ProtocolResponse::Completion {
-                socket: SocketId::Socket2
+                socket: ViscaSocket::S2
             }
         );
     }
@@ -309,7 +312,7 @@ mod tests {
         assert_eq!(
             response,
             ProtocolResponse::Error {
-                socket: Some(SocketId::Socket1),
+                socket: Some(ViscaSocket::S1),
                 error: ViscaError::from_byte(0x03), // BufferFull
             }
         );

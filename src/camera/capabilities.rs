@@ -5,7 +5,7 @@
 //! optional capability traits. The actual control methods for these capabilities
 //! are provided by their respective trait modules in `src/camera/methods/`.
 
-use crate::capabilities::{MotionSync, NDFilter, NDFilterMode as CapabilityNDFilterMode, Profile};
+use crate::capabilities::{MotionSync, NdFilter, NdFilterMode as CapabilityNdFilterMode, Profile};
 
 #[cfg(feature = "async")]
 use crate::{camera::handle::AsyncCamera, executor::Executor, transport::AsyncTransport};
@@ -16,19 +16,19 @@ use crate::{camera::handle::BlockingCamera, transport::SyncTransport};
 #[cfg(not(feature = "async"))]
 impl<P, Tr> BlockingCamera<P, Tr>
 where
-    P: Profile + NDFilter,
+    P: Profile + NdFilter,
     Tr: SyncTransport,
 {
     /// Get the ND filter mode from the camera profile.
     #[must_use]
-    pub fn nd_filter_mode(&self) -> CapabilityNDFilterMode {
+    pub fn nd_filter_mode(&self) -> CapabilityNdFilterMode {
         P::ND_MODE
     }
 
     /// Check if the camera has variable ND filter.
     #[must_use]
     pub fn has_variable_nd_filter(&self) -> bool {
-        matches!(P::ND_MODE, CapabilityNDFilterMode::Variable)
+        matches!(P::ND_MODE, CapabilityNdFilterMode::Variable)
     }
 }
 
@@ -55,20 +55,20 @@ where
 #[cfg(feature = "async")]
 impl<P, Tr, Exec> AsyncCamera<P, Tr, Exec>
 where
-    P: Profile + NDFilter,
+    P: Profile + NdFilter,
     Tr: AsyncTransport,
     Exec: Executor,
 {
     /// Get the ND filter mode from the camera profile.
     #[must_use]
-    pub fn nd_filter_mode(&self) -> CapabilityNDFilterMode {
+    pub fn nd_filter_mode(&self) -> CapabilityNdFilterMode {
         P::ND_MODE
     }
 
     /// Check if the camera has variable ND filter.
     #[must_use]
     pub fn has_variable_nd_filter(&self) -> bool {
-        matches!(P::ND_MODE, CapabilityNDFilterMode::Variable)
+        matches!(P::ND_MODE, CapabilityNdFilterMode::Variable)
     }
 }
 
@@ -97,6 +97,6 @@ mod tests {
     #[test]
     fn test_nd_filter_compilation() {
         // This test verifies that ND filter methods are only available for cameras
-        // that implement the NDFilter trait.
+        // that implement the NdFilter trait.
     }
 }

@@ -219,10 +219,10 @@ impl RuntimeHandle {
 
         // Try to cancel on both sockets
         let cancel_socket1 = TxItem::Cancel {
-            socket: SocketId::Socket1,
+            socket: SocketId::S1,
         };
         let cancel_socket2 = TxItem::Cancel {
-            socket: SocketId::Socket2,
+            socket: SocketId::S2,
         };
 
         // Send both cancel commands
@@ -977,7 +977,7 @@ async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
             trace!("Processing cancel for {:?}", socket);
 
             // Send cancel command using proper encoding
-            let cancel_bytes = crate::protocol::encode::encode_cancel(socket.as_byte());
+            let cancel_bytes = crate::protocol::encode::encode_cancel(socket.as_cancel_byte());
 
             if let Err(e) = transport.send(&cancel_bytes).await {
                 error!("Failed to send cancel: {}", e);
@@ -1378,8 +1378,8 @@ mod tests {
     #[test]
     fn test_socket_id() {
         use crate::runtime::scheduler::SocketId;
-        assert_eq!(SocketId::Socket1.as_index(), 0);
-        assert_eq!(SocketId::Socket2.as_index(), 1);
+        assert_eq!(SocketId::S1.as_index(), 0);
+        assert_eq!(SocketId::S2.as_index(), 1);
     }
 
     #[cfg(feature = "async")]
@@ -1395,7 +1395,7 @@ mod tests {
         assert!(matches!(
             response,
             ProtocolResponse::Ack {
-                socket: SocketId::Socket1
+                socket: SocketId::S1
             }
         ));
 
@@ -1405,7 +1405,7 @@ mod tests {
         assert!(matches!(
             response,
             ProtocolResponse::Completion {
-                socket: SocketId::Socket2
+                socket: SocketId::S2
             }
         ));
 
@@ -1419,7 +1419,7 @@ mod tests {
         let response = parse_response(&error_frame);
         match response {
             ProtocolResponse::Error { socket, error } => {
-                assert_eq!(socket, Some(SocketId::Socket1));
+                assert_eq!(socket, Some(SocketId::S1));
                 assert_eq!(error.as_byte(), 0x03); // BufferFull
             }
             other => {

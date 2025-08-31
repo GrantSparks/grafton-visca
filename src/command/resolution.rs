@@ -168,7 +168,7 @@ impl PictureEffectMode {
 ///
 /// ND filters reduce light entering the camera without affecting color balance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NDFilterPosition {
+pub enum NdFilterPosition {
     /// Clear (no filter applied).
     Clear,
     /// 1/4 ND (2 stops reduction).
@@ -185,49 +185,49 @@ pub enum NDFilterPosition {
     Unknown(u8),
 }
 
-impl NDFilterPosition {
-    /// Convert a raw ND filter position byte to an NDFilterPosition enum.
+impl NdFilterPosition {
+    /// Convert a raw ND filter position byte to an NdFilterPosition enum.
     ///
     /// # Arguments
     /// * `position` - The raw position byte from the camera
     ///
     /// # Returns
-    /// The corresponding NDFilterPosition variant
+    /// The corresponding NdFilterPosition variant
     pub fn from_byte(position: u8) -> Self {
         match position {
-            0x00 => NDFilterPosition::Clear,
-            0x01 => NDFilterPosition::OneQuarter,
-            0x02 => NDFilterPosition::OneEighth,
-            0x03 => NDFilterPosition::OneSixteenth,
-            0x04 => NDFilterPosition::OneThirtySecond,
-            0x05 => NDFilterPosition::OneSixtyFourth,
-            _ => NDFilterPosition::Unknown(position),
+            0x00 => NdFilterPosition::Clear,
+            0x01 => NdFilterPosition::OneQuarter,
+            0x02 => NdFilterPosition::OneEighth,
+            0x03 => NdFilterPosition::OneSixteenth,
+            0x04 => NdFilterPosition::OneThirtySecond,
+            0x05 => NdFilterPosition::OneSixtyFourth,
+            _ => NdFilterPosition::Unknown(position),
         }
     }
 
     /// Get a human-readable description of the ND filter position.
     pub fn description(&self) -> &'static str {
         match self {
-            NDFilterPosition::Clear => "Clear (no filter)",
-            NDFilterPosition::OneQuarter => "1/4 ND",
-            NDFilterPosition::OneEighth => "1/8 ND",
-            NDFilterPosition::OneSixteenth => "1/16 ND",
-            NDFilterPosition::OneThirtySecond => "1/32 ND",
-            NDFilterPosition::OneSixtyFourth => "1/64 ND",
-            NDFilterPosition::Unknown(_) => "Unknown ND filter position",
+            NdFilterPosition::Clear => "Clear (no filter)",
+            NdFilterPosition::OneQuarter => "1/4 ND",
+            NdFilterPosition::OneEighth => "1/8 ND",
+            NdFilterPosition::OneSixteenth => "1/16 ND",
+            NdFilterPosition::OneThirtySecond => "1/32 ND",
+            NdFilterPosition::OneSixtyFourth => "1/64 ND",
+            NdFilterPosition::Unknown(_) => "Unknown ND filter position",
         }
     }
 
     /// Get the raw byte value for this ND filter position.
     pub fn as_byte(&self) -> u8 {
         match self {
-            NDFilterPosition::Clear => 0x00,
-            NDFilterPosition::OneQuarter => 0x01,
-            NDFilterPosition::OneEighth => 0x02,
-            NDFilterPosition::OneSixteenth => 0x03,
-            NDFilterPosition::OneThirtySecond => 0x04,
-            NDFilterPosition::OneSixtyFourth => 0x05,
-            NDFilterPosition::Unknown(value) => *value,
+            NdFilterPosition::Clear => 0x00,
+            NdFilterPosition::OneQuarter => 0x01,
+            NdFilterPosition::OneEighth => 0x02,
+            NdFilterPosition::OneSixteenth => 0x03,
+            NdFilterPosition::OneThirtySecond => 0x04,
+            NdFilterPosition::OneSixtyFourth => 0x05,
+            NdFilterPosition::Unknown(value) => *value,
         }
     }
 
@@ -235,13 +235,13 @@ impl NDFilterPosition {
     /// Returns None for Clear or Unknown positions.
     pub fn reduction_factor(&self) -> Option<(u32, u32)> {
         match self {
-            NDFilterPosition::Clear => Some((1, 1)),
-            NDFilterPosition::OneQuarter => Some((1, 4)),
-            NDFilterPosition::OneEighth => Some((1, 8)),
-            NDFilterPosition::OneSixteenth => Some((1, 16)),
-            NDFilterPosition::OneThirtySecond => Some((1, 32)),
-            NDFilterPosition::OneSixtyFourth => Some((1, 64)),
-            NDFilterPosition::Unknown(_) => None,
+            NdFilterPosition::Clear => Some((1, 1)),
+            NdFilterPosition::OneQuarter => Some((1, 4)),
+            NdFilterPosition::OneEighth => Some((1, 8)),
+            NdFilterPosition::OneSixteenth => Some((1, 16)),
+            NdFilterPosition::OneThirtySecond => Some((1, 32)),
+            NdFilterPosition::OneSixtyFourth => Some((1, 64)),
+            NdFilterPosition::Unknown(_) => None,
         }
     }
 
@@ -249,13 +249,13 @@ impl NDFilterPosition {
     /// Returns None for Unknown positions.
     pub fn stops_reduction(&self) -> Option<f32> {
         match self {
-            NDFilterPosition::Clear => Some(0.0),
-            NDFilterPosition::OneQuarter => Some(2.0),
-            NDFilterPosition::OneEighth => Some(3.0),
-            NDFilterPosition::OneSixteenth => Some(4.0),
-            NDFilterPosition::OneThirtySecond => Some(5.0),
-            NDFilterPosition::OneSixtyFourth => Some(6.0),
-            NDFilterPosition::Unknown(_) => None,
+            NdFilterPosition::Clear => Some(0.0),
+            NdFilterPosition::OneQuarter => Some(2.0),
+            NdFilterPosition::OneEighth => Some(3.0),
+            NdFilterPosition::OneSixteenth => Some(4.0),
+            NdFilterPosition::OneThirtySecond => Some(5.0),
+            NdFilterPosition::OneSixtyFourth => Some(6.0),
+            NdFilterPosition::Unknown(_) => None,
         }
     }
 }
@@ -291,11 +291,11 @@ mod tests {
 
     #[test]
     fn test_nd_filter_descriptions() {
-        assert_eq!(NDFilterPosition::Clear.description(), "Clear (no filter)");
-        assert_eq!(NDFilterPosition::OneQuarter.description(), "1/4 ND");
-        assert_eq!(NDFilterPosition::OneSixtyFourth.description(), "1/64 ND");
+        assert_eq!(NdFilterPosition::Clear.description(), "Clear (no filter)");
+        assert_eq!(NdFilterPosition::OneQuarter.description(), "1/4 ND");
+        assert_eq!(NdFilterPosition::OneSixtyFourth.description(), "1/64 ND");
         assert_eq!(
-            NDFilterPosition::Unknown(0xFF).description(),
+            NdFilterPosition::Unknown(0xFF).description(),
             "Unknown ND filter position"
         );
     }

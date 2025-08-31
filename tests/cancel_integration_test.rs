@@ -8,7 +8,7 @@
 
 // Most imports are only used in commented code examples
 #[allow(unused_imports)]
-use grafton_visca::runtime::SocketId;
+use grafton_visca::{runtime::SocketId, ViscaSocket};
 
 /// Test that cancel methods are available on Camera.
 /// This is a compilation test to ensure the API is properly exposed.
@@ -32,12 +32,12 @@ async fn test_cancel_api_available() {
     camera.cancel_command(cmd_id).await.unwrap();
 
     // Or cancel a specific socket directly
-    camera.cancel_socket(SocketId::Socket1).await.unwrap();
+    camera.cancel_socket(ViscaSocket::S1).await.unwrap();
     */
 
     // Just verify the types exist and are public
-    let _socket1 = SocketId::Socket1;
-    let _socket2 = SocketId::Socket2;
+    let _socket1 = ViscaSocket::S1;
+    let _socket2 = ViscaSocket::S2;
 }
 
 /// Test that demonstrates the intended usage pattern for cancellation.
@@ -64,7 +64,7 @@ async fn test_cancel_usage_pattern() {
     camera.cancel_command(zoom_cmd_id).await.unwrap();
 
     // Or ensure both sockets are clear
-    camera.cancel_socket(SocketId::Socket1).await.unwrap();
-    camera.cancel_socket(SocketId::Socket2).await.unwrap();
+    camera.cancel_socket(ViscaSocket::S1).await.unwrap();
+    camera.cancel_socket(ViscaSocket::S2).await.unwrap();
     */
 }

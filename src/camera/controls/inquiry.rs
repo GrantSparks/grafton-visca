@@ -291,7 +291,7 @@ pub trait InquiryControl {
     #[cfg(feature = "async")]
     fn get_nd_filter_position(
         &self,
-    ) -> impl std::future::Future<Output = Result<crate::command::resolution::NDFilterPosition, Error>>
+    ) -> impl std::future::Future<Output = Result<crate::command::resolution::NdFilterPosition, Error>>
            + Send
            + '_;
 
@@ -299,7 +299,7 @@ pub trait InquiryControl {
     #[cfg(not(feature = "async"))]
     fn get_nd_filter_position(
         &mut self,
-    ) -> Result<crate::command::resolution::NDFilterPosition, Error>;
+    ) -> Result<crate::command::resolution::NdFilterPosition, Error>;
 
     /// Get the camera version information.
     #[cfg(feature = "async")]
@@ -947,12 +947,12 @@ where
 
     async fn get_nd_filter_position(
         &self,
-    ) -> Result<crate::command::resolution::NDFilterPosition, Error> {
+    ) -> Result<crate::command::resolution::NdFilterPosition, Error> {
         let cmd = NdFilterInquiry;
         let response = self.send_command(&cmd).await?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::NdFilter { position }) => Ok(
-                crate::command::resolution::NDFilterPosition::from_byte(position),
+                crate::command::resolution::NdFilterPosition::from_byte(position),
             ),
             ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
@@ -1631,12 +1631,12 @@ where
 
     fn get_nd_filter_position(
         &mut self,
-    ) -> Result<crate::command::resolution::NDFilterPosition, Error> {
+    ) -> Result<crate::command::resolution::NdFilterPosition, Error> {
         let cmd = NdFilterInquiry;
         let response = self.send_command(&cmd)?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::NdFilter { position }) => Ok(
-                crate::command::resolution::NDFilterPosition::from_byte(position),
+                crate::command::resolution::NdFilterPosition::from_byte(position),
             ),
             ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),

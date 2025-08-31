@@ -448,7 +448,7 @@ where
     }
 
     async fn set_gain_limit(&self, limit: crate::types::GainLimit) -> Result<(), Error> {
-        let cmd = crate::command::gain::GainLimitCmd { limit };
+        let cmd = crate::command::gain::GainLimitCommand { limit };
         self.send_command(&cmd).await?;
         Ok(())
     }
@@ -643,7 +643,7 @@ where
     }
 
     fn set_gain_limit(&mut self, limit: crate::types::GainLimit) -> Result<(), Error> {
-        let cmd = crate::command::gain::GainLimitCmd { limit };
+        let cmd = crate::command::gain::GainLimitCommand { limit };
         self.send_command(&cmd)?;
         Ok(())
     }

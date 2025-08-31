@@ -17,19 +17,19 @@ use crate::{
 ///
 /// PtzOptics-specific command that enables or disables synchronized movement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MotionSyncModeCmd {
+pub struct MotionSyncModeCommand {
     /// The motion sync mode to set.
     pub mode: MotionSyncMode,
 }
 
-impl MotionSyncModeCmd {
+impl MotionSyncModeCommand {
     /// Creates a new motion sync mode command.
     pub const fn new(mode: MotionSyncMode) -> Self {
         Self { mode }
     }
 }
 
-impl ViscaEncode for MotionSyncModeCmd {
+impl ViscaEncode for MotionSyncModeCommand {
     type ViscaResponse = ();
     const MAX_SIZE: usize = 6;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
@@ -59,12 +59,12 @@ impl ViscaEncode for MotionSyncModeCmd {
 /// PtzOptics-specific command that sets the maximum speed for synchronized movements.
 /// Speed values range from 1 to 24.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MotionSyncSpeedCmd {
+pub struct MotionSyncSpeedCommand {
     /// The speed value (1-24).
     speed: u8,
 }
 
-impl MotionSyncSpeedCmd {
+impl MotionSyncSpeedCommand {
     /// Creates a new motion sync speed command.
     ///
     /// # Arguments
@@ -95,7 +95,7 @@ impl MotionSyncSpeedCmd {
     }
 }
 
-impl ViscaEncode for MotionSyncSpeedCmd {
+impl ViscaEncode for MotionSyncSpeedCommand {
     type ViscaResponse = ();
     const MAX_SIZE: usize = 6;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
@@ -129,55 +129,55 @@ mod tests {
     visca_test!(
         MotionSyncMode,
         test_motion_sync_mode_on,
-        MotionSyncModeCmd::new(MotionSyncMode::On),
+        MotionSyncModeCommand::new(MotionSyncMode::On),
         &[0x81, 0x0A, 0x11, 0x13, 0x02, VISCA_TERMINATOR]
     );
 
     visca_test!(
         MotionSyncMode,
         test_motion_sync_mode_off,
-        MotionSyncModeCmd::new(MotionSyncMode::Off),
+        MotionSyncModeCommand::new(MotionSyncMode::Off),
         &[0x81, 0x0A, 0x11, 0x13, 0x03, VISCA_TERMINATOR]
     );
 
     visca_test!(
         MotionSyncSpeed,
         test_motion_sync_speed_min,
-        MotionSyncSpeedCmd::new(1).unwrap(),
+        MotionSyncSpeedCommand::new(1).unwrap(),
         &[0x81, 0x0A, 0x11, 0x14, 0x01, VISCA_TERMINATOR]
     );
 
     visca_test!(
         MotionSyncSpeed,
         test_motion_sync_speed_max,
-        MotionSyncSpeedCmd::new(24).unwrap(),
+        MotionSyncSpeedCommand::new(24).unwrap(),
         &[0x81, 0x0A, 0x11, 0x14, 0x18, VISCA_TERMINATOR]
     );
 
     #[test]
     fn test_motion_sync_speed_out_of_range() {
-        assert!(MotionSyncSpeedCmd::new(0).is_err());
-        assert!(MotionSyncSpeedCmd::new(25).is_err());
+        assert!(MotionSyncSpeedCommand::new(0).is_err());
+        assert!(MotionSyncSpeedCommand::new(25).is_err());
     }
 
     visca_test!(
         MotionSyncSpeed,
         test_motion_sync_speed_slow,
-        MotionSyncSpeedCmd::from_preset(MotionSyncSpeed::Slow),
+        MotionSyncSpeedCommand::from_preset(MotionSyncSpeed::Slow),
         &[0x81, 0x0A, 0x11, 0x14, 0x08, VISCA_TERMINATOR]
     );
 
     visca_test!(
         MotionSyncSpeed,
         test_motion_sync_speed_normal,
-        MotionSyncSpeedCmd::from_preset(MotionSyncSpeed::Normal),
+        MotionSyncSpeedCommand::from_preset(MotionSyncSpeed::Normal),
         &[0x81, 0x0A, 0x11, 0x14, 0x10, VISCA_TERMINATOR]
     );
 
     visca_test!(
         MotionSyncSpeed,
         test_motion_sync_speed_fast,
-        MotionSyncSpeedCmd::from_preset(MotionSyncSpeed::Fast),
+        MotionSyncSpeedCommand::from_preset(MotionSyncSpeed::Fast),
         &[0x81, 0x0A, 0x11, 0x14, 0x18, VISCA_TERMINATOR]
     );
 }

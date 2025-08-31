@@ -4,7 +4,7 @@
 //! on cameras that support it (currently only Sony FR7).
 
 use crate::{
-    command::{VariableSpeedMode, VariableSpeedModeCmd, ViscaResponse},
+    command::{VariableSpeedMode, VariableSpeedModeCommand, ViscaResponse},
     error::Error,
 };
 
@@ -55,7 +55,7 @@ where
 {
     async fn set_variable_speed_mode(&self, mode: VariableSpeedMode) -> Result<(), Error> {
         // No runtime check needed - compile-time guarantee via HasVariableSpeed marker trait
-        let cmd = VariableSpeedModeCmd::new(mode);
+        let cmd = VariableSpeedModeCommand::new(mode);
         match self.send_command(&cmd).await? {
             ViscaResponse::CmdAck | ViscaResponse::Completion => Ok(()),
             ViscaResponse::Error(e) => Err(e),
@@ -78,7 +78,7 @@ where
 {
     fn set_variable_speed_mode(&mut self, mode: VariableSpeedMode) -> Result<(), Error> {
         // No runtime check needed - compile-time guarantee via HasVariableSpeed marker trait
-        let cmd = VariableSpeedModeCmd::new(mode);
+        let cmd = VariableSpeedModeCommand::new(mode);
         match self.send_command(&cmd)? {
             ViscaResponse::CmdAck | ViscaResponse::Completion => Ok(()),
             ViscaResponse::Error(e) => Err(e),
@@ -89,15 +89,15 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::command::{VariableSpeedMode, VariableSpeedModeCmd};
+    use crate::command::{VariableSpeedMode, VariableSpeedModeCommand};
 
     #[test]
     fn test_variable_speed_mode_command_creation() {
         // Test that commands can be created correctly
-        let cmd = VariableSpeedModeCmd::new(VariableSpeedMode::Standard24);
+        let cmd = VariableSpeedModeCommand::new(VariableSpeedMode::Standard24);
         assert!(matches!(cmd.mode, VariableSpeedMode::Standard24));
 
-        let cmd = VariableSpeedModeCmd::new(VariableSpeedMode::Fine50);
+        let cmd = VariableSpeedModeCommand::new(VariableSpeedMode::Fine50);
         assert!(matches!(cmd.mode, VariableSpeedMode::Fine50));
     }
 }

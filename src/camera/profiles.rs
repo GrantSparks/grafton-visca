@@ -7,8 +7,8 @@ use std::{fmt, time::Duration};
 
 use crate::{
     capabilities::{
-        CoordinateSystem, Exposure, Focus, ImageProcessing, MenuControl, MotionSync, NDFilter,
-        NDFilterMode, PanTilt, Power, Presets, ProfileMetadata, ProtocolStyle, ShutterSpeed,
+        CoordinateSystem, Exposure, Focus, ImageProcessing, MenuControl, MotionSync, NdFilter,
+        NdFilterMode, PanTilt, Power, Presets, ProfileMetadata, ProtocolStyle, ShutterSpeed,
         VariableSpeed, WhiteBalance, Zoom,
     },
     error::Error,
@@ -360,8 +360,8 @@ impl Power for SonyFR7 {
     const SUPPORTS_WAKE_ON_LAN: bool = true;
 }
 
-impl NDFilter for SonyFR7 {
-    const ND_MODE: NDFilterMode = NDFilterMode::Variable;
+impl NdFilter for SonyFR7 {
+    const ND_MODE: NdFilterMode = NdFilterMode::Variable;
     const ND_STEPS: Option<u8> = None;
 }
 impl MenuControl for SonyFR7 {
@@ -964,7 +964,7 @@ impl fmt::Display for G2Gain {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::capabilities::nd_filter::NDFilterExt;
+    use crate::capabilities::nd_filter::NdFilterExt;
     use crate::capabilities::pan_tilt::PanTiltExt;
 
     #[test]

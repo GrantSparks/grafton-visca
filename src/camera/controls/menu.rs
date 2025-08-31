@@ -144,9 +144,9 @@ where
     }
 
     async fn menu_action(&self, action: MenuAction) -> Result<(), Error> {
-        use crate::command::menu::MenuActionCmd;
+        use crate::command::menu::MenuActionCommand;
 
-        let cmd = MenuActionCmd::new(action);
+        let cmd = MenuActionCommand::new(action);
         self.send_command(&cmd).await?;
         Ok(())
     }
@@ -199,9 +199,9 @@ where
     }
 
     fn menu_action(&mut self, action: MenuAction) -> Result<(), Error> {
-        use crate::command::menu::MenuActionCmd;
+        use crate::command::menu::MenuActionCommand;
 
-        let cmd = MenuActionCmd::new(action);
+        let cmd = MenuActionCommand::new(action);
         self.send_command(&cmd)?;
         Ok(())
     }

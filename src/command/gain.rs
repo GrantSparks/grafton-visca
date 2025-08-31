@@ -81,7 +81,7 @@ impl ViscaEncode for Gain {
 
 visca_builder! {
     /// Command to set the automatic gain control limit.
-    pub struct GainLimitCmd {
+    pub struct GainLimitCommand {
         /// The gain limit to set.
         limit: GainLimit,
     }
@@ -93,7 +93,7 @@ visca_builder! {
     timeout = Quick;
 }
 
-impl GainLimitCmd {
+impl GainLimitCommand {
     /// Create a new gain limit command.
     pub fn new(limit: GainLimit) -> Self {
         Self { limit }
@@ -190,7 +190,7 @@ mod tests {
         for value in test_values {
             let limit =
                 GainLimit::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = GainLimitCmd::new(limit);
+            let cmd = GainLimitCommand::new(limit);
             assert_eq!(
                 cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
@@ -202,18 +202,18 @@ mod tests {
     // #[test]
     // fn test_gain_limit_g2_validation() {
     //     // Test valid G2 gain limit values
-    //     for value in GainLimitCmd::G2_VALID_VALUES {
+    //     for value in GainLimitCommand::G2_VALID_VALUES {
     //         let limit =
     //             GainLimit::new(*value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-    //         let cmd = GainLimitCmd::new(limit);
+    //         let cmd = GainLimitCommand::new(limit);
     //         assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
     //     }
 
     //     // Test that non-G2 values might fail (depends on what G2_VALID_VALUES contains)
     //     // Check if value 0x08 is not in G2_VALID_VALUES
-    //     if !GainLimitCmd::G2_VALID_VALUES.contains(&0x08) {
+    //     if !GainLimitCommand::G2_VALID_VALUES.contains(&0x08) {
     //         if let Ok(limit) = GainLimit::new(0x08) {
-    //             let cmd = GainLimitCmd::new(limit);
+    //             let cmd = GainLimitCommand::new(limit);
     //             assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_err());
     //         }
     //     }
@@ -233,7 +233,7 @@ mod tests {
             CommandCategory::Quick
         );
         assert_eq!(
-            GainLimitCmd::new(
+            GainLimitCommand::new(
                 GainLimit::new(0x03).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
             )
             .timeout_kind(),
@@ -252,7 +252,7 @@ mod tests {
         )
         .response_type()
         .is_none());
-        assert!(GainLimitCmd::new(
+        assert!(GainLimitCommand::new(
             GainLimit::new(0x03).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
         )
         .response_type()

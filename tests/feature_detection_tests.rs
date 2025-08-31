@@ -10,8 +10,8 @@ use grafton_visca::{camera::AsyncCamera, transport::AsyncTransport, Executor};
 use grafton_visca::{camera::BlockingCamera, transport::SyncTransport};
 
 use grafton_visca::{
-    capabilities::{MotionSync, NDFilter, Profile, VariableSpeed},
-    command::resolution::NDFilterPosition,
+    capabilities::{MotionSync, NdFilter, Profile, VariableSpeed},
+    command::resolution::NdFilterPosition,
 };
 
 // These tests demonstrate that the code compiles correctly with proper trait bounds
@@ -21,25 +21,25 @@ use grafton_visca::{
 fn test_nd_filter_compile_time_safety() {
     // Async version - functions that require ND filter support
     #[cfg(feature = "async")]
-    fn _set_nd_filter_async<P, T, E>(_camera: &AsyncCamera<P, T, E>, _position: NDFilterPosition)
+    fn _set_nd_filter_async<P, T, E>(_camera: &AsyncCamera<P, T, E>, _position: NdFilterPosition)
     where
-        P: Profile + NDFilter,
+        P: Profile + NdFilter,
         T: AsyncTransport + Send + Sync + 'static,
         E: Executor,
     {
         // This function can only be called with cameras that have ND filter
-        // The trait bound P: NDFilter enforces this at compile time
+        // The trait bound P: NdFilter enforces this at compile time
     }
 
     // Blocking version - functions that require ND filter support
     #[cfg(not(feature = "async"))]
-    fn _set_nd_filter_blocking<P, T>(_camera: &BlockingCamera<P, T>, _position: NDFilterPosition)
+    fn _set_nd_filter_blocking<P, T>(_camera: &BlockingCamera<P, T>, _position: NdFilterPosition)
     where
-        P: Profile + NDFilter,
+        P: Profile + NdFilter,
         T: SyncTransport + Send + Sync + 'static,
     {
         // This function can only be called with cameras that have ND filter
-        // The trait bound P: NDFilter enforces this at compile time
+        // The trait bound P: NdFilter enforces this at compile time
     }
 
     // Test passes if compilation succeeds
@@ -148,14 +148,14 @@ fn test_profile_specific_compile_time_checks() {
 
     #[cfg(feature = "async")]
     {
-        // SonyFR7 has NDFilter and VariableSpeed
+        // SonyFR7 has NdFilter and VariableSpeed
         fn _sony_fr7_features_async<T, E>(_camera: &AsyncCamera<SonyFR7, T, E>)
         where
             T: AsyncTransport + Send + Sync + 'static,
             E: Executor,
         {
-            // This compiles because SonyFR7 implements NDFilter and VariableSpeed
-            fn requires_nd<P: NDFilter>() {}
+            // This compiles because SonyFR7 implements NdFilter and VariableSpeed
+            fn requires_nd<P: NdFilter>() {}
             fn requires_var_speed<P: VariableSpeed>() {}
 
             requires_nd::<SonyFR7>();
@@ -180,7 +180,7 @@ fn test_profile_specific_compile_time_checks() {
             T: AsyncTransport + Send + Sync + 'static,
             E: Executor,
         {
-            // GenericVisca doesn't have NDFilter, MotionSync, or VariableSpeed
+            // GenericVisca doesn't have NdFilter, MotionSync, or VariableSpeed
             // So we can only use basic Profile features
             fn requires_profile<P: Profile>() {}
 
@@ -195,7 +195,7 @@ fn test_profile_specific_compile_time_checks() {
         where
             T: SyncTransport + Send + Sync + 'static,
         {
-            fn requires_nd<P: NDFilter>() {}
+            fn requires_nd<P: NdFilter>() {}
             fn requires_var_speed<P: VariableSpeed>() {}
 
             requires_nd::<SonyFR7>();

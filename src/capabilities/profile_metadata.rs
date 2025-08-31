@@ -97,7 +97,7 @@ pub trait HasMotionSync {}
 pub trait HasVariableSpeed {}
 
 /// Marker trait indicating support for ND filter.
-pub trait HasNDFilter {}
+pub trait HasNdFilter {}
 
 // Specific feature marker traits
 /// Marker trait indicating support for exposure compensation.
@@ -213,7 +213,7 @@ pub trait ProfileIntrospection: ProfileMetadata {
             features.push(CameraFeature::Power);
         }
         if self.supports_nd_filter() {
-            features.push(CameraFeature::NDFilter);
+            features.push(CameraFeature::NdFilter);
         }
 
         features
@@ -266,7 +266,7 @@ impl<T: ProfileMetadata + crate::capabilities::Power> HasPower for T {}
 impl<T: ProfileMetadata + crate::capabilities::MenuControl> HasMenuControl for T {}
 impl<T: ProfileMetadata + crate::capabilities::MotionSync> HasMotionSync for T {}
 impl<T: ProfileMetadata + crate::capabilities::VariableSpeed> HasVariableSpeed for T {}
-impl<T: ProfileMetadata + crate::capabilities::NDFilter> HasNDFilter for T {}
+impl<T: ProfileMetadata + crate::capabilities::NdFilter> HasNdFilter for T {}
 
 // Note: Unlike the capability marker traits (HasPanTilt, HasZoom, etc.) which have
 // blanket implementations, these specific feature marker traits must be manually

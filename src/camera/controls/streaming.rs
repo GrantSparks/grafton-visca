@@ -150,9 +150,9 @@ where
     }
 
     async fn set_ndi_quality(&self, quality: NdiQuality) -> Result<()> {
-        use crate::command::streaming::NdiQualityCmd;
+        use crate::command::streaming::NdiQualityCommand;
 
-        let cmd = NdiQualityCmd::new(quality);
+        let cmd = NdiQualityCommand::new(quality);
         self.send_command(&cmd).await?;
         Ok(())
     }
@@ -181,9 +181,9 @@ where
     }
 
     fn set_ndi_quality(&mut self, quality: NdiQuality) -> Result<()> {
-        use crate::command::streaming::NdiQualityCmd;
+        use crate::command::streaming::NdiQualityCommand;
 
-        let cmd = NdiQualityCmd::new(quality);
+        let cmd = NdiQualityCommand::new(quality);
         self.send_command(&cmd)?;
         Ok(())
     }

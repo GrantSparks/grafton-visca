@@ -191,7 +191,7 @@ fn test_core_types_stability() {
 fn test_capability_traits_stability() {
     use grafton_visca::camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7};
     use grafton_visca::capabilities::{
-        Exposure, Focus, ImageProcessing, NDFilter, PanTilt, Power, Profile, ProfileMetadata,
+        Exposure, Focus, ImageProcessing, NdFilter, PanTilt, Power, Profile, ProfileMetadata,
         WhiteBalance, Zoom,
     };
 
@@ -210,7 +210,7 @@ fn test_capability_traits_stability() {
 
     fn test_specialized_bounds<P>()
     where
-        P: Profile + NDFilter, // Only NDFilter since not all profiles have MotionSync
+        P: Profile + NdFilter, // Only NdFilter since not all profiles have MotionSync
     {
     }
 
@@ -223,7 +223,7 @@ fn test_capability_traits_stability() {
     test_advanced_bounds::<SonyFR7>();
     test_advanced_bounds::<GenericVisca>();
 
-    // Only test NDFilter specialization for SonyFR7 which supports it
+    // Only test NdFilter specialization for SonyFR7 which supports it
     test_specialized_bounds::<SonyFR7>();
 }
 

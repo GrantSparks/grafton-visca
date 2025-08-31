@@ -67,7 +67,7 @@ pub enum CameraFeature {
 
     // Advanced features
     /// ND filter control (Sony FR7)
-    NDFilter,
+    NdFilter,
     /// Variable speed mode (Sony FR7)
     VariableSpeedMode,
     /// Menu control (Sony FR7)
@@ -111,7 +111,7 @@ impl CameraFeature {
             Self::Tally => "Tally Light",
             Self::ImageFreeze => "Image Freeze",
             Self::ImageFlip => "Image Flip",
-            Self::NDFilter => "ND Filter",
+            Self::NdFilter => "ND Filter",
             Self::VariableSpeedMode => "Variable Speed Mode",
             Self::MenuControl => "Menu Control",
             Self::Privacy => "Privacy Mode",
@@ -148,7 +148,7 @@ impl CameraFeature {
             Self::Tally => "Control tally light indicators",
             Self::ImageFreeze => "Freeze/unfreeze current image",
             Self::ImageFlip => "Flip image horizontally or vertically",
-            Self::NDFilter => "Control neutral density filter",
+            Self::NdFilter => "Control neutral density filter",
             Self::VariableSpeedMode => "Enable variable speed pan/tilt/zoom",
             Self::MenuControl => "Navigate camera on-screen menu",
             Self::Privacy => "Enable/disable privacy mode",

@@ -700,8 +700,9 @@ mod validation_tests {
         assert_eq!(&buffer[0..6], gain::DIRECT_PREFIX);
 
         // Test GainLimit uses GAIN_LIMIT_PREFIX
-        let gain_limit =
-            crate::command::gain::GainLimitCmd::new(crate::types::GainLimit::new(0x03).unwrap());
+        let gain_limit = crate::command::gain::GainLimitCommand::new(
+            crate::types::GainLimit::new(0x03).unwrap(),
+        );
         let len = gain_limit
             .encode_into(CameraId::CAMERA_1, &mut buffer)
             .unwrap();
