@@ -258,7 +258,7 @@ where
             pan_speed: PanSpeed::from(SpeedLevel::Medium),
             tilt_speed: TiltSpeed::from(SpeedLevel::Medium),
         };
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -266,7 +266,7 @@ where
         use crate::command::pan_tilt::PanTilt;
 
         let cmd = PanTilt::Home;
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -289,7 +289,7 @@ where
             pan_speed,
             tilt_speed,
         };
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -312,7 +312,7 @@ where
             pan_speed,
             tilt_speed,
         };
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -329,7 +329,7 @@ where
             pan_speed,
             tilt_speed,
         };
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -337,7 +337,7 @@ where
         use crate::command::pan_tilt::PanTilt;
 
         let cmd = PanTilt::Reset;
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -350,7 +350,7 @@ where
         use crate::command::pan_tilt::PanTilt;
 
         let cmd = PanTilt::LimitSet { corner, pan, tilt };
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -358,7 +358,7 @@ where
         use crate::command::pan_tilt::PanTilt;
 
         let cmd = PanTilt::LimitClear { corner };
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 }

@@ -421,12 +421,12 @@ where
 {
     fn enable_flip(&mut self) -> Result<(), Error> {
         let cmd = crate::command::flip::ImageFlip::new(crate::command::flip::Flip::On);
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
     fn disable_flip(&mut self) -> Result<(), Error> {
         let cmd = crate::command::flip::ImageFlip::new(crate::command::flip::Flip::Off);
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -434,7 +434,7 @@ where
         let cmd = crate::command::flip::HorizontalFlipCommand::new(
             crate::command::flip::HorizontalFlip::On,
         );
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -442,13 +442,13 @@ where
         let cmd = crate::command::flip::HorizontalFlipCommand::new(
             crate::command::flip::HorizontalFlip::Off,
         );
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
     fn set_contrast(&mut self, level: ContrastLevel) -> Result<(), Error> {
         let cmd = crate::command::image::Contrast::new(level);
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -456,7 +456,7 @@ where
         let cmd = crate::command::image::Sharpness::SetLevel {
             value: level.value(),
         };
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -468,55 +468,55 @@ where
 
     fn reset_sharpness(&mut self) -> Result<(), Error> {
         let cmd = crate::command::image::Sharpness::Reset;
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
     fn increase_sharpness(&mut self) -> Result<(), Error> {
         let cmd = crate::command::image::Sharpness::Up;
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
     fn decrease_sharpness(&mut self) -> Result<(), Error> {
         let cmd = crate::command::image::Sharpness::Down;
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
     fn set_saturation(&mut self, level: SaturationLevel) -> Result<(), Error> {
         let cmd = crate::command::color::SaturationCommand::new(level);
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
     fn set_hue(&mut self, level: HueLevel) -> Result<(), Error> {
         let cmd = crate::command::color::HueCommand::new(level);
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
     fn set_noise_reduction_2d(&mut self, level: NoiseReduction2DLevel) -> Result<(), Error> {
         let cmd = crate::command::image::NoiseReduction2D::Level(level);
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
     fn disable_noise_reduction_2d(&mut self) -> Result<(), Error> {
         let cmd = crate::command::image::NoiseReduction2D::Off;
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
     fn set_noise_reduction_3d(&mut self, level: NoiseReduction3DLevel) -> Result<(), Error> {
         let cmd = crate::command::image::NoiseReduction3D::Level(level);
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
     fn disable_noise_reduction_3d(&mut self) -> Result<(), Error> {
         let cmd = crate::command::image::NoiseReduction3D::Off;
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -524,25 +524,25 @@ where
         // Use the combined flip command (PtzOptics A4 opcode)
         // This is more efficient than sending separate vertical and horizontal commands
         let cmd = crate::command::image::ImageFlipCombinedCommand::new(mode);
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
     fn set_luminance(&mut self, level: LuminanceLevel) -> Result<(), Error> {
         let cmd = crate::command::image::Luminance::new(level);
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
     fn enable_freeze(&mut self) -> Result<(), Error> {
         let cmd = crate::command::flip::ImageFreezeCommand::new(crate::command::flip::Freeze::On);
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
     fn disable_freeze(&mut self) -> Result<(), Error> {
         let cmd = crate::command::flip::ImageFreezeCommand::new(crate::command::flip::Freeze::Off);
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -550,7 +550,7 @@ where
         let cmd = crate::command::image::PictureEffectCommand {
             mode: PictureEffectMode::BlackAndWhite,
         };
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -558,13 +558,13 @@ where
         let cmd = crate::command::image::PictureEffectCommand {
             mode: PictureEffectMode::Off,
         };
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
     fn set_picture_effect(&mut self, mode: PictureEffectMode) -> Result<(), Error> {
         let cmd = crate::command::image::PictureEffectCommand { mode };
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 }

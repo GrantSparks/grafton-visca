@@ -230,35 +230,32 @@ where
     Tr: crate::transport::SyncTransport + Send + 'static,
 {
     fn one_push_trigger(&mut self) -> Result<(), Error> {
-        self.send_command(&OnePushTriggerCommand).into_inner()?;
+        pollster::block_on(self.send_command(&OnePushTriggerCommand))?;
         Ok(())
     }
     fn set_color_temperature(&mut self, temp: ColorTemp) -> Result<(), Error> {
-        self.send_command(&ColorTemperature::SetTemperature(temp))
-            .into_inner()?;
+        pollster::block_on(self.send_command(&ColorTemperature::SetTemperature(temp)))?;
         Ok(())
     }
 
     fn reset_color_temperature(&mut self) -> Result<(), Error> {
-        self.send_command(&ColorTemperature::Reset).into_inner()?;
+        pollster::block_on(self.send_command(&ColorTemperature::Reset))?;
         Ok(())
     }
 
     fn increase_color_temperature(&mut self) -> Result<(), Error> {
-        self.send_command(&ColorTemperature::Up).into_inner()?;
+        pollster::block_on(self.send_command(&ColorTemperature::Up))?;
         Ok(())
     }
 
     fn decrease_color_temperature(&mut self) -> Result<(), Error> {
-        self.send_command(&ColorTemperature::Down).into_inner()?;
+        pollster::block_on(self.send_command(&ColorTemperature::Down))?;
         Ok(())
     }
 
     fn color_temperature(&mut self, temp: Option<ColorTemp>) -> Result<(), Error> {
         match temp {
-            Some(t) => self
-                .send_command(&ColorTemperature::SetTemperature(t))
-                .into_inner()?,
+            Some(t) => pollster::block_on(self.send_command(&ColorTemperature::SetTemperature(t)))?,
             None => {
                 return Err(Error::Unsupported);
             }
@@ -267,34 +264,32 @@ where
     }
 
     fn set_red_gain(&mut self, gain: RedChannel) -> Result<(), Error> {
-        self.send_command(&RedGain::SetValue(gain)).into_inner()?;
+        pollster::block_on(self.send_command(&RedGain::SetValue(gain)))?;
         Ok(())
     }
 
     fn red_gain(&mut self, command: RedGain) -> Result<(), Error> {
-        self.send_command(&command).into_inner()?;
+        pollster::block_on(self.send_command(&command))?;
         Ok(())
     }
 
     fn set_blue_gain(&mut self, gain: BlueChannel) -> Result<(), Error> {
-        self.send_command(&BlueGain::SetValue(gain)).into_inner()?;
+        pollster::block_on(self.send_command(&BlueGain::SetValue(gain)))?;
         Ok(())
     }
 
     fn blue_gain(&mut self, command: BlueGain) -> Result<(), Error> {
-        self.send_command(&command).into_inner()?;
+        pollster::block_on(self.send_command(&command))?;
         Ok(())
     }
 
     fn set_red_tuning(&mut self, tuning: RedTuning) -> Result<(), Error> {
-        self.send_command(&RedTuningCommand::new(tuning))
-            .into_inner()?;
+        pollster::block_on(self.send_command(&RedTuningCommand::new(tuning)))?;
         Ok(())
     }
 
     fn set_blue_tuning(&mut self, tuning: BlueTuning) -> Result<(), Error> {
-        self.send_command(&BlueTuningCommand::new(tuning))
-            .into_inner()?;
+        pollster::block_on(self.send_command(&BlueTuningCommand::new(tuning)))?;
         Ok(())
     }
 }

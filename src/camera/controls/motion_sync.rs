@@ -186,7 +186,7 @@ where
     fn set_motion_sync_mode(&mut self, mode: MotionSyncMode) -> Result<(), Error> {
         use crate::command::motion_sync::MotionSyncModeCommand;
         let cmd = MotionSyncModeCommand::new(mode);
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -198,7 +198,7 @@ where
             value: speed.to_string().into(),
             reason: "must be between 1 and 24".into(),
         })?;
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -206,7 +206,7 @@ where
         use crate::command::motion_sync::MotionSyncSpeedCommand;
 
         let cmd = MotionSyncSpeedCommand::from_preset(speed);
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -215,7 +215,7 @@ where
             inquiry::MotionSyncModeInquiry, response::ViscaResponse, InquiryResponse,
         };
         let inquiry = MotionSyncModeInquiry;
-        let response = self.send_command(&inquiry).into_inner()?;
+        let response = pollster::block_on(self.send_command(&inquiry))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::MotionSyncMode { mode }) => Ok(mode),
             _ => Err(Error::UnexpectedResponseType),
@@ -227,7 +227,7 @@ where
             inquiry::MotionSyncSpeedInquiry, response::ViscaResponse, InquiryResponse,
         };
         let inquiry = MotionSyncSpeedInquiry;
-        let response = self.send_command(&inquiry).into_inner()?;
+        let response = pollster::block_on(self.send_command(&inquiry))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::MotionSyncSpeed { speed }) => Ok(speed),
             _ => Err(Error::UnexpectedResponseType),

@@ -27,11 +27,10 @@
 //! ```
 
 #[cfg(feature = "async")]
-use crate::{camera::Camera, error::Error, executor::Executor, mode, transport::AsyncTransport};
-use crate::{camera_id::CameraId, capabilities::Profile, timeout::TimeoutConfig};
+use crate::{camera::Camera, executor::Executor, mode, transport::AsyncTransport};
+use crate::{camera_id::CameraId, capabilities::Profile, error::Error, timeout::TimeoutConfig};
 #[cfg(not(feature = "async"))]
 use crate::{error::Error, transport::SyncTransport};
-use std::marker::PhantomData;
 
 /// Builder for creating cameras with explicit executor configuration.
 ///
@@ -43,7 +42,7 @@ pub struct CameraBuilder<E = ()> {
     #[cfg(feature = "async")]
     executor: Option<E>,
     #[cfg(not(feature = "async"))]
-    _phantom: PhantomData<E>,
+    _phantom: std::marker::PhantomData<E>,
 }
 
 impl<E> std::fmt::Debug for CameraBuilder<E> {
@@ -66,7 +65,7 @@ impl CameraBuilder<()> {
             #[cfg(feature = "async")]
             executor: None,
             #[cfg(not(feature = "async"))]
-            _phantom: PhantomData,
+            _phantom: std::marker::PhantomData,
         }
     }
 }

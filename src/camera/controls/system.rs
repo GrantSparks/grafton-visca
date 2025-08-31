@@ -82,7 +82,7 @@ where
     fn trigger_address_assignment(&mut self) -> Result<(), Error> {
         use crate::command::system::AddressSetCommand;
         let cmd = AddressSetCommand::new();
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -90,7 +90,7 @@ where
         use crate::command::system::InterfaceClearCommand;
 
         let cmd = InterfaceClearCommand::new();
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -98,7 +98,7 @@ where
         use crate::command::system::CommandCancelCommand;
 
         let cmd = CommandCancelCommand::new(socket);
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 }

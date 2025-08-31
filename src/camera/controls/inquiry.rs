@@ -1331,7 +1331,7 @@ where
 {
     fn get_power_state(&mut self) -> Result<bool, Error> {
         let cmd = PowerInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::Power { on }) => Ok(on),
             ViscaResponse::Error(e) => Err(e),
@@ -1341,7 +1341,7 @@ where
 
     fn get_zoom_position(&mut self) -> Result<u16, Error> {
         let cmd = ZoomPositionInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::ZoomPosition { position }) => Ok(position),
             ViscaResponse::Error(e) => Err(e),
@@ -1351,7 +1351,7 @@ where
 
     fn get_focus_position(&mut self) -> Result<u16, Error> {
         let cmd = FocusPositionInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::FocusPosition { position }) => Ok(position),
             ViscaResponse::Error(e) => Err(e),
@@ -1361,7 +1361,7 @@ where
 
     fn get_focus_near_limit(&mut self) -> Result<u16, Error> {
         let cmd = FocusNearLimitInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::FocusNearLimit { position }) => Ok(position),
             ViscaResponse::Error(e) => Err(e),
@@ -1371,7 +1371,7 @@ where
 
     fn get_focus_zone(&mut self) -> Result<FocusZone, Error> {
         let cmd = FocusZoneInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::FocusZone { zone }) => Ok(zone),
             ViscaResponse::Error(e) => Err(e),
@@ -1381,7 +1381,7 @@ where
 
     fn get_auto_focus_sensitivity(&mut self) -> Result<AutoFocusSensitivity, Error> {
         let cmd = AutoFocusSensitivityInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::AutoFocusSensitivity { sensitivity }) => {
                 Ok(sensitivity)
@@ -1393,7 +1393,7 @@ where
 
     fn get_exposure_mode(&mut self) -> Result<ExposureMode, Error> {
         let cmd = ExposureModeInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::ExposureMode { mode }) => Ok(mode),
             ViscaResponse::Error(e) => Err(e),
@@ -1403,7 +1403,7 @@ where
 
     fn get_exposure_compensation(&mut self) -> Result<i8, Error> {
         let cmd = ExposureCompensationInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::ExposureCompensation { value }) => Ok(value),
             ViscaResponse::Error(e) => Err(e),
@@ -1413,7 +1413,7 @@ where
 
     fn get_exposure_compensation_enabled(&mut self) -> Result<bool, Error> {
         let cmd = ExposureCompensationModeInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::ExposureCompensationMode { on }) => Ok(on),
             ViscaResponse::Error(e) => Err(e),
@@ -1423,7 +1423,7 @@ where
 
     fn get_iris(&mut self) -> Result<u8, Error> {
         let cmd = IrisInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::Iris { position }) => Ok(position),
             ViscaResponse::Error(e) => Err(e),
@@ -1433,7 +1433,7 @@ where
 
     fn get_shutter(&mut self) -> Result<u16, Error> {
         let cmd = ShutterInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::Shutter { position }) => Ok(position),
             ViscaResponse::Error(e) => Err(e),
@@ -1443,7 +1443,7 @@ where
 
     fn get_gain(&mut self) -> Result<u8, Error> {
         let cmd = GainInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::GainLevel { gain }) => Ok(gain),
             ViscaResponse::Error(e) => Err(e),
@@ -1453,7 +1453,7 @@ where
 
     fn get_gain_limit(&mut self) -> Result<u8, Error> {
         let cmd = GainLimitInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::GainLimit { limit }) => Ok(limit),
             ViscaResponse::Error(e) => Err(e),
@@ -1463,7 +1463,7 @@ where
 
     fn get_white_balance_mode(&mut self) -> Result<WhiteBalanceMode, Error> {
         let cmd = WhiteBalanceModeInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::WhiteBalanceMode { mode }) => Ok(mode),
             ViscaResponse::Error(e) => Err(e),
@@ -1473,7 +1473,7 @@ where
 
     fn get_red_gain(&mut self) -> Result<u8, Error> {
         let cmd = RedGainInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::RedChannel { gain }) => Ok(gain as u8),
             ViscaResponse::Error(e) => Err(e),
@@ -1483,7 +1483,7 @@ where
 
     fn get_blue_gain(&mut self) -> Result<u8, Error> {
         let cmd = BlueGainInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::BlueChannel { gain }) => Ok(gain as u8),
             ViscaResponse::Error(e) => Err(e),
@@ -1493,7 +1493,7 @@ where
 
     fn get_red_tuning(&mut self) -> Result<u8, Error> {
         let cmd = RedTuningInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::RedTuning { level }) => Ok(level),
             ViscaResponse::Error(e) => Err(e),
@@ -1503,7 +1503,7 @@ where
 
     fn get_blue_tuning(&mut self) -> Result<u8, Error> {
         let cmd = BlueTuningInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::BlueTuning { level }) => Ok(level),
             ViscaResponse::Error(e) => Err(e),
@@ -1513,7 +1513,7 @@ where
 
     fn get_color_temperature(&mut self) -> Result<u16, Error> {
         let cmd = ColorTemperatureInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::ColorTemperature { temperature }) => {
                 Ok(temperature)
@@ -1525,7 +1525,7 @@ where
 
     fn get_gamma(&mut self) -> Result<u8, Error> {
         let cmd = GammaInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::Gamma { value }) => Ok(value),
             ViscaResponse::Error(e) => Err(e),
@@ -1535,7 +1535,7 @@ where
 
     fn get_brightness(&mut self) -> Result<u8, Error> {
         let cmd = BrightInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::Bright { position }) => Ok(position as u8),
             ViscaResponse::Error(e) => Err(e),
@@ -1545,7 +1545,7 @@ where
 
     fn get_sharpness_mode(&mut self) -> Result<SharpnessMode, Error> {
         let cmd = SharpnessModeInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::SharpnessMode { mode }) => Ok(mode),
             ViscaResponse::Error(e) => Err(e),
@@ -1555,7 +1555,7 @@ where
 
     fn get_saturation(&mut self) -> Result<u8, Error> {
         let cmd = SaturationInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::Saturation { level }) => Ok(level),
             ViscaResponse::Error(e) => Err(e),
@@ -1565,7 +1565,7 @@ where
 
     fn get_hue(&mut self) -> Result<u8, Error> {
         let cmd = HueInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::Hue { hue }) => Ok(hue),
             ViscaResponse::Error(e) => Err(e),
@@ -1575,7 +1575,7 @@ where
 
     fn get_noise_reduction_2d(&mut self) -> Result<u8, Error> {
         let cmd = NoiseReduction2DInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::NoiseReduction2D { level }) => Ok(level),
             ViscaResponse::Error(e) => Err(e),
@@ -1585,7 +1585,7 @@ where
 
     fn get_noise_reduction_3d(&mut self) -> Result<u8, Error> {
         let cmd = NoiseReduction3DInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::NoiseReduction3D { level }) => Ok(level),
             ViscaResponse::Error(e) => Err(e),
@@ -1595,7 +1595,7 @@ where
 
     fn get_black_white(&mut self) -> Result<bool, Error> {
         let cmd = BlackWhiteInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::BlackWhite { on }) => Ok(on),
             ViscaResponse::Error(e) => Err(e),
@@ -1605,7 +1605,7 @@ where
 
     fn get_resolution(&mut self) -> Result<crate::command::resolution::ResolutionMode, Error> {
         let cmd = ResolutionInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::Resolution(mode_byte)) => Ok(
                 crate::command::resolution::ResolutionMode::from_byte(mode_byte),
@@ -1619,7 +1619,7 @@ where
         &mut self,
     ) -> Result<crate::command::resolution::PictureEffectMode, Error> {
         let cmd = PictureEffectInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::PictureEffect { effect }) => Ok(
                 crate::command::resolution::PictureEffectMode::from_byte(effect),
@@ -1633,7 +1633,7 @@ where
         &mut self,
     ) -> Result<crate::command::resolution::NdFilterPosition, Error> {
         let cmd = NdFilterInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::NdFilter { position }) => Ok(
                 crate::command::resolution::NdFilterPosition::from_byte(position),
@@ -1645,7 +1645,7 @@ where
 
     fn get_version(&mut self) -> Result<crate::command::Version, Error> {
         let cmd = VersionInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::Version {
                 vendor,
@@ -1665,7 +1665,7 @@ where
 
     fn get_backlight_enabled(&mut self) -> Result<bool, Error> {
         let cmd = BacklightInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::Backlight { status }) => Ok(status),
             ViscaResponse::Error(e) => Err(e),
@@ -1675,7 +1675,7 @@ where
 
     fn get_image_flip(&mut self) -> Result<crate::command::ImageFlipStatus, Error> {
         let cmd = ImageFlipInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::ImageFlip {
                 vertical,
@@ -1691,7 +1691,7 @@ where
 
     fn get_dynamic_range(&mut self) -> Result<u8, Error> {
         let cmd = DynamicRangeInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::DynamicRange { level }) => Ok(level),
             ViscaResponse::Error(e) => Err(e),
@@ -1701,7 +1701,7 @@ where
 
     fn get_focus_mode(&mut self) -> Result<FocusMode, Error> {
         let cmd = FocusModeInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::FocusMode { mode }) => Ok(mode),
             ViscaResponse::Error(e) => Err(e),
@@ -1711,7 +1711,7 @@ where
 
     fn get_menu_status(&mut self) -> Result<bool, Error> {
         let cmd = MenuOpenCloseInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::MenuOpenClose { is_open }) => Ok(is_open),
             ViscaResponse::Error(e) => Err(e),
@@ -1723,7 +1723,7 @@ where
         // TODO: AutoFocusInquiry struct is not available in inquiry_structs.rs
         // We can derive this from FocusModeInquiry instead
         let cmd = FocusModeInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::FocusMode { mode }) => {
                 Ok(mode == FocusMode::Auto)
@@ -1735,7 +1735,7 @@ where
 
     fn get_tally_light_status(&mut self) -> Result<crate::command::TallyStatus, Error> {
         let cmd = TallyStatusInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::TallyStatus { red_on, green_on }) => {
                 Ok(crate::command::TallyStatus { red_on, green_on })
@@ -1747,7 +1747,7 @@ where
 
     fn get_night_day_mode(&mut self) -> Result<crate::command::NightDayMode, Error> {
         let cmd = NightDayModeInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::NightDayMode { is_night }) => Ok(if is_night {
                 crate::command::NightDayMode::Night
@@ -1761,7 +1761,7 @@ where
 
     fn get_flip_mode(&mut self) -> Result<crate::command::FlipMode, Error> {
         let cmd = FlipModeInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::FlipMode {
                 horizontal,
@@ -1777,7 +1777,7 @@ where
 
     fn get_standby_enabled(&mut self) -> Result<bool, Error> {
         let cmd = StandbyInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::Standby { in_standby }) => Ok(in_standby),
             ViscaResponse::Error(e) => Err(e),
@@ -1787,7 +1787,7 @@ where
 
     fn get_focus_range(&mut self) -> Result<crate::command::FocusRange, Error> {
         let cmd = FocusRangeInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::FocusRange { range }) => Ok(range),
             ViscaResponse::Error(e) => Err(e),
@@ -1797,7 +1797,7 @@ where
 
     fn get_iris_control(&mut self) -> Result<crate::command::IrisControl, Error> {
         let cmd = IrisControlInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::IrisControl { auto }) => Ok(if auto {
                 crate::command::IrisControl::Auto
@@ -1811,7 +1811,7 @@ where
 
     fn get_defog_mode(&mut self) -> Result<bool, Error> {
         let cmd = DefogModeInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::DefogMode { enabled }) => Ok(enabled),
             ViscaResponse::Error(e) => Err(e),
@@ -1821,7 +1821,7 @@ where
 
     fn get_defog_level(&mut self) -> Result<u8, Error> {
         let cmd = DefogLevelInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::DefogLevel { level }) => Ok(level),
             ViscaResponse::Error(e) => Err(e),
@@ -1831,7 +1831,7 @@ where
 
     fn get_digital_ptz_enabled(&mut self) -> Result<bool, Error> {
         let cmd = DigitalPtzInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::DigitalPtz { enabled }) => Ok(enabled),
             ViscaResponse::Error(e) => Err(e),
@@ -1843,7 +1843,7 @@ where
         &mut self,
     ) -> Result<crate::command::AutoWhiteBalanceSensitivity, Error> {
         let cmd = AutoWhiteBalanceSensitivityInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::AutoWhiteBalanceSensitivity {
                 sensitivity,
@@ -1855,7 +1855,7 @@ where
 
     fn get_exposure_compensation_position(&mut self) -> Result<u16, Error> {
         let cmd = ExposureCompensationPositionInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::ExposureCompensationPosition { position }) => {
                 Ok(position)
@@ -1867,7 +1867,7 @@ where
 
     fn get_auto_trace_enabled(&mut self) -> Result<bool, Error> {
         let cmd = AutoTraceInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::AutoTrace { enabled }) => Ok(enabled),
             ViscaResponse::Error(e) => Err(e),
@@ -1877,7 +1877,7 @@ where
 
     fn get_focus_unlock(&mut self) -> Result<bool, Error> {
         let cmd = FocusUnlockInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::FocusUnlock { unlocked }) => Ok(unlocked),
             ViscaResponse::Error(e) => Err(e),
@@ -1887,7 +1887,7 @@ where
 
     fn get_sharpness_position(&mut self) -> Result<u16, Error> {
         let cmd = SharpnessPositionInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::SharpnessPosition { position }) => Ok(position),
             ViscaResponse::Error(e) => Err(e),
@@ -1897,7 +1897,7 @@ where
 
     fn get_noise_reduction_level(&mut self) -> Result<u8, Error> {
         let cmd = NrLevelInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::NrLevel(level)) => Ok(level),
             ViscaResponse::Error(e) => Err(e),
@@ -1907,7 +1907,7 @@ where
 
     fn get_broadcast_domain(&mut self) -> Result<u8, Error> {
         let cmd = BroadcastDomainInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::BroadcastDomain(domain)) => Ok(domain),
             ViscaResponse::Error(e) => Err(e),
@@ -1917,7 +1917,7 @@ where
 
     fn get_noise_reduction_mode(&mut self) -> Result<crate::command::NrMode, Error> {
         let cmd = NrModeInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::NrMode { mode }) => Ok(mode),
             ViscaResponse::Error(e) => Err(e),
@@ -1927,7 +1927,7 @@ where
 
     fn get_noise_reduction_speed(&mut self) -> Result<crate::command::NrSpeed, Error> {
         let cmd = NrSpeedInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::NrSpeed { speed }) => Ok(speed),
             ViscaResponse::Error(e) => Err(e),
@@ -1937,7 +1937,7 @@ where
 
     fn get_black_white_mode(&mut self) -> Result<crate::command::BlackWhiteMode, Error> {
         let cmd = BlackWhiteModeInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::BlackWhiteMode { mode }) => Ok(mode),
             ViscaResponse::Error(e) => Err(e),
@@ -1947,7 +1947,7 @@ where
 
     fn get_usb_audio_enabled(&mut self) -> Result<bool, Error> {
         let cmd = UsbAudioInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::UsbAudio { on }) => Ok(on),
             ViscaResponse::Error(e) => Err(e),
@@ -1957,7 +1957,7 @@ where
 
     fn get_two_tone_mode_enabled(&mut self) -> Result<bool, Error> {
         let cmd = TwoToneModeInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::TwoToneMode { on }) => Ok(on),
             ViscaResponse::Error(e) => Err(e),
@@ -1967,7 +1967,7 @@ where
 
     fn get_nd_filter_preset(&mut self) -> Result<u8, Error> {
         let cmd = NdFilterPresetInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::NdFilterPreset { preset }) => Ok(preset),
             ViscaResponse::Error(e) => Err(e),
@@ -1977,7 +1977,7 @@ where
 
     fn get_digital_mode_enabled(&mut self) -> Result<bool, Error> {
         let cmd = DigitalInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::Digital { on }) => Ok(on),
             ViscaResponse::Error(e) => Err(e),
@@ -1987,7 +1987,7 @@ where
 
     fn get_tally_auto_adjust_enabled(&mut self) -> Result<bool, Error> {
         let cmd = TallyAutoAdjustInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::TallyAutoAdjust { on }) => Ok(on),
             ViscaResponse::Error(e) => Err(e),
@@ -1997,7 +1997,7 @@ where
 
     fn get_tally_green_enabled(&mut self) -> Result<bool, Error> {
         let cmd = TallyGreenInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::TallyGreen { on }) => Ok(on),
             ViscaResponse::Error(e) => Err(e),
@@ -2036,7 +2036,7 @@ where
 {
     fn get_pan_tilt_position(&mut self) -> Result<(i16, i16), Error> {
         let cmd = PanTiltPositionInquiry;
-        let response = self.send_command(&cmd).into_inner()?;
+        let response = pollster::block_on(self.send_command(&cmd))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::PanTiltPosition { pan, tilt }) => {
                 Ok((pan, tilt))

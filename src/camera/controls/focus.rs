@@ -294,12 +294,12 @@ where
 {
     fn focus_auto(&mut self) -> Result<(), Error> {
         let cmd = Focus::Auto;
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
     fn focus_manual(&mut self) -> Result<(), Error> {
         let cmd = Focus::Manual;
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -311,7 +311,7 @@ where
             let focus_speed = FocusSpeed::new(focus_speed_val.min(7))?;
             Focus::NearWithSpeed(focus_speed)
         };
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -323,56 +323,56 @@ where
             let focus_speed = FocusSpeed::new(focus_speed_val.min(7))?;
             Focus::FarWithSpeed(focus_speed)
         };
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
     fn focus_stop(&mut self) -> Result<(), Error> {
         let cmd = Focus::Stop;
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
     fn focus_one_push(&mut self) -> Result<(), Error> {
         let cmd = Focus::OnePushTrigger;
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
     fn set_focus(&mut self, position: FocusPosition) -> Result<(), Error> {
         let cmd = Focus::Position(position);
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
     fn focus_infinity(&mut self) -> Result<(), Error> {
         let cmd = Focus::Infinity;
-        self.send_command(&cmd).into_inner()?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
     fn enable_focus_lock(&mut self) -> Result<(), Error> {
-        self.send_command(&FocusLock::On).into_inner()?;
+        pollster::block_on(self.send_command(&FocusLock::On))?;
         Ok(())
     }
 
     fn disable_focus_lock(&mut self) -> Result<(), Error> {
-        self.send_command(&FocusLock::Off).into_inner()?;
+        pollster::block_on(self.send_command(&FocusLock::Off))?;
         Ok(())
     }
 
     fn push_af_press(&mut self) -> Result<(), Error> {
-        self.send_command(&PushAF::Press).into_inner()?;
+        pollster::block_on(self.send_command(&PushAF::Press))?;
         Ok(())
     }
 
     fn push_af_release(&mut self) -> Result<(), Error> {
-        self.send_command(&PushAF::Release).into_inner()?;
+        pollster::block_on(self.send_command(&PushAF::Release))?;
         Ok(())
     }
 
     fn set_focus_zone(&mut self, zone: FocusZone) -> Result<(), Error> {
-        self.send_command(&FocusZoneCommand { zone }).into_inner()?;
+        pollster::block_on(self.send_command(&FocusZoneCommand { zone }))?;
         Ok(())
     }
 
@@ -380,14 +380,12 @@ where
         &mut self,
         sensitivity: AutoFocusSensitivity,
     ) -> Result<(), Error> {
-        self.send_command(&AutoFocusSensitivityCommand { sensitivity })
-            .into_inner()?;
+        pollster::block_on(self.send_command(&AutoFocusSensitivityCommand { sensitivity }))?;
         Ok(())
     }
 
     fn set_focus_near_limit(&mut self, position: FocusPosition) -> Result<(), Error> {
-        self.send_command(&FocusNearLimitCommand { position })
-            .into_inner()?;
+        pollster::block_on(self.send_command(&FocusNearLimitCommand { position }))?;
         Ok(())
     }
 }
