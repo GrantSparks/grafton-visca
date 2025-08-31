@@ -42,7 +42,8 @@ pub trait Mode {
     where
         C: crate::command::ViscaEncode + Send + Sync + Clone + 'static,
         P: crate::capabilities::Profile + Default,
-        Tr: Send + Sync,
+        Tr: Send + crate::transport::SyncTransport,
+        Exec: Default,
         Self: Sized;
 
     /// Send a typed command and return the parsed response.
@@ -59,7 +60,8 @@ pub trait Mode {
             + 'static,
         C::Response: Send + 'static,
         P: crate::capabilities::Profile + Default,
-        Tr: Send + Sync,
+        Tr: Send + crate::transport::SyncTransport,
+        Exec: Default,
         Self: Sized;
 }
 
@@ -100,7 +102,7 @@ impl Mode for Async {
     where
         C: crate::command::ViscaEncode + Send + Sync + Clone + 'static,
         P: crate::capabilities::Profile + Default,
-        Tr: Send + Sync,
+        Tr: Send,
         Self: Sized,
     {
         use crate::command::bytes::VISCA_TERMINATOR;
@@ -171,7 +173,7 @@ impl Mode for Async {
     where
         C: crate::command::ViscaEncode + Send + Sync + Clone + 'static,
         P: crate::capabilities::Profile + Default,
-        Tr: Send + Sync,
+        Tr: Send,
         Self: Sized,
     {
         // Async mode is not available without the async feature
@@ -194,7 +196,7 @@ impl Mode for Async {
             + 'static,
         C::Response: Send + 'static,
         P: crate::capabilities::Profile + Default,
-        Tr: Send + Sync,
+        Tr: Send,
         Self: Sized,
     {
         // Delegate to send_command and parse response
@@ -219,7 +221,7 @@ impl Mode for Async {
             + 'static,
         C::Response: Send + 'static,
         P: crate::capabilities::Profile + Default,
-        Tr: Send + Sync,
+        Tr: Send,
         Self: Sized,
     {
         // Async mode is not available without the async feature
@@ -259,7 +261,8 @@ impl Mode for Blocking {
     where
         C: crate::command::ViscaEncode + Send + Sync + Clone + 'static,
         P: crate::capabilities::Profile + Default,
-        Tr: Send, // Remove Sync requirement for blocking mode
+        Tr: crate::transport::SyncTransport + Send, // Remove Sync requirement for blocking mode
+        Exec: Default,
         Self: Sized,
     {
         use crate::command::bytes::VISCA_TERMINATOR;
@@ -291,7 +294,7 @@ impl Mode for Blocking {
 
                         // Send command through transport
                         let mut transport = transport_cell.borrow_mut();
-                        if let Err(e) = transport.send(&request) {
+                        if let Err(e) = (&mut *transport).send(&request) {
                             return ready(Err(e));
                         }
 
@@ -302,26 +305,26 @@ impl Mode for Blocking {
                             // For non-inquiry commands, handle ACK/Completion sequence
 
                             // Read first response (should be ACK or error) with ACK timeout
-                            match transport.recv_with_timeout(timeout_config.ack_timeout) {
+                            match (&mut *transport).recv_with_timeout(timeout_config.ack_timeout) {
                                 Ok(first_response_bytes) => {
                                     match envelope.extract_response(&first_response_bytes[..]) {
-                                        Ok(first_visca) => {
-                                            match ViscaResponse::parse(&first_visca) {
+                                        Ok(first_visca_bytes) => {
+                                            match ViscaResponse::parse(&first_visca_bytes[..]) {
                                                 Ok(ViscaResponse::Error(e)) => ready(Err(e)),
                                                 Ok(ViscaResponse::CmdAck) => {
                                                     // Got ACK, now wait for completion
                                                     let completion_timeout = timeout_config
                                                         .get_timeout(C::TIMEOUT_CATEGORY);
-                                                    match transport
+                                                    match (&mut *transport)
                                                         .recv_with_timeout(completion_timeout)
                                                     {
                                                         Ok(second_response_bytes) => match envelope
                                                             .extract_response(
                                                                 &second_response_bytes[..],
                                                             ) {
-                                                            Ok(second_visca) => {
+                                                            Ok(second_visca_bytes) => {
                                                                 match ViscaResponse::parse(
-                                                                    &second_visca,
+                                                                    &second_visca_bytes[..],
                                                                 ) {
                                                                     Ok(response) => {
                                                                         ready(Ok(response))
@@ -346,13 +349,15 @@ impl Mode for Blocking {
                         } else {
                             // For inquiry commands, just read one response with quick timeout
                             let quick_timeout = timeout_config.get_timeout(C::TIMEOUT_CATEGORY);
-                            match transport.recv_with_timeout(quick_timeout) {
+                            match (&mut *transport).recv_with_timeout(quick_timeout) {
                                 Ok(response_bytes) => {
                                     match envelope.extract_response(&response_bytes[..]) {
-                                        Ok(visca) => match ViscaResponse::parse(&visca) {
-                                            Ok(response) => ready(Ok(response)),
-                                            Err(e) => ready(Err(e)),
-                                        },
+                                        Ok(visca_bytes) => {
+                                            match ViscaResponse::parse(&visca_bytes[..]) {
+                                                Ok(response) => ready(Ok(response)),
+                                                Err(e) => ready(Err(e)),
+                                            }
+                                        }
                                         Err(e) => ready(Err(e)),
                                     }
                                 }
@@ -380,7 +385,7 @@ impl Mode for Blocking {
     where
         C: crate::command::ViscaEncode + Send + Sync + Clone + 'static,
         P: crate::capabilities::Profile + Default,
-        Tr: Send + Sync,
+        Tr: Send,
         Self: Sized,
     {
         // When async feature is enabled, blocking mode still works but currently uses validation only
@@ -405,7 +410,8 @@ impl Mode for Blocking {
             + 'static,
         C::Response: Send + 'static,
         P: crate::capabilities::Profile + Default,
-        Tr: Send, // Remove Sync requirement for blocking mode
+        Tr: crate::transport::SyncTransport + Send, // Remove Sync requirement for blocking mode
+        Exec: Default,
         Self: Sized,
     {
         // Delegate to send_command and parse response
@@ -430,7 +436,7 @@ impl Mode for Blocking {
             + 'static,
         C::Response: Send + 'static,
         P: crate::capabilities::Profile + Default,
-        Tr: Send + Sync,
+        Tr: Send,
         Self: Sized,
     {
         // When async feature is enabled, blocking mode still works but currently uses validation only
