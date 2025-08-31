@@ -47,7 +47,7 @@ pub trait PresetsControl {
 /// Blocking presets control trait (deprecated, use PresetsControl instead).
 // Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P, Tr, Exec> PresetsControl for crate::camera::AsyncCamera<P, Tr, Exec>
+impl<P, Tr, Exec> PresetsControl for crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
@@ -88,7 +88,7 @@ where
 
 // Blocking implementation for BlockingCamera
 #[cfg(not(feature = "async"))]
-impl<P, Tr> PresetsControl for crate::camera::BlockingCamera<P, Tr>
+impl<P, Tr> PresetsControl for crate::camera::Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::SyncTransport + Send + 'static,

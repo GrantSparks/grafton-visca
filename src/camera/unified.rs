@@ -4,12 +4,6 @@
 //! operations through the Mode trait system, eliminating the need for separate
 //! AsyncCamera and BlockingCamera types.
 
-#[cfg(not(feature = "async"))]
-use std::cell::RefCell;
-
-// Import SyncTransport conditionally for blocking mode
-#[cfg(not(feature = "async"))]
-use crate::transport::SyncTransport;
 use crate::{
     camera_id::CameraId,
     capabilities::{Profile, ProtocolStyle},
@@ -22,8 +16,14 @@ use crate::{
         envelope::TransportEnvelope,
     },
 };
+
+#[cfg(not(feature = "async"))]
+use crate::transport::SyncTransport;
 #[cfg(feature = "async")]
 use crate::{executor::Executor, runtime::RuntimeHandle, transport::AsyncTransport};
+
+#[cfg(not(feature = "async"))]
+use std::cell::RefCell;
 
 /// Unified camera client that works in both blocking and async modes.
 ///
@@ -153,14 +153,15 @@ where
     /// working correctly in both async and blocking modes through the Mode trait.
     /// The same method signature works for both modes while providing proper
     /// runtime execution.
-    pub fn send_command<C>(&self, command: &C) -> M::Ret<Result<(), Error>>
+    pub fn send_command<C>(
+        &self,
+        command: &C,
+    ) -> M::Ret<Result<crate::command::response::ViscaResponse, Error>>
     where
-        C: ViscaEncode + Send + Sync,
+        C: ViscaEncode + Send + Sync + Clone + 'static,
     {
-        // Mode-specific command execution:
-        // - Async mode: Uses RuntimeHandle for proper async command execution
-        // - Blocking mode: Uses SyncTransport for direct synchronous transport access
-        M::execute_command(self, command)
+        // Mode-specific command execution that returns the raw ViscaResponse
+        M::send_command(self, command)
     }
 
     /// Send a typed command and return the response.
@@ -170,11 +171,11 @@ where
     /// safety for the response.
     pub fn send_command_typed<C>(&self, command: &C) -> M::Ret<Result<C::Response, Error>>
     where
-        C: ViscaCommand + ViscaEncode + Send + Sync,
+        C: ViscaCommand + ViscaEncode + Send + Sync + Clone + 'static,
         C::Response: Send + 'static,
     {
         // Delegate to mode-specific typed command execution
-        M::execute_command_typed(self, command)
+        M::send_command_typed(self, command)
     }
 
     /// Get the camera ID.
@@ -182,9 +183,19 @@ where
         self.camera_id
     }
 
+    /// Set the camera ID.
+    pub fn set_camera_id(&mut self, camera_id: CameraId) {
+        self.camera_id = camera_id;
+    }
+
     /// Get the current timeout configuration.
     pub fn timeout_config(&self) -> &TimeoutConfig {
         &self.timeout_config
+    }
+
+    /// Set the timeout configuration.
+    pub fn set_timeout_config(&mut self, timeout_config: TimeoutConfig) {
+        self.timeout_config = timeout_config;
     }
 
     /// Get access to the runtime handle for async mode.
@@ -193,10 +204,115 @@ where
         self.runtime_handle.as_ref()
     }
 
+    /// Get access to the executor for async mode.
+    #[cfg(feature = "async")]
+    pub fn executor(&self) -> Option<&Exec> {
+        // The executor is stored in the runtime handle for the unified design
+        // For now, return None as the executor access pattern needs to be redesigned
+        None
+    }
+
+    /// Sleep for the specified duration using the runtime's executor.
+    ///
+    /// This method provides runtime-agnostic sleeping functionality that works
+    /// with the unified camera design by delegating to the RuntimeHandle.
+    #[cfg(feature = "async")]
+    pub async fn sleep(&self, duration: std::time::Duration) {
+        if let Some(_runtime_handle) = &self.runtime_handle {
+            // We need to extract the executor from the runtime handle to call sleep
+            // For now, we'll fall back to tokio::time::sleep as a temporary measure
+            // until we can redesign the RuntimeHandle API to expose sleep directly
+            #[cfg(feature = "rt-tokio")]
+            tokio::time::sleep(duration).await;
+            #[cfg(not(feature = "rt-tokio"))]
+            {
+                // For other runtimes, we'd need different approaches
+                // This is a temporary fallback until the RuntimeHandle API is enhanced
+            }
+        } else {
+            // Fallback when no runtime handle is available
+            #[cfg(feature = "rt-tokio")]
+            tokio::time::sleep(duration).await;
+            #[cfg(not(feature = "rt-tokio"))]
+            {
+                // For other runtimes, we'd need different approaches
+            }
+        }
+    }
+
     /// Get access to the transport for blocking mode.
     #[cfg(not(feature = "async"))]
     pub fn transport(&self) -> Option<&RefCell<Tr>> {
         self.transport.as_ref()
+    }
+
+    /// Send a command and return both the command ID and response future.
+    ///
+    /// This method allows for command cancellation by providing the command ID.
+    /// Only available in async mode.
+    #[cfg(feature = "async")]
+    pub async fn send_command_with_id<C>(
+        &self,
+        command: &C,
+    ) -> Result<
+        (
+            u32,
+            impl std::future::Future<Output = Result<crate::command::response::ViscaResponse, Error>>,
+        ),
+        Error,
+    >
+    where
+        C: ViscaEncode + Send + Sync + Clone + 'static,
+    {
+        if let Some(runtime_handle) = &self.runtime_handle {
+            runtime_handle
+                .send_command_with_id(command, self.camera_id, None)
+                .await
+        } else {
+            Err(Error::InvalidState("No runtime handle available".into()))
+        }
+    }
+
+    /// Cancel a command by its ID.
+    ///
+    /// This method attempts to cancel a command using the provided command ID.
+    /// Only available in async mode.
+    #[cfg(feature = "async")]
+    pub async fn cancel_command(&self, command_id: u32) -> Result<(), Error> {
+        if let Some(runtime_handle) = &self.runtime_handle {
+            runtime_handle
+                .cancel(command_id)
+                .await
+                .map_err(|e| Error::TransportError(e.to_string().into()))
+        } else {
+            Err(Error::InvalidState("No runtime handle available".into()))
+        }
+    }
+
+    /// Cancel all commands on a specific socket.
+    ///
+    /// This method cancels all pending commands on the specified socket.
+    /// Only available in async mode.
+    #[cfg(feature = "async")]
+    pub async fn cancel_socket(&self, socket: crate::ViscaSocket) -> Result<(), Error> {
+        if let Some(runtime_handle) = &self.runtime_handle {
+            runtime_handle
+                .cancel_socket(socket)
+                .await
+                .map_err(|e| Error::TransportError(e.to_string().into()))
+        } else {
+            Err(Error::InvalidState("No runtime handle available".into()))
+        }
+    }
+
+    /// Get access to the envelope for command framing.
+    pub(crate) fn envelope(&self) -> &TransportEnvelope {
+        &self.envelope
+    }
+
+    /// Get access to the envelope buffer manager.
+    pub(crate) fn envelope_buffer_manager(&self) -> &BufferManager {
+        &self.envelope_buffer_manager
     }
 }
 

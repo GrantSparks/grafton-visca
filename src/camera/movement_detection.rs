@@ -16,14 +16,12 @@ use crate::{
 use crate::{executor::Executor, transport::AsyncTransport};
 
 #[cfg(feature = "async")]
-use super::AsyncCamera;
-#[cfg(not(feature = "async"))]
-use super::BlockingCamera;
+use super::Camera;
 use super::{MovementConfig, PanTiltPosition};
 
 // Blocking mode implementation is only available without async feature
 #[cfg(not(feature = "async"))]
-impl<P, T> BlockingCamera<P, T>
+impl<P, T> Camera<crate::mode::Blocking, P, T, ()>
 where
     P: Profile + ProfileMetadata + Default,
     T: SyncTransport,
@@ -348,7 +346,7 @@ where
 }
 
 #[cfg(feature = "async")]
-impl<P, T, E> AsyncCamera<P, T, E>
+impl<P, T, E> Camera<crate::mode::Async, P, T, E>
 where
     P: Profile + ProfileMetadata + Default,
     T: AsyncTransport + Send + Sync + 'static,
@@ -428,8 +426,7 @@ where
 
             // Yield to scheduler using a short sleep to avoid busy looping
             // Keep cadence in line with blocking path (~5ms)
-            let executor = self.executor();
-            executor.sleep(Duration::from_millis(5)).await;
+            self.sleep(Duration::from_millis(5)).await;
         }
     }
 
@@ -450,8 +447,6 @@ where
                 config.timeout
             );
         }
-        let executor = self.executor();
-
         loop {
             if start.elapsed() > config.timeout {
                 return Err(Error::Timeout);
@@ -470,7 +465,7 @@ where
                 }
             };
 
-            executor.sleep(Duration::from_millis(50)).await;
+            self.sleep(Duration::from_millis(50)).await;
 
             let pos2_response = self.send_command(&PanTiltPositionInquiry).await?;
             let (pos2_pan, pos2_tilt) = match pos2_response {
@@ -508,8 +503,6 @@ where
                 config.timeout
             );
         }
-        let executor = self.executor();
-
         loop {
             if start.elapsed() > config.timeout {
                 return Err(Error::Timeout);
@@ -524,7 +517,7 @@ where
                 _ => return Err(Error::ParseError("Expected ZoomPosition response".into())),
             };
 
-            executor.sleep(Duration::from_millis(50)).await;
+            self.sleep(Duration::from_millis(50)).await;
 
             let pos2_response = self.send_command(&ZoomPositionInquiry).await?;
             let pos2_zoom = match pos2_response {
@@ -558,8 +551,6 @@ where
                 config.timeout
             );
         }
-        let executor = self.executor();
-
         loop {
             if start.elapsed() > config.timeout {
                 return Err(Error::Timeout);
@@ -574,7 +565,7 @@ where
                 _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
             };
 
-            executor.sleep(Duration::from_millis(50)).await;
+            self.sleep(Duration::from_millis(50)).await;
 
             let pos2_response = self.send_command(&FocusPositionInquiry).await?;
             let pos2_focus = match pos2_response {
@@ -626,7 +617,6 @@ where
         }
 
         let start = Instant::now();
-        let executor = self.executor();
 
         // Loop until timeout checking if camera has stopped moving
         while start.elapsed() < config.timeout {
@@ -637,7 +627,7 @@ where
             }
 
             // Wait a bit before checking again
-            executor.sleep(Duration::from_millis(100)).await;
+            self.sleep(Duration::from_millis(100)).await;
         }
 
         Err(Error::Timeout)
@@ -685,9 +675,8 @@ where
             _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
         };
 
-        // Yield to scheduler using executor
-        let executor = self.executor();
-        executor.sleep(Duration::from_millis(1)).await;
+        // Yield to scheduler
+        self.sleep(Duration::from_millis(1)).await;
 
         // Get second reading
         let pos2_pt_response = self.send_command(&PanTiltPositionInquiry).await?;

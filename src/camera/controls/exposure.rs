@@ -330,7 +330,7 @@ pub trait ExposureControl {
 /// Blocking exposure control trait (deprecated, use ExposureControl instead).
 // Async implementation for AsyncCamera
 #[cfg(feature = "async")]
-impl<P, Tr, Exec> ExposureControl for crate::camera::AsyncCamera<P, Tr, Exec>
+impl<P, Tr, Exec> ExposureControl for crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
@@ -531,7 +531,7 @@ where
 
 // Blocking implementation for BlockingCamera
 #[cfg(not(feature = "async"))]
-impl<P, Tr> ExposureControl for crate::camera::BlockingCamera<P, Tr>
+impl<P, Tr> ExposureControl for crate::camera::Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::SyncTransport + Send + 'static,

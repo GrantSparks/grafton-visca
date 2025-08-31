@@ -14,20 +14,19 @@ use grafton_visca::TokioExecutor;
 #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
 #[tokio::test(start_paused = true)]
 async fn test_operations_work_with_default_runtime() {
-    use grafton_visca::camera::{profiles::PtzOpticsG2, AsyncCamera};
+    use grafton_visca::camera::{profiles::PtzOpticsG2, CameraBuilder};
     use grafton_visca::{PanTiltControl, ZoomControl};
 
-    // Create TokioExecutor for integration test with paused time
-    let executor =
-        std::sync::Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
+    // Create transport for integration test with paused time
     let transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(vec![
         helpers::auto_respond_step(), // zoom_stop
         helpers::auto_respond_step(), // pan_tilt_stop
     ]);
-    let transport = transport.with_executor(executor.clone());
 
     println!("Creating camera...");
-    let camera = AsyncCamera::<PtzOpticsG2, _, _>::with_executor(transport, executor)
+    let camera = CameraBuilder::tokio()
+        .unwrap()
+        .build_async::<PtzOpticsG2, _>(transport)
         .await
         .unwrap();
     println!("Camera created successfully");
@@ -53,18 +52,16 @@ async fn test_operations_work_with_default_runtime() {
 #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
 #[tokio::test(start_paused = true)]
 async fn test_operations_succeed_with_explicit_runtime() {
-    use grafton_visca::camera::{profiles::PtzOpticsG2, AsyncCamera};
+    use grafton_visca::camera::{profiles::PtzOpticsG2, CameraBuilder};
     use grafton_visca::ZoomControl;
 
-    // Create TokioExecutor for integration test with paused time
-    let executor =
-        std::sync::Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
     let transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(vec![
         helpers::standard_command_response(1), // ACK + Completion for socket 1
     ]);
-    let transport = transport.with_executor(executor.clone());
 
-    let camera = AsyncCamera::<PtzOpticsG2, _, _>::with_executor(transport, executor)
+    let camera = CameraBuilder::tokio()
+        .unwrap()
+        .build_async::<PtzOpticsG2, _>(transport)
         .await
         .unwrap();
 
@@ -98,7 +95,7 @@ async fn test_custom_runtime_works() {
 #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
 #[tokio::test(start_paused = true)]
 async fn test_movement_detection_works_with_default_runtime() {
-    use grafton_visca::camera::{profiles::PtzOpticsG2, AsyncCamera};
+    use grafton_visca::camera::{profiles::PtzOpticsG2, CameraBuilder};
     use grafton_visca::{PanTiltControl, ZoomControl};
 
     // Create TokioExecutor for integration test with paused time
@@ -110,7 +107,8 @@ async fn test_movement_detection_works_with_default_runtime() {
     ]);
     let transport = transport.with_executor(executor.clone());
 
-    let camera = AsyncCamera::<PtzOpticsG2, _, _>::with_executor(transport, executor)
+    let camera = CameraBuilder::with_executor(executor)
+        .build_async::<PtzOpticsG2, _>(transport)
         .await
         .unwrap();
 
@@ -128,7 +126,7 @@ async fn test_movement_detection_works_with_default_runtime() {
 #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
 #[tokio::test(start_paused = true)]
 async fn test_power_operations_work_with_default_runtime() {
-    use grafton_visca::camera::{profiles::PtzOpticsG2, AsyncCamera};
+    use grafton_visca::camera::{profiles::PtzOpticsG2, CameraBuilder};
     use grafton_visca::{FocusControl, ZoomControl};
 
     // Create TokioExecutor for integration test with paused time
@@ -140,7 +138,8 @@ async fn test_power_operations_work_with_default_runtime() {
     ]);
     let transport = transport.with_executor(executor.clone());
 
-    let camera = AsyncCamera::<PtzOpticsG2, _, _>::with_executor(transport, executor)
+    let camera = CameraBuilder::with_executor(executor)
+        .build_async::<PtzOpticsG2, _>(transport)
         .await
         .unwrap();
 

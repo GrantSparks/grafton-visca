@@ -82,7 +82,7 @@ pub trait NdFilterControl {
 /// Blocking ND filter control trait (deprecated, use NdFilterControl instead).
 // Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P, Tr, Exec> NdFilterControl for crate::camera::AsyncCamera<P, Tr, Exec>
+impl<P, Tr, Exec> NdFilterControl for crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
 where
     P: crate::capabilities::Profile + crate::capabilities::nd_filter::NdFilter + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
@@ -149,7 +149,7 @@ where
 
 // Blocking implementation for BlockingCamera
 #[cfg(not(feature = "async"))]
-impl<P, Tr> NdFilterControl for crate::camera::BlockingCamera<P, Tr>
+impl<P, Tr> NdFilterControl for crate::camera::Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: crate::capabilities::Profile + crate::capabilities::nd_filter::NdFilter + Default,
     Tr: crate::transport::SyncTransport + Send + 'static,

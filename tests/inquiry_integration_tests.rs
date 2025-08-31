@@ -6,7 +6,7 @@
 #![cfg(feature = "rt-tokio")]
 
 use grafton_visca::{
-    camera::AsyncCamera,
+    camera::CameraBuilder,
     command::{
         exposure::ExposureMode, focus::FocusMode, preset::PresetNumber,
         white_balance::WhiteBalanceMode,
@@ -20,11 +20,10 @@ use std::time::Duration;
 /// Test basic power inquiry through the full stack
 #[tokio::test(start_paused = true)]
 async fn test_power_inquiry_integration() {
-    use grafton_visca::TokioExecutor;
-
-    let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera = AsyncCamera::<GenericVisca, _, _>::with_executor(simulator, executor)
+    let camera = CameraBuilder::tokio()
+        .unwrap()
+        .build_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -40,11 +39,10 @@ async fn test_power_inquiry_integration() {
 /// Test position inquiries (pan/tilt, zoom, focus)
 #[tokio::test(start_paused = true)]
 async fn test_position_inquiries_integration() {
-    use grafton_visca::TokioExecutor;
-
-    let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera = AsyncCamera::<GenericVisca, _, _>::with_executor(simulator, executor)
+    let camera = CameraBuilder::tokio()
+        .unwrap()
+        .build_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -99,11 +97,10 @@ async fn test_position_inquiries_integration() {
 #[tokio::test(start_paused = true)]
 async fn test_exposure_inquiries_integration() {
     let _ = tracing_subscriber::fmt().with_test_writer().try_init();
-    use grafton_visca::TokioExecutor;
-
-    let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera = AsyncCamera::<GenericVisca, _, _>::with_executor(simulator, executor)
+    let camera = CameraBuilder::tokio()
+        .unwrap()
+        .build_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -175,11 +172,10 @@ async fn test_exposure_inquiries_integration() {
 /// Test white balance and color inquiries
 #[tokio::test(start_paused = true)]
 async fn test_white_balance_color_inquiries_integration() {
-    use grafton_visca::TokioExecutor;
-
-    let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera = AsyncCamera::<GenericVisca, _, _>::with_executor(simulator, executor)
+    let camera = CameraBuilder::tokio()
+        .unwrap()
+        .build_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -206,11 +202,10 @@ async fn test_white_balance_color_inquiries_integration() {
 /// Test image adjustment inquiries
 #[tokio::test(start_paused = true)]
 async fn test_image_adjustment_inquiries_integration() {
-    use grafton_visca::TokioExecutor;
-
-    let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera = AsyncCamera::<GenericVisca, _, _>::with_executor(simulator, executor)
+    let camera = CameraBuilder::tokio()
+        .unwrap()
+        .build_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -241,11 +236,10 @@ async fn test_image_adjustment_inquiries_integration() {
 /// Test noise reduction inquiries
 #[tokio::test(start_paused = true)]
 async fn test_noise_reduction_inquiries_integration() {
-    use grafton_visca::TokioExecutor;
-
-    let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera = AsyncCamera::<GenericVisca, _, _>::with_executor(simulator, executor)
+    let camera = CameraBuilder::tokio()
+        .unwrap()
+        .build_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -268,11 +262,10 @@ async fn test_noise_reduction_inquiries_integration() {
 /// Test focus mode inquiries
 #[tokio::test(start_paused = true)]
 async fn test_focus_mode_inquiries_integration() {
-    use grafton_visca::TokioExecutor;
-
-    let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera = AsyncCamera::<GenericVisca, _, _>::with_executor(simulator, executor)
+    let camera = CameraBuilder::tokio()
+        .unwrap()
+        .build_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -291,11 +284,10 @@ async fn test_focus_mode_inquiries_integration() {
 /// Test resolution inquiry
 #[tokio::test(start_paused = true)]
 async fn test_resolution_inquiry_integration() {
-    use grafton_visca::TokioExecutor;
-
-    let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera = AsyncCamera::<GenericVisca, _, _>::with_executor(simulator, executor)
+    let camera = CameraBuilder::tokio()
+        .unwrap()
+        .build_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -318,11 +310,10 @@ async fn test_resolution_inquiry_integration() {
 /// Test concurrent inquiries to verify socket manager handles them properly
 #[tokio::test(start_paused = true)]
 async fn test_concurrent_inquiries_integration() {
-    use grafton_visca::TokioExecutor;
-
-    let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera = AsyncCamera::<GenericVisca, _, _>::with_executor(simulator, executor)
+    let camera = CameraBuilder::tokio()
+        .unwrap()
+        .build_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -352,11 +343,10 @@ async fn test_concurrent_inquiries_integration() {
 /// Test sequential inquiry commands
 #[tokio::test(start_paused = true)]
 async fn test_sequential_inquiries() {
-    use grafton_visca::TokioExecutor;
-
-    let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera = AsyncCamera::<GenericVisca, _, _>::with_executor(simulator, executor)
+    let camera = CameraBuilder::tokio()
+        .unwrap()
+        .build_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -388,8 +378,9 @@ async fn test_inquiry_timeout_behavior() {
         )
         .build();
 
-    let executor = grafton_visca::TokioExecutor::from_current().unwrap();
-    let camera = AsyncCamera::<GenericVisca, _, _>::with_executor(simulator, executor)
+    let camera = CameraBuilder::tokio()
+        .unwrap()
+        .build_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -406,11 +397,10 @@ async fn test_inquiry_timeout_behavior() {
 /// Test mixed command and inquiry execution
 #[tokio::test]
 async fn test_mixed_commands_and_inquiries() {
-    use grafton_visca::TokioExecutor;
-
-    let executor = TokioExecutor::from_current().unwrap();
     let simulator = ViscaCameraSimulator::new();
-    let camera = AsyncCamera::<GenericVisca, _, _>::with_executor(simulator.clone(), executor)
+    let camera = CameraBuilder::tokio()
+        .unwrap()
+        .build_async::<GenericVisca, _>(simulator.clone())
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use

@@ -639,7 +639,7 @@ pub trait PanTiltInquiryControl {
 
 // Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P, Tr, Exec> InquiryControl for crate::camera::AsyncCamera<P, Tr, Exec>
+impl<P, Tr, Exec> InquiryControl for crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
@@ -1324,7 +1324,7 @@ where
 
 // Blocking implementation
 #[cfg(not(feature = "async"))]
-impl<P, Tr> InquiryControl for crate::camera::BlockingCamera<P, Tr>
+impl<P, Tr> InquiryControl for crate::camera::Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::SyncTransport + Send + 'static,
@@ -2008,7 +2008,7 @@ where
 
 // Async implementation for PanTiltInquiryControl
 #[cfg(feature = "async")]
-impl<P, Tr, Exec> PanTiltInquiryControl for crate::camera::AsyncCamera<P, Tr, Exec>
+impl<P, Tr, Exec> PanTiltInquiryControl for crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
@@ -2029,7 +2029,7 @@ where
 
 // Blocking implementation for PanTiltInquiryControl
 #[cfg(not(feature = "async"))]
-impl<P, Tr> PanTiltInquiryControl for crate::camera::BlockingCamera<P, Tr>
+impl<P, Tr> PanTiltInquiryControl for crate::camera::Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::SyncTransport + Send + 'static,

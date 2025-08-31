@@ -126,7 +126,7 @@ pub trait PanTiltControl {
 /// Blocking pan/tilt control trait (deprecated, use PanTiltControl instead).
 // Async implementation for AsyncCamera
 #[cfg(feature = "async")]
-impl<P, Tr, Exec> PanTiltControl for crate::camera::AsyncCamera<P, Tr, Exec>
+impl<P, Tr, Exec> PanTiltControl for crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
@@ -246,7 +246,7 @@ where
 
 // Blocking implementation for BlockingCamera
 #[cfg(not(feature = "async"))]
-impl<P, Tr> PanTiltControl for crate::camera::BlockingCamera<P, Tr>
+impl<P, Tr> PanTiltControl for crate::camera::Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::SyncTransport + Send + 'static,

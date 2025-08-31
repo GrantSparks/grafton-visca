@@ -442,9 +442,16 @@
 //!     .preset_operations(Duration::from_secs(60))
 //!     .build();
 //!
+//! // For async mode (default)
+//! let camera = CameraBuilder::tokio()?
+//!     .timeout_config(config)
+//!     .build_async::<PtzOpticsG2, _>(transport).await?;
+//!
+//! // For blocking mode (when async feature is disabled)
+//! #[cfg(not(feature = "async"))]
 //! let camera = CameraBuilder::new()
 //!     .timeout_config(config)
-//!     .build_blocking::<PtzOpticsG2, _>(transport);
+//!     .build_blocking::<PtzOpticsG2, _>(transport)?;
 //! ```
 //!
 //! ## Command Cancellation (Async)

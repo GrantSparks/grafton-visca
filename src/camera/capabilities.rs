@@ -8,13 +8,13 @@
 use crate::capabilities::{MotionSync, NdFilter, NdFilterMode as CapabilityNdFilterMode, Profile};
 
 #[cfg(feature = "async")]
-use crate::{camera::handle::AsyncCamera, executor::Executor, transport::AsyncTransport};
+use crate::{camera::Camera, executor::Executor, mode, transport::AsyncTransport};
 #[cfg(not(feature = "async"))]
-use crate::{camera::handle::BlockingCamera, transport::SyncTransport};
+use crate::{camera::Camera, mode, transport::SyncTransport};
 
 // Blocking camera capabilities
 #[cfg(not(feature = "async"))]
-impl<P, Tr> BlockingCamera<P, Tr>
+impl<P, Tr> Camera<mode::Blocking, P, Tr, ()>
 where
     P: Profile + NdFilter,
     Tr: SyncTransport,
@@ -33,7 +33,7 @@ where
 }
 
 #[cfg(not(feature = "async"))]
-impl<P, Tr> BlockingCamera<P, Tr>
+impl<P, Tr> Camera<mode::Blocking, P, Tr, ()>
 where
     P: Profile + MotionSync,
     Tr: SyncTransport,
@@ -53,7 +53,7 @@ where
 
 // Async camera capabilities
 #[cfg(feature = "async")]
-impl<P, Tr, Exec> AsyncCamera<P, Tr, Exec>
+impl<P, Tr, Exec> Camera<mode::Async, P, Tr, Exec>
 where
     P: Profile + NdFilter,
     Tr: AsyncTransport,
@@ -73,7 +73,7 @@ where
 }
 
 #[cfg(feature = "async")]
-impl<P, Tr, Exec> AsyncCamera<P, Tr, Exec>
+impl<P, Tr, Exec> Camera<mode::Async, P, Tr, Exec>
 where
     P: Profile + MotionSync,
     Tr: AsyncTransport,

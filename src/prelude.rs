@@ -97,7 +97,7 @@ pub mod blocking {
         GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
         SonyBRCH900, SonyEVIH100, SonyFR7,
     };
-    pub use crate::camera::{CameraBlocking as Camera, MovementConfig};
+    pub use crate::camera::{BlockingCamera as Camera, MovementConfig};
     pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
     pub use crate::units::{Degrees, Normalized, Percentage, Raw};
     pub use crate::{

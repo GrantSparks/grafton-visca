@@ -92,7 +92,7 @@ pub trait ZoomControl {
 /// Blocking zoom control trait (deprecated, use ZoomControl instead).
 // Async implementation for AsyncCamera
 #[cfg(feature = "async")]
-impl<P, Tr, Exec> ZoomControl for crate::camera::AsyncCamera<P, Tr, Exec>
+impl<P, Tr, Exec> ZoomControl for crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
@@ -164,7 +164,7 @@ where
 
 // Blocking implementation for BlockingCamera
 #[cfg(not(feature = "async"))]
-impl<P, Tr> ZoomControl for crate::camera::BlockingCamera<P, Tr>
+impl<P, Tr> ZoomControl for crate::camera::Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::SyncTransport + Send + 'static,

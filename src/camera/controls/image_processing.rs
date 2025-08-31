@@ -50,7 +50,7 @@ pub trait ImageProcessingControl {
     /// Set contrast level.
     #[cfg(feature = "async")]
     fn set_contrast(
-        &mut self,
+        &self,
         level: ContrastLevel,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
@@ -61,7 +61,7 @@ pub trait ImageProcessingControl {
     /// Set sharpness level.
     #[cfg(feature = "async")]
     fn set_sharpness(
-        &mut self,
+        &self,
         level: SharpnessLevel,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
@@ -72,7 +72,7 @@ pub trait ImageProcessingControl {
     /// Set sharpness mode (auto or manual).
     #[cfg(feature = "async")]
     fn set_sharpness_mode(
-        &mut self,
+        &self,
         mode: crate::command::SharpnessMode,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
@@ -111,7 +111,7 @@ pub trait ImageProcessingControl {
     /// Set saturation level.
     #[cfg(feature = "async")]
     fn set_saturation(
-        &mut self,
+        &self,
         level: SaturationLevel,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
@@ -122,7 +122,7 @@ pub trait ImageProcessingControl {
     /// Set hue level.
     #[cfg(feature = "async")]
     fn set_hue(
-        &mut self,
+        &self,
         level: HueLevel,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
@@ -175,7 +175,7 @@ pub trait ImageProcessingControl {
     /// Set image flip mode (combined horizontal and vertical).
     #[cfg(feature = "async")]
     fn set_image_flip(
-        &mut self,
+        &self,
         mode: ImageFlipMode,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
@@ -186,7 +186,7 @@ pub trait ImageProcessingControl {
     /// Set luminance (brightness) level.
     #[cfg(feature = "async")]
     fn set_luminance(
-        &mut self,
+        &self,
         level: LuminanceLevel,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
@@ -243,7 +243,7 @@ pub trait ImageProcessingControl {
     /// Note that not all effects are supported on all camera models.
     #[cfg(feature = "async")]
     fn set_picture_effect(
-        &mut self,
+        &self,
         mode: PictureEffectMode,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
@@ -256,7 +256,7 @@ pub trait ImageProcessingControl {
 
 // Async implementation
 #[cfg(feature = "async")]
-impl<P, Tr, Exec> ImageProcessingControl for crate::camera::AsyncCamera<P, Tr, Exec>
+impl<P, Tr, Exec> ImageProcessingControl for crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
@@ -289,13 +289,13 @@ where
         Ok(())
     }
 
-    async fn set_contrast(&mut self, level: ContrastLevel) -> Result<(), Error> {
+    async fn set_contrast(&self, level: ContrastLevel) -> Result<(), Error> {
         let cmd = crate::command::image::Contrast::new(level);
         self.send_command(&cmd).await?;
         Ok(())
     }
 
-    async fn set_sharpness(&mut self, level: SharpnessLevel) -> Result<(), Error> {
+    async fn set_sharpness(&self, level: SharpnessLevel) -> Result<(), Error> {
         let cmd = crate::command::image::Sharpness::SetLevel {
             value: level.value(),
         };
@@ -303,10 +303,7 @@ where
         Ok(())
     }
 
-    async fn set_sharpness_mode(
-        &mut self,
-        _mode: crate::command::SharpnessMode,
-    ) -> Result<(), Error> {
+    async fn set_sharpness_mode(&self, _mode: crate::command::SharpnessMode) -> Result<(), Error> {
         // SharpnessMode command not documented in VISCA protocol spec
         // This may be a proprietary extension - returning unsupported for now
         Err(Error::Unsupported)
@@ -330,13 +327,13 @@ where
         Ok(())
     }
 
-    async fn set_saturation(&mut self, level: SaturationLevel) -> Result<(), Error> {
+    async fn set_saturation(&self, level: SaturationLevel) -> Result<(), Error> {
         let cmd = crate::command::color::SaturationCommand::new(level);
         self.send_command(&cmd).await?;
         Ok(())
     }
 
-    async fn set_hue(&mut self, level: HueLevel) -> Result<(), Error> {
+    async fn set_hue(&self, level: HueLevel) -> Result<(), Error> {
         let cmd = crate::command::color::HueCommand::new(level);
         self.send_command(&cmd).await?;
         Ok(())
@@ -366,7 +363,7 @@ where
         Ok(())
     }
 
-    async fn set_image_flip(&mut self, mode: ImageFlipMode) -> Result<(), Error> {
+    async fn set_image_flip(&self, mode: ImageFlipMode) -> Result<(), Error> {
         // Use the combined flip command (PtzOptics A4 opcode)
         // This is more efficient than sending separate vertical and horizontal commands
         let cmd = crate::command::image::ImageFlipCombinedCommand::new(mode);
@@ -374,7 +371,7 @@ where
         Ok(())
     }
 
-    async fn set_luminance(&mut self, level: LuminanceLevel) -> Result<(), Error> {
+    async fn set_luminance(&self, level: LuminanceLevel) -> Result<(), Error> {
         let cmd = crate::command::image::Luminance::new(level);
         self.send_command(&cmd).await?;
         Ok(())
@@ -408,7 +405,7 @@ where
         Ok(())
     }
 
-    async fn set_picture_effect(&mut self, mode: PictureEffectMode) -> Result<(), Error> {
+    async fn set_picture_effect(&self, mode: PictureEffectMode) -> Result<(), Error> {
         let cmd = crate::command::image::PictureEffectCommand { mode };
         self.send_command(&cmd).await?;
         Ok(())
@@ -417,7 +414,7 @@ where
 
 // Blocking implementation
 #[cfg(not(feature = "async"))]
-impl<P, Tr> ImageProcessingControl for crate::camera::BlockingCamera<P, Tr>
+impl<P, Tr> ImageProcessingControl for crate::camera::Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::SyncTransport + Send + 'static,
