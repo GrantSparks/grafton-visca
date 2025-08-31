@@ -1,11 +1,8 @@
 //! Type-safe wrappers for VISCA protocol values.
 
-// Standard library
 use std::{borrow::Cow, fmt};
 
-// Local imports
 use crate::{error::Error, units::Percentage, ViscaValue};
-
 
 /// Gain level value for direct gain control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]

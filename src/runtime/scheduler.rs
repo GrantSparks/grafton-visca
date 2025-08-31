@@ -104,7 +104,6 @@ pub(crate) enum RxEvent {
     },
 }
 
-
 /// Command priority levels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Priority {
@@ -551,7 +550,11 @@ impl Scheduler {
                 socket.started_at = Some(now);
                 socket.category = Some(category);
 
-                let socket_id = if idx == 0 { ViscaSocket::S1 } else { ViscaSocket::S2 };
+                let socket_id = if idx == 0 {
+                    ViscaSocket::S1
+                } else {
+                    ViscaSocket::S2
+                };
                 debug!("Allocated {:?} for command {}", socket_id, command_id);
                 return Some(socket_id);
             }
@@ -719,7 +722,11 @@ impl Scheduler {
                 {
                     let timeout = self.timeout_config.get_timeout(category);
                     if now.duration_since(started) > timeout {
-                        let socket_id = if idx == 0 { ViscaSocket::S1 } else { ViscaSocket::S2 };
+                        let socket_id = if idx == 0 {
+                            ViscaSocket::S1
+                        } else {
+                            ViscaSocket::S2
+                        };
                         warn!(
                             "Command {} on {:?} timed out after {:?}",
                             cmd_id, socket_id, timeout
@@ -994,7 +1001,6 @@ impl Scheduler {
         let mut exhausted_commands = Vec::new();
 
         for (idx, cmd) in self.retry_queue.iter().enumerate() {
-            //     cmd.id, cmd.retry_at, now, cmd.retry_at <= now);
             // Skip commands that aren't ready yet
             if cmd.retry_at > now {
                 continue;

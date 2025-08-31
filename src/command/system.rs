@@ -10,20 +10,11 @@
 //! - `MotionSyncMode` and `MotionSyncSpeed` - PtzOptics specific (firmware 1.1.6+)
 //!   These features coordinate pan, tilt, and zoom movements for smoother preset recalls.
 
-// Standard library imports
-// (none)
-
-// Third-party crate imports
-// (none)
-
-// Workspace / local-crate imports
-use crate::command::bytes::VISCA_TERMINATOR;
-use crate::macros::internal::*;
-use crate::ViscaSocket;
-
 use grafton_visca_macros::ViscaEnum;
 
-use crate::command::bytes::constants;
+use crate::command::bytes::{constants, VISCA_TERMINATOR};
+use crate::macros::internal::*;
+use crate::ViscaSocket;
 
 visca_const_command! {
     /// Command to set camera address (broadcast, serial only).
@@ -31,7 +22,6 @@ visca_const_command! {
     /// This is used during initial setup of VISCA cameras on a serial bus.
     /// Note: This is a broadcast command that affects all cameras on the bus.
     ///
-    /// TODO: Implement for serial transport support
     pub(crate) struct AddressSetCommand;
     bytes = [0x88, 0x30, 0x01,  VISCA_TERMINATOR];
     timeout = Quick;
@@ -70,7 +60,6 @@ pub enum MotionSyncSpeed {
     /// Fast motion sync speed.
     Fast = 0x02,
 }
-
 
 visca_param_command! {
     /// Command to cancel pending commands on a specific socket.

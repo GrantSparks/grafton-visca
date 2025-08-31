@@ -13,6 +13,7 @@ use crate::{
     error::Error,
     timeout::TimeoutConfig,
 };
+
 #[cfg(feature = "async")]
 use crate::{
     command::bytes::VISCA_TERMINATOR,
@@ -24,6 +25,7 @@ use crate::{
         AsyncTransport,
     },
 };
+
 #[cfg(not(feature = "async"))]
 use crate::{
     command::bytes::VISCA_TERMINATOR,

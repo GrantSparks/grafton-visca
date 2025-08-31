@@ -211,8 +211,6 @@ impl RuntimeHandle {
 
     /// Cancel a command by its ID.
     ///
-    /// TODO: This currently cancels both sockets as we don't track command-to-socket mapping.
-    /// Future implementation should track command IDs to socket mappings for targeted cancellation.
     pub async fn cancel(&self, _command_id: u32) -> Result<()> {
         // Since we don't track which socket a command is on, cancel both
         warn!("Cancel by command_id not fully implemented - cancelling both sockets");
@@ -661,7 +659,6 @@ async fn runtime_loop_with_config<
                 }
             }
             Operation::Tick => {
-                // debug!("[runtime loop] Tick fired");
                 // Handle tick - check for timeouts and retries
                 let now = executor.as_ref().now();
 
@@ -1171,7 +1168,6 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
             };
 
             if is_pending_ack_error {
-                // debug!("[handle_response] Handling as pending ACK error");
                 if let Some((cmd_id, priority, category, bytes)) =
                     scheduler.handle_pending_ack_error_with_bytes(error)
                 {
@@ -1182,14 +1178,11 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
 
                     // Queue for retry if it's a retryable error
                     let retryable = error.is_retryable(Some(category));
-                    // debug!("[handle_response] Command {} category {:?}, error {:?}, retryable: {}",
-                    //     cmd_id, category, error, retryable);
 
                     if retryable {
                         let now = executor.now();
                         let queued =
                             scheduler.queue_for_retry(cmd_id, bytes, priority, category, now);
-                        // debug!("[handle_response] Queued for retry: {}", queued);
                         if !queued {
                             // Retries exhausted - error already sent to response channel by queue_for_retry
                             debug!("Command {} exhausted retries", cmd_id);

@@ -4,14 +4,11 @@
 //! ACK, Completion, Data Reply, and Error messages.
 
 #[cfg(feature = "async")]
-use crate::command::bytes::VISCA_TERMINATOR;
-
-use crate::ViscaSocket;
-
-#[cfg(feature = "async")]
 use tracing::{debug, trace, warn};
 
-use crate::runtime::scheduler::ViscaError;
+#[cfg(feature = "async")]
+use crate::command::bytes::VISCA_TERMINATOR;
+use crate::{runtime::scheduler::ViscaError, ViscaSocket};
 
 /// Protocol-level response types from VISCA frame parsing.
 ///

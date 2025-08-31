@@ -1,6 +1,6 @@
 //! System control methods for cameras.
 
-use crate::{ViscaSocket, Error};
+use crate::{Error, ViscaSocket};
 
 /// System operations for cameras.
 ///
@@ -40,9 +40,6 @@ pub trait SystemControl {
     fn cancel_command(&mut self, socket: ViscaSocket) -> Result<(), Error>;
 }
 
-// Keep the old trait names for backward compatibility during transition
-/// Async system control trait (deprecated, use SystemControl instead).
-/// Blocking system control trait (deprecated, use SystemControl instead).
 // Async implementation for AsyncCamera
 #[cfg(feature = "async")]
 impl<P, Tr, Exec> SystemControl for crate::camera::AsyncCamera<P, Tr, Exec>
