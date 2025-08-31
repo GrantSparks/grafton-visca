@@ -157,7 +157,7 @@ where
     fn set_nd_filter_mode(&mut self, mode: CommandNdFilterMode) -> Result<(), Error> {
         use crate::command::nd_filter::NdFilterModeCommand;
         let cmd = NdFilterModeCommand::new(mode);
-        self.send_command(&cmd)?;
+        self.send_command(&cmd).into_inner()?;
         Ok(())
     }
 
@@ -169,7 +169,7 @@ where
             value: value.to_string().into(),
             reason: "ND filter value out of range".into(),
         })?;
-        self.send_command(&cmd)?;
+        self.send_command(&cmd).into_inner()?;
         Ok(())
     }
 
@@ -181,7 +181,7 @@ where
             value: stops.to_string().into(),
             reason: "ND filter stops must be between 2.0 and 7.0".into(),
         })?;
-        self.send_command(&cmd)?;
+        self.send_command(&cmd).into_inner()?;
         Ok(())
     }
 
@@ -189,7 +189,7 @@ where
         use crate::command::nd_filter::NdFilterStepCommand;
 
         let cmd = NdFilterStepCommand::new(direction);
-        self.send_command(&cmd)?;
+        self.send_command(&cmd).into_inner()?;
         Ok(())
     }
 
@@ -197,7 +197,7 @@ where
         use crate::command::nd_filter::AutoNdCommand;
 
         let cmd = AutoNdCommand::new(enabled);
-        self.send_command(&cmd)?;
+        self.send_command(&cmd).into_inner()?;
         Ok(())
     }
 
@@ -205,7 +205,7 @@ where
         use crate::command::{inquiry::NdFilterInquiry, response::ViscaResponse, InquiryResponse};
 
         let inquiry = NdFilterInquiry;
-        let response = self.send_command(&inquiry)?;
+        let response = self.send_command(&inquiry).into_inner()?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::NdFilter { position }) => Ok(position),
             _ => Err(Error::UnexpectedResponseType),

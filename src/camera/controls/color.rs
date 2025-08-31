@@ -230,32 +230,35 @@ where
     Tr: crate::transport::SyncTransport + Send + 'static,
 {
     fn one_push_trigger(&mut self) -> Result<(), Error> {
-        self.send_command(&OnePushTriggerCommand)?;
+        self.send_command(&OnePushTriggerCommand).into_inner()?;
         Ok(())
     }
     fn set_color_temperature(&mut self, temp: ColorTemp) -> Result<(), Error> {
-        self.send_command(&ColorTemperature::SetTemperature(temp))?;
+        self.send_command(&ColorTemperature::SetTemperature(temp))
+            .into_inner()?;
         Ok(())
     }
 
     fn reset_color_temperature(&mut self) -> Result<(), Error> {
-        self.send_command(&ColorTemperature::Reset)?;
+        self.send_command(&ColorTemperature::Reset).into_inner()?;
         Ok(())
     }
 
     fn increase_color_temperature(&mut self) -> Result<(), Error> {
-        self.send_command(&ColorTemperature::Up)?;
+        self.send_command(&ColorTemperature::Up).into_inner()?;
         Ok(())
     }
 
     fn decrease_color_temperature(&mut self) -> Result<(), Error> {
-        self.send_command(&ColorTemperature::Down)?;
+        self.send_command(&ColorTemperature::Down).into_inner()?;
         Ok(())
     }
 
     fn color_temperature(&mut self, temp: Option<ColorTemp>) -> Result<(), Error> {
         match temp {
-            Some(t) => self.send_command(&ColorTemperature::SetTemperature(t))?,
+            Some(t) => self
+                .send_command(&ColorTemperature::SetTemperature(t))
+                .into_inner()?,
             None => {
                 return Err(Error::Unsupported);
             }
@@ -264,32 +267,34 @@ where
     }
 
     fn set_red_gain(&mut self, gain: RedChannel) -> Result<(), Error> {
-        self.send_command(&RedGain::SetValue(gain))?;
+        self.send_command(&RedGain::SetValue(gain)).into_inner()?;
         Ok(())
     }
 
     fn red_gain(&mut self, command: RedGain) -> Result<(), Error> {
-        self.send_command(&command)?;
+        self.send_command(&command).into_inner()?;
         Ok(())
     }
 
     fn set_blue_gain(&mut self, gain: BlueChannel) -> Result<(), Error> {
-        self.send_command(&BlueGain::SetValue(gain))?;
+        self.send_command(&BlueGain::SetValue(gain)).into_inner()?;
         Ok(())
     }
 
     fn blue_gain(&mut self, command: BlueGain) -> Result<(), Error> {
-        self.send_command(&command)?;
+        self.send_command(&command).into_inner()?;
         Ok(())
     }
 
     fn set_red_tuning(&mut self, tuning: RedTuning) -> Result<(), Error> {
-        self.send_command(&RedTuningCommand::new(tuning))?;
+        self.send_command(&RedTuningCommand::new(tuning))
+            .into_inner()?;
         Ok(())
     }
 
     fn set_blue_tuning(&mut self, tuning: BlueTuning) -> Result<(), Error> {
-        self.send_command(&BlueTuningCommand::new(tuning))?;
+        self.send_command(&BlueTuningCommand::new(tuning))
+            .into_inner()?;
         Ok(())
     }
 }

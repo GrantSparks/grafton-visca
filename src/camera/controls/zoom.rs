@@ -172,7 +172,7 @@ where
     fn zoom_stop(&mut self) -> Result<(), Error> {
         use crate::command::zoom::Zoom;
         let cmd = Zoom::Stop;
-        self.send_command(&cmd)?;
+        self.send_command(&cmd).into_inner()?;
         Ok(())
     }
 
@@ -180,7 +180,7 @@ where
         use crate::command::zoom::Zoom;
 
         let cmd = Zoom::TeleStd;
-        self.send_command(&cmd)?;
+        self.send_command(&cmd).into_inner()?;
         Ok(())
     }
 
@@ -188,7 +188,7 @@ where
         use crate::command::zoom::Zoom;
 
         let cmd = Zoom::WideStd;
-        self.send_command(&cmd)?;
+        self.send_command(&cmd).into_inner()?;
         Ok(())
     }
 
@@ -196,7 +196,7 @@ where
         use crate::command::zoom::Zoom;
 
         let cmd = Zoom::TeleVariable(speed);
-        self.send_command(&cmd)?;
+        self.send_command(&cmd).into_inner()?;
         Ok(())
     }
 
@@ -204,7 +204,7 @@ where
         use crate::command::zoom::Zoom;
 
         let cmd = Zoom::WideVariable(speed);
-        self.send_command(&cmd)?;
+        self.send_command(&cmd).into_inner()?;
         Ok(())
     }
 
@@ -214,7 +214,7 @@ where
         // Convert normalized position to zoom position value
         let zoom_pos = crate::types::ZoomPosition::try_from(*position.value())?;
         let cmd = Zoom::Position(zoom_pos);
-        self.send_command(&cmd)?;
+        self.send_command(&cmd).into_inner()?;
         Ok(())
     }
 
@@ -222,13 +222,13 @@ where
         use crate::command::zoom::Zoom;
 
         let cmd = Zoom::Position(position);
-        self.send_command(&cmd)?;
+        self.send_command(&cmd).into_inner()?;
         Ok(())
     }
 
     fn zoom_position_inquiry(&mut self) -> Result<crate::types::ZoomPosition, Error> {
         use crate::command::inquiry_structs::ZoomPositionInquiry;
 
-        self.send_command_typed(&ZoomPositionInquiry)
+        self.send_command_typed(&ZoomPositionInquiry).into_inner()
     }
 }

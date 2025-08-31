@@ -77,7 +77,7 @@ where
         use crate::command::power::Power;
 
         let cmd = Power::On;
-        self.send_command(&cmd)?;
+        self.send_command(&cmd).into_inner()?;
         Ok(())
     }
 
@@ -85,13 +85,13 @@ where
         use crate::command::power::Power;
 
         let cmd = Power::Standby;
-        self.send_command(&cmd)?;
+        self.send_command(&cmd).into_inner()?;
         Ok(())
     }
 
     fn power_inquiry(&mut self) -> Result<bool, Error> {
         use crate::command::inquiry_structs::PowerInquiry;
 
-        self.send_command_typed(&PowerInquiry)
+        self.send_command_typed(&PowerInquiry).into_inner()
     }
 }

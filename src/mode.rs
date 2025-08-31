@@ -3,12 +3,12 @@
 //! This module provides the Mode trait that enables a single API surface
 //! to work in both blocking and async modes through type-state parameters.
 
-use std::future::Future;
-
 use core::{
     future::{ready, Ready},
     pin::Pin,
 };
+
+use std::future::Future;
 
 /// Mode trait that abstracts over async and blocking execution modes.
 ///
@@ -259,7 +259,7 @@ impl Mode for Blocking {
     where
         C: crate::command::ViscaEncode + Send + Sync + Clone + 'static,
         P: crate::capabilities::Profile + Default,
-        Tr: Send + Sync,
+        Tr: Send, // Remove Sync requirement for blocking mode
         Self: Sized,
     {
         use crate::command::bytes::VISCA_TERMINATOR;
@@ -304,7 +304,7 @@ impl Mode for Blocking {
                             // Read first response (should be ACK or error) with ACK timeout
                             match transport.recv_with_timeout(timeout_config.ack_timeout) {
                                 Ok(first_response_bytes) => {
-                                    match envelope.extract_response(&first_response_bytes) {
+                                    match envelope.extract_response(&first_response_bytes[..]) {
                                         Ok(first_visca) => {
                                             match ViscaResponse::parse(&first_visca) {
                                                 Ok(ViscaResponse::Error(e)) => ready(Err(e)),
@@ -317,7 +317,7 @@ impl Mode for Blocking {
                                                     {
                                                         Ok(second_response_bytes) => match envelope
                                                             .extract_response(
-                                                                &second_response_bytes,
+                                                                &second_response_bytes[..],
                                                             ) {
                                                             Ok(second_visca) => {
                                                                 match ViscaResponse::parse(
@@ -348,7 +348,7 @@ impl Mode for Blocking {
                             let quick_timeout = timeout_config.get_timeout(C::TIMEOUT_CATEGORY);
                             match transport.recv_with_timeout(quick_timeout) {
                                 Ok(response_bytes) => {
-                                    match envelope.extract_response(&response_bytes) {
+                                    match envelope.extract_response(&response_bytes[..]) {
                                         Ok(visca) => match ViscaResponse::parse(&visca) {
                                             Ok(response) => ready(Ok(response)),
                                             Err(e) => ready(Err(e)),
@@ -405,20 +405,15 @@ impl Mode for Blocking {
             + 'static,
         C::Response: Send + 'static,
         P: crate::capabilities::Profile + Default,
-        Tr: Send + Sync,
+        Tr: Send, // Remove Sync requirement for blocking mode
         Self: Sized,
     {
         // Delegate to send_command and parse response
         let response = Self::send_command(camera, command);
-        ready(
-            match response
-                .now_or_never()
-                .expect("Blocking should be immediate")
-            {
-                Ok(visca_response) => C::from_response(visca_response),
-                Err(e) => Err(e),
-            },
-        )
+        match response.into_inner() {
+            Ok(visca_response) => ready(C::from_response(visca_response)),
+            Err(e) => ready(Err(e)),
+        }
     }
 
     #[cfg(feature = "async")]

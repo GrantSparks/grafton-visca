@@ -140,42 +140,41 @@ where
     }
 }
 
-// Common methods that work for both modes
-impl<M, P, Tr, Exec> Camera<M, P, Tr, Exec>
+// Methods for async mode requiring Send + Sync transports
+#[cfg(feature = "async")]
+impl<P, Tr, Exec> Camera<crate::mode::Async, P, Tr, Exec>
 where
-    M: Mode,
     P: Profile + Default,
     Tr: Send + Sync,
 {
     /// Send a command using the mode-specific return type.
     ///
     /// This method connects to the actual transport and command execution system,
-    /// working correctly in both async and blocking modes through the Mode trait.
-    /// The same method signature works for both modes while providing proper
-    /// runtime execution.
+    /// working correctly in async mode through the Mode trait.
     pub fn send_command<C>(
         &self,
         command: &C,
-    ) -> M::Ret<Result<crate::command::response::ViscaResponse, Error>>
+    ) -> <crate::mode::Async as Mode>::Ret<Result<crate::command::response::ViscaResponse, Error>>
     where
         C: ViscaEncode + Send + Sync + Clone + 'static,
     {
         // Mode-specific command execution that returns the raw ViscaResponse
-        M::send_command(self, command)
+        crate::mode::Async::send_command(self, command)
     }
 
     /// Send a typed command and return the response.
     ///
-    /// This method demonstrates how typed commands work in the unified API.
-    /// The return type adapts to the Mode parameter while maintaining type
-    /// safety for the response.
-    pub fn send_command_typed<C>(&self, command: &C) -> M::Ret<Result<C::Response, Error>>
+    /// This method demonstrates how typed commands work in the unified API for async mode.
+    pub fn send_command_typed<C>(
+        &self,
+        command: &C,
+    ) -> <crate::mode::Async as Mode>::Ret<Result<C::Response, Error>>
     where
         C: ViscaCommand + ViscaEncode + Send + Sync + Clone + 'static,
         C::Response: Send + 'static,
     {
         // Delegate to mode-specific typed command execution
-        M::send_command_typed(self, command)
+        crate::mode::Async::send_command_typed(self, command)
     }
 
     /// Get the camera ID.
@@ -238,12 +237,6 @@ where
                 // For other runtimes, we'd need different approaches
             }
         }
-    }
-
-    /// Get access to the transport for blocking mode.
-    #[cfg(not(feature = "async"))]
-    pub fn transport(&self) -> Option<&RefCell<Tr>> {
-        self.transport.as_ref()
     }
 
     /// Send a command and return both the command ID and response future.
@@ -313,6 +306,79 @@ where
     /// Get access to the envelope buffer manager.
     pub(crate) fn envelope_buffer_manager(&self) -> &BufferManager {
         &self.envelope_buffer_manager
+    }
+}
+
+// Implementation for blocking mode
+#[cfg(not(feature = "async"))]
+impl<P, Tr> Camera<crate::mode::Blocking, P, Tr, ()>
+where
+    P: Profile + Default,
+    Tr: Send, // Only Send required for blocking mode
+{
+    /// Send a command using the mode-specific return type.
+    ///
+    /// This method connects to the actual transport and command execution system,
+    /// working correctly in blocking mode through the Mode trait.
+    pub fn send_command<C>(
+        &self,
+        command: &C,
+    ) -> <crate::mode::Blocking as Mode>::Ret<Result<crate::command::response::ViscaResponse, Error>>
+    where
+        C: ViscaEncode + Send + Sync + Clone + 'static,
+    {
+        // Mode-specific command execution that returns the raw ViscaResponse
+        crate::mode::Blocking::send_command(self, command)
+    }
+
+    /// Send a typed command and return the response.
+    ///
+    /// This method demonstrates how typed commands work in the unified API for blocking mode.
+    pub fn send_command_typed<C>(
+        &self,
+        command: &C,
+    ) -> <crate::mode::Blocking as Mode>::Ret<Result<C::Response, Error>>
+    where
+        C: ViscaCommand + ViscaEncode + Send + Sync + Clone + 'static,
+        C::Response: Send + 'static,
+    {
+        // Delegate to mode-specific typed command execution
+        crate::mode::Blocking::send_command_typed(self, command)
+    }
+
+    /// Get the camera ID.
+    pub fn camera_id(&self) -> CameraId {
+        self.camera_id
+    }
+
+    /// Set the camera ID.
+    pub fn set_camera_id(&mut self, camera_id: CameraId) {
+        self.camera_id = camera_id;
+    }
+
+    /// Get the current timeout configuration.
+    pub fn timeout_config(&self) -> &TimeoutConfig {
+        &self.timeout_config
+    }
+
+    /// Set the timeout configuration.
+    pub fn set_timeout_config(&mut self, timeout_config: TimeoutConfig) {
+        self.timeout_config = timeout_config;
+    }
+
+    /// Get access to the envelope for command framing.
+    pub(crate) fn envelope(&self) -> &TransportEnvelope {
+        &self.envelope
+    }
+
+    /// Get access to the envelope buffer manager.
+    pub(crate) fn envelope_buffer_manager(&self) -> &BufferManager {
+        &self.envelope_buffer_manager
+    }
+
+    /// Get access to the transport for blocking mode.
+    pub fn transport(&self) -> Option<&RefCell<Tr>> {
+        self.transport.as_ref()
     }
 }
 

@@ -168,7 +168,7 @@ where
     fn enable_multicast(&mut self) -> Result<()> {
         use crate::command::streaming::MulticastStreaming;
         let cmd = MulticastStreaming::On;
-        self.send_command(&cmd)?;
+        self.send_command(&cmd).into_inner()?;
         Ok(())
     }
 
@@ -176,7 +176,7 @@ where
         use crate::command::streaming::MulticastStreaming;
 
         let cmd = MulticastStreaming::Off;
-        self.send_command(&cmd)?;
+        self.send_command(&cmd).into_inner()?;
         Ok(())
     }
 
@@ -184,7 +184,7 @@ where
         use crate::command::streaming::NdiQualityCommand;
 
         let cmd = NdiQualityCommand::new(quality);
-        self.send_command(&cmd)?;
+        self.send_command(&cmd).into_inner()?;
         Ok(())
     }
 }

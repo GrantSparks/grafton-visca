@@ -15,9 +15,7 @@ use crate::{
 #[cfg(feature = "async")]
 use crate::{executor::Executor, transport::AsyncTransport};
 
-#[cfg(feature = "async")]
-use super::Camera;
-use super::{MovementConfig, PanTiltPosition};
+use super::{Camera, MovementConfig, PanTiltPosition};
 
 // Blocking mode implementation is only available without async feature
 #[cfg(not(feature = "async"))]
@@ -120,7 +118,7 @@ where
             }
 
             // Check only pan/tilt movement
-            let pos1_response = self.send_command(&PanTiltPositionInquiry)?;
+            let pos1_response = self.send_command(&PanTiltPositionInquiry).into_inner()?;
             let (pos1_pan, pos1_tilt) = match pos1_response {
                 crate::command::ViscaResponse::Inquiry(
                     crate::command::InquiryResponse::PanTiltPosition { pan, tilt },
@@ -134,7 +132,7 @@ where
 
             std::thread::sleep(Duration::from_millis(50));
 
-            let pos2_response = self.send_command(&PanTiltPositionInquiry)?;
+            let pos2_response = self.send_command(&PanTiltPositionInquiry).into_inner()?;
             let (pos2_pan, pos2_tilt) = match pos2_response {
                 crate::command::ViscaResponse::Inquiry(
                     crate::command::InquiryResponse::PanTiltPosition { pan, tilt },
@@ -176,7 +174,7 @@ where
             }
 
             // Check only zoom movement
-            let pos1_response = self.send_command(&ZoomPositionInquiry)?;
+            let pos1_response = self.send_command(&ZoomPositionInquiry).into_inner()?;
             let pos1_zoom = match pos1_response {
                 crate::command::ViscaResponse::Inquiry(
                     crate::command::InquiryResponse::ZoomPosition { position },
@@ -186,7 +184,7 @@ where
 
             std::thread::sleep(Duration::from_millis(50));
 
-            let pos2_response = self.send_command(&ZoomPositionInquiry)?;
+            let pos2_response = self.send_command(&ZoomPositionInquiry).into_inner()?;
             let pos2_zoom = match pos2_response {
                 crate::command::ViscaResponse::Inquiry(
                     crate::command::InquiryResponse::ZoomPosition { position },
@@ -224,7 +222,7 @@ where
             }
 
             // Check only focus movement
-            let pos1_response = self.send_command(&FocusPositionInquiry)?;
+            let pos1_response = self.send_command(&FocusPositionInquiry).into_inner()?;
             let pos1_focus = match pos1_response {
                 crate::command::ViscaResponse::Inquiry(
                     crate::command::InquiryResponse::FocusPosition { position },
@@ -234,7 +232,7 @@ where
 
             std::thread::sleep(Duration::from_millis(50));
 
-            let pos2_response = self.send_command(&FocusPositionInquiry)?;
+            let pos2_response = self.send_command(&FocusPositionInquiry).into_inner()?;
             let pos2_focus = match pos2_response {
                 crate::command::ViscaResponse::Inquiry(
                     crate::command::InquiryResponse::FocusPosition { position },
@@ -265,7 +263,7 @@ where
     /// This checks pan/tilt, zoom, and focus positions to detect movement.
     pub fn is_moving(&mut self) -> Result<bool, Error> {
         // Get first reading using inquiry commands
-        let pos1_pt_response = self.send_command(&PanTiltPositionInquiry)?;
+        let pos1_pt_response = self.send_command(&PanTiltPositionInquiry).into_inner()?;
         let (pos1_pan, pos1_tilt) = match pos1_pt_response {
             crate::command::ViscaResponse::Inquiry(
                 crate::command::InquiryResponse::PanTiltPosition { pan, tilt },
@@ -277,7 +275,7 @@ where
             }
         };
 
-        let pos1_zoom_response = self.send_command(&ZoomPositionInquiry)?;
+        let pos1_zoom_response = self.send_command(&ZoomPositionInquiry).into_inner()?;
         let pos1_zoom = match pos1_zoom_response {
             crate::command::ViscaResponse::Inquiry(
                 crate::command::InquiryResponse::ZoomPosition { position },
@@ -285,7 +283,7 @@ where
             _ => return Err(Error::ParseError("Expected ZoomPosition response".into())),
         };
 
-        let pos1_focus_response = self.send_command(&FocusPositionInquiry)?;
+        let pos1_focus_response = self.send_command(&FocusPositionInquiry).into_inner()?;
         let pos1_focus = match pos1_focus_response {
             crate::command::ViscaResponse::Inquiry(
                 crate::command::InquiryResponse::FocusPosition { position },
@@ -297,7 +295,7 @@ where
         std::thread::sleep(Duration::from_millis(1));
 
         // Get second reading
-        let pos2_pt_response = self.send_command(&PanTiltPositionInquiry)?;
+        let pos2_pt_response = self.send_command(&PanTiltPositionInquiry).into_inner()?;
         let (pos2_pan, pos2_tilt) = match pos2_pt_response {
             crate::command::ViscaResponse::Inquiry(
                 crate::command::InquiryResponse::PanTiltPosition { pan, tilt },
@@ -309,7 +307,7 @@ where
             }
         };
 
-        let pos2_zoom_response = self.send_command(&ZoomPositionInquiry)?;
+        let pos2_zoom_response = self.send_command(&ZoomPositionInquiry).into_inner()?;
         let pos2_zoom = match pos2_zoom_response {
             crate::command::ViscaResponse::Inquiry(
                 crate::command::InquiryResponse::ZoomPosition { position },
@@ -317,7 +315,7 @@ where
             _ => return Err(Error::ParseError("Expected ZoomPosition response".into())),
         };
 
-        let pos2_focus_response = self.send_command(&FocusPositionInquiry)?;
+        let pos2_focus_response = self.send_command(&FocusPositionInquiry).into_inner()?;
         let pos2_focus = match pos2_focus_response {
             crate::command::ViscaResponse::Inquiry(
                 crate::command::InquiryResponse::FocusPosition { position },

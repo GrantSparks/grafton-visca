@@ -175,7 +175,7 @@ where
     fn set_white_balance_mode(&mut self, mode: WhiteBalanceMode) -> Result<(), Error> {
         use crate::command::white_balance::WhiteBalanceCommand;
         let cmd = WhiteBalanceCommand { mode };
-        self.send_command(&cmd)?;
+        self.send_command(&cmd).into_inner()?;
         Ok(())
     }
 
@@ -214,7 +214,7 @@ where
         use crate::command::white_balance::AWBSensitivityCommand;
 
         let cmd = AWBSensitivityCommand { sensitivity };
-        self.send_command(&cmd)?;
+        self.send_command(&cmd).into_inner()?;
         Ok(())
     }
 }

@@ -99,7 +99,7 @@ where
             action: PresetAction::Recall,
             preset_number: preset,
         };
-        self.send_command(&cmd)?;
+        self.send_command(&cmd).into_inner()?;
         Ok(())
     }
 
@@ -110,7 +110,7 @@ where
             action: PresetAction::Set,
             preset_number: preset,
         };
-        self.send_command(&cmd)?;
+        self.send_command(&cmd).into_inner()?;
         Ok(())
     }
 
@@ -121,7 +121,7 @@ where
             action: PresetAction::Reset,
             preset_number: preset,
         };
-        self.send_command(&cmd)?;
+        self.send_command(&cmd).into_inner()?;
         Ok(())
     }
 }

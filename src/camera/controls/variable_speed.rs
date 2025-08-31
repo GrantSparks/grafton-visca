@@ -73,7 +73,7 @@ where
     fn set_variable_speed_mode(&mut self, mode: VariableSpeedMode) -> Result<(), Error> {
         // No runtime check needed - compile-time guarantee via VariableSpeed capability trait
         let cmd = VariableSpeedModeCommand::new(mode);
-        match self.send_command(&cmd)? {
+        match self.send_command(&cmd).into_inner()? {
             ViscaResponse::CmdAck | ViscaResponse::Completion => Ok(()),
             ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
