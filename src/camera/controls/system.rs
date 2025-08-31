@@ -1,6 +1,6 @@
 //! System control methods for cameras.
 
-use crate::{command::system::Socket, Error};
+use crate::{ViscaSocket, Error};
 
 /// System operations for cameras.
 ///
@@ -32,12 +32,12 @@ pub trait SystemControl {
     #[cfg(feature = "async")]
     fn cancel_command(
         &self,
-        socket: Socket,
+        socket: ViscaSocket,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
 
     /// Cancel command on specific socket.
     #[cfg(not(feature = "async"))]
-    fn cancel_command(&mut self, socket: Socket) -> Result<(), Error>;
+    fn cancel_command(&mut self, socket: ViscaSocket) -> Result<(), Error>;
 }
 
 // Keep the old trait names for backward compatibility during transition
@@ -66,7 +66,7 @@ where
         Ok(())
     }
 
-    async fn cancel_command(&self, socket: Socket) -> Result<(), Error> {
+    async fn cancel_command(&self, socket: ViscaSocket) -> Result<(), Error> {
         use crate::command::system::CommandCancelCommand;
 
         let cmd = CommandCancelCommand::new(socket);
@@ -97,7 +97,7 @@ where
         Ok(())
     }
 
-    fn cancel_command(&mut self, socket: Socket) -> Result<(), Error> {
+    fn cancel_command(&mut self, socket: ViscaSocket) -> Result<(), Error> {
         use crate::command::system::CommandCancelCommand;
 
         let cmd = CommandCancelCommand::new(socket);

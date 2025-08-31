@@ -6,7 +6,7 @@
 pub mod scheduler;
 
 #[cfg(feature = "async")]
-pub use scheduler::SocketId;
+pub use crate::ViscaSocket;
 pub use scheduler::{MetricsSummary, Priority};
 
 #[cfg(feature = "async")]
@@ -219,10 +219,10 @@ impl RuntimeHandle {
 
         // Try to cancel on both sockets
         let cancel_socket1 = TxItem::Cancel {
-            socket: SocketId::S1,
+            socket: ViscaSocket::S1,
         };
         let cancel_socket2 = TxItem::Cancel {
-            socket: SocketId::S2,
+            socket: ViscaSocket::S2,
         };
 
         // Send both cancel commands
@@ -235,7 +235,7 @@ impl RuntimeHandle {
     /// Cancel all commands on a specific socket.
     ///
     /// This directly cancels the specified socket without needing to know the command ID.
-    pub async fn cancel_socket(&self, socket: SocketId) -> Result<()> {
+    pub async fn cancel_socket(&self, socket: ViscaSocket) -> Result<()> {
         let cancel_item = TxItem::Cancel { socket };
 
         self.submit
@@ -1377,9 +1377,9 @@ mod tests {
     #[cfg(feature = "async")]
     #[test]
     fn test_socket_id() {
-        use crate::runtime::scheduler::SocketId;
-        assert_eq!(SocketId::S1.as_index(), 0);
-        assert_eq!(SocketId::S2.as_index(), 1);
+        use crate::ViscaSocket;
+        assert_eq!(ViscaSocket::S1.as_index(), 0);
+        assert_eq!(ViscaSocket::S2.as_index(), 1);
     }
 
     #[cfg(feature = "async")]
@@ -1387,7 +1387,7 @@ mod tests {
     fn test_response_parsing() {
         use crate::protocol::decode::{parse_response, ProtocolResponse};
         use crate::protocol::encode::VISCA_TERMINATOR;
-        use crate::runtime::scheduler::SocketId;
+        use crate::ViscaSocket;
 
         // Test ACK parsing
         let ack_frame = vec![0x90, 0x41, VISCA_TERMINATOR];
@@ -1395,7 +1395,7 @@ mod tests {
         assert!(matches!(
             response,
             ProtocolResponse::Ack {
-                socket: SocketId::S1
+                socket: ViscaSocket::S1
             }
         ));
 
@@ -1405,7 +1405,7 @@ mod tests {
         assert!(matches!(
             response,
             ProtocolResponse::Completion {
-                socket: SocketId::S2
+                socket: ViscaSocket::S2
             }
         ));
 
@@ -1419,7 +1419,7 @@ mod tests {
         let response = parse_response(&error_frame);
         match response {
             ProtocolResponse::Error { socket, error } => {
-                assert_eq!(socket, Some(SocketId::S1));
+                assert_eq!(socket, Some(ViscaSocket::S1));
                 assert_eq!(error.as_byte(), 0x03); // BufferFull
             }
             other => {

@@ -19,7 +19,7 @@
 // Workspace / local-crate imports
 use crate::command::bytes::VISCA_TERMINATOR;
 use crate::macros::internal::*;
-use crate::visca_socket::ViscaSocket;
+use crate::ViscaSocket;
 
 use grafton_visca_macros::ViscaEnum;
 
@@ -71,17 +71,13 @@ pub enum MotionSyncSpeed {
     Fast = 0x02,
 }
 
-/// Socket to cancel commands on.
-///
-/// This is now a type alias to the unified ViscaSocket type.
-pub type Socket = ViscaSocket;
 
 visca_param_command! {
     /// Command to cancel pending commands on a specific socket.
     ///
     /// This cancels any in-progress commands on the specified socket.
     pub(crate) struct CommandCancelCommand {
-        socket: Socket,
+        socket: ViscaSocket,
     }
     prefix = constants::system_cmd::CANCEL_PREFIX;
     param_byte = socket.as_cancel_byte();
@@ -90,7 +86,7 @@ visca_param_command! {
 
 impl CommandCancelCommand {
     /// Create a new command cancel command.
-    pub fn new(socket: Socket) -> Self {
+    pub fn new(socket: ViscaSocket) -> Self {
         Self { socket }
     }
 }
@@ -119,14 +115,14 @@ mod tests {
     visca_test!(
         CommandCancelCommand,
         test_command_cancel_socket1,
-        CommandCancelCommand::new(Socket::S1),
+        CommandCancelCommand::new(ViscaSocket::S1),
         &[0x81, 0x21, VISCA_TERMINATOR]
     );
 
     visca_test!(
         CommandCancelCommand,
         test_command_cancel_socket2,
-        CommandCancelCommand::new(Socket::S2),
+        CommandCancelCommand::new(ViscaSocket::S2),
         &[0x81, 0x22, VISCA_TERMINATOR]
     );
 
@@ -140,15 +136,15 @@ mod tests {
         assert!(cmd.response_type().is_none());
         assert_eq!(cmd.timeout_kind(), CommandCategory::Quick);
 
-        let cmd = CommandCancelCommand::new(Socket::S1);
+        let cmd = CommandCancelCommand::new(ViscaSocket::S1);
         assert!(cmd.response_type().is_none());
         assert_eq!(cmd.timeout_kind(), CommandCategory::Quick);
     }
 
     #[test]
     fn test_socket_enum() {
-        assert_eq!(Socket::S1, Socket::S1);
-        assert_eq!(Socket::S2, Socket::S2);
-        assert_ne!(Socket::S1, Socket::S2);
+        assert_eq!(ViscaSocket::S1, ViscaSocket::S1);
+        assert_eq!(ViscaSocket::S2, ViscaSocket::S2);
+        assert_ne!(ViscaSocket::S1, ViscaSocket::S2);
     }
 }

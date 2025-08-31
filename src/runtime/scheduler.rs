@@ -55,7 +55,7 @@ pub(crate) enum TxItem {
     /// Cancel a command on a specific socket.
     Cancel {
         /// Socket to cancel (1 or 2).
-        socket: SocketId,
+        socket: ViscaSocket,
     },
 }
 
@@ -67,7 +67,7 @@ pub(crate) enum RxEvent {
     Ack {
         /// Socket that received the ACK.
         #[allow(dead_code)]
-        socket: SocketId,
+        socket: ViscaSocket,
         /// Command ID that was acknowledged.
         #[allow(dead_code)]
         id: u32,
@@ -76,7 +76,7 @@ pub(crate) enum RxEvent {
     Completion {
         /// Socket that completed.
         #[allow(dead_code)]
-        socket: SocketId,
+        socket: ViscaSocket,
         /// Command ID that completed.
         #[allow(dead_code)]
         id: u32,
@@ -97,18 +97,13 @@ pub(crate) enum RxEvent {
         code: ViscaError,
         /// Socket if error is socket-specific.
         #[allow(dead_code)]
-        socket: Option<SocketId>,
+        socket: Option<ViscaSocket>,
         /// Command/inquiry ID if applicable.
         #[allow(dead_code)]
         id: Option<u32>,
     },
 }
 
-/// Socket identifier for VISCA commands.
-///
-/// This is now a type alias to the unified ViscaSocket type.
-#[cfg(feature = "async")]
-pub type SocketId = ViscaSocket;
 
 /// Command priority levels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -548,7 +543,7 @@ impl Scheduler {
         command_id: u32,
         category: CommandCategory,
         now: Instant,
-    ) -> Option<SocketId> {
+    ) -> Option<ViscaSocket> {
         for (idx, socket) in self.sockets.iter_mut().enumerate() {
             if socket.free {
                 socket.free = false;
@@ -556,7 +551,7 @@ impl Scheduler {
                 socket.started_at = Some(now);
                 socket.category = Some(category);
 
-                let socket_id = if idx == 0 { SocketId::S1 } else { SocketId::S2 };
+                let socket_id = if idx == 0 { ViscaSocket::S1 } else { ViscaSocket::S2 };
                 debug!("Allocated {:?} for command {}", socket_id, command_id);
                 return Some(socket_id);
             }
@@ -565,7 +560,7 @@ impl Scheduler {
     }
 
     /// Free a socket after command completion.
-    pub fn free_socket(&mut self, socket: SocketId) {
+    pub fn free_socket(&mut self, socket: ViscaSocket) {
         let idx = socket.as_index();
         let state = &mut self.sockets[idx];
 
@@ -586,7 +581,7 @@ impl Scheduler {
     }
 
     /// Get command ID for a socket.
-    pub fn socket_command(&self, socket: SocketId) -> Option<u32> {
+    pub fn socket_command(&self, socket: ViscaSocket) -> Option<u32> {
         self.sockets[socket.as_index()].command_id
     }
 
@@ -605,7 +600,7 @@ impl Scheduler {
     }
 
     /// Handle ACK received - assign socket to command.
-    pub fn handle_ack(&mut self, socket: SocketId, now: Instant) -> Option<u32> {
+    pub fn handle_ack(&mut self, socket: ViscaSocket, now: Instant) -> Option<u32> {
         // Find oldest pending command (FIFO order for ACKs)
         let oldest_id = self
             .pending_ack
@@ -714,7 +709,7 @@ impl Scheduler {
     }
 
     /// Check for timed out commands.
-    pub fn check_timeouts(&mut self, now: Instant) -> Vec<(SocketId, u32)> {
+    pub fn check_timeouts(&mut self, now: Instant) -> Vec<(ViscaSocket, u32)> {
         let mut timed_out = Vec::new();
 
         for (idx, socket) in self.sockets.iter().enumerate() {
@@ -724,7 +719,7 @@ impl Scheduler {
                 {
                     let timeout = self.timeout_config.get_timeout(category);
                     if now.duration_since(started) > timeout {
-                        let socket_id = if idx == 0 { SocketId::S1 } else { SocketId::S2 };
+                        let socket_id = if idx == 0 { ViscaSocket::S1 } else { ViscaSocket::S2 };
                         warn!(
                             "Command {} on {:?} timed out after {:?}",
                             cmd_id, socket_id, timeout
@@ -1207,35 +1202,35 @@ mod tests {
         assert!(!scheduler.can_send_command()); // Now at limit
 
         // Simulate ACK for first command - assigns socket 1
-        let cmd_id = scheduler.handle_ack(SocketId::S1, now).unwrap();
+        let cmd_id = scheduler.handle_ack(ViscaSocket::S1, now).unwrap();
         assert_eq!(cmd_id, 1);
         assert!(!scheduler.can_send_command()); // Still at limit (1 pending + 1 allocated)
 
         // Simulate ACK for second command - assigns socket 2
-        let cmd_id = scheduler.handle_ack(SocketId::S2, now).unwrap();
+        let cmd_id = scheduler.handle_ack(ViscaSocket::S2, now).unwrap();
         assert_eq!(cmd_id, 2);
         assert!(!scheduler.can_send_command()); // Still at limit (0 pending + 2 allocated)
 
         // Free socket 1
-        scheduler.free_socket(SocketId::S1);
+        scheduler.free_socket(ViscaSocket::S1);
         assert!(scheduler.can_send_command()); // Now have room for 1
 
         // Free socket 2
-        scheduler.free_socket(SocketId::S2);
+        scheduler.free_socket(ViscaSocket::S2);
         assert!(scheduler.can_send_command()); // Back to full capacity
     }
 
     #[test]
     fn test_socket_id_conversion() {
-        assert_eq!(SocketId::S1.as_index(), 0);
-        assert_eq!(SocketId::S2.as_index(), 1);
-        assert_eq!(SocketId::S1.as_protocol_byte(), 0x01);
-        assert_eq!(SocketId::S2.as_protocol_byte(), 0x02);
+        assert_eq!(ViscaSocket::S1.as_index(), 0);
+        assert_eq!(ViscaSocket::S2.as_index(), 1);
+        assert_eq!(ViscaSocket::S1.as_protocol_byte(), 0x01);
+        assert_eq!(ViscaSocket::S2.as_protocol_byte(), 0x02);
 
-        assert_eq!(SocketId::from_protocol_byte(0x01), Some(SocketId::S1));
-        assert_eq!(SocketId::from_protocol_byte(0x02), Some(SocketId::S2));
-        assert_eq!(SocketId::from_protocol_byte(0x41), Some(SocketId::S1)); // With high nibble
-        assert_eq!(SocketId::from_protocol_byte(0x03), None);
+        assert_eq!(ViscaSocket::from_protocol_byte(0x01), Some(ViscaSocket::S1));
+        assert_eq!(ViscaSocket::from_protocol_byte(0x02), Some(ViscaSocket::S2));
+        assert_eq!(ViscaSocket::from_protocol_byte(0x41), Some(ViscaSocket::S1)); // With high nibble
+        assert_eq!(ViscaSocket::from_protocol_byte(0x03), None);
     }
 
     #[test]
@@ -1285,12 +1280,12 @@ mod tests {
 
         // Allocate first socket
         let socket1 = scheduler.allocate_socket(1, CommandCategory::Movement, now);
-        assert_eq!(socket1, Some(SocketId::S1));
+        assert_eq!(socket1, Some(ViscaSocket::S1));
         assert!(scheduler.has_free_socket());
 
         // Allocate second socket
         let socket2 = scheduler.allocate_socket(2, CommandCategory::Quick, now);
-        assert_eq!(socket2, Some(SocketId::S2));
+        assert_eq!(socket2, Some(ViscaSocket::S2));
         assert!(!scheduler.has_free_socket());
 
         // Try to allocate when none free
@@ -1298,12 +1293,12 @@ mod tests {
         assert_eq!(socket3, None);
 
         // Free a socket
-        scheduler.free_socket(SocketId::S1);
+        scheduler.free_socket(ViscaSocket::S1);
         assert!(scheduler.has_free_socket());
 
         // Can allocate again
         let socket4 = scheduler.allocate_socket(4, CommandCategory::Movement, now);
-        assert_eq!(socket4, Some(SocketId::S1));
+        assert_eq!(socket4, Some(ViscaSocket::S1));
     }
 
     #[test]

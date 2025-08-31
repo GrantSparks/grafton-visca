@@ -8,7 +8,7 @@
 
 // Most imports are only used in commented code examples
 #[allow(unused_imports)]
-use grafton_visca::{runtime::SocketId, ViscaSocket};
+use grafton_visca::{ViscaSocket};
 
 /// Test that cancel methods are available on Camera.
 /// This is a compilation test to ensure the API is properly exposed.

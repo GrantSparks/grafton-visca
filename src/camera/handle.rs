@@ -399,7 +399,7 @@ where
     ///
     /// This method is only available when the `test-utils` feature is enabled.
     #[cfg(any(test, feature = "test-utils"))]
-    pub async fn cancel_socket(&self, socket: runtime::SocketId) -> Result<(), Error> {
+    pub async fn cancel_socket(&self, socket: runtime::ViscaSocket) -> Result<(), Error> {
         self.runtime_handle.cancel_socket(socket).await
     }
 

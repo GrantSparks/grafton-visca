@@ -6,14 +6,12 @@
 #[cfg(feature = "async")]
 use crate::command::bytes::VISCA_TERMINATOR;
 
-#[cfg(test)]
 use crate::ViscaSocket;
 
 #[cfg(feature = "async")]
 use tracing::{debug, trace, warn};
 
-#[cfg(feature = "async")]
-use crate::runtime::scheduler::{SocketId, ViscaError};
+use crate::runtime::scheduler::ViscaError;
 
 /// Protocol-level response types from VISCA frame parsing.
 ///
@@ -26,12 +24,12 @@ pub(crate) enum ProtocolResponse {
     /// Acknowledgment - command accepted (90 4y FF).
     Ack {
         /// Socket that acknowledged (y = 1 or 2).
-        socket: SocketId,
+        socket: ViscaSocket,
     },
     /// Command completion (90 5y FF).
     Completion {
         /// Socket that completed (y = 1 or 2).
-        socket: SocketId,
+        socket: ViscaSocket,
     },
     /// Data reply from inquiry (90 50 ... FF).
     DataReply {
@@ -41,7 +39,7 @@ pub(crate) enum ProtocolResponse {
     /// Error response (90 6y zz FF).
     Error {
         /// Socket if error is socket-specific.
-        socket: Option<SocketId>,
+        socket: Option<ViscaSocket>,
         /// Error code.
         error: ViscaError,
     },
@@ -93,7 +91,7 @@ pub(crate) fn parse_response(frame: &[u8]) -> ProtocolResponse {
         // ACK (90 4y FF)
         byte if (byte & 0xF0) == 0x40 => {
             let socket_num = byte & 0x0F;
-            match SocketId::from_protocol_byte(socket_num) {
+            match ViscaSocket::from_protocol_byte(socket_num) {
                 Some(socket) => {
                     debug!("ACK on {:?}", socket);
                     ProtocolResponse::Ack { socket }
@@ -122,7 +120,7 @@ pub(crate) fn parse_response(frame: &[u8]) -> ProtocolResponse {
                     ProtocolResponse::DataReply { data: vec![] }
                 }
             } else {
-                match SocketId::from_protocol_byte(socket_num) {
+                match ViscaSocket::from_protocol_byte(socket_num) {
                     Some(socket) => {
                         debug!("Completion on {:?}", socket);
                         ProtocolResponse::Completion { socket }
@@ -140,7 +138,7 @@ pub(crate) fn parse_response(frame: &[u8]) -> ProtocolResponse {
         // Error (90 6y zz FF)
         byte if (byte & 0xF0) == 0x60 => {
             let socket_num = byte & 0x0F;
-            let socket = SocketId::from_protocol_byte(socket_num);
+            let socket = ViscaSocket::from_protocol_byte(socket_num);
 
             if frame.len() >= 4 {
                 let error_code = frame[2];

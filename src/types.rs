@@ -4,17 +4,8 @@
 use std::{borrow::Cow, fmt};
 
 // Local imports
-use crate::{error::Error, units::Percentage, ViscaSocket, ViscaValue};
+use crate::{error::Error, units::Percentage, ViscaValue};
 
-/// Socket identifier for VISCA command execution slots.
-///
-/// This is now a type alias to the unified ViscaSocket type which provides
-/// consistent socket numbering across the entire codebase.
-///
-/// **Breaking Change**: This previously used 0/1 indexing but now uses the
-/// VISCA-compliant 1/2 socket numbering. Use `ViscaSocket::S1` and `ViscaSocket::S2`
-/// instead of the old `SOCKET_0` and `SOCKET_1` constants.
-pub type SocketId = ViscaSocket;
 
 /// Gain level value for direct gain control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
@@ -773,15 +764,16 @@ mod tests {
 
     #[test]
     fn test_socket_id() {
+        use crate::ViscaSocket;
         // Test that we can create sockets from indices
-        assert_eq!(SocketId::from_index(0), Some(SocketId::S1));
-        assert_eq!(SocketId::from_index(1), Some(SocketId::S2));
-        assert_eq!(SocketId::from_index(2), None);
+        assert_eq!(ViscaSocket::from_index(0), Some(ViscaSocket::S1));
+        assert_eq!(ViscaSocket::from_index(1), Some(ViscaSocket::S2));
+        assert_eq!(ViscaSocket::from_index(2), None);
 
         // Test socket numbering
-        assert_eq!(SocketId::S1.as_socket_number(), 1);
-        assert_eq!(SocketId::S2.as_socket_number(), 2);
-        assert_eq!(SocketId::default(), SocketId::S1);
+        assert_eq!(ViscaSocket::S1.as_socket_number(), 1);
+        assert_eq!(ViscaSocket::S2.as_socket_number(), 2);
+        assert_eq!(ViscaSocket::default(), ViscaSocket::S1);
     }
 
     #[test]
