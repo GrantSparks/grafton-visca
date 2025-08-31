@@ -314,7 +314,7 @@ where
 impl<P, Tr> Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: Profile + Default,
-    Tr: Send, // Only Send required for blocking mode
+    Tr: Send + Sync, // Need Sync to satisfy Mode trait
 {
     /// Send a command using the mode-specific return type.
     ///
@@ -377,7 +377,7 @@ where
     }
 
     /// Get access to the transport for blocking mode.
-    pub fn transport(&self) -> Option<&RefCell<Tr>> {
+    pub(crate) fn transport(&self) -> Option<&RefCell<Tr>> {
         self.transport.as_ref()
     }
 }

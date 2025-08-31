@@ -259,7 +259,7 @@ impl Mode for Blocking {
     where
         C: crate::command::ViscaEncode + Send + Sync + Clone + 'static,
         P: crate::capabilities::Profile + Default,
-        Tr: Send, // Remove Sync requirement for blocking mode
+        Tr: Send + Sync, // Keep Sync requirement for blocking mode 
         Self: Sized,
     {
         use crate::command::bytes::VISCA_TERMINATOR;
@@ -306,7 +306,7 @@ impl Mode for Blocking {
                                 Ok(first_response_bytes) => {
                                     match envelope.extract_response(&first_response_bytes[..]) {
                                         Ok(first_visca) => {
-                                            match ViscaResponse::parse(&first_visca) {
+                                            match ViscaResponse::parse(&first_visca[..]) {
                                                 Ok(ViscaResponse::Error(e)) => ready(Err(e)),
                                                 Ok(ViscaResponse::CmdAck) => {
                                                     // Got ACK, now wait for completion
@@ -321,7 +321,7 @@ impl Mode for Blocking {
                                                             ) {
                                                             Ok(second_visca) => {
                                                                 match ViscaResponse::parse(
-                                                                    &second_visca,
+                                                                    &second_visca[..],
                                                                 ) {
                                                                     Ok(response) => {
                                                                         ready(Ok(response))
@@ -349,7 +349,7 @@ impl Mode for Blocking {
                             match transport.recv_with_timeout(quick_timeout) {
                                 Ok(response_bytes) => {
                                     match envelope.extract_response(&response_bytes[..]) {
-                                        Ok(visca) => match ViscaResponse::parse(&visca) {
+                                        Ok(visca) => match ViscaResponse::parse(&visca[..]) {
                                             Ok(response) => ready(Ok(response)),
                                             Err(e) => ready(Err(e)),
                                         },
@@ -405,7 +405,7 @@ impl Mode for Blocking {
             + 'static,
         C::Response: Send + 'static,
         P: crate::capabilities::Profile + Default,
-        Tr: Send, // Remove Sync requirement for blocking mode
+        Tr: Send + Sync, // Keep Sync requirement for blocking mode
         Self: Sized,
     {
         // Delegate to send_command and parse response
