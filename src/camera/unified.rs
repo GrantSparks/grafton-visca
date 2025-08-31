@@ -314,7 +314,7 @@ where
 impl<P, Tr> Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: Profile + Default,
-    Tr: SyncTransport + Send, // Only Send required for blocking mode
+    Tr: Send, // Only Send required for blocking mode
 {
     /// Send a command using the mode-specific return type.
     ///
@@ -346,14 +346,39 @@ where
         crate::mode::Blocking::send_command_typed(self, command)
     }
 
+    /// Get the camera ID.
+    pub fn camera_id(&self) -> CameraId {
+        self.camera_id
+    }
+
     /// Set the camera ID.
     pub fn set_camera_id(&mut self, camera_id: CameraId) {
         self.camera_id = camera_id;
     }
 
+    /// Get the current timeout configuration.
+    pub fn timeout_config(&self) -> &TimeoutConfig {
+        &self.timeout_config
+    }
+
     /// Set the timeout configuration.
     pub fn set_timeout_config(&mut self, timeout_config: TimeoutConfig) {
         self.timeout_config = timeout_config;
+    }
+
+    /// Get access to the envelope for command framing.
+    pub(crate) fn envelope(&self) -> &TransportEnvelope {
+        &self.envelope
+    }
+
+    /// Get access to the envelope buffer manager.
+    pub(crate) fn envelope_buffer_manager(&self) -> &BufferManager {
+        &self.envelope_buffer_manager
+    }
+
+    /// Get access to the transport for blocking mode.
+    pub fn transport(&self) -> Option<&RefCell<Tr>> {
+        self.transport.as_ref()
     }
 }
 
@@ -373,40 +398,5 @@ where
             .field("envelope", &self.envelope)
             .field("timeout_config", &self.timeout_config)
             .finish()
-    }
-}
-
-// Generic implementation that provides access to Camera<Blocking, P, Tr, ()> methods
-// for any Camera<Blocking, P, Tr, Exec> where Exec: Default
-#[cfg(not(feature = "async"))]
-impl<P, Tr, Exec> Camera<crate::mode::Blocking, P, Tr, Exec>
-where
-    P: Profile + Default,
-    Tr: SyncTransport + Send,
-    Exec: Default,
-{
-    /// Get the camera ID.
-    pub fn camera_id(&self) -> CameraId {
-        self.camera_id
-    }
-
-    /// Get the timeout configuration.
-    pub fn timeout_config(&self) -> &TimeoutConfig {
-        &self.timeout_config
-    }
-
-    /// Get access to the envelope for command framing.
-    pub(crate) fn envelope(&self) -> &TransportEnvelope {
-        &self.envelope
-    }
-
-    /// Get access to the envelope buffer manager.
-    pub(crate) fn envelope_buffer_manager(&self) -> &BufferManager {
-        &self.envelope_buffer_manager
-    }
-
-    /// Get access to the transport for blocking mode.
-    pub fn transport(&self) -> Option<&RefCell<Tr>> {
-        self.transport.as_ref()
     }
 }
