@@ -7,8 +7,7 @@
 use tracing::{debug, trace, warn};
 
 #[cfg(feature = "async")]
-use crate::command::bytes::VISCA_TERMINATOR;
-use crate::{runtime::scheduler::ViscaError, ViscaSocket};
+use crate::{command::bytes::VISCA_TERMINATOR, runtime::scheduler::ViscaError, ViscaSocket};
 
 /// Protocol-level response types from VISCA frame parsing.
 ///
