@@ -31,6 +31,10 @@ Use `gh issue view $ARGUMENTS --comments` to read the issue and all comments. Do
      - Complete test coverage
    - Verify code quality, naming conventions, and documentation
    - Look for any remaining TODO comments relating to the issue
+   - Additional Tools
+      - rust-analyzer (IDE code intelligence)
+      - cargo-expand (macro expansion inspection)
+      - rustup components: rust-analyzer, llvm-tools, docs, src, std
 
 2. **Functionality Testing**:
    - Run all relevant tests with `Bash(cargo test:*)`
