@@ -263,16 +263,17 @@ visca_command! {
     ///
     /// **Vendor-Specific**: This command is specific to PtzOptics cameras.
     category = "Quick",
+    max_size = 6, // LOCK_PREFIX (4 bytes) + 1 data + 1 terminator = 6
     enum FocusLock {
         /// Enable focus lock
         On => {
-            Ok(ConstCommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<6>::new()
                 .append(crate::command::bytes::constants::focus::LOCK_PREFIX)
                 .push(0x02))
         },
         /// Disable focus lock
         Off => {
-            Ok(ConstCommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<6>::new()
                 .append(crate::command::bytes::constants::focus::LOCK_PREFIX)
                 .push(0x03))
         },

@@ -67,8 +67,12 @@ where
         use crate::command::system::CommandCancelCommand;
 
         let cmd = CommandCancelCommand::new(socket);
-        self.send_command(&cmd).await?;
-        Ok(())
+        match self.send_command(&cmd).await {
+            Ok(_) => Ok(()),
+            // Treat "no socket" error as success since there's nothing to cancel
+            Err(Error::NoSocket) => Ok(()),
+            Err(e) => Err(e),
+        }
     }
 }
 
@@ -98,7 +102,11 @@ where
         use crate::command::system::CommandCancelCommand;
 
         let cmd = CommandCancelCommand::new(socket);
-        pollster::block_on(self.send_command(&cmd))?;
-        Ok(())
+        match pollster::block_on(self.send_command(&cmd)) {
+            Ok(_) => Ok(()),
+            // Treat "no socket" error as success since there's nothing to cancel
+            Err(Error::NoSocket) => Ok(()),
+            Err(e) => Err(e),
+        }
     }
 }

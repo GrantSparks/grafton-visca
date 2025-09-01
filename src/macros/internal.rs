@@ -40,6 +40,7 @@ macro_rules! visca_command {
     (
         $(#[$meta:meta])*
         category = $category:literal,
+        max_size = $max_size:literal,
         enum $name:ident {
             $(
                 $(#[$variant_meta:meta])*
@@ -58,7 +59,7 @@ macro_rules! visca_command {
 
         impl $crate::command::encode_visca::ViscaEncode for $name {
             type ViscaResponse = ();
-            const MAX_SIZE: usize = 32; // Conservative default
+            const MAX_SIZE: usize = $max_size;
             const TIMEOUT_CATEGORY: $crate::timeout::CommandCategory =
                 $crate::macros::internal::str_to_command_category($category);
 
@@ -69,12 +70,9 @@ macro_rules! visca_command {
                 match self {
                     $(
                         Self::$variant$( ($($param),*) )? => {
-                            // Execute the body which should build a command
-                            let builder_result: Result<ConstCommandBuilder<16, _>, $crate::Error> = {
-                                $body
-                            };
-
-                            let builder = builder_result?;
+                            // Execute the body which should return any ConstCommandBuilder<N, _>
+                            let builder: Result<_, $crate::Error> = { $body };
+                            let builder = builder?;
 
                             // Apply camera ID and terminate
                             let terminated = builder.with_camera_id(camera_id).terminate();
@@ -470,7 +468,7 @@ macro_rules! visca_param_command {
 /// This macro generates commands that always send the same fixed byte sequence,
 /// typically used for commands with no parameters like "Cancel", "Menu Open", etc.
 macro_rules! visca_const_command {
-    // Original form without optional parameters
+    // Original form without optional parameters (backward compatibility)
     (
         $(#[$meta:meta])*
         $vis:vis struct $name:ident;
@@ -487,7 +485,7 @@ macro_rules! visca_const_command {
         }
     };
 
-    // Extended form with optional parameters
+    // Extended form with optional parameters (backward compatibility)
     (
         $(#[$meta:meta])*
         $vis:vis struct $name:ident;
@@ -506,7 +504,7 @@ macro_rules! visca_const_command {
                 Self
             }
 
-            /// Command bytes as a const array (without terminator).
+            /// Command bytes as a const array.
             const BYTES: &'static [u8] = &[$($byte),+];
         }
 
@@ -518,7 +516,15 @@ macro_rules! visca_const_command {
 
         impl $crate::command::encode_visca::ViscaEncode for $name {
             type ViscaResponse = ();
-            const MAX_SIZE: usize = { [$($byte),+].len() };
+            // Calculate exact MAX_SIZE based on whether bytes include terminator
+            const MAX_SIZE: usize = {
+                const BYTES: &[u8] = &[$($byte),+];
+                if BYTES.len() > 0 && BYTES[BYTES.len() - 1] == $crate::command::bytes::VISCA_TERMINATOR {
+                    BYTES.len() // Already includes terminator
+                } else {
+                    BYTES.len() + 1 // Need to add terminator
+                }
+            };
             const TIMEOUT_CATEGORY: $crate::timeout::CommandCategory = $crate::timeout::CommandCategory::$category;
 
             fn encode_into(
@@ -531,13 +537,13 @@ macro_rules! visca_const_command {
                 // Use type-state pattern - handle pre-terminated commands
                 if BYTES.last() == Some(&$crate::command::bytes::VISCA_TERMINATOR) {
                     // Command already has terminator, just substitute camera ID
-                    let mut builder = $crate::command::bytes::ConstCommandBuilder::<16>::new();
+                    let mut builder = $crate::command::bytes::ConstCommandBuilder::<{Self::MAX_SIZE}>::new();
                     builder.append_mut(BYTES);
                     builder.with_camera_id_mut(camera_id);
                     builder.build_into(buffer)
                 } else {
                     // Use type-state pattern for proper termination
-                    let terminated = $crate::command::bytes::ConstCommandBuilder::<16>::new()
+                    let terminated = $crate::command::bytes::ConstCommandBuilder::<{Self::MAX_SIZE}>::new()
                         .append(BYTES)
                         .with_camera_id(camera_id)
                         .terminate();
@@ -549,6 +555,220 @@ macro_rules! visca_const_command {
                 $response
             }
 
+        }
+    };
+
+    // New form: bytes already include 0xFF terminator - with response
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident;
+        bytes_terminated = [$($byte:expr),+ $(,)?];
+        timeout = $category:ident;
+        address = $address:expr,
+        response = $response:expr,
+    ) => {
+        $(#[$meta])*
+        #[derive(Debug, Copy, Clone)]
+        $vis struct $name;
+
+        impl $name {
+            /// Create a new instance of this command.
+            pub const fn new() -> Self {
+                Self
+            }
+
+            /// Command bytes as a const array (already terminated).
+            const BYTES: &'static [u8] = &[$($byte),+];
+        }
+
+        impl Default for $name {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+
+        impl $crate::command::encode_visca::ViscaEncode for $name {
+            type ViscaResponse = ();
+            const MAX_SIZE: usize = { [$($byte),+].len() }; // Exact size - already includes terminator
+            const TIMEOUT_CATEGORY: $crate::timeout::CommandCategory = $crate::timeout::CommandCategory::$category;
+
+            fn encode_into(
+                &self,
+                camera_id: $crate::camera_id::CameraId,
+                buffer: &mut [u8],
+            ) -> Result<usize, $crate::error::Error> {
+                const BYTES: &[u8] = $name::BYTES;
+
+                // Use properly sized builder for pre-terminated commands
+                let mut builder = $crate::command::bytes::ConstCommandBuilder::<{Self::MAX_SIZE}>::new();
+                builder.append_mut(BYTES);
+                builder.with_camera_id_mut(camera_id);
+                builder.build_into(buffer)
+            }
+
+            fn response_type(&self) -> Option<$crate::command::response::ViscaResponseType> {
+                Some($response)
+            }
+        }
+    };
+
+    // New form: bytes already include 0xFF terminator - without response
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident;
+        bytes_terminated = [$($byte:expr),+ $(,)?];
+        timeout = $category:ident;
+    ) => {
+        $(#[$meta])*
+        #[derive(Debug, Copy, Clone)]
+        $vis struct $name;
+
+        impl $name {
+            /// Create a new instance of this command.
+            pub const fn new() -> Self {
+                Self
+            }
+
+            /// Command bytes as a const array (already terminated).
+            const BYTES: &'static [u8] = &[$($byte),+];
+        }
+
+        impl Default for $name {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+
+        impl $crate::command::encode_visca::ViscaEncode for $name {
+            type ViscaResponse = ();
+            const MAX_SIZE: usize = { [$($byte),+].len() }; // Exact size - already includes terminator
+            const TIMEOUT_CATEGORY: $crate::timeout::CommandCategory = $crate::timeout::CommandCategory::$category;
+
+            fn encode_into(
+                &self,
+                camera_id: $crate::camera_id::CameraId,
+                buffer: &mut [u8],
+            ) -> Result<usize, $crate::error::Error> {
+                const BYTES: &[u8] = $name::BYTES;
+
+                // Use properly sized builder for pre-terminated commands
+                let mut builder = $crate::command::bytes::ConstCommandBuilder::<{Self::MAX_SIZE}>::new();
+                builder.append_mut(BYTES);
+                builder.with_camera_id_mut(camera_id);
+                builder.build_into(buffer)
+            }
+
+            fn response_type(&self) -> Option<$crate::command::response::ViscaResponseType> {
+                None
+            }
+        }
+    };
+
+    // New form: prefix without terminator (will add terminator) - with response
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident;
+        prefix = [$($byte:expr),+ $(,)?];
+        timeout = $category:ident;
+        address = $address:expr,
+        response = $response:expr,
+    ) => {
+        $(#[$meta])*
+        #[derive(Debug, Copy, Clone)]
+        $vis struct $name;
+
+        impl $name {
+            /// Create a new instance of this command.
+            pub const fn new() -> Self {
+                Self
+            }
+
+            /// Command prefix as a const array (without terminator).
+            const PREFIX: &'static [u8] = &[$($byte),+];
+        }
+
+        impl Default for $name {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+
+        impl $crate::command::encode_visca::ViscaEncode for $name {
+            type ViscaResponse = ();
+            const MAX_SIZE: usize = { [$($byte),+].len() + 1 }; // Prefix length + terminator
+            const TIMEOUT_CATEGORY: $crate::timeout::CommandCategory = $crate::timeout::CommandCategory::$category;
+
+            fn encode_into(
+                &self,
+                camera_id: $crate::camera_id::CameraId,
+                buffer: &mut [u8],
+            ) -> Result<usize, $crate::error::Error> {
+                const PREFIX: &[u8] = $name::PREFIX;
+
+                // Use properly sized builder and add termination
+                let terminated = $crate::command::bytes::ConstCommandBuilder::<{Self::MAX_SIZE}>::new()
+                    .append(PREFIX)
+                    .with_camera_id(camera_id)
+                    .terminate();
+                terminated.build_into(buffer)
+            }
+
+            fn response_type(&self) -> Option<$crate::command::response::ViscaResponseType> {
+                Some($response)
+            }
+        }
+    };
+
+    // New form: prefix without terminator (will add terminator) - without response
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident;
+        prefix = [$($byte:expr),+ $(,)?];
+        timeout = $category:ident;
+    ) => {
+        $(#[$meta])*
+        #[derive(Debug, Copy, Clone)]
+        $vis struct $name;
+
+        impl $name {
+            /// Create a new instance of this command.
+            pub const fn new() -> Self {
+                Self
+            }
+
+            /// Command prefix as a const array (without terminator).
+            const PREFIX: &'static [u8] = &[$($byte),+];
+        }
+
+        impl Default for $name {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+
+        impl $crate::command::encode_visca::ViscaEncode for $name {
+            type ViscaResponse = ();
+            const MAX_SIZE: usize = { [$($byte),+].len() + 1 }; // Prefix length + terminator
+            const TIMEOUT_CATEGORY: $crate::timeout::CommandCategory = $crate::timeout::CommandCategory::$category;
+
+            fn encode_into(
+                &self,
+                camera_id: $crate::camera_id::CameraId,
+                buffer: &mut [u8],
+            ) -> Result<usize, $crate::error::Error> {
+                const PREFIX: &[u8] = $name::PREFIX;
+
+                // Use properly sized builder and add termination
+                let terminated = $crate::command::bytes::ConstCommandBuilder::<{Self::MAX_SIZE}>::new()
+                    .append(PREFIX)
+                    .with_camera_id(camera_id)
+                    .terminate();
+                terminated.build_into(buffer)
+            }
+
+            fn response_type(&self) -> Option<$crate::command::response::ViscaResponseType> {
+                None
+            }
         }
     };
 }

@@ -320,16 +320,17 @@ visca_command! {
     ///
     /// Controls the spotlight feature which enhances exposure for specific subjects.
     category = "Quick",
+    max_size = 6, // SPOTLIGHT_PREFIX (4 bytes) + 1 data + 1 terminator = 6
     enum Spotlight {
         /// Turn spotlight on
         On => {
-            Ok(ConstCommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<6>::new()
                 .append(constants::exposure::SPOTLIGHT_PREFIX)
                 .append(&[0x02]))
         },
         /// Turn spotlight off
         Off => {
-            Ok(ConstCommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<6>::new()
                 .append(constants::exposure::SPOTLIGHT_PREFIX)
                 .append(&[0x03]))
         },
@@ -343,16 +344,17 @@ visca_command! {
     /// in low light conditions to maintain proper exposure. This feature is supported
     /// on Sony cameras and FR7, but PtzOptics only supports it via HTTP API.
     category = "Quick",
+    max_size = 6, // SPOT_AE_PREFIX (4 bytes) + 1 data + 1 terminator = 6
     enum AutoSlowShutter {
         /// Turn auto slow shutter on
         On => {
-            Ok(ConstCommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<6>::new()
                 .append(constants::exposure::SPOT_AE_PREFIX)
                 .append(&[0x02]))
         },
         /// Turn auto slow shutter off
         Off => {
-            Ok(ConstCommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<6>::new()
                 .append(constants::exposure::SPOT_AE_PREFIX)
                 .append(&[0x03]))
         },
