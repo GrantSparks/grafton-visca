@@ -26,11 +26,11 @@
 //!     .build_async::<PtzOpticsG2, _>(transport)?;
 //! ```
 
+#[cfg(not(feature = "async"))]
+use crate::transport::SyncTransport;
 #[cfg(feature = "async")]
 use crate::{camera::Camera, executor::Executor, mode, transport::AsyncTransport};
 use crate::{camera_id::CameraId, capabilities::Profile, error::Error, timeout::TimeoutConfig};
-#[cfg(not(feature = "async"))]
-use crate::transport::SyncTransport;
 
 /// Builder for creating cameras with explicit executor configuration.
 ///

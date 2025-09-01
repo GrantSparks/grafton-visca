@@ -279,7 +279,13 @@ where
                 // For inquiry commands, just read one response
                 let response_bytes = transport_guard.recv().await?;
                 let visca = envelope.extract_response(&response_bytes)?;
-                ViscaResponse::parse(&visca)
+
+                // Use parse_with_type for inquiry responses
+                if let Some(response_type) = command.response_type() {
+                    ViscaResponse::parse_with_type(&visca, &response_type)
+                } else {
+                    ViscaResponse::parse(&visca)
+                }
             }
         })
     }
@@ -452,10 +458,21 @@ where
                     match SyncTransport::recv_with_timeout(&mut *transport, quick_timeout) {
                         Ok(response_bytes) => {
                             match envelope.extract_response(&response_bytes[..]) {
-                                Ok(visca) => match ViscaResponse::parse(&visca[..]) {
-                                    Ok(response) => std::future::ready(Ok(response)),
-                                    Err(e) => std::future::ready(Err(e)),
-                                },
+                                Ok(visca) => {
+                                    // Use parse_with_type for inquiry responses
+                                    let parse_result = if let Some(response_type) =
+                                        command.response_type()
+                                    {
+                                        ViscaResponse::parse_with_type(&visca[..], &response_type)
+                                    } else {
+                                        ViscaResponse::parse(&visca[..])
+                                    };
+
+                                    match parse_result {
+                                        Ok(response) => std::future::ready(Ok(response)),
+                                        Err(e) => std::future::ready(Err(e)),
+                                    }
+                                }
                                 Err(e) => std::future::ready(Err(e)),
                             }
                         }
@@ -570,10 +587,21 @@ where
                     match SyncTransport::recv_with_timeout(&mut *transport, quick_timeout) {
                         Ok(response_bytes) => {
                             match envelope.extract_response(&response_bytes[..]) {
-                                Ok(visca) => match ViscaResponse::parse(&visca[..]) {
-                                    Ok(response) => Ok(response),
-                                    Err(e) => Err(e),
-                                },
+                                Ok(visca) => {
+                                    // Use parse_with_type for inquiry responses
+                                    let parse_result = if let Some(response_type) =
+                                        command.response_type()
+                                    {
+                                        ViscaResponse::parse_with_type(&visca[..], &response_type)
+                                    } else {
+                                        ViscaResponse::parse(&visca[..])
+                                    };
+
+                                    match parse_result {
+                                        Ok(response) => Ok(response),
+                                        Err(e) => Err(e),
+                                    }
+                                }
                                 Err(e) => Err(e),
                             }
                         }
