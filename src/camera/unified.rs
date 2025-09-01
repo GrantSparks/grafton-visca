@@ -397,14 +397,12 @@ where
                                 // Got ACK, now wait for completion
                                 let second_response = transport_lock.recv().await?;
                                 match envelope.extract_response(&second_response) {
-                                    Ok(second_visca) => {
-                                        ViscaResponse::parse(&second_visca).map_err(Error::from)
-                                    }
+                                    Ok(second_visca) => ViscaResponse::parse(&second_visca),
                                     Err(e) => Err(e),
                                 }
                             }
                             Ok(response) => Ok(response), // Some cameras skip ACK
-                            Err(e) => Err(e.into()),
+                            Err(e) => Err(e),
                         }
                     }
                     Err(e) => Err(e),
@@ -415,12 +413,11 @@ where
                 match envelope.extract_response(&response) {
                     Ok(visca) => {
                         // Use parse_with_type for inquiry responses
-                        let parse_result = if let Some(response_type) = command.response_type() {
+                        if let Some(response_type) = command.response_type() {
                             ViscaResponse::parse_with_type(&visca, &response_type)
                         } else {
                             ViscaResponse::parse(&visca)
-                        };
-                        parse_result.map_err(Error::from)
+                        }
                     }
                     Err(e) => Err(e),
                 }
