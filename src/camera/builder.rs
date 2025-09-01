@@ -324,8 +324,8 @@ mod tests {
     #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "test-utils")))]
     #[tokio::test]
     async fn test_camera_builder_uses_profile_default() -> Result<(), Error> {
-        use crate::executor::TokioExecutor;
         use crate::camera::profiles::{PtzOpticsG2, SonyFR7};
+        use crate::executor::TokioExecutor;
         use crate::testing::camera_simulator::ViscaCameraSimulator;
 
         let executor = TokioExecutor::from_current()?;
@@ -349,8 +349,8 @@ mod tests {
     #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "test-utils")))]
     #[tokio::test]
     async fn test_camera_builder_with_protocol_override() -> Result<(), Error> {
-        use crate::executor::TokioExecutor;
         use crate::camera::profiles::SonyFR7;
+        use crate::executor::TokioExecutor;
         use crate::testing::camera_simulator::ViscaCameraSimulator;
 
         let executor = TokioExecutor::from_current()?;
@@ -365,7 +365,10 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(all(not(feature = "async"), any(feature = "rt-tokio", feature = "test-utils")))]
+    #[cfg(all(
+        not(feature = "async"),
+        any(feature = "rt-tokio", feature = "test-utils")
+    ))]
     #[test]
     fn test_blocking_camera_builder_uses_profile_default() {
         use crate::camera::profiles::{PtzOpticsG2, SonyFR7};
@@ -386,7 +389,10 @@ mod tests {
         // Camera should be configured with RawVisca protocol
     }
 
-    #[cfg(all(not(feature = "async"), any(feature = "rt-tokio", feature = "test-utils")))]
+    #[cfg(all(
+        not(feature = "async"),
+        any(feature = "rt-tokio", feature = "test-utils")
+    ))]
     #[test]
     fn test_blocking_camera_builder_with_protocol_override() {
         use crate::camera::profiles::SonyFR7;

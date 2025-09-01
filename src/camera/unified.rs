@@ -659,16 +659,16 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::capabilities::ProfileMetadata;
     use crate::camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7};
-    
+    use crate::capabilities::ProfileMetadata;
+
     // Simulator is only used in feature-gated tests
 
     #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "test-utils")))]
     #[tokio::test]
     async fn test_async_camera_uses_profile_protocol_style() -> Result<(), Error> {
-        use crate::executor::TokioExecutor;
         use crate::camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7};
+        use crate::executor::TokioExecutor;
         use crate::testing::camera_simulator::ViscaCameraSimulator;
 
         let executor = TokioExecutor::from_current()?;
@@ -699,8 +699,8 @@ mod tests {
     #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "test-utils")))]
     #[tokio::test]
     async fn test_async_camera_with_explicit_protocol_style() -> Result<(), Error> {
-        use crate::executor::TokioExecutor;
         use crate::camera::profiles::SonyFR7;
+        use crate::executor::TokioExecutor;
         use crate::testing::camera_simulator::ViscaCameraSimulator;
 
         let executor = TokioExecutor::from_current()?;
@@ -717,7 +717,10 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(all(not(feature = "async"), any(feature = "rt-tokio", feature = "test-utils")))]
+    #[cfg(all(
+        not(feature = "async"),
+        any(feature = "rt-tokio", feature = "test-utils")
+    ))]
     #[test]
     fn test_blocking_camera_uses_profile_protocol_style() {
         use crate::camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7};
@@ -742,7 +745,10 @@ mod tests {
         // The envelope should be configured with RawVisca protocol
     }
 
-    #[cfg(all(not(feature = "async"), any(feature = "rt-tokio", feature = "test-utils")))]
+    #[cfg(all(
+        not(feature = "async"),
+        any(feature = "rt-tokio", feature = "test-utils")
+    ))]
     #[test]
     fn test_blocking_camera_with_explicit_protocol_style() {
         use crate::camera::profiles::SonyFR7;
