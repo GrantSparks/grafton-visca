@@ -659,14 +659,17 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7};
     use crate::capabilities::ProfileMetadata;
-    use crate::testing::camera_simulator::ViscaCameraSimulator;
+    use crate::camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7};
+    
+    // Simulator is only used in feature-gated tests
 
-    #[cfg(feature = "async")]
+    #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "test-utils")))]
     #[tokio::test]
     async fn test_async_camera_uses_profile_protocol_style() -> Result<(), Error> {
         use crate::executor::TokioExecutor;
+        use crate::camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7};
+        use crate::testing::camera_simulator::ViscaCameraSimulator;
 
         let executor = TokioExecutor::from_current()?;
 
@@ -693,10 +696,12 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(feature = "async")]
+    #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "test-utils")))]
     #[tokio::test]
     async fn test_async_camera_with_explicit_protocol_style() -> Result<(), Error> {
         use crate::executor::TokioExecutor;
+        use crate::camera::profiles::SonyFR7;
+        use crate::testing::camera_simulator::ViscaCameraSimulator;
 
         let executor = TokioExecutor::from_current()?;
 
@@ -712,9 +717,12 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(not(feature = "async"))]
+    #[cfg(all(not(feature = "async"), any(feature = "rt-tokio", feature = "test-utils")))]
     #[test]
     fn test_blocking_camera_uses_profile_protocol_style() {
+        use crate::camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7};
+        use crate::testing::camera_simulator::ViscaCameraSimulator;
+
         // Test that SonyFR7 uses Sony encapsulated protocol
         let transport = ViscaCameraSimulator::new();
         let _camera =
@@ -734,9 +742,12 @@ mod tests {
         // The envelope should be configured with RawVisca protocol
     }
 
-    #[cfg(not(feature = "async"))]
+    #[cfg(all(not(feature = "async"), any(feature = "rt-tokio", feature = "test-utils")))]
     #[test]
     fn test_blocking_camera_with_explicit_protocol_style() {
+        use crate::camera::profiles::SonyFR7;
+        use crate::testing::camera_simulator::ViscaCameraSimulator;
+
         // Test overriding Sony profile to use RawVisca
         let transport = ViscaCameraSimulator::new();
         let _camera = Camera::<crate::mode::Blocking, SonyFR7, _, _>::new_blocking_with_style(

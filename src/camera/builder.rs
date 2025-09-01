@@ -319,13 +319,14 @@ pub mod blocking_cameras {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::camera::profiles::{PtzOpticsG2, SonyFR7};
-    use crate::testing::camera_simulator::ViscaCameraSimulator;
+    // Profile types are only used in feature-gated tests
 
-    #[cfg(feature = "async")]
+    #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "test-utils")))]
     #[tokio::test]
     async fn test_camera_builder_uses_profile_default() -> Result<(), Error> {
         use crate::executor::TokioExecutor;
+        use crate::camera::profiles::{PtzOpticsG2, SonyFR7};
+        use crate::testing::camera_simulator::ViscaCameraSimulator;
 
         let executor = TokioExecutor::from_current()?;
 
@@ -345,10 +346,12 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(feature = "async")]
+    #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "test-utils")))]
     #[tokio::test]
     async fn test_camera_builder_with_protocol_override() -> Result<(), Error> {
         use crate::executor::TokioExecutor;
+        use crate::camera::profiles::SonyFR7;
+        use crate::testing::camera_simulator::ViscaCameraSimulator;
 
         let executor = TokioExecutor::from_current()?;
 
@@ -362,9 +365,12 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(not(feature = "async"))]
+    #[cfg(all(not(feature = "async"), any(feature = "rt-tokio", feature = "test-utils")))]
     #[test]
     fn test_blocking_camera_builder_uses_profile_default() {
+        use crate::camera::profiles::{PtzOpticsG2, SonyFR7};
+        use crate::testing::camera_simulator::ViscaCameraSimulator;
+
         // SonyFR7 should use Sony encapsulated protocol by default
         let transport = ViscaCameraSimulator::new();
         let _camera = CameraBuilder::new()
@@ -380,9 +386,12 @@ mod tests {
         // Camera should be configured with RawVisca protocol
     }
 
-    #[cfg(not(feature = "async"))]
+    #[cfg(all(not(feature = "async"), any(feature = "rt-tokio", feature = "test-utils")))]
     #[test]
     fn test_blocking_camera_builder_with_protocol_override() {
+        use crate::camera::profiles::SonyFR7;
+        use crate::testing::camera_simulator::ViscaCameraSimulator;
+
         // Override SonyFR7 to use RawVisca instead of Sony encapsulated
         let transport = ViscaCameraSimulator::new();
         let _camera = CameraBuilder::new()
