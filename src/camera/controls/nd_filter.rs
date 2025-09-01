@@ -82,7 +82,7 @@ pub trait NdFilterControl {
 /// Blocking ND filter control trait (deprecated, use NdFilterControl instead).
 // Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P, Tr, Exec> NdFilterControl for crate::camera::AsyncCamera<P, Tr, Exec>
+impl<P, Tr, Exec> NdFilterControl for crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
 where
     P: crate::capabilities::Profile + crate::capabilities::nd_filter::NdFilter + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
@@ -149,7 +149,7 @@ where
 
 // Blocking implementation for BlockingCamera
 #[cfg(not(feature = "async"))]
-impl<P, Tr> NdFilterControl for crate::camera::BlockingCamera<P, Tr>
+impl<P, Tr> NdFilterControl for crate::camera::Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: crate::capabilities::Profile + crate::capabilities::nd_filter::NdFilter + Default,
     Tr: crate::transport::SyncTransport + Send + 'static,
@@ -157,7 +157,7 @@ where
     fn set_nd_filter_mode(&mut self, mode: CommandNdFilterMode) -> Result<(), Error> {
         use crate::command::nd_filter::NdFilterModeCommand;
         let cmd = NdFilterModeCommand::new(mode);
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -169,7 +169,7 @@ where
             value: value.to_string().into(),
             reason: "ND filter value out of range".into(),
         })?;
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -181,7 +181,7 @@ where
             value: stops.to_string().into(),
             reason: "ND filter stops must be between 2.0 and 7.0".into(),
         })?;
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -189,7 +189,7 @@ where
         use crate::command::nd_filter::NdFilterStepCommand;
 
         let cmd = NdFilterStepCommand::new(direction);
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -197,7 +197,7 @@ where
         use crate::command::nd_filter::AutoNdCommand;
 
         let cmd = AutoNdCommand::new(enabled);
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -205,7 +205,7 @@ where
         use crate::command::{inquiry::NdFilterInquiry, response::ViscaResponse, InquiryResponse};
 
         let inquiry = NdFilterInquiry;
-        let response = self.send_command(&inquiry)?;
+        let response = pollster::block_on(self.send_command(&inquiry))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::NdFilter { position }) => Ok(position),
             _ => Err(Error::UnexpectedResponseType),

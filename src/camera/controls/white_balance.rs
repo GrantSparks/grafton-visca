@@ -111,7 +111,7 @@ pub trait WhiteBalanceControl {
 /// Blocking white balance control trait (deprecated, use WhiteBalanceControl instead).
 // Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P, Tr, Exec> WhiteBalanceControl for crate::camera::AsyncCamera<P, Tr, Exec>
+impl<P, Tr, Exec> WhiteBalanceControl for crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
@@ -167,7 +167,7 @@ where
 
 // Blocking implementation for BlockingCamera
 #[cfg(not(feature = "async"))]
-impl<P, Tr> WhiteBalanceControl for crate::camera::BlockingCamera<P, Tr>
+impl<P, Tr> WhiteBalanceControl for crate::camera::Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::SyncTransport + Send + 'static,
@@ -175,7 +175,7 @@ where
     fn set_white_balance_mode(&mut self, mode: WhiteBalanceMode) -> Result<(), Error> {
         use crate::command::white_balance::WhiteBalanceCommand;
         let cmd = WhiteBalanceCommand { mode };
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -214,7 +214,7 @@ where
         use crate::command::white_balance::AWBSensitivityCommand;
 
         let cmd = AWBSensitivityCommand { sensitivity };
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 }

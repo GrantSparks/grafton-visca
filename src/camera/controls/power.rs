@@ -37,7 +37,7 @@ pub trait PowerControl {
 
 // Async implementation for AsyncCamera
 #[cfg(feature = "async")]
-impl<P, Tr, Exec> PowerControl for crate::camera::AsyncCamera<P, Tr, Exec>
+impl<P, Tr, Exec> PowerControl for crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
@@ -68,7 +68,7 @@ where
 
 // Blocking implementation for BlockingCamera
 #[cfg(not(feature = "async"))]
-impl<P, Tr> PowerControl for crate::camera::BlockingCamera<P, Tr>
+impl<P, Tr> PowerControl for crate::camera::Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::SyncTransport + Send + 'static,
@@ -77,7 +77,7 @@ where
         use crate::command::power::Power;
 
         let cmd = Power::On;
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -85,13 +85,13 @@ where
         use crate::command::power::Power;
 
         let cmd = Power::Standby;
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
     fn power_inquiry(&mut self) -> Result<bool, Error> {
         use crate::command::inquiry_structs::PowerInquiry;
 
-        self.send_command_typed(&PowerInquiry)
+        pollster::block_on(self.send_command_typed(&PowerInquiry))
     }
 }

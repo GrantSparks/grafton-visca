@@ -320,46 +320,41 @@ jobs:
             (echo "ERROR: Found async dependencies in blocking mode!" && exit 1) || \
             echo "✅ No async dependencies found in blocking mode"
       
-      # Test 2: Verify blocking types are NOT exported when async is enabled
-      - name: Verify API separation
+      # Test 2: Verify unified API works with both modes
+      - name: Verify unified API design
         run: |
-          echo "Testing that blocking types are not exported with async feature..."
+          echo "Testing that unified API supports both blocking and async modes..."
           
-          # First, build the library with async feature
+          # Build with async feature to test unified API
           cargo build --no-default-features --features async
           
-          # Create a test file that tries to use blocking types
-          cat > /tmp/test_blocking_types.rs << 'EOF'
-          use grafton_visca::transport::{BlockingTcp, BlockingUdp};
+          # Create a test file that uses the unified Camera API with both modes
+          cat > /tmp/test_unified_api.rs << 'EOF'
+          use grafton_visca::{Camera, mode::{Async, Blocking}};
+          use grafton_visca::camera::profiles::GenericVisca;
           
           fn main() {
-              println!("If this compiles, blocking types are incorrectly exported!");
+              // The unified API should support both mode types regardless of features
+              // (actual transport construction would require specific features, but types should be available)
+              let _blocking_type: Option<Camera<Blocking, GenericVisca, (), ()>> = None;
+              let _async_type: Option<Camera<Async, GenericVisca, (), ()>> = None;
+              println!("✅ Unified API supports both blocking and async mode types!");
           }
           EOF
           
-          # Try to compile - this should FAIL when async feature is enabled
-          if rustc --edition 2021 /tmp/test_blocking_types.rs \
+          # This should compile successfully - unified API supports both modes
+          if rustc --edition 2021 /tmp/test_unified_api.rs \
                    -L target/debug/deps \
                    --extern grafton_visca=target/debug/libgrafton_visca.rlib \
-                   2>&1 | grep -q "unresolved import"; then
-            echo "✅ Blocking types correctly NOT exported with async feature"
+                   2>/dev/null; then
+            echo "✅ Unified API correctly supports both modes with async feature"
           else
-            # Check if it actually compiled successfully
-            if rustc --edition 2021 /tmp/test_blocking_types.rs \
-                     -L target/debug/deps \
-                     --extern grafton_visca=target/debug/libgrafton_visca.rlib \
-                     2>/dev/null; then
-              echo "ERROR: Blocking types are exported when async is enabled!"
-              exit 1
-            else
-              # Compilation failed for another reason, show the actual error
-              echo "Test compilation failed (checking error message):"
-              rustc --edition 2021 /tmp/test_blocking_types.rs \
-                    -L target/debug/deps \
-                    --extern grafton_visca=target/debug/libgrafton_visca.rlib \
-                    2>&1
-              echo "✅ Blocking types correctly NOT exported (compilation failed as expected)"
-            fi
+            echo "ERROR: Unified API should support both mode types! Compilation failed:"
+            rustc --edition 2021 /tmp/test_unified_api.rs \
+                  -L target/debug/deps \
+                  --extern grafton_visca=target/debug/libgrafton_visca.rlib \
+                  2>&1
+            exit 1
           fi
       
       # Test 3: Verify examples compile with correct features

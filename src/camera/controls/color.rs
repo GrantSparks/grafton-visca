@@ -147,7 +147,7 @@ pub trait ColorControl {
 /// Blocking color control trait (deprecated, use ColorControl instead).
 // Async implementation for AsyncCamera
 #[cfg(feature = "async")]
-impl<P, Tr, Exec> ColorControl for crate::camera::AsyncCamera<P, Tr, Exec>
+impl<P, Tr, Exec> ColorControl for crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
@@ -224,38 +224,38 @@ where
 
 // Blocking implementation for BlockingCamera
 #[cfg(not(feature = "async"))]
-impl<P, Tr> ColorControl for crate::camera::BlockingCamera<P, Tr>
+impl<P, Tr> ColorControl for crate::camera::Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::SyncTransport + Send + 'static,
 {
     fn one_push_trigger(&mut self) -> Result<(), Error> {
-        self.send_command(&OnePushTriggerCommand)?;
+        pollster::block_on(self.send_command(&OnePushTriggerCommand))?;
         Ok(())
     }
     fn set_color_temperature(&mut self, temp: ColorTemp) -> Result<(), Error> {
-        self.send_command(&ColorTemperature::SetTemperature(temp))?;
+        pollster::block_on(self.send_command(&ColorTemperature::SetTemperature(temp)))?;
         Ok(())
     }
 
     fn reset_color_temperature(&mut self) -> Result<(), Error> {
-        self.send_command(&ColorTemperature::Reset)?;
+        pollster::block_on(self.send_command(&ColorTemperature::Reset))?;
         Ok(())
     }
 
     fn increase_color_temperature(&mut self) -> Result<(), Error> {
-        self.send_command(&ColorTemperature::Up)?;
+        pollster::block_on(self.send_command(&ColorTemperature::Up))?;
         Ok(())
     }
 
     fn decrease_color_temperature(&mut self) -> Result<(), Error> {
-        self.send_command(&ColorTemperature::Down)?;
+        pollster::block_on(self.send_command(&ColorTemperature::Down))?;
         Ok(())
     }
 
     fn color_temperature(&mut self, temp: Option<ColorTemp>) -> Result<(), Error> {
         match temp {
-            Some(t) => self.send_command(&ColorTemperature::SetTemperature(t))?,
+            Some(t) => pollster::block_on(self.send_command(&ColorTemperature::SetTemperature(t)))?,
             None => {
                 return Err(Error::Unsupported);
             }
@@ -264,32 +264,32 @@ where
     }
 
     fn set_red_gain(&mut self, gain: RedChannel) -> Result<(), Error> {
-        self.send_command(&RedGain::SetValue(gain))?;
+        pollster::block_on(self.send_command(&RedGain::SetValue(gain)))?;
         Ok(())
     }
 
     fn red_gain(&mut self, command: RedGain) -> Result<(), Error> {
-        self.send_command(&command)?;
+        pollster::block_on(self.send_command(&command))?;
         Ok(())
     }
 
     fn set_blue_gain(&mut self, gain: BlueChannel) -> Result<(), Error> {
-        self.send_command(&BlueGain::SetValue(gain))?;
+        pollster::block_on(self.send_command(&BlueGain::SetValue(gain)))?;
         Ok(())
     }
 
     fn blue_gain(&mut self, command: BlueGain) -> Result<(), Error> {
-        self.send_command(&command)?;
+        pollster::block_on(self.send_command(&command))?;
         Ok(())
     }
 
     fn set_red_tuning(&mut self, tuning: RedTuning) -> Result<(), Error> {
-        self.send_command(&RedTuningCommand::new(tuning))?;
+        pollster::block_on(self.send_command(&RedTuningCommand::new(tuning)))?;
         Ok(())
     }
 
     fn set_blue_tuning(&mut self, tuning: BlueTuning) -> Result<(), Error> {
-        self.send_command(&BlueTuningCommand::new(tuning))?;
+        pollster::block_on(self.send_command(&BlueTuningCommand::new(tuning)))?;
         Ok(())
     }
 }

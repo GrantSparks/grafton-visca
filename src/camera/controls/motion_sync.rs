@@ -118,7 +118,7 @@ pub trait MotionSyncControl {
 
 // Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P, Tr, Exec> MotionSyncControl for crate::camera::AsyncCamera<P, Tr, Exec>
+impl<P, Tr, Exec> MotionSyncControl for crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
 where
     P: crate::capabilities::Profile + crate::capabilities::motion_sync::MotionSync + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
@@ -178,7 +178,7 @@ where
 
 // Blocking implementation for BlockingCamera
 #[cfg(not(feature = "async"))]
-impl<P, Tr> MotionSyncControl for crate::camera::BlockingCamera<P, Tr>
+impl<P, Tr> MotionSyncControl for crate::camera::Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: crate::capabilities::Profile + crate::capabilities::motion_sync::MotionSync + Default,
     Tr: crate::transport::SyncTransport + Send + 'static,
@@ -186,7 +186,7 @@ where
     fn set_motion_sync_mode(&mut self, mode: MotionSyncMode) -> Result<(), Error> {
         use crate::command::motion_sync::MotionSyncModeCommand;
         let cmd = MotionSyncModeCommand::new(mode);
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -198,7 +198,7 @@ where
             value: speed.to_string().into(),
             reason: "must be between 1 and 24".into(),
         })?;
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -206,7 +206,7 @@ where
         use crate::command::motion_sync::MotionSyncSpeedCommand;
 
         let cmd = MotionSyncSpeedCommand::from_preset(speed);
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -215,7 +215,7 @@ where
             inquiry::MotionSyncModeInquiry, response::ViscaResponse, InquiryResponse,
         };
         let inquiry = MotionSyncModeInquiry;
-        let response = self.send_command(&inquiry)?;
+        let response = pollster::block_on(self.send_command(&inquiry))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::MotionSyncMode { mode }) => Ok(mode),
             _ => Err(Error::UnexpectedResponseType),
@@ -227,7 +227,7 @@ where
             inquiry::MotionSyncSpeedInquiry, response::ViscaResponse, InquiryResponse,
         };
         let inquiry = MotionSyncSpeedInquiry;
-        let response = self.send_command(&inquiry)?;
+        let response = pollster::block_on(self.send_command(&inquiry))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::MotionSyncSpeed { speed }) => Ok(speed),
             _ => Err(Error::UnexpectedResponseType),

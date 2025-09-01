@@ -22,6 +22,7 @@ use std::{
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::Camera,
+    mode::Blocking,
     profiles::PtzOpticsG2,
     transport::blocking::{Tcp, Udp},
     types::SpeedLevel,
@@ -54,7 +55,7 @@ fn main() -> Result<(), Error> {
 
     println!("Connecting via TCP (default port 5678)...");
     let tcp_transport = Tcp::connect(&format!("{camera_addr}:5678"))?;
-    let mut tcp_camera = Camera::<PtzOpticsG2, _>::new(tcp_transport);
+    let mut tcp_camera = Camera::<Blocking, PtzOpticsG2, _>::new_blocking(tcp_transport)?;
 
     println!("✓ TCP connection established");
 
@@ -71,7 +72,7 @@ fn main() -> Result<(), Error> {
 
     match Tcp::connect(&format!("{camera_addr}:1259")) {
         Ok(transport) => {
-            let mut camera = Camera::<PtzOpticsG2, _>::new(transport);
+            let mut camera = Camera::<Blocking, PtzOpticsG2, _>::new_blocking(transport)?;
             println!("✓ TCP connection established on port 1259");
 
             // Test connection
@@ -98,7 +99,7 @@ fn main() -> Result<(), Error> {
 
     match Udp::connect(&format!("{camera_addr}:1259")) {
         Ok(transport) => {
-            let mut camera = Camera::<PtzOpticsG2, _>::new(transport);
+            let mut camera = Camera::<Blocking, PtzOpticsG2, _>::new_blocking(transport)?;
             println!("✓ UDP transport initialized");
 
             // Test UDP connection
@@ -179,7 +180,7 @@ fn main() -> Result<(), Error> {
 
     // If UDP is available, compare performance
     if let Ok(udp_transport) = Udp::connect(&format!("{camera_addr}:52381")) {
-        let mut udp_camera = Camera::<PtzOpticsG2, _>::new(udp_transport);
+        let mut udp_camera = Camera::<Blocking, PtzOpticsG2, _>::new_blocking(udp_transport)?;
         println!("Sending 10 commands via UDP...");
 
         let udp_start = Instant::now();

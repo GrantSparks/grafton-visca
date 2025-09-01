@@ -5,7 +5,7 @@ description: Implement the next logical step for a GitHub issue
 Read GitHub issue #$ARGUMENTS and implement the next logical step based on the issue description and all comments.
 
 ## Initial Analysis Phase
-Use `gh issue view $ARGUMENTS --comments` to read the issue and all comments. Then use available tools to:
+Use `gh issue view $ARGUMENTS` to read the issue then ` --comments` for all comments. Use all available tools to:
 - Search for relevant code patterns mentioned in the issue
 - Read key files to understand code structure
 - Understand how components interact
@@ -29,6 +29,10 @@ Analyze:
    - Use `ReadFile` to examine relevant functions, structs, traits, and modules
    - Use `Bash` commands like `grep`, `find`, or `rg` to locate code patterns
    - Trace dependencies by reading related files and checking Cargo.toml
+   - Additional Tools
+      - rust-analyzer (IDE code intelligence)
+      - cargo-expand (macro expansion inspection)
+      - rustup components: rust-analyzer, llvm-tools, docs, src, std
 
 2. **Implement Thoroughly**:
    - Use `Edit` for modifying existing files

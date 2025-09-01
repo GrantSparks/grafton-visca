@@ -15,18 +15,14 @@ use crate::{
 #[cfg(feature = "async")]
 use crate::{executor::Executor, transport::AsyncTransport};
 
-#[cfg(feature = "async")]
-use super::AsyncCamera;
-#[cfg(not(feature = "async"))]
-use super::BlockingCamera;
-use super::{MovementConfig, PanTiltPosition};
+use super::{Camera, MovementConfig, PanTiltPosition};
 
 // Blocking mode implementation is only available without async feature
 #[cfg(not(feature = "async"))]
-impl<P, T> BlockingCamera<P, T>
+impl<P, T> Camera<crate::mode::Blocking, P, T, ()>
 where
     P: Profile + ProfileMetadata + Default,
-    T: SyncTransport,
+    T: SyncTransport + 'static,
 {
     /// Wait for a command completion message or idle state using the default timeout.
     ///
@@ -122,7 +118,7 @@ where
             }
 
             // Check only pan/tilt movement
-            let pos1_response = self.send_command(&PanTiltPositionInquiry)?;
+            let pos1_response = pollster::block_on(self.send_command(&PanTiltPositionInquiry))?;
             let (pos1_pan, pos1_tilt) = match pos1_response {
                 crate::command::ViscaResponse::Inquiry(
                     crate::command::InquiryResponse::PanTiltPosition { pan, tilt },
@@ -136,7 +132,7 @@ where
 
             std::thread::sleep(Duration::from_millis(50));
 
-            let pos2_response = self.send_command(&PanTiltPositionInquiry)?;
+            let pos2_response = pollster::block_on(self.send_command(&PanTiltPositionInquiry))?;
             let (pos2_pan, pos2_tilt) = match pos2_response {
                 crate::command::ViscaResponse::Inquiry(
                     crate::command::InquiryResponse::PanTiltPosition { pan, tilt },
@@ -178,7 +174,7 @@ where
             }
 
             // Check only zoom movement
-            let pos1_response = self.send_command(&ZoomPositionInquiry)?;
+            let pos1_response = pollster::block_on(self.send_command(&ZoomPositionInquiry))?;
             let pos1_zoom = match pos1_response {
                 crate::command::ViscaResponse::Inquiry(
                     crate::command::InquiryResponse::ZoomPosition { position },
@@ -188,7 +184,7 @@ where
 
             std::thread::sleep(Duration::from_millis(50));
 
-            let pos2_response = self.send_command(&ZoomPositionInquiry)?;
+            let pos2_response = pollster::block_on(self.send_command(&ZoomPositionInquiry))?;
             let pos2_zoom = match pos2_response {
                 crate::command::ViscaResponse::Inquiry(
                     crate::command::InquiryResponse::ZoomPosition { position },
@@ -226,7 +222,7 @@ where
             }
 
             // Check only focus movement
-            let pos1_response = self.send_command(&FocusPositionInquiry)?;
+            let pos1_response = pollster::block_on(self.send_command(&FocusPositionInquiry))?;
             let pos1_focus = match pos1_response {
                 crate::command::ViscaResponse::Inquiry(
                     crate::command::InquiryResponse::FocusPosition { position },
@@ -236,7 +232,7 @@ where
 
             std::thread::sleep(Duration::from_millis(50));
 
-            let pos2_response = self.send_command(&FocusPositionInquiry)?;
+            let pos2_response = pollster::block_on(self.send_command(&FocusPositionInquiry))?;
             let pos2_focus = match pos2_response {
                 crate::command::ViscaResponse::Inquiry(
                     crate::command::InquiryResponse::FocusPosition { position },
@@ -267,7 +263,7 @@ where
     /// This checks pan/tilt, zoom, and focus positions to detect movement.
     pub fn is_moving(&mut self) -> Result<bool, Error> {
         // Get first reading using inquiry commands
-        let pos1_pt_response = self.send_command(&PanTiltPositionInquiry)?;
+        let pos1_pt_response = pollster::block_on(self.send_command(&PanTiltPositionInquiry))?;
         let (pos1_pan, pos1_tilt) = match pos1_pt_response {
             crate::command::ViscaResponse::Inquiry(
                 crate::command::InquiryResponse::PanTiltPosition { pan, tilt },
@@ -279,7 +275,7 @@ where
             }
         };
 
-        let pos1_zoom_response = self.send_command(&ZoomPositionInquiry)?;
+        let pos1_zoom_response = pollster::block_on(self.send_command(&ZoomPositionInquiry))?;
         let pos1_zoom = match pos1_zoom_response {
             crate::command::ViscaResponse::Inquiry(
                 crate::command::InquiryResponse::ZoomPosition { position },
@@ -287,7 +283,7 @@ where
             _ => return Err(Error::ParseError("Expected ZoomPosition response".into())),
         };
 
-        let pos1_focus_response = self.send_command(&FocusPositionInquiry)?;
+        let pos1_focus_response = pollster::block_on(self.send_command(&FocusPositionInquiry))?;
         let pos1_focus = match pos1_focus_response {
             crate::command::ViscaResponse::Inquiry(
                 crate::command::InquiryResponse::FocusPosition { position },
@@ -299,7 +295,7 @@ where
         std::thread::sleep(Duration::from_millis(1));
 
         // Get second reading
-        let pos2_pt_response = self.send_command(&PanTiltPositionInquiry)?;
+        let pos2_pt_response = pollster::block_on(self.send_command(&PanTiltPositionInquiry))?;
         let (pos2_pan, pos2_tilt) = match pos2_pt_response {
             crate::command::ViscaResponse::Inquiry(
                 crate::command::InquiryResponse::PanTiltPosition { pan, tilt },
@@ -311,7 +307,7 @@ where
             }
         };
 
-        let pos2_zoom_response = self.send_command(&ZoomPositionInquiry)?;
+        let pos2_zoom_response = pollster::block_on(self.send_command(&ZoomPositionInquiry))?;
         let pos2_zoom = match pos2_zoom_response {
             crate::command::ViscaResponse::Inquiry(
                 crate::command::InquiryResponse::ZoomPosition { position },
@@ -319,7 +315,7 @@ where
             _ => return Err(Error::ParseError("Expected ZoomPosition response".into())),
         };
 
-        let pos2_focus_response = self.send_command(&FocusPositionInquiry)?;
+        let pos2_focus_response = pollster::block_on(self.send_command(&FocusPositionInquiry))?;
         let pos2_focus = match pos2_focus_response {
             crate::command::ViscaResponse::Inquiry(
                 crate::command::InquiryResponse::FocusPosition { position },
@@ -348,7 +344,7 @@ where
 }
 
 #[cfg(feature = "async")]
-impl<P, T, E> AsyncCamera<P, T, E>
+impl<P, T, E> Camera<crate::mode::Async, P, T, E>
 where
     P: Profile + ProfileMetadata + Default,
     T: AsyncTransport + Send + Sync + 'static,
@@ -428,8 +424,7 @@ where
 
             // Yield to scheduler using a short sleep to avoid busy looping
             // Keep cadence in line with blocking path (~5ms)
-            let executor = self.executor();
-            executor.sleep(Duration::from_millis(5)).await;
+            self.sleep(Duration::from_millis(5)).await;
         }
     }
 
@@ -450,8 +445,6 @@ where
                 config.timeout
             );
         }
-        let executor = self.executor();
-
         loop {
             if start.elapsed() > config.timeout {
                 return Err(Error::Timeout);
@@ -470,7 +463,7 @@ where
                 }
             };
 
-            executor.sleep(Duration::from_millis(50)).await;
+            self.sleep(Duration::from_millis(50)).await;
 
             let pos2_response = self.send_command(&PanTiltPositionInquiry).await?;
             let (pos2_pan, pos2_tilt) = match pos2_response {
@@ -508,8 +501,6 @@ where
                 config.timeout
             );
         }
-        let executor = self.executor();
-
         loop {
             if start.elapsed() > config.timeout {
                 return Err(Error::Timeout);
@@ -524,7 +515,7 @@ where
                 _ => return Err(Error::ParseError("Expected ZoomPosition response".into())),
             };
 
-            executor.sleep(Duration::from_millis(50)).await;
+            self.sleep(Duration::from_millis(50)).await;
 
             let pos2_response = self.send_command(&ZoomPositionInquiry).await?;
             let pos2_zoom = match pos2_response {
@@ -558,8 +549,6 @@ where
                 config.timeout
             );
         }
-        let executor = self.executor();
-
         loop {
             if start.elapsed() > config.timeout {
                 return Err(Error::Timeout);
@@ -574,7 +563,7 @@ where
                 _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
             };
 
-            executor.sleep(Duration::from_millis(50)).await;
+            self.sleep(Duration::from_millis(50)).await;
 
             let pos2_response = self.send_command(&FocusPositionInquiry).await?;
             let pos2_focus = match pos2_response {
@@ -626,7 +615,6 @@ where
         }
 
         let start = Instant::now();
-        let executor = self.executor();
 
         // Loop until timeout checking if camera has stopped moving
         while start.elapsed() < config.timeout {
@@ -637,7 +625,7 @@ where
             }
 
             // Wait a bit before checking again
-            executor.sleep(Duration::from_millis(100)).await;
+            self.sleep(Duration::from_millis(100)).await;
         }
 
         Err(Error::Timeout)
@@ -685,9 +673,8 @@ where
             _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
         };
 
-        // Yield to scheduler using executor
-        let executor = self.executor();
-        executor.sleep(Duration::from_millis(1)).await;
+        // Yield to scheduler
+        self.sleep(Duration::from_millis(1)).await;
 
         // Get second reading
         let pos2_pt_response = self.send_command(&PanTiltPositionInquiry).await?;

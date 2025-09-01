@@ -1,41 +1,41 @@
-//! Camera module providing compile-time profile-based APIs.
+//! Unified camera module with Send-safe, profile-centric VISCA API.
 //!
-//! This module provides the generic `Camera<M, P, T, E>` API with compile-time mode and profile selection
-//! for zero runtime overhead. All mode and profile-specific behavior is resolved at compile time.
+//! This module provides a single, unified camera implementation that works in both
+//! async and blocking modes through the Mode trait system. All mode-specific behavior
+//! is resolved at compile time for zero runtime overhead.
 //!
-//! The new executor-based API prevents runtime/spawner mismatches by ensuring all async operations
-//! use the same executor type.
+//! The unified design ensures Send-safe futures and eliminates the complexity of
+//! separate AsyncCamera/BlockingCamera types.
 //!
 //! Use the type aliases for cleaner syntax:
-//! - Runtime-specific aliases: `TokioCamera<P, T>`, `AsyncStdCamera<P, T>`, `SmolCamera<P, T>` for async cameras
-//! - `CameraBlocking<P, T>` for blocking cameras
+//! - `AsyncCamera<P, Tr, Exec>` for async cameras with runtime-specific executors
+//! - `BlockingCamera<P, Tr>` for blocking cameras
 
 pub mod builder;
 pub mod capabilities;
 pub mod controls;
-pub mod handle;
-pub mod mode;
 pub mod movement_detection;
 pub mod movement_probe;
 pub mod profiles;
 pub mod unified;
 
-// Re-export the new concrete camera types
-#[cfg(not(feature = "async"))]
-pub use handle::BlockingCamera;
+// Re-export the unified camera types with convenient aliases
+pub use unified::Camera;
 
+// Type aliases for easier usage
+/// Async camera type alias for easier usage.
+///
+/// This type represents a camera operating in async mode with Send-safe futures.
+/// It requires an async transport and executor for operation.
 #[cfg(feature = "async")]
-pub use handle::AsyncCamera;
+pub type AsyncCamera<P, Tr, Exec> = Camera<crate::mode::Async, P, Tr, Exec>;
 
-// Re-export the generic Camera type alias for compatibility
-pub use handle::Camera;
-
-// Re-export mode markers and type aliases
-pub use mode::{AsyncMode, BlockingMode, CameraMode};
-// Strictly gated public aliases to avoid mixed surfaces
+/// Blocking camera type alias for easier usage.
+///
+/// This type represents a camera operating in blocking mode with synchronous operations.
+/// It requires a sync transport for operation.
 #[cfg(not(feature = "async"))]
-pub use mode::CameraBlocking;
-// Runtime-specific aliases are re-exported below (TokioCamera, AsyncStdCamera, SmolCamera)
+pub type BlockingCamera<P, Tr> = Camera<crate::mode::Blocking, P, Tr, ()>;
 
 // Re-export builder types
 pub use builder::CameraBuilder;
@@ -52,5 +52,3 @@ pub use builder::smol_cameras::SmolCamera;
 
 // Re-export movement detection types
 pub use movement_probe::{MovementConfig, PanTiltPosition};
-
-// MovementOps traits have been removed - movement methods are now inherent methods on Camera

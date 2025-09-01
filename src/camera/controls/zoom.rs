@@ -92,7 +92,7 @@ pub trait ZoomControl {
 /// Blocking zoom control trait (deprecated, use ZoomControl instead).
 // Async implementation for AsyncCamera
 #[cfg(feature = "async")]
-impl<P, Tr, Exec> ZoomControl for crate::camera::AsyncCamera<P, Tr, Exec>
+impl<P, Tr, Exec> ZoomControl for crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
@@ -164,7 +164,7 @@ where
 
 // Blocking implementation for BlockingCamera
 #[cfg(not(feature = "async"))]
-impl<P, Tr> ZoomControl for crate::camera::BlockingCamera<P, Tr>
+impl<P, Tr> ZoomControl for crate::camera::Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::SyncTransport + Send + 'static,
@@ -172,7 +172,7 @@ where
     fn zoom_stop(&mut self) -> Result<(), Error> {
         use crate::command::zoom::Zoom;
         let cmd = Zoom::Stop;
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -180,7 +180,7 @@ where
         use crate::command::zoom::Zoom;
 
         let cmd = Zoom::TeleStd;
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -188,7 +188,7 @@ where
         use crate::command::zoom::Zoom;
 
         let cmd = Zoom::WideStd;
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -196,7 +196,7 @@ where
         use crate::command::zoom::Zoom;
 
         let cmd = Zoom::TeleVariable(speed);
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -204,7 +204,7 @@ where
         use crate::command::zoom::Zoom;
 
         let cmd = Zoom::WideVariable(speed);
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -214,7 +214,7 @@ where
         // Convert normalized position to zoom position value
         let zoom_pos = crate::types::ZoomPosition::try_from(*position.value())?;
         let cmd = Zoom::Position(zoom_pos);
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -222,13 +222,13 @@ where
         use crate::command::zoom::Zoom;
 
         let cmd = Zoom::Position(position);
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
     fn zoom_position_inquiry(&mut self) -> Result<crate::types::ZoomPosition, Error> {
         use crate::command::inquiry_structs::ZoomPositionInquiry;
 
-        self.send_command_typed(&ZoomPositionInquiry)
+        pollster::block_on(self.send_command_typed(&ZoomPositionInquiry))
     }
 }

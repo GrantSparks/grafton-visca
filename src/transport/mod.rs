@@ -57,7 +57,6 @@ pub mod blocking;
 pub mod buffer;
 pub mod builder;
 pub mod sony_config;
-#[cfg(not(feature = "async"))]
 pub mod sync_transport;
 // The envelope module is now needed for both blocking and async modes
 // since async cameras now do their own protocol framing
@@ -96,7 +95,6 @@ pub use blocking::{Tcp as BlockingTcp, Udp as BlockingUdp};
 pub use builder::{NetTransportBuilder, Transport, TransportBuilderExt};
 #[cfg(feature = "async")]
 pub use protocol_detection::{DetectionResult, ProtocolDetector};
-#[cfg(not(feature = "async"))]
 pub use sync_transport::SyncTransport;
 
 /// Retry configuration for transport layer operations.

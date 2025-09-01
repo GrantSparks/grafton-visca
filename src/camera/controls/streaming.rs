@@ -128,7 +128,7 @@ pub trait StreamingControl {
 
 // Unified implementation for AsyncCamera
 #[cfg(feature = "async")]
-impl<P, Tr, Exec> StreamingControl for crate::camera::AsyncCamera<P, Tr, Exec>
+impl<P, Tr, Exec> StreamingControl for crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
@@ -160,7 +160,7 @@ where
 
 // Unified implementation for BlockingCamera
 #[cfg(not(feature = "async"))]
-impl<P, Tr> StreamingControl for crate::camera::BlockingCamera<P, Tr>
+impl<P, Tr> StreamingControl for crate::camera::Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::SyncTransport + Send + 'static,
@@ -168,7 +168,7 @@ where
     fn enable_multicast(&mut self) -> Result<()> {
         use crate::command::streaming::MulticastStreaming;
         let cmd = MulticastStreaming::On;
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -176,7 +176,7 @@ where
         use crate::command::streaming::MulticastStreaming;
 
         let cmd = MulticastStreaming::Off;
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -184,7 +184,7 @@ where
         use crate::command::streaming::NdiQualityCommand;
 
         let cmd = NdiQualityCommand::new(quality);
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 }

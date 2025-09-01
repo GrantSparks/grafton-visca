@@ -26,6 +26,7 @@ use std::{env, thread::sleep, time::Duration};
 use grafton_visca::{
     camera::{profiles::PtzOpticsG2, Camera},
     command::preset::PresetNumber,
+    mode::Blocking,
     types::{PanSpeed, SpeedLevel, TiltSpeed},
     units::{Degrees, Normalized},
     Error,
@@ -61,7 +62,7 @@ fn main() -> Result<(), Error> {
         .connect_timeout(Duration::from_secs(5))
         .build()?; // .build() returns Box<dyn BlockingTransport> for pure blocking usage
 
-    let mut camera = Camera::<PtzOpticsG2, _>::new(transport);
+    let mut camera = Camera::<Blocking, PtzOpticsG2, _>::new_blocking(transport)?;
 
     println!("✅ Connected successfully!");
     println!();

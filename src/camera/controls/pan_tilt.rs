@@ -126,7 +126,7 @@ pub trait PanTiltControl {
 /// Blocking pan/tilt control trait (deprecated, use PanTiltControl instead).
 // Async implementation for AsyncCamera
 #[cfg(feature = "async")]
-impl<P, Tr, Exec> PanTiltControl for crate::camera::AsyncCamera<P, Tr, Exec>
+impl<P, Tr, Exec> PanTiltControl for crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
@@ -246,7 +246,7 @@ where
 
 // Blocking implementation for BlockingCamera
 #[cfg(not(feature = "async"))]
-impl<P, Tr> PanTiltControl for crate::camera::BlockingCamera<P, Tr>
+impl<P, Tr> PanTiltControl for crate::camera::Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::SyncTransport + Send + 'static,
@@ -258,7 +258,7 @@ where
             pan_speed: PanSpeed::from(SpeedLevel::Medium),
             tilt_speed: TiltSpeed::from(SpeedLevel::Medium),
         };
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -266,7 +266,7 @@ where
         use crate::command::pan_tilt::PanTilt;
 
         let cmd = PanTilt::Home;
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -289,7 +289,7 @@ where
             pan_speed,
             tilt_speed,
         };
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -312,7 +312,7 @@ where
             pan_speed,
             tilt_speed,
         };
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -329,7 +329,7 @@ where
             pan_speed,
             tilt_speed,
         };
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -337,7 +337,7 @@ where
         use crate::command::pan_tilt::PanTilt;
 
         let cmd = PanTilt::Reset;
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -350,7 +350,7 @@ where
         use crate::command::pan_tilt::PanTilt;
 
         let cmd = PanTilt::LimitSet { corner, pan, tilt };
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -358,7 +358,7 @@ where
         use crate::command::pan_tilt::PanTilt;
 
         let cmd = PanTilt::LimitClear { corner };
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 }

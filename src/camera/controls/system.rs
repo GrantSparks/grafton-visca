@@ -42,7 +42,7 @@ pub trait SystemControl {
 
 // Async implementation for AsyncCamera
 #[cfg(feature = "async")]
-impl<P, Tr, Exec> SystemControl for crate::camera::AsyncCamera<P, Tr, Exec>
+impl<P, Tr, Exec> SystemControl for crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
@@ -74,7 +74,7 @@ where
 
 // Blocking implementation for BlockingCamera
 #[cfg(not(feature = "async"))]
-impl<P, Tr> SystemControl for crate::camera::BlockingCamera<P, Tr>
+impl<P, Tr> SystemControl for crate::camera::Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::SyncTransport + Send + 'static,
@@ -82,7 +82,7 @@ where
     fn trigger_address_assignment(&mut self) -> Result<(), Error> {
         use crate::command::system::AddressSetCommand;
         let cmd = AddressSetCommand::new();
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -90,7 +90,7 @@ where
         use crate::command::system::InterfaceClearCommand;
 
         let cmd = InterfaceClearCommand::new();
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -98,7 +98,7 @@ where
         use crate::command::system::CommandCancelCommand;
 
         let cmd = CommandCancelCommand::new(socket);
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 }

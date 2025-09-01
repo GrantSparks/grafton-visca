@@ -44,17 +44,14 @@ pub trait VariableSpeedControl {
 
 // Async implementation for Camera with AsyncMode
 #[cfg(feature = "async")]
-impl<P, Tr, Exec> VariableSpeedControl for crate::camera::AsyncCamera<P, Tr, Exec>
+impl<P, Tr, Exec> VariableSpeedControl for crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
 where
-    P: crate::capabilities::Profile
-        + crate::capabilities::VariableSpeed
-        + crate::capabilities::HasVariableSpeed
-        + Default,
+    P: crate::capabilities::Profile + crate::capabilities::VariableSpeed + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
     Exec: crate::executor::Executor,
 {
     async fn set_variable_speed_mode(&self, mode: VariableSpeedMode) -> Result<(), Error> {
-        // No runtime check needed - compile-time guarantee via HasVariableSpeed marker trait
+        // No runtime check needed - compile-time guarantee via VariableSpeed capability trait
         let cmd = VariableSpeedModeCommand::new(mode);
         match self.send_command(&cmd).await? {
             ViscaResponse::CmdAck | ViscaResponse::Completion => Ok(()),
@@ -68,18 +65,15 @@ where
 /// Blocking variable speed control trait (deprecated, use VariableSpeedControl instead).
 // Blocking implementation for BlockingCamera
 #[cfg(not(feature = "async"))]
-impl<P, Tr> VariableSpeedControl for crate::camera::BlockingCamera<P, Tr>
+impl<P, Tr> VariableSpeedControl for crate::camera::Camera<crate::mode::Blocking, P, Tr, ()>
 where
-    P: crate::capabilities::Profile
-        + crate::capabilities::VariableSpeed
-        + crate::capabilities::HasVariableSpeed
-        + Default,
+    P: crate::capabilities::Profile + crate::capabilities::VariableSpeed + Default,
     Tr: crate::transport::SyncTransport + Send + 'static,
 {
     fn set_variable_speed_mode(&mut self, mode: VariableSpeedMode) -> Result<(), Error> {
-        // No runtime check needed - compile-time guarantee via HasVariableSpeed marker trait
+        // No runtime check needed - compile-time guarantee via VariableSpeed capability trait
         let cmd = VariableSpeedModeCommand::new(mode);
-        match self.send_command(&cmd)? {
+        match pollster::block_on(self.send_command(&cmd))? {
             ViscaResponse::CmdAck | ViscaResponse::Completion => Ok(()),
             ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),

@@ -116,7 +116,7 @@ pub trait TallyControl {
 /// Blocking tally control trait (deprecated, use TallyControl instead).
 // Async implementation for AsyncCamera
 #[cfg(feature = "async")]
-impl<P, Tr, Exec> TallyControl for crate::camera::AsyncCamera<P, Tr, Exec>
+impl<P, Tr, Exec> TallyControl for crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
@@ -229,7 +229,7 @@ where
 
 // Blocking implementation for BlockingCamera
 #[cfg(not(feature = "async"))]
-impl<P, Tr> TallyControl for crate::camera::BlockingCamera<P, Tr>
+impl<P, Tr> TallyControl for crate::camera::Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::SyncTransport + Send + 'static,
@@ -237,7 +237,7 @@ where
     fn tally_red_on(&mut self) -> Result<(), Error> {
         use crate::command::tally::Tally;
         let cmd = Tally::RedOn;
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -245,7 +245,7 @@ where
         use crate::command::tally::Tally;
 
         let cmd = Tally::RedOff;
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -253,7 +253,7 @@ where
         use crate::command::tally::Tally;
 
         let cmd = Tally::BrightLo;
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -261,7 +261,7 @@ where
         use crate::command::tally::Tally;
 
         let cmd = Tally::BrightHi;
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -269,7 +269,7 @@ where
         use crate::command::tally::Tally;
 
         let cmd = Tally::GreenOn;
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -277,7 +277,7 @@ where
         use crate::command::tally::Tally;
 
         let cmd = Tally::GreenOff;
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -285,7 +285,7 @@ where
         use crate::command::tally::Tally;
 
         let cmd = Tally::Flash;
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -293,7 +293,7 @@ where
         use crate::command::tally::Tally;
 
         let cmd = Tally::On;
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -301,7 +301,7 @@ where
         use crate::command::tally::Tally;
 
         let cmd = Tally::Off;
-        self.send_command(&cmd)?;
+        pollster::block_on(self.send_command(&cmd))?;
         Ok(())
     }
 
@@ -309,7 +309,7 @@ where
         use crate::command::{response::ViscaResponse, tally::TallyInquiry, InquiryResponse};
 
         let inquiry = TallyInquiry::Red;
-        let response = self.send_command(&inquiry)?;
+        let response = pollster::block_on(self.send_command(&inquiry))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::TallyRed { on }) => Ok(on),
             _ => Err(Error::UnexpectedResponseType),
@@ -320,7 +320,7 @@ where
         use crate::command::{response::ViscaResponse, tally::TallyInquiry, InquiryResponse};
 
         let inquiry = TallyInquiry::Red;
-        let response = self.send_command(&inquiry)?;
+        let response = pollster::block_on(self.send_command(&inquiry))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::TallyRed { on }) => Ok(on),
             _ => Err(Error::UnexpectedResponseType),
@@ -331,7 +331,7 @@ where
         use crate::command::{response::ViscaResponse, tally::TallyInquiry, InquiryResponse};
 
         let inquiry = TallyInquiry::Green;
-        let response = self.send_command(&inquiry)?;
+        let response = pollster::block_on(self.send_command(&inquiry))?;
         match response {
             ViscaResponse::Inquiry(InquiryResponse::TallyGreen { on }) => Ok(on),
             _ => Err(Error::UnexpectedResponseType),
