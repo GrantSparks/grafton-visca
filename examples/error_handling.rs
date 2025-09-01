@@ -29,6 +29,7 @@ use grafton_visca::{
         profiles::{G2PresetId, PtzOpticsG2},
         Camera,
     },
+    mode::Blocking,
     transport::builder::TransportBuilder,
     types::{PanSpeed, TiltSpeed},
     // Same unified traits work for blocking mode
@@ -199,7 +200,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         }
     };
 
-    let mut camera = Camera::<PtzOpticsG2, _>::new(transport);
+    let mut camera = Camera::<Blocking, PtzOpticsG2, _>::new_blocking(transport)?;
 
     // Demonstrate retry pattern
     println!("\n3. Retry Pattern Implementation:");

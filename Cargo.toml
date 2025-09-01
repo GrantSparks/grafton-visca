@@ -34,6 +34,7 @@ rt-smol = ["async", "dep:smol", "dep:async-executor"]
 serial = ["dep:serialport"]
 serial-async = ["async", "serial", "dep:tokio-serial"]
 test-utils = ["dep:async-executor", "dep:futures-lite"]
+DISABLED = []
 
 [dependencies]
 bytes = "1.5"

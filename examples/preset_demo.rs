@@ -18,6 +18,7 @@ use std::{env, thread::sleep, time::Duration};
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{profiles::PtzOpticsG2, Camera},
+    mode::Blocking,
     transport::builder::TransportBuilder,
     types::SpeedLevel,
     units::{Degrees, Normalized},
@@ -54,7 +55,7 @@ fn main() -> Result<(), Error> {
         })?;
 
     // Build camera using the builder pattern for clarity and extensibility
-    let mut camera = Camera::<PtzOpticsG2, _>::new(transport);
+    let mut camera = Camera::<Blocking, PtzOpticsG2, _>::new_blocking(transport)?;
 
     println!("✅ Connected successfully!\n");
 

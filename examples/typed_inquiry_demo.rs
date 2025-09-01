@@ -11,6 +11,7 @@
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::Camera,
+    mode::Blocking,
     profiles::GenericVisca,
     transport::blocking::Tcp,
     Error,
@@ -32,7 +33,7 @@ fn main() -> Result<(), Error> {
 
     let transport = Tcp::connect(&address)?;
 
-    let mut camera = Camera::<GenericVisca, _>::new(transport);
+    let mut camera = Camera::<Blocking, GenericVisca, _>::new_blocking(transport)?;
 
     println!("\n=== High-Level API Inquiry Demo ===\n");
 

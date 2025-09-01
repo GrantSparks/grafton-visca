@@ -30,7 +30,7 @@
 use crate::{camera::Camera, executor::Executor, mode, transport::AsyncTransport};
 use crate::{camera_id::CameraId, capabilities::Profile, error::Error, timeout::TimeoutConfig};
 #[cfg(not(feature = "async"))]
-use crate::{error::Error, transport::SyncTransport};
+use crate::transport::SyncTransport;
 
 /// Builder for creating cameras with explicit executor configuration.
 ///
