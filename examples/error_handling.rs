@@ -4,23 +4,12 @@
 //! including retry logic and error classification.
 
 use grafton_visca::Error;
-
-#[cfg(any(not(feature = "async"), feature = "rt-tokio"))]
-use std::time::Instant;
-use std::{borrow::Cow, time::Duration};
-
 #[cfg(feature = "rt-tokio")]
 use grafton_visca::{
     camera::profiles::{G2PresetId, PtzOpticsG2},
     transport::Transport,
     types::{PanSpeed, TiltSpeed},
-    CameraBuilder,
-    // Import unified traits that work for both blocking and async
-    PanTiltControl,
-    PanTiltDirection,
-    PowerControl,
-    PresetNumber,
-    PresetsControl,
+    CameraBuilder, PanTiltControl, PanTiltDirection, PowerControl, PresetNumber, PresetsControl,
     ZoomControl,
 };
 #[cfg(not(feature = "async"))]
@@ -32,14 +21,12 @@ use grafton_visca::{
     mode::Blocking,
     transport::builder::TransportBuilder,
     types::{PanSpeed, TiltSpeed},
-    // Same unified traits work for blocking mode
-    PanTiltControl,
-    PanTiltDirection,
-    PowerControl,
-    PresetNumber,
-    PresetsControl,
-    ZoomControl,
+    PanTiltControl, PanTiltDirection, PowerControl, PresetNumber, PresetsControl, ZoomControl,
 };
+
+#[cfg(any(not(feature = "async"), feature = "rt-tokio"))]
+use std::time::Instant;
+use std::{borrow::Cow, time::Duration};
 
 #[cfg(all(feature = "async", not(feature = "rt-tokio")))]
 fn main() {

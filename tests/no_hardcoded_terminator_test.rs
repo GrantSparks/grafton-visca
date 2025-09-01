@@ -16,7 +16,7 @@ const ALLOWED_PATTERNS: &[&str] = &[
     "/// ",
     "//! ",
     // Test value ranges that happen to include 0xFF
-    "0x00, 0x55, 0xAA, 0xFF", // Old test pattern
+    "0x00, 0x55, 0xAA, 0xFF",
     // Protocol validation checks
     "!= 0xFF",
     "== 0xFF",

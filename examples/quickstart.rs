@@ -20,28 +20,19 @@
 //! ```
 
 #[cfg(not(feature = "async"))]
-use std::{env, thread::sleep, time::Duration};
-
-#[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{profiles::PtzOpticsG2, Camera},
     command::preset::PresetNumber,
     mode::Blocking,
+    transport::builder::TransportBuilder,
     types::{PanSpeed, SpeedLevel, TiltSpeed},
     units::{Degrees, Normalized},
-    Error,
-    // Import unified traits instead of mode-specific ones
-    ExposureControl,
-    FocusControl,
-    PanTiltControl,
-    PanTiltDirection,
-    PresetsControl,
-    WhiteBalanceControl,
-    ZoomControl,
+    Error, ExposureControl, FocusControl, PanTiltControl, PanTiltDirection, PresetsControl,
+    WhiteBalanceControl, ZoomControl,
 };
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::transport::builder::TransportBuilder;
+use std::{env, thread::sleep, time::Duration};
 
 #[cfg(not(feature = "async"))]
 fn main() -> Result<(), Error> {

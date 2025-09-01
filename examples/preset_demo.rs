@@ -13,24 +13,18 @@
 //! ```
 
 #[cfg(not(feature = "async"))]
-use std::{env, thread::sleep, time::Duration};
-
-#[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::{profiles::PtzOpticsG2, Camera},
     mode::Blocking,
     transport::builder::TransportBuilder,
     types::SpeedLevel,
     units::{Degrees, Normalized},
-    Error,
-    // Import unified traits that work for both blocking and async
-    InquiryControl,
-    PanTiltControl,
-    PanTiltInquiryControl,
-    PresetNumber,
-    PresetsControl,
+    Error, InquiryControl, PanTiltControl, PanTiltInquiryControl, PresetNumber, PresetsControl,
     ZoomControl,
 };
+
+#[cfg(not(feature = "async"))]
+use std::{env, thread::sleep, time::Duration};
 
 #[cfg(not(feature = "async"))]
 fn main() -> Result<(), Error> {
