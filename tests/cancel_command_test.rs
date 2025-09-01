@@ -5,9 +5,10 @@
 //! directly on the transport without a runtime background task, so command
 //! cancellation would need to be implemented at the transport level.
 
-#![cfg(all(feature = "async", feature = "test-utils", feature = "DISABLED"))]
+#![cfg(all(feature = "async", feature = "test-utils"))]
 
 use grafton_visca::{
+    camera::controls::system::SystemControl,
     camera::CameraBuilder,
     command::{pan_tilt::PanTiltDirection, zoom::Zoom},
     testing::testkit::{
@@ -54,16 +55,16 @@ fn test_cancel_command_by_id() {
     });
 
     // Send a command with ID
-    let (cmd_id, response_future) = executor
+    let (_cmd_id, response_future) = executor
         .block_on(async { camera.send_command_with_id(&Zoom::TeleStd).await })
         .expect("Failed to send command");
 
     // Advance time to process the ACK
     clock.advance(Duration::from_millis(10));
 
-    // Cancel the command
+    // Cancel the command using socket (since we don't track individual command IDs to sockets)
     executor
-        .block_on(async { camera.cancel_command(cmd_id).await })
+        .block_on(async { camera.cancel_command(ViscaSocket::S1).await })
         .expect("Failed to cancel command");
 
     // Advance time to process cancellation
@@ -160,9 +161,9 @@ fn test_cancel_nonexistent_command() {
             .expect("Failed to create camera")
     });
 
-    // Try to cancel a command that doesn't exist
+    // Try to cancel commands on sockets (even if no commands are running)
     executor
-        .block_on(async { camera.cancel_command(999).await })
+        .block_on(async { camera.cancel_command(ViscaSocket::S1).await })
         .expect("Cancel should succeed even for non-existent command");
 
     // Advance time to process cancellation attempts
@@ -191,8 +192,8 @@ fn test_cancel_during_movement() {
             .expect("Failed to create camera")
     });
 
-    // Test that cancel_command can be called (even with non-existent ID)
-    let result = executor.block_on(async { camera.cancel_command(999).await });
+    // Test that cancel_command can be called (even with no running commands)
+    let result = executor.block_on(async { camera.cancel_command(ViscaSocket::S1).await });
     assert!(result.is_ok(), "Cancel command should not fail");
 
     // Advance clock to let any pending operations complete

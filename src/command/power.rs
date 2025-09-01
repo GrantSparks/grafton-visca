@@ -9,15 +9,16 @@ use crate::command::bytes::constants;
 visca_command! {
     /// Command to control camera power state.
     category = "Quick",
+    max_size = 6, // POWER constants (5 bytes) + 1 terminator = 6
     enum Power {
         /// Power on the camera.
         On => {
-            Ok(ConstCommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<6>::new()
                 .append(constants::power::ON))
         },
         /// Put camera in standby mode.
         Standby => {
-            Ok(ConstCommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<6>::new()
                 .append(constants::power::OFF))
         },
     }

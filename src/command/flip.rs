@@ -18,16 +18,17 @@ visca_command! {
     ///
     /// This command flips the image vertically (upside down).
     category = "Quick",
+    max_size = 6, // PREFIX (4 bytes) + 1 data + 1 terminator = 6
     enum ImageFlip {
         /// Enable image flip.
         On => {
-            Ok(ConstCommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<6>::new()
                 .append(crate::command::bytes::constants::flip::PREFIX)
                 .push(0x02))
         },
         /// Disable image flip.
         Off => {
-            Ok(ConstCommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<6>::new()
                 .append(crate::command::bytes::constants::flip::PREFIX)
                 .push(0x03))
         },
@@ -58,16 +59,17 @@ visca_command! {
     ///
     /// This command flips the image horizontally (left-right mirror).
     category = "Quick",
+    max_size = 6, // HFLIP_PREFIX (4 bytes) + 1 data + 1 terminator = 6
     enum HorizontalFlipCommand {
         /// Enable horizontal flip (mirror).
         On => {
-            Ok(ConstCommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<6>::new()
                 .append(crate::command::bytes::constants::flip::HFLIP_PREFIX)
                 .push(0x02))
         },
         /// Disable horizontal flip (mirror).
         Off => {
-            Ok(ConstCommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<6>::new()
                 .append(crate::command::bytes::constants::flip::HFLIP_PREFIX)
                 .push(0x03))
         },
@@ -98,16 +100,17 @@ visca_command! {
     ///
     /// This command freezes the current image frame.
     category = "Quick",
+    max_size = 6, // FREEZE_PREFIX (4 bytes) + 1 data + 1 terminator = 6
     enum ImageFreezeCommand {
         /// Enable image freeze.
         On => {
-            Ok(ConstCommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<6>::new()
                 .append(crate::command::bytes::constants::flip::FREEZE_PREFIX)
                 .push(0x02))
         },
         /// Disable image freeze.
         Off => {
-            Ok(ConstCommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<6>::new()
                 .append(crate::command::bytes::constants::flip::FREEZE_PREFIX)
                 .push(0x03))
         },

@@ -201,16 +201,17 @@ visca_command! {
     /// pixel variations. Higher levels provide more noise reduction but may
     /// reduce fine detail.
     category = "Custom",
+    max_size = 6, // NOISE_REDUCTION_2D_PREFIX (4 bytes) + 1 data + 1 terminator = 6
     enum NoiseReduction2D {
         /// Disable 2D noise reduction.
         Off => {
-            Ok(ConstCommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<6>::new()
                 .append(constants::image::NOISE_REDUCTION_2D_PREFIX)
                 .push(0x00))
         },
         /// Set 2D noise reduction level.
         Level(level: NoiseReduction2DLevel) => {
-            Ok(ConstCommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<6>::new()
                 .append(constants::image::NOISE_REDUCTION_2D_PREFIX)
                 .push(level.value()))
         }
@@ -224,16 +225,17 @@ visca_command! {
     /// This is effective for reducing noise in video streams while preserving
     /// motion detail. Higher levels provide more noise reduction.
     category = "Custom",
+    max_size = 6, // NOISE_REDUCTION_3D_PREFIX (4 bytes) + 1 data + 1 terminator = 6
     enum NoiseReduction3D {
         /// Disable 3D noise reduction.
         Off => {
-            Ok(ConstCommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<6>::new()
                 .append(constants::image::NOISE_REDUCTION_3D_PREFIX)
                 .push(0x00))
         },
         /// Set 3D noise reduction level.
         Level(level: NoiseReduction3DLevel) => {
-            Ok(ConstCommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<6>::new()
                 .append(constants::image::NOISE_REDUCTION_3D_PREFIX)
                 .push(level.value()))
         }

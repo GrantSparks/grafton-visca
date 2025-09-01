@@ -23,58 +23,59 @@ visca_command! {
     /// Controls the tally light indicators on compatible cameras.
     /// Not all cameras support all tally light features.
     category = "Quick",
+    max_size = 8, // TALLY_PREFIX (6 bytes) + 1 data + 1 terminator = 8
     enum Tally {
         /// Turn red tally light on
         RedOn => {
-            Ok(ConstCommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<8>::new()
                 .append(crate::command::bytes::constants::tally::TALLY_PREFIX)
                 .append(&[0x02]))
         },
         /// Turn red tally light off
         RedOff => {
-            Ok(ConstCommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<8>::new()
                 .append(crate::command::bytes::constants::tally::TALLY_PREFIX)
                 .append(&[0x03]))
         },
         /// Set tally brightness to low
         BrightLo => {
-            Ok(ConstCommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<8>::new()
                 .append(crate::command::bytes::constants::tally::TALLY_BRIGHT_PREFIX)
                 .append(&[0x04]))
         },
         /// Set tally brightness to high
         BrightHi => {
-            Ok(ConstCommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<8>::new()
                 .append(crate::command::bytes::constants::tally::TALLY_BRIGHT_PREFIX)
                 .append(&[0x05]))
         },
         /// Turn green tally light on (FR7 specific)
         GreenOn => {
-            Ok(ConstCommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<8>::new()
                 .append(crate::command::bytes::constants::tally::TALLY_GREEN_PREFIX)
                 .append(&[0x02]))
         },
         /// Turn green tally light off (FR7 specific)
         GreenOff => {
-            Ok(ConstCommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<8>::new()
                 .append(crate::command::bytes::constants::tally::TALLY_GREEN_PREFIX)
                 .append(&[0x03]))
         },
         /// Set tally to flash mode (PtzOptics specific)
         Flash => {
-            Ok(ConstCommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<8>::new()
                 .append(crate::command::bytes::constants::tally::TALLY_PTZO_PREFIX)
                 .append(&[0x01]))
         },
         /// Set tally to solid on (PtzOptics specific)
         On => {
-            Ok(ConstCommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<8>::new()
                 .append(crate::command::bytes::constants::tally::TALLY_PTZO_PREFIX)
                 .append(&[0x02]))
         },
         /// Turn tally off (PtzOptics specific)
         Off => {
-            Ok(ConstCommandBuilder::<16>::new()
+            Ok(ConstCommandBuilder::<8>::new()
                 .append(crate::command::bytes::constants::tally::TALLY_PTZO_PREFIX)
                 .append(&[0x03]))
         },

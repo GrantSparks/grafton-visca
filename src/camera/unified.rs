@@ -328,6 +328,129 @@ where
         })
     }
 
+    /// Send a command and return a command ID and response future.
+    ///
+    /// This allows advanced users to track and potentially cancel commands.
+    /// Most users should use the high-level trait methods instead.
+    pub async fn send_command_with_id<C>(
+        &self,
+        command: &C,
+    ) -> Result<
+        (
+            u32,
+            impl std::future::Future<Output = Result<crate::command::response::ViscaResponse, Error>>,
+        ),
+        Error,
+    >
+    where
+        C: ViscaEncode + Send + Sync + Clone + 'static,
+        Tr: AsyncTransport + Send + Sync,
+        Exec: Executor + Send + Sync,
+    {
+        use crate::command::bytes::VISCA_TERMINATOR;
+        use crate::command::response::ViscaResponse;
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        // Generate a unique command ID
+        static NEXT_COMMAND_ID: AtomicU32 = AtomicU32::new(1);
+        let command_id = NEXT_COMMAND_ID.fetch_add(1, Ordering::Relaxed);
+
+        // Clone all the data we need for the future so it doesn't borrow from self
+        let transport = self.async_transport().clone();
+        let camera_id = self.camera_id();
+        let command = command.clone();
+        let envelope = self.envelope().clone();
+        let envelope_buffer_manager = *self.envelope_buffer_manager();
+
+        // Create the future that will execute the command
+        let response_future = async move {
+            // Encode the command into a buffer
+            let mut buffer = [0u8; 64];
+            let size = command.encode_into(camera_id, &mut buffer)?;
+            let cmd_bytes = &buffer[..size];
+
+            // Add VISCA terminator if not present
+            let mut cmd_vec = cmd_bytes.to_vec();
+            if !cmd_vec.ends_with(&[VISCA_TERMINATOR]) {
+                cmd_vec.push(VISCA_TERMINATOR);
+            }
+
+            // Determine if this is an inquiry based on the response type
+            let is_inquiry = command.response_type().is_some();
+
+            // Apply envelope and send command
+            let request = envelope.frame_command(&cmd_vec, is_inquiry, &envelope_buffer_manager);
+
+            // Send the request
+            let mut transport_lock = transport.lock().await;
+            transport_lock.send(&request).await?;
+
+            // Handle response based on command type
+            if !is_inquiry {
+                // For non-inquiry commands, handle ACK/Completion sequence
+                let first_response = transport_lock.recv().await?;
+                match envelope.extract_response(&first_response) {
+                    Ok(first_visca) => {
+                        match ViscaResponse::parse(&first_visca) {
+                            Ok(ViscaResponse::Error(e)) => Err(e),
+                            Ok(ViscaResponse::CmdAck) => {
+                                // Got ACK, now wait for completion
+                                let second_response = transport_lock.recv().await?;
+                                match envelope.extract_response(&second_response) {
+                                    Ok(second_visca) => {
+                                        ViscaResponse::parse(&second_visca).map_err(Error::from)
+                                    }
+                                    Err(e) => Err(e),
+                                }
+                            }
+                            Ok(response) => Ok(response), // Some cameras skip ACK
+                            Err(e) => Err(e.into()),
+                        }
+                    }
+                    Err(e) => Err(e),
+                }
+            } else {
+                // For inquiry commands, just read one response
+                let response = transport_lock.recv().await?;
+                match envelope.extract_response(&response) {
+                    Ok(visca) => {
+                        // Use parse_with_type for inquiry responses
+                        let parse_result = if let Some(response_type) = command.response_type() {
+                            ViscaResponse::parse_with_type(&visca, &response_type)
+                        } else {
+                            ViscaResponse::parse(&visca)
+                        };
+                        parse_result.map_err(Error::from)
+                    }
+                    Err(e) => Err(e),
+                }
+            }
+        };
+
+        Ok((command_id, response_future))
+    }
+
+    /// Cancel all commands on a specific socket.
+    ///
+    /// This method sends a cancel command to the specified VISCA socket.
+    pub async fn cancel_socket(&self, socket: crate::ViscaSocket) -> Result<(), Error>
+    where
+        Tr: AsyncTransport + Send + Sync,
+        Exec: Executor + Send + Sync,
+    {
+        use crate::command::system::CommandCancelCommand;
+
+        let cancel_command = CommandCancelCommand::new(socket);
+
+        // Use the standard send_command to send the cancel command
+        match self.send_command(&cancel_command).await {
+            Ok(_) => Ok(()),
+            // Treat "no socket" error as success since there's nothing to cancel
+            Err(Error::NoSocket) => Ok(()),
+            Err(e) => Err(e),
+        }
+    }
+
     /// Get access to the executor for async mode.
     #[cfg(feature = "async")]
     pub fn executor_ref(&self) -> Option<&Exec> {
