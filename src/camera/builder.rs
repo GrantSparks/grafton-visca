@@ -26,11 +26,18 @@
 //!     .build_async::<PtzOpticsG2, _>(transport)?;
 //! ```
 
+#[cfg(feature = "async")]
+use crate::transport::protocol_detection::ProtocolDetector;
 #[cfg(not(feature = "async"))]
 use crate::transport::SyncTransport;
 #[cfg(feature = "async")]
 use crate::{camera::Camera, executor::Executor, mode, transport::AsyncTransport};
-use crate::{camera_id::CameraId, capabilities::Profile, error::Error, timeout::TimeoutConfig};
+use crate::{
+    camera_id::CameraId,
+    capabilities::{Profile, ProtocolStyle},
+    error::Error,
+    timeout::TimeoutConfig,
+};
 
 /// Builder for creating cameras with explicit executor configuration.
 ///
@@ -39,6 +46,9 @@ use crate::{camera_id::CameraId, capabilities::Profile, error::Error, timeout::T
 pub struct CameraBuilder<E = ()> {
     camera_id: CameraId,
     timeout_config: TimeoutConfig,
+    protocol_style: Option<ProtocolStyle>,
+    #[cfg(feature = "async")]
+    auto_detect_protocol: bool,
     #[cfg(feature = "async")]
     executor: Option<E>,
     #[cfg(not(feature = "async"))]
@@ -50,6 +60,9 @@ impl<E> std::fmt::Debug for CameraBuilder<E> {
         let mut builder = f.debug_struct("CameraBuilder");
         builder.field("camera_id", &self.camera_id);
         builder.field("timeout_config", &self.timeout_config);
+        builder.field("protocol_style", &self.protocol_style);
+        #[cfg(feature = "async")]
+        builder.field("auto_detect_protocol", &self.auto_detect_protocol);
         #[cfg(feature = "async")]
         builder.field("executor", &self.executor.is_some());
         builder.finish()
@@ -62,6 +75,9 @@ impl CameraBuilder<()> {
         Self {
             camera_id: CameraId::default(),
             timeout_config: TimeoutConfig::default(),
+            protocol_style: None,
+            #[cfg(feature = "async")]
+            auto_detect_protocol: false,
             #[cfg(feature = "async")]
             executor: None,
             #[cfg(not(feature = "async"))]
@@ -89,6 +105,8 @@ where
         Self {
             camera_id: CameraId::default(),
             timeout_config: TimeoutConfig::default(),
+            protocol_style: None,
+            auto_detect_protocol: false,
             executor: Some(executor),
         }
     }
@@ -105,12 +123,31 @@ where
         self
     }
 
+    /// Override the protocol style.
+    ///
+    /// By default, the camera will use the protocol style declared by the profile.
+    /// This method allows overriding that for specific deployments.
+    pub fn protocol_style(mut self, style: ProtocolStyle) -> Self {
+        self.protocol_style = Some(style);
+        self
+    }
+
+    /// Enable automatic protocol detection (async only).
+    ///
+    /// When enabled, the builder will attempt to auto-detect the camera's
+    /// protocol style using the ProtocolDetector. If detection succeeds,
+    /// it will override both the profile's default and any manually set style.
+    pub fn auto_detect_protocol(mut self) -> Self {
+        self.auto_detect_protocol = true;
+        self
+    }
+
     /// Build an async camera with the specified profile and transport.
     ///
     /// The executor must have been set via `with_executor()`.
     pub async fn build_async<P, T>(
         self,
-        transport: T,
+        mut transport: T,
     ) -> Result<Camera<mode::Async, P, T, E>, Error>
     where
         P: Profile + Default,
@@ -121,7 +158,28 @@ where
             Error::InvalidState("Executor not configured for async camera".into())
         })?;
 
-        let mut camera = Camera::new_async(transport, executor).await?;
+        // Determine the protocol style to use
+        let protocol_style = if self.auto_detect_protocol {
+            // Auto-detection has highest priority
+            let detector = ProtocolDetector::new();
+            match detector.detect_protocol(&mut transport, &executor).await? {
+                crate::transport::protocol_detection::DetectionResult::SonyEncapsulated => {
+                    ProtocolStyle::SonyEncapsulated { use_sequence: true }
+                }
+                crate::transport::protocol_detection::DetectionResult::RawVisca => {
+                    ProtocolStyle::RawVisca
+                }
+                crate::transport::protocol_detection::DetectionResult::NoResponse => {
+                    // Fall back to explicit override or profile default
+                    self.protocol_style.unwrap_or(P::PROTOCOL_STYLE)
+                }
+            }
+        } else {
+            // Use explicit override if provided, otherwise use profile default
+            self.protocol_style.unwrap_or(P::PROTOCOL_STYLE)
+        };
+
+        let mut camera = Camera::new_async_with_style(transport, executor, protocol_style).await?;
         camera.set_camera_id(self.camera_id);
         camera.set_timeout_config(self.timeout_config);
 
@@ -142,6 +200,15 @@ impl CameraBuilder<()> {
         self
     }
 
+    /// Override the protocol style.
+    ///
+    /// By default, the camera will use the protocol style declared by the profile.
+    /// This method allows overriding that for specific deployments.
+    pub fn protocol_style(mut self, style: ProtocolStyle) -> Self {
+        self.protocol_style = Some(style);
+        self
+    }
+
     /// Build a blocking camera with the specified profile and transport.
     #[cfg(not(feature = "async"))]
     pub fn build_blocking<P, T>(
@@ -152,7 +219,10 @@ impl CameraBuilder<()> {
         P: Profile + Default,
         T: SyncTransport + Send + 'static,
     {
-        let mut camera = crate::camera::Camera::new_blocking(transport)?;
+        // Use explicit override if provided, otherwise use profile default
+        let protocol_style = self.protocol_style.unwrap_or(P::PROTOCOL_STYLE);
+
+        let mut camera = crate::camera::Camera::new_blocking_with_style(transport, protocol_style)?;
         camera.set_camera_id(self.camera_id);
         camera.set_timeout_config(self.timeout_config);
 
@@ -244,4 +314,94 @@ pub mod blocking_cameras {
 
     /// A blocking camera (no executor needed).
     pub type BlockingCamera<P, T> = Camera<mode::Blocking, P, T, ()>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::camera::profiles::{PtzOpticsG2, SonyFR7};
+    use crate::testing::camera_simulator::ViscaCameraSimulator;
+
+    #[cfg(feature = "async")]
+    #[tokio::test]
+    async fn test_camera_builder_uses_profile_default() -> Result<(), Error> {
+        use crate::executor::TokioExecutor;
+
+        let executor = TokioExecutor::from_current()?;
+
+        // SonyFR7 should use Sony encapsulated protocol by default
+        let transport = ViscaCameraSimulator::new();
+        let _camera = CameraBuilder::with_executor(executor.clone())
+            .build_async::<SonyFR7, _>(transport)
+            .await?;
+        // Camera should be configured with Sony encapsulated protocol
+
+        // PtzOpticsG2 should use RawVisca protocol by default
+        let transport = ViscaCameraSimulator::new();
+        let _camera = CameraBuilder::with_executor(executor)
+            .build_async::<PtzOpticsG2, _>(transport)
+            .await?;
+        // Camera should be configured with RawVisca protocol
+        Ok(())
+    }
+
+    #[cfg(feature = "async")]
+    #[tokio::test]
+    async fn test_camera_builder_with_protocol_override() -> Result<(), Error> {
+        use crate::executor::TokioExecutor;
+
+        let executor = TokioExecutor::from_current()?;
+
+        // Override SonyFR7 to use RawVisca instead of Sony encapsulated
+        let transport = ViscaCameraSimulator::new();
+        let _camera = CameraBuilder::with_executor(executor)
+            .protocol_style(ProtocolStyle::RawVisca)
+            .build_async::<SonyFR7, _>(transport)
+            .await?;
+        // Camera should be configured with RawVisca protocol despite SonyFR7 default
+        Ok(())
+    }
+
+    #[cfg(not(feature = "async"))]
+    #[test]
+    fn test_blocking_camera_builder_uses_profile_default() {
+        // SonyFR7 should use Sony encapsulated protocol by default
+        let transport = ViscaCameraSimulator::new();
+        let _camera = CameraBuilder::new()
+            .build_blocking::<SonyFR7, _>(transport)
+            .unwrap();
+        // Camera should be configured with Sony encapsulated protocol
+
+        // PtzOpticsG2 should use RawVisca protocol by default
+        let transport = ViscaCameraSimulator::new();
+        let _camera = CameraBuilder::new()
+            .build_blocking::<PtzOpticsG2, _>(transport)
+            .unwrap();
+        // Camera should be configured with RawVisca protocol
+    }
+
+    #[cfg(not(feature = "async"))]
+    #[test]
+    fn test_blocking_camera_builder_with_protocol_override() {
+        // Override SonyFR7 to use RawVisca instead of Sony encapsulated
+        let transport = ViscaCameraSimulator::new();
+        let _camera = CameraBuilder::new()
+            .protocol_style(ProtocolStyle::RawVisca)
+            .build_blocking::<SonyFR7, _>(transport)
+            .unwrap();
+        // Camera should be configured with RawVisca protocol despite SonyFR7 default
+    }
+
+    #[test]
+    fn test_builder_configuration() -> Result<(), Error> {
+        let builder = CameraBuilder::new()
+            .camera_id(CameraId::new(5)?)
+            .timeout_config(TimeoutConfig::default())
+            .protocol_style(ProtocolStyle::RawVisca);
+
+        // Verify builder is properly configured
+        assert_eq!(builder.camera_id, CameraId::new(5)?);
+        assert!(builder.protocol_style.is_some());
+        Ok(())
+    }
 }
