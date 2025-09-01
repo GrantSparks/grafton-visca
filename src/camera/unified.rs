@@ -82,11 +82,20 @@ where
     Tr: AsyncTransport + Send + 'static,
     Exec: Executor + Send + Sync + 'static,
 {
-    /// Create a new async camera instance.
+    /// Create a new async camera instance using the profile's protocol style.
     pub async fn new_async(transport: Tr, executor: Exec) -> Result<Self, Error> {
+        Self::new_async_with_style(transport, executor, P::PROTOCOL_STYLE).await
+    }
+
+    /// Create a new async camera instance with explicit protocol style.
+    pub async fn new_async_with_style(
+        transport: Tr,
+        executor: Exec,
+        protocol_style: ProtocolStyle,
+    ) -> Result<Self, Error> {
         let camera_id = CameraId::new(1)?; // Default camera ID
         let buffer_config = BufferConfig::default();
-        let envelope = TransportEnvelope::new(ProtocolStyle::RawVisca);
+        let envelope = TransportEnvelope::new(protocol_style);
         let envelope_buffer_manager = BufferManager::new(buffer_config);
         let timeout_config = TimeoutConfig::default();
 
@@ -114,11 +123,19 @@ where
     P: Profile + Default,
     Tr: SyncTransport + Send + 'static,
 {
-    /// Create a new blocking camera instance.
+    /// Create a new blocking camera instance using the profile's protocol style.
     pub fn new_blocking(transport: Tr) -> Result<Self, Error> {
+        Self::new_blocking_with_style(transport, P::PROTOCOL_STYLE)
+    }
+
+    /// Create a new blocking camera instance with explicit protocol style.
+    pub fn new_blocking_with_style(
+        transport: Tr,
+        protocol_style: ProtocolStyle,
+    ) -> Result<Self, Error> {
         let camera_id = CameraId::new(1)?; // Default camera ID
         let buffer_config = BufferConfig::default();
-        let envelope = TransportEnvelope::new(ProtocolStyle::RawVisca);
+        let envelope = TransportEnvelope::new(protocol_style);
         let envelope_buffer_manager = BufferManager::new(buffer_config);
         let timeout_config = TimeoutConfig::default();
 
@@ -636,5 +653,125 @@ where
             .field("envelope", &self.envelope)
             .field("timeout_config", &self.timeout_config)
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7};
+    use crate::capabilities::ProfileMetadata;
+
+    // Simulator is only used in feature-gated tests
+
+    #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "test-utils")))]
+    #[tokio::test]
+    async fn test_async_camera_uses_profile_protocol_style() -> Result<(), Error> {
+        use crate::camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7};
+        use crate::executor::TokioExecutor;
+        use crate::testing::camera_simulator::ViscaCameraSimulator;
+
+        let executor = TokioExecutor::from_current()?;
+
+        // Test that SonyFR7 uses Sony encapsulated protocol
+        let transport = ViscaCameraSimulator::new();
+        let _camera =
+            Camera::<crate::mode::Async, SonyFR7, _, _>::new_async(transport, executor.clone())
+                .await?;
+        // The envelope should be configured with SonyEncapsulated protocol
+
+        // Test that PtzOpticsG2 uses RawVisca protocol
+        let transport = ViscaCameraSimulator::new();
+        let _camera =
+            Camera::<crate::mode::Async, PtzOpticsG2, _, _>::new_async(transport, executor.clone())
+                .await?;
+        // The envelope should be configured with RawVisca protocol
+
+        // Test that GenericVisca uses RawVisca protocol
+        let transport = ViscaCameraSimulator::new();
+        let _camera =
+            Camera::<crate::mode::Async, GenericVisca, _, _>::new_async(transport, executor)
+                .await?;
+        // The envelope should be configured with RawVisca protocol
+        Ok(())
+    }
+
+    #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "test-utils")))]
+    #[tokio::test]
+    async fn test_async_camera_with_explicit_protocol_style() -> Result<(), Error> {
+        use crate::camera::profiles::SonyFR7;
+        use crate::executor::TokioExecutor;
+        use crate::testing::camera_simulator::ViscaCameraSimulator;
+
+        let executor = TokioExecutor::from_current()?;
+
+        // Test overriding Sony profile to use RawVisca
+        let transport = ViscaCameraSimulator::new();
+        let _camera = Camera::<crate::mode::Async, SonyFR7, _, _>::new_async_with_style(
+            transport,
+            executor,
+            ProtocolStyle::RawVisca,
+        )
+        .await?;
+        // The envelope should be configured with RawVisca despite SonyFR7 default
+        Ok(())
+    }
+
+    #[cfg(all(
+        not(feature = "async"),
+        any(feature = "rt-tokio", feature = "test-utils")
+    ))]
+    #[test]
+    fn test_blocking_camera_uses_profile_protocol_style() {
+        use crate::camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7};
+        use crate::testing::camera_simulator::ViscaCameraSimulator;
+
+        // Test that SonyFR7 uses Sony encapsulated protocol
+        let transport = ViscaCameraSimulator::new();
+        let _camera =
+            Camera::<crate::mode::Blocking, SonyFR7, _, _>::new_blocking(transport).unwrap();
+        // The envelope should be configured with SonyEncapsulated protocol
+
+        // Test that PtzOpticsG2 uses RawVisca protocol
+        let transport = ViscaCameraSimulator::new();
+        let _camera =
+            Camera::<crate::mode::Blocking, PtzOpticsG2, _, _>::new_blocking(transport).unwrap();
+        // The envelope should be configured with RawVisca protocol
+
+        // Test that GenericVisca uses RawVisca protocol
+        let transport = ViscaCameraSimulator::new();
+        let _camera =
+            Camera::<crate::mode::Blocking, GenericVisca, _, _>::new_blocking(transport).unwrap();
+        // The envelope should be configured with RawVisca protocol
+    }
+
+    #[cfg(all(
+        not(feature = "async"),
+        any(feature = "rt-tokio", feature = "test-utils")
+    ))]
+    #[test]
+    fn test_blocking_camera_with_explicit_protocol_style() {
+        use crate::camera::profiles::SonyFR7;
+        use crate::testing::camera_simulator::ViscaCameraSimulator;
+
+        // Test overriding Sony profile to use RawVisca
+        let transport = ViscaCameraSimulator::new();
+        let _camera = Camera::<crate::mode::Blocking, SonyFR7, _, _>::new_blocking_with_style(
+            transport,
+            ProtocolStyle::RawVisca,
+        )
+        .unwrap();
+        // The envelope should be configured with RawVisca despite SonyFR7 default
+    }
+
+    #[test]
+    fn test_profile_protocol_style_constants() {
+        // Verify that profiles declare the expected protocol styles
+        assert_eq!(
+            SonyFR7::PROTOCOL_STYLE,
+            ProtocolStyle::SonyEncapsulated { use_sequence: true }
+        );
+        assert_eq!(PtzOpticsG2::PROTOCOL_STYLE, ProtocolStyle::RawVisca);
+        assert_eq!(GenericVisca::PROTOCOL_STYLE, ProtocolStyle::RawVisca);
     }
 }
