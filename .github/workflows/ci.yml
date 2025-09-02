@@ -179,9 +179,17 @@ jobs:
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.3
 
+      # Sanitize features for cache keys (replace commas with hyphens)
+      - name: Sanitize features for cache keys
+        id: features
+        run: |
+          SANITIZED_FEATURES="${{ matrix.features }}"
+          SANITIZED_FEATURES="${SANITIZED_FEATURES//,/-}"
+          echo "sanitized=${SANITIZED_FEATURES}" >> $GITHUB_OUTPUT
+
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "rust-cache-features-${{ matrix.features }}"
+          shared-key: "rust-cache-features-${{ steps.features.outputs.sanitized }}"
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Test features - ${{ matrix.features || 'no-features' }}
