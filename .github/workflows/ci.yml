@@ -1,5 +1,15 @@
 name: Rust CI/CD
 
+# Comprehensive CI/CD pipeline with enhanced feature coverage
+#
+# Key improvements:
+# - Comprehensive feature matrix testing (matches pre-commit hooks)
+# - Tests all combinations: default, no-default, async, rt-tokio, rt-async-std, rt-smol, test-utils
+# - Enhanced clippy coverage for all feature combinations
+# - Platform matrix testing (ubuntu, windows, macos) × (stable, beta)
+# - Separate minimal testing for feature branches (faster feedback)
+# - Full testing on main/PRs (comprehensive quality assurance)
+
 on:
   push:
     branches: ["main", "feature/*"]
@@ -66,7 +76,7 @@ jobs:
         with:
           shared-key: "rust-cache-ubuntu-latest-stable"
 
-      # Test the main configurations
+      # Key configuration testing for feature branches (subset for speed)
       - name: Test blocking mode (no features)
         run: cargo test --no-default-features --verbose
         env:
@@ -82,8 +92,18 @@ jobs:
         env:
           TMPDIR: ${{ runner.temp }}
 
-      # Test with additional features but avoid --all-features due to compile-time guards
-      - name: Test with tokio + serialport features
+      - name: Test test-utils (common for development)
+        run: cargo test --no-default-features --features test-utils --verbose
+        env:
+          TMPDIR: ${{ runner.temp }}
+
+      - name: Test tokio + test-utils (common combination)
+        run: cargo test --no-default-features --features rt-tokio,test-utils --verbose
+        env:
+          TMPDIR: ${{ runner.temp }}
+
+      # Legacy compatibility check
+      - name: Test tokio + serialport features
         run: cargo test --no-default-features --features rt-tokio,serialport --verbose
         env:
           TMPDIR: ${{ runner.temp }}
@@ -133,38 +153,71 @@ jobs:
           # Only save cache on main branch to avoid cache thrashing
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      # Test the three main configurations
+      # Comprehensive Feature Matrix Testing
+      # This ensures all feature combinations work correctly across platforms
 
-      # Configuration 1: Blocking mode (no features)
-      - name: Test blocking mode (no features)
+      - name: Test (default features)
+        run: |
+          echo "Testing with default features..."
+          cargo test --verbose
+        env:
+          TMPDIR: ${{ runner.temp }}
+
+      - name: Test (no default features)
         run: |
           echo "Testing blocking mode (no features)..."
           cargo test --no-default-features --verbose
         env:
           TMPDIR: ${{ runner.temp }}
 
-      # Configuration 2: Runtime-agnostic async (async feature only)
-      - name: Test runtime-agnostic async (async feature only)
+      - name: Test (async feature)
         run: |
-          echo "Testing runtime-agnostic async (async feature only)..."
+          echo "Testing runtime-agnostic async..."
           cargo test --no-default-features --features async --verbose
+        env:
+          TMPDIR: ${{ runner.temp }}
 
-      # Configuration 3: Tokio runtime (rt-tokio feature, which implies async)
-      - name: Test tokio runtime (rt-tokio feature)
+      - name: Test (rt-tokio)
         run: |
-          echo "Testing tokio runtime (rt-tokio feature)..."
+          echo "Testing tokio runtime..."
           cargo test --no-default-features --features rt-tokio --verbose
+        env:
+          TMPDIR: ${{ runner.temp }}
 
-      # Test additional runtime configurations
-      - name: Test async-std runtime
+      - name: Test (rt-async-std)
         run: |
           echo "Testing async-std runtime..."
           cargo test --no-default-features --features rt-async-std --verbose
+        env:
+          TMPDIR: ${{ runner.temp }}
 
-      - name: Test smol runtime
+      - name: Test (rt-smol)
         run: |
           echo "Testing smol runtime..."
           cargo test --no-default-features --features rt-smol --verbose
+        env:
+          TMPDIR: ${{ runner.temp }}
+
+      - name: Test (test-utils)
+        run: |
+          echo "Testing test utilities..."
+          cargo test --no-default-features --features test-utils --verbose
+        env:
+          TMPDIR: ${{ runner.temp }}
+
+      - name: Test (rt-tokio + test-utils)
+        run: |
+          echo "Testing tokio with test utilities..."
+          cargo test --no-default-features --features rt-tokio,test-utils --verbose
+        env:
+          TMPDIR: ${{ runner.temp }}
+
+      - name: Test (rt-async-std + test-utils)
+        run: |
+          echo "Testing async-std with test utilities..."
+          cargo test --no-default-features --features rt-async-std,test-utils --verbose
+        env:
+          TMPDIR: ${{ runner.temp }}
 
       # Test the macro crate specifically
       - name: Test grafton-visca-macros
@@ -225,25 +278,41 @@ jobs:
           shared-key: "rust-cache-ubuntu-latest-stable"
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      # Run Clippy on the three main configurations
-      - name: Clippy blocking mode (no features)
+      # Comprehensive Feature Matrix Clippy Coverage
+      # This matches our pre-commit hook coverage for consistent quality assurance
+
+      - name: Clippy (default features)
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Clippy (all features, lib only)
+        run: cargo clippy --lib --all-features -- -D warnings
+
+      - name: Clippy (no default features)
         run: cargo clippy --all-targets --no-default-features -- -D warnings
 
-      - name: Clippy async mode (async feature only)
+      - name: Clippy (async feature)
         run: cargo clippy --all-targets --no-default-features --features async -- -D warnings
 
-      - name: Clippy tokio mode (rt-tokio feature)
+      - name: Clippy (rt-tokio)
         run: cargo clippy --all-targets --no-default-features --features rt-tokio -- -D warnings
 
-      # Check additional runtime configurations
-      - name: Clippy async-std mode
+      - name: Clippy (rt-async-std)
         run: cargo clippy --all-targets --no-default-features --features rt-async-std -- -D warnings
 
-      - name: Clippy smol mode
+      - name: Clippy (rt-smol)
         run: cargo clippy --all-targets --no-default-features --features rt-smol -- -D warnings
 
-      # Check with additional features but avoid --all-features due to compile-time guards
-      - name: Clippy tokio + serialport features
+      - name: Clippy (test-utils)
+        run: cargo clippy --all-targets --no-default-features --features test-utils -- -D warnings
+
+      - name: Clippy (rt-tokio + test-utils)
+        run: cargo clippy --all-targets --no-default-features --features rt-tokio,test-utils -- -D warnings
+
+      - name: Clippy (rt-async-std + test-utils)
+        run: cargo clippy --all-targets --no-default-features --features rt-async-std,test-utils -- -D warnings
+
+      # Legacy compatibility check
+      - name: Clippy (rt-tokio + serialport)
         run: cargo clippy --all-targets --no-default-features --features rt-tokio,serialport -- -D warnings
 
       # Check the macro crate
@@ -285,7 +354,80 @@ jobs:
         env:
           RUSTDOCFLAGS: "-D warnings"
 
-  # Feature matrix verification
+  # Comprehensive feature matrix validation (matches pre-commit coverage)
+  feature-coverage:
+    name: Comprehensive Feature Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+        continue-on-error: true
+        id: toolchain-feature-coverage
+
+      - name: Retry stable toolchain installation
+        if: steps.toolchain-feature-coverage.outcome == 'failure'
+        run: |
+          for i in {1..3}; do
+            echo "Attempt $i of 3..."
+            rustup toolchain install stable --component clippy --profile minimal && break
+            sleep 30
+          done
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-cache-ubuntu-latest-stable"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # Run the same comprehensive checks as our pre-commit hooks
+      # This ensures CI and local development have identical quality standards
+
+      - name: Feature Coverage - Default features
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Feature Coverage - All features (lib only)
+        run: cargo clippy --lib --all-features -- -D warnings
+
+      - name: Feature Coverage - No default features
+        run: cargo clippy --all-targets --no-default-features -- -D warnings
+
+      - name: Feature Coverage - Async feature
+        run: cargo clippy --all-targets --no-default-features --features async -- -D warnings
+
+      - name: Feature Coverage - rt-tokio
+        run: cargo clippy --all-targets --no-default-features --features rt-tokio -- -D warnings
+
+      - name: Feature Coverage - rt-async-std
+        run: cargo clippy --all-targets --no-default-features --features rt-async-std -- -D warnings
+
+      - name: Feature Coverage - rt-smol
+        run: cargo clippy --all-targets --no-default-features --features rt-smol -- -D warnings
+
+      - name: Feature Coverage - test-utils
+        run: cargo clippy --all-targets --no-default-features --features test-utils -- -D warnings
+
+      - name: Feature Coverage - rt-tokio + test-utils
+        run: cargo clippy --all-targets --no-default-features --features rt-tokio,test-utils -- -D warnings
+
+      - name: Feature Coverage - rt-async-std + test-utils
+        run: cargo clippy --all-targets --no-default-features --features rt-async-std,test-utils -- -D warnings
+
+      # Verify our feature matrix is complete by testing edge cases
+      - name: Feature Matrix - Verify no feature conflicts
+        run: |
+          echo "Testing that all our feature combinations compile..."
+
+          # Test that each runtime can combine with test-utils
+          cargo check --no-default-features --features rt-tokio,test-utils
+          cargo check --no-default-features --features rt-async-std,test-utils
+          cargo check --no-default-features --features rt-smol,test-utils
+
+          echo "✅ All feature combinations compile successfully"
+
+  # Legacy feature matrix verification (keep for backward compatibility)
   feature-matrix:
     name: Feature Matrix Check
     runs-on: ubuntu-latest
@@ -554,7 +696,7 @@ jobs:
   # Publish job
   publish:
     name: Publish
-    needs: [format, test, lint-and-docs, feature-matrix, async-transport-integration, package-check]
+    needs: [format, test, lint-and-docs, feature-coverage, feature-matrix, async-transport-integration, package-check]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:

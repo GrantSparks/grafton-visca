@@ -321,7 +321,7 @@ mod tests {
     use super::*;
     // Profile types are only used in feature-gated tests
 
-    #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "test-utils")))]
+    #[cfg(all(feature = "async", feature = "rt-tokio"))]
     #[tokio::test]
     async fn test_camera_builder_uses_profile_default() -> Result<(), Error> {
         use crate::camera::profiles::{PtzOpticsG2, SonyFR7};
@@ -346,7 +346,7 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "test-utils")))]
+    #[cfg(all(feature = "async", feature = "rt-tokio"))]
     #[tokio::test]
     async fn test_camera_builder_with_protocol_override() -> Result<(), Error> {
         use crate::camera::profiles::SonyFR7;
@@ -365,10 +365,7 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(all(
-        not(feature = "async"),
-        any(feature = "rt-tokio", feature = "test-utils")
-    ))]
+    #[cfg(all(not(feature = "async"), feature = "rt-tokio"))]
     #[test]
     fn test_blocking_camera_builder_uses_profile_default() {
         use crate::camera::profiles::{PtzOpticsG2, SonyFR7};
@@ -389,10 +386,7 @@ mod tests {
         // Camera should be configured with RawVisca protocol
     }
 
-    #[cfg(all(
-        not(feature = "async"),
-        any(feature = "rt-tokio", feature = "test-utils")
-    ))]
+    #[cfg(all(not(feature = "async"), feature = "rt-tokio"))]
     #[test]
     fn test_blocking_camera_builder_with_protocol_override() {
         use crate::camera::profiles::SonyFR7;

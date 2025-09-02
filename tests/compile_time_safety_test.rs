@@ -13,7 +13,7 @@ use grafton_visca::{
 
 #[cfg(feature = "test-utils")]
 #[test]
-fn test_ptzoptics_g2_capabilities() {
+fn test_ptzoptics_g2_capabilities() -> Result<(), Error> {
     let transport = ScriptedSyncTransport::new(vec![
         helpers::auto_respond_step(), // power_on
         helpers::auto_respond_step(), // pan_tilt_home
@@ -22,29 +22,31 @@ fn test_ptzoptics_g2_capabilities() {
         helpers::auto_respond_step(), // preset_recall
     ]);
 
-    let mut camera = PtzOpticsG2Cam::from_transport(transport);
+    let mut camera = PtzOpticsG2Cam::new_blocking(transport)?;
 
     assert!(camera.power_on().is_ok());
     assert!(camera.pan_tilt_home().is_ok());
     assert!(camera.zoom_stop().is_ok());
     assert!(camera.focus_auto().is_ok());
     assert!(camera.preset_recall(PresetNumber::new(1).unwrap()).is_ok());
+    Ok(())
 }
 
 #[cfg(feature = "test-utils")]
 #[test]
-fn test_sony_fr7_has_nd_filter() {
+fn test_sony_fr7_has_nd_filter() -> Result<(), Error> {
     let transport = ScriptedSyncTransport::new(vec![
         helpers::sony_auto_respond_step(), // power_on
         helpers::sony_auto_respond_step(), // pan_tilt_home
         helpers::sony_auto_respond_step(), // zoom_stop
     ]);
 
-    let mut camera = SonyFR7Cam::from_transport(transport);
+    let mut camera = SonyFR7Cam::new_blocking(transport)?;
 
     assert!(camera.power_on().is_ok());
     assert!(camera.pan_tilt_home().is_ok());
     assert!(camera.zoom_stop().is_ok());
+    Ok(())
 }
 
 #[cfg(feature = "test-utils")]
@@ -61,10 +63,10 @@ fn test_compile_time_capability_checking() {
     }
 
     let fr7_transport = ScriptedSyncTransport::new(vec![helpers::auto_respond_step()]);
-    let fr7 = SonyFR7Cam::from_transport(fr7_transport);
+    let fr7 = SonyFR7Cam::new_blocking(fr7_transport).unwrap();
 
     let _g2_transport = ScriptedSyncTransport::new(vec![helpers::auto_respond_step()]);
-    let _g2 = PtzOpticsG2Cam::from_transport(_g2_transport);
+    let _g2 = PtzOpticsG2Cam::new_blocking(_g2_transport).unwrap();
 
     assert!(adjust_nd_filter(&fr7).is_ok());
 }
@@ -97,19 +99,19 @@ fn test_generic_functions_with_trait_bounds() {
         helpers::auto_respond_step(), // zoom_stop
         helpers::auto_respond_step(), // for motion_sync_control
     ]);
-    let mut g2 = PtzOpticsG2Cam::from_transport(g2_transport);
+    let mut g2 = PtzOpticsG2Cam::new_blocking(g2_transport).unwrap();
 
     let fr7_transport = ScriptedSyncTransport::new(vec![
         helpers::sony_auto_respond_step(), // power_on
         helpers::sony_auto_respond_step(), // zoom_stop
     ]);
-    let mut fr7 = SonyFR7Cam::from_transport(fr7_transport);
+    let mut fr7 = SonyFR7Cam::new_blocking(fr7_transport).unwrap();
 
     let generic_transport = ScriptedSyncTransport::new(vec![
         helpers::auto_respond_step(), // power_on
         helpers::auto_respond_step(), // zoom_stop
     ]);
-    let mut generic = GenericViscaCam::from_transport(generic_transport);
+    let mut generic = GenericViscaCam::new_blocking(generic_transport).unwrap();
 
     println!("Testing G2 camera...");
     assert!(basic_control(&mut g2).is_ok());

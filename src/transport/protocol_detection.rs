@@ -260,7 +260,7 @@ impl Default for ProtocolDetector {
     }
 }
 
-#[cfg(all(test, feature = "test-utils"))]
+#[cfg(all(test, feature = "rt-tokio", feature = "test-utils"))]
 #[allow(clippy::panic, clippy::assertions_on_constants)]
 mod tests {
     use super::*;

@@ -10,11 +10,16 @@
 //! - Blocking: cargo run --example builder_api
 //! - Async: cargo run --example builder_api --features rt-tokio
 
+#[cfg(not(all(
+    feature = "async",
+    not(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))
+)))]
+use grafton_visca::CameraBuilder;
+
+use grafton_visca::Result;
+
 #[cfg(not(feature = "async"))]
-use grafton_visca::{
-    camera::profiles::{PtzOpticsG2, SonyBRC300, SonyFR7},
-    CameraBuilder, Result,
-};
+use grafton_visca::camera::profiles::{PtzOpticsG2, SonyBRC300, SonyFR7};
 
 #[cfg(all(
     feature = "rt-tokio",
@@ -27,12 +32,6 @@ use grafton_visca::camera::profiles::PtzOpticsG2;
 
 #[cfg(feature = "rt-smol")]
 use grafton_visca::camera::profiles::PtzOpticsG2;
-
-#[cfg(all(
-    feature = "async",
-    not(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))
-))]
-use grafton_visca::Result;
 
 #[cfg(not(feature = "async"))]
 fn main() -> Result<()> {
