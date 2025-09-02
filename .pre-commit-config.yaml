@@ -24,6 +24,70 @@ repos:
         args: ["--lib", "--all-features", "--", "-D", "warnings"]
         types: [rust]
         pass_filenames: false
+      - id: clippy-no-default
+        name: clippy (no default features)
+        description: Lint rust sources with no default features
+        entry: cargo clippy
+        language: system
+        args: ["--all-targets", "--no-default-features", "--", "-D", "warnings"]
+        types: [rust]
+        pass_filenames: false
+      - id: clippy-async
+        name: clippy (async feature)
+        description: Lint rust sources with base async feature
+        entry: cargo clippy
+        language: system
+        args: ["--all-targets", "--no-default-features", "--features", "async", "--", "-D", "warnings"]
+        types: [rust]
+        pass_filenames: false
+      - id: clippy-rt-tokio
+        name: clippy (rt-tokio)
+        description: Lint rust sources with tokio runtime
+        entry: cargo clippy
+        language: system
+        args: ["--all-targets", "--no-default-features", "--features", "rt-tokio", "--", "-D", "warnings"]
+        types: [rust]
+        pass_filenames: false
+      - id: clippy-rt-async-std
+        name: clippy (rt-async-std)
+        description: Lint rust sources with async-std runtime
+        entry: cargo clippy
+        language: system
+        args: ["--all-targets", "--no-default-features", "--features", "rt-async-std", "--", "-D", "warnings"]
+        types: [rust]
+        pass_filenames: false
+      - id: clippy-rt-smol
+        name: clippy (rt-smol)
+        description: Lint rust sources with smol runtime
+        entry: cargo clippy
+        language: system
+        args: ["--all-targets", "--no-default-features", "--features", "rt-smol", "--", "-D", "warnings"]
+        types: [rust]
+        pass_filenames: false
+      - id: clippy-test-utils
+        name: clippy (test-utils)
+        description: Lint rust sources with test-utils feature
+        entry: cargo clippy
+        language: system
+        args: ["--all-targets", "--no-default-features", "--features", "test-utils", "--", "-D", "warnings"]
+        types: [rust]
+        pass_filenames: false
+      - id: clippy-tokio-test-utils
+        name: clippy (rt-tokio + test-utils)
+        description: Lint rust sources with tokio runtime and test utilities
+        entry: cargo clippy
+        language: system
+        args: ["--all-targets", "--no-default-features", "--features", "rt-tokio,test-utils", "--", "-D", "warnings"]
+        types: [rust]
+        pass_filenames: false
+      - id: clippy-async-std-test-utils
+        name: clippy (rt-async-std + test-utils)
+        description: Lint rust sources with async-std runtime and test utilities
+        entry: cargo clippy
+        language: system
+        args: ["--all-targets", "--no-default-features", "--features", "rt-async-std,test-utils", "--", "-D", "warnings"]
+        types: [rust]
+        pass_filenames: false
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
     hooks:

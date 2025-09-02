@@ -1,0 +1,134 @@
+name: Cache Configuration
+
+# Reusable workflow for advanced caching setup
+# This can be called from other workflows to set up comprehensive caching
+
+on:
+  workflow_call:
+    inputs:
+      os:
+        required: true
+        type: string
+      rust:
+        required: true
+        type: string
+      features:
+        required: false
+        type: string
+        default: ""
+    outputs:
+      cache-hit:
+        description: "Whether cache was hit"
+        value: ${{ jobs.setup.outputs.cache-hit }}
+
+jobs:
+  setup:
+    name: Setup Cache
+    runs-on: ${{ inputs.os }}
+    outputs:
+      cache-hit: ${{ steps.cache.outputs.cache-hit }}
+    steps:
+      # Setup sccache for compiler caching
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.3
+        with:
+          version: latest
+
+      # Configure sccache
+      - name: Configure sccache
+        run: |
+          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+          echo "SCCACHE_CACHE_SIZE=2G" >> $GITHUB_ENV
+
+          # Set different cache locations for different OS
+          case "${{ inputs.os }}" in
+            ubuntu-latest)
+              echo "SCCACHE_DIR=$HOME/.cache/sccache" >> $GITHUB_ENV
+              ;;
+            windows-latest)
+              echo "SCCACHE_DIR=$USERPROFILE\.cache\sccache" >> $GITHUB_ENV
+              ;;
+            macos-latest)
+              echo "SCCACHE_DIR=$HOME/Library/Caches/sccache" >> $GITHUB_ENV
+              ;;
+          esac
+
+      # Cache cargo registry
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: cargo-registry-${{ inputs.os }}-${{ inputs.rust }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            cargo-registry-${{ inputs.os }}-${{ inputs.rust }}-
+            cargo-registry-${{ inputs.os }}-
+            cargo-registry-
+
+      # Cache cargo target directory
+      - name: Cache cargo target
+        id: cache
+        uses: actions/cache@v3
+        with:
+          path: target
+          key: cargo-target-${{ inputs.os }}-${{ inputs.rust }}-${{ inputs.features }}-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('**/*.rs') }}
+          restore-keys: |
+            cargo-target-${{ inputs.os }}-${{ inputs.rust }}-${{ inputs.features }}-${{ hashFiles('**/Cargo.lock') }}-
+            cargo-target-${{ inputs.os }}-${{ inputs.rust }}-${{ inputs.features }}-
+            cargo-target-${{ inputs.os }}-${{ inputs.rust }}-
+            cargo-target-${{ inputs.os }}-
+
+      # Use Swatinem's cache action for additional Rust-specific caching
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-${{ inputs.os }}-${{ inputs.rust }}-${{ inputs.features }}"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-targets: true
+          cache-on-failure: true
+          cache-all-crates: true
+          cache-directories: |
+            ~/.cargo/registry/src
+            ~/.cargo/registry/cache
+            ~/.cargo/git
+            target
+
+      # Cache sccache directory
+      - name: Cache sccache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/sccache
+            ~/Library/Caches/sccache
+            $USERPROFILE\.cache\sccache
+          key: sccache-${{ inputs.os }}-${{ inputs.rust }}-${{ github.sha }}
+          restore-keys: |
+            sccache-${{ inputs.os }}-${{ inputs.rust }}-
+            sccache-${{ inputs.os }}-
+
+      # Cache additional build tools
+      - name: Cache build tools
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin
+          key: cargo-bin-${{ inputs.os }}-${{ hashFiles('.github/workflows/*.yml') }}
+          restore-keys: |
+            cargo-bin-${{ inputs.os }}-
+
+      # Show cache statistics
+      - name: Show cache statistics
+        run: |
+          echo "Cache configuration complete"
+          sccache --show-stats || true
+
+          # Show cargo cache size
+          if command -v du &> /dev/null; then
+            echo "Cargo cache sizes:"
+            du -sh ~/.cargo/registry 2>/dev/null || true
+            du -sh ~/.cargo/git 2>/dev/null || true
+            du -sh target 2>/dev/null || true
+          fi
