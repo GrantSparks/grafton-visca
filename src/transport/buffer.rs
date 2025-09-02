@@ -23,7 +23,6 @@ pub(crate) const RAW_IP_BUFFER_SIZE: usize = 256;
 
 /// Buffer size for serial transports.
 /// Serial typically uses smaller buffers for efficiency.
-#[cfg(feature = "serial")]
 pub(crate) const SERIAL_BUFFER_SIZE: usize = 64;
 
 /// Configuration for buffer management.
@@ -78,7 +77,6 @@ impl BufferConfig {
     }
 
     /// Create a configuration for serial transports.
-    #[cfg(feature = "serial")]
     pub fn for_serial() -> Self {
         Self {
             recv_buffer_size: SERIAL_BUFFER_SIZE,

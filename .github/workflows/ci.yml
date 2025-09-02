@@ -83,8 +83,8 @@ jobs:
           TMPDIR: ${{ runner.temp }}
       
       # Test with additional features but avoid --all-features due to compile-time guards
-      - name: Test with tokio + serial features
-        run: cargo test --no-default-features --features rt-tokio,serial --verbose
+      - name: Test with tokio + serialport features
+        run: cargo test --no-default-features --features rt-tokio,serialport --verbose
         env:
           TMPDIR: ${{ runner.temp }}
 
@@ -243,8 +243,8 @@ jobs:
         run: cargo clippy --all-targets --no-default-features --features rt-smol -- -D warnings
       
       # Check with additional features but avoid --all-features due to compile-time guards
-      - name: Clippy tokio + serial features
-        run: cargo clippy --all-targets --no-default-features --features rt-tokio,serial -- -D warnings
+      - name: Clippy tokio + serialport features
+        run: cargo clippy --all-targets --no-default-features --features rt-tokio,serialport -- -D warnings
       
       # Check the macro crate
       - name: Clippy grafton-visca-macros
@@ -486,7 +486,7 @@ jobs:
           # Use specific feature set to avoid triggering compile-time runtime guards
           # Check blocking mode and one async runtime (tokio as most common)
           feature-group: only-explicit-features
-          features: rt-tokio,serial
+          features: rt-tokio,serialport
 
   # Check package metadata and dependencies
   package-check:

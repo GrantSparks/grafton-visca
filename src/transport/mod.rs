@@ -70,9 +70,9 @@ pub mod ip_sony;
 pub mod protocol_detection;
 pub mod retry;
 // Serial transports: blocking for sync mode, async for async mode
-#[cfg(all(feature = "serial", not(feature = "async")))]
+#[cfg(all(not(feature = "async"), feature = "serialport"))]
 pub mod serial;
-#[cfg(all(feature = "serial-async", feature = "rt-tokio"))]
+#[cfg(all(feature = "async", feature = "rt-tokio", feature = "tokio-serial"))]
 pub mod serial_async;
 
 // Runtime-specific transport implementations are feature-gated extensions

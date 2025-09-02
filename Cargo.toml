@@ -31,8 +31,6 @@ async = ["dep:futures-lite", "dep:async-lock"]
 rt-tokio = ["async", "dep:tokio"]
 rt-async-std = ["async", "dep:async-std"]
 rt-smol = ["async", "dep:smol", "dep:async-executor"]
-serial = ["dep:serialport"]
-serial-async = ["async", "serial", "dep:tokio-serial"]
 test-utils = ["dep:async-executor", "dep:futures-lite"]
 DISABLED = []
 
@@ -128,4 +126,4 @@ required-features = ["rt-tokio"]
 
 [[example]]
 name = "serial_async_demo"
-required-features = ["serial-async", "rt-tokio"]
+required-features = ["rt-tokio", "tokio-serial"]

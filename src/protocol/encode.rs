@@ -3,9 +3,9 @@
 //! This module provides functions for encoding VISCA commands and handling
 //! different transport encapsulation formats (raw, Sony header).
 
-#[cfg(any(all(feature = "serial", not(feature = "async")), test))]
+#[cfg(any(not(feature = "async"), test))]
 use bytes::BufMut;
-#[cfg(any(all(feature = "serial", not(feature = "async")), test))]
+#[cfg(any(not(feature = "async"), test))]
 use bytes::BytesMut;
 
 /// VISCA frame terminator byte.
@@ -133,12 +133,12 @@ impl SonyHeader {
 }
 
 /// Builder for VISCA commands.
-#[cfg(any(all(feature = "serial", not(feature = "async")), test))]
+#[cfg(any(not(feature = "async"), test))]
 pub(crate) struct FrameBuilder {
     buffer: BytesMut,
 }
 
-#[cfg(any(all(feature = "serial", not(feature = "async")), test))]
+#[cfg(any(not(feature = "async"), test))]
 impl FrameBuilder {
     /// Create a new command builder.
     pub fn new() -> Self {
@@ -161,7 +161,7 @@ impl FrameBuilder {
     }
 
     /// Add multiple bytes.
-    #[cfg(all(feature = "serial", not(feature = "async")))]
+    #[cfg(all(not(feature = "async"), feature = "serialport"))]
     pub fn bytes(mut self, bytes: &[u8]) -> Self {
         self.buffer.extend_from_slice(bytes);
         self
@@ -194,7 +194,7 @@ impl FrameBuilder {
     }
 }
 
-#[cfg(any(all(feature = "serial", not(feature = "async")), test))]
+#[cfg(any(not(feature = "async"), test))]
 impl Default for FrameBuilder {
     fn default() -> Self {
         Self::new()
@@ -209,8 +209,8 @@ pub(crate) fn encode_cancel(socket: u8) -> Vec<u8> {
 
 /// Interface clear command (serial only).
 #[cfg(any(
-    all(feature = "serial", not(feature = "async")),
-    all(feature = "serial-async", feature = "async"),
+    all(not(feature = "async"), feature = "serialport"),
+    all(feature = "async", feature = "rt-tokio", feature = "tokio-serial"),
     test
 ))]
 pub(crate) fn encode_if_clear() -> Vec<u8> {
@@ -219,8 +219,8 @@ pub(crate) fn encode_if_clear() -> Vec<u8> {
 
 /// Address set command (serial only).
 #[cfg(any(
-    all(feature = "serial", not(feature = "async")),
-    all(feature = "serial-async", feature = "async"),
+    all(not(feature = "async"), feature = "serialport"),
+    all(feature = "async", feature = "rt-tokio", feature = "tokio-serial"),
     test
 ))]
 pub(crate) fn encode_address_set() -> Vec<u8> {

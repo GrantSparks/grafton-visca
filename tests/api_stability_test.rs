@@ -146,7 +146,7 @@ fn test_blocking_api_stability() {
     let _tcp_builder = TransportBuilder::tcp();
     let _udp_builder = TransportBuilder::udp();
 
-    #[cfg(all(feature = "serial", not(target_arch = "wasm32")))]
+    #[cfg(all(feature = "serialport", not(target_arch = "wasm32")))]
     let _serial_builder = TransportBuilder::serial();
 }
 

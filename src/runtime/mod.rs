@@ -174,8 +174,8 @@ impl RuntimeHandle {
 
     /// Create a new camera runtime with serial transport.
     ///
-    /// Note: This method requires the "serial-async" feature as it uses tokio-serial for async serial I/O.
-    #[cfg(all(feature = "serial-async", feature = "rt-tokio"))]
+    /// Note: This method is available when using tokio runtime for async serial I/O.
+    #[cfg(all(feature = "async", feature = "rt-tokio", feature = "tokio-serial"))]
     pub async fn new_serial<E: crate::executor::Executor>(
         port: impl AsRef<str>,
         camera_address: u8,
