@@ -13,8 +13,11 @@ use std::{
 use tracing::{debug, trace, warn};
 
 use crate::{
+    camera_id::CameraId,
+    command::bytes::VISCA_TERMINATOR,
+    command::encode_visca::ViscaEncode,
+    command::system::{AddressSetCommand, InterfaceClearCommand},
     error::{Error, Result},
-    protocol::encode::{FrameBuilder, VISCA_TERMINATOR},
     transport::{
         buffer::{BufferConfig, BufferManager},
         RetryConfig, SyncTransport,
@@ -61,7 +64,6 @@ impl Default for SerialConfig {
 #[derive(Debug)]
 pub struct SerialTransport {
     port: Arc<Mutex<Box<dyn serialport::SerialPort>>>,
-    camera_address: u8,
     read_buffer: Arc<Mutex<BytesMut>>,
     config: SerialConfig,
 }
@@ -77,14 +79,12 @@ impl SerialTransport {
                 Error::TransportError(format!("Failed to open serial port: {}", e).into())
             })?;
 
-        let camera_address = config.camera_address;
         let if_clear = config.if_clear_on_connect;
         let address_set = config.address_set_on_connect;
 
         let buffer_manager = BufferManager::new(BufferConfig::for_serial());
         let transport = Self {
             port: Arc::new(Mutex::new(port)),
-            camera_address,
             read_buffer: Arc::new(Mutex::new(buffer_manager.alloc_recv_buffer())),
             config,
         };
@@ -103,8 +103,15 @@ impl SerialTransport {
     /// Send I/F Clear command to reset all devices on the bus.
     pub fn send_if_clear(&self) -> Result<()> {
         debug!("Sending I/F Clear command");
-        let cmd = crate::protocol::encode::encode_if_clear();
-        self.send_raw(&cmd)?;
+        let cmd = InterfaceClearCommand::new();
+        let mut buffer = [0u8; 16];
+        // InterfaceClearCommand is const-constructed and guaranteed to encode
+        let len = cmd
+            .encode_into(CameraId::CAMERA_1, &mut buffer)
+            .map_err(|e| {
+                Error::TransportError(format!("Failed to encode IF Clear: {}", e).into())
+            })?;
+        self.send_raw(&buffer[..len])?;
         // Wait for I/F Clear to complete
         std::thread::sleep(Duration::from_millis(100));
         Ok(())
@@ -117,8 +124,15 @@ impl SerialTransport {
 
         for attempt in 0..max_attempts {
             debug!("Address Set attempt {}", attempt + 1);
-            let cmd = crate::protocol::encode::encode_address_set();
-            self.send_raw(&cmd)?;
+            let cmd = AddressSetCommand::new();
+            let mut buffer = [0u8; 16];
+            // AddressSetCommand is const-constructed and guaranteed to encode
+            let len = cmd
+                .encode_into(CameraId::CAMERA_1, &mut buffer)
+                .map_err(|e| {
+                    Error::TransportError(format!("Failed to encode Address Set: {}", e).into())
+                })?;
+            self.send_raw(&buffer[..len])?;
 
             // Parse response properly
             match self.recv_address_set_response(Duration::from_secs(2)) {
@@ -271,28 +285,14 @@ impl SerialTransport {
             }
         }
     }
-
-    /// Create a command builder with the camera address.
-    fn build_command(&self, bytes: &[u8]) -> Vec<u8> {
-        FrameBuilder::new()
-            .device(self.camera_address)
-            .bytes(bytes)
-            .build()
-    }
 }
 
 // SerialTransport keeps using &self because it has interior mutability
 // This is necessary for hardware constraints
 impl SyncTransport for SerialTransport {
     fn send(&mut self, bytes: &[u8]) -> Result<()> {
-        // Add camera address and terminator if not already present
-        let cmd = if bytes[0] & 0xF0 == 0x80 {
-            // Already has address
-            bytes.to_vec()
-        } else {
-            // Build command with address
-            self.build_command(bytes)
-        };
+        // Pass through the bytes as-is (no address rewrite or building)
+        let cmd = bytes.to_vec();
 
         // Send with retry logic
         let mut attempts = 0;
@@ -393,19 +393,6 @@ mod tests {
         assert_eq!(config.camera_address, 1);
         assert!(config.if_clear_on_connect);
         assert!(!config.address_set_on_connect);
-    }
-
-    #[test]
-    fn test_command_builder_integration() {
-        let transport = SerialTransport {
-            port: Arc::new(Mutex::new(Box::new(MockSerialPort::new()))),
-            camera_address: 1,
-            read_buffer: Arc::new(Mutex::new(BytesMut::new())),
-            config: SerialConfig::default(),
-        };
-
-        let cmd = transport.build_command(&[0x01, 0x04, 0x00, 0x02]);
-        assert_eq!(cmd, vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
     }
 
     /// Mock serial port for testing.

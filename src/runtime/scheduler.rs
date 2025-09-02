@@ -1175,7 +1175,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::protocol::encode::VISCA_TERMINATOR;
+    use crate::command::bytes::VISCA_TERMINATOR;
 
     #[test]
     fn test_can_send_command() {

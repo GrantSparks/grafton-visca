@@ -973,8 +973,20 @@ async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
         TxItem::Cancel { socket } => {
             trace!("Processing cancel for {:?}", socket);
 
-            // Send cancel command using proper encoding
-            let cancel_bytes = crate::protocol::encode::encode_cancel(socket.as_cancel_byte());
+            // Send cancel command using typed command
+            use crate::camera_id::CameraId;
+            use crate::command::encode_visca::ViscaEncode;
+            use crate::command::system::CommandCancelCommand;
+
+            let cancel_cmd = CommandCancelCommand::new(socket);
+            let mut cancel_bytes = vec![0u8; 16];
+            // CommandCancelCommand is const-constructed and guaranteed to encode
+            let len = cancel_cmd
+                .encode_into(CameraId::CAMERA_1, &mut cancel_bytes)
+                .map_err(|e| {
+                    Error::TransportError(format!("Failed to encode cancel command: {}", e).into())
+                })?;
+            let cancel_bytes = cancel_bytes[..len].to_vec();
 
             if let Err(e) = transport.send(&cancel_bytes).await {
                 error!("Failed to send cancel: {}", e);
@@ -1008,8 +1020,8 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
     event_tx: &Sender<RxEvent>,
     executor: &E,
 ) -> Result<()> {
+    use crate::command::bytes::VISCA_TERMINATOR;
     use crate::protocol::decode::{parse_response, ProtocolResponse};
-    use crate::protocol::encode::VISCA_TERMINATOR;
 
     let response = parse_response(frame);
     debug!("[handle_response] Parsed response: {:?}", response);
@@ -1378,8 +1390,8 @@ mod tests {
     #[cfg(feature = "async")]
     #[test]
     fn test_response_parsing() {
+        use crate::command::bytes::VISCA_TERMINATOR;
         use crate::protocol::decode::{parse_response, ProtocolResponse};
-        use crate::protocol::encode::VISCA_TERMINATOR;
         use crate::ViscaSocket;
 
         // Test ACK parsing

@@ -229,7 +229,7 @@ pub(crate) fn parse_frames(buffer: &[u8]) -> (Vec<Vec<u8>>, Vec<u8>) {
 #[cfg(all(test, feature = "async"))]
 mod tests {
     use super::*;
-    use crate::protocol::encode::VISCA_TERMINATOR;
+    use crate::command::bytes::VISCA_TERMINATOR;
 
     #[test]
     fn test_parse_ack() {

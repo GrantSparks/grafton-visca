@@ -1,15 +1,7 @@
-//! VISCA protocol encoding utilities.
+//! Sony-specific protocol encapsulation for VISCA over IP.
 //!
-//! This module provides functions for encoding VISCA commands and handling
-//! different transport encapsulation formats (raw, Sony header).
-
-#[cfg(any(all(not(feature = "async"), feature = "serialport"), test))]
-use bytes::BufMut;
-#[cfg(any(all(not(feature = "async"), feature = "serialport"), test))]
-use bytes::BytesMut;
-
-/// VISCA frame terminator byte.
-pub(crate) const VISCA_TERMINATOR: u8 = 0xFF;
+//! This module provides the Sony header format used for encapsulating
+//! VISCA commands when communicating over Sony's IP protocol.
 
 /// Sony encapsulated header payload types.
 ///
@@ -132,101 +124,6 @@ impl SonyHeader {
     }
 }
 
-/// Builder for VISCA commands.
-#[cfg(any(all(not(feature = "async"), feature = "serialport"), test))]
-pub(crate) struct FrameBuilder {
-    buffer: BytesMut,
-}
-
-#[cfg(any(all(not(feature = "async"), feature = "serialport"), test))]
-impl FrameBuilder {
-    /// Create a new command builder.
-    pub fn new() -> Self {
-        Self {
-            buffer: BytesMut::with_capacity(16),
-        }
-    }
-
-    /// Add the device address byte (usually 0x81 for device 1).
-    pub fn device(mut self, device_id: u8) -> Self {
-        self.buffer.put_u8(0x80 | (device_id & 0x0F));
-        self
-    }
-
-    /// Add a command byte.
-    #[cfg(test)]
-    pub fn byte(mut self, byte: u8) -> Self {
-        self.buffer.put_u8(byte);
-        self
-    }
-
-    /// Add multiple bytes.
-    #[cfg(all(not(feature = "async"), feature = "serialport"))]
-    pub fn bytes(mut self, bytes: &[u8]) -> Self {
-        self.buffer.extend_from_slice(bytes);
-        self
-    }
-
-    /// Add a nibble-encoded value (0x0p 0x0q for value pq).
-    #[cfg(test)]
-    pub fn nibbles(mut self, value: u8) -> Self {
-        self.buffer.put_u8(value >> 4);
-        self.buffer.put_u8(value & 0x0F);
-        self
-    }
-
-    /// Add a 4-nibble encoded value (0x0p 0x0q 0x0r 0x0s for value pqrs).
-    #[cfg(test)]
-    pub fn nibbles_u16(mut self, value: u16) -> Self {
-        self.buffer.put_u8((value >> 12) as u8);
-        self.buffer.put_u8((value >> 8) as u8 & 0x0F);
-        self.buffer.put_u8((value >> 4) as u8 & 0x0F);
-        self.buffer.put_u8(value as u8 & 0x0F);
-        self
-    }
-
-    /// Build the final command with terminator.
-    pub fn build(mut self) -> Vec<u8> {
-        if !self.buffer.ends_with(&[VISCA_TERMINATOR]) {
-            self.buffer.put_u8(VISCA_TERMINATOR);
-        }
-        self.buffer.to_vec()
-    }
-}
-
-#[cfg(any(all(not(feature = "async"), feature = "serialport"), test))]
-impl Default for FrameBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Cancel command bytes for each socket.
-#[cfg(any(feature = "async", test))]
-pub(crate) fn encode_cancel(socket: u8) -> Vec<u8> {
-    vec![0x81, socket | 0x20, VISCA_TERMINATOR]
-}
-
-/// Interface clear command (serial only).
-#[cfg(any(
-    all(not(feature = "async"), feature = "serialport"),
-    all(feature = "async", feature = "rt-tokio", feature = "tokio-serial"),
-    test
-))]
-pub(crate) fn encode_if_clear() -> Vec<u8> {
-    vec![0x88, 0x01, 0x00, 0x01, VISCA_TERMINATOR]
-}
-
-/// Address set command (serial only).
-#[cfg(any(
-    all(not(feature = "async"), feature = "serialport"),
-    all(feature = "async", feature = "rt-tokio", feature = "tokio-serial"),
-    test
-))]
-pub(crate) fn encode_address_set() -> Vec<u8> {
-    vec![0x88, 0x30, 0x01, VISCA_TERMINATOR]
-}
-
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -249,46 +146,5 @@ mod tests {
         assert_eq!(decoded.payload_type, PayloadType::ViscaCommand);
         assert_eq!(decoded.payload_length, 10);
         assert_eq!(decoded.sequence_number, 12345);
-    }
-
-    #[test]
-    fn test_command_builder() {
-        let cmd = FrameBuilder::new()
-            .device(1)
-            .byte(0x01)
-            .byte(0x04)
-            .byte(0x00)
-            .byte(0x02)
-            .build();
-
-        assert_eq!(cmd, vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
-
-        // Test nibbles
-        let cmd = FrameBuilder::new()
-            .device(1)
-            .byte(0x01)
-            .nibbles(0x23)
-            .build();
-
-        assert_eq!(cmd, vec![0x81, 0x01, 0x02, 0x03, VISCA_TERMINATOR]);
-
-        // Test nibbles_u16
-        let cmd = FrameBuilder::new().device(1).nibbles_u16(0x1234).build();
-
-        assert_eq!(cmd, vec![0x81, 0x01, 0x02, 0x03, 0x04, VISCA_TERMINATOR]);
-    }
-
-    #[test]
-    fn test_special_commands() {
-        assert_eq!(encode_cancel(1), vec![0x81, 0x21, VISCA_TERMINATOR]);
-        assert_eq!(encode_cancel(2), vec![0x81, 0x22, VISCA_TERMINATOR]);
-        assert_eq!(
-            encode_if_clear(),
-            vec![0x88, 0x01, 0x00, 0x01, VISCA_TERMINATOR]
-        );
-        assert_eq!(
-            encode_address_set(),
-            vec![0x88, 0x30, 0x01, VISCA_TERMINATOR]
-        );
     }
 }

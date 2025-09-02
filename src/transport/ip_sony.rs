@@ -18,14 +18,14 @@ use std::{
 
 use crate::{
     error::{Error, Result},
-    protocol::encode::SonyHeader,
+    protocol::sony::SonyHeader,
     transport::{
         address::AddressResolver,
         buffer::{BufferConfig, BufferManager},
     },
 };
 #[cfg(not(feature = "async"))]
-use crate::{protocol::encode::PayloadType, transport::SyncTransport};
+use crate::{protocol::sony::PayloadType, transport::SyncTransport};
 
 pub use crate::transport::sony_config::SonyIpConfig;
 

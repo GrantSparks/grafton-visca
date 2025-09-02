@@ -16,8 +16,8 @@ use std::{
 #[cfg(not(feature = "async"))]
 use crate::transport::SyncTransport;
 use crate::{
+    command::bytes::VISCA_TERMINATOR,
     error::{Error, Result},
-    protocol::encode::VISCA_TERMINATOR,
     transport::{
         address::AddressResolver,
         buffer::{BufferConfig, BufferManager},
