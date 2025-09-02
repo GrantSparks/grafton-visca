@@ -3,9 +3,9 @@
 //! This module provides functions for encoding VISCA commands and handling
 //! different transport encapsulation formats (raw, Sony header).
 
-#[cfg(any(not(feature = "async"), test))]
+#[cfg(any(all(not(feature = "async"), feature = "serialport"), test))]
 use bytes::BufMut;
-#[cfg(any(not(feature = "async"), test))]
+#[cfg(any(all(not(feature = "async"), feature = "serialport"), test))]
 use bytes::BytesMut;
 
 /// VISCA frame terminator byte.
@@ -133,12 +133,12 @@ impl SonyHeader {
 }
 
 /// Builder for VISCA commands.
-#[cfg(any(not(feature = "async"), test))]
+#[cfg(any(all(not(feature = "async"), feature = "serialport"), test))]
 pub(crate) struct FrameBuilder {
     buffer: BytesMut,
 }
 
-#[cfg(any(not(feature = "async"), test))]
+#[cfg(any(all(not(feature = "async"), feature = "serialport"), test))]
 impl FrameBuilder {
     /// Create a new command builder.
     pub fn new() -> Self {
@@ -194,7 +194,7 @@ impl FrameBuilder {
     }
 }
 
-#[cfg(any(not(feature = "async"), test))]
+#[cfg(any(all(not(feature = "async"), feature = "serialport"), test))]
 impl Default for FrameBuilder {
     fn default() -> Self {
         Self::new()
