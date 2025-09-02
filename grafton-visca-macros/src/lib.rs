@@ -213,10 +213,10 @@ pub fn derive_visca_encode(input: TokenStream) -> TokenStream {
 /// pub enum Mode {
 ///     #[visca_enum(name = "Automatic Mode")]
 ///     Auto = 0x00,
-///     
+///
 ///     #[visca_enum(name = "Manual Control")]
 ///     Manual = 0x03,
-///     
+///
 ///     #[visca_enum(skip)]
 ///     _Reserved = 0xFF,  // Not included in TryFrom<u8>
 /// }

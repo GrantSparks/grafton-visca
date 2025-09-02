@@ -73,8 +73,8 @@ These methods are not interoperable. The table below summarizes their characteri
 Sony’s VISCA‑over‑IP protocol wraps the command bytes in an additional header and is typically carried over UDP on port 52381. In this mode, each command, inquiry, and reply is prefixed by an 8‑byte header that provides message type, length, and a sequence number for tracking. The structure of a UDP packet carrying a VISCA command is as follows:
 
 ```
-┌─────────────── 8 bytes ───────────────┐┌──── VISCA frame (≤16 bytes) ─┐  
-│ Payload-Type │ Length │ Sequence-No. ││ 8x … <payload> … FF │  
+┌─────────────── 8 bytes ───────────────┐┌──── VISCA frame (≤16 bytes) ─┐
+│ Payload-Type │ Length │ Sequence-No. ││ 8x … <payload> … FF │
 └──────────────────────────────────────┘└──────────────────────────────┘
 ```
 

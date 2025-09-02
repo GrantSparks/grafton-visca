@@ -66,7 +66,7 @@
 //!     // Send commands with unified API - same traits work for async mode
 //!     camera.power_on()?;
 //!     camera.zoom_tele_std()?;
-//!     
+//!
 //!     Ok(())
 //! }
 //! ```
@@ -95,7 +95,7 @@
 //!     // Same unified API, just add .await - no separate async traits needed
 //!     camera.power_on().await?;
 //!     camera.zoom_tele_std().await?;
-//!     
+//!
 //!     Ok(())
 //! }
 //! ```
@@ -127,7 +127,7 @@
 //!     // Same unified API across all runtimes
 //!     camera.power_on().await?;
 //!     camera.zoom_tele_std().await?;
-//!     
+//!
 //!     Ok(())
 //! }
 //! ```
@@ -143,7 +143,7 @@
 //!
 //! fn main() -> Result<(), Error> {
 //!     smol::block_on(async {
-//!         // Same unified Transport API works across all runtimes  
+//!         // Same unified Transport API works across all runtimes
 //!         let transport = Transport::tcp()
 //!             .address("192.168.0.110:5678")
 //!             .connect()  // Runtime auto-selected based on enabled features
@@ -156,7 +156,7 @@
 //!         camera.power_on().await?;
 //!         camera.pan_tilt_home().await?;
 //!         camera.zoom_tele_std().await?;
-//!         
+//!
 //!         Ok(())
 //!     })
 //! }
@@ -165,7 +165,7 @@
 //! ## Camera Profiles
 //!
 //! The library includes pre-defined profiles with type aliases:
-//! - `PtzOpticsG2Cam<T>` - PtzOptics G2 series cameras  
+//! - `PtzOpticsG2Cam<T>` - PtzOptics G2 series cameras
 //! - `SonyFR7Cam<T>` - Sony FR7 cameras with ND filter support
 //! - `GenericViscaCam<T>` - Generic VISCA-compatible cameras (conservative feature set)
 //!
@@ -209,7 +209,7 @@
 //!         // Send data over your transport
 //!         Ok(())
 //!     }
-//!     
+//!
 //!     fn recv(&self) -> Result<Vec<u8>, Error> {
 //!         // Receive response from your transport
 //!         Ok(vec![])

@@ -16,7 +16,7 @@ use crate::transport::buffer::BufferManager;
 /// Transport envelope that handles protocol-specific framing.
 ///
 /// Different camera manufacturers use different framing approaches:
-/// - Raw VISCA: Commands sent as-is (PtzOptics, generic cameras)  
+/// - Raw VISCA: Commands sent as-is (PtzOptics, generic cameras)
 /// - Sony Encapsulated: 8-byte header + VISCA payload (Sony cameras)
 #[derive(Debug)]
 pub(crate) struct TransportEnvelope {
@@ -74,8 +74,8 @@ impl TransportEnvelope {
     ///
     /// Header format:
     /// ```text
-    /// ┌─────────────── 8 bytes ───────────────┐┌──── VISCA frame ─┐  
-    /// │ Payload-Type │ Length │ Sequence-No. ││ 8x … payload … FF │  
+    /// ┌─────────────── 8 bytes ───────────────┐┌──── VISCA frame ─┐
+    /// │ Payload-Type │ Length │ Sequence-No. ││ 8x … payload … FF │
     /// └──────────────────────────────────────┘└─────────────────────┘
     /// ```
     fn sony_encapsulate(
@@ -179,7 +179,7 @@ impl Clone for TransportEnvelope {
 enum SonyPayloadType {
     /// Command packet (0x01 0x00)
     Command,
-    /// Inquiry packet (0x01 0x10)  
+    /// Inquiry packet (0x01 0x10)
     Inquiry,
     /// Reply packet (0x01 0x11)
     Reply,

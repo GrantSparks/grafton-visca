@@ -39,11 +39,11 @@ fn main() -> grafton_visca::Result<()> {
         .address("192.168.0.110:5678")
         .build()?;
     let mut camera = Camera::<PtzOpticsG2, _>::new(transport);
-    
+
     // Control the camera with unified API
     camera.pan_tilt_home()?;
     camera.zoom_tele_std()?;
-    
+
     Ok(())
 }
 ```
@@ -70,11 +70,11 @@ async fn main() -> grafton_visca::Result<()> {
     let camera = CameraBuilder::tokio()?
         .build_async::<PtzOpticsG2, _>(transport)
         .await?;
-    
+
     // Same unified API, just add .await
     camera.pan_tilt_home().await?;
     camera.zoom_tele_std().await?;
-    
+
     Ok(())
 }
 ```
@@ -97,11 +97,11 @@ async fn main() -> grafton_visca::Result<()> {
         .address("192.168.0.110:5678")
         .connect()
         .await?;
-    
+
     let camera = CameraBuilder::tokio()?
         .build_async::<GenericVisca, _>(transport)
         .await?;
-    
+
     // Unified API works consistently across runtimes
     camera.power_on().await?;
     Ok(())
@@ -288,7 +288,7 @@ The library is built on a unified, layered architecture:
 - **Unified Trait System** - Single consistent API for both blocking and async modes
 - **Feature-Gated Methods** - Compile-time mode selection with zero runtime overhead
 - **Runtime Coexistence** - Multiple async runtimes can coexist with priority-based selection
-- **Socket Manager** - Automatic socket allocation for ACK/Completion sequences  
+- **Socket Manager** - Automatic socket allocation for ACK/Completion sequences
 - **Priority Scheduler** - Intelligent command prioritization and retry handling
 - **Timeout Manager** - Category-based timeout configuration
 

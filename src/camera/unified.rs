@@ -45,7 +45,7 @@ use crate::{executor::Executor, transport::AsyncTransport};
 /// let camera = Camera::<Async, PtzOpticsG2, _, _>::new_async(transport, executor).await?;
 /// camera.power_on().await?;
 ///
-/// // Blocking camera  
+/// // Blocking camera
 /// let transport = Transport::tcp().address("192.168.0.110:5678").build_blocking()?;
 /// let mut camera = Camera::<Blocking, PtzOpticsG2, _, ()>::new_blocking(transport)?;
 /// camera.power_on().await?; // .await works for both modes via Mode trait

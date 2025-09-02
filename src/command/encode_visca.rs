@@ -89,7 +89,7 @@ pub fn validate_command_structure(buffer: &[u8], len: usize) {
 ///         if buffer.len() < 6 {
 ///             return Err(Error::BufferTooSmall { required: 6, actual: buffer.len() });
 ///         }
-///         
+///
 ///         // Write VISCA command bytes
 ///         buffer[0] = camera_id.to_address_byte();  // Dynamic camera ID
 ///         buffer[1] = 0x01;
@@ -99,7 +99,7 @@ pub fn validate_command_structure(buffer: &[u8], len: usize) {
 ///         buffer[5] = 0xFF;
 ///         Ok(6)
 ///     }
-///     
+///
 ///     fn response_type(&self) -> Option<ViscaResponseType> {
 ///         // Return None for action commands, Some(...) for inquiries
 ///         None

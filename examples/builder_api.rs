@@ -16,17 +16,17 @@ use grafton_visca::{
     CameraBuilder, Result,
 };
 
-#[cfg(feature = "rt-tokio")]
-use grafton_visca::{
-    camera::profiles::{PtzOpticsG2, SonyBRC300, SonyFR7},
-    CameraBuilder, Result,
-};
+#[cfg(all(
+    feature = "rt-tokio",
+    not(any(feature = "rt-async-std", feature = "rt-smol"))
+))]
+use grafton_visca::camera::profiles::{PtzOpticsG2, SonyBRC300, SonyFR7};
 
-#[cfg(feature = "rt-async-std")]
-use grafton_visca::{camera::profiles::PtzOpticsG2, CameraBuilder, Result};
+#[cfg(all(feature = "rt-async-std", not(feature = "rt-smol")))]
+use grafton_visca::camera::profiles::PtzOpticsG2;
 
 #[cfg(feature = "rt-smol")]
-use grafton_visca::{camera::profiles::PtzOpticsG2, CameraBuilder, Result};
+use grafton_visca::camera::profiles::PtzOpticsG2;
 
 #[cfg(all(
     feature = "async",
@@ -97,7 +97,10 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(all(
+    feature = "rt-tokio",
+    not(any(feature = "rt-async-std", feature = "rt-smol"))
+))]
 #[tokio::main]
 async fn main() -> Result<()> {
     use grafton_visca::runtime_adapters::tokio::{TcpTransport as Tcp, UdpTransport as Udp};
@@ -175,7 +178,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "rt-async-std")]
+#[cfg(all(feature = "rt-async-std", not(feature = "rt-smol")))]
 fn main() -> Result<()> {
     use async_std::task;
     use grafton_visca::runtime_adapters::async_std::{TcpTransport as Tcp, UdpTransport as Udp};

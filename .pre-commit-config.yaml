@@ -1,0 +1,37 @@
+repos:
+  - repo: local
+    hooks:
+      - id: fmt
+        name: fmt
+        description: Format files with cargo fmt.
+        entry: cargo fmt
+        language: system
+        types: [rust]
+        args: ["--"]
+      - id: clippy-default
+        name: clippy (default features)
+        description: Lint rust sources with default features
+        entry: cargo clippy
+        language: system
+        args: ["--all-targets", "--", "-D", "warnings"]
+        types: [rust]
+        pass_filenames: false
+      - id: clippy-all-features
+        name: clippy (all features, lib only)
+        description: Lint rust lib with all features (skip examples due to runtime conflicts)
+        entry: cargo clippy
+        language: system
+        args: ["--lib", "--all-features", "--", "-D", "warnings"]
+        types: [rust]
+        pass_filenames: false
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-byte-order-marker
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-symlinks
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+      - id: trailing-whitespace

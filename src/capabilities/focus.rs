@@ -12,7 +12,7 @@ pub trait Focus {
     /// Minimum focus position (near limit) in VISCA units.
     const FOCUS_NEAR_LIMIT: u16;
 
-    /// Maximum focus position (far limit) in VISCA units.  
+    /// Maximum focus position (far limit) in VISCA units.
     const FOCUS_FAR_LIMIT: u16;
 
     /// Whether camera supports auto focus mode.

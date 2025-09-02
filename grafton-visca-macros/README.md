@@ -11,7 +11,7 @@ Procedural macros for the grafton-visca crate, providing derive macros to elimin
 This crate provides four derive macros that work together to create type-safe, efficient VISCA command implementations:
 
 - **`InquiryCommand`** - Generate inquiry command implementations
-- **`ViscaEnum`** - Automatic enum/u8 conversions for protocol values  
+- **`ViscaEnum`** - Automatic enum/u8 conversions for protocol values
 - **`ViscaValue`** - Value wrapper types with VISCA encoding
 - **`ViscaEncode`** - Automatic VISCA command encoding
 
@@ -86,10 +86,10 @@ pub enum ExposureMode {
 pub enum Mode {
     #[visca_enum(name = "Automatic Mode")]
     Auto = 0x00,
-    
+
     #[visca_enum(name = "Manual Control")]
     Manual = 0x03,
-    
+
     #[visca_enum(skip)]  // Excluded from TryFrom<u8>
     _Reserved = 0xFF,
 }
@@ -170,7 +170,7 @@ use grafton_visca::{InquiryCommand, ViscaEnum, ViscaValue, ViscaEncode};
 
 1. **Type Safety** - Each command and value is a distinct type
 2. **Zero Boilerplate** - Macros generate all repetitive code
-3. **Protocol Safety** - Automatic VISCA terminator handling  
+3. **Protocol Safety** - Automatic VISCA terminator handling
 4. **Compile-time Validation** - Invalid attributes caught at compile time
 5. **Consistent API** - All commands follow the same patterns
 6. **Performance** - Zero-cost abstractions with const functions where possible
@@ -218,7 +218,7 @@ impl ZoomPosition {
         let value = (percent.clamp(0.0, 100.0) * 0x4000 as f32 / 100.0) as u16;
         Ok(Self(value))
     }
-    
+
     pub fn to_percentage(&self) -> f32 {
         self.0 as f32 * 100.0 / 0x4000 as f32
     }

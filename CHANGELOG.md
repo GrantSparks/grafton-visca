@@ -169,7 +169,7 @@ Key points:
   ```rust
   // Before (removed):
   let camera = Camera::<PTZOpticsG2, _>::connect_tcp("192.168.0.110:52381")?;
-  
+
   // After (new):
   let camera = CameraBuilder::tcp("192.168.0.110:52381")
       .profile::<PTZOpticsG2>()
@@ -475,7 +475,7 @@ match result {
 ### Sprint 4 Completion
 This release completes Sprint 4 of the production readiness roadmap:
 - ✅ Comprehensive unit test coverage
-- ✅ Complete Rustdoc documentation  
+- ✅ Complete Rustdoc documentation
 - ✅ All code quality checks passing (fmt, clippy)
 - ✅ Demo application showcasing features
 - ✅ README updated for production use
@@ -488,7 +488,7 @@ This release completes Sprint 4 of the production readiness roadmap:
 - Added background response handling with proper state machine
 - Thread-safe design allowing client to be cloned and shared
 
-### Sprint 2 - Protocol Improvements  
+### Sprint 2 - Protocol Improvements
 - Correct ACK/Completion response handling
 - Proper socket management for VISCA's two-socket limitation
 - Error response classification with specific error types

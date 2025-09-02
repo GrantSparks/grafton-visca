@@ -75,7 +75,7 @@ Retry behavior is command-category aware:
 
 Retry delays use exponential backoff with jitter:
 - Attempt 0: 100ms
-- Attempt 1: 200ms 
+- Attempt 1: 200ms
 - Attempt 2: 400ms
 - Maximum delay capped at 5 seconds
 
@@ -179,7 +179,7 @@ use grafton_visca::runtime::executor::Executor;
 // Async mode - automatic retry by runtime
 async fn execute_command_robust<P, T, E>(
     camera: &Camera<AsyncMode, P, T, E>
-) -> Result<()> 
+) -> Result<()>
 where
     P: Profile,
     T: AsyncTransport,
@@ -200,7 +200,7 @@ where
 {
     let mut attempts = 0;
     const MAX_ATTEMPTS: u32 = 3;
-    
+
     loop {
         match camera.pan_tilt_home() {
             Ok(()) => return Ok(()),

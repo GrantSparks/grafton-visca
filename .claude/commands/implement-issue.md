@@ -25,7 +25,7 @@ Analyze:
 - **Testing**: Use `Bash` commands to run tests and verify changes
 
 ## Implementation Process
-1. **Discovery**: 
+1. **Discovery**:
    - Use `ReadFile` to examine relevant functions, structs, traits, and modules
    - Use `Bash` commands like `grep`, `find`, or `rg` to locate code patterns
    - Trace dependencies by reading related files and checking Cargo.toml

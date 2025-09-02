@@ -356,7 +356,7 @@ use grafton_visca::camera::controls::{
 fn control_camera() -> Result<()> {
     let transport = Tcp::connect("192.168.0.110:5678")?;
     let camera = Camera::<BlockingMode, PtzOpticsG2, _, _>::new(transport);
-    
+
     camera.pan_tilt_home()?;
     camera.zoom_tele_std()?;
     Ok(())
@@ -385,7 +385,7 @@ where
     let camera = CameraBuilder::with_executor(executor)
         .build_async::<PtzOpticsG2, _>(transport)
         .await?;
-    
+
     camera.power_on().await?;
     camera.zoom_tele_std().await?;
     Ok(())
@@ -410,13 +410,13 @@ async fn main() -> Result<()> {
     let camera = CameraBuilder::tokio()?
         .build_async::<PtzOpticsG2, _>(transport)
         .await?;
-    
+
     // Concurrent operations
     let (power, zoom) = tokio::join!(
         camera.power_on(),
         camera.zoom_tele_std()
     );
-    
+
     Ok(())
 }
 ```
@@ -434,7 +434,7 @@ mod tests {
     use grafton_visca::testing::testkit::{ScriptedBlockingTransport, ScriptEntry};
     use grafton_visca::camera::profiles::GenericVisca;
     use grafton_visca::camera::controls::zoom::ZoomControlBlocking;
-    
+
     #[test]
     fn test_zoom_command() {
         let script = vec![
@@ -443,7 +443,7 @@ mod tests {
                 &[0x90, 0x41, 0xFF, 0x90, 0x51, 0xFF],  // ACK + Completion
             ),
         ];
-        
+
         let transport = ScriptedBlockingTransport::new(script);
         let camera = Camera::<BlockingMode, GenericVisca, _, _>::new(transport);
         camera.zoom_tele_std().unwrap();
@@ -465,7 +465,7 @@ use grafton_visca::camera::controls::power::PowerControl;
 #[test]
 fn test_protocol_compliance() {
     let executor = DeterministicExecutor::new();
-    
+
     let script = vec![
         ScriptEntry::exchange(
             &[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF],
@@ -474,9 +474,9 @@ fn test_protocol_compliance() {
         ScriptEntry::delay(100),
         ScriptEntry::send(&[0x90, 0x51, 0xFF]),  // Completion
     ];
-    
+
     let transport = ScriptedTransport::new(script, executor.clone());
-    
+
     executor.block_on(async {
         let camera = CameraBuilder::with_executor(executor.clone())
             .build_async::<GenericVisca, _>(transport)

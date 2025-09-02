@@ -5,7 +5,7 @@
 ### 1. ✅ Removed Hard-coded `<16>` Constraint in `visca_command!`
 
 **Before:**
-- `visca_command!` macro hard-coded `ConstCommandBuilder<16, _>` 
+- `visca_command!` macro hard-coded `ConstCommandBuilder<16, _>`
 - All enum variants forced to use `<16>` regardless of actual size needs
 
 **After:**
@@ -67,7 +67,7 @@ All affected commands updated with precise sizing:
 
 Fixed missing methods that were causing integration test failures:
 - Added `send_command_with_id()` method to unified Camera API
-- Added `cancel_socket()` method to unified Camera API  
+- Added `cancel_socket()` method to unified Camera API
 - Fixed `SystemControl::cancel_command()` to handle `NoSocket` errors gracefully
 
 ## Verification
@@ -119,7 +119,7 @@ impl ViscaEncode for AddressSetCommand {
 The core implementation of Issue #275 is complete and verified. The library now has:
 
 1. ✅ **No hard-coded `<16>` builder constraints**
-2. ✅ **Exact `MAX_SIZE` for all const commands** 
+2. ✅ **Exact `MAX_SIZE` for all const commands**
 3. ✅ **Builder capacity derived from declared `MAX_SIZE`**
 4. ✅ **Proper `try_into_vec()` allocation behavior**
 

@@ -252,7 +252,7 @@ mod tests {
         not(feature = "async"),           // Blocking mode
         all(feature = "async", any(       // Async mode WITH a runtime
             feature = "rt-tokio",
-            feature = "rt-async-std", 
+            feature = "rt-async-std",
             feature = "rt-smol"
         ))
     ))]

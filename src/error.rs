@@ -301,7 +301,7 @@ impl Error {
     /// - `0x02`: Syntax Error - command format invalid
     /// - `0x03`: Command Buffer Full - camera busy, always retry later
     /// - `0x04`: Command Canceled - command was canceled
-    /// - `0x05`: No Socket - no socket available  
+    /// - `0x05`: No Socket - no socket available
     /// - `0x41`: Command Not Executable - command invalid in current state
     ///
     /// Note: 0x41 is context-dependent. Some cameras (e.g., FR7) use it to indicate

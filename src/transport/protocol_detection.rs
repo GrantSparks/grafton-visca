@@ -73,7 +73,7 @@ impl ProtocolDetector {
     ///
     /// This implements the EPIC B3 detection algorithm:
     /// 1. Try Sony encapsulated format first (most cameras support this)
-    /// 2. If no response, fallback to raw VISCA format  
+    /// 2. If no response, fallback to raw VISCA format
     /// 3. If neither works, return NoResponse
     ///
     /// The test command used is a simple Version Inquiry (81 09 00 02 FF)

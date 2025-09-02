@@ -2,7 +2,7 @@
 //!
 //! This verifies that:
 //! 1. MAX_SIZE values are exact (not hard-coded 32 or 16)
-//! 2. Builder capacity matches declared MAX_SIZE  
+//! 2. Builder capacity matches declared MAX_SIZE
 //! 3. Commands can be encoded successfully within their declared MAX_SIZE
 
 #![cfg(test)]

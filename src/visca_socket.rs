@@ -14,7 +14,7 @@ pub enum ViscaSocket {
     /// First command socket
     #[default]
     S1,
-    /// Second command socket  
+    /// Second command socket
     S2,
 }
 
@@ -78,7 +78,7 @@ impl ViscaSocket {
 
     /// Create from one-based socket number (1 or 2).
     ///
-    /// # Errors  
+    /// # Errors
     /// Returns `None` if the socket number is not 1 or 2.
     #[must_use]
     pub fn from_socket_number(socket: u8) -> Option<Self> {

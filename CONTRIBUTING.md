@@ -179,12 +179,12 @@ When implementing commands, include:
 
 ```rust
 /// Zoom to a specific position
-/// 
+///
 /// VISCA Command: `81 01 04 47 0p 0p 0p 0p FF`
 /// where pppp = zoom position (0x0000 to 0x4000)
-/// 
+///
 /// Response: ACK followed by Completion
-/// 
+///
 /// Supported: PTZOptics G2, Sony EVI series
 pub struct ZoomDirect {
     position: u16,
@@ -241,7 +241,7 @@ pub struct ZoomDirect {
    pub trait MyFeatureControl {
        async fn my_operation(&self, param: u8) -> Result<()>;
    }
-   
+
    // For blocking API
    pub trait MyFeatureControlBlocking {
        fn my_operation(&self, param: u8) -> Result<()>;
@@ -300,14 +300,14 @@ Place integration tests in `tests/` directory. Use feature flags appropriately:
 fn test_zoom_with_scripted_transport() {
     use grafton_visca::testing::testkit::{ScriptedBlockingTransport, ScriptEntry};
     use grafton_visca::{Camera, camera::BlockingMode};
-    
+
     let script = vec![
         ScriptEntry::exchange(
             &[0x81, 0x01, 0x04, 0x07, 0x02, 0xFF],
             &[0x90, 0x41, 0xFF, 0x90, 0x51, 0xFF], // ACK + Completion
         ),
     ];
-    
+
     let transport = ScriptedBlockingTransport::new(script);
     let camera = Camera::<BlockingMode, _, _, _>::new(transport);
     // Test camera operations
@@ -326,13 +326,13 @@ use grafton_visca::testing::testkit::{ScriptedBlockingTransport, ScriptEntry, De
 fn test_protocol_compliance() {
     let script = vec![
         ScriptEntry::exchange(
-            &[0x81, 0x01, 0x04, 0x07, 0x02, 0xFF], 
+            &[0x81, 0x01, 0x04, 0x07, 0x02, 0xFF],
             &[0x90, 0x41, 0xFF]
         ),
         ScriptEntry::delay(100),
         ScriptEntry::send(&[0x90, 0x51, 0xFF]),
     ];
-    
+
     let transport = ScriptedBlockingTransport::new(script);
     // Test implementation
 }
@@ -344,19 +344,19 @@ fn test_protocol_compliance() {
    ```bash
    # Format code
    cargo fmt --all
-   
+
    # Run clippy for all feature combinations
    cargo clippy --all-targets --no-default-features -- -D warnings
    cargo clippy --all-targets --no-default-features --features async -- -D warnings
    cargo clippy --all-targets --no-default-features --features rt-tokio -- -D warnings
    cargo clippy --all-targets --all-features -- -D warnings
-   
+
    # Test all feature combinations
    cargo test --no-default-features
    cargo test --no-default-features --features async
    cargo test --no-default-features --features rt-tokio
    cargo test --all-features
-   
+
    # Check documentation
    cargo doc --no-deps --all-features
    ```

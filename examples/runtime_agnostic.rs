@@ -7,7 +7,7 @@
 //!
 //! The library provides built-in executors for common runtimes:
 //! - tokio (with --features rt-tokio)
-//! - async-std (with --features rt-async-std)  
+//! - async-std (with --features rt-async-std)
 //! - smol (with --features rt-smol)
 //!
 //! But you can use ANY runtime by implementing the Executor trait!

@@ -96,5 +96,3 @@
 #### Focus
 - Mode:
   - Auto / Manual: `81 01 04 38 0p FF` (p: 0x2=Auto, 0x3=Manual)
-
-
