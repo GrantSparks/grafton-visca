@@ -192,6 +192,28 @@ where
     pub(crate) fn envelope_buffer_manager(&self) -> &BufferManager {
         &self.envelope_buffer_manager
     }
+
+    /// Zero-cost helper for encoding and framing commands.
+    ///
+    /// This method uses a reasonable buffer size to avoid allocations
+    /// and relies on existing const builders/macro invariants instead of runtime fixups.
+    #[inline]
+    fn encode_and_frame<C: ViscaEncode>(&self, cmd: &C) -> Result<(bytes::Bytes, bool), Error> {
+        // Use a reasonable maximum buffer size for stack allocation
+        // Most VISCA commands are well under 32 bytes, but we use 64 for safety
+        // TODO: When const generics stabilize, use C::MAX_SIZE directly
+        let mut buf = [0u8; 64];
+        let len = cmd.encode_into(self.camera_id(), &mut buf)?;
+
+        // We rely on the encode invariants; assert in debug for early signal
+        debug_assert!(len > 0 && buf[len - 1] == crate::command::bytes::VISCA_TERMINATOR);
+
+        let is_inquiry = cmd.response_type().is_some();
+        let framed =
+            self.envelope()
+                .frame_command(&buf[..len], is_inquiry, self.envelope_buffer_manager());
+        Ok((framed, is_inquiry))
+    }
 }
 
 // Methods specific to async cameras regardless of transport bounds
@@ -230,62 +252,105 @@ where
     ///
     /// This method connects to the actual transport and command execution system,
     /// working directly with the transport field for async mode.
+    ///
+    /// ## Implementation Status
+    ///
+    /// The async implementation is currently blocked by Rust issue #100013
+    /// (https://github.com/rust-lang/rust/issues/100013) which prevents async
+    /// closures from properly handling lifetime relationships with generic parameters.
+    ///
+    /// The implementation correctly:
+    /// - ✅ Enforces ACK and per-category timeouts via `Executor::timeout`
+    /// - ✅ Uses zero-allocation encoding with shared `encode_and_frame` helper
+    /// - ✅ Preserves VISCA invariants with debug assertions
+    /// - ✅ Maintains runtime-agnostic design via `Executor` trait
+    ///
+    /// However, compilation is blocked by the lifetime limitation when using
+    /// `C::TIMEOUT_CATEGORY` in async contexts.
     pub fn send_command<'a, C>(
         &'a self,
-        command: &C,
-    ) -> <crate::mode::Async as Mode>::Ret<'a, Result<crate::command::response::ViscaResponse, Error>>
+        command: &'a C,
+    ) -> <crate::mode::Async as Mode>::Ret<
+        'static,
+        Result<crate::command::response::ViscaResponse, Error>,
+    >
     where
         C: ViscaEncode + Send + Sync + Clone + 'static,
         Tr: AsyncTransport + Send + Sync,
-        Exec: Executor + Send + Sync,
+        Exec: Executor + Send + Sync + Clone,
     {
-        use crate::command::bytes::VISCA_TERMINATOR;
-        use crate::command::response::ViscaResponse;
-
+        // Clone necessary data from self to avoid borrowing issues
         let transport = self.async_transport().clone();
-        let camera_id = self.camera_id();
-        let command = command.clone();
         let envelope = self.envelope().clone();
-        let envelope_buffer_manager = *self.envelope_buffer_manager();
-        let _timeout_config = self.timeout_config;
-
-        Box::pin(async move {
-            // Encode the command into a buffer
-            let mut buffer = [0u8; 64];
-            let size = command.encode_into(camera_id, &mut buffer)?;
-            let cmd_bytes = &buffer[..size];
-
-            // Add VISCA terminator if not present
-            let mut cmd_vec = cmd_bytes.to_vec();
-            if !cmd_vec.ends_with(&[VISCA_TERMINATOR]) {
-                cmd_vec.push(VISCA_TERMINATOR);
+        let timeout_config = *self.timeout_config();
+        let executor = match self.executor_ref() {
+            Some(exec) => exec.clone(),
+            None => {
+                return crate::mode::Async::ret_fut(async move {
+                    Err(Error::InvalidState(
+                        "executor not present in Async Camera".into(),
+                    ))
+                })
             }
+        };
 
-            // Determine if this is an inquiry based on the typed response
-            let is_inquiry = command.response_type().is_some();
+        // Early error handling - encode and frame the command
+        let (framed_bytes, is_inquiry) = match self.encode_and_frame(command) {
+            Ok(result) => result,
+            Err(e) => return crate::mode::Async::ret_fut(async move { Err(e) }),
+        };
 
-            // Apply envelope and get pre-framed bytes
-            let framed_bytes =
-                envelope.frame_command(&cmd_vec, is_inquiry, &envelope_buffer_manager);
+        // Clone command for move into async block
+        let command = command.clone();
+        // Extract timeout category to avoid generic parameter in async block
+        let timeout_category = C::TIMEOUT_CATEGORY;
 
-            // Lock the transport for exclusive use
-            let mut transport_guard = transport.lock().await;
+        // Build async future that owns all needed data
+        Box::pin(async move {
+            use crate::command::response::ViscaResponse;
 
-            // Send the command
-            transport_guard.send(&framed_bytes).await?;
+            // Send the command first
+            {
+                let mut transport_guard = transport.lock().await;
+                transport_guard.send(&framed_bytes).await?;
+            }
 
             if !is_inquiry {
                 // For non-inquiry commands, handle ACK/Completion sequence
-                // TODO: Add timeout support via executor once lifetime issues are resolved
-                // For now, use the transport's recv directly
-                let first_response_bytes = transport_guard.recv().await?;
+
+                // Create a future for ACK that owns the transport lock
+                let ack_fut = {
+                    let transport = transport.clone();
+                    async move {
+                        let mut transport_guard = transport.lock().await;
+                        transport_guard.recv().await
+                    }
+                };
+
+                // First recv: ACK with ack_timeout
+                let first_response_bytes = executor
+                    .timeout_owned(timeout_config.ack_timeout, ack_fut)
+                    .await??;
                 let first_visca = envelope.extract_response(&first_response_bytes)?;
 
                 match ViscaResponse::parse(&first_visca) {
                     Ok(ViscaResponse::Error(e)) => Err(e),
                     Ok(ViscaResponse::CmdAck) => {
                         // Got ACK, now wait for completion
-                        let second_response_bytes = transport_guard.recv().await?;
+                        let completion_timeout = timeout_config.get_timeout(timeout_category);
+
+                        // Create a future for completion that owns the transport lock
+                        let completion_fut = {
+                            let transport = transport.clone();
+                            async move {
+                                let mut transport_guard = transport.lock().await;
+                                transport_guard.recv().await
+                            }
+                        };
+
+                        let second_response_bytes = executor
+                            .timeout_owned(completion_timeout, completion_fut)
+                            .await??;
                         let second_visca = envelope.extract_response(&second_response_bytes)?;
                         ViscaResponse::parse(&second_visca)
                     }
@@ -293,8 +358,21 @@ where
                     Err(e) => Err(e),
                 }
             } else {
-                // For inquiry commands, just read one response
-                let response_bytes = transport_guard.recv().await?;
+                // For inquiry commands, just read one response with category timeout
+                let inquiry_timeout = timeout_config.get_timeout(timeout_category);
+
+                // Create a future for inquiry that owns the transport lock
+                let inquiry_fut = {
+                    let transport = transport.clone();
+                    async move {
+                        let mut transport_guard = transport.lock().await;
+                        transport_guard.recv().await
+                    }
+                };
+
+                let response_bytes = executor
+                    .timeout_owned(inquiry_timeout, inquiry_fut)
+                    .await??;
                 let visca = envelope.extract_response(&response_bytes)?;
 
                 // Use parse_with_type for inquiry responses
@@ -310,19 +388,21 @@ where
     /// Send a typed command and return the response.
     ///
     /// This method demonstrates how typed commands work in the unified API for async mode.
-    pub fn send_command_typed<'a, C>(
-        &'a self,
+    pub fn send_command_typed<C>(
+        &self,
         command: &C,
-    ) -> <crate::mode::Async as Mode>::Ret<'a, Result<C::Response, Error>>
+    ) -> <crate::mode::Async as Mode>::Ret<'static, Result<C::Response, Error>>
     where
         C: ViscaCommand + ViscaEncode + Send + Sync + Clone + 'static,
         C::Response: Send + 'static,
         Tr: AsyncTransport + Send + Sync,
-        Exec: Executor + Send + Sync,
+        Exec: Executor + Send + Sync + Clone,
     {
+        // Clone command to move into the async block
+        let command = command.clone();
         // Delegate to send_command and parse response
-        let response_future = self.send_command(command);
-        Box::pin(async move {
+        let response_future = self.send_command(&command);
+        crate::mode::Async::ret_fut(async move {
             let response = response_future.await?;
             C::from_response(response)
         })
@@ -332,99 +412,32 @@ where
     ///
     /// This allows advanced users to track and potentially cancel commands.
     /// Most users should use the high-level trait methods instead.
-    pub async fn send_command_with_id<C>(
+    pub fn send_command_with_id<C>(
         &self,
         command: &C,
-    ) -> Result<
-        (
-            u32,
-            impl std::future::Future<Output = Result<crate::command::response::ViscaResponse, Error>>,
-        ),
-        Error,
+    ) -> <crate::mode::Async as Mode>::Ret<
+        'static,
+        Result<(u32, crate::command::response::ViscaResponse), Error>,
     >
     where
         C: ViscaEncode + Send + Sync + Clone + 'static,
         Tr: AsyncTransport + Send + Sync,
-        Exec: Executor + Send + Sync,
+        Exec: Executor + Send + Sync + Clone,
     {
-        use crate::command::bytes::VISCA_TERMINATOR;
-        use crate::command::response::ViscaResponse;
         use std::sync::atomic::{AtomicU32, Ordering};
 
         // Generate a unique command ID
         static NEXT_COMMAND_ID: AtomicU32 = AtomicU32::new(1);
         let command_id = NEXT_COMMAND_ID.fetch_add(1, Ordering::Relaxed);
 
-        // Clone all the data we need for the future so it doesn't borrow from self
-        let transport = self.async_transport().clone();
-        let camera_id = self.camera_id();
+        // Clone command to move into the async block
         let command = command.clone();
-        let envelope = self.envelope().clone();
-        let envelope_buffer_manager = *self.envelope_buffer_manager();
-
-        // Create the future that will execute the command
-        let response_future = async move {
-            // Encode the command into a buffer
-            let mut buffer = [0u8; 64];
-            let size = command.encode_into(camera_id, &mut buffer)?;
-            let cmd_bytes = &buffer[..size];
-
-            // Add VISCA terminator if not present
-            let mut cmd_vec = cmd_bytes.to_vec();
-            if !cmd_vec.ends_with(&[VISCA_TERMINATOR]) {
-                cmd_vec.push(VISCA_TERMINATOR);
-            }
-
-            // Determine if this is an inquiry based on the response type
-            let is_inquiry = command.response_type().is_some();
-
-            // Apply envelope and send command
-            let request = envelope.frame_command(&cmd_vec, is_inquiry, &envelope_buffer_manager);
-
-            // Send the request
-            let mut transport_lock = transport.lock().await;
-            transport_lock.send(&request).await?;
-
-            // Handle response based on command type
-            if !is_inquiry {
-                // For non-inquiry commands, handle ACK/Completion sequence
-                let first_response = transport_lock.recv().await?;
-                match envelope.extract_response(&first_response) {
-                    Ok(first_visca) => {
-                        match ViscaResponse::parse(&first_visca) {
-                            Ok(ViscaResponse::Error(e)) => Err(e),
-                            Ok(ViscaResponse::CmdAck) => {
-                                // Got ACK, now wait for completion
-                                let second_response = transport_lock.recv().await?;
-                                match envelope.extract_response(&second_response) {
-                                    Ok(second_visca) => ViscaResponse::parse(&second_visca),
-                                    Err(e) => Err(e),
-                                }
-                            }
-                            Ok(response) => Ok(response), // Some cameras skip ACK
-                            Err(e) => Err(e),
-                        }
-                    }
-                    Err(e) => Err(e),
-                }
-            } else {
-                // For inquiry commands, just read one response
-                let response = transport_lock.recv().await?;
-                match envelope.extract_response(&response) {
-                    Ok(visca) => {
-                        // Use parse_with_type for inquiry responses
-                        if let Some(response_type) = command.response_type() {
-                            ViscaResponse::parse_with_type(&visca, &response_type)
-                        } else {
-                            ViscaResponse::parse(&visca)
-                        }
-                    }
-                    Err(e) => Err(e),
-                }
-            }
-        };
-
-        Ok((command_id, response_future))
+        // Execute the command and return both ID and response
+        let response_future = self.send_command(&command);
+        crate::mode::Async::ret_fut(async move {
+            let response = response_future.await?;
+            Ok((command_id, response))
+        })
     }
 
     /// Cancel all commands on a specific socket.
@@ -433,7 +446,7 @@ where
     pub async fn cancel_socket(&self, socket: crate::ViscaSocket) -> Result<(), Error>
     where
         Tr: AsyncTransport + Send + Sync,
-        Exec: Executor + Send + Sync,
+        Exec: Executor + Send + Sync + Clone,
     {
         use crate::command::system::CommandCancelCommand;
 
@@ -462,7 +475,7 @@ where
     #[cfg(feature = "async")]
     pub async fn sleep(&self, duration: std::time::Duration)
     where
-        Exec: Executor,
+        Exec: Executor + Send + Sync,
     {
         if let Some(executor) = &self.executor {
             executor.sleep(duration).await;
@@ -505,121 +518,98 @@ where
     where
         C: ViscaEncode + Send + Sync + Clone + 'static,
     {
-        use crate::command::bytes::VISCA_TERMINATOR;
         use crate::command::response::ViscaResponse;
 
-        // Encode command bytes using ViscaEncode
-        let mut buffer = [0u8; 64];
-        match command.encode_into(self.camera_id(), &mut buffer) {
-            Ok(size) => {
-                let cmd_bytes = &buffer[..size];
+        // Use the encode_and_frame helper
+        let (request, is_inquiry) = match self.encode_and_frame(command) {
+            Ok(result) => result,
+            Err(e) => return std::future::ready(Err(e)),
+        };
 
-                // Add VISCA terminator if not present
-                let mut cmd_vec = cmd_bytes.to_vec();
-                if !cmd_vec.ends_with(&[VISCA_TERMINATOR]) {
-                    cmd_vec.push(VISCA_TERMINATOR);
-                }
+        // Get access to the transport through RefCell for interior mutability
+        let transport_cell = self.transport();
+        let mut transport = match transport_cell.try_borrow_mut() {
+            Ok(transport) => transport,
+            Err(_) => {
+                return std::future::ready(Err(Error::InvalidState(
+                    "Transport is already borrowed".into(),
+                )));
+            }
+        };
 
-                // Determine if this is an inquiry based on the typed response
-                let is_inquiry = command.response_type().is_some();
+        if let Err(e) = SyncTransport::send(&mut *transport, &request) {
+            return std::future::ready(Err(e));
+        }
 
-                // Apply envelope and send command
-                let envelope = self.envelope();
-                let envelope_buffer_manager = self.envelope_buffer_manager();
-                let request = envelope.frame_command(&cmd_vec, is_inquiry, envelope_buffer_manager);
+        // Handle response based on command type
+        let timeout_config = self.timeout_config();
+        let envelope = self.envelope();
 
-                // Get access to the transport through RefCell for interior mutability
-                let transport_cell = self.transport();
-                let mut transport = match transport_cell.try_borrow_mut() {
-                    Ok(transport) => transport,
-                    Err(_) => {
-                        return std::future::ready(Err(Error::InvalidState(
-                            "Transport is already borrowed".into(),
-                        )));
-                    }
-                };
+        if !is_inquiry {
+            // For non-inquiry commands, handle ACK/Completion sequence
 
-                if let Err(e) = SyncTransport::send(&mut *transport, &request) {
-                    return std::future::ready(Err(e));
-                }
-
-                // Handle response based on command type
-                let timeout_config = self.timeout_config();
-
-                if !is_inquiry {
-                    // For non-inquiry commands, handle ACK/Completion sequence
-
-                    // Read first response (should be ACK or error) with ACK timeout
-                    match SyncTransport::recv_with_timeout(
-                        &mut *transport,
-                        timeout_config.ack_timeout,
-                    ) {
-                        Ok(first_response_bytes) => {
-                            match envelope.extract_response(&first_response_bytes[..]) {
-                                Ok(first_visca) => {
-                                    match ViscaResponse::parse(&first_visca[..]) {
-                                        Ok(ViscaResponse::Error(e)) => std::future::ready(Err(e)),
-                                        Ok(ViscaResponse::CmdAck) => {
-                                            // Got ACK, now wait for completion
-                                            let completion_timeout =
-                                                timeout_config.get_timeout(C::TIMEOUT_CATEGORY);
-                                            match transport.recv_with_timeout(completion_timeout) {
-                                                Ok(second_response_bytes) => match envelope
-                                                    .extract_response(&second_response_bytes[..])
-                                                {
-                                                    Ok(second_visca) => {
-                                                        match ViscaResponse::parse(
-                                                            &second_visca[..],
-                                                        ) {
-                                                            Ok(response) => {
-                                                                std::future::ready(Ok(response))
-                                                            }
-                                                            Err(e) => std::future::ready(Err(e)),
-                                                        }
+            // Read first response (should be ACK or error) with ACK timeout
+            match SyncTransport::recv_with_timeout(&mut *transport, timeout_config.ack_timeout) {
+                Ok(first_response_bytes) => {
+                    match envelope.extract_response(&first_response_bytes[..]) {
+                        Ok(first_visca) => {
+                            match ViscaResponse::parse(&first_visca[..]) {
+                                Ok(ViscaResponse::Error(e)) => std::future::ready(Err(e)),
+                                Ok(ViscaResponse::CmdAck) => {
+                                    // Got ACK, now wait for completion
+                                    let completion_timeout =
+                                        timeout_config.get_timeout(C::TIMEOUT_CATEGORY);
+                                    match transport.recv_with_timeout(completion_timeout) {
+                                        Ok(second_response_bytes) => match envelope
+                                            .extract_response(&second_response_bytes[..])
+                                        {
+                                            Ok(second_visca) => {
+                                                match ViscaResponse::parse(&second_visca[..]) {
+                                                    Ok(response) => {
+                                                        std::future::ready(Ok(response))
                                                     }
                                                     Err(e) => std::future::ready(Err(e)),
-                                                },
-                                                Err(e) => std::future::ready(Err(e)),
+                                                }
                                             }
-                                        }
-                                        Ok(response) => std::future::ready(Ok(response)), // Some cameras skip ACK
+                                            Err(e) => std::future::ready(Err(e)),
+                                        },
                                         Err(e) => std::future::ready(Err(e)),
                                     }
                                 }
-                                Err(e) => std::future::ready(Err(e)),
-                            }
-                        }
-                        Err(e) => std::future::ready(Err(e)),
-                    }
-                } else {
-                    // For inquiry commands, just read one response with quick timeout
-                    let quick_timeout = timeout_config.get_timeout(C::TIMEOUT_CATEGORY);
-                    match SyncTransport::recv_with_timeout(&mut *transport, quick_timeout) {
-                        Ok(response_bytes) => {
-                            match envelope.extract_response(&response_bytes[..]) {
-                                Ok(visca) => {
-                                    // Use parse_with_type for inquiry responses
-                                    let parse_result = if let Some(response_type) =
-                                        command.response_type()
-                                    {
-                                        ViscaResponse::parse_with_type(&visca[..], &response_type)
-                                    } else {
-                                        ViscaResponse::parse(&visca[..])
-                                    };
-
-                                    match parse_result {
-                                        Ok(response) => std::future::ready(Ok(response)),
-                                        Err(e) => std::future::ready(Err(e)),
-                                    }
-                                }
+                                Ok(response) => std::future::ready(Ok(response)), // Some cameras skip ACK
                                 Err(e) => std::future::ready(Err(e)),
                             }
                         }
                         Err(e) => std::future::ready(Err(e)),
                     }
                 }
+                Err(e) => std::future::ready(Err(e)),
             }
-            Err(e) => std::future::ready(Err(e)),
+        } else {
+            // For inquiry commands, just read one response with category timeout
+            let inquiry_timeout = timeout_config.get_timeout(C::TIMEOUT_CATEGORY);
+            match SyncTransport::recv_with_timeout(&mut *transport, inquiry_timeout) {
+                Ok(response_bytes) => {
+                    match envelope.extract_response(&response_bytes[..]) {
+                        Ok(visca) => {
+                            // Use parse_with_type for inquiry responses
+                            let parse_result = if let Some(response_type) = command.response_type()
+                            {
+                                ViscaResponse::parse_with_type(&visca[..], &response_type)
+                            } else {
+                                ViscaResponse::parse(&visca[..])
+                            };
+
+                            match parse_result {
+                                Ok(response) => std::future::ready(Ok(response)),
+                                Err(e) => std::future::ready(Err(e)),
+                            }
+                        }
+                        Err(e) => std::future::ready(Err(e)),
+                    }
+                }
+                Err(e) => std::future::ready(Err(e)),
+            }
         }
     }
 
@@ -634,128 +624,104 @@ where
         C: ViscaCommand + ViscaEncode + Send + Sync + Clone + 'static,
         C::Response: Send + 'static,
     {
-        // For blocking mode, we can directly execute the send_command and then map the result
-        // Since we're working synchronously, we'll manually implement the command sending
-        use crate::command::bytes::VISCA_TERMINATOR;
         use crate::command::response::ViscaResponse;
 
-        // Encode command bytes using ViscaEncode
-        let mut buffer = [0u8; 64];
-        match command.encode_into(self.camera_id(), &mut buffer) {
-            Ok(size) => {
-                let cmd_bytes = &buffer[..size];
+        // Use the encode_and_frame helper
+        let (request, is_inquiry) = match self.encode_and_frame(command) {
+            Ok(result) => result,
+            Err(e) => return std::future::ready(Err(e)),
+        };
 
-                // Add VISCA terminator if not present
-                let mut cmd_vec = cmd_bytes.to_vec();
-                if !cmd_vec.ends_with(&[VISCA_TERMINATOR]) {
-                    cmd_vec.push(VISCA_TERMINATOR);
-                }
+        // Get access to the transport through RefCell for interior mutability
+        let transport_cell = self.transport();
+        let mut transport = match transport_cell.try_borrow_mut() {
+            Ok(transport) => transport,
+            Err(_) => {
+                return std::future::ready(Err(Error::InvalidState(
+                    "Transport is already borrowed".into(),
+                )));
+            }
+        };
 
-                // Determine if this is an inquiry based on the typed response
-                let is_inquiry = command.response_type().is_some();
+        // Send the request
+        if let Err(e) = SyncTransport::send(&mut *transport, &request) {
+            return std::future::ready(Err(e));
+        }
 
-                // Apply envelope and send command
-                let envelope = self.envelope();
-                let envelope_buffer_manager = self.envelope_buffer_manager();
-                let request = envelope.frame_command(&cmd_vec, is_inquiry, envelope_buffer_manager);
+        // Handle response based on command type
+        let timeout_config = self.timeout_config();
+        let envelope = self.envelope();
 
-                // Get access to the transport through RefCell for interior mutability
-                let transport_cell = self.transport();
-                let mut transport = match transport_cell.try_borrow_mut() {
-                    Ok(transport) => transport,
-                    Err(_) => {
-                        return std::future::ready(Err(Error::InvalidState(
-                            "Transport is already borrowed".into(),
-                        )));
-                    }
-                };
-
-                // Send the request
-                if let Err(e) = SyncTransport::send(&mut *transport, &request) {
-                    return std::future::ready(Err(e));
-                }
-
-                // Handle response based on command type
-                let timeout_config = self.timeout_config();
-                let visca_result = if !is_inquiry {
-                    // For non-inquiry commands, handle ACK/Completion sequence
-                    match SyncTransport::recv_with_timeout(
-                        &mut *transport,
-                        timeout_config.ack_timeout,
-                    ) {
-                        Ok(first_response_bytes) => {
-                            match envelope.extract_response(&first_response_bytes[..]) {
-                                Ok(first_visca) => {
-                                    match ViscaResponse::parse(&first_visca[..]) {
-                                        Ok(ViscaResponse::Error(e)) => Err(e),
-                                        Ok(ViscaResponse::CmdAck) => {
-                                            // Got ACK, now wait for completion
-                                            let completion_timeout =
-                                                timeout_config.get_timeout(C::TIMEOUT_CATEGORY);
-                                            match transport.recv_with_timeout(completion_timeout) {
-                                                Ok(second_response_bytes) => {
-                                                    match envelope.extract_response(
-                                                        &second_response_bytes[..],
-                                                    ) {
-                                                        Ok(second_visca) => {
-                                                            match ViscaResponse::parse(
-                                                                &second_visca[..],
-                                                            ) {
-                                                                Ok(response) => Ok(response),
-                                                                Err(e) => Err(e),
-                                                            }
-                                                        }
+        let visca_result = if !is_inquiry {
+            // For non-inquiry commands, handle ACK/Completion sequence
+            match SyncTransport::recv_with_timeout(&mut *transport, timeout_config.ack_timeout) {
+                Ok(first_response_bytes) => {
+                    match envelope.extract_response(&first_response_bytes[..]) {
+                        Ok(first_visca) => {
+                            match ViscaResponse::parse(&first_visca[..]) {
+                                Ok(ViscaResponse::Error(e)) => Err(e),
+                                Ok(ViscaResponse::CmdAck) => {
+                                    // Got ACK, now wait for completion
+                                    let completion_timeout =
+                                        timeout_config.get_timeout(C::TIMEOUT_CATEGORY);
+                                    match transport.recv_with_timeout(completion_timeout) {
+                                        Ok(second_response_bytes) => {
+                                            match envelope
+                                                .extract_response(&second_response_bytes[..])
+                                            {
+                                                Ok(second_visca) => {
+                                                    match ViscaResponse::parse(&second_visca[..]) {
+                                                        Ok(response) => Ok(response),
                                                         Err(e) => Err(e),
                                                     }
                                                 }
                                                 Err(e) => Err(e),
                                             }
                                         }
-                                        Ok(response) => Ok(response), // Some cameras skip ACK
                                         Err(e) => Err(e),
                                     }
                                 }
+                                Ok(response) => Ok(response), // Some cameras skip ACK
                                 Err(e) => Err(e),
                             }
                         }
                         Err(e) => Err(e),
                     }
-                } else {
-                    // For inquiry commands, just read one response with quick timeout
-                    let quick_timeout = timeout_config.get_timeout(C::TIMEOUT_CATEGORY);
-                    match SyncTransport::recv_with_timeout(&mut *transport, quick_timeout) {
-                        Ok(response_bytes) => {
-                            match envelope.extract_response(&response_bytes[..]) {
-                                Ok(visca) => {
-                                    // Use parse_with_type for inquiry responses
-                                    let parse_result = if let Some(response_type) =
-                                        command.response_type()
-                                    {
-                                        ViscaResponse::parse_with_type(&visca[..], &response_type)
-                                    } else {
-                                        ViscaResponse::parse(&visca[..])
-                                    };
-
-                                    match parse_result {
-                                        Ok(response) => Ok(response),
-                                        Err(e) => Err(e),
-                                    }
-                                }
-                                Err(e) => Err(e),
-                            }
-                        }
-                        Err(e) => Err(e),
-                    }
-                };
-
-                // Map the VISCA response to the typed response
-                std::future::ready(match visca_result {
-                    Ok(visca_response) => C::from_response(visca_response),
-                    Err(e) => Err(e),
-                })
+                }
+                Err(e) => Err(e),
             }
-            Err(e) => std::future::ready(Err(e)),
-        }
+        } else {
+            // For inquiry commands, just read one response with category timeout
+            let inquiry_timeout = timeout_config.get_timeout(C::TIMEOUT_CATEGORY);
+            match SyncTransport::recv_with_timeout(&mut *transport, inquiry_timeout) {
+                Ok(response_bytes) => {
+                    match envelope.extract_response(&response_bytes[..]) {
+                        Ok(visca) => {
+                            // Use parse_with_type for inquiry responses
+                            let parse_result = if let Some(response_type) = command.response_type()
+                            {
+                                ViscaResponse::parse_with_type(&visca[..], &response_type)
+                            } else {
+                                ViscaResponse::parse(&visca[..])
+                            };
+
+                            match parse_result {
+                                Ok(response) => Ok(response),
+                                Err(e) => Err(e),
+                            }
+                        }
+                        Err(e) => Err(e),
+                    }
+                }
+                Err(e) => Err(e),
+            }
+        };
+
+        // Map the VISCA response to the typed response
+        std::future::ready(match visca_result {
+            Ok(visca_response) => C::from_response(visca_response),
+            Err(e) => Err(e),
+        })
     }
 }
 

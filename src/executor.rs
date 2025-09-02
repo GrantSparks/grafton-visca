@@ -6,7 +6,7 @@
 #[cfg(feature = "async")]
 use core::future::Future;
 
-#[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
+#[cfg(feature = "async")]
 use std::pin::Pin;
 #[cfg(feature = "async")]
 use std::time::Instant;
@@ -42,7 +42,7 @@ impl From<ExecError> for Error {
 /// that runtime and spawner come from the same ecosystem, preventing runtime
 /// mismatches at compile time.
 #[cfg(feature = "async")]
-pub trait Executor: Send + Sync + 'static {
+pub trait Executor: Clone + Send + Sync + 'static {
     /// The join handle type for spawned tasks.
     type Join<T>: Future<Output = Result<T, ExecError>> + Send + 'static
     where
@@ -113,6 +113,22 @@ pub trait Executor: Send + Sync + 'static {
     fn now(&self) -> Instant {
         Instant::now()
     }
+
+    /// Create a timeout future that owns all its data.
+    ///
+    /// Unlike the `timeout` method, this returns a `'static` future that doesn't
+    /// borrow from `&self`. This is useful when creating boxed static futures
+    /// that need to embed timeout operations.
+    ///
+    /// The returned future will complete with `Ok(T)` if the input future
+    /// completes within the duration, or `Err(Error::Timeout)` if it times out.
+    fn timeout_owned<T>(
+        &self,
+        duration: std::time::Duration,
+        fut: impl Future<Output = T> + Send + 'static,
+    ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'static>>
+    where
+        T: Send + 'static;
 }
 
 // Tokio executor implementation
@@ -222,6 +238,22 @@ mod tokio_impl {
                 }
             }
         }
+
+        fn timeout_owned<T>(
+            &self,
+            duration: Duration,
+            fut: impl Future<Output = T> + Send + 'static,
+        ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'static>>
+        where
+            T: Send + 'static,
+        {
+            Box::pin(async move {
+                match tokio::time::timeout(duration, fut).await {
+                    Ok(value) => Ok(value),
+                    Err(_) => Err(Error::Timeout),
+                }
+            })
+        }
     }
 
     // Implement Executor for Arc<TokioExecutor> to match the pattern used by other executors
@@ -272,6 +304,17 @@ mod tokio_impl {
             T: Send + 'a,
         {
             async move { self.as_ref().timeout(duration, fut).await }
+        }
+
+        fn timeout_owned<T>(
+            &self,
+            duration: Duration,
+            fut: impl Future<Output = T> + Send + 'static,
+        ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'static>>
+        where
+            T: Send + 'static,
+        {
+            self.as_ref().timeout_owned(duration, fut)
         }
     }
 }
@@ -381,6 +424,22 @@ mod async_std_impl {
                 }
             }
         }
+
+        fn timeout_owned<T>(
+            &self,
+            duration: Duration,
+            fut: impl Future<Output = T> + Send + 'static,
+        ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'static>>
+        where
+            T: Send + 'static,
+        {
+            Box::pin(async move {
+                match async_std::future::timeout(duration, fut).await {
+                    Ok(value) => Ok(value),
+                    Err(_) => Err(Error::Timeout),
+                }
+            })
+        }
     }
 
     // Implement Executor for Arc<AsyncStdExecutor>
@@ -431,6 +490,17 @@ mod async_std_impl {
             T: Send + 'a,
         {
             async move { self.as_ref().timeout(duration, fut).await }
+        }
+
+        fn timeout_owned<T>(
+            &self,
+            duration: Duration,
+            fut: impl Future<Output = T> + Send + 'static,
+        ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'static>>
+        where
+            T: Send + 'static,
+        {
+            self.as_ref().timeout_owned(duration, fut)
         }
     }
 }
@@ -562,6 +632,38 @@ mod smol_impl {
                 }
             }
         }
+
+        fn timeout_owned<T>(
+            &self,
+            duration: Duration,
+            fut: impl Future<Output = T> + Send + 'static,
+        ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'static>>
+        where
+            T: Send + 'static,
+        {
+            Box::pin(async move {
+                // Create a timer future
+                let timer = smol::Timer::after(duration);
+
+                // Pin both futures for select
+                futures_lite::pin!(fut);
+                futures_lite::pin!(timer);
+
+                // Race the two futures
+                loop {
+                    if let Some(value) = futures_lite::future::poll_once(&mut fut).await {
+                        return Ok(value);
+                    }
+
+                    if futures_lite::future::poll_once(&mut timer).await.is_some() {
+                        return Err(Error::Timeout);
+                    }
+
+                    // Yield to executor
+                    futures_lite::future::yield_now().await;
+                }
+            })
+        }
     }
 
     // Implement Executor for Arc<SmolExecutor>
@@ -612,6 +714,17 @@ mod smol_impl {
             T: Send + 'a,
         {
             async move { self.as_ref().timeout(duration, fut).await }
+        }
+
+        fn timeout_owned<T>(
+            &self,
+            duration: Duration,
+            fut: impl Future<Output = T> + Send + 'static,
+        ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'static>>
+        where
+            T: Send + 'static,
+        {
+            self.as_ref().timeout_owned(duration, fut)
         }
     }
 }

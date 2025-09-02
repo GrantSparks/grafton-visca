@@ -72,7 +72,7 @@ pub trait ExecutorExt {
 ///
 /// The virtual clock maintains a current time and allows tests to advance
 /// time explicitly, waking up any futures that were waiting for that time.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VirtualClock {
     inner: Arc<Mutex<VirtualClockInner>>,
 }
@@ -593,6 +593,24 @@ impl Executor for DeterministicExecutor {
         }
     }
 
+    fn timeout_owned<T>(
+        &self,
+        duration: Duration,
+        fut: impl Future<Output = T> + Send + 'static,
+    ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'static>>
+    where
+        T: Send + 'static,
+    {
+        let clock = self.clock.clone();
+        Box::pin(async move {
+            let timeout_future = TimeoutFuture {
+                future: Box::pin(fut),
+                sleep: clock.sleep(duration),
+            };
+            timeout_future.await
+        })
+    }
+
     fn now(&self) -> Instant {
         self.now()
     }
@@ -747,6 +765,17 @@ impl Executor for Arc<DeterministicExecutor> {
         T: Send + 'a,
     {
         async move { self.as_ref().timeout(duration, fut).await }
+    }
+
+    fn timeout_owned<T>(
+        &self,
+        duration: Duration,
+        fut: impl Future<Output = T> + Send + 'static,
+    ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'static>>
+    where
+        T: Send + 'static,
+    {
+        self.as_ref().timeout_owned(duration, fut)
     }
 
     fn now(&self) -> Instant {
