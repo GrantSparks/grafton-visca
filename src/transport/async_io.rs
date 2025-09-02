@@ -14,12 +14,12 @@ use crate::{command::bytes::VISCA_TERMINATOR, transport::builder::TransportConfi
 /// This trait unifies the async read capabilities needed for VISCA communication
 /// across tokio, async-std, and smol runtimes. Not all methods will be used by
 /// all runtimes, which is expected for a unified interface.
-#[allow(dead_code)]
 pub trait AsyncReadExt {
     /// Read data into a buffer, returning the number of bytes read.
     ///
     /// Returns 0 when the stream is closed.
     /// This method is used by runtimes that implement byte-by-byte reading (smol).
+    #[allow(dead_code)] // Used by trait implementations in runtime-specific connectors
     fn read(&mut self, buf: &mut [u8]) -> impl Future<Output = Result<usize, Error>> + Send;
 
     /// Read until a delimiter byte is encountered.

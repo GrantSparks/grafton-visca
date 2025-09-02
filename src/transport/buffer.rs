@@ -102,7 +102,6 @@ impl BufferManager {
     /// Create a new buffer manager with default configuration.
     /// Only available in tests to simplify test setup.
     #[cfg(test)]
-    #[allow(dead_code)]
     pub fn with_defaults() -> Self {
         Self::new(BufferConfig::default())
     }
@@ -117,14 +116,13 @@ impl BufferManager {
     /// Allocate a new send buffer.
     /// Available for all transport configurations that need BytesMut.
     /// Some transports don't need send buffers (they send data directly).
-    #[allow(dead_code)] // Only used by transports that construct packets with headers
     pub fn alloc_send_buffer(&self) -> BytesMut {
         BytesMut::with_capacity(self.config.send_buffer_size)
     }
 
     /// Allocate a vector buffer for simple operations.
     /// Available for both blocking transports and async runtime transports.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Used by UDP transports in async runtimes
     pub fn alloc_vec_buffer(&self) -> Vec<u8> {
         vec![0u8; self.config.recv_buffer_size]
     }
@@ -151,16 +149,17 @@ impl BufferManager {
     }
 
     /// Process received data using zero-copy when possible.
-    /// Available for both blocking transports and async runtime transports.
-    #[allow(dead_code)]
+    /// Used by async transports that can take ownership of the buffer.
+    #[cfg(feature = "async")]
+    #[allow(dead_code)] // Used by UDP transports with specific runtime features
     pub fn process_recv_data(&self, mut buffer: Vec<u8>, received: usize) -> Bytes {
         buffer.truncate(received);
         Bytes::from(buffer) // Takes ownership, no copy
     }
 
     /// Process received data from a mutable reference (fallback for when we can't take ownership).
-    /// Available for both blocking transports and async runtime transports.
-    #[allow(dead_code)]
+    /// Used by blocking transports that need to reuse buffers.
+    #[cfg(not(feature = "async"))]
     pub fn process_recv_data_borrowed(&self, buffer: &mut Vec<u8>, received: usize) -> Bytes {
         buffer.truncate(received);
         Bytes::copy_from_slice(buffer) // Only when we can't take ownership
@@ -248,14 +247,7 @@ mod tests {
         assert!(buffer.is_empty());
     }
 
-    #[cfg(any(
-        not(feature = "async"),           // Blocking mode
-        all(feature = "async", any(       // Async mode WITH a runtime
-            feature = "rt-tokio",
-            feature = "rt-async-std",
-            feature = "rt-smol"
-        ))
-    ))]
+    #[cfg(feature = "async")]
     #[test]
     fn test_process_recv_data() {
         let manager = BufferManager::with_defaults();
@@ -271,6 +263,7 @@ mod tests {
         assert_eq!(result[2], 0xFF);
     }
 
+    #[cfg(not(feature = "async"))]
     #[test]
     fn test_process_recv_data_borrowed() {
         let manager = BufferManager::with_defaults();

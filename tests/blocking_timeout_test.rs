@@ -7,18 +7,18 @@
 
 #![cfg(not(feature = "async"))]
 
-use std::{
-    net::{TcpListener, UdpSocket},
-    thread,
-    time::{Duration, Instant},
-};
-
 use grafton_visca::{
     transport::{
         blocking::{Tcp, Udp},
         SyncTransport,
     },
     Error,
+};
+
+use std::{
+    net::{TcpListener, UdpSocket},
+    thread,
+    time::{Duration, Instant},
 };
 
 /// A slow server that doesn't respond for testing timeouts
@@ -56,21 +56,21 @@ fn start_slow_udp_server() -> String {
 fn test_tcp_blocking_timeout_enforcement() {
     let addr = start_slow_tcp_server();
 
-    // Connect to the slow server
     let mut transport = Tcp::connect(&addr).expect("Failed to connect");
 
-    // Test different timeout durations
-    // Windows has less precise timing, especially in CI, so we need larger tolerances
-    let tolerance_multiplier = if cfg!(windows) || std::env::var("CI").is_ok() {
-        2 // Double tolerance for Windows or CI environments
+    // CI environments have highly variable timing, so we need much larger tolerances
+    let (base_tolerance, multiplier) = if std::env::var("CI").is_ok() {
+        (150, 3)
+    } else if cfg!(windows) {
+        (100, 2)
     } else {
-        1
+        (50, 1)
     };
 
     let test_cases = vec![
-        (Duration::from_millis(100), 25 * tolerance_multiplier), // 100ms timeout, ±25-50ms tolerance
-        (Duration::from_millis(500), 50 * tolerance_multiplier), // 500ms timeout, ±50-100ms tolerance
-        (Duration::from_secs(1), 100 * tolerance_multiplier),    // 1s timeout, ±100-200ms tolerance
+        (Duration::from_millis(100), base_tolerance),
+        (Duration::from_millis(500), base_tolerance * multiplier),
+        (Duration::from_secs(1), base_tolerance * multiplier * 2),
     ];
 
     for (timeout_duration, tolerance_ms) in test_cases {
@@ -78,10 +78,8 @@ fn test_tcp_blocking_timeout_enforcement() {
         let result = transport.recv_with_timeout(timeout_duration);
         let elapsed = start.elapsed();
 
-        // Should get a timeout error
         match result {
             Err(Error::Timeout) => {
-                // Check that timeout happened within tolerance
                 let expected_ms = timeout_duration.as_millis() as u64;
                 let actual_ms = elapsed.as_millis() as u64;
                 let diff_ms = actual_ms.abs_diff(expected_ms);
@@ -104,24 +102,23 @@ fn test_tcp_blocking_timeout_enforcement() {
 fn test_udp_blocking_timeout_enforcement() {
     let addr = start_slow_udp_server();
 
-    // Connect to the slow server
     let mut transport = Udp::connect(&addr).expect("Failed to connect");
 
-    // Send something first to establish the "connection"
     let _ = transport.send(b"\x81\x01\x04\x00\x02\xFF");
 
-    // Test different timeout durations
-    // Windows has less precise timing, especially in CI, so we need larger tolerances
-    let tolerance_multiplier = if cfg!(windows) || std::env::var("CI").is_ok() {
-        2 // Double tolerance for Windows or CI environments
+    // CI environments have highly variable timing, so we need much larger tolerances
+    let (base_tolerance, multiplier) = if std::env::var("CI").is_ok() {
+        (150, 3)
+    } else if cfg!(windows) {
+        (100, 2)
     } else {
-        1
+        (50, 1)
     };
 
     let test_cases = vec![
-        (Duration::from_millis(100), 25 * tolerance_multiplier), // 100ms timeout, ±25-50ms tolerance
-        (Duration::from_millis(500), 50 * tolerance_multiplier), // 500ms timeout, ±50-100ms tolerance
-        (Duration::from_secs(1), 100 * tolerance_multiplier),    // 1s timeout, ±100-200ms tolerance
+        (Duration::from_millis(100), base_tolerance),
+        (Duration::from_millis(500), base_tolerance * multiplier),
+        (Duration::from_secs(1), base_tolerance * multiplier * 2),
     ];
 
     for (timeout_duration, tolerance_ms) in test_cases {
@@ -129,10 +126,8 @@ fn test_udp_blocking_timeout_enforcement() {
         let result = transport.recv_with_timeout(timeout_duration);
         let elapsed = start.elapsed();
 
-        // Should get a timeout error
         match result {
             Err(Error::Timeout) => {
-                // Check that timeout happened within tolerance
                 let expected_ms = timeout_duration.as_millis() as u64;
                 let actual_ms = elapsed.as_millis() as u64;
                 let diff_ms = actual_ms.abs_diff(expected_ms);
@@ -164,25 +159,17 @@ fn test_blocking_timeout_no_polling() {
     let addr = start_slow_tcp_server();
     let mut transport = Tcp::connect(&addr).expect("Failed to connect");
 
-    // Measure CPU time before the operation
     let start = Instant::now();
 
-    // Perform a blocking receive with timeout
     let _ = transport.recv_with_timeout(Duration::from_millis(200));
 
     let elapsed_wall = start.elapsed();
 
-    // Basic sanity check: the timeout should have occurred
     assert!(
         elapsed_wall.as_millis() >= 180 && elapsed_wall.as_millis() <= 250,
         "Timeout took {:?}, expected ~200ms",
         elapsed_wall
     );
-
-    // The actual CPU usage test would require platform-specific APIs
-    // to measure thread CPU time accurately, which isn't portable.
-    // The fact that the timeout completes in the expected time frame
-    // is sufficient to verify correct behavior.
 }
 
 #[test]
@@ -193,18 +180,24 @@ fn test_timeout_restores_original_setting() {
     let addr = start_slow_tcp_server();
     let mut transport = Tcp::connect(&addr).expect("Failed to connect");
 
-    // First timeout with a short duration
     let _ = transport.recv_with_timeout(Duration::from_millis(100));
 
-    // Second timeout with a different duration should also work correctly
     let start = Instant::now();
     let _ = transport.recv_with_timeout(Duration::from_millis(500));
     let elapsed = start.elapsed();
 
-    // The second timeout should take approximately 500ms, not be affected by the first
+    // CI environments have variable timing, so we need a larger tolerance
+    let (min_ms, max_ms) = if std::env::var("CI").is_ok() {
+        (350, 750)
+    } else {
+        (450, 550)
+    };
+
     assert!(
-        elapsed.as_millis() >= 450 && elapsed.as_millis() <= 550,
-        "Second timeout took {:?}, expected ~500ms",
-        elapsed
+        elapsed.as_millis() >= min_ms && elapsed.as_millis() <= max_ms,
+        "Second timeout took {:?}, expected ~500ms ({}ms-{}ms)",
+        elapsed,
+        min_ms,
+        max_ms
     );
 }

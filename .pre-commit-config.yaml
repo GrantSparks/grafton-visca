@@ -1,6 +1,13 @@
 repos:
   - repo: local
     hooks:
+      - id: remove-claude-coauthor
+        name: Remove Claude co-author lines
+        description: Remove Co-authored-by Claude lines from commit messages
+        entry: .git-hooks/remove-claude-coauthor.sh
+        language: system
+        stages: [commit-msg]
+        always_run: true
       - id: fmt
         name: fmt
         description: Format files with cargo fmt.

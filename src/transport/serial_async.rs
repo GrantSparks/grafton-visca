@@ -12,12 +12,12 @@ use tracing::{debug, trace, warn};
 use std::future::Future;
 use std::io::ErrorKind;
 
+use crate::camera_id::CameraId;
+use crate::command::bytes::VISCA_TERMINATOR;
+use crate::command::encode_visca::ViscaEncode;
+use crate::command::system::{AddressSetCommand, InterfaceClearCommand};
 use crate::error::{Error, Result};
-use crate::protocol::encode::{encode_address_set, encode_if_clear, VISCA_TERMINATOR};
-use crate::transport::{
-    buffer::{BufferConfig, BufferManager},
-    AsyncTransport, RetryConfig,
-};
+use crate::transport::{AsyncTransport, RetryConfig};
 
 /// Async serial port configuration for VISCA communication.
 #[derive(Debug, Clone)]
@@ -59,11 +59,8 @@ impl Default for AsyncSerialConfig {
 #[derive(Debug)]
 pub struct AsyncSerialTransport {
     port: SerialStream,
-    camera_address: u8,
     read_buffer: BytesMut,
     config: AsyncSerialConfig,
-    #[allow(dead_code)]
-    buffer_manager: BufferManager,
 }
 
 impl AsyncSerialTransport {
@@ -83,18 +80,14 @@ impl AsyncSerialTransport {
             Error::TransportError(format!("Failed to set exclusive mode: {}", e).into())
         })?;
 
-        let camera_address = config.camera_address;
         let if_clear = config.if_clear_on_connect;
         let address_set = config.address_set_on_connect;
 
-        let buffer_manager = BufferManager::new(BufferConfig::for_serial());
         let read_buffer = BytesMut::with_capacity(256);
         let mut transport = Self {
             port,
-            camera_address,
             read_buffer,
             config,
-            buffer_manager,
         };
 
         // Perform initialization if requested
@@ -111,8 +104,15 @@ impl AsyncSerialTransport {
     /// Send I/F Clear command to reset all devices on the bus.
     pub async fn send_if_clear(&mut self) -> Result<()> {
         debug!("Sending I/F Clear command");
-        let cmd = encode_if_clear();
-        self.send_raw(&cmd).await?;
+        let cmd = InterfaceClearCommand::new();
+        let mut buffer = [0u8; 16];
+        // InterfaceClearCommand is const-constructed and guaranteed to encode
+        let len = cmd
+            .encode_into(CameraId::CAMERA_1, &mut buffer)
+            .map_err(|e| {
+                Error::TransportError(format!("Failed to encode IF Clear: {}", e).into())
+            })?;
+        self.send_raw(&buffer[..len]).await?;
 
         // Wait for I/F Clear to complete
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -126,8 +126,15 @@ impl AsyncSerialTransport {
 
         for attempt in 0..max_attempts {
             debug!("Address Set attempt {}", attempt + 1);
-            let cmd = encode_address_set();
-            self.send_raw(&cmd).await?;
+            let cmd = AddressSetCommand::new();
+            let mut buffer = [0u8; 16];
+            // AddressSetCommand is const-constructed and guaranteed to encode
+            let len = cmd
+                .encode_into(CameraId::CAMERA_1, &mut buffer)
+                .map_err(|e| {
+                    Error::TransportError(format!("Failed to encode Address Set: {}", e).into())
+                })?;
+            self.send_raw(&buffer[..len]).await?;
 
             // Parse response properly
             match self.recv_address_set_response(Duration::from_secs(2)).await {
@@ -326,19 +333,9 @@ impl AsyncTransport for AsyncSerialTransport {
     #[allow(clippy::manual_async_fn)]
     fn send(&mut self, bytes: &[u8]) -> impl Future<Output = Result<(), Error>> + Send {
         async move {
-            // Add camera address and ensure proper VISCA framing
-            let mut frame = Vec::with_capacity(bytes.len() + 2);
-
-            // Replace address byte (0x8x) with actual camera address
-            if !bytes.is_empty() && (bytes[0] & 0xF0) == 0x80 {
-                frame.push(0x80 | (self.camera_address & 0x0F));
-                frame.extend_from_slice(&bytes[1..]);
-            } else {
-                frame.extend_from_slice(bytes);
-            }
-
-            debug!("Sending VISCA command to serial port: {:02X?}", frame);
-            self.send_raw(&frame).await
+            // Pass through the bytes as-is (no address rewrite)
+            debug!("Sending VISCA command to serial port: {:02X?}", bytes);
+            self.send_raw(bytes).await
         }
     }
 

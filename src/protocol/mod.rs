@@ -4,6 +4,6 @@
 //! including command encoding, response parsing, and transport encapsulation.
 
 pub mod decode;
-pub mod encode;
+pub mod sony;
 
 // Note: ViscaResponse from decode is internal and only used within the protocol module
