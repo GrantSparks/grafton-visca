@@ -10,6 +10,11 @@ name: Rust CI/CD
 # - Reusable workflows for better organization
 # - Job timeouts for reliability
 # - Comprehensive feature matrix testing (matches pre-commit hooks)
+# - Tests all combinations: default, no-default, async, rt-tokio, rt-async-std, rt-smol, test-utils
+# - Enhanced clippy coverage for all feature combinations
+# - Platform matrix testing (ubuntu, windows, macos) × (stable, beta)
+# - Separate minimal testing for feature branches (faster feedback)
+# - Full testing on main/PRs (comprehensive quality assurance)
 
 on:
   push:
