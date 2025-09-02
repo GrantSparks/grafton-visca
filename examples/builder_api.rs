@@ -25,6 +25,9 @@ use grafton_visca::{
 #[cfg(feature = "rt-async-std")]
 use grafton_visca::{camera::profiles::PtzOpticsG2, CameraBuilder, Result};
 
+#[cfg(feature = "rt-smol")]
+use grafton_visca::{camera::profiles::PtzOpticsG2, CameraBuilder, Result};
+
 #[cfg(all(
     feature = "async",
     not(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))
@@ -197,6 +200,35 @@ fn main() -> Result<()> {
         println!("✓ Created async UDP camera with async-std");
 
         println!("\n✓ All async-std builder examples completed!");
+
+        Ok(())
+    })
+}
+
+#[cfg(feature = "rt-smol")]
+fn main() -> Result<()> {
+    use grafton_visca::runtime_adapters::smol::{TcpTransport as Tcp, UdpTransport as Udp};
+
+    tracing_subscriber::fmt::init();
+
+    println!("=== CameraBuilder API Demo (Smol) ===\n");
+
+    smol::block_on(async {
+        println!("--- Example 1: smol TCP ---");
+        let transport = Tcp::connect("192.168.0.110:5678").await?;
+        let _camera = CameraBuilder::smol()
+            .build_async::<PtzOpticsG2, _>(transport)
+            .await?;
+        println!("✓ Created async TCP camera with smol");
+
+        println!("\n--- Example 2: smol UDP ---");
+        let transport = Udp::connect("192.168.0.110:1259").await?;
+        let _camera = CameraBuilder::smol()
+            .build_async::<PtzOpticsG2, _>(transport)
+            .await?;
+        println!("✓ Created async UDP camera with smol");
+
+        println!("\n✓ All smol builder examples completed!");
 
         Ok(())
     })
