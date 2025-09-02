@@ -25,6 +25,12 @@ use grafton_visca::{
 #[cfg(feature = "rt-async-std")]
 use grafton_visca::{camera::profiles::PtzOpticsG2, CameraBuilder, Result};
 
+#[cfg(all(
+    feature = "async",
+    not(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))
+))]
+use grafton_visca::Result;
+
 #[cfg(not(feature = "async"))]
 fn main() -> Result<()> {
     use grafton_visca::transport::{BlockingTcp, BlockingUdp};
