@@ -59,51 +59,6 @@ pub(crate) enum TxItem {
     },
 }
 
-/// Events received from the VISCA device.
-#[cfg(feature = "async")]
-#[derive(Debug, Clone)]
-pub(crate) enum RxEvent {
-    /// Acknowledgment that a command has been accepted.
-    Ack {
-        /// Socket that received the ACK.
-        #[allow(dead_code)]
-        socket: ViscaSocket,
-        /// Command ID that was acknowledged.
-        #[allow(dead_code)]
-        id: u32,
-    },
-    /// Command has completed execution.
-    Completion {
-        /// Socket that completed.
-        #[allow(dead_code)]
-        socket: ViscaSocket,
-        /// Command ID that completed.
-        #[allow(dead_code)]
-        id: u32,
-    },
-    /// Data reply from an inquiry.
-    DataReply {
-        /// Inquiry ID that received data.
-        #[allow(dead_code)]
-        id: u32,
-        /// Response data bytes.
-        #[allow(dead_code)]
-        data: Vec<u8>,
-    },
-    /// Error response from device.
-    Error {
-        /// Error code from VISCA protocol.
-        #[allow(dead_code)]
-        code: ViscaError,
-        /// Socket if error is socket-specific.
-        #[allow(dead_code)]
-        socket: Option<ViscaSocket>,
-        /// Command/inquiry ID if applicable.
-        #[allow(dead_code)]
-        id: Option<u32>,
-    },
-}
-
 /// Command priority levels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Priority {
@@ -486,14 +441,13 @@ impl PriorityQueueItem {
 impl Scheduler {
     /// Create a new scheduler with given channels.
     #[cfg(test)]
-    pub fn new(_submit_rx: Receiver<TxItem>, _event_tx: Sender<RxEvent>) -> Self {
-        Self::with_timeout_config(_submit_rx, _event_tx, TimeoutConfig::default())
+    pub fn new(_submit_rx: Receiver<TxItem>) -> Self {
+        Self::with_timeout_config(_submit_rx, TimeoutConfig::default())
     }
 
     /// Create a new scheduler with custom timeout configuration.
     pub fn with_timeout_config(
         _submit_rx: Receiver<TxItem>,
-        _event_tx: Sender<RxEvent>,
         timeout_config: TimeoutConfig,
     ) -> Self {
         // Set default max retries per category
@@ -1180,8 +1134,7 @@ mod tests {
     #[test]
     fn test_can_send_command() {
         let (_tx, rx) = flume::unbounded();
-        let (event_tx, _event_rx) = flume::unbounded();
-        let mut scheduler = Scheduler::new(rx, event_tx);
+        let mut scheduler = Scheduler::new(rx);
         let now = Instant::now();
 
         // Initially can send 2 commands
@@ -1276,8 +1229,7 @@ mod tests {
     #[test]
     fn test_scheduler_socket_allocation() {
         let (_submit_tx, submit_rx) = flume::unbounded();
-        let (event_tx, _event_rx) = flume::unbounded();
-        let mut scheduler = Scheduler::new(submit_rx, event_tx);
+        let mut scheduler = Scheduler::new(submit_rx);
 
         let now = Instant::now();
 
@@ -1317,8 +1269,7 @@ mod tests {
     #[test]
     fn test_response_channel_tracking() {
         let (_submit_tx, submit_rx) = flume::unbounded();
-        let (event_tx, _event_rx) = flume::unbounded();
-        let mut scheduler = Scheduler::new(submit_rx, event_tx);
+        let mut scheduler = Scheduler::new(submit_rx);
 
         // Test command channel tracking
         let (response_tx, _response_rx) = flume::bounded(1);
@@ -1358,8 +1309,7 @@ mod tests {
     #[test]
     fn test_socket_cleanup_removes_channel() {
         let (_submit_tx, submit_rx) = flume::unbounded();
-        let (event_tx, _event_rx) = flume::unbounded();
-        let mut scheduler = Scheduler::new(submit_rx, event_tx);
+        let mut scheduler = Scheduler::new(submit_rx);
 
         // Allocate a socket for a command
         let cmd_id = 123;
@@ -1383,8 +1333,7 @@ mod tests {
     #[test]
     fn test_retry_exhaustion() {
         let (_submit_tx, submit_rx) = flume::unbounded();
-        let (event_tx, _event_rx) = flume::unbounded();
-        let mut scheduler = Scheduler::new(submit_rx, event_tx);
+        let mut scheduler = Scheduler::new(submit_rx);
 
         // Set max retries to 2 for Quick commands
         scheduler.set_max_retries(CommandCategory::Quick, 2);

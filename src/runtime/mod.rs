@@ -30,7 +30,7 @@ use crate::{
     transport::AsyncTransport,
 };
 #[cfg(feature = "async")]
-use scheduler::{RxEvent, Scheduler, SchedulerMetrics, TxItem, ViscaError};
+use scheduler::{Scheduler, SchedulerMetrics, TxItem};
 
 /// Helper function to spawn runtime tasks properly for different executor types.
 #[cfg(feature = "async")]
@@ -57,12 +57,6 @@ fn spawn_runtime_task_properly<E: crate::executor::Executor>(
 pub struct RuntimeHandle {
     /// Channel for submitting commands and inquiries.
     submit: Sender<TxItem>,
-    /// Channel for receiving events from the runtime.
-    /// Reserved for future monitoring/debugging runtime events.
-    #[allow(dead_code)] // Intentionally kept for future monitoring features
-    events: Receiver<RxEvent>,
-    // Runtime handle not needed with flume-based design
-    // Tasks are managed internally by the runtime loop
     /// Flag to track if runtime is shutdown.
     shutdown: Arc<AtomicBool>,
     /// Channel for requesting metrics from the runtime.
@@ -118,15 +112,12 @@ impl RuntimeHandle {
         tick_interval_ms: Option<u64>,
     ) -> Result<Self> {
         let (submit_tx, submit_rx) = flume::unbounded();
-        // Make event channel bounded to avoid unbounded memory growth
-        let (event_tx, event_rx) = flume::bounded(1000);
         let (metrics_tx, metrics_rx) = flume::unbounded();
 
         // Spawn the runtime task with configured tick interval
         let runtime_task = runtime_loop_with_config(
             transport,
             submit_rx,
-            event_tx,
             metrics_rx,
             tick_interval_ms,
             Arc::clone(&executor),
@@ -139,7 +130,6 @@ impl RuntimeHandle {
 
         Ok(Self {
             submit: submit_tx,
-            events: event_rx,
             shutdown: Arc::new(AtomicBool::new(false)),
             metrics_tx,
             next_command_id: Arc::new(AtomicU32::new(1)),
@@ -467,23 +457,18 @@ impl RuntimeHandle {
 
 /// Main runtime loop with configurable tick interval.
 #[cfg(feature = "async")]
-#[instrument(level = "debug", name = "visca_runtime_loop", skip(transport, submit_rx, event_tx, metrics_rx, executor), fields(tick_ms = tick_interval_ms))]
+#[instrument(level = "debug", name = "visca_runtime_loop", skip(transport, submit_rx, metrics_rx, executor), fields(tick_ms = tick_interval_ms))]
 async fn runtime_loop_with_config<
     T: AsyncTransport + Send + 'static,
     E: crate::executor::Executor,
 >(
     mut transport: T,
     submit_rx: Receiver<TxItem>,
-    event_tx: Sender<RxEvent>,
     metrics_rx: Receiver<Sender<MetricsSummary>>,
     tick_interval_ms: Option<u64>,
     executor: Arc<E>,
 ) -> Result<()> {
-    let mut scheduler = Scheduler::with_timeout_config(
-        submit_rx.clone(),
-        event_tx.clone(),
-        TimeoutConfig::default(),
-    );
+    let mut scheduler = Scheduler::with_timeout_config(submit_rx.clone(), TimeoutConfig::default());
     let mut response_buffer = Vec::new();
     let mut consecutive_retries = 0usize;
 
@@ -502,15 +487,7 @@ async fn runtime_loop_with_config<
 
         // Check for submit items non-blockingly first
         if let Ok(item) = submit_rx.try_recv() {
-            match handle_tx_item(
-                &mut transport,
-                &mut scheduler,
-                item,
-                &event_tx,
-                executor.as_ref(),
-            )
-            .await
-            {
+            match handle_tx_item(&mut transport, &mut scheduler, item, executor.as_ref()).await {
                 Ok(_) => {
                     // Successfully handled a TX item - reset consecutive retries
                     consecutive_retries = 0;
@@ -520,7 +497,6 @@ async fn runtime_loop_with_config<
                     if let Err(e) = process_command_queue(
                         &mut transport,
                         &mut scheduler,
-                        &event_tx,
                         executor.as_ref(),
                         allow_retry_defer,
                     )
@@ -583,14 +559,9 @@ async fn runtime_loop_with_config<
                     };
 
                     // Send the retry immediately
-                    if let Err(e) = handle_tx_item(
-                        &mut transport,
-                        &mut scheduler,
-                        tx_item,
-                        &event_tx,
-                        executor.as_ref(),
-                    )
-                    .await
+                    if let Err(e) =
+                        handle_tx_item(&mut transport, &mut scheduler, tx_item, executor.as_ref())
+                            .await
                     {
                         error!("Error handling retry TX item: {}", e);
                     }
@@ -644,7 +615,6 @@ async fn runtime_loop_with_config<
                                 &mut transport,
                                 &mut scheduler,
                                 &frame,
-                                &event_tx,
                                 executor.as_ref(),
                             )
                             .await
@@ -670,15 +640,6 @@ async fn runtime_loop_with_config<
                     if let Some(tx) = scheduler.get_response_channel(cmd_id) {
                         let _ = tx.send(Err(Error::Timeout));
                     }
-
-                    // Emit the structured RxEvent for observers/metrics
-                    let _ = event_tx
-                        .send_async(RxEvent::Error {
-                            code: ViscaError::from_byte(0x71), // Timeout
-                            socket: None,                      // No socket assigned yet
-                            id: Some(cmd_id),
-                        })
-                        .await;
                 }
 
                 // Check for commands in sockets that have timed out
@@ -688,15 +649,6 @@ async fn runtime_loop_with_config<
                     if let Some(tx) = scheduler.get_response_channel(cmd_id) {
                         let _ = tx.send(Err(Error::Timeout));
                     }
-
-                    // Then emit the structured RxEvent for observers/metrics
-                    let _ = event_tx
-                        .send_async(RxEvent::Error {
-                            code: ViscaError::from_byte(0x71), // Timeout
-                            socket: Some(socket),
-                            id: Some(cmd_id),
-                        })
-                        .await;
 
                     // Finally, free the socket & clean up metadata
                     scheduler.free_socket(socket);
@@ -758,14 +710,9 @@ async fn runtime_loop_with_config<
                             response_tx,
                         };
 
-                        if let Err(e) = handle_tx_item(
-                            &mut transport,
-                            &mut scheduler,
-                            item,
-                            &event_tx,
-                            executor.as_ref(),
-                        )
-                        .await
+                        if let Err(e) =
+                            handle_tx_item(&mut transport, &mut scheduler, item, executor.as_ref())
+                                .await
                         {
                             error!("Error retrying command {}: {}", retry_cmd.id, e);
                         } else {
@@ -800,13 +747,12 @@ async fn runtime_loop_with_config<
 #[cfg(feature = "async")]
 #[instrument(
     level = "trace",
-    skip(transport, scheduler, event_tx, executor),
+    skip(transport, scheduler, executor),
     fields(allow_retry_defer)
 )]
 async fn process_command_queue<T: AsyncTransport + Send, E: crate::executor::Executor>(
     transport: &mut T,
     scheduler: &mut Scheduler,
-    event_tx: &Sender<RxEvent>,
     executor: &E,
     allow_retry_defer: bool,
 ) -> Result<()> {
@@ -836,7 +782,7 @@ async fn process_command_queue<T: AsyncTransport + Send, E: crate::executor::Exe
                 scheduler.queue_size()
             );
             // Process the dequeued command
-            if let Err(e) = handle_tx_item(transport, scheduler, item, event_tx, executor).await {
+            if let Err(e) = handle_tx_item(transport, scheduler, item, executor).await {
                 error!("Error processing queued command: {}", e);
             }
         }
@@ -846,16 +792,13 @@ async fn process_command_queue<T: AsyncTransport + Send, E: crate::executor::Exe
 
 /// Handle a submitted TX item.
 #[cfg(feature = "async")]
-#[instrument(level = "trace", skip(transport, scheduler, event_tx, executor), fields(item = ?item))]
+#[instrument(level = "trace", skip(transport, scheduler, executor), fields(item = ?item))]
 async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
     transport: &mut T,
     scheduler: &mut Scheduler,
     item: TxItem,
-    event_tx: &Sender<RxEvent>,
     executor: &E,
 ) -> Result<()> {
-    use scheduler::ViscaError;
-
     match item {
         TxItem::Command {
             mut id,
@@ -994,15 +937,8 @@ async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
             }
 
             // Free the socket and notify
-            if let Some(cmd_id) = scheduler.socket_command(socket) {
+            if let Some(_cmd_id) = scheduler.socket_command(socket) {
                 scheduler.free_socket(socket);
-                let _ = event_tx
-                    .send_async(RxEvent::Error {
-                        code: ViscaError::from_byte(0x04), // CommandCancelled
-                        socket: Some(socket),
-                        id: Some(cmd_id),
-                    })
-                    .await;
             }
         }
     }
@@ -1012,12 +948,11 @@ async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
 
 /// Handle a VISCA response frame.
 #[cfg(feature = "async")]
-#[instrument(level = "trace", skip(transport, scheduler, frame, event_tx, executor))]
+#[instrument(level = "trace", skip(transport, scheduler, frame, executor))]
 async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>(
     transport: &mut T,
     scheduler: &mut Scheduler,
     frame: &[u8],
-    event_tx: &Sender<RxEvent>,
     executor: &E,
 ) -> Result<()> {
     use crate::command::bytes::VISCA_TERMINATOR;
@@ -1036,9 +971,6 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
                     "ACK received - command {} assigned to {:?} by camera",
                     cmd_id, socket
                 );
-                let _ = event_tx
-                    .send_async(RxEvent::Ack { socket, id: cmd_id })
-                    .await;
 
                 // Don't send ACK to the response channel - wait for Completion
                 // The response channel is expecting the final result, not intermediate ACKs
@@ -1053,9 +985,6 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
         ProtocolResponse::Completion { socket } => {
             if let Some(cmd_id) = scheduler.socket_command(socket) {
                 debug!("Completion received for command {} on {:?}", cmd_id, socket);
-                let _ = event_tx
-                    .send_async(RxEvent::Completion { socket, id: cmd_id })
-                    .await;
 
                 // Track successful completion
                 scheduler
@@ -1084,9 +1013,7 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
                 scheduler.free_socket(socket);
 
                 // Process any queued commands now that a socket is free
-                if let Err(e) =
-                    process_command_queue(transport, scheduler, event_tx, executor, true).await
-                {
+                if let Err(e) = process_command_queue(transport, scheduler, executor, true).await {
                     error!("Error processing command queue after completion: {}", e);
                 }
             } else {
@@ -1103,15 +1030,8 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
             // For inquiries, we need to match this with the pending inquiry
             // Since inquiries don't use sockets, we need a different mechanism
             // For now, assume the most recent inquiry is the one being responded to
-            if let Some((inquiry_id, response_tx, response_type)) = scheduler.get_pending_inquiry()
+            if let Some((_inquiry_id, response_tx, response_type)) = scheduler.get_pending_inquiry()
             {
-                let _ = event_tx
-                    .send_async(RxEvent::DataReply {
-                        id: inquiry_id,
-                        data: data.clone(),
-                    })
-                    .await;
-
                 // Parse the response based on the expected type
                 let response = if let Some(response_type) = response_type {
                     // Build the full response frame with header and terminator
@@ -1278,8 +1198,7 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
                         // Process any queued commands now that a socket is free
                         // Keep consecutive_retries count, as this wasn't a successful queue operation
                         if let Err(e) =
-                            process_command_queue(transport, scheduler, event_tx, executor, true)
-                                .await
+                            process_command_queue(transport, scheduler, executor, true).await
                         {
                             error!("Error processing command queue after busy: {}", e);
                         }
@@ -1298,13 +1217,6 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
                     if let Some(cmd_id) = scheduler.socket_command(sock) {
                         // Remove from retry queue if it was being retried
                         scheduler.remove_from_retry_queue(cmd_id);
-                        let _ = event_tx
-                            .send_async(RxEvent::Error {
-                                code: error,
-                                socket: Some(sock),
-                                id: Some(cmd_id),
-                            })
-                            .await;
 
                         // Notify the waiting command and free the socket
                         if let Some(response_tx) = scheduler.get_response_channel(cmd_id) {
@@ -1316,8 +1228,7 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
 
                         // Process any queued commands now that a socket is free
                         if let Err(e) =
-                            process_command_queue(transport, scheduler, event_tx, executor, true)
-                                .await
+                            process_command_queue(transport, scheduler, executor, true).await
                         {
                             error!("Error processing command queue after error: {}", e);
                         }
@@ -1332,13 +1243,6 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
 
                     if let Some(cmd_id) = recent_cmd_id {
                         debug!("Routing broadcast error to command {}", cmd_id);
-                        let _ = event_tx
-                            .send_async(RxEvent::Error {
-                                code: error,
-                                socket: None,
-                                id: Some(cmd_id),
-                            })
-                            .await;
 
                         // Notify the waiting command
                         if let Some(response_tx) = scheduler.get_response_channel(cmd_id) {
@@ -1350,13 +1254,6 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
                         scheduler.free_command_socket(cmd_id);
                     } else {
                         // No pending commands, just broadcast the error
-                        let _ = event_tx
-                            .send_async(RxEvent::Error {
-                                code: error,
-                                socket: None,
-                                id: None,
-                            })
-                            .await;
                     }
                 }
             }
@@ -1589,7 +1486,6 @@ mod tests {
         }
 
         let (submit_tx, submit_rx) = flume::unbounded();
-        let (event_tx, _event_rx) = flume::unbounded();
         let (_metrics_tx, metrics_rx) = flume::unbounded();
 
         // Start runtime loop
@@ -1597,14 +1493,8 @@ mod tests {
             crate::executor::TokioExecutor::from_current()
                 .expect("Failed to create TokioExecutor from current runtime"),
         );
-        let runtime_task = runtime_loop_with_config(
-            MockTransport,
-            submit_rx,
-            event_tx,
-            metrics_rx,
-            None,
-            executor,
-        );
+        let runtime_task =
+            runtime_loop_with_config(MockTransport, submit_rx, metrics_rx, None, executor);
 
         // Spawn the runtime
         let handle = tokio::spawn(runtime_task);

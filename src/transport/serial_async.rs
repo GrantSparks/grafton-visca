@@ -17,10 +17,7 @@ use crate::command::bytes::VISCA_TERMINATOR;
 use crate::command::encode_visca::ViscaEncode;
 use crate::command::system::{AddressSetCommand, InterfaceClearCommand};
 use crate::error::{Error, Result};
-use crate::transport::{
-    buffer::{BufferConfig, BufferManager},
-    AsyncTransport, RetryConfig,
-};
+use crate::transport::{AsyncTransport, RetryConfig};
 
 /// Async serial port configuration for VISCA communication.
 #[derive(Debug, Clone)]
@@ -64,8 +61,6 @@ pub struct AsyncSerialTransport {
     port: SerialStream,
     read_buffer: BytesMut,
     config: AsyncSerialConfig,
-    #[allow(dead_code)]
-    buffer_manager: BufferManager,
 }
 
 impl AsyncSerialTransport {
@@ -88,13 +83,11 @@ impl AsyncSerialTransport {
         let if_clear = config.if_clear_on_connect;
         let address_set = config.address_set_on_connect;
 
-        let buffer_manager = BufferManager::new(BufferConfig::for_serial());
         let read_buffer = BytesMut::with_capacity(256);
         let mut transport = Self {
             port,
             read_buffer,
             config,
-            buffer_manager,
         };
 
         // Perform initialization if requested
