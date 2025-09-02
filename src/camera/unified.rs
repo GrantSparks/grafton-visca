@@ -444,6 +444,8 @@ where
             Ok(_) => Ok(()),
             // Treat "no socket" error as success since there's nothing to cancel
             Err(Error::NoSocket) => Ok(()),
+            // Treat "command canceled" as success since that's the expected result
+            Err(Error::CommandCanceled) => Ok(()),
             Err(e) => Err(e),
         }
     }

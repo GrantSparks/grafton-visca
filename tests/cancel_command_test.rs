@@ -25,21 +25,43 @@ fn test_cancel_command_by_id() {
     let (executor, clock) = DeterministicExecutor::new();
 
     // Create steps for the scripted transport
+    // IMPORTANT: Specific matches must come first before generic ones
     let steps = vec![
+        // Response to cancel socket 1 (must be first to match properly)
+        Step::OnSend {
+            matches: Some(vec![0x81, 0x21, 0xFF]), // Cancel socket 1
+            responses: vec![vec![0x90, 0x61, 0x04, 0xFF]], // Command cancelled
+        },
+        // Response to cancel socket 2 (must be early to match properly)
+        Step::OnSend {
+            matches: Some(vec![0x81, 0x22, 0xFF]), // Cancel socket 2
+            responses: vec![vec![0x90, 0x62, 0x05, 0xFF]], // No socket error
+        },
         // Response to zoom command
         Step::OnSend {
             matches: Some(vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]), // Zoom Tele Standard
             responses: vec![vec![0x90, 0x41, 0xFF]],                 // ACK on socket 1
         },
-        // Response to cancel socket 1
+        // Add generic steps for camera initialization
         Step::OnSend {
-            matches: Some(vec![0x81, 0x21, 0xFF]), // Cancel socket 1
-            responses: vec![vec![0x90, 0x61, 0x04, 0xFF]], // Command cancelled
+            matches: None,                           // Match any command
+            responses: vec![vec![0x90, 0x41, 0xFF]], // ACK response
         },
-        // Response to cancel socket 2
         Step::OnSend {
-            matches: Some(vec![0x81, 0x22, 0xFF]), // Cancel socket 2
-            responses: vec![vec![0x90, 0x62, 0x05, 0xFF]], // No socket error
+            matches: None,                           // Match any command
+            responses: vec![vec![0x90, 0x41, 0xFF]], // ACK response
+        },
+        Step::OnSend {
+            matches: None,                           // Match any command
+            responses: vec![vec![0x90, 0x41, 0xFF]], // ACK response
+        },
+        Step::OnSend {
+            matches: None,                           // Match any command
+            responses: vec![vec![0x90, 0x41, 0xFF]], // ACK response
+        },
+        Step::OnSend {
+            matches: None,                           // Match any command
+            responses: vec![vec![0x90, 0x41, 0xFF]], // ACK response
         },
     ];
 
@@ -81,16 +103,38 @@ fn test_cancel_socket_directly() {
     let (executor, clock) = DeterministicExecutor::new();
 
     // Create steps for the scripted transport
+    // IMPORTANT: Specific matches must come first before generic ones
     let steps = vec![
+        // Response to cancel socket 1 (must be first to match properly)
+        Step::OnSend {
+            matches: Some(vec![0x81, 0x21, 0xFF]), // Cancel socket 1
+            responses: vec![vec![0x90, 0x61, 0x04, 0xFF]], // Command cancelled
+        },
         // Response to pan/tilt command
         Step::OnSend {
             matches: Some(vec![0x81, 0x01, 0x06, 0x01, 0x05, 0x05, 0x03, 0x03, 0xFF]), // Pan/Tilt
             responses: vec![vec![0x90, 0x41, 0xFF]], // ACK on socket 1
         },
-        // Response to cancel socket 1
+        // Add generic steps for camera initialization
         Step::OnSend {
-            matches: Some(vec![0x81, 0x21, 0xFF]), // Cancel socket 1
-            responses: vec![vec![0x90, 0x61, 0x04, 0xFF]], // Command cancelled
+            matches: None,                           // Match any command
+            responses: vec![vec![0x90, 0x41, 0xFF]], // ACK response
+        },
+        Step::OnSend {
+            matches: None,                           // Match any command
+            responses: vec![vec![0x90, 0x41, 0xFF]], // ACK response
+        },
+        Step::OnSend {
+            matches: None,                           // Match any command
+            responses: vec![vec![0x90, 0x41, 0xFF]], // ACK response
+        },
+        Step::OnSend {
+            matches: None,                           // Match any command
+            responses: vec![vec![0x90, 0x41, 0xFF]], // ACK response
+        },
+        Step::OnSend {
+            matches: None,                           // Match any command
+            responses: vec![vec![0x90, 0x41, 0xFF]], // ACK response
         },
     ];
 
@@ -175,15 +219,27 @@ fn test_cancel_during_movement() {
     // Simplified test that focuses on the cancel API working without complex interactions
     let (executor, clock) = DeterministicExecutor::new();
 
-    // Create a simple transport that responds to any command
-    let steps = vec![Step::OnSend {
-        matches: None,                           // Match any command
-        responses: vec![vec![0x90, 0x41, 0xFF]], // Always respond with ACK
-    }];
+    // Create a transport that responds appropriately to different commands
+    let mut steps: Vec<Step> = Vec::new();
+
+    // Add specific response for cancel socket 1 command FIRST to ensure it matches
+    steps.push(Step::OnSend {
+        matches: Some(vec![0x81, 0x21, 0xFF]), // Cancel socket 1
+        responses: vec![vec![0x90, 0x61, 0x05, 0xFF]], // No Socket error (nothing to cancel) - only one response
+    });
+
+    // Add many generic responses for camera initialization
+    for _ in 0..10 {
+        steps.push(Step::OnSend {
+            matches: None,                           // Match any command
+            responses: vec![vec![0x90, 0x41, 0xFF]], // ACK response
+        });
+    }
 
     let transport = ScriptedTransport::new(steps).with_executor(executor.clone());
 
     // Create camera and test basic cancel functionality
+    eprintln!("Creating camera...");
     let camera = executor.block_on(async {
         use grafton_visca::camera::profiles::PtzOpticsG2;
         CameraBuilder::with_executor(executor.clone())
@@ -191,11 +247,23 @@ fn test_cancel_during_movement() {
             .await
             .expect("Failed to create camera")
     });
+    eprintln!("Camera created successfully");
 
     // Test that cancel_command can be called (even with no running commands)
+    eprintln!("Testing cancel command...");
     let result = executor.block_on(async { camera.cancel_command(ViscaSocket::S1).await });
+    eprintln!("Cancel command result: {:?}", result);
     assert!(result.is_ok(), "Cancel command should not fail");
 
+    // Drive executor until all tasks are idle
+    eprintln!("Driving executor until idle...");
+    executor.drive_until_idle();
+
     // Advance clock to let any pending operations complete
+    eprintln!("Advancing clock...");
     clock.advance(Duration::from_millis(10));
+
+    // Drive again to complete any time-based tasks
+    executor.drive_until_idle();
+    eprintln!("Test completed");
 }

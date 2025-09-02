@@ -308,35 +308,34 @@ where
             }
         }
 
-        // ARCHITECTURAL NOTE: This implementation has a fundamental issue:
-        // - For DeterministicExecutor tests, we need non-blocking behavior (try_recv)
-        // - For real async runtime tests, we need blocking behavior (recv_async)
-        //
-        // The current implementation uses recv_async which works for real runtimes
-        // but cannot be controlled by DeterministicExecutor's virtual time.
-        // This means timeout testing with DeterministicExecutor is not possible.
-        //
-        // Potential solutions:
-        // 1. Create separate test transports for deterministic vs real async
-        // 2. Add a runtime-aware timeout mechanism using the Executor trait
-        // 3. Accept that timeout testing requires real time
+        // Use non-blocking recv for compatibility with DeterministicExecutor
+        // This approach polls the channel and yields if no data is available,
+        // allowing the executor to advance time and run other tasks
 
-        // Receive response from channel
-        match response_rx.recv_async().await {
-            Ok(Ok(response)) => {
-                eprintln!(
-                    "[ScriptedTransport::recv] Returning response: {:02X?}",
-                    response
-                );
-                Ok(Bytes::from(response))
+        // Receive response from channel with yielding for DeterministicExecutor
+        let mut attempts = 0;
+        loop {
+            attempts += 1;
+            if attempts > 1000 {
+                return Err(Error::Timeout);
             }
-            Ok(Err(_)) => {
-                eprintln!("[ScriptedTransport::recv] Recv error, returning timeout");
-                Err(Error::Timeout)
-            }
-            Err(_) => {
-                eprintln!("[ScriptedTransport::recv] Channel closed, returning timeout");
-                Err(Error::Timeout)
+
+            match response_rx.try_recv() {
+                Ok(Ok(response)) => {
+                    return Ok(Bytes::from(response));
+                }
+                Ok(Err(_)) => {
+                    return Err(Error::Timeout);
+                }
+                Err(flume::TryRecvError::Empty) => {
+                    // Channel is empty, yield to allow other tasks to run
+                    // This allows DeterministicExecutor to advance virtual time
+                    futures_lite::future::yield_now().await;
+                    continue;
+                }
+                Err(flume::TryRecvError::Disconnected) => {
+                    return Err(Error::Timeout);
+                }
             }
         }
     }

@@ -28,6 +28,14 @@ jobs:
     outputs:
       cache-hit: ${{ steps.cache.outputs.cache-hit }}
     steps:
+      # Sanitize features for cache keys (replace commas with hyphens)
+      - name: Sanitize features for cache keys
+        id: features
+        run: |
+          SANITIZED_FEATURES="${{ inputs.features }}"
+          SANITIZED_FEATURES="${SANITIZED_FEATURES//,/-}"
+          echo "sanitized=${SANITIZED_FEATURES}" >> $GITHUB_OUTPUT
+
       # Setup sccache for compiler caching
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.3
@@ -74,10 +82,10 @@ jobs:
         uses: actions/cache@v3
         with:
           path: target
-          key: cargo-target-${{ inputs.os }}-${{ inputs.rust }}-${{ inputs.features }}-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('**/*.rs') }}
+          key: cargo-target-${{ inputs.os }}-${{ inputs.rust }}-${{ steps.features.outputs.sanitized }}-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('**/*.rs') }}
           restore-keys: |
-            cargo-target-${{ inputs.os }}-${{ inputs.rust }}-${{ inputs.features }}-${{ hashFiles('**/Cargo.lock') }}-
-            cargo-target-${{ inputs.os }}-${{ inputs.rust }}-${{ inputs.features }}-
+            cargo-target-${{ inputs.os }}-${{ inputs.rust }}-${{ steps.features.outputs.sanitized }}-${{ hashFiles('**/Cargo.lock') }}-
+            cargo-target-${{ inputs.os }}-${{ inputs.rust }}-${{ steps.features.outputs.sanitized }}-
             cargo-target-${{ inputs.os }}-${{ inputs.rust }}-
             cargo-target-${{ inputs.os }}-
 
@@ -85,7 +93,7 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "rust-${{ inputs.os }}-${{ inputs.rust }}-${{ inputs.features }}"
+          shared-key: "rust-${{ inputs.os }}-${{ inputs.rust }}-${{ steps.features.outputs.sanitized }}"
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-targets: true
           cache-on-failure: true
