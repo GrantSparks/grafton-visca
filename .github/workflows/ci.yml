@@ -116,7 +116,7 @@ jobs:
 
       # Setup sccache for compiler caching (gracefully handle service outages)
       - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.3
+        uses: mozilla-actions/sccache-action@v0.0.9
         continue-on-error: true
         id: sccache
 
@@ -179,7 +179,7 @@ jobs:
 
       # Setup sccache (gracefully handle service outages)
       - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.3
+        uses: mozilla-actions/sccache-action@v0.0.9
         continue-on-error: true
 
       # Sanitize features for cache keys (replace commas with hyphens)
@@ -272,7 +272,7 @@ jobs:
 
       # Setup sccache (gracefully handle service outages)
       - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.3
+        uses: mozilla-actions/sccache-action@v0.0.9
         continue-on-error: true
 
       - uses: Swatinem/rust-cache@v2
@@ -317,7 +317,7 @@ jobs:
 
       # Setup sccache (gracefully handle service outages)
       - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.3
+        uses: mozilla-actions/sccache-action@v0.0.9
         continue-on-error: true
 
       - uses: Swatinem/rust-cache@v2
@@ -408,7 +408,7 @@ jobs:
 
       # Setup sccache (gracefully handle service outages)
       - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.3
+        uses: mozilla-actions/sccache-action@v0.0.9
         continue-on-error: true
 
       - uses: Swatinem/rust-cache@v2
@@ -495,7 +495,7 @@ jobs:
 
       # Setup sccache (gracefully handle service outages)
       - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.3
+        uses: mozilla-actions/sccache-action@v0.0.9
         continue-on-error: true
 
       - uses: Swatinem/rust-cache@v2

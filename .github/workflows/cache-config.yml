@@ -38,32 +38,48 @@ jobs:
 
       # Setup sccache for compiler caching (gracefully handle service outages)
       - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.3
+        uses: mozilla-actions/sccache-action@v0.0.9
         continue-on-error: true
         id: sccache
         with:
           version: latest
 
-      # Configure sccache (only if setup succeeded)
-      - name: Configure sccache
-        if: steps.sccache.outcome == 'success'
-        run: |
-          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-          echo "SCCACHE_CACHE_SIZE=2G" >> $GITHUB_ENV
 
-          # Set different cache locations for different OS
+      # Test sccache connectivity and configure if working
+      - name: Test sccache connectivity and configure
+        if: steps.sccache.outcome == 'success'
+        id: sccache_test
+        run: |
+          echo "Testing sccache connectivity to GitHub Actions cache service..."
+
+          # Set cache directory based on OS
           case "${{ inputs.os }}" in
             ubuntu-latest)
-              echo "SCCACHE_DIR=$HOME/.cache/sccache" >> $GITHUB_ENV
+              export SCCACHE_DIR="$HOME/.cache/sccache"
               ;;
             windows-latest)
-              echo "SCCACHE_DIR=$USERPROFILE\.cache\sccache" >> $GITHUB_ENV
+              export SCCACHE_DIR="$USERPROFILE\.cache\sccache"
               ;;
             macos-latest)
-              echo "SCCACHE_DIR=$HOME/Library/Caches/sccache" >> $GITHUB_ENV
+              export SCCACHE_DIR="$HOME/Library/Caches/sccache"
               ;;
           esac
+
+          # Test sccache connectivity
+          if sccache --start-server && sccache --show-stats >/dev/null 2>&1; then
+            echo "sccache connectivity test passed - enabling sccache"
+            echo "SCCACHE_WORKING=true" >> $GITHUB_ENV
+            echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+            echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+            echo "SCCACHE_CACHE_SIZE=2G" >> $GITHUB_ENV
+            echo "SCCACHE_DIR=$SCCACHE_DIR" >> $GITHUB_ENV
+          else
+            echo "sccache connectivity test failed - disabling sccache"
+            echo "SCCACHE_WORKING=false" >> $GITHUB_ENV
+            echo "SCCACHE_GHA_ENABLED=false" >> $GITHUB_ENV
+            echo "RUSTC_WRAPPER=" >> $GITHUB_ENV
+          fi
+        continue-on-error: true
 
       # Fallback: Disable sccache if setup failed
       - name: Disable sccache fallback
