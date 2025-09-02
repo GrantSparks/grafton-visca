@@ -10,19 +10,20 @@
 //! - Blocking: cargo run --example builder_api
 //! - Async: cargo run --example builder_api --features rt-tokio
 
-use grafton_visca::Result;
-
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::profiles::{PtzOpticsG2, SonyBRC300, SonyFR7},
-    CameraBuilder,
+    CameraBuilder, Result,
 };
 
 #[cfg(feature = "rt-tokio")]
 use grafton_visca::{
     camera::profiles::{PtzOpticsG2, SonyBRC300, SonyFR7},
-    CameraBuilder,
+    CameraBuilder, Result,
 };
+
+#[cfg(feature = "rt-async-std")]
+use grafton_visca::{camera::profiles::PtzOpticsG2, CameraBuilder, Result};
 
 #[cfg(not(feature = "async"))]
 fn main() -> Result<()> {
@@ -163,4 +164,34 @@ async fn main() -> Result<()> {
     println!("\n✓ All async builder examples completed!");
 
     Ok(())
+}
+
+#[cfg(feature = "rt-async-std")]
+fn main() -> Result<()> {
+    use async_std::task;
+    use grafton_visca::runtime_adapters::async_std::{TcpTransport as Tcp, UdpTransport as Udp};
+
+    tracing_subscriber::fmt::init();
+
+    println!("=== CameraBuilder API Demo (Async-std) ===\n");
+
+    task::block_on(async {
+        println!("--- Example 1: async-std TCP ---");
+        let transport = Tcp::connect("192.168.0.110:5678").await?;
+        let _camera = CameraBuilder::async_std()
+            .build_async::<PtzOpticsG2, _>(transport)
+            .await?;
+        println!("✓ Created async TCP camera with async-std");
+
+        println!("\n--- Example 2: async-std UDP ---");
+        let transport = Udp::connect("192.168.0.110:1259").await?;
+        let _camera = CameraBuilder::async_std()
+            .build_async::<PtzOpticsG2, _>(transport)
+            .await?;
+        println!("✓ Created async UDP camera with async-std");
+
+        println!("\n✓ All async-std builder examples completed!");
+
+        Ok(())
+    })
 }
