@@ -4,6 +4,9 @@
 //! operations through the Mode trait system, eliminating the need for separate
 //! AsyncCamera and BlockingCamera types.
 
+#[cfg(feature = "async")]
+use crate::{executor::Executor, transport::AsyncTransport};
+
 use crate::{
     camera_id::CameraId,
     capabilities::{Profile, ProtocolStyle},
@@ -14,12 +17,9 @@ use crate::{
     transport::{
         buffer::{BufferConfig, BufferManager},
         envelope::TransportEnvelope,
+        SyncTransport,
     },
 };
-
-use crate::transport::SyncTransport;
-#[cfg(feature = "async")]
-use crate::{executor::Executor, transport::AsyncTransport};
 
 /// Unified camera client that works in both blocking and async modes.
 ///
@@ -747,17 +747,18 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7};
-    use crate::capabilities::ProfileMetadata;
+
+    use crate::{
+        camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7},
+        capabilities::ProfileMetadata,
+    };
 
     // Simulator is only used in feature-gated tests
 
     #[cfg(all(feature = "async", feature = "rt-tokio"))]
     #[tokio::test]
     async fn test_async_camera_uses_profile_protocol_style() -> Result<(), Error> {
-        use crate::camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7};
-        use crate::executor::TokioExecutor;
-        use crate::testing::camera_simulator::ViscaCameraSimulator;
+        use crate::{executor::TokioExecutor, testing::camera_simulator::ViscaCameraSimulator};
 
         let executor = TokioExecutor::from_current()?;
 
@@ -787,9 +788,7 @@ mod tests {
     #[cfg(all(feature = "async", feature = "rt-tokio"))]
     #[tokio::test]
     async fn test_async_camera_with_explicit_protocol_style() -> Result<(), Error> {
-        use crate::camera::profiles::SonyFR7;
-        use crate::executor::TokioExecutor;
-        use crate::testing::camera_simulator::ViscaCameraSimulator;
+        use crate::{executor::TokioExecutor, testing::camera_simulator::ViscaCameraSimulator};
 
         let executor = TokioExecutor::from_current()?;
 
@@ -808,7 +807,6 @@ mod tests {
     #[cfg(all(not(feature = "async"), feature = "rt-tokio"))]
     #[test]
     fn test_blocking_camera_uses_profile_protocol_style() {
-        use crate::camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7};
         use crate::testing::camera_simulator::ViscaCameraSimulator;
 
         // Test that SonyFR7 uses Sony encapsulated protocol
@@ -833,7 +831,6 @@ mod tests {
     #[cfg(all(not(feature = "async"), feature = "rt-tokio"))]
     #[test]
     fn test_blocking_camera_with_explicit_protocol_style() {
-        use crate::camera::profiles::SonyFR7;
         use crate::testing::camera_simulator::ViscaCameraSimulator;
 
         // Test overriding Sony profile to use RawVisca

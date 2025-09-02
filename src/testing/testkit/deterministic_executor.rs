@@ -7,6 +7,9 @@
 // Panics and expects in test utilities are intentional for detecting test failures
 #![allow(clippy::panic, clippy::expect_used)]
 
+#[cfg(feature = "rt-tokio")]
+use crate::executor::TokioExecutor;
+
 use async_executor::Executor as AsyncExec;
 use futures_lite::future;
 
@@ -19,9 +22,6 @@ use std::{
 };
 
 use crate::{executor::Executor, Error};
-
-#[cfg(feature = "rt-tokio")]
-use crate::executor::TokioExecutor;
 
 /// Extension trait for executor background task semantics in test utilities.
 ///

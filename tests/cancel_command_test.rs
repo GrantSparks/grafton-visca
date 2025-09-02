@@ -7,6 +7,8 @@
 
 #![cfg(all(feature = "async", feature = "test-utils"))]
 
+use std::time::Duration;
+
 use grafton_visca::{
     camera::CameraBuilder,
     command::{pan_tilt::PanTiltDirection, zoom::Zoom},
@@ -16,7 +18,6 @@ use grafton_visca::{
     },
     Executor, ViscaSocket,
 };
-use std::time::Duration;
 
 #[test]
 fn test_cancel_command_by_id() {

@@ -4,12 +4,10 @@
 //! operations into one coherent interface, preventing runtime/spawner mismatches.
 
 #[cfg(feature = "async")]
-use core::future::Future;
+use std::{pin::Pin, time::Instant};
 
 #[cfg(feature = "async")]
-use std::pin::Pin;
-#[cfg(feature = "async")]
-use std::time::Instant;
+use core::future::Future;
 
 use crate::Error;
 
@@ -134,9 +132,9 @@ pub trait Executor: Clone + Send + Sync + 'static {
 // Tokio executor implementation
 #[cfg(feature = "rt-tokio")]
 mod tokio_impl {
-    use std::{sync::Arc, time::Duration};
-
     use super::*;
+
+    use std::{sync::Arc, time::Duration};
 
     /// Tokio-based executor implementation.
     #[derive(Debug, Clone)]
@@ -325,10 +323,9 @@ pub use tokio_impl::TokioExecutor;
 // async-std executor implementation
 #[cfg(feature = "rt-async-std")]
 mod async_std_impl {
-    use std::sync::Arc;
-    use std::time::Duration;
-
     use super::*;
+
+    use std::{sync::Arc, time::Duration};
 
     /// async-std based executor implementation.
     #[derive(Debug, Clone, Copy)]
@@ -511,10 +508,9 @@ pub use async_std_impl::AsyncStdExecutor;
 // smol executor implementation
 #[cfg(feature = "rt-smol")]
 mod smol_impl {
-    use std::sync::Arc;
-    use std::time::Duration;
-
     use super::*;
+
+    use std::{sync::Arc, time::Duration};
 
     /// smol-based executor implementation.
     #[derive(Debug, Clone, Copy)]
