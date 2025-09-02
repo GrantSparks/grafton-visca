@@ -256,7 +256,7 @@ where
     /// ## Implementation Status
     ///
     /// The async implementation is currently blocked by Rust issue #100013
-    /// (https://github.com/rust-lang/rust/issues/100013) which prevents async
+    /// (<https://github.com/rust-lang/rust/issues/100013>) which prevents async
     /// closures from properly handling lifetime relationships with generic parameters.
     ///
     /// The implementation correctly:

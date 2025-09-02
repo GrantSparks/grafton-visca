@@ -466,6 +466,32 @@ jobs:
       - name: Install Rust stable toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      # Setup sccache (gracefully handle service outages)
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+        continue-on-error: true
+        id: sccache
+
+      # Test sccache connectivity and configure if working
+      - name: Configure sccache
+        if: steps.sccache.outcome == 'success'
+        run: |
+          if sccache --start-server && sccache --show-stats >/dev/null 2>&1; then
+            echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+            echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+          else
+            echo "SCCACHE_GHA_ENABLED=false" >> $GITHUB_ENV
+            echo "RUSTC_WRAPPER=" >> $GITHUB_ENV
+          fi
+        continue-on-error: true
+
+      # Fallback if sccache setup failed
+      - name: Disable sccache fallback
+        if: steps.sccache.outcome != 'success'
+        run: |
+          echo "SCCACHE_GHA_ENABLED=false" >> $GITHUB_ENV
+          echo "RUSTC_WRAPPER=" >> $GITHUB_ENV
+
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: "rust-cache-ubuntu-latest-stable"
