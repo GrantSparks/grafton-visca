@@ -10,12 +10,21 @@
 //! - Blocking: cargo run --example builder_api
 //! - Async: cargo run --example builder_api --features rt-tokio
 
+use grafton_visca::Result;
+
+#[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::profiles::{PtzOpticsG2, SonyBRC300, SonyFR7},
-    CameraBuilder, Result,
+    CameraBuilder,
 };
 
-#[cfg(not(feature = "rt-tokio"))]
+#[cfg(feature = "rt-tokio")]
+use grafton_visca::{
+    camera::profiles::{PtzOpticsG2, SonyBRC300, SonyFR7},
+    CameraBuilder,
+};
+
+#[cfg(not(feature = "async"))]
 fn main() -> Result<()> {
     use grafton_visca::transport::{BlockingTcp, BlockingUdp};
 
@@ -61,6 +70,20 @@ fn main() -> Result<()> {
 
     println!("\n✓ All builder examples completed successfully!");
 
+    Ok(())
+}
+
+#[cfg(all(
+    feature = "async",
+    not(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))
+))]
+fn main() -> Result<()> {
+    println!("=== CameraBuilder API Demo ===\n");
+    println!("This example requires a specific async runtime feature:");
+    println!("- Run with: cargo run --example builder_api --features rt-tokio");
+    println!("- Or with:  cargo run --example builder_api --features rt-async-std");
+    println!("- Or with:  cargo run --example builder_api --features rt-smol");
+    println!("- Or for blocking: cargo run --example builder_api (no features)");
     Ok(())
 }
 
