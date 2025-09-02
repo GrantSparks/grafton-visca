@@ -114,9 +114,11 @@ jobs:
             sleep 30
           done
 
-      # Setup sccache for compiler caching
+      # Setup sccache for compiler caching (gracefully handle service outages)
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.3
+        continue-on-error: true
+        id: sccache
 
       # Enhanced caching with registry index
       - uses: Swatinem/rust-cache@v2
@@ -175,9 +177,10 @@ jobs:
         with:
           components: clippy
 
-      # Setup sccache
+      # Setup sccache (gracefully handle service outages)
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.3
+        continue-on-error: true
 
       # Sanitize features for cache keys (replace commas with hyphens)
       - name: Sanitize features for cache keys
@@ -267,9 +270,10 @@ jobs:
       - name: Install cross
         uses: taiki-e/install-action@cross
 
-      # Setup sccache
+      # Setup sccache (gracefully handle service outages)
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.3
+        continue-on-error: true
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -311,9 +315,10 @@ jobs:
         with:
           components: clippy
 
-      # Setup sccache
+      # Setup sccache (gracefully handle service outages)
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.3
+        continue-on-error: true
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -401,9 +406,10 @@ jobs:
       - name: Install Rust stable toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      # Setup sccache
+      # Setup sccache (gracefully handle service outages)
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.3
+        continue-on-error: true
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -487,9 +493,10 @@ jobs:
       - name: Install Rust stable toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      # Setup sccache
+      # Setup sccache (gracefully handle service outages)
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.3
+        continue-on-error: true
 
       - uses: Swatinem/rust-cache@v2
         with:

@@ -36,14 +36,17 @@ jobs:
           SANITIZED_FEATURES="${SANITIZED_FEATURES//,/-}"
           echo "sanitized=${SANITIZED_FEATURES}" >> $GITHUB_OUTPUT
 
-      # Setup sccache for compiler caching
+      # Setup sccache for compiler caching (gracefully handle service outages)
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.3
+        continue-on-error: true
+        id: sccache
         with:
           version: latest
 
-      # Configure sccache
+      # Configure sccache (only if setup succeeded)
       - name: Configure sccache
+        if: steps.sccache.outcome == 'success'
         run: |
           echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
@@ -61,6 +64,14 @@ jobs:
               echo "SCCACHE_DIR=$HOME/Library/Caches/sccache" >> $GITHUB_ENV
               ;;
           esac
+
+      # Fallback: Disable sccache if setup failed
+      - name: Disable sccache fallback
+        if: steps.sccache.outcome != 'success'
+        run: |
+          echo "SCCACHE_GHA_ENABLED=false" >> $GITHUB_ENV
+          echo "RUSTC_WRAPPER=" >> $GITHUB_ENV
+          echo "Warning: sccache setup failed, proceeding without compiler caching"
 
       # Cache cargo registry
       - name: Cache cargo registry
