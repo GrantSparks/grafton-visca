@@ -17,6 +17,7 @@ use crate::{
         InquiryResponse, WhiteBalanceMode,
     },
     error::Error,
+    ViscaSocket,
 };
 
 /// ViscaResponse from a VISCA command.
@@ -26,9 +27,15 @@ use crate::{
 #[derive(Debug)]
 pub enum ViscaResponse {
     /// Acknowledgment that the command was received and is being processed
-    CmdAck,
+    CmdAck {
+        /// Socket that acknowledged, if available
+        socket: Option<ViscaSocket>,
+    },
     /// Command completed successfully (no data returned)
-    Completion,
+    Completion {
+        /// Socket that completed, if available
+        socket: Option<ViscaSocket>,
+    },
     /// Command failed with an error
     Error(Error),
     /// Inquiry command response containing requested data
@@ -50,8 +57,8 @@ impl ViscaResponse {
     /// subsequent Completion response.
     pub fn into_result(self) -> Result<(), Error> {
         match self {
-            ViscaResponse::Completion => Ok(()),
-            ViscaResponse::CmdAck => Err(Error::CommandPending), // ACK means command is queued, not completed
+            ViscaResponse::Completion { .. } => Ok(()),
+            ViscaResponse::CmdAck { .. } => Err(Error::CommandPending), // ACK means command is queued, not completed
             ViscaResponse::Error(e) => Err(e),
             ViscaResponse::Inquiry(_) => Ok(()), // Inquiry responses are success
             ViscaResponse::Unknown { data, .. } => Err(Error::InvalidResponse {
@@ -80,7 +87,9 @@ impl ViscaResponse {
             && (bytes[1] & 0xF0) == 0x40
             && bytes[2] == 0xFF
         {
-            return Ok(ViscaResponse::CmdAck);
+            let socket_num = bytes[1] & 0x0F;
+            let socket = ViscaSocket::from_protocol_byte(socket_num);
+            return Ok(ViscaResponse::CmdAck { socket });
         }
 
         // Completion: 9x 5y FF (where x = socket, y = completion type)
@@ -89,7 +98,9 @@ impl ViscaResponse {
             && (bytes[1] & 0xF0) == 0x50
             && bytes[2] == 0xFF
         {
-            return Ok(ViscaResponse::Completion);
+            let socket_num = bytes[1] & 0x0F;
+            let socket = ViscaSocket::from_protocol_byte(socket_num);
+            return Ok(ViscaResponse::Completion { socket });
         }
 
         // Error: 9x 6y zz FF (where x = socket, y = error type, zz = error code)
@@ -305,11 +316,17 @@ pub fn parse_response(
 
     // Parse based on second byte
     match second_byte & 0xF0 {
-        0x40 => Ok(ViscaResponse::CmdAck), // ACK responses
+        0x40 => {
+            let socket_num = data[1] & 0x0F;
+            let socket = ViscaSocket::from_protocol_byte(socket_num);
+            Ok(ViscaResponse::CmdAck { socket })
+        } // ACK responses
         0x50 => {
             // Completion or inquiry data response
             if data.len() == 3 {
-                Ok(ViscaResponse::Completion)
+                let socket_num = data[1] & 0x0F;
+                let socket = ViscaSocket::from_protocol_byte(socket_num);
+                Ok(ViscaResponse::Completion { socket })
             } else {
                 // Debug logging for inquiry responses
                 tracing::debug!(
@@ -1944,11 +1961,11 @@ mod tests {
 
     #[test]
     fn test_response_debug() {
-        let ack = ViscaResponse::CmdAck;
-        assert_eq!(format!("{ack:?}"), "CmdAck");
+        let ack = ViscaResponse::CmdAck { socket: None };
+        assert_eq!(format!("{ack:?}"), "CmdAck { socket: None }");
 
-        let completion = ViscaResponse::Completion;
-        assert_eq!(format!("{completion:?}"), "Completion");
+        let completion = ViscaResponse::Completion { socket: None };
+        assert_eq!(format!("{completion:?}"), "Completion { socket: None }");
     }
 
     #[test]
@@ -1961,14 +1978,14 @@ mod tests {
     fn test_basic_ack_parsing() {
         let response = vec![0x90, 0x41, VISCA_TERMINATOR];
         let result = parse_response(&response, &ViscaResponseType::Power).unwrap();
-        assert!(matches!(result, ViscaResponse::CmdAck));
+        assert!(matches!(result, ViscaResponse::CmdAck { .. }));
     }
 
     #[test]
     fn test_basic_completion_parsing() {
         let response = vec![0x90, 0x51, VISCA_TERMINATOR];
         let result = parse_response(&response, &ViscaResponseType::Power).unwrap();
-        assert!(matches!(result, ViscaResponse::Completion));
+        assert!(matches!(result, ViscaResponse::Completion { .. }));
     }
 
     #[test]
@@ -2026,12 +2043,12 @@ mod tests {
         // ACK for socket 0
         let ack_bytes = &[0x90, 0x40, VISCA_TERMINATOR];
         let response = parse_response(ack_bytes, &ViscaResponseType::PanTiltPosition);
-        assert!(matches!(response, Ok(ViscaResponse::CmdAck)));
+        assert!(matches!(response, Ok(ViscaResponse::CmdAck { .. })));
 
         // ACK for socket 1
         let ack_bytes = &[0x90, 0x41, VISCA_TERMINATOR];
         let response = parse_response(ack_bytes, &ViscaResponseType::ZoomPosition);
-        assert!(matches!(response, Ok(ViscaResponse::CmdAck)));
+        assert!(matches!(response, Ok(ViscaResponse::CmdAck { .. })));
     }
 
     #[test]
@@ -2039,12 +2056,12 @@ mod tests {
         // Completion for socket 0
         let completion_bytes = &[0x90, 0x50, VISCA_TERMINATOR];
         let response = parse_response(completion_bytes, &ViscaResponseType::PanTiltPosition);
-        assert!(matches!(response, Ok(ViscaResponse::Completion)));
+        assert!(matches!(response, Ok(ViscaResponse::Completion { .. })));
 
         // Completion for socket 1
         let completion_bytes = &[0x90, 0x51, VISCA_TERMINATOR];
         let response = parse_response(completion_bytes, &ViscaResponseType::ZoomPosition);
-        assert!(matches!(response, Ok(ViscaResponse::Completion)));
+        assert!(matches!(response, Ok(ViscaResponse::Completion { .. })));
     }
 
     #[test]
@@ -2217,7 +2234,7 @@ mod tests {
         let ack_bytes = &[0x90, 0x40, VISCA_TERMINATOR];
         let response = parse_response(ack_bytes, &ViscaResponseType::PanTiltPosition);
         // ACK is still recognized regardless of expected response type
-        assert!(matches!(response, Ok(ViscaResponse::CmdAck)));
+        assert!(matches!(response, Ok(ViscaResponse::CmdAck { .. })));
     }
 
     #[test]

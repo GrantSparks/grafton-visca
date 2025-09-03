@@ -77,7 +77,7 @@ fn test_cancel_command_by_id() {
         // Verify we got a completion response
         use grafton_visca::command::response::ViscaResponse;
         assert!(
-            matches!(response, ViscaResponse::Completion),
+            matches!(response, ViscaResponse::Completion { .. }),
             "Should receive completion response"
         );
 

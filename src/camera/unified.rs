@@ -323,7 +323,7 @@ where
 
                 match ViscaResponse::parse(&first_visca) {
                     Ok(ViscaResponse::Error(e)) => Err(e),
-                    Ok(ViscaResponse::CmdAck) => {
+                    Ok(ViscaResponse::CmdAck { .. }) => {
                         let completion_timeout = timeout_config.get_timeout(timeout_category);
 
                         let completion_fut = {
@@ -514,7 +514,7 @@ where
                     match envelope.extract_response(&first_response_bytes[..]) {
                         Ok(first_visca) => match ViscaResponse::parse(&first_visca[..]) {
                             Ok(ViscaResponse::Error(e)) => std::future::ready(Err(e)),
-                            Ok(ViscaResponse::CmdAck) => {
+                            Ok(ViscaResponse::CmdAck { .. }) => {
                                 let completion_timeout =
                                     timeout_config.get_timeout(C::TIMEOUT_CATEGORY);
                                 match transport.recv_with_timeout(completion_timeout) {
@@ -604,7 +604,7 @@ where
                     match envelope.extract_response(&first_response_bytes[..]) {
                         Ok(first_visca) => match ViscaResponse::parse(&first_visca[..]) {
                             Ok(ViscaResponse::Error(e)) => Err(e),
-                            Ok(ViscaResponse::CmdAck) => {
+                            Ok(ViscaResponse::CmdAck { .. }) => {
                                 let completion_timeout =
                                     timeout_config.get_timeout(C::TIMEOUT_CATEGORY);
                                 match transport.recv_with_timeout(completion_timeout) {

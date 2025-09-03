@@ -642,7 +642,7 @@ async fn runtime_loop_with_config<
 
                         // Parse complete frames from the buffer
                         let (frames, remaining) =
-                            crate::protocol::decode::parse_frames(&response_buffer);
+                            crate::protocol::response::parse_frames(&response_buffer);
                         response_buffer = remaining;
 
                         for frame in frames {
@@ -1031,15 +1031,25 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
     envelope: &TransportEnvelope,
     buffer_manager: &BufferManager,
 ) -> Result<()> {
-    use crate::command::bytes::VISCA_TERMINATOR;
-    use crate::protocol::decode::{parse_response, ProtocolResponse};
+    use crate::protocol::response::{decode_basic, lift_inquiry, BasicKind};
+    use crate::runtime::scheduler::ViscaError;
 
-    let response = parse_response(frame);
-    debug!("[handle_response] Parsed response: {:?}", response);
-    trace!("Parsed response: {:?}", response);
+    let basic_response = match decode_basic(frame) {
+        Some(resp) => resp,
+        None => {
+            warn!("Failed to decode VISCA frame: {:02X?}", frame);
+            return Ok(());
+        }
+    };
+    debug!("[handle_response] Parsed response: {:?}", basic_response);
+    trace!("Parsed response: {:?}", basic_response);
 
-    match response {
-        ProtocolResponse::Ack { socket } => {
+    match basic_response.kind {
+        BasicKind::Ack => {
+            let Some(socket) = basic_response.socket else {
+                warn!("Received ACK without socket information");
+                return Ok(());
+            };
             // Camera has assigned a socket - handle the ACK
             let now = executor.now();
             if let Some(cmd_id) = scheduler.handle_ack(socket, now) {
@@ -1058,7 +1068,11 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
             }
         }
 
-        ProtocolResponse::Completion { socket } => {
+        BasicKind::Completion => {
+            let Some(socket) = basic_response.socket else {
+                warn!("Received Completion without socket information");
+                return Ok(());
+            };
             if let Some(cmd_id) = scheduler.socket_command(socket) {
                 debug!("Completion received for command {} on {:?}", cmd_id, socket);
 
@@ -1077,7 +1091,9 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
                         "Sending completion to response channel for command {}",
                         cmd_id
                     );
-                    if let Err(e) = response_tx.send(Ok(ViscaResponse::Completion)) {
+                    if let Err(e) = response_tx.send(Ok(ViscaResponse::Completion {
+                        socket: Some(socket),
+                    })) {
                         warn!("Failed to send completion to response channel: {:?}", e);
                     }
                 } else {
@@ -1109,7 +1125,8 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
             }
         }
 
-        ProtocolResponse::DataReply { data } => {
+        BasicKind::DataReply => {
+            let data = basic_response.payload;
             debug!("Data reply received: {:02X?}", data);
 
             // For inquiries, we need to match this with the pending inquiry
@@ -1117,30 +1134,16 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
             // For now, assume the most recent inquiry is the one being responded to
             if let Some((_inquiry_id, response_tx, response_type)) = scheduler.get_pending_inquiry()
             {
-                // Parse the response based on the expected type
-                let response = if let Some(response_type) = response_type {
-                    // Build the full response frame with header and terminator
-                    let mut full_frame = vec![0x90, 0x50];
-                    full_frame.extend_from_slice(&data);
-                    full_frame.push(VISCA_TERMINATOR);
-
-                    // Parse with the expected response type
-                    match ViscaResponse::parse_with_type(&full_frame, &response_type) {
-                        Ok(parsed) => Ok(parsed),
-                        Err(e) => {
-                            warn!("Failed to parse inquiry response: {}", e);
-                            Ok(ViscaResponse::Unknown {
-                                response_type: Some(response_type),
-                                data: data.clone(),
-                            })
-                        }
+                // Use the unified lift_inquiry function to parse the response
+                let response = match lift_inquiry(&basic_response, response_type.as_ref()) {
+                    Ok(parsed) => Ok(parsed),
+                    Err(e) => {
+                        warn!("Failed to parse inquiry response: {}", e);
+                        Ok(ViscaResponse::Unknown {
+                            response_type,
+                            data: data.to_vec(),
+                        })
                     }
-                } else {
-                    // No response type stored, return unknown
-                    Ok(ViscaResponse::Unknown {
-                        response_type: None,
-                        data: data.clone(),
-                    })
                 };
 
                 let _ = response_tx.send(response);
@@ -1149,7 +1152,9 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
             }
         }
 
-        ProtocolResponse::Error { socket, error } => {
+        BasicKind::Error(error_code) => {
+            let socket = basic_response.socket;
+            let error = ViscaError::from_byte(error_code);
             warn!("Error response: {:?} on socket {:?}", error, socket);
 
             // First check if this is an error for a pending inquiry
@@ -1358,13 +1363,13 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
             }
         }
 
-        ProtocolResponse::NetworkChange => {
+        BasicKind::NetworkChange => {
             debug!("Network change notification received");
             // Could trigger a re-initialization or status check
         }
 
-        ProtocolResponse::Unknown { data } => {
-            warn!("Unknown response received: {:02X?}", data);
+        BasicKind::Unknown => {
+            warn!("Unknown response received: {:02X?}", basic_response.payload);
         }
     }
 
@@ -1385,48 +1390,35 @@ mod tests {
 
     #[cfg(feature = "async")]
     #[test]
+    #[allow(clippy::unwrap_used)]
     fn test_response_parsing() {
         use crate::command::bytes::VISCA_TERMINATOR;
-        use crate::protocol::decode::{parse_response, ProtocolResponse};
+        use crate::protocol::response::{decode_basic, BasicKind};
         use crate::ViscaSocket;
 
         // Test ACK parsing
         let ack_frame = vec![0x90, 0x41, VISCA_TERMINATOR];
-        let response = parse_response(&ack_frame);
-        assert!(matches!(
-            response,
-            ProtocolResponse::Ack {
-                socket: ViscaSocket::S1
-            }
-        ));
+        let response = decode_basic(&ack_frame).unwrap();
+        assert_eq!(response.kind, BasicKind::Ack);
+        assert_eq!(response.socket, Some(ViscaSocket::S1));
 
         // Test Completion parsing
         let completion_frame = vec![0x90, 0x52, VISCA_TERMINATOR];
-        let response = parse_response(&completion_frame);
-        assert!(matches!(
-            response,
-            ProtocolResponse::Completion {
-                socket: ViscaSocket::S2
-            }
-        ));
+        let response = decode_basic(&completion_frame).unwrap();
+        assert_eq!(response.kind, BasicKind::Completion);
+        assert_eq!(response.socket, Some(ViscaSocket::S2));
 
         // Test Data Reply parsing
         let data_frame = vec![0x90, 0x50, 0x02, VISCA_TERMINATOR];
-        let response = parse_response(&data_frame);
-        assert!(matches!(response, ProtocolResponse::DataReply { data } if data == vec![0x02]));
+        let response = decode_basic(&data_frame).unwrap();
+        assert_eq!(response.kind, BasicKind::DataReply);
+        assert_eq!(response.payload, &[0x02]);
 
         // Test Error parsing
         let error_frame = vec![0x90, 0x61, 0x03, VISCA_TERMINATOR];
-        let response = parse_response(&error_frame);
-        match response {
-            ProtocolResponse::Error { socket, error } => {
-                assert_eq!(socket, Some(ViscaSocket::S1));
-                assert_eq!(error.as_byte(), 0x03); // BufferFull
-            }
-            other => {
-                unreachable!("Expected Error response, got: {:?}", other);
-            }
-        }
+        let response = decode_basic(&error_frame).unwrap();
+        assert_eq!(response.kind, BasicKind::Error(0x03));
+        assert_eq!(response.socket, Some(ViscaSocket::S1));
     }
 
     #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
@@ -1485,7 +1477,7 @@ mod tests {
             .recv_async()
             .await
             .expect("Failed to receive response");
-        assert!(matches!(response, Ok(ViscaResponse::Completion)));
+        assert!(matches!(response, Ok(ViscaResponse::Completion { .. })));
 
         // Verify command was sent
         let sent = transport.sent();
@@ -1718,7 +1710,7 @@ mod tests {
             .recv_async()
             .await
             .expect("Failed to receive response");
-        assert!(matches!(response, Ok(ViscaResponse::Completion)));
+        assert!(matches!(response, Ok(ViscaResponse::Completion { .. })));
 
         // Verify the framed command was sent
         let sent = transport.sent();
@@ -1911,7 +1903,7 @@ mod tests {
             .recv_async()
             .await
             .expect("Failed to receive response");
-        assert!(matches!(response, Ok(ViscaResponse::Completion)));
+        assert!(matches!(response, Ok(ViscaResponse::Completion { .. })));
 
         // Verify the framed command was sent
         let sent = transport.sent();

@@ -4,4 +4,5 @@
 //! including command encoding, response parsing, and transport encapsulation.
 
 pub mod decode;
+pub mod response;
 pub mod sony;

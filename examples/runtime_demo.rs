@@ -47,7 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .send_command(&power_on, CameraId::default(), Some(Priority::High))
         .await?;
     match response {
-        ViscaResponse::Completion => println!("   ✓ Camera powered on"),
+        ViscaResponse::Completion { .. } => println!("   ✓ Camera powered on"),
         ViscaResponse::Error(e) => println!("   ✗ Power on failed: {}", e),
         _ => println!("   ? Unexpected response: {:?}", response),
     }
@@ -62,7 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .send_command(&zoom_in, CameraId::default(), None)
         .await?;
     match response {
-        ViscaResponse::Completion => println!("   ✓ Zoom in started"),
+        ViscaResponse::Completion { .. } => println!("   ✓ Zoom in started"),
         ViscaResponse::Error(e) => println!("   ✗ Zoom in failed: {}", e),
         _ => println!("   ? Unexpected response: {:?}", response),
     }
@@ -77,7 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .send_command(&zoom_stop, CameraId::default(), None)
         .await?;
     match response {
-        ViscaResponse::Completion => println!("   ✓ Zoom stopped"),
+        ViscaResponse::Completion { .. } => println!("   ✓ Zoom stopped"),
         ViscaResponse::Error(e) => println!("   ✗ Zoom stop failed: {}", e),
         _ => println!("   ? Unexpected response: {:?}", response),
     }
@@ -120,13 +120,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (high_result, low_result) = tokio::join!(high_priority_future, low_priority_future);
 
     match high_result {
-        Ok(ViscaResponse::Completion) => println!("   ✓ High priority command completed"),
+        Ok(ViscaResponse::Completion { .. }) => println!("   ✓ High priority command completed"),
         Ok(resp) => println!("   ? High priority response: {:?}", resp),
         Err(e) => println!("   ✗ High priority failed: {}", e),
     }
 
     match low_result {
-        Ok(ViscaResponse::Completion) => println!("   ✓ Low priority command completed"),
+        Ok(ViscaResponse::Completion { .. }) => println!("   ✓ Low priority command completed"),
         Ok(resp) => println!("   ? Low priority response: {:?}", resp),
         Err(e) => println!("   ✗ Low priority failed: {}", e),
     }

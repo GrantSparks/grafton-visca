@@ -54,7 +54,7 @@ where
         // No runtime check needed - compile-time guarantee via VariableSpeed capability trait
         let cmd = VariableSpeedModeCommand::new(mode);
         match self.send_command(&cmd).await? {
-            ViscaResponse::CmdAck | ViscaResponse::Completion => Ok(()),
+            ViscaResponse::CmdAck { .. } | ViscaResponse::Completion { .. } => Ok(()),
             ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -74,7 +74,7 @@ where
         // No runtime check needed - compile-time guarantee via VariableSpeed capability trait
         let cmd = VariableSpeedModeCommand::new(mode);
         match pollster::block_on(self.send_command(&cmd))? {
-            ViscaResponse::CmdAck | ViscaResponse::Completion => Ok(()),
+            ViscaResponse::CmdAck { .. } | ViscaResponse::Completion { .. } => Ok(()),
             ViscaResponse::Error(e) => Err(e),
             _ => Err(Error::UnexpectedResponseType),
         }

@@ -10,6 +10,7 @@ use tracing::{debug, info, warn};
 use crate::capabilities::ProtocolStyle;
 use crate::command::bytes::VISCA_TERMINATOR;
 use crate::executor::Executor;
+use crate::protocol::response::decode_basic;
 use crate::transport::buffer::{BufferConfig, BufferManager};
 use crate::transport::envelope::TransportEnvelope;
 use crate::transport::{AsyncTransport, RetryConfig};
@@ -226,31 +227,8 @@ impl ProtocolDetector {
 
     /// Validate that received bytes look like a valid VISCA response
     fn is_valid_visca_response(&self, payload: &[u8]) -> bool {
-        // VISCA responses should be at least 3 bytes and end with 0xFF
-        if payload.len() < 3 {
-            return false;
-        }
-
-        // Must end with VISCA terminator
-        if payload[payload.len() - 1] != VISCA_TERMINATOR {
-            return false;
-        }
-
-        // Should start with 0x90 (response header) for most responses
-        // Version inquiry responses start with 0x90 0x50
-        if payload.len() >= 2 && payload[0] == 0x90 {
-            // Check for common response types:
-            // 0x50 = data reply (version inquiry)
-            // 0x4X = ACK
-            // 0x5X = completion
-            // 0x6X = error
-            let response_type = payload[1] & 0xF0;
-            if response_type == 0x40 || response_type == 0x50 || response_type == 0x60 {
-                return true;
-            }
-        }
-
-        false
+        // Use the unified decode_basic function to validate
+        decode_basic(payload).is_some()
     }
 }
 
