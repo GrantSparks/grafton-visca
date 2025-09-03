@@ -184,8 +184,8 @@ pub trait ViscaEncode: Send + Sync {
         let mut buffer = vec![0u8; Self::MAX_SIZE];
         let size = self.encode_into(camera_id, &mut buffer)?;
 
-        // Validate terminator in debug builds before truncating
-        validate_terminator(&buffer, size);
+        // Validate full command structure before truncating (parity with encode_array)
+        validate_command_structure(&buffer, size);
 
         buffer.truncate(size);
         Ok(buffer)
@@ -216,5 +216,91 @@ pub trait ViscaEncode: Send + Sync {
     /// Returns `Error::ModelValidation` if the command is not valid for the specified model.
     fn validate_for_model(&self, _model: CameraVariant) -> Result<(), Error> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct DummyInvalidAddr;
+
+    impl ViscaEncode for DummyInvalidAddr {
+        type ViscaResponse = ();
+        const MAX_SIZE: usize = 2;
+        const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+
+        fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+            buffer[0] = 0x01; // Invalid address byte (must be 0x81..=0x88)
+            buffer[1] = crate::command::bytes::VISCA_TERMINATOR;
+            Ok(2)
+        }
+
+        fn response_type(&self) -> Option<ViscaResponseType> {
+            None
+        }
+    }
+
+    struct DummyTooShort;
+
+    impl ViscaEncode for DummyTooShort {
+        type ViscaResponse = ();
+        const MAX_SIZE: usize = 2;
+        const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+
+        fn encode_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+            buffer[0] = camera_id.to_address_byte();
+            // Intentionally omit terminator and return len 1
+            Ok(1)
+        }
+
+        fn response_type(&self) -> Option<ViscaResponseType> {
+            None
+        }
+    }
+
+    struct DummyValid;
+
+    impl ViscaEncode for DummyValid {
+        type ViscaResponse = ();
+        const MAX_SIZE: usize = 2;
+        const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+
+        fn encode_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+            buffer[0] = camera_id.to_address_byte();
+            buffer[1] = crate::command::bytes::VISCA_TERMINATOR;
+            Ok(2)
+        }
+
+        fn response_type(&self) -> Option<ViscaResponseType> {
+            None
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn try_into_vec_validates_address_byte() {
+        let cmd = DummyInvalidAddr;
+        // Should panic due to invalid address byte validation
+        let _ = cmd.try_into_vec(CameraId::CAMERA_1);
+    }
+
+    #[test]
+    #[should_panic]
+    fn try_into_vec_validates_min_length_and_terminator() {
+        let cmd = DummyTooShort;
+        // Should panic due to too-short command (missing terminator)
+        let _ = cmd.try_into_vec(CameraId::CAMERA_1);
+    }
+
+    #[test]
+    fn try_into_vec_succeeds_on_valid_command() {
+        let cmd = DummyValid;
+        let res = cmd.try_into_vec(CameraId::CAMERA_2);
+        assert!(res.is_ok(), "try_into_vec should succeed, got: {:?}", res);
+        let v = res.unwrap_or_default();
+        assert_eq!(v.len(), 2);
+        assert!(v[0] >= 0x81 && v[0] <= 0x88);
+        assert_eq!(v[1], crate::command::bytes::VISCA_TERMINATOR);
     }
 }

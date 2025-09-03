@@ -26,6 +26,12 @@ pub struct Terminated;
 /// - `Incomplete`: The default state. Commands can be built but not sent.
 /// - `Terminated`: The command has been properly terminated and is ready to send.
 ///
+/// # Overflow Protection
+///
+/// The builder tracks the total required bytes and detects buffer overflow.
+/// If operations would exceed the buffer capacity, they are skipped and an
+/// error is returned at finalization time.
+///
 /// # Examples
 ///
 /// ```ignore
@@ -38,6 +44,8 @@ pub struct Terminated;
 pub struct ConstCommandBuilder<const N: usize, State = Incomplete> {
     buffer: [u8; N],
     position: usize,
+    required: usize,  // Total bytes required (including those that couldn't fit)
+    overflowed: bool, // True if any write was skipped due to lack of space
     _state: PhantomData<State>,
 }
 
@@ -64,9 +72,15 @@ impl<const N: usize> ConstCommandBuilder<N, Incomplete> {
             buffer[i] = prefix[i];
             i += 1;
         }
+        // Track if prefix was truncated
+        let overflowed = prefix.len() > N;
+        let required = prefix.len();
+
         Self {
             buffer,
             position: i,
+            required,
+            overflowed,
             _state: PhantomData,
         }
     }
@@ -76,16 +90,21 @@ impl<const N: usize> ConstCommandBuilder<N, Incomplete> {
         Self {
             buffer: [0u8; N],
             position: 0,
+            required: 0,
+            overflowed: false,
             _state: PhantomData,
         }
     }
 
     /// Append bytes from a slice.
     pub fn append(mut self, bytes: &[u8]) -> Self {
+        self.required += bytes.len();
         for &b in bytes {
             if self.position < N {
                 self.buffer[self.position] = b;
                 self.position += 1;
+            } else {
+                self.overflowed = true;
             }
         }
         self
@@ -93,9 +112,12 @@ impl<const N: usize> ConstCommandBuilder<N, Incomplete> {
 
     /// Push a single byte.
     pub fn push(mut self, b: u8) -> Self {
+        self.required += 1;
         if self.position < N {
             self.buffer[self.position] = b;
             self.position += 1;
+        } else {
+            self.overflowed = true;
         }
         self
     }
@@ -111,12 +133,15 @@ impl<const N: usize> ConstCommandBuilder<N, Incomplete> {
 
     /// Add VISCA-encoded 16-bit value (4 bytes).
     pub fn push_visca_u16(mut self, value: u16) -> Self {
+        self.required += 4;
         if self.position + 4 <= N {
             self.buffer[self.position] = ((value >> 12) & 0x0F) as u8;
             self.buffer[self.position + 1] = ((value >> 8) & 0x0F) as u8;
             self.buffer[self.position + 2] = ((value >> 4) & 0x0F) as u8;
             self.buffer[self.position + 3] = (value & 0x0F) as u8;
             self.position += 4;
+        } else {
+            self.overflowed = true;
         }
         self
     }
@@ -129,20 +154,26 @@ impl<const N: usize> ConstCommandBuilder<N, Incomplete> {
     /// Add a nibble pair (2 bytes) from a u16 value.
     /// The high nibble (bits 4-7) and low nibble (bits 0-3) are stored as separate bytes.
     pub fn push_nibble_pair(mut self, value: u16) -> Self {
+        self.required += 2;
         if self.position + 2 <= N {
             self.buffer[self.position] = ((value >> 4) & 0x0F) as u8;
             self.buffer[self.position + 1] = (value & 0x0F) as u8;
             self.position += 2;
+        } else {
+            self.overflowed = true;
         }
         self
     }
 
     /// Mutable append bytes from a slice (for backward compatibility).
     pub fn append_mut(&mut self, bytes: &[u8]) -> &mut Self {
+        self.required += bytes.len();
         for &b in bytes {
             if self.position < N {
                 self.buffer[self.position] = b;
                 self.position += 1;
+            } else {
+                self.overflowed = true;
             }
         }
         self
@@ -150,9 +181,12 @@ impl<const N: usize> ConstCommandBuilder<N, Incomplete> {
 
     /// Mutable push a single byte (for backward compatibility).
     pub fn push_mut(&mut self, b: u8) -> &mut Self {
+        self.required += 1;
         if self.position < N {
             self.buffer[self.position] = b;
             self.position += 1;
+        } else {
+            self.overflowed = true;
         }
         self
     }
@@ -167,22 +201,28 @@ impl<const N: usize> ConstCommandBuilder<N, Incomplete> {
 
     /// Mutable VISCA-encoded 16-bit value (for backward compatibility).
     pub fn push_visca_u16_mut(&mut self, value: u16) -> &mut Self {
+        self.required += 4;
         if self.position + 4 <= N {
             self.buffer[self.position] = ((value >> 12) & 0x0F) as u8;
             self.buffer[self.position + 1] = ((value >> 8) & 0x0F) as u8;
             self.buffer[self.position + 2] = ((value >> 4) & 0x0F) as u8;
             self.buffer[self.position + 3] = (value & 0x0F) as u8;
             self.position += 4;
+        } else {
+            self.overflowed = true;
         }
         self
     }
 
     /// Mutable nibble pair (for backward compatibility).
     pub fn push_nibble_pair_mut(&mut self, value: u16) -> &mut Self {
+        self.required += 2;
         if self.position + 2 <= N {
             self.buffer[self.position] = ((value >> 4) & 0x0F) as u8;
             self.buffer[self.position + 1] = (value & 0x0F) as u8;
             self.position += 2;
+        } else {
+            self.overflowed = true;
         }
         self
     }
@@ -190,30 +230,62 @@ impl<const N: usize> ConstCommandBuilder<N, Incomplete> {
     /// Terminate the command by adding the VISCA terminator byte.
     /// This consumes the builder and returns a terminated version.
     pub fn terminate(mut self) -> ConstCommandBuilder<N, Terminated> {
-        if self.position < N {
-            self.buffer[self.position] = VISCA_TERMINATOR;
-            self.position += 1;
+        // Check if we need to add terminator
+        let needs_terminator =
+            self.position == 0 || self.buffer[self.position - 1] != VISCA_TERMINATOR;
+
+        if needs_terminator {
+            self.required += 1;
+            if self.position < N {
+                self.buffer[self.position] = VISCA_TERMINATOR;
+                self.position += 1;
+            } else {
+                self.overflowed = true;
+            }
         }
 
-        // Validate terminator in debug builds
-        crate::command::encode_visca::validate_terminator(&self.buffer, self.position);
+        // Validate terminator in debug builds (if not overflowed)
+        if !self.overflowed {
+            crate::command::encode_visca::validate_terminator(&self.buffer, self.position);
+        }
 
         ConstCommandBuilder {
             buffer: self.buffer,
             position: self.position,
+            required: self.required,
+            overflowed: self.overflowed,
             _state: PhantomData,
         }
     }
 
     /// Build the command, automatically adding terminator if needed.
     /// This is the standard builder pattern termination method.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the command would overflow the buffer.
+    #[allow(clippy::panic)]
     pub fn build(mut self) -> [u8; N] {
-        // Automatically add terminator if not already present
-        if self.position < N
-            && (self.position == 0 || self.buffer[self.position - 1] != VISCA_TERMINATOR)
-        {
-            self.buffer[self.position] = VISCA_TERMINATOR;
-            self.position += 1;
+        // Check if we need to add terminator
+        let needs_terminator =
+            self.position == 0 || self.buffer[self.position - 1] != VISCA_TERMINATOR;
+
+        if needs_terminator {
+            self.required += 1;
+            if self.position < N {
+                self.buffer[self.position] = VISCA_TERMINATOR;
+                self.position += 1;
+            } else {
+                self.overflowed = true;
+            }
+        }
+
+        // Check for internal buffer overflow
+        if self.overflowed {
+            panic!(
+                "ConstCommandBuilder buffer overflow: required {} bytes, but only {} available",
+                self.required, N
+            );
         }
 
         // Validate terminator (critical safety invariant)
@@ -225,12 +297,26 @@ impl<const N: usize> ConstCommandBuilder<N, Incomplete> {
     /// Build the command and copy it into the provided buffer.
     /// Returns the number of bytes written.
     pub fn build_into(mut self, buffer: &mut [u8]) -> Result<usize, crate::Error> {
-        // Automatically add terminator if not already present
-        if self.position < N
-            && (self.position == 0 || self.buffer[self.position - 1] != VISCA_TERMINATOR)
-        {
-            self.buffer[self.position] = VISCA_TERMINATOR;
-            self.position += 1;
+        // Check if we need to add terminator
+        let needs_terminator =
+            self.position == 0 || self.buffer[self.position - 1] != VISCA_TERMINATOR;
+
+        if needs_terminator {
+            self.required += 1;
+            if self.position < N {
+                self.buffer[self.position] = VISCA_TERMINATOR;
+                self.position += 1;
+            } else {
+                self.overflowed = true;
+            }
+        }
+
+        // Check for internal buffer overflow
+        if self.overflowed {
+            return Err(crate::Error::BufferTooSmall {
+                required: self.required,
+                actual: N,
+            });
         }
 
         // Validate terminator (critical safety invariant)
@@ -279,6 +365,14 @@ impl<const N: usize> ConstCommandBuilder<N, Terminated> {
     /// Build the terminated command into the provided buffer.
     /// Returns the number of bytes written.
     pub fn build_into(&self, buffer: &mut [u8]) -> Result<usize, crate::Error> {
+        // Check for internal buffer overflow
+        if self.overflowed {
+            return Err(crate::Error::BufferTooSmall {
+                required: self.required,
+                actual: N,
+            });
+        }
+
         let len = self.position;
         if buffer.len() < len {
             return Err(crate::Error::BufferTooSmall {
@@ -352,5 +446,246 @@ mod tests {
             .push(0x47)
             .build();
         assert_eq!(command[4], VISCA_TERMINATOR);
+    }
+
+    #[test]
+    fn test_overflow_from_prefix() {
+        // Create a prefix that's larger than the buffer
+        let large_prefix = [0x81, 0x01, 0x04, 0x47, 0x00, 0x01];
+        let builder = ConstCommandBuilder::<4>::from_prefix(&large_prefix);
+
+        // Should detect overflow when trying to build
+        let mut buffer = [0u8; 10];
+        let result = builder.build_into(&mut buffer);
+
+        // 6 bytes for prefix + 1 for terminator = 7 required, but only 4 available
+        assert!(matches!(
+            result,
+            Err(crate::Error::BufferTooSmall {
+                required: 7,
+                actual: 4
+            })
+        ));
+    }
+
+    #[test]
+    fn test_overflow_append() {
+        let builder = ConstCommandBuilder::<5>::new();
+        let builder = builder.append(&[0x81, 0x01, 0x04, 0x47, 0x00, 0x01]);
+
+        let mut buffer = [0u8; 10];
+        let result = builder.build_into(&mut buffer);
+
+        // 6 bytes + 1 for terminator = 7 required, but only 5 available
+        assert!(matches!(
+            result,
+            Err(crate::Error::BufferTooSmall {
+                required: 7,
+                actual: 5
+            })
+        ));
+    }
+
+    #[test]
+    fn test_overflow_push() {
+        let builder = ConstCommandBuilder::<3>::new()
+            .push(0x81)
+            .push(0x01)
+            .push(0x04)
+            .push(0x47); // This one won't fit
+
+        let mut buffer = [0u8; 10];
+        let result = builder.build_into(&mut buffer);
+
+        // 4 bytes + 1 for terminator = 5 required, but only 3 available
+        assert!(matches!(
+            result,
+            Err(crate::Error::BufferTooSmall {
+                required: 5,
+                actual: 3
+            })
+        ));
+    }
+
+    #[test]
+    fn test_overflow_push_visca_u16() {
+        let builder = ConstCommandBuilder::<5>::new()
+            .push(0x81)
+            .push(0x01)
+            .push_visca_u16(0x1234); // Needs 4 bytes, won't fit
+
+        let mut buffer = [0u8; 10];
+        let result = builder.build_into(&mut buffer);
+
+        // 2 bytes + 4 for u16 + 1 for terminator = 7 required, but only 5 available
+        assert!(matches!(
+            result,
+            Err(crate::Error::BufferTooSmall {
+                required: 7,
+                actual: 5
+            })
+        ));
+    }
+
+    #[test]
+    fn test_overflow_push_nibble_pair() {
+        let builder = ConstCommandBuilder::<3>::new()
+            .push(0x81)
+            .push(0x01)
+            .push_nibble_pair(0x12); // Needs 2 bytes, won't fit
+
+        let mut buffer = [0u8; 10];
+        let result = builder.build_into(&mut buffer);
+
+        // 2 bytes + 2 for nibble pair + 1 for terminator = 5 required, but only 3 available
+        assert!(matches!(
+            result,
+            Err(crate::Error::BufferTooSmall {
+                required: 5,
+                actual: 3
+            })
+        ));
+    }
+
+    #[test]
+    fn test_overflow_mutable_methods() {
+        let mut builder = ConstCommandBuilder::<4>::new();
+        builder.append_mut(&[0x81, 0x01]);
+        builder.push_mut(0x04);
+        builder.push_mut(0x47);
+        builder.push_mut(0x00); // This one won't fit
+
+        let mut buffer = [0u8; 10];
+        let result = builder.build_into(&mut buffer);
+
+        // 5 bytes + 1 for terminator = 6 required, but only 4 available
+        assert!(matches!(
+            result,
+            Err(crate::Error::BufferTooSmall {
+                required: 6,
+                actual: 4
+            })
+        ));
+    }
+
+    #[test]
+    fn test_overflow_no_room_for_terminator() {
+        // Fill the buffer exactly, leaving no room for terminator
+        let builder = ConstCommandBuilder::<4>::new()
+            .push(0x81)
+            .push(0x01)
+            .push(0x04)
+            .push(0x47);
+
+        let mut buffer = [0u8; 10];
+        let result = builder.build_into(&mut buffer);
+
+        // 4 bytes + 1 for terminator = 5 required, but only 4 available
+        assert!(matches!(
+            result,
+            Err(crate::Error::BufferTooSmall {
+                required: 5,
+                actual: 4
+            })
+        ));
+    }
+
+    #[test]
+    fn test_terminated_overflow_detection() {
+        // Create a builder that will overflow
+        let builder = ConstCommandBuilder::<3>::new()
+            .push(0x81)
+            .push(0x01)
+            .push(0x04)
+            .push(0x47); // Won't fit
+
+        let terminated = builder.terminate();
+
+        let mut buffer = [0u8; 10];
+        let result = terminated.build_into(&mut buffer);
+
+        // Should still detect overflow in terminated state
+        assert!(matches!(
+            result,
+            Err(crate::Error::BufferTooSmall {
+                required: 5,
+                actual: 3
+            })
+        ));
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "ConstCommandBuilder buffer overflow: required 5 bytes, but only 3 available"
+    )]
+    fn test_build_panics_on_overflow() {
+        // build() method should panic on overflow
+        let _command = ConstCommandBuilder::<3>::new()
+            .push(0x81)
+            .push(0x01)
+            .push(0x04)
+            .push(0x47) // Won't fit
+            .build();
+    }
+
+    #[test]
+    #[allow(clippy::panic)]
+    fn test_exact_fit_with_terminator() {
+        // Exactly fits including terminator
+        let builder = ConstCommandBuilder::<5>::new()
+            .push(0x81)
+            .push(0x01)
+            .push(0x04)
+            .push(0x47);
+
+        let mut buffer = [0u8; 10];
+        let result = builder.build_into(&mut buffer);
+
+        // Should succeed with exactly 5 bytes
+        match result {
+            Ok(len) => {
+                assert_eq!(len, 5);
+                assert_eq!(buffer[4], VISCA_TERMINATOR);
+            }
+            Err(_) => panic!("build_into should have succeeded"),
+        }
+    }
+
+    #[test]
+    fn test_push_visca_u16_mut_overflow() {
+        let mut builder = ConstCommandBuilder::<5>::new();
+        builder.push_mut(0x81);
+        builder.push_mut(0x01);
+        builder.push_visca_u16_mut(0x1234); // Needs 4 bytes, won't fit
+
+        let mut buffer = [0u8; 10];
+        let result = builder.build_into(&mut buffer);
+
+        assert!(matches!(
+            result,
+            Err(crate::Error::BufferTooSmall {
+                required: 7,
+                actual: 5
+            })
+        ));
+    }
+
+    #[test]
+    fn test_push_nibble_pair_mut_overflow() {
+        let mut builder = ConstCommandBuilder::<3>::new();
+        builder.push_mut(0x81);
+        builder.push_mut(0x01);
+        builder.push_nibble_pair_mut(0x12); // Needs 2 bytes, won't fit
+
+        let mut buffer = [0u8; 10];
+        let result = builder.build_into(&mut buffer);
+
+        assert!(matches!(
+            result,
+            Err(crate::Error::BufferTooSmall {
+                required: 5,
+                actual: 3
+            })
+        ));
     }
 }
