@@ -5,6 +5,8 @@
 //! matching and automatic retry on network errors.
 
 use bytes::{Bytes, BytesMut};
+use tracing::{debug, error, trace, warn};
+
 use std::{
     borrow::Cow,
     collections::HashMap,
@@ -12,13 +14,10 @@ use std::{
     net::TcpStream,
     time::{Duration, Instant},
 };
-use tracing::{debug, error, trace, warn};
 
 pub use crate::transport::sony_config::SonyIpConfig;
-
 #[cfg(not(feature = "async"))]
-use crate::transport::SyncTransport;
-
+use crate::transport::{envelope::FrameMeta, SyncTransport};
 use crate::{
     capabilities::ProtocolStyle,
     error::{Error, Result},
@@ -29,9 +28,6 @@ use crate::{
         envelope::TransportEnvelope,
     },
 };
-
-#[cfg(not(feature = "async"))]
-use crate::transport::envelope::FrameMeta;
 
 /// Pending command information for retry handling.
 #[derive(Debug, Clone)]

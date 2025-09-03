@@ -7,10 +7,9 @@
 //! This module contains the ViscaValue derive macro and related value type helpers
 //! for generating validated value types with range checking and display formatting.
 
+use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, DeriveInput};
-
-use proc_macro::TokenStream;
 
 /// Derive macro for generating value types with validation
 ///
