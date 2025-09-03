@@ -5,12 +5,13 @@
 //! Address Set and I/F Clear initialization.
 
 use bytes::{Bytes, BytesMut};
+use tracing::{debug, trace, warn};
+
 use std::{
     io::{Read, Write},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-use tracing::{debug, trace, warn};
 
 use crate::{
     camera_id::CameraId,

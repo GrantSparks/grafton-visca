@@ -10,8 +10,7 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
-use crate::capabilities::ProtocolStyle;
-use crate::transport::buffer::BufferManager;
+use crate::{capabilities::ProtocolStyle, transport::buffer::BufferManager};
 
 /// Transport envelope that handles protocol-specific framing.
 ///

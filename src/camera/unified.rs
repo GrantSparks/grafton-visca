@@ -4,6 +4,9 @@
 //! operations through the Mode trait system, eliminating the need for separate
 //! AsyncCamera and BlockingCamera types.
 
+#[cfg(feature = "async")]
+use crate::{executor::Executor, transport::AsyncTransport};
+
 use crate::{
     camera_id::CameraId,
     capabilities::{Profile, ProtocolStyle},
@@ -17,8 +20,6 @@ use crate::{
         SyncTransport,
     },
 };
-#[cfg(feature = "async")]
-use crate::{executor::Executor, transport::AsyncTransport};
 
 /// Unified camera client that works in both blocking and async modes.
 ///

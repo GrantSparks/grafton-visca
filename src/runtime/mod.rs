@@ -6,10 +6,6 @@
 pub mod scheduler;
 
 #[cfg(feature = "async")]
-pub use crate::ViscaSocket;
-pub use scheduler::{MetricsSummary, Priority};
-
-#[cfg(feature = "async")]
 use flume::{Receiver, Sender};
 #[cfg(feature = "async")]
 use futures_lite;
@@ -23,6 +19,8 @@ use std::sync::{
 };
 
 #[cfg(feature = "async")]
+pub use crate::ViscaSocket;
+#[cfg(feature = "async")]
 use crate::{
     command::response::ViscaResponse,
     error::{Error, Result},
@@ -31,6 +29,8 @@ use crate::{
 };
 #[cfg(feature = "async")]
 use scheduler::{Scheduler, SchedulerMetrics, TxItem};
+
+pub use scheduler::{MetricsSummary, Priority};
 
 /// Helper function to spawn runtime tasks properly for different executor types.
 #[cfg(feature = "async")]

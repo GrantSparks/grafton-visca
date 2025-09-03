@@ -9,8 +9,7 @@ use tokio::time::{timeout, Duration, Instant};
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
 use tracing::{debug, trace, warn};
 
-use std::future::Future;
-use std::io::ErrorKind;
+use std::{future::Future, io::ErrorKind};
 
 use crate::camera_id::CameraId;
 use crate::command::bytes::VISCA_TERMINATOR;

@@ -16,6 +16,10 @@ use std::{
     time::{Duration, Instant},
 };
 
+pub use crate::transport::sony_config::SonyIpConfig;
+#[cfg(not(feature = "async"))]
+use crate::{protocol::sony::PayloadType, transport::SyncTransport};
+
 use crate::{
     error::{Error, Result},
     protocol::sony::SonyHeader,
@@ -24,10 +28,6 @@ use crate::{
         buffer::{BufferConfig, BufferManager},
     },
 };
-#[cfg(not(feature = "async"))]
-use crate::{protocol::sony::PayloadType, transport::SyncTransport};
-
-pub use crate::transport::sony_config::SonyIpConfig;
 
 /// Pending command information for retry handling.
 #[derive(Debug, Clone)]

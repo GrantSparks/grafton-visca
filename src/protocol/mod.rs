@@ -5,5 +5,3 @@
 
 pub mod decode;
 pub mod sony;
-
-// Note: ViscaResponse from decode is internal and only used within the protocol module
