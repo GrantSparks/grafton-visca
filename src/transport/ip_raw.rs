@@ -4,14 +4,13 @@
 //! any additional encapsulation. This is the format used by PtzOptics cameras.
 
 use bytes::{Bytes, BytesMut};
-use tracing::{debug, trace};
-
 use std::{
     borrow::Cow,
     io::{BufReader, Read, Write},
     net::{TcpStream, UdpSocket},
     time::{Duration, Instant},
 };
+use tracing::{debug, trace};
 
 #[cfg(not(feature = "async"))]
 use crate::transport::SyncTransport;

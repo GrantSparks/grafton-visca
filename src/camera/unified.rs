@@ -4,6 +4,8 @@
 //! operations through the Mode trait system, eliminating the need for separate
 //! AsyncCamera and BlockingCamera types.
 
+use core::marker::PhantomData;
+
 #[cfg(feature = "async")]
 use crate::{executor::Executor, transport::AsyncTransport};
 
@@ -68,9 +70,9 @@ where
     executor: Option<Exec>,
 
     // Phantom data for compile-time parameters
-    _phantom_mode: core::marker::PhantomData<M>,
-    _phantom_profile: core::marker::PhantomData<P>,
-    _phantom_exec: core::marker::PhantomData<Exec>,
+    _phantom_mode: PhantomData<M>,
+    _phantom_profile: PhantomData<P>,
+    _phantom_exec: PhantomData<Exec>,
 }
 
 // Implementation for async mode
@@ -107,9 +109,9 @@ where
             timeout_config,
             transport: shared_transport,
             executor: Some(executor),
-            _phantom_mode: core::marker::PhantomData,
-            _phantom_profile: core::marker::PhantomData,
-            _phantom_exec: core::marker::PhantomData,
+            _phantom_mode: PhantomData,
+            _phantom_profile: PhantomData,
+            _phantom_exec: PhantomData,
         })
     }
 }
@@ -147,9 +149,9 @@ where
             transport: shared_transport,
             #[cfg(feature = "async")]
             executor: None,
-            _phantom_mode: core::marker::PhantomData,
-            _phantom_profile: core::marker::PhantomData,
-            _phantom_exec: core::marker::PhantomData,
+            _phantom_mode: PhantomData,
+            _phantom_profile: PhantomData,
+            _phantom_exec: PhantomData,
         })
     }
 }

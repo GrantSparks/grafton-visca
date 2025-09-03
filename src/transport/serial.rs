@@ -5,19 +5,20 @@
 //! Address Set and I/F Clear initialization.
 
 use bytes::{Bytes, BytesMut};
-use tracing::{debug, trace, warn};
-
 use std::{
     io::{Read, Write},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
+use tracing::{debug, trace, warn};
 
 use crate::{
     camera_id::CameraId,
-    command::bytes::VISCA_TERMINATOR,
-    command::encode_visca::ViscaEncode,
-    command::system::{AddressSetCommand, InterfaceClearCommand},
+    command::{
+        bytes::VISCA_TERMINATOR,
+        encode_visca::ViscaEncode,
+        system::{AddressSetCommand, InterfaceClearCommand},
+    },
     error::{Error, Result},
     transport::{
         buffer::{BufferConfig, BufferManager},
@@ -378,10 +379,6 @@ impl SyncTransport for SerialTransport {
         result
     }
 }
-
-// Note: Async serial transport implementation removed.
-// If async serial support is needed in the future, consider using tokio-serial
-// or async-std-serial crates with proper native async implementations.
 
 #[cfg(test)]
 mod tests {

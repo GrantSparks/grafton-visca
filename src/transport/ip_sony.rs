@@ -5,8 +5,6 @@
 //! matching and automatic retry on network errors.
 
 use bytes::{Bytes, BytesMut};
-use tracing::{debug, error, trace, warn};
-
 use std::{
     borrow::Cow,
     collections::HashMap,
@@ -15,8 +13,10 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
     time::{Duration, Instant},
 };
+use tracing::{debug, error, trace, warn};
 
 pub use crate::transport::sony_config::SonyIpConfig;
+
 #[cfg(not(feature = "async"))]
 use crate::{protocol::sony::PayloadType, transport::SyncTransport};
 

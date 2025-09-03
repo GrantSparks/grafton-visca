@@ -5,18 +5,21 @@
 //! Address Set and I/F Clear initialization using tokio-serial.
 
 use bytes::{Bytes, BytesMut};
+use std::{future::Future, io::ErrorKind};
 use tokio::time::{timeout, Duration, Instant};
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
 use tracing::{debug, trace, warn};
 
-use std::{future::Future, io::ErrorKind};
-
-use crate::camera_id::CameraId;
-use crate::command::bytes::VISCA_TERMINATOR;
-use crate::command::encode_visca::ViscaEncode;
-use crate::command::system::{AddressSetCommand, InterfaceClearCommand};
-use crate::error::{Error, Result};
-use crate::transport::{AsyncTransport, RetryConfig};
+use crate::{
+    camera_id::CameraId,
+    command::{
+        bytes::VISCA_TERMINATOR,
+        encode_visca::ViscaEncode,
+        system::{AddressSetCommand, InterfaceClearCommand},
+    },
+    error::{Error, Result},
+    transport::{AsyncTransport, RetryConfig},
+};
 
 /// Async serial port configuration for VISCA communication.
 #[derive(Debug, Clone)]

@@ -10,16 +10,13 @@ use flume::{Receiver, Sender};
 #[cfg(feature = "async")]
 use futures_lite;
 #[cfg(feature = "async")]
-use tracing::{debug, error, instrument, trace, warn};
-
-#[cfg(feature = "async")]
 use std::sync::{
     atomic::{AtomicBool, AtomicU32, Ordering},
     Arc,
 };
-
 #[cfg(feature = "async")]
-pub use crate::ViscaSocket;
+use tracing::{debug, error, instrument, trace, warn};
+
 #[cfg(feature = "async")]
 use crate::{
     capabilities::ProtocolStyle,
@@ -31,6 +28,7 @@ use crate::{
         envelope::TransportEnvelope,
         AsyncTransport,
     },
+    ViscaSocket,
 };
 #[cfg(feature = "async")]
 use scheduler::{Scheduler, SchedulerMetrics, TxItem};
@@ -736,13 +734,10 @@ async fn runtime_loop_with_config<
                         {
                             tx.clone()
                         } else {
-                            // This shouldn't happen in normal operation - it means the response channel
-                            // was lost somehow. Create a new one just to send the error.
                             warn!(
                                 "Missing response channel for retry of command {} - this indicates a bug",
                                 retry_cmd.id
                             );
-                            // Skip this retry and continue
                             continue;
                         };
                         debug!(

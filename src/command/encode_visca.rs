@@ -5,7 +5,6 @@
 //! encoding support.
 
 use super::response::ViscaResponseType;
-
 use crate::{
     camera_id::CameraId, constants::CameraVariant, error::Error, timeout::CommandCategory,
 };
