@@ -9,7 +9,11 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
-use crate::{capabilities::ProtocolStyle, transport::buffer::BufferManager};
+use crate::{
+    capabilities::ProtocolStyle,
+    protocol::sony::{PayloadType, SonyHeader},
+    transport::buffer::BufferManager,
+};
 
 /// Transport envelope that handles protocol-specific framing.
 ///
@@ -82,32 +86,25 @@ impl TransportEnvelope {
         use_sequence: bool,
         buffer_manager: &BufferManager,
     ) -> Bytes {
-        let payload_type = if is_inquiry {
-            SonyPayloadType::Inquiry
-        } else {
-            SonyPayloadType::Command
-        };
-
-        let length = visca_bytes.len() as u16;
         let sequence = if use_sequence {
             self.next_sequence()
         } else {
             0
         };
 
+        let header = if is_inquiry {
+            SonyHeader::new_inquiry(visca_bytes.len(), sequence)
+        } else {
+            SonyHeader::new_command(visca_bytes.len(), sequence)
+        };
+
         let mut envelope = buffer_manager.alloc_send_buffer();
         envelope.reserve(8 + visca_bytes.len());
 
-        // Payload Type (2 bytes)
-        envelope.extend_from_slice(&payload_type.to_bytes());
+        // Add Sony header
+        envelope.extend_from_slice(&header.encode());
 
-        // Length (2 bytes, big-endian)
-        envelope.extend_from_slice(&length.to_be_bytes());
-
-        // Sequence Number (4 bytes, big-endian)
-        envelope.extend_from_slice(&sequence.to_be_bytes());
-
-        // VISCA payload
+        // Add VISCA payload
         envelope.extend_from_slice(visca_bytes);
 
         envelope.freeze()
@@ -115,47 +112,38 @@ impl TransportEnvelope {
 
     /// Extract VISCA payload from Sony encapsulated response.
     fn sony_extract_payload(&self, framed_bytes: &[u8]) -> Result<Bytes, crate::Error> {
-        if framed_bytes.len() < 8 {
+        if framed_bytes.len() < SonyHeader::SIZE {
             return Err(crate::Error::ParseError(Cow::Borrowed(
                 "Sony response too short for header",
             )));
         }
 
-        // Parse header
-        let payload_type_bytes = [framed_bytes[0], framed_bytes[1]];
-        let length = u16::from_be_bytes([framed_bytes[2], framed_bytes[3]]);
-        let _sequence = u32::from_be_bytes([
-            framed_bytes[4],
-            framed_bytes[5],
-            framed_bytes[6],
-            framed_bytes[7],
-        ]);
+        // Parse header using the unified implementation
+        let header = SonyHeader::decode(framed_bytes).ok_or(crate::Error::ParseError(
+            Cow::Borrowed("Invalid Sony header format"),
+        ))?;
 
         // Validate payload type
-        match SonyPayloadType::from_bytes(payload_type_bytes) {
-            Some(SonyPayloadType::Reply) => {
+        match header.payload_type {
+            PayloadType::ViscaReply => {
                 // Expected for camera responses
             }
-            Some(other) => {
+            other => {
                 tracing::warn!("Unexpected Sony payload type in response: {other:?}");
-            }
-            None => {
-                return Err(crate::Error::ParseError(Cow::Owned(format!(
-                    "Invalid Sony payload type: {payload_type_bytes:02X?}"
-                ))));
             }
         }
 
         // Validate length
-        let expected_payload_len = framed_bytes.len() - 8;
-        if length as usize != expected_payload_len {
+        let expected_payload_len = framed_bytes.len() - SonyHeader::SIZE;
+        if header.payload_length as usize != expected_payload_len {
             return Err(crate::Error::ParseError(Cow::Owned(format!(
-                "Sony header length mismatch: header says {length}, actual payload is {expected_payload_len}"
+                "Sony header length mismatch: header says {}, actual payload is {}",
+                header.payload_length, expected_payload_len
             ))));
         }
 
         // Extract VISCA payload - use slice to avoid allocation
-        Ok(Bytes::copy_from_slice(&framed_bytes[8..]))
+        Ok(Bytes::copy_from_slice(&framed_bytes[SonyHeader::SIZE..]))
     }
 }
 
@@ -165,38 +153,6 @@ impl Clone for TransportEnvelope {
             style: self.style,
             // Clone the current sequence counter value, not the atomic itself
             sequence_counter: AtomicU32::new(self.sequence_counter.load(Ordering::Relaxed)),
-        }
-    }
-}
-
-/// Sony payload types for the 8-byte header.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SonyPayloadType {
-    /// Command packet (0x01 0x00)
-    Command,
-    /// Inquiry packet (0x01 0x10)
-    Inquiry,
-    /// Reply packet (0x01 0x11)
-    Reply,
-}
-
-impl SonyPayloadType {
-    /// Convert payload type to byte representation.
-    fn to_bytes(self) -> [u8; 2] {
-        match self {
-            SonyPayloadType::Command => [0x01, 0x00],
-            SonyPayloadType::Inquiry => [0x01, 0x10],
-            SonyPayloadType::Reply => [0x01, 0x11],
-        }
-    }
-
-    /// Parse payload type from bytes.
-    fn from_bytes(bytes: [u8; 2]) -> Option<Self> {
-        match bytes {
-            [0x01, 0x00] => Some(SonyPayloadType::Command),
-            [0x01, 0x10] => Some(SonyPayloadType::Inquiry),
-            [0x01, 0x11] => Some(SonyPayloadType::Reply),
-            _ => None,
         }
     }
 }
