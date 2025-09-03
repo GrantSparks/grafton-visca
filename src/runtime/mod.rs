@@ -22,10 +22,15 @@ use std::sync::{
 pub use crate::ViscaSocket;
 #[cfg(feature = "async")]
 use crate::{
+    capabilities::ProtocolStyle,
     command::response::ViscaResponse,
     error::{Error, Result},
     timeout::TimeoutConfig,
-    transport::AsyncTransport,
+    transport::{
+        buffer::{BufferConfig, BufferManager},
+        envelope::TransportEnvelope,
+        AsyncTransport,
+    },
 };
 #[cfg(feature = "async")]
 use scheduler::{Scheduler, SchedulerMetrics, TxItem};
@@ -67,15 +72,16 @@ pub struct RuntimeHandle {
 
 #[cfg(feature = "async")]
 impl RuntimeHandle {
-    /// Create a new camera runtime with the given transport.
+    /// Create a new camera runtime with the given transport using raw VISCA protocol.
     ///
     /// This spawns a background task to handle communication with the camera.
+    /// For compatibility, this defaults to raw VISCA protocol.
     #[cfg(feature = "async")]
     pub async fn new<T: AsyncTransport + Send + 'static, E: crate::executor::Executor>(
         transport: T,
         executor: Arc<E>,
     ) -> Result<Self> {
-        Self::with_tick_interval(transport, executor, None).await
+        Self::new_with_style(transport, executor, ProtocolStyle::RawVisca).await
     }
 
     /// Create a new runtime handle with a transport and executor.
@@ -92,10 +98,56 @@ impl RuntimeHandle {
         Self::new(transport, Arc::new(executor)).await
     }
 
+    /// Create a new camera runtime with explicit protocol style.
+    ///
+    /// This allows specifying whether to use raw VISCA or Sony encapsulated protocol.
+    #[cfg(feature = "async")]
+    pub async fn new_with_style<
+        T: AsyncTransport + Send + 'static,
+        E: crate::executor::Executor,
+    >(
+        transport: T,
+        executor: Arc<E>,
+        protocol_style: ProtocolStyle,
+    ) -> Result<Self> {
+        Self::with_tick_interval_and_style(transport, executor, None, protocol_style).await
+    }
+
+    /// Auto-detect the protocol style and create a new runtime.
+    ///
+    /// This probes the camera to determine whether it uses raw VISCA or Sony encapsulated protocol.
+    #[cfg(feature = "async")]
+    pub async fn auto_detect<T: AsyncTransport + Send + 'static, E: crate::executor::Executor>(
+        mut transport: T,
+        executor: Arc<E>,
+    ) -> Result<Self> {
+        use crate::transport::protocol_detection::{DetectionResult, ProtocolDetector};
+
+        let detector = ProtocolDetector::new();
+        let result = detector
+            .detect_protocol(&mut transport, executor.as_ref())
+            .await?;
+
+        let protocol_style = match result {
+            DetectionResult::SonyEncapsulated => {
+                ProtocolStyle::SonyEncapsulated { use_sequence: true }
+            }
+            DetectionResult::RawVisca => ProtocolStyle::RawVisca,
+            DetectionResult::NoResponse => {
+                return Err(Error::TransportError(
+                    "No response during protocol detection".into(),
+                ));
+            }
+        };
+
+        Self::new_with_style(transport, executor, protocol_style).await
+    }
+
     /// Create a new camera runtime with a custom tick interval.
     ///
     /// The tick interval controls how often the runtime checks for timeouts
     /// and processes retries. Default is 50ms.
+    /// For compatibility, this defaults to raw VISCA protocol.
     ///
     /// # Arguments
     /// * `transport` - The transport to use for communication
@@ -111,22 +163,56 @@ impl RuntimeHandle {
         executor: Arc<E>,
         tick_interval_ms: Option<u64>,
     ) -> Result<Self> {
+        Self::with_tick_interval_and_style(
+            transport,
+            executor,
+            tick_interval_ms,
+            ProtocolStyle::RawVisca,
+        )
+        .await
+    }
+
+    /// Create a new camera runtime with a custom tick interval and protocol style.
+    ///
+    /// # Arguments
+    /// * `transport` - The transport to use for communication
+    /// * `executor` - The async executor to spawn tasks on
+    /// * `tick_interval_ms` - Optional tick interval in milliseconds (default: 50ms)
+    /// * `protocol_style` - The protocol style to use (Raw VISCA or Sony encapsulated)
+    #[cfg(feature = "async")]
+    #[instrument(level = "debug", skip(transport, executor), fields(tick_ms = tick_interval_ms, protocol = ?protocol_style))]
+    pub async fn with_tick_interval_and_style<
+        T: AsyncTransport + Send + 'static,
+        E: crate::executor::Executor,
+    >(
+        transport: T,
+        executor: Arc<E>,
+        tick_interval_ms: Option<u64>,
+        protocol_style: ProtocolStyle,
+    ) -> Result<Self> {
         let (submit_tx, submit_rx) = flume::unbounded();
         let (metrics_tx, metrics_rx) = flume::unbounded();
 
-        // Spawn the runtime task with configured tick interval
+        // Create envelope and buffer manager for the runtime
+        let envelope = TransportEnvelope::new(protocol_style);
+        let buffer_config = BufferConfig::default();
+        let buffer_manager = BufferManager::new(buffer_config);
+
+        // Spawn the runtime task with configured tick interval and envelope
         let runtime_task = runtime_loop_with_config(
             transport,
             submit_rx,
             metrics_rx,
             tick_interval_ms,
             Arc::clone(&executor),
+            envelope,
+            buffer_manager,
         );
 
         // Spawn the task, with special handling for deterministic executors in test mode
-        debug!("[RuntimeHandle::with_tick_interval] About to spawn runtime task");
+        debug!("[RuntimeHandle::with_tick_interval_and_style] About to spawn runtime task");
         spawn_runtime_task_properly(executor.as_ref(), runtime_task);
-        debug!("[RuntimeHandle::with_tick_interval] Runtime task spawned");
+        debug!("[RuntimeHandle::with_tick_interval_and_style] Runtime task spawned");
 
         Ok(Self {
             submit: submit_tx,
@@ -385,79 +471,11 @@ impl RuntimeHandle {
             .await
             .map_err(|_| Error::ChannelClosed)?
     }
-
-    /// Send a pre-framed command via the runtime.
-    ///
-    /// This method accepts bytes that have already been framed according to the
-    /// transport protocol (Raw VISCA or Sony encapsulated) and sends them directly.
-    /// Used by the unified async camera layer.
-    pub async fn send_command_framed(
-        &self,
-        framed_bytes: &[u8],
-        _camera_id: crate::camera_id::CameraId,
-        priority: Option<Priority>,
-        category: crate::timeout::CommandCategory,
-    ) -> Result<ViscaResponse> {
-        // Generate command ID
-        let command_id = self.next_command_id.fetch_add(1, Ordering::Relaxed);
-
-        // Create response channel
-        let (response_tx, response_rx) = flume::bounded(1);
-
-        // Create the TxItem with pre-framed bytes
-        let item = TxItem::Command {
-            id: command_id,
-            bytes: framed_bytes.to_vec(),
-            priority: priority.unwrap_or(Priority::Normal),
-            category,
-            response_tx,
-        };
-
-        // Submit the command
-        self.command(item).await?;
-
-        // Wait for response
-        response_rx
-            .recv_async()
-            .await
-            .map_err(|_| Error::ChannelClosed)?
-    }
-
-    /// Send a pre-framed inquiry via the runtime.
-    ///
-    /// This method accepts bytes that have already been framed according to the
-    /// transport protocol and sends them directly.
-    pub async fn send_inquiry_framed(
-        &self,
-        framed_bytes: &[u8],
-        _camera_id: crate::camera_id::CameraId,
-        response_type: Option<crate::command::response::ViscaResponseType>,
-    ) -> Result<ViscaResponse> {
-        // Create response channel
-        let (response_tx, response_rx) = flume::bounded(1);
-
-        // Create the TxItem with pre-framed bytes
-        let item = TxItem::Inquiry {
-            id: 0, // Will be assigned by scheduler
-            bytes: framed_bytes.to_vec(),
-            response_type,
-            response_tx,
-        };
-
-        // Submit the inquiry
-        self.inquire(item).await?;
-
-        // Wait for response
-        response_rx
-            .recv_async()
-            .await
-            .map_err(|_| Error::ChannelClosed)?
-    }
 }
 
 /// Main runtime loop with configurable tick interval.
 #[cfg(feature = "async")]
-#[instrument(level = "debug", name = "visca_runtime_loop", skip(transport, submit_rx, metrics_rx, executor), fields(tick_ms = tick_interval_ms))]
+#[instrument(level = "debug", name = "visca_runtime_loop", skip(transport, submit_rx, metrics_rx, executor, envelope, buffer_manager), fields(tick_ms = tick_interval_ms))]
 async fn runtime_loop_with_config<
     T: AsyncTransport + Send + 'static,
     E: crate::executor::Executor,
@@ -467,6 +485,8 @@ async fn runtime_loop_with_config<
     metrics_rx: Receiver<Sender<MetricsSummary>>,
     tick_interval_ms: Option<u64>,
     executor: Arc<E>,
+    envelope: TransportEnvelope,
+    buffer_manager: BufferManager,
 ) -> Result<()> {
     let mut scheduler = Scheduler::with_timeout_config(submit_rx.clone(), TimeoutConfig::default());
     let mut response_buffer = Vec::new();
@@ -487,7 +507,16 @@ async fn runtime_loop_with_config<
 
         // Check for submit items non-blockingly first
         if let Ok(item) = submit_rx.try_recv() {
-            match handle_tx_item(&mut transport, &mut scheduler, item, executor.as_ref()).await {
+            match handle_tx_item(
+                &mut transport,
+                &mut scheduler,
+                item,
+                executor.as_ref(),
+                &envelope,
+                &buffer_manager,
+            )
+            .await
+            {
                 Ok(_) => {
                     // Successfully handled a TX item - reset consecutive retries
                     consecutive_retries = 0;
@@ -499,6 +528,8 @@ async fn runtime_loop_with_config<
                         &mut scheduler,
                         executor.as_ref(),
                         allow_retry_defer,
+                        &envelope,
+                        &buffer_manager,
                     )
                     .await
                     {
@@ -559,9 +590,15 @@ async fn runtime_loop_with_config<
                     };
 
                     // Send the retry immediately
-                    if let Err(e) =
-                        handle_tx_item(&mut transport, &mut scheduler, tx_item, executor.as_ref())
-                            .await
+                    if let Err(e) = handle_tx_item(
+                        &mut transport,
+                        &mut scheduler,
+                        tx_item,
+                        executor.as_ref(),
+                        &envelope,
+                        &buffer_manager,
+                    )
+                    .await
                     {
                         error!("Error handling retry TX item: {}", e);
                     }
@@ -611,11 +648,22 @@ async fn runtime_loop_with_config<
                         response_buffer = remaining;
 
                         for frame in frames {
+                            // Extract the VISCA payload from the frame before parsing
+                            let payload = match envelope.extract_response(&frame) {
+                                Ok(p) => p,
+                                Err(e) => {
+                                    warn!("Failed to extract response from frame: {}", e);
+                                    continue;
+                                }
+                            };
+
                             if let Err(e) = handle_response(
                                 &mut transport,
                                 &mut scheduler,
-                                &frame,
+                                &payload,
                                 executor.as_ref(),
+                                &envelope,
+                                &buffer_manager,
                             )
                             .await
                             {
@@ -710,9 +758,15 @@ async fn runtime_loop_with_config<
                             response_tx,
                         };
 
-                        if let Err(e) =
-                            handle_tx_item(&mut transport, &mut scheduler, item, executor.as_ref())
-                                .await
+                        if let Err(e) = handle_tx_item(
+                            &mut transport,
+                            &mut scheduler,
+                            item,
+                            executor.as_ref(),
+                            &envelope,
+                            &buffer_manager,
+                        )
+                        .await
                         {
                             error!("Error retrying command {}: {}", retry_cmd.id, e);
                         } else {
@@ -747,7 +801,7 @@ async fn runtime_loop_with_config<
 #[cfg(feature = "async")]
 #[instrument(
     level = "trace",
-    skip(transport, scheduler, executor),
+    skip(transport, scheduler, executor, envelope, buffer_manager),
     fields(allow_retry_defer)
 )]
 async fn process_command_queue<T: AsyncTransport + Send, E: crate::executor::Executor>(
@@ -755,6 +809,8 @@ async fn process_command_queue<T: AsyncTransport + Send, E: crate::executor::Exe
     scheduler: &mut Scheduler,
     executor: &E,
     allow_retry_defer: bool,
+    envelope: &TransportEnvelope,
+    buffer_manager: &BufferManager,
 ) -> Result<()> {
     // Process commands from the priority queue while we can send more
     // But check if there's a higher priority retry ready first
@@ -782,7 +838,16 @@ async fn process_command_queue<T: AsyncTransport + Send, E: crate::executor::Exe
                 scheduler.queue_size()
             );
             // Process the dequeued command
-            if let Err(e) = handle_tx_item(transport, scheduler, item, executor).await {
+            if let Err(e) = handle_tx_item(
+                transport,
+                scheduler,
+                item,
+                executor,
+                envelope,
+                buffer_manager,
+            )
+            .await
+            {
                 error!("Error processing queued command: {}", e);
             }
         }
@@ -792,12 +857,14 @@ async fn process_command_queue<T: AsyncTransport + Send, E: crate::executor::Exe
 
 /// Handle a submitted TX item.
 #[cfg(feature = "async")]
-#[instrument(level = "trace", skip(transport, scheduler, executor), fields(item = ?item))]
+#[instrument(level = "trace", skip(transport, scheduler, executor, envelope, buffer_manager), fields(item = ?item))]
 async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
     transport: &mut T,
     scheduler: &mut Scheduler,
     item: TxItem,
     executor: &E,
+    envelope: &TransportEnvelope,
+    buffer_manager: &BufferManager,
 ) -> Result<()> {
     match item {
         TxItem::Command {
@@ -829,13 +896,14 @@ async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
                 // Enforce command spacing
                 scheduler.enforce_spacing_with(executor, now).await;
 
-                // Send command
+                // Frame and send command
+                let framed_bytes = envelope.frame_command(&bytes, false, buffer_manager);
                 debug!(
-                    "[handle_tx_item] Sending command {} (awaiting ACK): {:02X?}",
-                    id, bytes
+                    "[handle_tx_item] Sending command {} (awaiting ACK): {:02X?} (framed: {:02X?})",
+                    id, bytes, framed_bytes
                 );
                 trace!("Sending command {} (awaiting ACK): {:02X?}", id, bytes);
-                if let Err(e) = transport.send(&bytes).await {
+                if let Err(e) = transport.send(&framed_bytes).await {
                     error!("Failed to send command {}: {}", id, e);
                     scheduler
                         .metrics
@@ -897,9 +965,15 @@ async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
             let now = executor.now();
             scheduler.enforce_spacing_with(executor, now).await;
 
-            // Send inquiry
-            trace!("Sending inquiry {}: {:02X?}", id, bytes);
-            if let Err(e) = transport.send(&bytes).await {
+            // Frame and send inquiry
+            let framed_bytes = envelope.frame_command(&bytes, true, buffer_manager);
+            trace!(
+                "Sending inquiry {}: {:02X?} (framed: {:02X?})",
+                id,
+                bytes,
+                framed_bytes
+            );
+            if let Err(e) = transport.send(&framed_bytes).await {
                 error!("Failed to send inquiry {}: {}", id, e);
                 scheduler
                     .metrics
@@ -931,7 +1005,9 @@ async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
                 })?;
             let cancel_bytes = cancel_bytes[..len].to_vec();
 
-            if let Err(e) = transport.send(&cancel_bytes).await {
+            // Frame the cancel command as a regular command (not an inquiry)
+            let framed_cancel = envelope.frame_command(&cancel_bytes, false, buffer_manager);
+            if let Err(e) = transport.send(&framed_cancel).await {
                 error!("Failed to send cancel: {}", e);
                 return Ok(());
             }
@@ -948,12 +1024,17 @@ async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
 
 /// Handle a VISCA response frame.
 #[cfg(feature = "async")]
-#[instrument(level = "trace", skip(transport, scheduler, frame, executor))]
+#[instrument(
+    level = "trace",
+    skip(transport, scheduler, frame, executor, envelope, buffer_manager)
+)]
 async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>(
     transport: &mut T,
     scheduler: &mut Scheduler,
     frame: &[u8],
     executor: &E,
+    envelope: &TransportEnvelope,
+    buffer_manager: &BufferManager,
 ) -> Result<()> {
     use crate::command::bytes::VISCA_TERMINATOR;
     use crate::protocol::decode::{parse_response, ProtocolResponse};
@@ -1013,7 +1094,16 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
                 scheduler.free_socket(socket);
 
                 // Process any queued commands now that a socket is free
-                if let Err(e) = process_command_queue(transport, scheduler, executor, true).await {
+                if let Err(e) = process_command_queue(
+                    transport,
+                    scheduler,
+                    executor,
+                    true,
+                    envelope,
+                    buffer_manager,
+                )
+                .await
+                {
                     error!("Error processing command queue after completion: {}", e);
                 }
             } else {
@@ -1197,8 +1287,15 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
 
                         // Process any queued commands now that a socket is free
                         // Keep consecutive_retries count, as this wasn't a successful queue operation
-                        if let Err(e) =
-                            process_command_queue(transport, scheduler, executor, true).await
+                        if let Err(e) = process_command_queue(
+                            transport,
+                            scheduler,
+                            executor,
+                            true,
+                            envelope,
+                            buffer_manager,
+                        )
+                        .await
                         {
                             error!("Error processing command queue after busy: {}", e);
                         }
@@ -1227,8 +1324,15 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
                         scheduler.free_socket(sock);
 
                         // Process any queued commands now that a socket is free
-                        if let Err(e) =
-                            process_command_queue(transport, scheduler, executor, true).await
+                        if let Err(e) = process_command_queue(
+                            transport,
+                            scheduler,
+                            executor,
+                            true,
+                            envelope,
+                            buffer_manager,
+                        )
+                        .await
                         {
                             error!("Error processing command queue after error: {}", e);
                         }
@@ -1456,7 +1560,12 @@ mod tests {
             Ok(ViscaResponse::Unknown { .. }) => {
                 // Also acceptable for this test
             }
-            _ => panic!("Expected Inquiry or Unknown response, got: {:?}", response),
+            unexpected => {
+                panic!(
+                    "Expected Inquiry or Unknown response, got: {:?}",
+                    unexpected
+                )
+            }
         }
 
         // Verify inquiry was sent
@@ -1493,8 +1602,17 @@ mod tests {
             crate::executor::TokioExecutor::from_current()
                 .expect("Failed to create TokioExecutor from current runtime"),
         );
-        let runtime_task =
-            runtime_loop_with_config(MockTransport, submit_rx, metrics_rx, None, executor);
+        let envelope = TransportEnvelope::new(ProtocolStyle::RawVisca);
+        let buffer_manager = BufferManager::new(BufferConfig::default());
+        let runtime_task = runtime_loop_with_config(
+            MockTransport,
+            submit_rx,
+            metrics_rx,
+            None,
+            executor,
+            envelope,
+            buffer_manager,
+        );
 
         // Spawn the runtime
         let handle = tokio::spawn(runtime_task);
@@ -1516,5 +1634,293 @@ mod tests {
         assert!(Priority::Critical > Priority::High);
         assert!(Priority::High > Priority::Normal);
         assert!(Priority::Normal > Priority::Low);
+    }
+
+    #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
+    #[tokio::test(start_paused = true)]
+    #[allow(clippy::expect_used)]
+    async fn test_runtime_sony_encapsulated_command() {
+        use crate::capabilities::ProtocolStyle;
+        use crate::command::response::ViscaResponse;
+        use crate::runtime::scheduler::{Priority, TxItem};
+        use crate::testing::testkit::{ScriptedTransport, Step};
+        use crate::timeout::CommandCategory;
+        use crate::TokioExecutor;
+        use std::time::Duration;
+        use tokio::runtime::Handle;
+
+        // Create TokioExecutor and scripted transport
+        let executor = Arc::new(TokioExecutor::from_handle(Handle::current()));
+
+        // The framed command: 8-byte Sony header + VISCA command
+        // Header: 0x01 0x00 (command type), 0x00 0x06 (length=6), 0x00 0x00 0x00 0x00 (sequence)
+        // VISCA: 0x81 0x01 0x04 0x00 0x02 0xFF (Power on)
+        let framed_command = vec![
+            0x01, 0x00, // Command payload type
+            0x00, 0x06, // Length = 6
+            0x00, 0x00, 0x00, 0x00, // Sequence = 0
+            0x81, 0x01, 0x04, 0x00, 0x02, 0xFF, // Power on command
+        ];
+
+        // Sony encapsulated responses
+        let framed_ack = vec![
+            0x01, 0x11, // Reply payload type
+            0x00, 0x03, // Length = 3
+            0x00, 0x00, 0x00, 0x00, // Sequence = 0
+            0x90, 0x41, 0xFF, // ACK
+        ];
+
+        let framed_completion = vec![
+            0x01, 0x11, // Reply payload type
+            0x00, 0x03, // Length = 3
+            0x00, 0x00, 0x00, 0x01, // Sequence = 1
+            0x90, 0x51, 0xFF, // Completion
+        ];
+
+        let transport = ScriptedTransport::new(vec![Step::OnSend {
+            matches: Some(framed_command.clone()),
+            responses: vec![framed_ack, framed_completion],
+        }])
+        .with_executor(executor.clone());
+
+        // Create runtime with Sony encapsulated protocol
+        let runtime = RuntimeHandle::new_with_style(
+            transport.clone(),
+            executor.clone(),
+            ProtocolStyle::SonyEncapsulated {
+                use_sequence: false,
+            },
+        )
+        .await
+        .expect("Failed to create runtime handle");
+
+        // Give the runtime a moment to start
+        tokio::time::advance(Duration::from_millis(50)).await;
+
+        // Send a command
+        let (response_tx, response_rx): (
+            Sender<Result<ViscaResponse>>,
+            Receiver<Result<ViscaResponse>>,
+        ) = flume::bounded(1);
+        let command = TxItem::Command {
+            id: 1,
+            bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF], // Raw VISCA command
+            priority: Priority::Normal,
+            response_tx,
+            category: CommandCategory::Quick,
+        };
+
+        runtime
+            .command(command)
+            .await
+            .expect("Failed to send command");
+
+        // Advance time to allow command processing
+        tokio::time::advance(Duration::from_millis(100)).await;
+
+        // Wait for response
+        let response = response_rx
+            .recv_async()
+            .await
+            .expect("Failed to receive response");
+        assert!(matches!(response, Ok(ViscaResponse::Completion)));
+
+        // Verify the framed command was sent
+        let sent = transport.sent();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0], framed_command); // Should send the framed version
+    }
+
+    #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
+    #[tokio::test(start_paused = true)]
+    #[allow(clippy::expect_used, clippy::panic)]
+    async fn test_runtime_sony_encapsulated_inquiry() {
+        use crate::capabilities::ProtocolStyle;
+        use crate::command::response::{ViscaResponse, ViscaResponseType};
+        use crate::runtime::scheduler::TxItem;
+        use crate::testing::testkit::{ScriptedTransport, Step};
+        use crate::TokioExecutor;
+        use std::time::Duration;
+        use tokio::runtime::Handle;
+
+        // Create deterministic executor and scripted transport
+        let executor = Arc::new(TokioExecutor::from_handle(Handle::current()));
+
+        // The framed inquiry: 8-byte Sony header + VISCA inquiry
+        // Header: 0x01 0x10 (inquiry type), 0x00 0x05 (length=5), 0x00 0x00 0x00 0x00 (sequence)
+        // VISCA: 0x81 0x09 0x04 0x00 0xFF (Power inquiry)
+        let framed_inquiry = vec![
+            0x01, 0x10, // Inquiry payload type
+            0x00, 0x05, // Length = 5
+            0x00, 0x00, 0x00, 0x00, // Sequence = 0
+            0x81, 0x09, 0x04, 0x00, 0xFF, // Power inquiry
+        ];
+
+        // Sony encapsulated response
+        let framed_response = vec![
+            0x01, 0x11, // Reply payload type
+            0x00, 0x04, // Length = 4
+            0x00, 0x00, 0x00, 0x00, // Sequence = 0
+            0x90, 0x50, 0x02, 0xFF, // Power on response
+        ];
+
+        let transport = ScriptedTransport::new(vec![Step::OnSend {
+            matches: Some(framed_inquiry.clone()),
+            responses: vec![framed_response],
+        }])
+        .with_executor(executor.clone());
+
+        // Create runtime with Sony encapsulated protocol
+        let runtime = RuntimeHandle::new_with_style(
+            transport.clone(),
+            executor.clone(),
+            ProtocolStyle::SonyEncapsulated {
+                use_sequence: false,
+            },
+        )
+        .await
+        .expect("Failed to create runtime handle");
+
+        // Give the runtime a moment to start
+        tokio::time::advance(Duration::from_millis(50)).await;
+
+        // Send an inquiry
+        let (response_tx, response_rx): (
+            Sender<Result<ViscaResponse>>,
+            Receiver<Result<ViscaResponse>>,
+        ) = flume::bounded(1);
+        let inquiry = TxItem::Inquiry {
+            id: 1,
+            bytes: vec![0x81, 0x09, 0x04, 0x00, 0xFF], // Raw VISCA inquiry
+            response_tx,
+            response_type: Some(ViscaResponseType::Power),
+        };
+
+        runtime
+            .inquire(inquiry)
+            .await
+            .expect("Failed to send inquiry");
+
+        // Advance time to allow inquiry processing
+        tokio::time::advance(Duration::from_millis(100)).await;
+
+        // Wait for response
+        let response = response_rx
+            .recv_async()
+            .await
+            .expect("Failed to receive response");
+
+        // Should receive inquiry response
+        match response {
+            Ok(ViscaResponse::Inquiry(_)) => {
+                // Expected - actual data would be in the InquiryResponse
+            }
+            Ok(ViscaResponse::Unknown { .. }) => {
+                // Also acceptable for this test
+            }
+            unexpected => {
+                panic!(
+                    "Expected Inquiry or Unknown response, got: {:?}",
+                    unexpected
+                )
+            }
+        }
+
+        // Verify the framed inquiry was sent
+        let sent = transport.sent();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0], framed_inquiry); // Should send the framed version
+    }
+
+    #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
+    #[tokio::test(start_paused = true)]
+    #[allow(clippy::expect_used, clippy::panic)]
+    async fn test_runtime_with_explicit_sony_protocol() {
+        use crate::capabilities::ProtocolStyle;
+        use crate::command::response::ViscaResponse;
+        use crate::runtime::scheduler::{Priority, TxItem};
+        use crate::testing::testkit::{ScriptedTransport, Step};
+        use crate::timeout::CommandCategory;
+        use crate::TokioExecutor;
+        use std::time::Duration;
+        use tokio::runtime::Handle;
+
+        // Create TokioExecutor and scripted transport
+        let executor = Arc::new(TokioExecutor::from_handle(Handle::current()));
+
+        // After creating runtime with Sony protocol, it will use Sony framing for commands
+        let framed_command = vec![
+            0x01, 0x00, // Command type
+            0x00, 0x06, // Length = 6
+            0x00, 0x00, 0x00, 0x00, // Sequence = 0 (no sequence tracking)
+            0x81, 0x01, 0x04, 0x00, 0x02, 0xFF, // Power on command
+        ];
+
+        let framed_ack = vec![
+            0x01, 0x11, // Reply type
+            0x00, 0x03, // Length = 3
+            0x00, 0x00, 0x00, 0x00, // Sequence = 0
+            0x90, 0x41, 0xFF, // ACK
+        ];
+
+        let framed_completion = vec![
+            0x01, 0x11, // Reply type
+            0x00, 0x03, // Length = 3
+            0x00, 0x00, 0x00, 0x01, // Sequence = 1
+            0x90, 0x51, 0xFF, // Completion
+        ];
+
+        let transport = ScriptedTransport::new(vec![Step::OnSend {
+            matches: Some(framed_command.clone()),
+            responses: vec![framed_ack, framed_completion],
+        }])
+        .with_executor(executor.clone());
+
+        // Create runtime with explicit Sony protocol style
+        let runtime = RuntimeHandle::new_with_style(
+            transport.clone(),
+            executor.clone(),
+            ProtocolStyle::SonyEncapsulated {
+                use_sequence: false,
+            },
+        )
+        .await
+        .expect("Failed to create runtime handle with Sony protocol");
+
+        // Give the runtime a moment to start
+        tokio::time::advance(Duration::from_millis(50)).await;
+
+        // Send a command - should use Sony protocol
+        let (response_tx, response_rx): (
+            Sender<Result<ViscaResponse>>,
+            Receiver<Result<ViscaResponse>>,
+        ) = flume::bounded(1);
+        let command = TxItem::Command {
+            id: 1,
+            bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF], // Raw VISCA command
+            priority: Priority::Normal,
+            response_tx,
+            category: CommandCategory::Quick,
+        };
+
+        runtime
+            .command(command)
+            .await
+            .expect("Failed to send command");
+
+        // Advance time to allow command processing
+        tokio::time::advance(Duration::from_millis(100)).await;
+
+        // Wait for response
+        let response = response_rx
+            .recv_async()
+            .await
+            .expect("Failed to receive response");
+        assert!(matches!(response, Ok(ViscaResponse::Completion)));
+
+        // Verify the framed command was sent
+        let sent = transport.sent();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0], framed_command); // Should send the framed version
     }
 }
