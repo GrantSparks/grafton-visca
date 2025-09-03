@@ -112,7 +112,7 @@ impl ProtocolDetector {
                 debug!("✗ No response from Sony encapsulated format");
             }
             Err(e) => {
-                warn!("Error testing Sony format: {}", e);
+                warn!("Error testing Sony format: {e}");
             }
         }
 
@@ -130,7 +130,7 @@ impl ProtocolDetector {
                 debug!("✗ No response from raw VISCA format");
             }
             Err(e) => {
-                warn!("Error testing raw format: {}", e);
+                warn!("Error testing raw format: {e}");
             }
         }
 
@@ -157,9 +157,9 @@ impl ProtocolDetector {
         let framed_command = envelope.frame_command(command, true, &buffer_manager);
 
         debug!(
-            "Sending {} bytes for protocol detection: {:02X?}",
-            framed_command.len(),
-            &framed_command[..std::cmp::min(framed_command.len(), 16)]
+            "Sending {len} bytes for protocol detection: {bytes:02X?}",
+            len = framed_command.len(),
+            bytes = &framed_command[..std::cmp::min(framed_command.len(), 16)]
         );
 
         // Send command with retries
@@ -167,9 +167,8 @@ impl ProtocolDetector {
             // Send the test command
             if let Err(e) = transport.send(&framed_command).await {
                 warn!(
-                    "Failed to send detection command (attempt {}): {}",
-                    attempt + 1,
-                    e
+                    "Failed to send detection command (attempt {attempt}): {e}",
+                    attempt = attempt + 1
                 );
                 if attempt == self.retry_config.max_retries {
                     return Err(e);
@@ -183,9 +182,9 @@ impl ProtocolDetector {
             match response_result {
                 Ok(Ok(response_bytes)) => {
                     debug!(
-                        "Received {} bytes response: {:02X?}",
-                        response_bytes.len(),
-                        &response_bytes[..std::cmp::min(response_bytes.len(), 16)]
+                        "Received {len} bytes response: {bytes:02X?}",
+                        len = response_bytes.len(),
+                        bytes = &response_bytes[..std::cmp::min(response_bytes.len(), 16)]
                     );
 
                     // Try to extract VISCA payload
@@ -203,15 +202,18 @@ impl ProtocolDetector {
                             }
                         }
                         Err(e) => {
-                            debug!("Failed to extract VISCA payload: {}", e);
+                            debug!("Failed to extract VISCA payload: {e}");
                         }
                     }
                 }
                 Ok(Err(e)) => {
-                    debug!("Transport error during detection: {}", e);
+                    debug!("Transport error during detection: {e}");
                 }
                 Err(_timeout) => {
-                    debug!("Timeout waiting for response (attempt {})", attempt + 1);
+                    debug!(
+                        "Timeout waiting for response (attempt {attempt})",
+                        attempt = attempt + 1
+                    );
                 }
             }
 
@@ -280,7 +282,7 @@ mod tests {
         let result = detector.detect_protocol(&mut transport, &executor).await;
         match result {
             Ok(detection) => assert_eq!(detection, DetectionResult::SonyEncapsulated),
-            Err(e) => panic!("Detection should succeed but failed: {}", e),
+            Err(e) => panic!("Detection should succeed but failed: {e}"),
         }
     }
 
@@ -304,7 +306,7 @@ mod tests {
         let result = detector.detect_protocol(&mut transport, &executor).await;
         match result {
             Ok(detection) => assert_eq!(detection, DetectionResult::RawVisca),
-            Err(e) => panic!("Detection should succeed but failed: {}", e),
+            Err(e) => panic!("Detection should succeed but failed: {e}"),
         }
     }
 
@@ -321,7 +323,7 @@ mod tests {
         let result = detector.detect_protocol(&mut transport, &executor).await;
         match result {
             Ok(detection) => assert_eq!(detection, DetectionResult::NoResponse),
-            Err(e) => panic!("Detection should succeed but failed: {}", e),
+            Err(e) => panic!("Detection should succeed but failed: {e}"),
         }
     }
 

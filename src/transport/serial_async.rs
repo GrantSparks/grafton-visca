@@ -73,13 +73,13 @@ impl AsyncSerialTransport {
             .timeout(config.read_timeout)
             .open_native_async()
             .map_err(|e| {
-                Error::TransportError(format!("Failed to open serial port: {}", e).into())
+                Error::TransportError(format!("Failed to open serial port: {e}").into())
             })?;
 
         // Configure port settings
         #[cfg(unix)]
         port.set_exclusive(false).map_err(|e| {
-            Error::TransportError(format!("Failed to set exclusive mode: {}", e).into())
+            Error::TransportError(format!("Failed to set exclusive mode: {e}").into())
         })?;
 
         let if_clear = config.if_clear_on_connect;
@@ -111,9 +111,7 @@ impl AsyncSerialTransport {
         // InterfaceClearCommand is const-constructed and guaranteed to encode
         let len = cmd
             .encode_into(CameraId::CAMERA_1, &mut buffer)
-            .map_err(|e| {
-                Error::TransportError(format!("Failed to encode IF Clear: {}", e).into())
-            })?;
+            .map_err(|e| Error::TransportError(format!("Failed to encode IF Clear: {e}").into()))?;
         self.send_raw(&buffer[..len]).await?;
 
         // Wait for I/F Clear to complete
@@ -127,21 +125,21 @@ impl AsyncSerialTransport {
         let max_attempts = 3;
 
         for attempt in 0..max_attempts {
-            debug!("Address Set attempt {}", attempt + 1);
+            debug!("Address Set attempt {attempt}", attempt = attempt + 1);
             let cmd = AddressSetCommand::new();
             let mut buffer = [0u8; 16];
             // AddressSetCommand is const-constructed and guaranteed to encode
             let len = cmd
                 .encode_into(CameraId::CAMERA_1, &mut buffer)
                 .map_err(|e| {
-                    Error::TransportError(format!("Failed to encode Address Set: {}", e).into())
+                    Error::TransportError(format!("Failed to encode Address Set: {e}").into())
                 })?;
             self.send_raw(&buffer[..len]).await?;
 
             // Parse response properly
             match self.recv_address_set_response(Duration::from_secs(2)).await {
                 Ok(camera_count) => {
-                    debug!("Address Set successful, found {} cameras", camera_count);
+                    debug!("Address Set successful, found {camera_count} cameras");
                     return Ok(camera_count);
                 }
                 Err(Error::Timeout) if attempt < max_attempts - 1 => {
@@ -192,13 +190,13 @@ impl AsyncSerialTransport {
                             {
                                 // Camera address assignment
                                 camera_count = response_buffer[i + 2];
-                                debug!("Camera {} assigned address", camera_count);
+                                debug!("Camera {camera_count} assigned address");
                                 i += 4;
                             } else if response_buffer[i + 2] == 0x02
                                 && response_buffer[i + 3] == VISCA_TERMINATOR
                             {
                                 // End of address setting
-                                debug!("Address Set complete, {} cameras found", camera_count);
+                                debug!("Address Set complete, {camera_count} cameras found");
                                 return Ok(camera_count);
                             } else {
                                 i += 1;
@@ -218,7 +216,7 @@ impl AsyncSerialTransport {
                 }
                 Ok(Err(e)) => {
                     return Err(Error::TransportError(
-                        format!("Error reading Address Set response: {}", e).into(),
+                        format!("Error reading Address Set response: {e}").into(),
                     ));
                 }
                 Err(_) => {
@@ -262,12 +260,12 @@ impl AsyncSerialTransport {
         timeout(self.config.write_timeout, self.port.write_all(data))
             .await
             .map_err(|_| Error::Timeout)?
-            .map_err(|e| Error::TransportError(format!("Serial write error: {}", e).into()))?;
+            .map_err(|e| Error::TransportError(format!("Serial write error: {e}").into()))?;
 
         self.port
             .flush()
             .await
-            .map_err(|e| Error::TransportError(format!("Serial flush error: {}", e).into()))?;
+            .map_err(|e| Error::TransportError(format!("Serial flush error: {e}").into()))?;
 
         Ok(())
     }
@@ -290,7 +288,10 @@ impl AsyncSerialTransport {
             match timeout(Duration::from_millis(50), self.port.read(&mut temp_buf)).await {
                 Ok(Ok(n)) if n > 0 => {
                     self.read_buffer.extend_from_slice(&temp_buf[..n]);
-                    trace!("Serial read {} bytes: {:02X?}", n, &temp_buf[..n]);
+                    trace!(
+                        "Serial read {n} bytes: {bytes:02X?}",
+                        bytes = &temp_buf[..n]
+                    );
 
                     // Look for complete VISCA frame (ends with 0xFF)
                     if let Some(terminator_pos) =
@@ -319,7 +320,7 @@ impl AsyncSerialTransport {
                 }
                 Ok(Err(e)) => {
                     return Err(Error::TransportError(
-                        format!("Serial read error: {}", e).into(),
+                        format!("Serial read error: {e}").into(),
                     ));
                 }
                 Err(_) => {

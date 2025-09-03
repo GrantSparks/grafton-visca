@@ -78,7 +78,7 @@ impl SerialTransport {
             .timeout(config.read_timeout)
             .open()
             .map_err(|e| {
-                Error::TransportError(format!("Failed to open serial port: {}", e).into())
+                Error::TransportError(format!("Failed to open serial port: {e}").into())
             })?;
 
         let if_clear = config.if_clear_on_connect;
@@ -110,9 +110,7 @@ impl SerialTransport {
         // InterfaceClearCommand is const-constructed and guaranteed to encode
         let len = cmd
             .encode_into(CameraId::CAMERA_1, &mut buffer)
-            .map_err(|e| {
-                Error::TransportError(format!("Failed to encode IF Clear: {}", e).into())
-            })?;
+            .map_err(|e| Error::TransportError(format!("Failed to encode IF Clear: {e}").into()))?;
         self.send_raw(&buffer[..len])?;
         // Wait for I/F Clear to complete
         std::thread::sleep(Duration::from_millis(100));
@@ -125,21 +123,21 @@ impl SerialTransport {
         let max_attempts = 3;
 
         for attempt in 0..max_attempts {
-            debug!("Address Set attempt {}", attempt + 1);
+            debug!("Address Set attempt {attempt}", attempt = attempt + 1);
             let cmd = AddressSetCommand::new();
             let mut buffer = [0u8; 16];
             // AddressSetCommand is const-constructed and guaranteed to encode
             let len = cmd
                 .encode_into(CameraId::CAMERA_1, &mut buffer)
                 .map_err(|e| {
-                    Error::TransportError(format!("Failed to encode Address Set: {}", e).into())
+                    Error::TransportError(format!("Failed to encode Address Set: {e}").into())
                 })?;
             self.send_raw(&buffer[..len])?;
 
             // Parse response properly
             match self.recv_address_set_response(Duration::from_secs(2)) {
                 Ok(camera_count) => {
-                    debug!("Address Set successful, found {} cameras", camera_count);
+                    debug!("Address Set successful, found {camera_count} cameras");
                     return Ok(camera_count);
                 }
                 Err(Error::Timeout) if attempt < max_attempts - 1 => {
@@ -165,7 +163,7 @@ impl SerialTransport {
         // Temporarily set timeout
         let original_timeout = port.timeout();
         port.set_timeout(timeout)
-            .map_err(|e| Error::TransportError(format!("Failed to set timeout: {}", e).into()))?;
+            .map_err(|e| Error::TransportError(format!("Failed to set timeout: {e}").into()))?;
 
         let mut camera_count = 0;
         let start = Instant::now();
@@ -183,7 +181,7 @@ impl SerialTransport {
                         if i + 3 < n && buffer[i] == 0x88 && buffer[i + 1] == 0x30 {
                             if buffer[i + 2] == 0x02 && buffer[i + 3] == VISCA_TERMINATOR {
                                 // End of address setting
-                                debug!("Address Set complete, {} cameras found", camera_count);
+                                debug!("Address Set complete, {camera_count} cameras found");
 
                                 // Restore timeout
                                 port.set_timeout(original_timeout).ok();
@@ -191,7 +189,7 @@ impl SerialTransport {
                             } else if buffer[i + 3] == VISCA_TERMINATOR {
                                 // Device response
                                 camera_count += 1;
-                                trace!("Camera {} responded", camera_count);
+                                trace!("Camera {camera_count} responded");
                             }
                             i += 4;
                         } else {
@@ -205,7 +203,7 @@ impl SerialTransport {
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
                     // Timeout - no more devices
-                    debug!("Address Set timeout - {} cameras found", camera_count);
+                    debug!("Address Set timeout - {camera_count} cameras found");
 
                     // Restore timeout
                     port.set_timeout(original_timeout).ok();
@@ -220,7 +218,7 @@ impl SerialTransport {
                     // Restore timeout
                     port.set_timeout(original_timeout).ok();
                     return Err(Error::TransportError(
-                        format!("Error reading Address Set response: {}", e).into(),
+                        format!("Error reading Address Set response: {e}").into(),
                     ));
                 }
             }
@@ -243,10 +241,14 @@ impl SerialTransport {
             .lock()
             .map_err(|_| Error::LockPoisoned("serial port mutex"))?;
         port.write_all(bytes)
-            .map_err(|e| Error::TransportError(format!("Serial write error: {}", e).into()))?;
+            .map_err(|e| Error::TransportError(format!("Serial write error: {e}").into()))?;
         port.flush()
-            .map_err(|e| Error::TransportError(format!("Serial flush error: {}", e).into()))?;
-        trace!("Sent {} bytes: {:02X?}", bytes.len(), bytes);
+            .map_err(|e| Error::TransportError(format!("Serial flush error: {e}").into()))?;
+        trace!(
+            "Sent {len} bytes: {bytes:02X?}",
+            len = bytes.len(),
+            bytes = bytes
+        );
         Ok(())
     }
 
@@ -274,14 +276,14 @@ impl SerialTransport {
             match port.read(&mut temp_buf) {
                 Ok(n) if n > 0 => {
                     buffer.extend_from_slice(&temp_buf[..n]);
-                    trace!("Read {} bytes from serial", n);
+                    trace!("Read {n} bytes from serial");
                 }
                 Ok(_) => {
                     return Err(Error::Timeout);
                 }
                 Err(e) => {
                     return Err(Error::TransportError(
-                        format!("Serial read error: {}", e).into(),
+                        format!("Serial read error: {e}").into(),
                     ));
                 }
             }
@@ -317,7 +319,7 @@ impl SyncTransport for SerialTransport {
                         return Err(Error::MaxRetriesExceeded);
                     }
 
-                    debug!("Retrying serial send (attempt {}): {:?}", attempts, e);
+                    debug!("Retrying serial send (attempt {attempts}): {e:?}");
                     std::thread::sleep(delay);
                 }
                 Err(e) => return Err(e),
@@ -346,7 +348,7 @@ impl SyncTransport for SerialTransport {
                         return Err(Error::MaxRetriesExceeded);
                     }
 
-                    debug!("Retrying serial receive (attempt {}): {:?}", attempts, e);
+                    debug!("Retrying serial receive (attempt {attempts}): {e:?}");
                     std::thread::sleep(delay);
                 }
                 Err(e) => return Err(e),
@@ -362,7 +364,7 @@ impl SyncTransport for SerialTransport {
             .map_err(|_| Error::LockPoisoned("serial port mutex"))?;
         let original_timeout = port.timeout();
         port.set_timeout(timeout)
-            .map_err(|e| Error::TransportError(format!("Failed to set timeout: {}", e).into()))?;
+            .map_err(|e| Error::TransportError(format!("Failed to set timeout: {e}").into()))?;
         drop(port);
 
         let result = self.recv_frame();
@@ -372,9 +374,8 @@ impl SyncTransport for SerialTransport {
             .port
             .lock()
             .map_err(|_| Error::LockPoisoned("serial port mutex"))?;
-        port.set_timeout(original_timeout).map_err(|e| {
-            Error::TransportError(format!("Failed to restore timeout: {}", e).into())
-        })?;
+        port.set_timeout(original_timeout)
+            .map_err(|e| Error::TransportError(format!("Failed to restore timeout: {e}").into()))?;
 
         result
     }

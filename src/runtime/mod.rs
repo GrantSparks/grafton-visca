@@ -531,11 +531,11 @@ async fn runtime_loop_with_config<
                     )
                     .await
                     {
-                        error!("Error processing command queue after TX item: {}", e);
+                        error!("Error processing command queue after TX item: {e}");
                     }
                 }
                 Err(e) => {
-                    error!("Error handling TX item: {}", e);
+                    error!("Error handling TX item: {e}");
                 }
             }
             continue;
@@ -560,8 +560,9 @@ async fn runtime_loop_with_config<
                 // Get the next retry that's due now
                 if let Some(retry_cmd) = scheduler.get_next_retry(now) {
                     debug!(
-                        "Pre-draining retry for command {} (attempt {})",
-                        retry_cmd.id, retry_cmd.attempt
+                        "Pre-draining retry for command {id} (attempt {attempt})",
+                        id = retry_cmd.id,
+                        attempt = retry_cmd.attempt
                     );
 
                     // Re-submit the command for retry
@@ -571,8 +572,8 @@ async fn runtime_loop_with_config<
                         tx.clone()
                     } else {
                         warn!(
-                            "Missing response channel for retry of command {} - this indicates a bug",
-                            retry_cmd.id
+                            "Missing response channel for retry of command {id} - this indicates a bug",
+                            id = retry_cmd.id
                         );
                         let (tx, _rx) = flume::bounded(1);
                         tx
@@ -598,7 +599,7 @@ async fn runtime_loop_with_config<
                     )
                     .await
                     {
-                        error!("Error handling retry TX item: {}", e);
+                        error!("Error handling retry TX item: {e}");
                     }
 
                     // If can't send more commands, stop draining
@@ -637,7 +638,7 @@ async fn runtime_loop_with_config<
                 // Handle received data
                 match recv_result {
                     Ok(bytes) => {
-                        trace!("Received bytes from transport: {:02X?}", bytes);
+                        trace!("Received bytes from transport: {bytes:02X?}");
                         response_buffer.extend_from_slice(&bytes);
 
                         // Parse complete frames from the buffer
@@ -650,7 +651,7 @@ async fn runtime_loop_with_config<
                             let payload = match envelope.extract_response(&frame) {
                                 Ok(p) => p,
                                 Err(e) => {
-                                    warn!("Failed to extract response from frame: {}", e);
+                                    warn!("Failed to extract response from frame: {e}");
                                     continue;
                                 }
                             };
@@ -665,12 +666,12 @@ async fn runtime_loop_with_config<
                             )
                             .await
                             {
-                                error!("Error handling response: {}", e);
+                                error!("Error handling response: {e}");
                             }
                         }
                     }
                     Err(e) => {
-                        error!("Error receiving from transport: {}", e);
+                        error!("Error receiving from transport: {e}");
                     }
                 }
             }
@@ -681,7 +682,7 @@ async fn runtime_loop_with_config<
                 // Check for commands that have timed out waiting for ACK
                 let pending_ack_timeouts = scheduler.check_pending_ack_timeouts(now);
                 for cmd_id in pending_ack_timeouts {
-                    debug!("Command {} timed out waiting for ACK", cmd_id);
+                    debug!("Command {cmd_id} timed out waiting for ACK");
                     // Notify the waiting high-level caller
                     if let Some(tx) = scheduler.get_response_channel(cmd_id) {
                         let _ = tx.send(Err(Error::Timeout));
@@ -703,11 +704,11 @@ async fn runtime_loop_with_config<
                 // Then check if we have retries to process
                 if scheduler.has_retries() {
                     debug!(
-                        "[runtime loop] Has {} retries pending, free socket: {}, can_send: {}, retry queue: {:?}",
-                        scheduler.retry_queue.len(),
-                        scheduler.has_free_socket(),
-                        scheduler.can_send_command(),
-                        scheduler
+                        "[runtime loop] Has {retry_count} retries pending, free socket: {has_free}, can_send: {can_send}, retry queue: {retry_queue:?}",
+                        retry_count = scheduler.retry_queue.len(),
+                        has_free = scheduler.has_free_socket(),
+                        can_send = scheduler.can_send_command(),
+                        retry_queue = scheduler
                             .retry_queue
                             .iter()
                             .map(|r| r.id)
@@ -720,12 +721,14 @@ async fn runtime_loop_with_config<
                     let now = executor.as_ref().now();
                     if let Some(retry_cmd) = scheduler.get_next_retry(now) {
                         debug!(
-                            "[runtime loop] Retrying command {} (attempt {})",
-                            retry_cmd.id, retry_cmd.attempt
+                            "[runtime loop] Retrying command {id} (attempt {attempt})",
+                            id = retry_cmd.id,
+                            attempt = retry_cmd.attempt
                         );
                         debug!(
-                            "Retrying command {} (attempt {})",
-                            retry_cmd.id, retry_cmd.attempt
+                            "Retrying command {id} (attempt {attempt})",
+                            id = retry_cmd.id,
+                            attempt = retry_cmd.attempt
                         );
 
                         // Re-submit the command for retry
@@ -735,14 +738,14 @@ async fn runtime_loop_with_config<
                             tx.clone()
                         } else {
                             warn!(
-                                "Missing response channel for retry of command {} - this indicates a bug",
-                                retry_cmd.id
+                                "Missing response channel for retry of command {id} - this indicates a bug",
+                                id = retry_cmd.id
                             );
                             continue;
                         };
                         debug!(
-                            "Using existing response channel for retry of command {}",
-                            retry_cmd.id
+                            "Using existing response channel for retry of command {id}",
+                            id = retry_cmd.id
                         );
 
                         let item = TxItem::Command {
@@ -763,7 +766,7 @@ async fn runtime_loop_with_config<
                         )
                         .await
                         {
-                            error!("Error retrying command {}: {}", retry_cmd.id, e);
+                            error!("Error retrying command {id}: {e}", id = retry_cmd.id);
                         } else {
                             // Successfully submitted a retry
                             consecutive_retries = consecutive_retries.saturating_add(1);
@@ -818,8 +821,8 @@ async fn process_command_queue<T: AsyncTransport + Send, E: crate::executor::Exe
                     // If retry has higher or equal priority, don't process queue yet
                     if retry_priority >= next_queue_priority {
                         debug!(
-                            "Deferring queue processing - retry with priority {:?} waiting (queue has {:?})",
-                            retry_priority, next_queue_priority
+                            "Deferring queue processing - retry with priority {retry_priority:?} waiting (queue has {queue_priority:?})",
+                            retry_priority = retry_priority, queue_priority = next_queue_priority
                         );
                         return Ok(());
                     }
@@ -829,8 +832,8 @@ async fn process_command_queue<T: AsyncTransport + Send, E: crate::executor::Exe
 
         if let Some(item) = scheduler.dequeue_command() {
             debug!(
-                "Processing queued command from priority queue (remaining: {})",
-                scheduler.queue_size()
+                "Processing queued command from priority queue (remaining: {remaining})",
+                remaining = scheduler.queue_size()
             );
             // Process the dequeued command
             if let Err(e) = handle_tx_item(
@@ -843,7 +846,7 @@ async fn process_command_queue<T: AsyncTransport + Send, E: crate::executor::Exe
             )
             .await
             {
-                error!("Error processing queued command: {}", e);
+                error!("Error processing queued command: {e}");
             }
         }
     }
@@ -874,7 +877,7 @@ async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
                 id = scheduler.next_id();
             }
 
-            trace!("Processing command {} with priority {:?}", id, priority);
+            trace!("Processing command {id} with priority {priority:?}");
 
             // Track metrics for command submission
             scheduler
@@ -894,12 +897,11 @@ async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
                 // Frame and send command
                 let framed_bytes = envelope.frame_command(&bytes, false, buffer_manager);
                 debug!(
-                    "[handle_tx_item] Sending command {} (awaiting ACK): {:02X?} (framed: {:02X?})",
-                    id, bytes, framed_bytes
+                    "[handle_tx_item] Sending command {id} (awaiting ACK): {bytes:02X?} (framed: {framed_bytes:02X?})"
                 );
-                trace!("Sending command {} (awaiting ACK): {:02X?}", id, bytes);
+                trace!("Sending command {id} (awaiting ACK): {bytes:02X?}");
                 if let Err(e) = transport.send(&framed_bytes).await {
-                    error!("Failed to send command {}: {}", id, e);
+                    error!("Failed to send command {id}: {e}");
                     scheduler
                         .metrics
                         .commands_failed
@@ -911,12 +913,11 @@ async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
                 // Add to pending ACK list - socket will be assigned when ACK arrives
                 scheduler.add_pending_ack(id, bytes.clone(), priority, category, now);
                 scheduler.store_command_channel(id, response_tx);
-                debug!("[handle_tx_item] Command {} added to pending ACK list", id);
+                debug!("[handle_tx_item] Command {id} added to pending ACK list");
             } else {
                 // No socket available, add to priority queue
                 debug!(
-                    "No socket available for command {}, adding to queue with priority {:?}",
-                    id, priority
+                    "No socket available for command {id}, adding to queue with priority {priority:?}"
                 );
 
                 // Store the response channel for when the command is eventually sent
@@ -948,7 +949,7 @@ async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
                 id = scheduler.next_id();
             }
 
-            trace!("Processing inquiry {}", id);
+            trace!("Processing inquiry {id}");
 
             // Track metrics for inquiry submission
             scheduler
@@ -962,14 +963,9 @@ async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
 
             // Frame and send inquiry
             let framed_bytes = envelope.frame_command(&bytes, true, buffer_manager);
-            trace!(
-                "Sending inquiry {}: {:02X?} (framed: {:02X?})",
-                id,
-                bytes,
-                framed_bytes
-            );
+            trace!("Sending inquiry {id}: {bytes:02X?} (framed: {framed_bytes:02X?})");
             if let Err(e) = transport.send(&framed_bytes).await {
-                error!("Failed to send inquiry {}: {}", id, e);
+                error!("Failed to send inquiry {id}: {e}");
                 scheduler
                     .metrics
                     .commands_failed
@@ -983,7 +979,7 @@ async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
         }
 
         TxItem::Cancel { socket } => {
-            trace!("Processing cancel for {:?}", socket);
+            trace!("Processing cancel for {socket:?}");
 
             // Send cancel command using typed command
             use crate::camera_id::CameraId;
@@ -996,14 +992,14 @@ async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
             let len = cancel_cmd
                 .encode_into(CameraId::CAMERA_1, &mut cancel_bytes)
                 .map_err(|e| {
-                    Error::TransportError(format!("Failed to encode cancel command: {}", e).into())
+                    Error::TransportError(format!("Failed to encode cancel command: {e}").into())
                 })?;
             let cancel_bytes = cancel_bytes[..len].to_vec();
 
             // Frame the cancel command as a regular command (not an inquiry)
             let framed_cancel = envelope.frame_command(&cancel_bytes, false, buffer_manager);
             if let Err(e) = transport.send(&framed_cancel).await {
-                error!("Failed to send cancel: {}", e);
+                error!("Failed to send cancel: {e}");
                 return Ok(());
             }
 
@@ -1037,12 +1033,12 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
     let basic_response = match decode_basic(frame) {
         Some(resp) => resp,
         None => {
-            warn!("Failed to decode VISCA frame: {:02X?}", frame);
+            warn!("Failed to decode VISCA frame: {frame:02X?}");
             return Ok(());
         }
     };
-    debug!("[handle_response] Parsed response: {:?}", basic_response);
-    trace!("Parsed response: {:?}", basic_response);
+    debug!("[handle_response] Parsed response: {basic_response:?}");
+    trace!("Parsed response: {basic_response:?}");
 
     match basic_response.kind {
         BasicKind::Ack => {
@@ -1053,18 +1049,12 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
             // Camera has assigned a socket - handle the ACK
             let now = executor.now();
             if let Some(cmd_id) = scheduler.handle_ack(socket, now) {
-                debug!(
-                    "ACK received - command {} assigned to {:?} by camera",
-                    cmd_id, socket
-                );
+                debug!("ACK received - command {cmd_id} assigned to {socket:?} by camera");
 
                 // Don't send ACK to the response channel - wait for Completion
                 // The response channel is expecting the final result, not intermediate ACKs
             } else {
-                warn!(
-                    "Received ACK for {:?} but no pending commands awaiting ACK",
-                    socket
-                );
+                warn!("Received ACK for {socket:?} but no pending commands awaiting ACK");
             }
         }
 
@@ -1074,7 +1064,7 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
                 return Ok(());
             };
             if let Some(cmd_id) = scheduler.socket_command(socket) {
-                debug!("Completion received for command {} on {:?}", cmd_id, socket);
+                debug!("Completion received for command {cmd_id} on {socket:?}");
 
                 // Track successful completion
                 scheduler
@@ -1087,20 +1077,14 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
 
                 // Notify the waiting command and free the socket
                 if let Some(response_tx) = scheduler.get_response_channel(cmd_id) {
-                    debug!(
-                        "Sending completion to response channel for command {}",
-                        cmd_id
-                    );
+                    debug!("Sending completion to response channel for command {cmd_id}");
                     if let Err(e) = response_tx.send(Ok(ViscaResponse::Completion {
                         socket: Some(socket),
                     })) {
-                        warn!("Failed to send completion to response channel: {:?}", e);
+                        warn!("Failed to send completion to response channel: {e:?}");
                     }
                 } else {
-                    warn!(
-                        "No response channel found for command {} completion",
-                        cmd_id
-                    );
+                    warn!("No response channel found for command {cmd_id} completion");
                 }
                 scheduler.free_socket(socket);
 
@@ -1115,19 +1099,16 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
                 )
                 .await
                 {
-                    error!("Error processing command queue after completion: {}", e);
+                    error!("Error processing command queue after completion: {e}");
                 }
             } else {
-                warn!(
-                    "Received completion for {:?} with no pending command",
-                    socket
-                );
+                warn!("Received completion for {socket:?} with no pending command");
             }
         }
 
         BasicKind::DataReply => {
             let data = basic_response.payload;
-            debug!("Data reply received: {:02X?}", data);
+            debug!("Data reply received: {data:02X?}");
 
             // For inquiries, we need to match this with the pending inquiry
             // Since inquiries don't use sockets, we need a different mechanism
@@ -1138,7 +1119,7 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
                 let response = match lift_inquiry(&basic_response, response_type.as_ref()) {
                     Ok(parsed) => Ok(parsed),
                     Err(e) => {
-                        warn!("Failed to parse inquiry response: {}", e);
+                        warn!("Failed to parse inquiry response: {e}");
                         Ok(ViscaResponse::Unknown {
                             response_type,
                             data: data.to_vec(),
@@ -1155,7 +1136,7 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
         BasicKind::Error(error_code) => {
             let socket = basic_response.socket;
             let error = ViscaError::from_byte(error_code);
-            warn!("Error response: {:?} on socket {:?}", error, socket);
+            warn!("Error response: {error:?} on socket {socket:?}");
 
             // First check if this is an error for a pending inquiry
             // Inquiries don't have sockets, so if there's no socket or no command on the socket,
@@ -1168,7 +1149,7 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
                 if let Some((inquiry_id, response_tx, _response_type)) =
                     scheduler.get_pending_inquiry()
                 {
-                    debug!("Error {:?} for inquiry {}", error, inquiry_id);
+                    debug!("Error {error:?} for inquiry {inquiry_id}");
                     let error_code = error.as_byte();
                     let _ = response_tx.send(Err(Error::from_code(error_code)));
                     scheduler
@@ -1193,7 +1174,7 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
                 if let Some((cmd_id, priority, category, bytes)) =
                     scheduler.handle_pending_ack_error_with_bytes(error)
                 {
-                    debug!("{:?} for pending ACK command {}", error, cmd_id);
+                    debug!("{error:?} for pending ACK command {cmd_id}");
 
                     // Store metadata for potential retry (it wasn't stored since we never got ACK)
                     scheduler.store_command_metadata(cmd_id, bytes.clone(), priority, category);
@@ -1207,14 +1188,14 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
                             scheduler.queue_for_retry(cmd_id, bytes, priority, category, now);
                         if !queued {
                             // Retries exhausted - error already sent to response channel by queue_for_retry
-                            debug!("Command {} exhausted retries", cmd_id);
+                            debug!("Command {cmd_id} exhausted retries");
                         } else {
                             // Successfully queued for retry
-                            debug!("Command {} queued for retry: {:?}", cmd_id, error);
+                            debug!("Command {cmd_id} queued for retry: {error:?}");
                         }
                     } else {
                         // Non-retryable error - send error response immediately
-                        debug!("Non-retryable error {:?} for command {}", error, cmd_id);
+                        debug!("Non-retryable error {error:?} for command {cmd_id}");
                         if let Some(response_tx) = scheduler.get_response_channel(cmd_id) {
                             // Convert ViscaError to Error using the byte code
                             let error_code = error.as_byte();
@@ -1248,21 +1229,16 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
                 if let Some(sock) = socket {
                     if let Some(cmd_id) = scheduler.socket_command(sock) {
                         debug!(
-                            "[handle_response] Camera busy for command {} on {:?}, will retry",
-                            cmd_id, sock
+                            "[handle_response] Camera busy for command {cmd_id} on {sock:?}, will retry"
                         );
-                        debug!(
-                            "Camera busy for command {} on {:?}, will retry",
-                            cmd_id, sock
-                        );
+                        debug!("Camera busy for command {cmd_id} on {sock:?}, will retry");
 
                         // Get command metadata for retry and queue it BEFORE freeing socket
                         if let Some((bytes, priority, category)) =
                             scheduler.get_command_for_retry(cmd_id)
                         {
                             debug!(
-                                "Queueing command {} for retry with priority {:?}",
-                                cmd_id, priority
+                                "Queueing command {cmd_id} for retry with priority {priority:?}"
                             );
                             // Queue the command for retry (returns false if exhausted)
                             let now = executor.now();
@@ -1270,11 +1246,11 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
                                 scheduler.queue_for_retry(cmd_id, bytes, priority, category, now);
 
                             if !queued {
-                                debug!("Command {} exhausted retries, not queuing", cmd_id);
+                                debug!("Command {cmd_id} exhausted retries, not queuing");
                                 // The queue_for_retry method has already sent the error response
                             }
                         } else {
-                            warn!("No metadata found for command {} to retry", cmd_id);
+                            warn!("No metadata found for command {cmd_id} to retry");
                         }
 
                         // Free the socket so it can be reused
@@ -1297,7 +1273,7 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
                         )
                         .await
                         {
-                            error!("Error processing command queue after busy: {}", e);
+                            error!("Error processing command queue after busy: {e}");
                         }
                     }
                 }
@@ -1334,7 +1310,7 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
                         )
                         .await
                         {
-                            error!("Error processing command queue after error: {}", e);
+                            error!("Error processing command queue after error: {e}");
                         }
                     }
                 } else {
@@ -1346,7 +1322,7 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
                     let recent_cmd_id = scheduler.most_recent_command();
 
                     if let Some(cmd_id) = recent_cmd_id {
-                        debug!("Routing broadcast error to command {}", cmd_id);
+                        debug!("Routing broadcast error to command {cmd_id}");
 
                         // Notify the waiting command
                         if let Some(response_tx) = scheduler.get_response_channel(cmd_id) {
@@ -1369,7 +1345,10 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
         }
 
         BasicKind::Unknown => {
-            warn!("Unknown response received: {:02X?}", basic_response.payload);
+            warn!(
+                "Unknown response received: {payload:02X?}",
+                payload = basic_response.payload
+            );
         }
     }
 
@@ -1548,10 +1527,7 @@ mod tests {
                 // Also acceptable for this test
             }
             unexpected => {
-                panic!(
-                    "Expected Inquiry or Unknown response, got: {:?}",
-                    unexpected
-                )
+                panic!("Expected Inquiry or Unknown response, got: {unexpected:?}")
             }
         }
 
@@ -1806,10 +1782,7 @@ mod tests {
                 // Also acceptable for this test
             }
             unexpected => {
-                panic!(
-                    "Expected Inquiry or Unknown response, got: {:?}",
-                    unexpected
-                )
+                panic!("Expected Inquiry or Unknown response, got: {unexpected:?}")
             }
         }
 

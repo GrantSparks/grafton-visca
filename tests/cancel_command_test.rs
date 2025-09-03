@@ -244,7 +244,7 @@ fn test_cancel_during_movement() {
     // Test that cancel_command can be called (even with no running commands)
     eprintln!("Testing cancel command...");
     let result = executor.block_on(async { camera.cancel_socket(ViscaSocket::S1).await });
-    eprintln!("Cancel command result: {:?}", result);
+    eprintln!("Cancel command result: {result:?}");
     assert!(result.is_ok(), "Cancel command should not fail");
 
     // Drive executor until all tasks are idle

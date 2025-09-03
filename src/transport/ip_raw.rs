@@ -119,7 +119,7 @@ impl RawTcpTransport {
             // Check if we have a complete frame in the buffer
             if let Some(pos) = self.read_buffer.iter().position(|&b| b == VISCA_TERMINATOR) {
                 let frame = self.read_buffer.split_to(pos + 1);
-                trace!("Received frame: {:02X?}", frame);
+                trace!("Received frame: {frame:02X?}");
                 return Ok(frame.freeze());
             }
 
@@ -161,7 +161,11 @@ impl SyncTransport for RawTcpTransport {
                 .and_then(|_| writer.flush())
                 .map_err(|e| Error::TransportError(format!("TCP write error: {e}").into()))?;
 
-            trace!("Sent {} bytes: {:02X?}", bytes_vec.len(), bytes_vec);
+            trace!(
+                "Sent {len} bytes: {bytes:02X?}",
+                len = bytes_vec.len(),
+                bytes = bytes_vec
+            );
             Ok(())
         })
     }
@@ -265,7 +269,7 @@ impl RawUdpTransport {
             // Check if we have a complete frame in the buffer
             if let Some(pos) = self.read_buffer.iter().position(|&b| b == VISCA_TERMINATOR) {
                 let frame = self.read_buffer.split_to(pos + 1);
-                trace!("Received frame: {:02X?}", frame);
+                trace!("Received frame: {frame:02X?}");
                 return Ok(frame.freeze());
             }
 
@@ -307,7 +311,11 @@ impl SyncTransport for RawUdpTransport {
                 .send(&bytes_vec)
                 .map_err(|e| Error::TransportError(format!("UDP send error: {e}").into()))?;
 
-            trace!("Sent {} bytes: {:02X?}", bytes_vec.len(), bytes_vec);
+            trace!(
+                "Sent {len} bytes: {bytes:02X?}",
+                len = bytes_vec.len(),
+                bytes = bytes_vec
+            );
             Ok(())
         })
     }

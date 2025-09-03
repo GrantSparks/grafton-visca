@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Camera configuration
     let camera_address = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.0.100".to_string());
 
-    println!("Connecting to camera at {}...", camera_address);
+    println!("Connecting to camera at {camera_address}...");
 
     // Create a runtime with raw TCP transport (PTZOptics style)
     let executor = Arc::new(TokioExecutor::from_current()?);
@@ -48,8 +48,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     match response {
         ViscaResponse::Completion { .. } => println!("   ✓ Camera powered on"),
-        ViscaResponse::Error(e) => println!("   ✗ Power on failed: {}", e),
-        _ => println!("   ? Unexpected response: {:?}", response),
+        ViscaResponse::Error(e) => println!("   ✗ Power on failed: {e}"),
+        _ => println!("   ? Unexpected response: {response:?}"),
     }
 
     // Wait a moment for the camera to initialize
@@ -63,8 +63,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     match response {
         ViscaResponse::Completion { .. } => println!("   ✓ Zoom in started"),
-        ViscaResponse::Error(e) => println!("   ✗ Zoom in failed: {}", e),
-        _ => println!("   ? Unexpected response: {:?}", response),
+        ViscaResponse::Error(e) => println!("   ✗ Zoom in failed: {e}"),
+        _ => println!("   ? Unexpected response: {response:?}"),
     }
 
     // Wait for zoom to move
@@ -78,8 +78,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     match response {
         ViscaResponse::Completion { .. } => println!("   ✓ Zoom stopped"),
-        ViscaResponse::Error(e) => println!("   ✗ Zoom stop failed: {}", e),
-        _ => println!("   ? Unexpected response: {:?}", response),
+        ViscaResponse::Error(e) => println!("   ✗ Zoom stop failed: {e}"),
+        _ => println!("   ? Unexpected response: {response:?}"),
     }
 
     // Send power inquiry
@@ -90,10 +90,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     match response {
         ViscaResponse::Inquiry(InquiryResponse::Power { on }) => {
-            println!("   ✓ Power status: {}", if on { "ON" } else { "OFF" });
+            let status = if on { "ON" } else { "OFF" };
+            println!("   ✓ Power status: {status}");
         }
-        ViscaResponse::Error(e) => println!("   ✗ Power inquiry failed: {}", e),
-        _ => println!("   ? Unexpected response: {:?}", response),
+        ViscaResponse::Error(e) => println!("   ✗ Power inquiry failed: {e}"),
+        _ => println!("   ? Unexpected response: {response:?}"),
     }
 
     // Get runtime metrics
@@ -121,14 +122,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match high_result {
         Ok(ViscaResponse::Completion { .. }) => println!("   ✓ High priority command completed"),
-        Ok(resp) => println!("   ? High priority response: {:?}", resp),
-        Err(e) => println!("   ✗ High priority failed: {}", e),
+        Ok(resp) => println!("   ? High priority response: {resp:?}"),
+        Err(e) => println!("   ✗ High priority failed: {e}"),
     }
 
     match low_result {
         Ok(ViscaResponse::Completion { .. }) => println!("   ✓ Low priority command completed"),
-        Ok(resp) => println!("   ? Low priority response: {:?}", resp),
-        Err(e) => println!("   ✗ Low priority failed: {}", e),
+        Ok(resp) => println!("   ? Low priority response: {resp:?}"),
+        Err(e) => println!("   ✗ Low priority failed: {e}"),
     }
 
     // Shutdown the runtime

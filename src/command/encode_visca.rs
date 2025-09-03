@@ -22,9 +22,9 @@ use crate::{
 pub fn validate_terminator(buffer: &[u8], len: usize) {
     assert!(
         len == 0 || buffer[len - 1] == crate::command::bytes::VISCA_TERMINATOR,
-        "VISCA command missing 0xFF terminator at position {}. Command bytes: {:02X?}",
-        len - 1,
-        &buffer[..len]
+        "VISCA command missing 0xFF terminator at position {pos}. Command bytes: {bytes:02X?}",
+        pos = len - 1,
+        bytes = &buffer[..len]
     );
 }
 
@@ -46,18 +46,18 @@ pub fn validate_command_structure(buffer: &[u8], len: usize) {
     // Validate minimum length (at least address + terminator)
     assert!(
         len >= 2,
-        "VISCA command too short: {} bytes. Minimum is 2 bytes. Command bytes: {:02X?}",
-        len,
-        &buffer[..len]
+        "VISCA command too short: {len} bytes. Minimum is 2 bytes. Command bytes: {bytes:02X?}",
+        len = len,
+        bytes = &buffer[..len]
     );
 
     // Validate camera address byte (0x81-0x88 for cameras 1-8)
     if len > 0 {
         assert!(
             buffer[0] >= 0x81 && buffer[0] <= 0x88,
-            "Invalid VISCA camera address byte: 0x{:02X}. Must be 0x81-0x88. Command bytes: {:02X?}",
-            buffer[0],
-            &buffer[..len]
+            "Invalid VISCA camera address byte: 0x{addr:02X}. Must be 0x81-0x88. Command bytes: {bytes:02X?}",
+            addr = buffer[0],
+            bytes = &buffer[..len]
         );
     }
 
@@ -296,7 +296,7 @@ mod tests {
     fn try_into_vec_succeeds_on_valid_command() {
         let cmd = DummyValid;
         let res = cmd.try_into_vec(CameraId::CAMERA_2);
-        assert!(res.is_ok(), "try_into_vec should succeed, got: {:?}", res);
+        assert!(res.is_ok(), "try_into_vec should succeed, got: {res:?}");
         let v = res.unwrap_or_default();
         assert_eq!(v.len(), 2);
         assert!(v[0] >= 0x81 && v[0] <= 0x88);

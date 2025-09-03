@@ -125,10 +125,10 @@ impl SonyTcpTransport {
             .map_err(|e| Error::TransportError(format!("TCP flush error: {e}").into()))?;
 
         trace!(
-            "Sent packet with seq {}: header={:02X?} payload={:02X?}",
-            sequence,
-            &packet[..SonyHeader::SIZE],
-            bytes
+            "Sent packet with seq {sequence}: header={header:02X?} payload={payload:02X?}",
+            sequence = sequence,
+            header = &packet[..SonyHeader::SIZE],
+            payload = bytes
         );
 
         Ok(())
@@ -161,7 +161,7 @@ impl SonyTcpTransport {
                     let header = match SonyHeader::decode(&header_bytes) {
                         Some(h) => h,
                         None => {
-                            warn!("Failed to decode Sony header: {:02X?}", header_bytes);
+                            warn!("Failed to decode Sony header: {header_bytes:02X?}");
                             return Err(Error::InvalidResponse {
                                 expected: "Valid Sony header".into(),
                                 actual: format!("Invalid header bytes: {:02X?}", header_bytes)
@@ -171,11 +171,11 @@ impl SonyTcpTransport {
                     };
 
                     trace!(
-                        "Received Sony frame: seq={} type={:?} len={} payload={:02X?}",
-                        header.sequence_number,
-                        header.payload_type,
-                        header.payload_length,
-                        payload
+                        "Received Sony frame: seq={seq} type={frame_type:?} len={len} payload={payload:02X?}",
+                        seq = header.sequence_number,
+                        frame_type = header.payload_type,
+                        len = header.payload_length,
+                        payload = payload
                     );
 
                     return Ok((header, payload.freeze()));
@@ -281,8 +281,8 @@ impl SyncTransport for SonyTcpTransport {
                     {
                         // Late or duplicate reply - discard it
                         warn!(
-                            "TCP: Discarding late/duplicate reply with seq {} (not in pending)",
-                            header.sequence_number
+                            "TCP: Discarding late/duplicate reply with seq {seq} (not in pending)",
+                            seq = header.sequence_number
                         );
                         continue; // Keep waiting for a valid response
                     }
@@ -453,17 +453,21 @@ impl SonyUdpTransport {
                     );
 
                     trace!(
-                        "Received UDP frame: seq={} type={:?} payload={:02X?}",
-                        header.sequence_number,
-                        header.payload_type,
-                        payload
+                        "Received UDP frame: seq={seq} type={frame_type:?} payload={payload:02X?}",
+                        seq = header.sequence_number,
+                        frame_type = header.payload_type,
+                        payload = payload
                     );
 
                     Ok((header, payload))
                 } else {
                     Err(Error::InvalidResponse {
                         expected: format!("Sony frame with {payload_length} byte payload").into(),
-                        actual: format!("Only {} bytes received", n - SonyHeader::SIZE).into(),
+                        actual: format!(
+                            "Only {bytes_received} bytes received",
+                            bytes_received = n - SonyHeader::SIZE
+                        )
+                        .into(),
                     })
                 }
             }
@@ -508,8 +512,8 @@ impl SyncTransport for SonyUdpTransport {
                     {
                         // Late or duplicate reply - discard it
                         warn!(
-                            "UDP: Discarding late/duplicate reply with seq {} (not in pending)",
-                            header.sequence_number
+                            "UDP: Discarding late/duplicate reply with seq {seq} (not in pending)",
+                            seq = header.sequence_number
                         );
                         continue; // Keep waiting for a valid response
                     }
@@ -539,8 +543,8 @@ impl SyncTransport for SonyUdpTransport {
                         let new_seq = self.sequence.fetch_add(1, Ordering::SeqCst);
 
                         warn!(
-                            "Retrying UDP command (old seq {old_seq}, new seq {new_seq}, attempt {})",
-                            cmd.retries
+                            "Retrying UDP command (old seq {old_seq}, new seq {new_seq}, attempt {attempt})",
+                            attempt = cmd.retries
                         );
 
                         self.send_with_header(&cmd.bytes, new_seq)?;
