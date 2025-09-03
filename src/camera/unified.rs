@@ -475,7 +475,7 @@ where
     /// This method connects to the actual transport and command execution system,
     /// working correctly in blocking mode through direct transport access.
     pub fn send_command<C>(
-        &mut self,
+        &self,
         command: &C,
     ) -> <crate::mode::Blocking as Mode>::Ret<
         '_,
@@ -567,7 +567,7 @@ where
     ///
     /// This method demonstrates how typed commands work in the unified API for blocking mode.
     pub fn send_command_typed<C>(
-        &mut self,
+        &self,
         command: &C,
     ) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<C::Response, Error>>
     where

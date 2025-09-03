@@ -675,6 +675,36 @@ fn generate_typed_impl(
                 }
             }
         }
+        ("NoiseReduction2D", Some("byte"), _) => {
+            quote! {
+                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                    type Response = u8;
+
+                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                        match resp {
+                            #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::NoiseReduction2D { level }) => Ok(level),
+                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            _ => Err(#crate_path::Error::UnexpectedResponseType),
+                        }
+                    }
+                }
+            }
+        }
+        ("NoiseReduction3D", Some("byte"), _) => {
+            quote! {
+                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                    type Response = u8;
+
+                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                        match resp {
+                            #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::NoiseReduction3D { level }) => Ok(level),
+                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            _ => Err(#crate_path::Error::UnexpectedResponseType),
+                        }
+                    }
+                }
+            }
+        }
         ("Gamma", _, _) => {
             quote! {
                 impl #crate_path::command::typed::ViscaCommand for #struct_name {

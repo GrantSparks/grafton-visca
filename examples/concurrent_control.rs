@@ -421,7 +421,7 @@ async fn synchronized_movement() -> Result<()> {
         let cam = camera.clone();
         let state = *state;
         let handle = tokio::spawn(async move {
-            if let Some((_pan, _tilt)) = state {
+            if let Some(_position) = state {
                 // Move back to initial position
                 cam.pan_tilt_home().await?;
             }

@@ -19,6 +19,10 @@ pub mod movement_probe;
 pub mod profiles;
 pub mod unified;
 
+// Blocking-specific wrapper module
+#[cfg(not(feature = "async"))]
+pub mod blocking_api;
+
 // Re-export the unified camera types with convenient aliases
 pub use unified::Camera;
 
@@ -30,12 +34,13 @@ pub use unified::Camera;
 #[cfg(feature = "async")]
 pub type AsyncCamera<P, Tr, Exec> = Camera<crate::mode::Async, P, Tr, Exec>;
 
-/// Blocking camera type alias for easier usage.
+/// Blocking camera type alias for unified API usage.
 ///
 /// This type represents a camera operating in blocking mode with synchronous operations.
-/// It requires a sync transport for operation.
+/// It requires a sync transport for operation. For ergonomic blocking API with direct
+/// Result returns, see `blocking_api::BlockingCamera`.
 #[cfg(not(feature = "async"))]
-pub type BlockingCamera<P, Tr> = Camera<crate::mode::Blocking, P, Tr, ()>;
+pub type UnifiedBlockingCamera<P, Tr> = Camera<crate::mode::Blocking, P, Tr, ()>;
 
 // Re-export builder types
 pub use builder::CameraBuilder;
@@ -52,3 +57,140 @@ pub use builder::smol_cameras::SmolCamera;
 
 // Re-export movement detection types
 pub use movement_probe::{MovementConfig, PanTiltPosition};
+
+/// Internal trait that provides mode-agnostic sending capabilities.
+///
+/// This trait abstracts over the differences between async and blocking modes,
+/// allowing control traits to have a single implementation that works for both.
+pub trait CameraSend<M>
+where
+    M: crate::mode::Mode,
+{
+    /// Send a command and expect completion.
+    fn send_and_complete<C>(&self, command: C) -> M::Ret<'_, Result<(), crate::Error>>
+    where
+        C: crate::command::ViscaEncode + Send + Sync + Clone + 'static;
+
+    /// Send a typed command and parse the response.
+    fn send_and_parse<C>(&self, command: C) -> M::Ret<'_, Result<C::Response, crate::Error>>
+    where
+        C: crate::command::typed::ViscaCommand
+            + crate::command::ViscaEncode
+            + Send
+            + Sync
+            + Clone
+            + 'static,
+        C::Response: Send + 'static;
+
+    /// Return an error immediately.
+    fn error<T>(&self, error: crate::Error) -> M::Ret<'_, Result<T, crate::Error>>
+    where
+        T: Send + 'static;
+}
+
+// Async implementation of CameraSend
+#[cfg(feature = "async")]
+impl<P, Tr, Exec> CameraSend<crate::mode::Async> for Camera<crate::mode::Async, P, Tr, Exec>
+where
+    P: crate::capabilities::Profile + Default,
+    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
+    Exec: crate::executor::Executor + Send + Sync + Clone + 'static,
+{
+    fn send_and_complete<C>(
+        &self,
+        command: C,
+    ) -> <crate::mode::Async as crate::mode::Mode>::Ret<'_, Result<(), crate::Error>>
+    where
+        C: crate::command::ViscaEncode + Send + Sync + Clone + 'static,
+    {
+        use crate::mode::Mode;
+        let future = self.send_command(&command);
+        crate::mode::Async::ret_fut(async move {
+            use crate::command::response::ViscaResponse;
+            match future.await? {
+                ViscaResponse::Completion { .. } => Ok(()),
+                ViscaResponse::Error(e) => Err(e),
+                _ => Ok(()),
+            }
+        })
+    }
+
+    fn send_and_parse<C>(
+        &self,
+        command: C,
+    ) -> <crate::mode::Async as crate::mode::Mode>::Ret<'_, Result<C::Response, crate::Error>>
+    where
+        C: crate::command::typed::ViscaCommand
+            + crate::command::ViscaEncode
+            + Send
+            + Sync
+            + Clone
+            + 'static,
+        C::Response: Send + 'static,
+    {
+        self.send_command_typed(&command)
+    }
+
+    fn error<T>(
+        &self,
+        error: crate::Error,
+    ) -> <crate::mode::Async as crate::mode::Mode>::Ret<'_, Result<T, crate::Error>>
+    where
+        T: Send + 'static,
+    {
+        use crate::mode::Mode;
+        crate::mode::Async::ret(Err(error))
+    }
+}
+
+// Blocking implementation of CameraSend
+#[cfg(not(feature = "async"))]
+impl<P, Tr> CameraSend<crate::mode::Blocking> for Camera<crate::mode::Blocking, P, Tr, ()>
+where
+    P: crate::capabilities::Profile + Default,
+    Tr: crate::transport::SyncTransport + Send + 'static,
+{
+    fn send_and_complete<C>(
+        &self,
+        command: C,
+    ) -> <crate::mode::Blocking as crate::mode::Mode>::Ret<'_, Result<(), crate::Error>>
+    where
+        C: crate::command::ViscaEncode + Send + Sync + Clone + 'static,
+    {
+        let result = pollster::block_on(self.send_command(&command));
+        use crate::command::response::ViscaResponse;
+        std::future::ready(match result {
+            Ok(ViscaResponse::Completion { .. }) => Ok(()),
+            Ok(ViscaResponse::Error(e)) => Err(e),
+            Ok(_) => Ok(()),
+            Err(e) => Err(e),
+        })
+    }
+
+    fn send_and_parse<C>(
+        &self,
+        command: C,
+    ) -> <crate::mode::Blocking as crate::mode::Mode>::Ret<'_, Result<C::Response, crate::Error>>
+    where
+        C: crate::command::typed::ViscaCommand
+            + crate::command::ViscaEncode
+            + Send
+            + Sync
+            + Clone
+            + 'static,
+        C::Response: Send + 'static,
+    {
+        std::future::ready(pollster::block_on(self.send_command_typed(&command)))
+    }
+
+    fn error<T>(
+        &self,
+        error: crate::Error,
+    ) -> <crate::mode::Blocking as crate::mode::Mode>::Ret<'_, Result<T, crate::Error>>
+    where
+        T: Send + 'static,
+    {
+        use crate::mode::Mode;
+        crate::mode::Blocking::ret(Err(error))
+    }
+}

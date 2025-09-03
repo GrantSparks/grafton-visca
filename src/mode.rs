@@ -124,6 +124,32 @@ impl Mode for Blocking {
     }
 }
 
+/// Extension trait for blocking futures to provide ergonomic API.
+///
+/// This trait allows blocking mode futures (which are `Ready<T>`) to be
+/// easily converted to their inner values without needing explicit
+/// `pollster::block_on()` calls everywhere.
+#[cfg(not(feature = "async"))]
+pub trait BlockingFutureExt: Future {
+    /// Block on this future and return its output.
+    ///
+    /// For `Ready<T>` futures (used in blocking mode), this is a no-op
+    /// that immediately returns the value.
+    fn block(self) -> Self::Output
+    where
+        Self: Sized;
+}
+
+#[cfg(not(feature = "async"))]
+impl<T> BlockingFutureExt for Ready<T> {
+    #[inline]
+    fn block(self) -> T {
+        // Ready futures are immediately ready, so we can use pollster
+        // which is zero-cost for already-ready futures
+        pollster::block_on(self)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

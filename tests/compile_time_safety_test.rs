@@ -52,9 +52,7 @@ fn test_sony_fr7_has_nd_filter() -> Result<(), Error> {
 #[cfg(feature = "test-utils")]
 #[test]
 fn test_compile_time_capability_checking() {
-    fn adjust_nd_filter<P, T>(
-        _camera: &grafton_visca::camera::BlockingCamera<P, T>,
-    ) -> Result<(), Error>
+    fn adjust_nd_filter<P, T>(_camera: &grafton_visca::BlockingCamera<P, T>) -> Result<(), Error>
     where
         P: Profile + NdFilter,
         T: grafton_visca::transport::SyncTransport + Send + Sync + 'static,
@@ -75,7 +73,7 @@ fn test_compile_time_capability_checking() {
 #[test]
 fn test_generic_functions_with_trait_bounds() {
     fn basic_control<P>(
-        camera: &mut grafton_visca::camera::BlockingCamera<P, ScriptedSyncTransport>,
+        camera: &mut grafton_visca::BlockingCamera<P, ScriptedSyncTransport>,
     ) -> Result<(), Error>
     where
         P: Profile + Default,
@@ -86,7 +84,7 @@ fn test_generic_functions_with_trait_bounds() {
     }
 
     fn motion_sync_control<P>(
-        _camera: &mut grafton_visca::camera::BlockingCamera<P, ScriptedSyncTransport>,
+        _camera: &mut grafton_visca::BlockingCamera<P, ScriptedSyncTransport>,
     ) -> Result<(), Error>
     where
         P: Profile + MotionSync + Default,

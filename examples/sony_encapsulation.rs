@@ -200,8 +200,11 @@ async fn main() -> Result<(), Error> {
     // Get current position
     println!("Getting current camera position...");
     match camera.get_pan_tilt_position().await {
-        Ok((pan, tilt)) => {
-            println!("  Current position: Pan={}, Tilt={}", pan, tilt);
+        Ok(position) => {
+            println!(
+                "  Current position: Pan={}, Tilt={}",
+                position.pan, position.tilt
+            );
         }
         Err(e) => println!("  Could not get position: {}", e),
     }

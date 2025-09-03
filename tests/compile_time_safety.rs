@@ -4,7 +4,7 @@
 use grafton_visca::camera::AsyncCamera;
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::camera::BlockingCamera;
+use grafton_visca::BlockingCamera;
 
 use grafton_visca::{
     camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7},

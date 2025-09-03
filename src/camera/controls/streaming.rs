@@ -1,190 +1,49 @@
-//! High-level API methods for network and streaming control.
-//!
-//! This module provides convenient methods for controlling PtzOptics Ndi streaming features.
+//! Unified streaming control implementation using Mode trait.
 
-use crate::{types::NdiQuality, Result};
+use crate::{camera::CameraSend, mode::Mode, types::NdiQuality, Error};
 
-/// Operations for controlling network and streaming features.
+/// Unified streaming operations for cameras.
+///
+/// This trait provides streaming control methods that work seamlessly for both
+/// blocking and async cameras through the Mode trait system.
 pub trait StreamingControl {
-    /// Enable multicast streaming for Ndi cameras.
-    ///
-    /// # Errors
-    /// Returns an error if the command fails or the camera doesn't support Ndi multicast.
-    ///
-    /// # Example
-    /// ```ignore
-    /// # #[cfg(feature = "async")]
-    /// # async fn example_async() -> Result<(), Box<dyn std::error::Error>> {
-    /// # use grafton_visca::r#async::{Camera, StreamingControl};
-    /// # use grafton_visca::runtime_adapters::tokio::TcpTransport as Tcp;
-    /// # let transport = Tcp::connect("192.168.0.110:52381").await?;
-    /// # let camera = Camera::new(transport);
-    /// camera.enable_multicast().await?;
-    /// # Ok(())
-    /// # }
-    /// #
-    /// # #[cfg(not(feature = "async"))]
-    /// # fn example_blocking() -> Result<(), Box<dyn std::error::Error>> {
-    /// # use grafton_visca::blocking::{Camera, StreamingControl};
-    /// # use grafton_visca::transport::blocking::Tcp;
-    /// # let transport = Tcp::connect("192.168.0.110:52381")?;
-    /// # let inner_camera = grafton_visca::Camera::<grafton_visca::camera::profiles::GenericVisca, _>::new(transport);
-    /// # let mut camera = Camera::new(inner_camera);
-    /// camera.enable_multicast()?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[cfg(feature = "async")]
-    fn enable_multicast(&self) -> impl std::future::Future<Output = Result<()>> + Send + '_;
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
 
     /// Enable multicast streaming for Ndi cameras.
-    ///
-    /// # Errors
-    /// Returns an error if the command fails or the camera doesn't support Ndi multicast.
-    #[cfg(not(feature = "async"))]
-    fn enable_multicast(&mut self) -> Result<()>;
+    fn enable_multicast(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
 
     /// Disable multicast streaming for Ndi cameras.
-    ///
-    /// # Errors
-    /// Returns an error if the command fails or the camera doesn't support Ndi multicast.
-    ///
-    /// # Example
-    /// ```ignore
-    /// # #[cfg(feature = "async")]
-    /// # async fn example_async() -> Result<(), Box<dyn std::error::Error>> {
-    /// # use grafton_visca::r#async::{Camera, StreamingControl};
-    /// # use grafton_visca::runtime_adapters::tokio::TcpTransport as Tcp;
-    /// # let transport = Tcp::connect("192.168.0.110:52381").await?;
-    /// # let camera = Camera::new(transport);
-    /// camera.disable_multicast().await?;
-    /// # Ok(())
-    /// # }
-    /// #
-    /// # #[cfg(not(feature = "async"))]
-    /// # fn example_blocking() -> Result<(), Box<dyn std::error::Error>> {
-    /// # use grafton_visca::blocking::{Camera, StreamingControl};
-    /// # use grafton_visca::transport::blocking::Tcp;
-    /// # let transport = Tcp::connect("192.168.0.110:52381")?;
-    /// # let inner_camera = grafton_visca::Camera::<grafton_visca::camera::profiles::GenericVisca, _>::new(transport);
-    /// # let mut camera = Camera::new(inner_camera);
-    /// camera.disable_multicast()?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[cfg(feature = "async")]
-    fn disable_multicast(&self) -> impl std::future::Future<Output = Result<()>> + Send + '_;
-
-    /// Disable multicast streaming for Ndi cameras.
-    ///
-    /// # Errors
-    /// Returns an error if the command fails or the camera doesn't support Ndi multicast.
-    #[cfg(not(feature = "async"))]
-    fn disable_multicast(&mut self) -> Result<()>;
+    fn disable_multicast(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
 
     /// Set the Ndi streaming quality.
-    ///
-    /// # Errors
-    /// Returns an error if the command fails or the camera doesn't support Ndi quality control.
-    ///
-    /// # Example
-    /// ```ignore
-    /// # #[cfg(feature = "async")]
-    /// # async fn example_async() -> Result<(), Box<dyn std::error::Error>> {
-    /// # use grafton_visca::r#async::{Camera, StreamingControl};
-    /// # use grafton_visca::runtime_adapters::tokio::TcpTransport as Tcp;
-    /// # use grafton_visca::types::NdiQuality;
-    /// # let transport = Tcp::connect("192.168.0.110:52381").await?;
-    /// # let camera = Camera::new(transport);
-    /// camera.set_ndi_quality(NdiQuality::High).await?;
-    /// # Ok(())
-    /// # }
-    /// #
-    /// # #[cfg(not(feature = "async"))]
-    /// # fn example_blocking() -> Result<(), Box<dyn std::error::Error>> {
-    /// # use grafton_visca::blocking::{Camera, StreamingControl};
-    /// # use grafton_visca::transport::blocking::Tcp;
-    /// # use grafton_visca::types::NdiQuality;
-    /// # let transport = Tcp::connect("192.168.0.110:52381")?;
-    /// # let inner_camera = grafton_visca::Camera::<grafton_visca::camera::profiles::GenericVisca, _>::new(transport);
-    /// # let mut camera = Camera::new(inner_camera);
-    /// camera.set_ndi_quality(NdiQuality::High)?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[cfg(feature = "async")]
     fn set_ndi_quality(
         &self,
         quality: NdiQuality,
-    ) -> impl std::future::Future<Output = Result<()>> + Send + '_;
-
-    /// Set the Ndi streaming quality.
-    ///
-    /// # Errors
-    /// Returns an error if the command fails or the camera doesn't support Ndi quality control.
-    #[cfg(not(feature = "async"))]
-    fn set_ndi_quality(&mut self, quality: NdiQuality) -> Result<()>;
+    ) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
 }
 
-// Unified implementation for AsyncCamera
-#[cfg(feature = "async")]
-impl<P, Tr, Exec> StreamingControl for crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
+// Single unified implementation for all Camera types!
+impl<M, P, Tr, Exec> StreamingControl for crate::camera::Camera<M, P, Tr, Exec>
 where
+    M: Mode,
     P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
-    Exec: crate::executor::Executor,
+    Self: CameraSend<M>,
 {
-    async fn enable_multicast(&self) -> Result<()> {
+    type Mode = M;
+
+    fn enable_multicast(&self) -> M::Ret<'_, Result<(), Error>> {
         use crate::command::streaming::MulticastStreaming;
-        let cmd = MulticastStreaming::On;
-        self.send_command(&cmd).await?;
-        Ok(())
+        self.send_and_complete(MulticastStreaming::On)
     }
 
-    async fn disable_multicast(&self) -> Result<()> {
+    fn disable_multicast(&self) -> M::Ret<'_, Result<(), Error>> {
         use crate::command::streaming::MulticastStreaming;
-
-        let cmd = MulticastStreaming::Off;
-        self.send_command(&cmd).await?;
-        Ok(())
+        self.send_and_complete(MulticastStreaming::Off)
     }
 
-    async fn set_ndi_quality(&self, quality: NdiQuality) -> Result<()> {
+    fn set_ndi_quality(&self, quality: NdiQuality) -> M::Ret<'_, Result<(), Error>> {
         use crate::command::streaming::NdiQualityCommand;
-
-        let cmd = NdiQualityCommand::new(quality);
-        self.send_command(&cmd).await?;
-        Ok(())
-    }
-}
-
-// Unified implementation for BlockingCamera
-#[cfg(not(feature = "async"))]
-impl<P, Tr> StreamingControl for crate::camera::Camera<crate::mode::Blocking, P, Tr, ()>
-where
-    P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::SyncTransport + Send + 'static,
-{
-    fn enable_multicast(&mut self) -> Result<()> {
-        use crate::command::streaming::MulticastStreaming;
-        let cmd = MulticastStreaming::On;
-        pollster::block_on(self.send_command(&cmd))?;
-        Ok(())
-    }
-
-    fn disable_multicast(&mut self) -> Result<()> {
-        use crate::command::streaming::MulticastStreaming;
-
-        let cmd = MulticastStreaming::Off;
-        pollster::block_on(self.send_command(&cmd))?;
-        Ok(())
-    }
-
-    fn set_ndi_quality(&mut self, quality: NdiQuality) -> Result<()> {
-        use crate::command::streaming::NdiQualityCommand;
-
-        let cmd = NdiQualityCommand::new(quality);
-        pollster::block_on(self.send_command(&cmd))?;
-        Ok(())
+        self.send_and_complete(NdiQualityCommand::new(quality))
     }
 }

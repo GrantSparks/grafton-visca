@@ -3,9 +3,7 @@
 #[cfg(not(feature = "async"))]
 #[test]
 fn test_blocking_wrapper_api() {
-    use grafton_visca::{
-        camera::BlockingCamera, capabilities::Profile, transport::SyncTransport, ZoomControl,
-    };
+    use grafton_visca::{capabilities::Profile, transport::SyncTransport, BlockingCamera};
 
     fn _example<P: Profile + Default, T>(
         camera: &mut BlockingCamera<P, T>,
@@ -53,7 +51,7 @@ fn test_wrapper_creation() {
     use grafton_visca::{camera::AsyncCamera, transport::AsyncTransport};
 
     #[cfg(not(feature = "async"))]
-    use grafton_visca::camera::BlockingCamera;
+    use grafton_visca::BlockingCamera;
 
     #[cfg(not(feature = "async"))]
     use grafton_visca::transport::SyncTransport;
