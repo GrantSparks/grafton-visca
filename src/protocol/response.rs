@@ -306,7 +306,7 @@ mod tests {
         let response = decode_basic(&frame).expect("Failed to decode ACK");
         assert_eq!(response.kind, BasicKind::Ack);
         assert_eq!(response.socket, Some(ViscaSocket::S1));
-        assert_eq!(response.payload, &[]);
+        assert_eq!(response.payload, [].as_slice());
 
         let frame = vec![0x90, 0x42, VISCA_TERMINATOR];
         let response = decode_basic(&frame).expect("Failed to decode ACK");
@@ -320,7 +320,7 @@ mod tests {
         let response = decode_basic(&frame).expect("Failed to decode Completion");
         assert_eq!(response.kind, BasicKind::Completion);
         assert_eq!(response.socket, Some(ViscaSocket::S1));
-        assert_eq!(response.payload, &[]);
+        assert_eq!(response.payload, [].as_slice());
 
         let frame = vec![0x90, 0x52, VISCA_TERMINATOR];
         let response = decode_basic(&frame).expect("Failed to decode Completion");
@@ -361,7 +361,7 @@ mod tests {
         let response = decode_basic(&frame).expect("Failed to decode NetworkChange");
         assert_eq!(response.kind, BasicKind::NetworkChange);
         assert_eq!(response.socket, None);
-        assert_eq!(response.payload, &[]);
+        assert_eq!(response.payload, [].as_slice());
     }
 
     #[test]

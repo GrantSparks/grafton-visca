@@ -16,6 +16,14 @@ use crate::{
     transport::buffer::BufferManager,
 };
 
+/// Metadata extracted from or used during framing operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(any(test, not(feature = "async")))]
+pub(crate) struct FrameMeta {
+    /// Sequence number for Sony protocol, None for raw VISCA.
+    pub sequence: Option<u32>,
+}
+
 /// Transport envelope that handles protocol-specific framing.
 ///
 /// Different camera manufacturers use different framing approaches:
@@ -64,6 +72,107 @@ impl TransportEnvelope {
         match self.style {
             ProtocolStyle::RawVisca => Ok(Bytes::copy_from_slice(framed_bytes)),
             ProtocolStyle::SonyEncapsulated { .. } => self.sony_extract_payload(framed_bytes),
+        }
+    }
+
+    /// Frame a VISCA command with metadata about the framing.
+    ///
+    /// For raw VISCA, returns the command bytes unchanged with None sequence.
+    /// For Sony encapsulated, wraps with 8-byte header and returns the sequence number used.
+    #[inline(always)]
+    #[cfg(any(test, not(feature = "async")))]
+    pub(crate) fn frame_with_meta(
+        &self,
+        visca_bytes: &[u8],
+        is_inquiry: bool,
+        buffer_manager: &BufferManager,
+    ) -> (Bytes, FrameMeta) {
+        match self.style {
+            ProtocolStyle::RawVisca => (
+                Bytes::copy_from_slice(visca_bytes),
+                FrameMeta { sequence: None },
+            ),
+            ProtocolStyle::SonyEncapsulated { use_sequence } => {
+                let sequence = if use_sequence {
+                    self.next_sequence()
+                } else {
+                    0
+                };
+
+                let header = if is_inquiry {
+                    SonyHeader::new_inquiry(visca_bytes.len(), sequence)
+                } else {
+                    SonyHeader::new_command(visca_bytes.len(), sequence)
+                };
+
+                let mut envelope = buffer_manager.alloc_send_buffer();
+                envelope.reserve(SonyHeader::SIZE + visca_bytes.len());
+                envelope.extend_from_slice(&header.encode());
+                envelope.extend_from_slice(visca_bytes);
+
+                (
+                    envelope.freeze(),
+                    FrameMeta {
+                        sequence: Some(sequence),
+                    },
+                )
+            }
+        }
+    }
+
+    /// Extract VISCA payload and metadata from a framed response.
+    ///
+    /// For raw VISCA, returns the bytes unchanged with None sequence.
+    /// For Sony encapsulated, extracts payload and sequence from 8-byte header.
+    #[inline(always)]
+    #[cfg(any(test, not(feature = "async")))]
+    pub(crate) fn extract_with_meta(
+        &self,
+        framed_bytes: &[u8],
+    ) -> Result<(Bytes, FrameMeta), crate::Error> {
+        match self.style {
+            ProtocolStyle::RawVisca => Ok((
+                Bytes::copy_from_slice(framed_bytes),
+                FrameMeta { sequence: None },
+            )),
+            ProtocolStyle::SonyEncapsulated { .. } => {
+                if framed_bytes.len() < SonyHeader::SIZE {
+                    return Err(crate::Error::ParseError(Cow::Borrowed(
+                        "Sony response too short for header",
+                    )));
+                }
+
+                let header = SonyHeader::decode(framed_bytes).ok_or(crate::Error::ParseError(
+                    Cow::Borrowed("Invalid Sony header format"),
+                ))?;
+
+                // Validate payload type
+                match header.payload_type {
+                    PayloadType::ViscaReply => {
+                        // Expected for camera responses
+                    }
+                    other => {
+                        tracing::warn!("Unexpected Sony payload type in response: {other:?}");
+                    }
+                }
+
+                // Validate length
+                let expected_payload_len = framed_bytes.len() - SonyHeader::SIZE;
+                if header.payload_length as usize != expected_payload_len {
+                    return Err(crate::Error::ParseError(Cow::Owned(format!(
+                        "Sony header length mismatch: header says {}, actual payload is {}",
+                        header.payload_length, expected_payload_len
+                    ))));
+                }
+
+                let payload = Bytes::copy_from_slice(&framed_bytes[SonyHeader::SIZE..]);
+                Ok((
+                    payload,
+                    FrameMeta {
+                        sequence: Some(header.sequence_number),
+                    },
+                ))
+            }
         }
     }
 
@@ -496,5 +605,132 @@ mod tests {
 
         drop(framed1);
         assert_eq!(framed2.len(), 1000);
+    }
+
+    #[test]
+    fn test_frame_with_meta_raw_visca() {
+        let envelope = TransportEnvelope::new(ProtocolStyle::RawVisca);
+        let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
+
+        let (framed, meta) = envelope.frame_with_meta(&visca_cmd, false, &test_buffer_manager());
+
+        assert_eq!(&framed[..], &visca_cmd[..]);
+        assert_eq!(meta.sequence, None);
+    }
+
+    #[test]
+    fn test_frame_with_meta_sony_command() {
+        let envelope =
+            TransportEnvelope::new(ProtocolStyle::SonyEncapsulated { use_sequence: true });
+        let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
+
+        let (framed, meta) = envelope.frame_with_meta(&visca_cmd, false, &test_buffer_manager());
+
+        assert_eq!(framed.len(), 14); // 8 byte header + 6 byte command
+        assert_eq!(meta.sequence, Some(0)); // First sequence
+
+        // Verify sequence increments
+        let (_, meta2) = envelope.frame_with_meta(&visca_cmd, false, &test_buffer_manager());
+        assert_eq!(meta2.sequence, Some(1));
+    }
+
+    #[test]
+    fn test_frame_with_meta_sony_inquiry() {
+        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated {
+            use_sequence: false,
+        });
+        let visca_inquiry = vec![0x81, 0x09, 0x04, 0x00, VISCA_TERMINATOR];
+
+        let (framed, meta) = envelope.frame_with_meta(&visca_inquiry, true, &test_buffer_manager());
+
+        assert_eq!(framed.len(), 13); // 8 byte header + 5 byte inquiry
+        assert_eq!(meta.sequence, Some(0)); // No sequence tracking
+
+        // Check inquiry header type
+        assert_eq!(&framed[0..2], &[0x01, 0x10]); // Inquiry payload type
+    }
+
+    #[test]
+    fn test_extract_with_meta_raw_visca() {
+        let envelope = TransportEnvelope::new(ProtocolStyle::RawVisca);
+        let visca_response = vec![0x90, 0x41, VISCA_TERMINATOR];
+
+        let result = envelope.extract_with_meta(&visca_response);
+        assert!(result.is_ok());
+
+        let (payload, meta) = result.expect("valid response");
+        assert_eq!(&payload[..], &visca_response[..]);
+        assert_eq!(meta.sequence, None);
+    }
+
+    #[test]
+    fn test_extract_with_meta_sony_response() {
+        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated {
+            use_sequence: false,
+        });
+
+        // Create a mock Sony response with sequence 42
+        let visca_ack = vec![0x90, 0x41, VISCA_TERMINATOR];
+        let mut response = Vec::new();
+        response.extend_from_slice(&[0x01, 0x11]); // Reply payload type
+        response.extend_from_slice(&(3u16).to_be_bytes()); // Length = 3
+        response.extend_from_slice(&42u32.to_be_bytes()); // Sequence = 42
+        response.extend_from_slice(&visca_ack); // VISCA payload
+
+        let result = envelope.extract_with_meta(&response);
+        assert!(result.is_ok());
+
+        let (payload, meta) = result.expect("valid response");
+        assert_eq!(&payload[..], &visca_ack[..]);
+        assert_eq!(meta.sequence, Some(42));
+    }
+
+    #[test]
+    fn test_extract_with_meta_invalid_sony() {
+        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated {
+            use_sequence: false,
+        });
+
+        // Too short
+        let short_response = vec![0x01, 0x11, 0x00];
+        let result = envelope.extract_with_meta(&short_response);
+        assert!(result.is_err());
+
+        // Invalid header
+        let mut invalid_response = vec![0xFF, VISCA_TERMINATOR]; // Invalid payload type
+        invalid_response.extend_from_slice(&(3u16).to_be_bytes());
+        invalid_response.extend_from_slice(&0u32.to_be_bytes());
+        invalid_response.extend_from_slice(&[0x90, 0x41, VISCA_TERMINATOR]);
+        let result = envelope.extract_with_meta(&invalid_response);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_frame_extract_roundtrip() {
+        let envelope =
+            TransportEnvelope::new(ProtocolStyle::SonyEncapsulated { use_sequence: true });
+        let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
+
+        // Frame a command
+        let (_framed, frame_meta) =
+            envelope.frame_with_meta(&visca_cmd, false, &test_buffer_manager());
+        assert_eq!(frame_meta.sequence, Some(0));
+
+        // Create a response with the same sequence
+        let visca_response = vec![0x90, 0x41, VISCA_TERMINATOR];
+        let mut response = Vec::new();
+        response.extend_from_slice(&[0x01, 0x11]); // Reply type
+        response.extend_from_slice(&(3u16).to_be_bytes()); // Length
+        response.extend_from_slice(&0u32.to_be_bytes()); // Same sequence as command
+        response.extend_from_slice(&visca_response);
+
+        // Extract the response
+        let (payload, extract_meta) = envelope
+            .extract_with_meta(&response)
+            .expect("valid response");
+
+        assert_eq!(&payload[..], &visca_response[..]);
+        assert_eq!(extract_meta.sequence, Some(0));
+        assert_eq!(frame_meta.sequence, extract_meta.sequence);
     }
 }

@@ -10,7 +10,6 @@ use std::{
     collections::HashMap,
     io::{BufReader, Read, Write},
     net::TcpStream,
-    sync::atomic::{AtomicU32, Ordering},
     time::{Duration, Instant},
 };
 use tracing::{debug, error, trace, warn};
@@ -18,16 +17,21 @@ use tracing::{debug, error, trace, warn};
 pub use crate::transport::sony_config::SonyIpConfig;
 
 #[cfg(not(feature = "async"))]
-use crate::{protocol::sony::PayloadType, transport::SyncTransport};
+use crate::transport::SyncTransport;
 
 use crate::{
+    capabilities::ProtocolStyle,
     error::{Error, Result},
     protocol::sony::SonyHeader,
     transport::{
         address::AddressResolver,
         buffer::{BufferConfig, BufferManager},
+        envelope::TransportEnvelope,
     },
 };
+
+#[cfg(not(feature = "async"))]
+use crate::transport::envelope::FrameMeta;
 
 /// Pending command information for retry handling.
 #[derive(Debug, Clone)]
@@ -45,7 +49,7 @@ struct PendingCommand {
 pub struct SonyTcpTransport {
     reader: BufReader<TcpStream>,
     writer: TcpStream,
-    sequence: AtomicU32,
+    envelope: TransportEnvelope,
     pending: HashMap<u32, PendingCommand>,
     buffer_manager: BufferManager,
     read_buffer: BytesMut,
@@ -88,10 +92,14 @@ impl SonyTcpTransport {
         // Create buffer manager with Sony IP optimized sizes
         let buffer_manager = BufferManager::new(BufferConfig::for_sony_ip());
 
+        // Create envelope for Sony protocol with sequence tracking
+        let envelope =
+            TransportEnvelope::new(ProtocolStyle::SonyEncapsulated { use_sequence: true });
+
         Ok(Self {
             reader,
             writer,
-            sequence: AtomicU32::new(1),
+            envelope,
             pending: HashMap::new(),
             buffer_manager,
             read_buffer: buffer_manager.alloc_recv_buffer(),
@@ -99,49 +107,44 @@ impl SonyTcpTransport {
         })
     }
 
-    /// Send a command with Sony header.
-    fn send_with_header(&mut self, bytes: &[u8], sequence: u32) -> Result<()> {
+    /// Send a command using the transport envelope.
+    fn send_framed(&mut self, bytes: &[u8]) -> Result<u32> {
         // Check if this is an inquiry (second byte is 0x09)
         let is_inquiry = bytes.len() >= 2 && bytes[1] == 0x09;
-        let header = if is_inquiry {
-            SonyHeader::new_inquiry(bytes.len(), sequence)
-        } else {
-            SonyHeader::new_command(bytes.len(), sequence)
-        };
-        let mut packet = self.buffer_manager.alloc_send_buffer();
 
-        // Use the header's encode method for consistency
-        packet.extend_from_slice(&header.encode());
+        // Use envelope to frame the command
+        let (framed, meta) = self
+            .envelope
+            .frame_with_meta(bytes, is_inquiry, &self.buffer_manager);
 
-        // Add payload
-        packet.extend_from_slice(bytes);
+        // Get the sequence number (should always be Some for Sony)
+        let sequence = meta.sequence.unwrap_or(0);
 
-        // Send packet
+        // Send framed packet
         self.writer
-            .write_all(&packet)
+            .write_all(&framed)
             .map_err(|e| Error::TransportError(format!("TCP write error: {e}").into()))?;
         self.writer
             .flush()
             .map_err(|e| Error::TransportError(format!("TCP flush error: {e}").into()))?;
 
         trace!(
-            "Sent packet with seq {sequence}: header={header:02X?} payload={payload:02X?}",
+            "Sent packet with seq {sequence}: framed={framed:02X?}",
             sequence = sequence,
-            header = &packet[..SonyHeader::SIZE],
-            payload = bytes
+            framed = framed
         );
 
-        Ok(())
+        Ok(sequence)
     }
 
-    /// Receive a Sony encapsulated frame.
-    fn recv_sony_frame(&mut self) -> Result<(SonyHeader, Bytes)> {
+    /// Receive a Sony encapsulated frame using the transport envelope.
+    fn recv_sony_frame(&mut self) -> Result<(Bytes, FrameMeta)> {
         let mut temp_buf = self.buffer_manager.alloc_vec_buffer();
 
         loop {
             // Check if we have a complete header
             if self.read_buffer.len() >= SonyHeader::SIZE {
-                // Parse header
+                // Parse header to get payload length
                 let _payload_type = u16::from_be_bytes([self.read_buffer[0], self.read_buffer[1]]);
                 let payload_length =
                     u16::from_be_bytes([self.read_buffer[2], self.read_buffer[3]]) as usize;
@@ -154,31 +157,20 @@ impl SonyTcpTransport {
 
                 // Check if we have the complete payload
                 if self.read_buffer.len() >= SonyHeader::SIZE + payload_length {
-                    // Extract frame - use decode method for consistency
-                    let header_bytes = self.read_buffer.split_to(SonyHeader::SIZE);
-                    let payload = self.read_buffer.split_to(payload_length);
+                    // Extract complete frame
+                    let frame_size = SonyHeader::SIZE + payload_length;
+                    let frame_bytes = self.read_buffer.split_to(frame_size);
 
-                    let header = match SonyHeader::decode(&header_bytes) {
-                        Some(h) => h,
-                        None => {
-                            warn!("Failed to decode Sony header: {header_bytes:02X?}");
-                            return Err(Error::InvalidResponse {
-                                expected: "Valid Sony header".into(),
-                                actual: format!("Invalid header bytes: {:02X?}", header_bytes)
-                                    .into(),
-                            });
-                        }
-                    };
+                    // Use envelope to extract payload and metadata
+                    let (payload, meta) = self.envelope.extract_with_meta(&frame_bytes)?;
 
                     trace!(
-                        "Received Sony frame: seq={seq} type={frame_type:?} len={len} payload={payload:02X?}",
-                        seq = header.sequence_number,
-                        frame_type = header.payload_type,
-                        len = header.payload_length,
+                        "Received Sony frame: seq={seq:?} payload={payload:02X?}",
+                        seq = meta.sequence,
                         payload = payload
                     );
 
-                    return Ok((header, payload.freeze()));
+                    return Ok((payload, meta));
                 }
             }
 
@@ -212,8 +204,8 @@ impl SonyTcpTransport {
                 cmd.sent_at = Instant::now();
                 let bytes = cmd.bytes.clone();
 
-                // For UDP retries, allocate a new sequence number as per VISCA spec
-                let new_sequence = self.sequence.fetch_add(1, Ordering::SeqCst);
+                // Send with new sequence (envelope will allocate it)
+                let new_sequence = self.send_framed(&bytes)?;
 
                 // Insert command with new sequence
                 self.pending.insert(new_sequence, cmd);
@@ -221,7 +213,6 @@ impl SonyTcpTransport {
                 warn!(
                     "Retrying command (old seq: {old_sequence}, new seq: {new_sequence}, attempt {retry_count})"
                 );
-                self.send_with_header(&bytes, new_sequence)?;
             } else {
                 error!("Max retries exceeded for seq {old_sequence}");
                 return Err(Error::MaxRetriesExceeded);
@@ -250,7 +241,8 @@ impl SonyTcpTransport {
 #[cfg(not(feature = "async"))]
 impl SyncTransport for SonyTcpTransport {
     fn send(&mut self, bytes: &[u8]) -> Result<()> {
-        let sequence = self.sequence.fetch_add(1, Ordering::SeqCst);
+        // Send with envelope and get sequence
+        let sequence = self.send_framed(bytes)?;
 
         // Store pending command for potential retry
         self.pending.insert(
@@ -262,9 +254,6 @@ impl SyncTransport for SonyTcpTransport {
             },
         );
 
-        // Send with header
-        self.send_with_header(bytes, sequence)?;
-
         // Clean up old pending commands
         self.cleanup_pending();
 
@@ -274,17 +263,17 @@ impl SyncTransport for SonyTcpTransport {
     fn recv(&mut self) -> Result<Bytes> {
         loop {
             match self.recv_sony_frame() {
-                Ok((header, payload)) => {
-                    // Only accept replies that match a pending command
-                    if header.payload_type == PayloadType::ViscaReply
-                        && self.pending.remove(&header.sequence_number).is_none()
-                    {
-                        // Late or duplicate reply - discard it
-                        warn!(
-                            "TCP: Discarding late/duplicate reply with seq {seq} (not in pending)",
-                            seq = header.sequence_number
-                        );
-                        continue; // Keep waiting for a valid response
+                Ok((payload, meta)) => {
+                    // Get sequence from metadata
+                    if let Some(seq) = meta.sequence {
+                        // Only accept replies that match a pending command
+                        if self.pending.remove(&seq).is_none() {
+                            // Late or duplicate reply - discard it
+                            warn!(
+                                "TCP: Discarding late/duplicate reply with seq {seq} (not in pending)"
+                            );
+                            continue; // Keep waiting for a valid response
+                        }
                     }
 
                     return Ok(payload);
@@ -343,7 +332,7 @@ impl SyncTransport for SonyTcpTransport {
 #[derive(Debug)]
 pub struct SonyUdpTransport {
     socket: std::net::UdpSocket,
-    sequence: AtomicU32,
+    envelope: TransportEnvelope,
     pending: HashMap<u32, PendingCommand>,
     buffer_manager: BufferManager,
     config: SonyIpConfig,
@@ -384,82 +373,64 @@ impl SonyUdpTransport {
         // Create buffer manager with Sony IP optimized sizes
         let buffer_manager = BufferManager::new(BufferConfig::for_sony_ip());
 
+        // Create envelope for Sony protocol with sequence tracking
+        let envelope =
+            TransportEnvelope::new(ProtocolStyle::SonyEncapsulated { use_sequence: true });
+
         Ok(Self {
             socket,
-            sequence: AtomicU32::new(1),
+            envelope,
             pending: HashMap::new(),
             buffer_manager,
             config,
         })
     }
 
-    /// Send a command with Sony header.
-    fn send_with_header(&mut self, bytes: &[u8], sequence: u32) -> Result<()> {
+    /// Send a command using the transport envelope.
+    fn send_framed(&mut self, bytes: &[u8]) -> Result<u32> {
         // Check if this is an inquiry (second byte is 0x09)
         let is_inquiry = bytes.len() >= 2 && bytes[1] == 0x09;
-        let header = if is_inquiry {
-            SonyHeader::new_inquiry(bytes.len(), sequence)
-        } else {
-            SonyHeader::new_command(bytes.len(), sequence)
-        };
-        let mut packet = self.buffer_manager.alloc_send_buffer();
 
-        // Use the header's encode method for consistency
-        packet.extend_from_slice(&header.encode());
+        // Use envelope to frame the command
+        let (framed, meta) = self
+            .envelope
+            .frame_with_meta(bytes, is_inquiry, &self.buffer_manager);
 
-        // Add payload
-        packet.extend_from_slice(bytes);
+        // Get the sequence number (should always be Some for Sony)
+        let sequence = meta.sequence.unwrap_or(0);
 
-        // Send packet
+        // Send framed packet
         self.socket
-            .send(&packet)
+            .send(&framed)
             .map_err(|e| Error::TransportError(format!("UDP send error: {e}").into()))?;
 
-        trace!("Sent UDP packet with seq {sequence}: {packet:02X?}");
+        trace!("Sent UDP packet with seq {sequence}: {framed:02X?}");
 
-        Ok(())
+        Ok(sequence)
     }
 
-    /// Receive a Sony encapsulated frame.
-    fn recv_sony_frame(&mut self) -> Result<(SonyHeader, Bytes)> {
+    /// Receive a Sony encapsulated frame using the transport envelope.
+    fn recv_sony_frame(&mut self) -> Result<(Bytes, FrameMeta)> {
         let mut temp_buf = self.buffer_manager.alloc_vec_buffer();
 
         match self.socket.recv(&mut temp_buf) {
             Ok(n) if n >= SonyHeader::SIZE => {
-                // Parse header
+                // Parse header to get payload length
                 let _payload_type = u16::from_be_bytes([temp_buf[0], temp_buf[1]]);
                 let payload_length = u16::from_be_bytes([temp_buf[2], temp_buf[3]]) as usize;
-                let _sequence_number =
-                    u32::from_be_bytes([temp_buf[4], temp_buf[5], temp_buf[6], temp_buf[7]]);
 
                 if n >= SonyHeader::SIZE + payload_length {
-                    // Use decode method for consistency
-                    let header = match SonyHeader::decode(&temp_buf[..SonyHeader::SIZE]) {
-                        Some(h) => h,
-                        None => {
-                            warn!(
-                                "Failed to decode Sony header from UDP: {:02X?}",
-                                &temp_buf[..SonyHeader::SIZE]
-                            );
-                            return Err(Error::InvalidResponse {
-                                expected: "Valid Sony header".into(),
-                                actual: "Invalid header bytes".to_string().into(),
-                            });
-                        }
-                    };
-
-                    let payload = Bytes::copy_from_slice(
-                        &temp_buf[SonyHeader::SIZE..SonyHeader::SIZE + payload_length],
-                    );
+                    // Use envelope to extract payload and metadata
+                    let frame_bytes = &temp_buf[..SonyHeader::SIZE + payload_length];
+                    let (payload, meta) = self.envelope.extract_with_meta(frame_bytes)?;
 
                     trace!(
-                        "Received UDP frame: seq={seq} type={frame_type:?} payload={payload:02X?}",
-                        seq = header.sequence_number,
-                        frame_type = header.payload_type,
+                        "Received UDP frame: seq={seq:?} payload={payload:02X?}",
+                        seq = meta.sequence,
                         payload = payload
                     );
 
-                    Ok((header, payload))
+                    Ok((payload, meta))
                 } else {
                     Err(Error::InvalidResponse {
                         expected: format!("Sony frame with {payload_length} byte payload").into(),
@@ -484,7 +455,8 @@ impl SonyUdpTransport {
 #[cfg(not(feature = "async"))]
 impl SyncTransport for SonyUdpTransport {
     fn send(&mut self, bytes: &[u8]) -> Result<()> {
-        let sequence = self.sequence.fetch_add(1, Ordering::SeqCst);
+        // Send with envelope and get sequence
+        let sequence = self.send_framed(bytes)?;
 
         // Store pending command for potential retry
         self.pending.insert(
@@ -496,26 +468,23 @@ impl SyncTransport for SonyUdpTransport {
             },
         );
 
-        // Send with header
-        self.send_with_header(bytes, sequence)?;
-
         Ok(())
     }
 
     fn recv(&mut self) -> Result<Bytes> {
         loop {
             match self.recv_sony_frame() {
-                Ok((header, payload)) => {
-                    // Only accept replies that match a pending command
-                    if header.payload_type == PayloadType::ViscaReply
-                        && self.pending.remove(&header.sequence_number).is_none()
-                    {
-                        // Late or duplicate reply - discard it
-                        warn!(
-                            "UDP: Discarding late/duplicate reply with seq {seq} (not in pending)",
-                            seq = header.sequence_number
-                        );
-                        continue; // Keep waiting for a valid response
+                Ok((payload, meta)) => {
+                    // Get sequence from metadata
+                    if let Some(seq) = meta.sequence {
+                        // Only accept replies that match a pending command
+                        if self.pending.remove(&seq).is_none() {
+                            // Late or duplicate reply - discard it
+                            warn!(
+                                "UDP: Discarding late/duplicate reply with seq {seq} (not in pending)"
+                            );
+                            continue; // Keep waiting for a valid response
+                        }
                     }
 
                     return Ok(payload);
@@ -539,15 +508,13 @@ impl SyncTransport for SonyUdpTransport {
                     for (old_seq, mut cmd) in to_retry {
                         cmd.retries += 1;
 
-                        // Allocate new sequence number for retry (Sony requirement)
-                        let new_seq = self.sequence.fetch_add(1, Ordering::SeqCst);
+                        // Send with new sequence (envelope will allocate it)
+                        let new_seq = self.send_framed(&cmd.bytes)?;
 
                         warn!(
                             "Retrying UDP command (old seq {old_seq}, new seq {new_seq}, attempt {attempt})",
                             attempt = cmd.retries
                         );
-
-                        self.send_with_header(&cmd.bytes, new_seq)?;
 
                         // Remove old sequence entry
                         self.pending.remove(&old_seq);
@@ -611,6 +578,8 @@ mod tests {
 
     #[test]
     fn test_sony_header_encoding() {
+        use crate::protocol::sony::PayloadType;
+
         let header = SonyHeader::new_command(5, 42);
         assert_eq!(header.payload_type, PayloadType::ViscaCommand);
         assert_eq!(header.payload_length, 5);
