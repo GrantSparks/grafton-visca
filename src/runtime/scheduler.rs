@@ -38,6 +38,8 @@ pub(crate) enum TxItem {
         priority: Priority,
         /// Category for timeout calculation.
         category: CommandCategory,
+        /// Camera ID used to encode the command.
+        camera_id: crate::camera_id::CameraId,
         /// Channel to send response back.
         response_tx: Sender<Result<ViscaResponse>>,
     },
@@ -47,6 +49,10 @@ pub(crate) enum TxItem {
         id: u32,
         /// Raw VISCA bytes to send.
         bytes: Vec<u8>,
+        /// Camera ID used to encode the inquiry.
+        /// Note: Currently unused but kept for consistency with Command variant.
+        #[allow(dead_code)]
+        camera_id: crate::camera_id::CameraId,
         /// Expected response type.
         response_type: Option<crate::command::response::ViscaResponseType>,
         /// Channel to send response back.
@@ -56,6 +62,11 @@ pub(crate) enum TxItem {
     Cancel {
         /// Socket to cancel (1 or 2).
         socket: ViscaSocket,
+    },
+    /// Cancel a command by its ID.
+    CancelById {
+        /// Command ID to cancel.
+        id: u32,
     },
 }
 
@@ -169,12 +180,29 @@ pub(crate) struct Scheduler {
         Option<crate::command::response::ViscaResponseType>,
     )>,
     /// Commands that have been sent but not yet acknowledged.
-    /// Maps command ID to (bytes, priority, category, sent_time).
-    pending_ack: HashMap<u32, (Vec<u8>, Priority, CommandCategory, Instant)>,
+    /// Maps command ID to (bytes, priority, category, sent_time, camera_id).
+    pending_ack: HashMap<
+        u32,
+        (
+            Vec<u8>,
+            Priority,
+            CommandCategory,
+            Instant,
+            crate::camera_id::CameraId,
+        ),
+    >,
     /// Commands waiting to be retried (after busy response).
     pub retry_queue: Vec<RetryCommand>,
     /// Store command metadata for potential retry.
-    command_metadata: HashMap<u32, (Vec<u8>, Priority, CommandCategory)>,
+    command_metadata: HashMap<
+        u32,
+        (
+            Vec<u8>,
+            Priority,
+            CommandCategory,
+            crate::camera_id::CameraId,
+        ),
+    >,
     /// Track retry attempts for commands (command_id -> attempt_count).
     retry_attempts: HashMap<u32, u32>,
     /// Priority queue for pending commands.
@@ -197,6 +225,8 @@ pub(crate) struct RetryCommand {
     pub priority: Priority,
     /// Command category.
     pub category: CommandCategory,
+    /// Camera ID used to encode the command.
+    pub camera_id: crate::camera_id::CameraId,
     /// Retry attempt number.
     pub attempt: u32,
     /// Maximum retries allowed.
@@ -433,6 +463,7 @@ impl PriorityQueueItem {
             TxItem::Command { priority, .. } => *priority,
             TxItem::Inquiry { .. } => Priority::Normal, // Inquiries default to normal priority
             TxItem::Cancel { .. } => Priority::Critical, // Cancels have highest priority
+            TxItem::CancelById { .. } => Priority::Critical, // Cancel by ID also has highest priority
         }
     }
 }
@@ -550,9 +581,10 @@ impl Scheduler {
         priority: Priority,
         category: CommandCategory,
         now: Instant,
+        camera_id: crate::camera_id::CameraId,
     ) {
         self.pending_ack
-            .insert(id, (bytes, priority, category, now));
+            .insert(id, (bytes, priority, category, now, camera_id));
         debug!("Added command {} to pending ACK list", id);
     }
 
@@ -562,11 +594,12 @@ impl Scheduler {
         let oldest_id = self
             .pending_ack
             .iter()
-            .min_by_key(|(_, (_, _, _, sent_time))| *sent_time)
+            .min_by_key(|(_, (_, _, _, sent_time, _))| *sent_time)
             .map(|(id, _)| *id)?;
 
         // Remove from pending and assign to socket
-        if let Some((bytes, priority, category, _)) = self.pending_ack.remove(&oldest_id) {
+        if let Some((bytes, priority, category, _, camera_id)) = self.pending_ack.remove(&oldest_id)
+        {
             // Now allocate the specific socket the camera assigned
             let idx = socket.as_index();
             let state = &mut self.sockets[idx];
@@ -586,7 +619,7 @@ impl Scheduler {
             state.category = Some(category);
 
             // Store metadata for potential retry
-            self.store_command_metadata(oldest_id, bytes, priority, category);
+            self.store_command_metadata(oldest_id, bytes, priority, category, camera_id);
 
             debug!(
                 "Assigned command {} to {:?} per camera ACK",
@@ -625,14 +658,20 @@ impl Scheduler {
     pub fn handle_pending_ack_error_with_bytes(
         &mut self,
         error: ViscaError,
-    ) -> Option<(u32, Priority, CommandCategory, Vec<u8>)> {
+    ) -> Option<(
+        u32,
+        Priority,
+        CommandCategory,
+        Vec<u8>,
+        crate::camera_id::CameraId,
+    )> {
         // Find oldest pending command that would get this error
         let oldest = self
             .pending_ack
             .iter()
-            .min_by_key(|(_, (_, _, _, sent_time))| *sent_time)
-            .map(|(id, (bytes, priority, category, _))| {
-                (*id, *priority, *category, bytes.clone())
+            .min_by_key(|(_, (_, _, _, sent_time, _))| *sent_time)
+            .map(|(id, (bytes, priority, category, _, camera_id))| {
+                (*id, *priority, *category, bytes.clone(), *camera_id)
             })?;
 
         // Remove from pending since it got an error
@@ -701,7 +740,7 @@ impl Scheduler {
 
         // Check each pending ACK command
         let mut to_remove = Vec::new();
-        for (id, (_, _, _category, sent_time)) in self.pending_ack.iter() {
+        for (id, (_, _, _category, sent_time, _)) in self.pending_ack.iter() {
             // Use ACK timeout from configuration
             // According to VISCA spec, ACK should arrive within ~33ms
             // But we're generous to account for network delays
@@ -798,9 +837,53 @@ impl Scheduler {
         bytes: Vec<u8>,
         priority: Priority,
         category: CommandCategory,
+        camera_id: crate::camera_id::CameraId,
     ) {
         self.command_metadata
-            .insert(cmd_id, (bytes, priority, category));
+            .insert(cmd_id, (bytes, priority, category, camera_id));
+    }
+
+    /// Check if a command is in pending ACK state.
+    ///
+    /// Returns true if the command is waiting for ACK from the camera.
+    pub fn is_pending_ack(&self, cmd_id: u32) -> bool {
+        self.pending_ack.contains_key(&cmd_id)
+    }
+
+    /// Remove a command from pending ACK and get its data.
+    ///
+    /// Returns the command data if it was pending ACK.
+    pub fn remove_pending_ack(
+        &mut self,
+        cmd_id: u32,
+    ) -> Option<(
+        Vec<u8>,
+        Priority,
+        CommandCategory,
+        Instant,
+        crate::camera_id::CameraId,
+    )> {
+        self.pending_ack.remove(&cmd_id)
+    }
+
+    /// Get command metadata including camera ID.
+    ///
+    /// Returns the command metadata if it exists.
+    pub fn get_command_metadata(
+        &self,
+        cmd_id: u32,
+    ) -> Option<&(
+        Vec<u8>,
+        Priority,
+        CommandCategory,
+        crate::camera_id::CameraId,
+    )> {
+        self.command_metadata.get(&cmd_id)
+    }
+
+    /// Remove command metadata.
+    pub fn remove_command_metadata(&mut self, cmd_id: u32) {
+        self.command_metadata.remove(&cmd_id);
     }
 
     /// Get the pending inquiry and its response channel.
@@ -853,6 +936,7 @@ impl Scheduler {
         bytes: Vec<u8>,
         priority: Priority,
         category: CommandCategory,
+        camera_id: crate::camera_id::CameraId,
         now: Instant,
     ) -> bool {
         // Track retry metrics
@@ -923,6 +1007,7 @@ impl Scheduler {
                 bytes,
                 priority,
                 category,
+                camera_id,
                 attempt: current_attempt,
                 max_retries,
                 retry_at,
@@ -1024,7 +1109,12 @@ impl Scheduler {
     pub fn get_command_for_retry(
         &self,
         cmd_id: u32,
-    ) -> Option<(Vec<u8>, Priority, CommandCategory)> {
+    ) -> Option<(
+        Vec<u8>,
+        Priority,
+        CommandCategory,
+        crate::camera_id::CameraId,
+    )> {
         self.command_metadata.get(&cmd_id).cloned()
     }
 
@@ -1147,6 +1237,7 @@ mod tests {
             Priority::Normal,
             CommandCategory::Quick,
             now,
+            crate::camera_id::CameraId::CAMERA_1,
         );
         assert!(scheduler.can_send_command()); // Still room for 1 more
 
@@ -1157,6 +1248,7 @@ mod tests {
             Priority::Normal,
             CommandCategory::Movement,
             now + Duration::from_nanos(1),
+            crate::camera_id::CameraId::CAMERA_1,
         );
         assert!(!scheduler.can_send_command()); // Now at limit
 
@@ -1346,21 +1438,48 @@ mod tests {
         // Store response channel
         let (response_tx, response_rx) = flume::bounded(1);
         scheduler.store_command_channel(cmd_id, response_tx);
-        scheduler.store_command_metadata(cmd_id, bytes.clone(), priority, category);
+        scheduler.store_command_metadata(
+            cmd_id,
+            bytes.clone(),
+            priority,
+            category,
+            crate::camera_id::CameraId::CAMERA_1,
+        );
 
         // First retry (attempt 1)
         let now = Instant::now();
-        let queued = scheduler.queue_for_retry(cmd_id, bytes.clone(), priority, category, now);
+        let queued = scheduler.queue_for_retry(
+            cmd_id,
+            bytes.clone(),
+            priority,
+            category,
+            crate::camera_id::CameraId::CAMERA_1,
+            now,
+        );
         assert!(queued, "First retry should be queued");
         assert_eq!(scheduler.retry_queue.len(), 1);
 
         // Second retry (attempt 2)
-        let queued = scheduler.queue_for_retry(cmd_id, bytes.clone(), priority, category, now);
+        let queued = scheduler.queue_for_retry(
+            cmd_id,
+            bytes.clone(),
+            priority,
+            category,
+            crate::camera_id::CameraId::CAMERA_1,
+            now,
+        );
         assert!(queued, "Second retry should be queued");
         assert_eq!(scheduler.retry_queue.len(), 1); // Still 1, same command
 
         // Third retry (attempt 3) - should exceed max retries of 2
-        let queued = scheduler.queue_for_retry(cmd_id, bytes.clone(), priority, category, now);
+        let queued = scheduler.queue_for_retry(
+            cmd_id,
+            bytes.clone(),
+            priority,
+            category,
+            crate::camera_id::CameraId::CAMERA_1,
+            now,
+        );
         assert!(!queued, "Third retry should NOT be queued (exhausted)");
         assert_eq!(scheduler.retry_queue.len(), 0); // Should be removed
 

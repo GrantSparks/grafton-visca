@@ -285,28 +285,42 @@ impl RuntimeHandle {
 
     /// Cancel a command by its ID.
     ///
-    pub async fn cancel(&self, _command_id: u32) -> Result<()> {
-        // Since we don't track which socket a command is on, cancel both
-        warn!("Cancel by command_id not fully implemented - cancelling both sockets");
+    /// This method performs targeted, camera-correct cancellation:
+    /// - For pending commands (not yet ACK'd): Removes from queue without sending VISCA cancel
+    /// - For active commands (ACK'd on a socket): Sends VISCA cancel with correct camera ID
+    /// - For unknown commands: Returns success (command may have already completed)
+    ///
+    /// The cancel command uses the same camera ID as the original command, ensuring
+    /// correct multi-camera behavior. Cancellation is socket-scoped per VISCA semantics.
+    ///
+    /// # Arguments
+    /// * `command_id` - The ID of the command to cancel (obtained from send_command_with_id)
+    ///
+    /// # Returns
+    /// Ok(()) if the cancel request was processed (regardless of whether command was found)
+    pub async fn cancel(&self, command_id: u32) -> Result<()> {
+        // Use the new CancelById variant for targeted cancellation
+        let cancel_item = TxItem::CancelById { id: command_id };
 
-        // Try to cancel on both sockets
-        let cancel_socket1 = TxItem::Cancel {
-            socket: ViscaSocket::S1,
-        };
-        let cancel_socket2 = TxItem::Cancel {
-            socket: ViscaSocket::S2,
-        };
-
-        // Send both cancel commands
-        let _ = self.submit.send_async(cancel_socket1).await;
-        let _ = self.submit.send_async(cancel_socket2).await;
-
-        Ok(())
+        self.submit
+            .send_async(cancel_item)
+            .await
+            .map_err(|_| Error::ChannelClosed)
     }
 
     /// Cancel all commands on a specific socket.
     ///
-    /// This directly cancels the specified socket without needing to know the command ID.
+    /// This directly cancels the specified socket (S1 or S2) without needing to know the command ID.
+    /// Sends a VISCA cancel command using a hardcoded CAMERA_1 address since the socket-level
+    /// cancel doesn't track which camera's command is currently active on the socket.
+    ///
+    /// For camera-correct cancellation, use `cancel(command_id)` instead.
+    ///
+    /// # Arguments
+    /// * `socket` - The VISCA socket to cancel (S1 or S2)
+    ///
+    /// # Returns
+    /// Ok(()) if the cancel request was processed
     pub async fn cancel_socket(&self, socket: ViscaSocket) -> Result<()> {
         let cancel_item = TxItem::Cancel { socket };
 
@@ -406,6 +420,7 @@ impl RuntimeHandle {
             bytes: buffer,
             priority: priority.unwrap_or(Priority::Normal),
             category: C::TIMEOUT_CATEGORY,
+            camera_id,
             response_tx,
         };
 
@@ -456,6 +471,7 @@ impl RuntimeHandle {
         let item = TxItem::Inquiry {
             id: 0, // Will be assigned by scheduler
             bytes: buffer,
+            camera_id,
             response_type,
             response_tx,
         };
@@ -585,6 +601,7 @@ async fn runtime_loop_with_config<
                         bytes: retry_cmd.bytes.clone(),
                         priority: retry_cmd.priority,
                         category: retry_cmd.category,
+                        camera_id: retry_cmd.camera_id,
                         response_tx,
                     };
 
@@ -753,6 +770,7 @@ async fn runtime_loop_with_config<
                             bytes: retry_cmd.bytes.clone(),
                             priority: retry_cmd.priority,
                             category: retry_cmd.category,
+                            camera_id: retry_cmd.camera_id,
                             response_tx,
                         };
 
@@ -870,6 +888,7 @@ async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
             bytes,
             priority,
             category,
+            camera_id,
             response_tx,
         } => {
             // Assign ID if not set
@@ -911,7 +930,7 @@ async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
                 }
 
                 // Add to pending ACK list - socket will be assigned when ACK arrives
-                scheduler.add_pending_ack(id, bytes.clone(), priority, category, now);
+                scheduler.add_pending_ack(id, bytes.clone(), priority, category, now, camera_id);
                 scheduler.store_command_channel(id, response_tx);
                 debug!("[handle_tx_item] Command {id} added to pending ACK list");
             } else {
@@ -931,6 +950,7 @@ async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
                         bytes,
                         priority,
                         category,
+                        camera_id,
                         response_tx,
                     },
                     now,
@@ -941,6 +961,7 @@ async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
         TxItem::Inquiry {
             mut id,
             bytes,
+            camera_id: _,
             response_type,
             response_tx,
         } => {
@@ -1006,6 +1027,77 @@ async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
             // Free the socket and notify
             if let Some(_cmd_id) = scheduler.socket_command(socket) {
                 scheduler.free_socket(socket);
+            }
+        }
+
+        TxItem::CancelById { id } => {
+            trace!("Processing cancel by ID for command {id}");
+
+            use crate::camera_id::CameraId;
+            use crate::command::encode_visca::ViscaEncode;
+            use crate::command::system::CommandCancelCommand;
+
+            // Check if command is in pending_ack - if so, just remove it without sending cancel
+            if scheduler.is_pending_ack(id) {
+                // Command hasn't been ACK'd yet - no socket assigned, no cancel to send
+                scheduler.remove_pending_ack(id);
+                if let Some(response_tx) = scheduler.get_response_channel(id) {
+                    let _ = response_tx.send(Err(Error::CommandCanceled));
+                }
+                scheduler.remove_command_metadata(id);
+                debug!("Canceled command {id} that was pending ACK");
+                return Ok(());
+            }
+
+            // Check if command has been assigned a socket
+            let mut found_socket = None;
+            let mut found_camera_id = CameraId::CAMERA_1; // Default fallback
+
+            for socket in [ViscaSocket::S1, ViscaSocket::S2] {
+                if scheduler.socket_command(socket) == Some(id) {
+                    found_socket = Some(socket);
+                    // Get camera ID from metadata
+                    if let Some((_, _, _, camera_id)) = scheduler.get_command_metadata(id) {
+                        found_camera_id = *camera_id;
+                    }
+                    break;
+                }
+            }
+
+            if let Some(socket) = found_socket {
+                // Build cancel command with the correct camera ID
+                let cancel_cmd = CommandCancelCommand::new(socket);
+                let mut cancel_bytes = vec![0u8; 16];
+                let len = cancel_cmd
+                    .encode_into(found_camera_id, &mut cancel_bytes)
+                    .map_err(|e| {
+                        Error::TransportError(
+                            format!("Failed to encode cancel command: {e}").into(),
+                        )
+                    })?;
+                let cancel_bytes = cancel_bytes[..len].to_vec();
+
+                // Frame and send the cancel command
+                let framed_cancel = envelope.frame_command(&cancel_bytes, false, buffer_manager);
+                if let Err(e) = transport.send(&framed_cancel).await {
+                    error!("Failed to send cancel for command {id}: {e}");
+                    return Ok(());
+                }
+
+                // Free the socket and notify
+                scheduler.free_socket(socket);
+                if let Some(response_tx) = scheduler.get_response_channel(id) {
+                    let _ = response_tx.send(Err(Error::CommandCanceled));
+                }
+                scheduler.remove_command_metadata(id);
+                debug!("Canceled command {id} on {socket:?} using camera {found_camera_id}");
+            } else {
+                // Command not found - might have already completed
+                debug!("Command {id} not found for cancellation");
+                if let Some(response_tx) = scheduler.get_response_channel(id) {
+                    let _ =
+                        response_tx.send(Err(Error::InvalidRequest("Command not found".into())));
+                }
             }
         }
     }
@@ -1171,21 +1263,27 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
             };
 
             if is_pending_ack_error {
-                if let Some((cmd_id, priority, category, bytes)) =
+                if let Some((cmd_id, priority, category, bytes, camera_id)) =
                     scheduler.handle_pending_ack_error_with_bytes(error)
                 {
                     debug!("{error:?} for pending ACK command {cmd_id}");
 
                     // Store metadata for potential retry (it wasn't stored since we never got ACK)
-                    scheduler.store_command_metadata(cmd_id, bytes.clone(), priority, category);
+                    scheduler.store_command_metadata(
+                        cmd_id,
+                        bytes.clone(),
+                        priority,
+                        category,
+                        camera_id,
+                    );
 
                     // Queue for retry if it's a retryable error
                     let retryable = error.is_retryable(Some(category));
 
                     if retryable {
                         let now = executor.now();
-                        let queued =
-                            scheduler.queue_for_retry(cmd_id, bytes, priority, category, now);
+                        let queued = scheduler
+                            .queue_for_retry(cmd_id, bytes, priority, category, camera_id, now);
                         if !queued {
                             // Retries exhausted - error already sent to response channel by queue_for_retry
                             debug!("Command {cmd_id} exhausted retries");
@@ -1216,7 +1314,7 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
                     // Get command category to determine if NotExecutable (0x41) is retryable
                     let category = scheduler
                         .get_command_for_retry(cmd_id)
-                        .map(|(_, _, cat)| cat);
+                        .map(|(_, _, cat, _)| cat);
                     error.is_retryable(category)
                 } else {
                     false
@@ -1234,7 +1332,7 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
                         debug!("Camera busy for command {cmd_id} on {sock:?}, will retry");
 
                         // Get command metadata for retry and queue it BEFORE freeing socket
-                        if let Some((bytes, priority, category)) =
+                        if let Some((bytes, priority, category, camera_id)) =
                             scheduler.get_command_for_retry(cmd_id)
                         {
                             debug!(
@@ -1242,8 +1340,8 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
                             );
                             // Queue the command for retry (returns false if exhausted)
                             let now = executor.now();
-                            let queued =
-                                scheduler.queue_for_retry(cmd_id, bytes, priority, category, now);
+                            let queued = scheduler
+                                .queue_for_retry(cmd_id, bytes, priority, category, camera_id, now);
 
                             if !queued {
                                 debug!("Command {cmd_id} exhausted retries, not queuing");
@@ -1439,6 +1537,7 @@ mod tests {
             id: 1,
             bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF], // Power on
             priority: Priority::Normal,
+            camera_id: crate::camera_id::CameraId::CAMERA_1,
             response_tx,
             category: CommandCategory::Quick,
         };
@@ -1500,6 +1599,7 @@ mod tests {
         let inquiry = TxItem::Inquiry {
             id: 1,
             bytes: vec![0x81, 0x09, 0x04, 0x00, 0xFF], // Power inquiry
+            camera_id: crate::camera_id::CameraId::CAMERA_1,
             response_tx,
             response_type: Some(ViscaResponseType::Power),
         };
@@ -1669,6 +1769,7 @@ mod tests {
             id: 1,
             bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF], // Raw VISCA command
             priority: Priority::Normal,
+            camera_id: crate::camera_id::CameraId::CAMERA_1,
             response_tx,
             category: CommandCategory::Quick,
         };
@@ -1755,6 +1856,7 @@ mod tests {
         let inquiry = TxItem::Inquiry {
             id: 1,
             bytes: vec![0x81, 0x09, 0x04, 0x00, 0xFF], // Raw VISCA inquiry
+            camera_id: crate::camera_id::CameraId::CAMERA_1,
             response_tx,
             response_type: Some(ViscaResponseType::Power),
         };
@@ -1859,6 +1961,7 @@ mod tests {
             id: 1,
             bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF], // Raw VISCA command
             priority: Priority::Normal,
+            camera_id: crate::camera_id::CameraId::CAMERA_1,
             response_tx,
             category: CommandCategory::Quick,
         };
