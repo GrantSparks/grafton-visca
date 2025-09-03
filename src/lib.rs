@@ -592,7 +592,11 @@ pub use crate::{camera::Camera, camera::CameraBuilder, camera_id::CameraId};
 
 // Re-export the new concrete camera types
 #[cfg(not(feature = "async"))]
-pub use crate::camera::BlockingCamera;
+pub use crate::camera::UnifiedBlockingCamera;
+
+// Re-export the BlockingCamera wrapper for ergonomic blocking API
+#[cfg(not(feature = "async"))]
+pub use crate::camera::blocking_api::BlockingCamera;
 
 #[cfg(feature = "async")]
 pub use crate::camera::AsyncCamera;

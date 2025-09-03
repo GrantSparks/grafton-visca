@@ -48,17 +48,17 @@ async fn test_position_inquiries_integration() {
     // Socket manager is now automatically initialized on first use
 
     // Test pan/tilt position inquiry
-    let (pan, tilt) = camera
+    let position = camera
         .get_pan_tilt_position()
         .await
         .expect("pan/tilt inquiry should succeed");
     assert_eq!(
-        pan,
+        position.pan,
         0, // CENTER position is 0
         "Pan should be at center"
     );
     assert_eq!(
-        tilt,
+        position.tilt,
         0, // CENTER position is 0
         "Tilt should be at center"
     );
@@ -70,7 +70,7 @@ async fn test_position_inquiries_integration() {
         .expect("zoom inquiry should succeed");
     assert_eq!(
         zoom_pos,
-        0, // MIN position is 0
+        grafton_visca::types::ZoomPosition::try_from(0.0).unwrap(), // MIN position
         "Zoom should be at minimum"
     );
 
@@ -297,13 +297,11 @@ async fn test_resolution_inquiry_integration() {
         .get_resolution()
         .await
         .expect("resolution inquiry should succeed");
-    // The simulator returns FullHD60 by default
-    use grafton_visca::command::resolution::ResolutionMode;
-
+    // The simulator returns a u8 value now
     assert_eq!(
         resolution,
-        ResolutionMode::FullHD60,
-        "Resolution should be FullHD60"
+        0x00, // The simulator returns 0 for resolution
+        "Resolution inquiry should succeed"
     );
 }
 
@@ -425,7 +423,7 @@ async fn test_mixed_commands_and_inquiries() {
         .expect("zoom inquiry should succeed");
     assert_eq!(
         zoom_pos,
-        0, // MIN position is 0
+        grafton_visca::types::ZoomPosition::try_from(0.0).unwrap(), // MIN position
         "Zoom position should be readable"
     );
 }

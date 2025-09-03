@@ -239,16 +239,24 @@ fn test_async_trait_method_signatures() {
     struct MockPowerControl;
 
     impl PowerControl for MockPowerControl {
-        async fn power_on(&self) -> Result<(), Error> {
-            Ok(())
+        type Mode = grafton_visca::mode::Async;
+
+        fn power_on(
+            &self,
+        ) -> <Self::Mode as grafton_visca::mode::Mode>::Ret<'_, Result<(), Error>> {
+            Box::pin(async { Ok(()) })
         }
 
-        async fn power_off(&self) -> Result<(), Error> {
-            Ok(())
+        fn power_off(
+            &self,
+        ) -> <Self::Mode as grafton_visca::mode::Mode>::Ret<'_, Result<(), Error>> {
+            Box::pin(async { Ok(()) })
         }
 
-        async fn power_inquiry(&self) -> Result<bool, Error> {
-            Ok(true)
+        fn power_inquiry(
+            &self,
+        ) -> <Self::Mode as grafton_visca::mode::Mode>::Ret<'_, Result<bool, Error>> {
+            Box::pin(async { Ok(true) })
         }
     }
 

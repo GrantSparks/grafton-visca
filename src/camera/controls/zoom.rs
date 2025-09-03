@@ -1,234 +1,103 @@
-//! Zoom methods for unified camera API.
+//! Unified zoom control implementation using Mode trait.
 
-use crate::{command::zoom::ZoomSpeed, units::Normalized, Error};
+use crate::{camera::CameraSend, command::zoom::ZoomSpeed, mode::Mode, units::Normalized, Error};
 
-/// Zoom operations for cameras.
+/// Unified zoom operations for cameras.
 ///
-/// This trait provides zoom control methods that work for both blocking and async cameras.
-/// The implementation differs based on the camera type - async cameras return futures,
-/// while blocking cameras perform operations synchronously.
+/// This trait provides zoom control methods that work seamlessly for both
+/// blocking and async cameras through the Mode trait system.
 pub trait ZoomControl {
-    /// Stop zooming.
-    #[cfg(feature = "async")]
-    fn zoom_stop(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
 
     /// Stop zooming.
-    #[cfg(not(feature = "async"))]
-    fn zoom_stop(&mut self) -> Result<(), Error>;
+    fn zoom_stop(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
 
     /// Start zooming in at standard speed.
-    #[cfg(feature = "async")]
-    fn zoom_tele_std(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
-
-    /// Start zooming in at standard speed.
-    #[cfg(not(feature = "async"))]
-    fn zoom_tele_std(&mut self) -> Result<(), Error>;
+    fn zoom_tele_std(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
 
     /// Start zooming out at standard speed.
-    #[cfg(feature = "async")]
-    fn zoom_wide_std(&self) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
-
-    /// Start zooming out at standard speed.
-    #[cfg(not(feature = "async"))]
-    fn zoom_wide_std(&mut self) -> Result<(), Error>;
+    fn zoom_wide_std(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
 
     /// Start zooming in at variable speed.
-    #[cfg(feature = "async")]
     fn zoom_tele_variable(
         &self,
         speed: ZoomSpeed,
-    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
-
-    /// Start zooming in at variable speed.
-    #[cfg(not(feature = "async"))]
-    fn zoom_tele_variable(&mut self, speed: ZoomSpeed) -> Result<(), Error>;
+    ) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
 
     /// Start zooming out at variable speed.
-    #[cfg(feature = "async")]
     fn zoom_wide_variable(
         &self,
         speed: ZoomSpeed,
-    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
-
-    /// Start zooming out at variable speed.
-    #[cfg(not(feature = "async"))]
-    fn zoom_wide_variable(&mut self, speed: ZoomSpeed) -> Result<(), Error>;
+    ) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
 
     /// Set zoom to absolute position (0.0 = wide, 1.0 = full tele).
-    #[cfg(feature = "async")]
     fn zoom_absolute(
         &self,
         position: Normalized,
-    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
-
-    /// Set zoom to absolute position (0.0 = wide, 1.0 = full tele).
-    #[cfg(not(feature = "async"))]
-    fn zoom_absolute(&mut self, position: Normalized) -> Result<(), Error>;
+    ) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
 
     /// Set zoom to a specific position value.
-    #[cfg(feature = "async")]
     fn zoom_position(
         &self,
         position: crate::types::ZoomPosition,
-    ) -> impl std::future::Future<Output = Result<(), Error>> + Send + '_;
-
-    /// Set zoom to a specific position value.
-    #[cfg(not(feature = "async"))]
-    fn zoom_position(&mut self, position: crate::types::ZoomPosition) -> Result<(), Error>;
+    ) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
 
     /// Query the current zoom position.
-    #[cfg(feature = "async")]
     fn zoom_position_inquiry(
         &self,
-    ) -> impl std::future::Future<Output = Result<crate::types::ZoomPosition, Error>> + Send + '_;
-
-    /// Query the current zoom position.
-    #[cfg(not(feature = "async"))]
-    fn zoom_position_inquiry(&mut self) -> Result<crate::types::ZoomPosition, Error>;
+    ) -> <Self::Mode as Mode>::Ret<'_, Result<crate::types::ZoomPosition, Error>>;
 }
 
-// Keep the old trait names for backward compatibility during transition
-/// Async zoom control trait (deprecated, use ZoomControl instead).
-/// Blocking zoom control trait (deprecated, use ZoomControl instead).
-// Async implementation for AsyncCamera
-#[cfg(feature = "async")]
-impl<P, Tr, Exec> ZoomControl for crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
+// Single unified implementation for all Camera types!
+impl<M, P, Tr, Exec> ZoomControl for crate::camera::Camera<M, P, Tr, Exec>
 where
-    P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
-    Exec: crate::executor::Executor,
+    M: Mode,
+    P: crate::capabilities::Profile + Default + crate::capabilities::zoom::Zoom,
+    Self: CameraSend<M>,
 {
-    async fn zoom_stop(&self) -> Result<(), Error> {
+    type Mode = M;
+
+    fn zoom_stop(&self) -> M::Ret<'_, Result<(), Error>> {
         use crate::command::zoom::Zoom;
-        let cmd = Zoom::Stop;
-        self.send_command(&cmd).await?;
-        Ok(())
+        self.send_and_complete(Zoom::Stop)
     }
 
-    async fn zoom_tele_std(&self) -> Result<(), Error> {
+    fn zoom_tele_std(&self) -> M::Ret<'_, Result<(), Error>> {
         use crate::command::zoom::Zoom;
-
-        let cmd = Zoom::TeleStd;
-        self.send_command(&cmd).await?;
-        Ok(())
+        self.send_and_complete(Zoom::TeleStd)
     }
 
-    async fn zoom_wide_std(&self) -> Result<(), Error> {
+    fn zoom_wide_std(&self) -> M::Ret<'_, Result<(), Error>> {
         use crate::command::zoom::Zoom;
-
-        let cmd = Zoom::WideStd;
-        self.send_command(&cmd).await?;
-        Ok(())
+        self.send_and_complete(Zoom::WideStd)
     }
 
-    async fn zoom_tele_variable(&self, speed: ZoomSpeed) -> Result<(), Error> {
+    fn zoom_tele_variable(&self, speed: ZoomSpeed) -> M::Ret<'_, Result<(), Error>> {
         use crate::command::zoom::Zoom;
-
-        let cmd = Zoom::TeleVariable(speed);
-        self.send_command(&cmd).await?;
-        Ok(())
+        self.send_and_complete(Zoom::TeleVariable(speed))
     }
 
-    async fn zoom_wide_variable(&self, speed: ZoomSpeed) -> Result<(), Error> {
+    fn zoom_wide_variable(&self, speed: ZoomSpeed) -> M::Ret<'_, Result<(), Error>> {
         use crate::command::zoom::Zoom;
-
-        let cmd = Zoom::WideVariable(speed);
-        self.send_command(&cmd).await?;
-        Ok(())
+        self.send_and_complete(Zoom::WideVariable(speed))
     }
 
-    async fn zoom_absolute(&self, position: Normalized) -> Result<(), Error> {
+    fn zoom_absolute(&self, position: Normalized) -> M::Ret<'_, Result<(), Error>> {
         use crate::command::zoom::Zoom;
-
-        // Convert normalized position to zoom position value
-        let zoom_pos = crate::types::ZoomPosition::try_from(*position.value())?;
-        let cmd = Zoom::Position(zoom_pos);
-        self.send_command(&cmd).await?;
-        Ok(())
+        match crate::types::ZoomPosition::try_from(*position.value()) {
+            Ok(zoom_pos) => self.send_and_complete(Zoom::Position(zoom_pos)),
+            Err(e) => self.error(e),
+        }
     }
 
-    async fn zoom_position(&self, position: crate::types::ZoomPosition) -> Result<(), Error> {
+    fn zoom_position(&self, position: crate::types::ZoomPosition) -> M::Ret<'_, Result<(), Error>> {
         use crate::command::zoom::Zoom;
-
-        let cmd = Zoom::Position(position);
-        self.send_command(&cmd).await?;
-        Ok(())
+        self.send_and_complete(Zoom::Position(position))
     }
 
-    async fn zoom_position_inquiry(&self) -> Result<crate::types::ZoomPosition, Error> {
+    fn zoom_position_inquiry(&self) -> M::Ret<'_, Result<crate::types::ZoomPosition, Error>> {
         use crate::command::inquiry_structs::ZoomPositionInquiry;
-
-        self.send_command_typed(&ZoomPositionInquiry).await
-    }
-}
-
-// Blocking implementation for BlockingCamera
-#[cfg(not(feature = "async"))]
-impl<P, Tr> ZoomControl for crate::camera::Camera<crate::mode::Blocking, P, Tr, ()>
-where
-    P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::SyncTransport + Send + 'static,
-{
-    fn zoom_stop(&mut self) -> Result<(), Error> {
-        use crate::command::zoom::Zoom;
-        let cmd = Zoom::Stop;
-        pollster::block_on(self.send_command(&cmd))?;
-        Ok(())
-    }
-
-    fn zoom_tele_std(&mut self) -> Result<(), Error> {
-        use crate::command::zoom::Zoom;
-
-        let cmd = Zoom::TeleStd;
-        pollster::block_on(self.send_command(&cmd))?;
-        Ok(())
-    }
-
-    fn zoom_wide_std(&mut self) -> Result<(), Error> {
-        use crate::command::zoom::Zoom;
-
-        let cmd = Zoom::WideStd;
-        pollster::block_on(self.send_command(&cmd))?;
-        Ok(())
-    }
-
-    fn zoom_tele_variable(&mut self, speed: ZoomSpeed) -> Result<(), Error> {
-        use crate::command::zoom::Zoom;
-
-        let cmd = Zoom::TeleVariable(speed);
-        pollster::block_on(self.send_command(&cmd))?;
-        Ok(())
-    }
-
-    fn zoom_wide_variable(&mut self, speed: ZoomSpeed) -> Result<(), Error> {
-        use crate::command::zoom::Zoom;
-
-        let cmd = Zoom::WideVariable(speed);
-        pollster::block_on(self.send_command(&cmd))?;
-        Ok(())
-    }
-
-    fn zoom_absolute(&mut self, position: Normalized) -> Result<(), Error> {
-        use crate::command::zoom::Zoom;
-
-        // Convert normalized position to zoom position value
-        let zoom_pos = crate::types::ZoomPosition::try_from(*position.value())?;
-        let cmd = Zoom::Position(zoom_pos);
-        pollster::block_on(self.send_command(&cmd))?;
-        Ok(())
-    }
-
-    fn zoom_position(&mut self, position: crate::types::ZoomPosition) -> Result<(), Error> {
-        use crate::command::zoom::Zoom;
-
-        let cmd = Zoom::Position(position);
-        pollster::block_on(self.send_command(&cmd))?;
-        Ok(())
-    }
-
-    fn zoom_position_inquiry(&mut self) -> Result<crate::types::ZoomPosition, Error> {
-        use crate::command::inquiry_structs::ZoomPositionInquiry;
-
-        pollster::block_on(self.send_command_typed(&ZoomPositionInquiry))
+        self.send_and_parse(ZoomPositionInquiry)
     }
 }

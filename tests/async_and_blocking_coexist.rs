@@ -6,8 +6,7 @@
 #[test]
 fn test_blocking_mode_compile() {
     use grafton_visca::{
-        camera::{profiles::PtzOpticsG2, BlockingCamera},
-        transport::blocking::Tcp as BlockingTcp,
+        camera::profiles::PtzOpticsG2, transport::blocking::Tcp as BlockingTcp, BlockingCamera,
     };
 
     type _BlockingCamera = BlockingCamera<PtzOpticsG2, BlockingTcp>;

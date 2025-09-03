@@ -207,6 +207,12 @@ pub enum Error {
     #[error("Invalid state: {0}")]
     InvalidState(Cow<'static, str>),
 
+    /// Transport is busy and cannot be borrowed for a new operation.
+    /// This occurs when multiple operations try to use the transport concurrently
+    /// in blocking mode.
+    #[error("Transport is busy with another operation")]
+    TransportBusy,
+
     /// Command validation failed for the specified camera model.
     #[error("Command '{command}' not valid for {model:?}: {reason}")]
     ModelValidation {

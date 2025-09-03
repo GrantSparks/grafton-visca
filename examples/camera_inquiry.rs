@@ -203,9 +203,9 @@ async fn main() -> grafton_visca::Result<()> {
 
     println!("\n--- Position ---");
     match position {
-        Ok((pan, tilt)) => {
-            println!("Pan raw value: 0x{:04X}", pan as u16);
-            println!("Tilt raw value: 0x{:04X}", tilt as u16);
+        Ok(pos) => {
+            println!("Pan raw value: 0x{:04X}", pos.pan as u16);
+            println!("Tilt raw value: 0x{:04X}", pos.tilt as u16);
             // Note: Pan/tilt units vary by camera model
             // Some use signed values (0x0000 = center), others use unsigned (0x8000 = center)
         }

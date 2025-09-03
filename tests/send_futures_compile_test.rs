@@ -25,55 +25,75 @@ unsafe impl Sync for MockCamera {}
 
 // Implement control traits for MockCamera to test Send bounds
 impl PowerControl for MockCamera {
-    async fn power_on(&self) -> Result<(), grafton_visca::Error> {
-        Ok(())
+    type Mode = grafton_visca::mode::Async;
+
+    fn power_on(
+        &self,
+    ) -> <Self::Mode as grafton_visca::mode::Mode>::Ret<'_, Result<(), grafton_visca::Error>> {
+        Box::pin(async { Ok(()) })
     }
-    async fn power_off(&self) -> Result<(), grafton_visca::Error> {
-        Ok(())
+    fn power_off(
+        &self,
+    ) -> <Self::Mode as grafton_visca::mode::Mode>::Ret<'_, Result<(), grafton_visca::Error>> {
+        Box::pin(async { Ok(()) })
     }
-    async fn power_inquiry(&self) -> Result<bool, grafton_visca::Error> {
-        Ok(true)
+    fn power_inquiry(
+        &self,
+    ) -> <Self::Mode as grafton_visca::mode::Mode>::Ret<'_, Result<bool, grafton_visca::Error>>
+    {
+        Box::pin(async { Ok(true) })
     }
 }
 
 impl ZoomControl for MockCamera {
-    async fn zoom_stop(&self) -> Result<(), grafton_visca::Error> {
-        Ok(())
+    type Mode = grafton_visca::mode::Async;
+
+    fn zoom_stop(
+        &self,
+    ) -> <Self::Mode as grafton_visca::mode::Mode>::Ret<'_, Result<(), grafton_visca::Error>> {
+        Box::pin(async { Ok(()) })
     }
-    async fn zoom_tele_std(&self) -> Result<(), grafton_visca::Error> {
-        Ok(())
+    fn zoom_tele_std(
+        &self,
+    ) -> <Self::Mode as grafton_visca::mode::Mode>::Ret<'_, Result<(), grafton_visca::Error>> {
+        Box::pin(async { Ok(()) })
     }
-    async fn zoom_wide_std(&self) -> Result<(), grafton_visca::Error> {
-        Ok(())
+    fn zoom_wide_std(
+        &self,
+    ) -> <Self::Mode as grafton_visca::mode::Mode>::Ret<'_, Result<(), grafton_visca::Error>> {
+        Box::pin(async { Ok(()) })
     }
-    async fn zoom_tele_variable(
+    fn zoom_tele_variable(
         &self,
         _speed: grafton_visca::command::zoom::ZoomSpeed,
-    ) -> Result<(), grafton_visca::Error> {
-        Ok(())
+    ) -> <Self::Mode as grafton_visca::mode::Mode>::Ret<'_, Result<(), grafton_visca::Error>> {
+        Box::pin(async { Ok(()) })
     }
-    async fn zoom_wide_variable(
+    fn zoom_wide_variable(
         &self,
         _speed: grafton_visca::command::zoom::ZoomSpeed,
-    ) -> Result<(), grafton_visca::Error> {
-        Ok(())
+    ) -> <Self::Mode as grafton_visca::mode::Mode>::Ret<'_, Result<(), grafton_visca::Error>> {
+        Box::pin(async { Ok(()) })
     }
-    async fn zoom_absolute(
+    fn zoom_absolute(
         &self,
         _position: grafton_visca::units::Normalized,
-    ) -> Result<(), grafton_visca::Error> {
-        Ok(())
+    ) -> <Self::Mode as grafton_visca::mode::Mode>::Ret<'_, Result<(), grafton_visca::Error>> {
+        Box::pin(async { Ok(()) })
     }
-    async fn zoom_position(
+    fn zoom_position(
         &self,
         _pos: grafton_visca::types::ZoomPosition,
-    ) -> Result<(), grafton_visca::Error> {
-        Ok(())
+    ) -> <Self::Mode as grafton_visca::mode::Mode>::Ret<'_, Result<(), grafton_visca::Error>> {
+        Box::pin(async { Ok(()) })
     }
-    async fn zoom_position_inquiry(
+    fn zoom_position_inquiry(
         &self,
-    ) -> Result<grafton_visca::types::ZoomPosition, grafton_visca::Error> {
-        Ok(grafton_visca::types::ZoomPosition::new(0x0000).unwrap())
+    ) -> <Self::Mode as grafton_visca::mode::Mode>::Ret<
+        '_,
+        Result<grafton_visca::types::ZoomPosition, grafton_visca::Error>,
+    > {
+        Box::pin(async { Ok(grafton_visca::types::ZoomPosition::new(0x0000).unwrap()) })
     }
 }
 

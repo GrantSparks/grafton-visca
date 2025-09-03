@@ -6,6 +6,7 @@
 #[cfg(feature = "test-utils")]
 use grafton_visca::{
     capabilities::*,
+    mode::BlockingFutureExt,
     prelude::blocking::{GenericViscaCam, PtzOpticsG2Cam, SonyFR7Cam},
     testing::testkit::{helpers, ScriptedSyncTransport},
     Error, FocusControl, PanTiltControl, PowerControl, PresetNumber, PresetsControl, ZoomControl,
@@ -22,13 +23,16 @@ fn test_ptzoptics_g2_capabilities() -> Result<(), Error> {
         helpers::auto_respond_step(), // preset_recall
     ]);
 
-    let mut camera = PtzOpticsG2Cam::new_blocking(transport)?;
+    let camera = PtzOpticsG2Cam::new_blocking(transport)?;
 
-    assert!(camera.power_on().is_ok());
-    assert!(camera.pan_tilt_home().is_ok());
-    assert!(camera.zoom_stop().is_ok());
-    assert!(camera.focus_auto().is_ok());
-    assert!(camera.preset_recall(PresetNumber::new(1).unwrap()).is_ok());
+    assert!(camera.power_on().block().is_ok());
+    assert!(camera.pan_tilt_home().block().is_ok());
+    assert!(camera.zoom_stop().block().is_ok());
+    assert!(camera.focus_auto().block().is_ok());
+    assert!(camera
+        .preset_recall(PresetNumber::new(1).unwrap())
+        .block()
+        .is_ok());
     Ok(())
 }
 
@@ -41,20 +45,18 @@ fn test_sony_fr7_has_nd_filter() -> Result<(), Error> {
         helpers::sony_auto_respond_step(), // zoom_stop
     ]);
 
-    let mut camera = SonyFR7Cam::new_blocking(transport)?;
+    let camera = SonyFR7Cam::new_blocking(transport)?;
 
-    assert!(camera.power_on().is_ok());
-    assert!(camera.pan_tilt_home().is_ok());
-    assert!(camera.zoom_stop().is_ok());
+    assert!(camera.power_on().block().is_ok());
+    assert!(camera.pan_tilt_home().block().is_ok());
+    assert!(camera.zoom_stop().block().is_ok());
     Ok(())
 }
 
 #[cfg(feature = "test-utils")]
 #[test]
 fn test_compile_time_capability_checking() {
-    fn adjust_nd_filter<P, T>(
-        _camera: &grafton_visca::camera::BlockingCamera<P, T>,
-    ) -> Result<(), Error>
+    fn adjust_nd_filter<P, T>(_camera: &grafton_visca::BlockingCamera<P, T>) -> Result<(), Error>
     where
         P: Profile + NdFilter,
         T: grafton_visca::transport::SyncTransport + Send + Sync + 'static,
@@ -63,10 +65,12 @@ fn test_compile_time_capability_checking() {
     }
 
     let fr7_transport = ScriptedSyncTransport::new(vec![helpers::auto_respond_step()]);
-    let fr7 = SonyFR7Cam::new_blocking(fr7_transport).unwrap();
+    let fr7_camera = SonyFR7Cam::new_blocking(fr7_transport).unwrap();
+    let fr7 = grafton_visca::BlockingCamera::from(fr7_camera);
 
     let _g2_transport = ScriptedSyncTransport::new(vec![helpers::auto_respond_step()]);
-    let _g2 = PtzOpticsG2Cam::new_blocking(_g2_transport).unwrap();
+    let _g2_camera = PtzOpticsG2Cam::new_blocking(_g2_transport).unwrap();
+    let _g2 = grafton_visca::BlockingCamera::from(_g2_camera);
 
     assert!(adjust_nd_filter(&fr7).is_ok());
 }
@@ -75,7 +79,7 @@ fn test_compile_time_capability_checking() {
 #[test]
 fn test_generic_functions_with_trait_bounds() {
     fn basic_control<P>(
-        camera: &mut grafton_visca::camera::BlockingCamera<P, ScriptedSyncTransport>,
+        camera: &mut grafton_visca::BlockingCamera<P, ScriptedSyncTransport>,
     ) -> Result<(), Error>
     where
         P: Profile + Default,
@@ -86,7 +90,7 @@ fn test_generic_functions_with_trait_bounds() {
     }
 
     fn motion_sync_control<P>(
-        _camera: &mut grafton_visca::camera::BlockingCamera<P, ScriptedSyncTransport>,
+        _camera: &mut grafton_visca::BlockingCamera<P, ScriptedSyncTransport>,
     ) -> Result<(), Error>
     where
         P: Profile + MotionSync + Default,
@@ -99,19 +103,22 @@ fn test_generic_functions_with_trait_bounds() {
         helpers::auto_respond_step(), // zoom_stop
         helpers::auto_respond_step(), // for motion_sync_control
     ]);
-    let mut g2 = PtzOpticsG2Cam::new_blocking(g2_transport).unwrap();
+    let g2_camera = PtzOpticsG2Cam::new_blocking(g2_transport).unwrap();
+    let mut g2 = grafton_visca::BlockingCamera::from(g2_camera);
 
     let fr7_transport = ScriptedSyncTransport::new(vec![
         helpers::sony_auto_respond_step(), // power_on
         helpers::sony_auto_respond_step(), // zoom_stop
     ]);
-    let mut fr7 = SonyFR7Cam::new_blocking(fr7_transport).unwrap();
+    let fr7_camera = SonyFR7Cam::new_blocking(fr7_transport).unwrap();
+    let mut fr7 = grafton_visca::BlockingCamera::from(fr7_camera);
 
     let generic_transport = ScriptedSyncTransport::new(vec![
         helpers::auto_respond_step(), // power_on
         helpers::auto_respond_step(), // zoom_stop
     ]);
-    let mut generic = GenericViscaCam::new_blocking(generic_transport).unwrap();
+    let generic_camera = GenericViscaCam::new_blocking(generic_transport).unwrap();
+    let mut generic = grafton_visca::BlockingCamera::from(generic_camera);
 
     println!("Testing G2 camera...");
     assert!(basic_control(&mut g2).is_ok());

@@ -284,9 +284,9 @@ async fn main() -> grafton_visca::Result<()> {
     println!("  Resolution: {:?}", resolution.ok());
 
     println!("\n── Position ──");
-    if let Ok((pan, tilt)) = pan_tilt {
-        println!("  Pan: {pan:?}");
-        println!("  Tilt: {tilt:?}");
+    if let Ok(pos) = pan_tilt {
+        println!("  Pan: {:?}", pos.pan);
+        println!("  Tilt: {:?}", pos.tilt);
     } else {
         println!("  Pan/Tilt: ❌");
     }
