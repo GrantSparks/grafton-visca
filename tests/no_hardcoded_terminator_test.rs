@@ -117,9 +117,9 @@ fn test_no_hardcoded_terminators_in_source() {
         );
 
         for (file, lines) in violations {
-            error_message.push_str(&format!("File: {}\n", file));
+            error_message.push_str(&format!("File: {file}\n"));
             for (line_num, line) in lines {
-                error_message.push_str(&format!("  Line {}: {}\n", line_num, line.trim()));
+                error_message.push_str(&format!("  Line {line_num}: {}\n", line.trim()));
             }
             error_message.push('\n');
         }

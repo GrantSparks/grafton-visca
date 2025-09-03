@@ -75,7 +75,7 @@ impl Clone for Step {
                 Error::CommandNotExecutable => Error::CommandNotExecutable,
                 Error::Unsupported => Error::Unsupported,
                 // For other variants, just create a generic transport error with the display representation
-                _ => Error::TransportError(format!("Mock error: {}", err).into()),
+                _ => Error::TransportError(format!("Mock error: {err}").into()),
             }),
         }
     }

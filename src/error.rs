@@ -25,7 +25,7 @@ pub enum Error {
     },
 
     /// Connection to the camera was closed.
-    #[error("Connection closed{}", reason.as_ref().map(|r| format!(": {}", r)).unwrap_or_default())]
+    #[error("Connection closed{}", reason.as_ref().map(|r| format!(": {r}")).unwrap_or_default())]
     ConnectionClosed {
         /// Optional reason for the connection closure.
         reason: Option<Cow<'static, str>>,

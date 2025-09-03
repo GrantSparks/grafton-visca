@@ -315,7 +315,7 @@ async fn main() -> grafton_visca::Result<()> {
     println!("  Brightness: {:?}", brightness.ok());
     println!(
         "  Compensation: {}",
-        exp_comp.map_or("❌".to_string(), |e| format!("{}", e))
+        exp_comp.map_or("❌".to_string(), |e| format!("{e}"))
     );
     println!("  Compensation Level: {:?}", exp_comp_mode.ok());
     println!(

@@ -90,7 +90,7 @@ fn test_priority_order_during_busy_recovery() {
         let mut results = Vec::new();
         for (name, _) in commands {
             // Simulate successful execution after busy recovery
-            results.push(format!("{} succeeded", name));
+            results.push(format!("{name} succeeded"));
         }
 
         results

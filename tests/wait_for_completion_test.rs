@@ -122,7 +122,7 @@ fn test_barrier_synchronization_with_multiple_commands() {
 
         // Simulate all commands completing
         for cmd in commands {
-            completed.push(format!("{} completed", cmd));
+            completed.push(format!("{cmd} completed"));
         }
 
         // Barrier ensures all commands are complete

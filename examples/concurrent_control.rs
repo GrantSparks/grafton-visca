@@ -357,7 +357,7 @@ async fn synchronized_movement() -> Result<()> {
 
     for addr in camera_addrs {
         let transport = Transport::tcp()
-            .address(format!("{}:5678", addr))
+            .address(format!("{addr}:5678"))
             .build_async()
             .await?;
         let camera: Arc<AsyncCamera<PtzOpticsG2, AnyTransport, TokioExecutor>> = Arc::new(

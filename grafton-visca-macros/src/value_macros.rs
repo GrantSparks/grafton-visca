@@ -129,7 +129,7 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
             if !VALID_VALUES.contains(&value) {
                 return Err(crate::Error::InvalidParameter {
                     parameter: stringify!(#name),
-                    value: ::std::borrow::Cow::Owned(format!("{}", value)),
+                    value: ::std::borrow::Cow::Owned(format!("{value}")),
                     reason: ::std::borrow::Cow::Owned(format!("must be one of {:?}", VALID_VALUES)),
                 });
             }
