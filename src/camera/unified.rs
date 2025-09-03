@@ -495,9 +495,7 @@ where
         let mut transport = match transport_cell.try_borrow_mut() {
             Ok(transport) => transport,
             Err(_) => {
-                return std::future::ready(Err(Error::InvalidState(
-                    "Transport is already borrowed".into(),
-                )));
+                return std::future::ready(Err(Error::TransportBusy));
             }
         };
 
@@ -585,9 +583,7 @@ where
         let mut transport = match transport_cell.try_borrow_mut() {
             Ok(transport) => transport,
             Err(_) => {
-                return std::future::ready(Err(Error::InvalidState(
-                    "Transport is already borrowed".into(),
-                )));
+                return std::future::ready(Err(Error::TransportBusy));
             }
         };
 

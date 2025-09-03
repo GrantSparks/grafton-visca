@@ -21,14 +21,12 @@
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::{profiles::PtzOpticsG2, Camera},
+    camera::profiles::PtzOpticsG2,
     command::preset::PresetNumber,
-    mode::Blocking,
     transport::builder::TransportBuilder,
     types::{PanSpeed, SpeedLevel, TiltSpeed},
     units::{Degrees, Normalized},
-    Error, ExposureControl, FocusControl, PanTiltControl, PanTiltDirection, PresetsControl,
-    WhiteBalanceControl, ZoomControl,
+    BlockingCamera, Error, PanTiltDirection,
 };
 
 #[cfg(not(feature = "async"))]
@@ -53,7 +51,7 @@ fn main() -> Result<(), Error> {
         .connect_timeout(Duration::from_secs(5))
         .build()?; // .build() returns Box<dyn BlockingTransport> for pure blocking usage
 
-    let mut camera = Camera::<Blocking, PtzOpticsG2, _>::new_blocking(transport)?;
+    let mut camera = BlockingCamera::<PtzOpticsG2, _>::new(transport)?;
 
     println!("✅ Connected successfully!");
     println!();

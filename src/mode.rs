@@ -138,6 +138,19 @@ pub trait BlockingFutureExt: Future {
     fn block(self) -> Self::Output
     where
         Self: Sized;
+
+    /// Alias for `block()` that provides a more intuitive name for extracting
+    /// the inner value from a `Ready<T>` future.
+    ///
+    /// This is semantically identical to `block()` but may be clearer in contexts
+    /// where you're working with immediately-ready futures.
+    #[inline]
+    fn into_inner(self) -> Self::Output
+    where
+        Self: Sized,
+    {
+        self.block()
+    }
 }
 
 #[cfg(not(feature = "async"))]

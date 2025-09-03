@@ -11,6 +11,7 @@ mod common;
 ))]
 mod blocking_tests {
     use grafton_visca::{
+        mode::BlockingFutureExt,
         prelude::blocking::*,
         testing::testkit::{helpers, ScriptedSyncTransport},
         Error, PanTiltControl, PowerControl, PresetsControl, ZoomControl,
@@ -28,9 +29,9 @@ mod blocking_tests {
             1,
         )]);
 
-        let mut camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport.clone()).unwrap();
+        let camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport.clone()).unwrap();
 
-        let result = camera.power_on();
+        let result = camera.power_on().block();
         assert!(
             result.is_ok(),
             "Power on command should succeed: {result:?}"
@@ -48,9 +49,9 @@ mod blocking_tests {
             1,
         )]);
 
-        let mut camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport.clone()).unwrap();
+        let camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport.clone()).unwrap();
 
-        let result = camera.pan_tilt_home();
+        let result = camera.pan_tilt_home().block();
         assert!(result.is_ok(), "Home command should succeed: {result:?}");
 
         let history = transport.sent();
@@ -69,15 +70,15 @@ mod blocking_tests {
             helpers::command_response(zoom_out_cmd.clone(), 1),
         ]);
 
-        let mut camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport.clone()).unwrap();
+        let camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport.clone()).unwrap();
 
-        let stop_result = camera.zoom_stop();
+        let stop_result = camera.zoom_stop().block();
         assert!(stop_result.is_ok(), "zoom_stop failed: {stop_result:?}");
 
-        let in_result = camera.zoom_tele_std();
+        let in_result = camera.zoom_tele_std().block();
         assert!(in_result.is_ok(), "zoom_in failed: {in_result:?}");
 
-        let out_result = camera.zoom_wide_std();
+        let out_result = camera.zoom_wide_std().block();
         assert!(out_result.is_ok(), "zoom_out failed: {out_result:?}");
 
         let history = transport.sent();
@@ -93,9 +94,9 @@ mod blocking_tests {
 
         let transport = ScriptedSyncTransport::new(vec![helpers::command_response(zoom_in_cmd, 1)]);
 
-        let mut camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport).unwrap();
+        let camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport).unwrap();
 
-        let result = camera.zoom_tele_std();
+        let result = camera.zoom_tele_std().block();
         assert!(result.is_ok(), "zoom_in failed: {result:?}");
     }
 
@@ -112,22 +113,22 @@ mod blocking_tests {
             ),
         ]);
 
-        let mut camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport).unwrap();
+        let camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport).unwrap();
 
         use grafton_visca::PresetNumber;
 
         let preset_id = PresetNumber::new(5).unwrap();
-        assert!(camera.preset_set(preset_id).is_ok());
-        assert!(camera.preset_recall(preset_id).is_ok());
+        assert!(camera.preset_set(preset_id).block().is_ok());
+        assert!(camera.preset_recall(preset_id).block().is_ok());
     }
 
     #[test]
     fn test_camera_error_handling() {
         let transport = ScriptedSyncTransport::new(vec![helpers::errors::syntax_error(1)]);
 
-        let mut camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport).unwrap();
+        let camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport).unwrap();
 
-        let result = camera.power_on();
+        let result = camera.power_on().block();
         assert!(result.is_err(), "Should get an error");
 
         match result {
@@ -140,9 +141,9 @@ mod blocking_tests {
     fn test_camera_timeout() {
         let transport = ScriptedSyncTransport::new(vec![]);
 
-        let mut camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport).unwrap();
+        let camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport).unwrap();
 
-        let result = camera.pan_tilt_home();
+        let result = camera.pan_tilt_home().block();
         assert!(result.is_err(), "Should timeout");
 
         match result {
@@ -159,11 +160,11 @@ mod blocking_tests {
             helpers::command_response(patterns::power::STANDBY.to_vec(), 1),
         ]);
 
-        let mut camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport.clone()).unwrap();
+        let camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport.clone()).unwrap();
 
-        assert!(camera.pan_tilt_home().is_ok());
-        assert!(camera.zoom_stop().is_ok());
-        assert!(camera.power_off().is_ok());
+        assert!(camera.pan_tilt_home().block().is_ok());
+        assert!(camera.zoom_stop().block().is_ok());
+        assert!(camera.power_off().block().is_ok());
 
         let history = transport.sent();
         assert_eq!(history.len(), 3);
@@ -179,9 +180,9 @@ mod blocking_tests {
             1,
         )]);
 
-        let mut camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport.clone()).unwrap();
+        let camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport.clone()).unwrap();
 
-        camera.power_on().unwrap();
+        camera.power_on().block().unwrap();
 
         let history = transport.sent();
         assert_eq!(history.len(), 1);
@@ -195,10 +196,10 @@ mod blocking_tests {
             helpers::command_response(patterns::pan_tilt::HOME.to_vec(), 2),
         ]);
 
-        let mut camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport.clone()).unwrap();
+        let camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport.clone()).unwrap();
 
-        assert!(camera.power_on().is_ok());
-        assert!(camera.pan_tilt_home().is_ok());
+        assert!(camera.power_on().block().is_ok());
+        assert!(camera.pan_tilt_home().block().is_ok());
 
         let history = transport.sent();
         assert_eq!(history.len(), 2);

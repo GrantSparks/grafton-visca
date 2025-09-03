@@ -43,6 +43,7 @@ use std::ops::Deref;
 ///     Ok(())
 /// }
 /// ```
+#[repr(transparent)]
 #[derive(Debug)]
 pub struct BlockingCamera<P, Tr>
 where
@@ -80,6 +81,33 @@ where
     pub fn inner(&self) -> &Camera<Blocking, P, Tr, ()> {
         &self.inner
     }
+
+    /// Get a mutable reference to the inner camera for advanced operations.
+    pub fn inner_mut(&mut self) -> &mut Camera<Blocking, P, Tr, ()> {
+        &mut self.inner
+    }
+
+    /// Wait for pan/tilt movement to complete.
+    ///
+    /// This method polls the camera position until movement stops or timeout occurs.
+    pub fn await_pan_tilt_idle(&mut self, timeout: std::time::Duration) -> Result<(), Error>
+    where
+        P: crate::capabilities::ProfileMetadata + Default,
+        Tr: crate::transport::SyncTransport + 'static,
+    {
+        self.inner.await_pan_tilt_idle(timeout)
+    }
+
+    /// Wait for zoom movement to complete.
+    ///
+    /// This method polls the camera zoom position until movement stops or timeout occurs.
+    pub fn await_zoom_idle(&mut self, timeout: std::time::Duration) -> Result<(), Error>
+    where
+        P: crate::capabilities::ProfileMetadata + Default,
+        Tr: crate::transport::SyncTransport + 'static,
+    {
+        self.inner.await_zoom_idle(timeout)
+    }
 }
 
 impl<P, Tr> From<Camera<Blocking, P, Tr, ()>> for BlockingCamera<P, Tr>
@@ -98,6 +126,15 @@ where
     type Target = Camera<Blocking, P, Tr, ()>;
 
     fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<P, Tr> AsRef<Camera<Blocking, P, Tr, ()>> for BlockingCamera<P, Tr>
+where
+    P: crate::capabilities::Profile,
+{
+    fn as_ref(&self) -> &Camera<Blocking, P, Tr, ()> {
         &self.inner
     }
 }
