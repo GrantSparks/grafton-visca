@@ -540,7 +540,7 @@ impl Scheduler {
                 } else {
                     ViscaSocket::S2
                 };
-                debug!("Allocated {:?} for command {}", socket_id, command_id);
+                debug!("Allocated {socket_id:?} for command {command_id}");
                 return Some(socket_id);
             }
         }
@@ -553,7 +553,7 @@ impl Scheduler {
         let state = &mut self.sockets[idx];
 
         if let Some(cmd_id) = state.command_id {
-            debug!("Freeing {:?} from command {}", socket, cmd_id);
+            debug!("Freeing {socket:?} from command {cmd_id}");
             // Also remove the command channel if it's still there
             // BUT NOT if the command is queued for retry
             let is_queued_for_retry = self.retry_queue.iter().any(|rc| rc.id == cmd_id);
@@ -768,7 +768,7 @@ impl Scheduler {
     #[cfg(test)]
     pub fn set_max_retries(&mut self, category: CommandCategory, max_retries: u32) {
         self.max_retries_per_category.insert(category, max_retries);
-        debug!("Max retries for {:?} set to {}", category, max_retries);
+        debug!("Max retries for {category:?} set to {max_retries}");
     }
 
     /// Get the response channel for a command ID.

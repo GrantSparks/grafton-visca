@@ -4,6 +4,7 @@
 //! handling Sony's 8-byte encapsulated VISCA protocol vs raw VISCA bytes.
 
 use bytes::Bytes;
+
 use std::{
     borrow::Cow,
     sync::atomic::{AtomicU32, Ordering},
