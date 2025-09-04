@@ -1,6 +1,5 @@
 //! Blocking TCP transport implementation with DNS resolution and IPv6 support.
 
-use bytes::Bytes;
 use std::{
     borrow::Cow,
     io::{BufReader, Write},
@@ -8,6 +7,8 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
+
+use bytes::Bytes;
 
 use crate::{
     transport::{
@@ -174,8 +175,7 @@ impl Tcp {
     pub fn split(self) -> Result<(TcpReader, TcpWriter), Error> {
         let writer_stream = self.writer.try_clone().map_err(|e| {
             Error::TransportError(Cow::Owned(format!(
-                "Failed to clone TCP stream for split: {}",
-                e
+                "Failed to clone TCP stream for split: {e}"
             )))
         })?;
 

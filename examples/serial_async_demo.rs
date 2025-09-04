@@ -11,13 +11,14 @@
 //! 2. Send I/F Clear and optionally Address Set commands
 //! 3. Send some basic commands to verify operation
 
+use std::env;
+
 use grafton_visca::{
     camera::controls::inquiry::InquiryControl,
     camera::profiles::GenericVisca,
     transport::serial_async::{AsyncSerialConfig, AsyncSerialTransport},
     CameraBuilder, Error,
 };
-use std::env;
 
 #[cfg(all(feature = "async", feature = "rt-tokio"))]
 #[tokio::main]
@@ -31,8 +32,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let port = args.get(1).map(|s| s.as_str()).unwrap_or("/dev/ttyUSB0");
     let camera_address = args.get(2).and_then(|s| s.parse::<u8>().ok()).unwrap_or(1);
 
-    println!("Serial port: {}", port);
-    println!("Camera address: {}", camera_address);
+    println!("Serial port: {port}");
+    println!("Camera address: {camera_address}");
     println!("Connecting to camera...\n");
 
     // Create async serial transport configuration
@@ -57,23 +58,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             println!("\n🔍 Testing basic camera operations...");
 
-            // Test version inquiry
             match camera.get_version().await {
                 Ok(version) => {
                     println!("✓ Version Inquiry: {:?}", version);
                 }
                 Err(e) => {
-                    println!("⚠ Version inquiry failed: {}", e);
+                    println!("⚠ Version inquiry failed: {e}");
                 }
             }
 
-            // Test power inquiry
             match camera.get_power_state().await {
                 Ok(power_state) => {
-                    println!("✓ Power State: {}", power_state);
+                    println!("✓ Power State: {power_state}");
                 }
                 Err(e) => {
-                    println!("⚠ Power inquiry failed: {}", e);
+                    println!("⚠ Power inquiry failed: {e}");
                 }
             }
 
@@ -81,7 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("The EPIC C1/C2 (RS-232/422 + Address Set/I/F Clear) tasks are now complete for async mode.");
         }
         Err(Error::TransportError(e)) if e.to_string().contains("No such file") => {
-            println!("❌ Serial Port Not Found: {}", port);
+            println!("❌ Serial Port Not Found: {port}");
             println!("\nTroubleshooting:");
             println!("• Verify the serial port exists and is accessible");
             println!("• Check if the camera is connected and powered on");
@@ -92,14 +91,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("• Ensure proper serial port permissions (may need sudo or group membership)");
         }
         Err(Error::TransportError(e)) if e.to_string().contains("Permission denied") => {
-            println!("❌ Permission Denied: {}", port);
+            println!("❌ Permission Denied: {port}");
             println!("\nTroubleshooting:");
             println!("• Add your user to the dialout group: sudo usermod -a -G dialout $USER");
             println!("• Then log out and log back in");
             println!("• Or run with sudo (not recommended for regular use)");
         }
         Err(e) => {
-            println!("❌ Unexpected error: {}", e);
+            println!("❌ Unexpected error: {e}");
         }
     }
 

@@ -89,8 +89,6 @@ pub(crate) mod async_std;
 #[cfg(all(feature = "async", feature = "rt-smol"))]
 pub(crate) mod smol;
 
-use std::time::{Duration, Instant};
-
 #[cfg(feature = "async")]
 pub use async_transport::AsyncTransport;
 #[cfg(not(feature = "async"))]
@@ -99,6 +97,8 @@ pub use builder::{NetTransportBuilder, Transport, TransportBuilderExt};
 #[cfg(feature = "async")]
 pub use protocol_detection::{DetectionResult, ProtocolDetector};
 pub use sync_transport::SyncTransport;
+
+use std::time::{Duration, Instant};
 
 /// Retry configuration for transport layer operations.
 ///
@@ -159,8 +159,9 @@ impl RetryConfig {
 
 #[cfg(test)]
 mod retry_tests {
-    use super::*;
     use std::time::{Duration, Instant};
+
+    use super::*;
 
     #[test]
     fn test_retry_config_default() {
