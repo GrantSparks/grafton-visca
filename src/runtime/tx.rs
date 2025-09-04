@@ -54,8 +54,8 @@ pub async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Execut
                 // Enforce command spacing
                 scheduler.enforce_spacing_with(executor, now).await;
 
-                // Frame and send command
-                let framed_bytes = envelope.frame_command(&bytes, buffer_manager);
+                // Frame and send command (zero-copy for raw VISCA)
+                let framed_bytes = envelope.frame_command_owned(bytes.clone(), buffer_manager);
                 debug!(
                     "Sending command {id} (awaiting ACK): {bytes:02X?} (framed: {framed_bytes:02X?})"
                 );
@@ -123,8 +123,8 @@ pub async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Execut
             let now = executor.now();
             scheduler.enforce_spacing_with(executor, now).await;
 
-            // Frame and send inquiry
-            let framed_bytes = envelope.frame_command(&bytes, buffer_manager);
+            // Frame and send inquiry (zero-copy for raw VISCA)
+            let framed_bytes = envelope.frame_command_owned(bytes.clone(), buffer_manager);
             trace!("Sending inquiry {id}: {bytes:02X?} (framed: {framed_bytes:02X?})");
             if let Err(e) = transport.send(&framed_bytes).await {
                 error!("Failed to send inquiry {id}: {e}");
@@ -154,8 +154,8 @@ pub async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Execut
                 })?;
             let cancel_bytes = bytes::Bytes::copy_from_slice(&cancel_bytes[..len]);
 
-            // Frame the cancel command
-            let framed_cancel = envelope.frame_command(&cancel_bytes, buffer_manager);
+            // Frame the cancel command (zero-copy for raw VISCA)
+            let framed_cancel = envelope.frame_command_owned(cancel_bytes, buffer_manager);
             if let Err(e) = transport.send(&framed_cancel).await {
                 error!("Failed to send cancel: {e}");
                 return Ok(());
@@ -210,8 +210,8 @@ pub async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Execut
                     })?;
                 let cancel_bytes = bytes::Bytes::copy_from_slice(&cancel_bytes[..len]);
 
-                // Frame the cancel command
-                let framed_cancel = envelope.frame_command(&cancel_bytes, buffer_manager);
+                // Frame the cancel command (zero-copy for raw VISCA)
+                let framed_cancel = envelope.frame_command_owned(cancel_bytes, buffer_manager);
                 if let Err(e) = transport.send(&framed_cancel).await {
                     error!("Failed to send cancel: {e}");
                     return Ok(());

@@ -13,6 +13,7 @@ use super::{
 };
 use crate::{
     error::{Error, Result},
+    protocol::response::frame_decoder::FrameDecoder,
     timeout::TimeoutConfig,
     transport::{buffer::BufferManager, envelope::TransportEnvelope, AsyncTransport},
 };
@@ -32,7 +33,7 @@ pub async fn runtime_loop_with_config<
     buffer_manager: BufferManager,
 ) -> Result<()> {
     let mut scheduler = Scheduler::with_timeout_config(submit_rx.clone(), TimeoutConfig::default());
-    let mut response_buffer = Vec::new();
+    let mut frame_decoder = FrameDecoder::new(4096); // Default buffer size
     let mut consecutive_retries = 0usize;
 
     debug!("VISCA runtime started");
@@ -185,16 +186,13 @@ pub async fn runtime_loop_with_config<
                 match recv_result {
                     Ok(bytes) => {
                         trace!("Received bytes from transport: {bytes:02X?}");
-                        response_buffer.extend_from_slice(&bytes);
+                        // Push received bytes into the zero-copy frame decoder
+                        frame_decoder.push(bytes);
 
-                        // Parse complete frames from the buffer
-                        let (frames, remaining) =
-                            crate::protocol::response::parse_frames(&response_buffer);
-                        response_buffer = remaining;
-
-                        for frame in frames {
-                            // Extract the VISCA payload from the frame before parsing
-                            let payload = match envelope.extract_response(&frame) {
+                        // Drain complete frames without copying
+                        for frame in frame_decoder.drain_frames() {
+                            // Extract the VISCA payload using zero-copy method
+                            let payload = match envelope.extract_response_owned(frame) {
                                 Ok(p) => p,
                                 Err(e) => {
                                     warn!("Failed to extract response from frame: {e}");

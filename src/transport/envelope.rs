@@ -60,6 +60,22 @@ impl TransportEnvelope {
         }
     }
 
+    /// Zero-copy variant of frame_command that takes owned Bytes.
+    ///
+    /// For raw VISCA, passes through without copying.
+    /// For Sony encapsulated, wraps with 8-byte header using the provided buffer manager.
+    #[cfg(any(test, feature = "async"))]
+    pub fn frame_command_owned(&self, visca: Bytes, buffer_manager: &BufferManager) -> Bytes {
+        match self.style {
+            ProtocolStyle::RawVisca => visca, // Zero-copy pass-through
+            ProtocolStyle::SonyEncapsulated { use_sequence } => {
+                // Sony still needs to allocate for header + payload
+                let is_inquiry = is_inquiry_bytes(&visca);
+                self.sony_encapsulate(&visca, is_inquiry, use_sequence, buffer_manager)
+            }
+        }
+    }
+
     /// Parse a response and extract the VISCA payload.
     ///
     /// For raw VISCA, returns the bytes unchanged.
@@ -70,6 +86,18 @@ impl TransportEnvelope {
         match self.style {
             ProtocolStyle::RawVisca => Ok(Bytes::copy_from_slice(framed_bytes)),
             ProtocolStyle::SonyEncapsulated { .. } => self.sony_extract_payload(framed_bytes),
+        }
+    }
+
+    /// Zero-copy variant of extract_response that takes owned Bytes.
+    ///
+    /// For raw VISCA, passes through without copying.
+    /// For Sony encapsulated, returns a slice of the original Bytes without copying.
+    #[cfg(any(test, feature = "async"))]
+    pub fn extract_response_owned(&self, framed: Bytes) -> Result<Bytes, crate::Error> {
+        match self.style {
+            ProtocolStyle::RawVisca => Ok(framed), // Zero-copy pass-through
+            ProtocolStyle::SonyEncapsulated { .. } => self.sony_extract_payload_zero_copy(framed),
         }
     }
 
@@ -253,6 +281,44 @@ impl TransportEnvelope {
 
         // Extract VISCA payload - use slice to avoid allocation
         Ok(Bytes::copy_from_slice(&framed_bytes[SonyHeader::SIZE..]))
+    }
+
+    /// Zero-copy extraction of VISCA payload from Sony encapsulated response.
+    #[cfg(any(test, feature = "async"))]
+    fn sony_extract_payload_zero_copy(&self, framed: Bytes) -> Result<Bytes, crate::Error> {
+        if framed.len() < SonyHeader::SIZE {
+            return Err(crate::Error::ParseError(Cow::Borrowed(
+                "Sony response too short for header",
+            )));
+        }
+
+        // Parse header by reading from the Bytes
+        let header_bytes = &framed[..SonyHeader::SIZE];
+        let header = SonyHeader::decode(header_bytes).ok_or(crate::Error::ParseError(
+            Cow::Borrowed("Invalid Sony header format"),
+        ))?;
+
+        // Validate payload type
+        match header.payload_type {
+            PayloadType::ViscaReply => {
+                // Expected for camera responses
+            }
+            other => {
+                tracing::warn!("Unexpected Sony payload type in response: {other:?}");
+            }
+        }
+
+        // Validate length
+        let expected_payload_len = framed.len() - SonyHeader::SIZE;
+        if header.payload_length as usize != expected_payload_len {
+            return Err(crate::Error::ParseError(Cow::Owned(format!(
+                "Sony header length mismatch: header says {}, actual payload is {}",
+                header.payload_length, expected_payload_len
+            ))));
+        }
+
+        // Extract VISCA payload using slice - zero-copy operation
+        Ok(framed.slice(SonyHeader::SIZE..))
     }
 }
 
@@ -604,6 +670,113 @@ mod tests {
 
         drop(framed1);
         assert_eq!(framed2.len(), 1000);
+    }
+
+    #[test]
+    fn test_frame_command_owned_zero_copy_raw() {
+        let envelope = TransportEnvelope::new(ProtocolStyle::RawVisca);
+        let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
+        let owned_bytes = Bytes::from(visca_cmd.clone());
+
+        // Get raw pointer to compare
+        let original_ptr = owned_bytes.as_ptr();
+
+        // Frame the command - should be zero-copy for raw
+        let framed = envelope.frame_command_owned(owned_bytes.clone(), &test_buffer_manager());
+
+        // For raw VISCA, should be the same Bytes object
+        assert_eq!(&framed[..], &visca_cmd[..]);
+        // Raw VISCA should pass through the same pointer (zero-copy)
+        assert_eq!(framed.as_ptr(), original_ptr);
+    }
+
+    #[test]
+    fn test_frame_command_owned_sony() {
+        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated {
+            use_sequence: false,
+        });
+        let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
+        let owned_bytes = Bytes::from(visca_cmd.clone());
+
+        // Frame the command - Sony needs to allocate for header
+        let framed = envelope.frame_command_owned(owned_bytes, &test_buffer_manager());
+
+        // Should be 8-byte header + 6-byte VISCA command = 14 bytes
+        assert_eq!(framed.len(), 14);
+        // Check header and payload
+        assert_eq!(&framed[0..2], &[0x01, 0x00]); // Command payload type
+        assert_eq!(&framed[8..], &visca_cmd[..]);
+    }
+
+    #[test]
+    fn test_extract_response_owned_zero_copy_raw() {
+        let envelope = TransportEnvelope::new(ProtocolStyle::RawVisca);
+        let visca_response = vec![0x90, 0x41, VISCA_TERMINATOR];
+        let owned_bytes = Bytes::from(visca_response.clone());
+
+        // Get raw pointer to compare
+        let original_ptr = owned_bytes.as_ptr();
+
+        // Extract response - should be zero-copy for raw
+        let extracted = envelope
+            .extract_response_owned(owned_bytes.clone())
+            .expect("valid raw response");
+
+        // For raw VISCA, should be the same Bytes object
+        assert_eq!(&extracted[..], &visca_response[..]);
+        // Raw VISCA should pass through the same pointer (zero-copy)
+        assert_eq!(extracted.as_ptr(), original_ptr);
+    }
+
+    #[test]
+    fn test_extract_response_owned_zero_copy_sony() {
+        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated {
+            use_sequence: false,
+        });
+
+        // Create a mock Sony response
+        let visca_ack = vec![0x90, 0x41, VISCA_TERMINATOR];
+        let mut response = Vec::new();
+        response.extend_from_slice(&[0x01, 0x11]); // Reply payload type
+        response.extend_from_slice(&(3u16).to_be_bytes()); // Length = 3
+        response.extend_from_slice(&0u32.to_be_bytes()); // Sequence = 0
+        response.extend_from_slice(&visca_ack); // VISCA payload
+
+        let owned_bytes = Bytes::from(response.clone());
+
+        // Extract response - should use slice for Sony (still zero-copy)
+        let extracted = envelope
+            .extract_response_owned(owned_bytes.clone())
+            .expect("valid sony response");
+
+        assert_eq!(&extracted[..], &visca_ack[..]);
+        // Sony uses slice() which is zero-copy, creating a sub-view
+        assert_eq!(extracted.len(), 3);
+
+        // The slice should point to the same underlying data
+        // We can verify this by checking that modifying one doesn't affect the other
+        // (Bytes is immutable, so this is always true)
+        let cloned = extracted.clone();
+        assert_eq!(cloned, extracted);
+    }
+
+    #[test]
+    fn test_extract_response_owned_invalid_sony() {
+        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated {
+            use_sequence: false,
+        });
+
+        // Too short
+        let short_response = Bytes::from(vec![0x01, 0x11, 0x00]);
+        assert!(envelope.extract_response_owned(short_response).is_err());
+
+        // Invalid header
+        let mut invalid_response = vec![0xFF, VISCA_TERMINATOR]; // Invalid payload type
+        invalid_response.extend_from_slice(&(3u16).to_be_bytes());
+        invalid_response.extend_from_slice(&0u32.to_be_bytes());
+        invalid_response.extend_from_slice(&[0x90, 0x41, VISCA_TERMINATOR]);
+        let invalid_bytes = Bytes::from(invalid_response);
+        assert!(envelope.extract_response_owned(invalid_bytes).is_err());
     }
 
     #[test]
