@@ -178,7 +178,7 @@ impl ViscaEncode for ColorTemperature {
                 )
                 .with_camera_id(camera_id)
                 .push(0x00);
-                builder.build_into(buffer)
+                builder.terminate().build_into(buffer)
             }
             ColorTemperature::Up => {
                 let builder = ConstCommandBuilder::<6>::from_prefix(
@@ -186,7 +186,7 @@ impl ViscaEncode for ColorTemperature {
                 )
                 .with_camera_id(camera_id)
                 .push(0x02);
-                builder.build_into(buffer)
+                builder.terminate().build_into(buffer)
             }
             ColorTemperature::Down => {
                 let builder = ConstCommandBuilder::<6>::from_prefix(
@@ -194,7 +194,7 @@ impl ViscaEncode for ColorTemperature {
                 )
                 .with_camera_id(camera_id)
                 .push(0x03);
-                builder.build_into(buffer)
+                builder.terminate().build_into(buffer)
             }
             ColorTemperature::SetTemperature(temp) => {
                 let builder = ConstCommandBuilder::<7>::from_prefix(
@@ -202,7 +202,7 @@ impl ViscaEncode for ColorTemperature {
                 )
                 .with_camera_id(camera_id)
                 .push_nibble_pair(temp.value());
-                builder.build_into(buffer)
+                builder.terminate().build_into(buffer)
             }
         }
     }
@@ -246,21 +246,21 @@ impl ViscaEncode for RedGain {
                     crate::command::bytes::constants::color::RED_GAIN_CONTROL_PREFIX,
                 );
                 builder = builder.with_camera_id(camera_id).push(0x00);
-                builder.build_into(buffer)
+                builder.terminate().build_into(buffer)
             }
             RedGain::Up => {
                 let mut builder = ConstCommandBuilder::<6>::from_prefix(
                     crate::command::bytes::constants::color::RED_GAIN_CONTROL_PREFIX,
                 );
                 builder = builder.with_camera_id(camera_id).push(0x02);
-                builder.build_into(buffer)
+                builder.terminate().build_into(buffer)
             }
             RedGain::Down => {
                 let mut builder = ConstCommandBuilder::<6>::from_prefix(
                     crate::command::bytes::constants::color::RED_GAIN_CONTROL_PREFIX,
                 );
                 builder = builder.with_camera_id(camera_id).push(0x03);
-                builder.build_into(buffer)
+                builder.terminate().build_into(buffer)
             }
             RedGain::SetValue(value) => {
                 // Note: different command byte 0x43 for direct setting
@@ -269,7 +269,7 @@ impl ViscaEncode for RedGain {
                 )
                 .with_camera_id(camera_id)
                 .push_nibble_pair(u16::from(value.value()));
-                builder.build_into(buffer)
+                builder.terminate().build_into(buffer)
             }
         }
     }
@@ -314,7 +314,7 @@ impl ViscaEncode for BlueGain {
                 )
                 .with_camera_id(camera_id)
                 .push(0x00);
-                builder.build_into(buffer)
+                builder.terminate().build_into(buffer)
             }
             BlueGain::Up => {
                 let builder = ConstCommandBuilder::<6>::from_prefix(
@@ -322,7 +322,7 @@ impl ViscaEncode for BlueGain {
                 )
                 .with_camera_id(camera_id)
                 .push(0x02);
-                builder.build_into(buffer)
+                builder.terminate().build_into(buffer)
             }
             BlueGain::Down => {
                 let builder = ConstCommandBuilder::<6>::from_prefix(
@@ -330,7 +330,7 @@ impl ViscaEncode for BlueGain {
                 )
                 .with_camera_id(camera_id)
                 .push(0x03);
-                builder.build_into(buffer)
+                builder.terminate().build_into(buffer)
             }
             BlueGain::SetValue(value) => {
                 // Note: different command byte 0x44 for direct setting
@@ -339,7 +339,7 @@ impl ViscaEncode for BlueGain {
                 )
                 .with_camera_id(camera_id)
                 .push_nibble_pair(u16::from(value.value()));
-                builder.build_into(buffer)
+                builder.terminate().build_into(buffer)
             }
         }
     }

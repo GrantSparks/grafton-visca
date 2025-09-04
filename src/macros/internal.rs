@@ -533,7 +533,7 @@ macro_rules! visca_const_command {
                     let mut builder = $crate::command::bytes::ConstCommandBuilder::<{Self::MAX_SIZE}>::new();
                     builder.append_mut(BYTES);
                     builder.with_camera_id_mut(camera_id);
-                    builder.build_into(buffer)
+                    builder.terminate().build_into(buffer)
                 } else {
                     // Use type-state pattern for proper termination
                     let terminated = $crate::command::bytes::ConstCommandBuilder::<{Self::MAX_SIZE}>::new()
@@ -596,7 +596,7 @@ macro_rules! visca_const_command {
                 let mut builder = $crate::command::bytes::ConstCommandBuilder::<{Self::MAX_SIZE}>::new();
                 builder.append_mut(BYTES);
                 builder.with_camera_id_mut(camera_id);
-                builder.build_into(buffer)
+                builder.terminate().build_into(buffer)
             }
 
             fn response_type(&self) -> Option<$crate::command::response::ViscaResponseType> {
@@ -648,7 +648,7 @@ macro_rules! visca_const_command {
                 let mut builder = $crate::command::bytes::ConstCommandBuilder::<{Self::MAX_SIZE}>::new();
                 builder.append_mut(BYTES);
                 builder.with_camera_id_mut(camera_id);
-                builder.build_into(buffer)
+                builder.terminate().build_into(buffer)
             }
 
             fn response_type(&self) -> Option<$crate::command::response::ViscaResponseType> {

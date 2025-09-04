@@ -57,6 +57,7 @@ impl ViscaEncode for VariableSpeedModeCommand {
         ConstCommandBuilder::<7>::from_prefix(constants::variable_speed::CONTROL_PREFIX)
             .with_camera_id(camera_id)
             .push(mode_byte)
+            .terminate()
             .build_into(buffer)
     }
 

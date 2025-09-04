@@ -46,6 +46,7 @@ impl ViscaEncode for MotionSyncModeCommand {
         ConstCommandBuilder::<6>::from_prefix(constants::motion_sync::MODE_PREFIX)
             .with_camera_id(camera_id)
             .push(mode_byte)
+            .terminate()
             .build_into(buffer)
     }
 
@@ -111,6 +112,7 @@ impl ViscaEncode for MotionSyncSpeedCommand {
         ConstCommandBuilder::<6>::from_prefix(constants::motion_sync::SPEED_PREFIX)
             .with_camera_id(camera_id)
             .push(self.speed)
+            .terminate()
             .build_into(buffer)
     }
 

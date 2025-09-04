@@ -244,10 +244,8 @@ impl<const N: usize> ConstCommandBuilder<N, Incomplete> {
             }
         }
 
-        // Validate terminator in debug builds (if not overflowed)
-        if !self.overflowed {
-            crate::command::encode_visca::validate_terminator(&self.buffer, self.position);
-        }
+        // Note: We don't validate here since this is the type-safe path.
+        // The terminator is guaranteed by the builder logic.
 
         ConstCommandBuilder {
             buffer: self.buffer,
@@ -258,80 +256,14 @@ impl<const N: usize> ConstCommandBuilder<N, Incomplete> {
         }
     }
 
-    /// Build the command, automatically adding terminator if needed.
-    /// This is the standard builder pattern termination method.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the command would overflow the buffer.
-    #[allow(clippy::panic)]
-    pub fn build(mut self) -> [u8; N] {
-        // Check if we need to add terminator
-        let needs_terminator =
-            self.position == 0 || self.buffer[self.position - 1] != VISCA_TERMINATOR;
-
-        if needs_terminator {
-            self.required += 1;
-            if self.position < N {
-                self.buffer[self.position] = VISCA_TERMINATOR;
-                self.position += 1;
-            } else {
-                self.overflowed = true;
-            }
-        }
-
-        // Check for internal buffer overflow
-        if self.overflowed {
-            panic!(
-                "ConstCommandBuilder buffer overflow: required {} bytes, but only {} available",
-                self.required, N
-            );
-        }
-
-        // Validate terminator (critical safety invariant)
-        crate::command::encode_visca::validate_terminator(&self.buffer, self.position);
-
-        self.buffer
+    /// Alias for terminate() to ease migration.
+    /// Provides a convenient shorthand for the terminate operation.
+    pub fn finish(self) -> ConstCommandBuilder<N, Terminated> {
+        self.terminate()
     }
 
-    /// Build the command and copy it into the provided buffer.
-    /// Returns the number of bytes written.
-    pub fn build_into(mut self, buffer: &mut [u8]) -> Result<usize, crate::Error> {
-        // Check if we need to add terminator
-        let needs_terminator =
-            self.position == 0 || self.buffer[self.position - 1] != VISCA_TERMINATOR;
-
-        if needs_terminator {
-            self.required += 1;
-            if self.position < N {
-                self.buffer[self.position] = VISCA_TERMINATOR;
-                self.position += 1;
-            } else {
-                self.overflowed = true;
-            }
-        }
-
-        // Check for internal buffer overflow
-        if self.overflowed {
-            return Err(crate::Error::BufferTooSmall {
-                required: self.required,
-                actual: N,
-            });
-        }
-
-        // Validate terminator (critical safety invariant)
-        crate::command::encode_visca::validate_terminator(&self.buffer, self.position);
-
-        let len = self.position;
-        if buffer.len() < len {
-            return Err(crate::Error::BufferTooSmall {
-                required: len,
-                actual: buffer.len(),
-            });
-        }
-        buffer[..len].copy_from_slice(&self.buffer[..len]);
-        Ok(len)
-    }
+    // Note: build_into() is removed from Incomplete state.
+    // Use terminate().build_into() instead for the type-safe pattern.
 }
 
 // Methods available only in Terminated state
@@ -360,6 +292,25 @@ impl<const N: usize> ConstCommandBuilder<N, Terminated> {
     /// Check if the terminated command is empty.
     pub fn is_empty(&self) -> bool {
         self.position == 0
+    }
+
+    /// Build the command, returning the complete array.
+    /// This is the standard builder pattern termination method.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the command would overflow the buffer.
+    #[allow(clippy::panic)]
+    pub fn build(self) -> [u8; N] {
+        // Check for internal buffer overflow
+        if self.overflowed {
+            panic!(
+                "ConstCommandBuilder buffer overflow: required {} bytes, but only {} available",
+                self.required, N
+            );
+        }
+
+        self.buffer
     }
 
     /// Build the terminated command into the provided buffer.
@@ -435,7 +386,7 @@ mod tests {
     fn test_legacy_methods_still_work() {
         // Test build() method
         let builder = ConstCommandBuilder::<10>::from_prefix(&[0x81, 0x01, 0x04, 0x47]);
-        let array = builder.build();
+        let array = builder.terminate().build();
         assert_eq!(array[4], VISCA_TERMINATOR);
 
         // Test build() method with auto-termination
@@ -444,6 +395,7 @@ mod tests {
             .push(0x01)
             .push(0x04)
             .push(0x47)
+            .terminate()
             .build();
         assert_eq!(command[4], VISCA_TERMINATOR);
     }
@@ -456,7 +408,7 @@ mod tests {
 
         // Should detect overflow when trying to build
         let mut buffer = [0u8; 10];
-        let result = builder.build_into(&mut buffer);
+        let result = builder.terminate().build_into(&mut buffer);
 
         // 6 bytes for prefix + 1 for terminator = 7 required, but only 4 available
         assert!(matches!(
@@ -474,7 +426,7 @@ mod tests {
         let builder = builder.append(&[0x81, 0x01, 0x04, 0x47, 0x00, 0x01]);
 
         let mut buffer = [0u8; 10];
-        let result = builder.build_into(&mut buffer);
+        let result = builder.terminate().build_into(&mut buffer);
 
         // 6 bytes + 1 for terminator = 7 required, but only 5 available
         assert!(matches!(
@@ -495,7 +447,7 @@ mod tests {
             .push(0x47); // This one won't fit
 
         let mut buffer = [0u8; 10];
-        let result = builder.build_into(&mut buffer);
+        let result = builder.terminate().build_into(&mut buffer);
 
         // 4 bytes + 1 for terminator = 5 required, but only 3 available
         assert!(matches!(
@@ -515,7 +467,7 @@ mod tests {
             .push_visca_u16(0x1234); // Needs 4 bytes, won't fit
 
         let mut buffer = [0u8; 10];
-        let result = builder.build_into(&mut buffer);
+        let result = builder.terminate().build_into(&mut buffer);
 
         // 2 bytes + 4 for u16 + 1 for terminator = 7 required, but only 5 available
         assert!(matches!(
@@ -535,7 +487,7 @@ mod tests {
             .push_nibble_pair(0x12); // Needs 2 bytes, won't fit
 
         let mut buffer = [0u8; 10];
-        let result = builder.build_into(&mut buffer);
+        let result = builder.terminate().build_into(&mut buffer);
 
         // 2 bytes + 2 for nibble pair + 1 for terminator = 5 required, but only 3 available
         assert!(matches!(
@@ -556,7 +508,7 @@ mod tests {
         builder.push_mut(0x00); // This one won't fit
 
         let mut buffer = [0u8; 10];
-        let result = builder.build_into(&mut buffer);
+        let result = builder.terminate().build_into(&mut buffer);
 
         // 5 bytes + 1 for terminator = 6 required, but only 4 available
         assert!(matches!(
@@ -578,7 +530,7 @@ mod tests {
             .push(0x47);
 
         let mut buffer = [0u8; 10];
-        let result = builder.build_into(&mut buffer);
+        let result = builder.terminate().build_into(&mut buffer);
 
         // 4 bytes + 1 for terminator = 5 required, but only 4 available
         assert!(matches!(
@@ -625,6 +577,7 @@ mod tests {
             .push(0x01)
             .push(0x04)
             .push(0x47) // Won't fit
+            .terminate()
             .build();
     }
 
@@ -639,7 +592,7 @@ mod tests {
             .push(0x47);
 
         let mut buffer = [0u8; 10];
-        let result = builder.build_into(&mut buffer);
+        let result = builder.terminate().build_into(&mut buffer);
 
         // Should succeed with exactly 5 bytes
         match result {
@@ -659,7 +612,7 @@ mod tests {
         builder.push_visca_u16_mut(0x1234); // Needs 4 bytes, won't fit
 
         let mut buffer = [0u8; 10];
-        let result = builder.build_into(&mut buffer);
+        let result = builder.terminate().build_into(&mut buffer);
 
         assert!(matches!(
             result,
@@ -678,7 +631,7 @@ mod tests {
         builder.push_nibble_pair_mut(0x12); // Needs 2 bytes, won't fit
 
         let mut buffer = [0u8; 10];
-        let result = builder.build_into(&mut buffer);
+        let result = builder.terminate().build_into(&mut buffer);
 
         assert!(matches!(
             result,

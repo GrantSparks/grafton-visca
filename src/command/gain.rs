@@ -56,6 +56,7 @@ impl ViscaEncode for Gain {
                 )
                 .with_camera_id(camera_id)
                 .push(control_byte)
+                .terminate()
                 .build_into(buffer)
             }
             Self::SetValue(level) => {
@@ -69,6 +70,7 @@ impl ViscaEncode for Gain {
                 .with_camera_id(camera_id)
                 .push(high)
                 .push(low)
+                .terminate()
                 .build_into(buffer)
             }
         }

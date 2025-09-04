@@ -88,7 +88,10 @@ impl ViscaEncode for ExposureCompensation {
                     Self::Off => 0x03,
                     _ => unreachable!(),
                 });
-                builder.with_camera_id(camera_id).build_into(buffer)
+                builder
+                    .with_camera_id(camera_id)
+                    .terminate()
+                    .build_into(buffer)
             }
             Self::Reset | Self::Up | Self::Down => {
                 let mut builder = ConstCommandBuilder::<6>::new();
@@ -99,13 +102,19 @@ impl ViscaEncode for ExposureCompensation {
                     Self::Down => 0x03,
                     _ => unreachable!(),
                 });
-                builder.with_camera_id(camera_id).build_into(buffer)
+                builder
+                    .with_camera_id(camera_id)
+                    .terminate()
+                    .build_into(buffer)
             }
             Self::SetLevel(level) => {
                 let mut builder = ConstCommandBuilder::<9>::new();
                 builder.append_mut(constants::exposure::COMPENSATION_LEVEL_PREFIX);
                 builder.push_mut(level.to_protocol_value());
-                builder.with_camera_id(camera_id).build_into(buffer)
+                builder
+                    .with_camera_id(camera_id)
+                    .terminate()
+                    .build_into(buffer)
             }
         }
     }
@@ -182,13 +191,19 @@ impl ViscaEncode for Iris {
                     Self::Down => 0x03,
                     _ => unreachable!(),
                 });
-                builder.with_camera_id(camera_id).build_into(buffer)
+                builder
+                    .with_camera_id(camera_id)
+                    .terminate()
+                    .build_into(buffer)
             }
             Self::SetAperture(level) => {
                 let mut builder = ConstCommandBuilder::<9>::new();
                 builder.append_mut(constants::exposure::IRIS_DIRECT_PREFIX);
                 builder.push_nibble_pair_mut(level.value() as u16);
-                builder.with_camera_id(camera_id).build_into(buffer)
+                builder
+                    .with_camera_id(camera_id)
+                    .terminate()
+                    .build_into(buffer)
             }
         }
     }
@@ -239,13 +254,19 @@ impl ViscaEncode for Shutter {
                     Self::Down => 0x03,
                     _ => unreachable!(),
                 });
-                builder.with_camera_id(camera_id).build_into(buffer)
+                builder
+                    .with_camera_id(camera_id)
+                    .terminate()
+                    .build_into(buffer)
             }
             Self::SetSpeed(speed) => {
                 let mut builder = ConstCommandBuilder::<9>::new();
                 builder.append_mut(constants::exposure::SHUTTER_DIRECT_PREFIX);
                 builder.push_nibble_pair_mut(speed.value());
-                builder.with_camera_id(camera_id).build_into(buffer)
+                builder
+                    .with_camera_id(camera_id)
+                    .terminate()
+                    .build_into(buffer)
             }
         }
     }
@@ -293,19 +314,28 @@ impl ViscaEncode for Bright {
                     Self::Down => 0x03,
                     _ => unreachable!(),
                 });
-                builder.with_camera_id(camera_id).build_into(buffer)
+                builder
+                    .with_camera_id(camera_id)
+                    .terminate()
+                    .build_into(buffer)
             }
             Self::SetLevel(level) => {
                 let mut builder = ConstCommandBuilder::<9>::new();
                 builder.append_mut(constants::exposure::BRIGHTNESS_DIRECT_PREFIX);
                 builder.push_nibble_pair_mut(level.value());
-                builder.with_camera_id(camera_id).build_into(buffer)
+                builder
+                    .with_camera_id(camera_id)
+                    .terminate()
+                    .build_into(buffer)
             }
             Self::Direct(level) => {
                 let mut builder = ConstCommandBuilder::<9>::new();
                 builder.append_mut(constants::exposure::BRIGHTNESS_VALUE_PREFIX);
                 builder.push_nibble_pair_mut(level.value());
-                builder.with_camera_id(camera_id).build_into(buffer)
+                builder
+                    .with_camera_id(camera_id)
+                    .terminate()
+                    .build_into(buffer)
             }
         }
     }

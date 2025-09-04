@@ -256,12 +256,12 @@ impl ViscaEncode for PanTilt {
             Self::Home => {
                 let mut builder = ConstCommandBuilder::<6>::from_prefix(pan_tilt::HOME);
                 builder = builder.with_camera_id(camera_id);
-                builder.build_into(buffer)
+                builder.terminate().build_into(buffer)
             }
             Self::Reset => {
                 let mut builder = ConstCommandBuilder::<6>::from_prefix(pan_tilt::RESET);
                 builder = builder.with_camera_id(camera_id);
-                builder.build_into(buffer)
+                builder.terminate().build_into(buffer)
             }
             Self::Move {
                 direction,
@@ -278,7 +278,7 @@ impl ViscaEncode for PanTilt {
                 builder.push_mut(tilt_speed.value());
                 builder.push_mut(pan_dir);
                 builder.push_mut(tilt_dir);
-                builder.build_into(buffer)
+                builder.terminate().build_into(buffer)
             }
             Self::AbsolutePosition {
                 pan,
@@ -294,7 +294,7 @@ impl ViscaEncode for PanTilt {
                 builder.push_mut(tilt_speed.value());
                 builder.push_visca_u16_mut(pan.value() as u16);
                 builder.push_visca_u16_mut(tilt.value() as u16);
-                builder.build_into(buffer)
+                builder.terminate().build_into(buffer)
             }
             Self::RelativePosition {
                 pan,
@@ -310,7 +310,7 @@ impl ViscaEncode for PanTilt {
                 builder.push_mut(tilt_speed.value());
                 builder.push_visca_u16_mut(pan.value() as u16);
                 builder.push_visca_u16_mut(tilt.value() as u16);
-                builder.build_into(buffer)
+                builder.terminate().build_into(buffer)
             }
             Self::LimitSet { corner, pan, tilt } => {
                 // PT Limit Set: 81 01 06 07 00 0W PPPP TTTT FF

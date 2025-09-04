@@ -108,9 +108,11 @@ impl ViscaEncode for TallyInquiry {
         match self {
             Self::Red => ConstCommandBuilder::<7>::from_prefix(constants::inquiry::TALLY_STATUS)
                 .with_camera_id(camera_id)
+                .terminate()
                 .build_into(buffer),
             Self::Green => ConstCommandBuilder::<7>::from_prefix(constants::inquiry::TALLY_GREEN)
                 .with_camera_id(camera_id)
+                .terminate()
                 .build_into(buffer),
         }
     }

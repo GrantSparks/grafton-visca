@@ -123,7 +123,8 @@ impl ViscaEncode for Focus {
                         Self::Near => 0x03,
                         _ => unreachable!(),
                     });
-                    builder.with_camera_id(camera_id).build_into(buffer)
+                    builder.with_camera_id_mut(camera_id);
+                    builder.terminate().build_into(buffer)
                 }
             }
             Self::FarWithSpeed(_) | Self::NearWithSpeed(_) => {
@@ -134,7 +135,8 @@ impl ViscaEncode for Focus {
                     Self::NearWithSpeed(s) => 0x30 | s.value(),
                     _ => unreachable!(),
                 });
-                builder.with_camera_id(camera_id).build_into(buffer)
+                builder.with_camera_id_mut(camera_id);
+                builder.terminate().build_into(buffer)
             }
             Self::Position(position) => {
                 let builder = ConstCommandBuilder::<9>::new()
@@ -152,7 +154,8 @@ impl ViscaEncode for Focus {
                     Self::Manual => 0x03,
                     _ => unreachable!(),
                 });
-                builder.with_camera_id(camera_id).build_into(buffer)
+                builder.with_camera_id_mut(camera_id);
+                builder.terminate().build_into(buffer)
             }
             Self::OnePushTrigger | Self::Infinity => {
                 let mut builder = ConstCommandBuilder::<6>::new();
@@ -162,7 +165,8 @@ impl ViscaEncode for Focus {
                     Self::Infinity => 0x02,
                     _ => unreachable!(),
                 });
-                builder.with_camera_id(camera_id).build_into(buffer)
+                builder.with_camera_id_mut(camera_id);
+                builder.terminate().build_into(buffer)
             }
         }
     }
@@ -312,7 +316,10 @@ impl ViscaEncode for PushAF {
             Self::Press => 0x01,
             Self::Release => 0x00,
         });
-        builder.with_camera_id(camera_id).build_into(buffer)
+        builder
+            .with_camera_id(camera_id)
+            .terminate()
+            .build_into(buffer)
     }
 
     fn response_type(&self) -> Option<ViscaResponseType> {

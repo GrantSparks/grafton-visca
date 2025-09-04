@@ -63,6 +63,7 @@ impl ViscaEncode for PresetCommand {
             .with_camera_id(camera_id)
             .push(self.action as u8)
             .push(self.preset_number.value())
+            .terminate()
             .build_into(buffer)
     }
 
