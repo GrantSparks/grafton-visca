@@ -142,11 +142,32 @@ type AdapterWrapper = TokioSerialAdapter;
 type AdapterWrapper = Arc<Mutex<TokioSerialAdapter>>;
 
 /// Async serial transport implementation.
-#[cfg_attr(not(windows), derive(Debug))]
+#[cfg(not(windows))]
+#[derive(Debug)]
 pub struct AsyncSerialTransport {
     adapter: AdapterWrapper,
     buffer_manager: BufferManager,
     config: AsyncSerialConfig,
+}
+
+/// Async serial transport implementation.
+#[cfg(windows)]
+pub struct AsyncSerialTransport {
+    adapter: AdapterWrapper,
+    buffer_manager: BufferManager,
+    config: AsyncSerialConfig,
+}
+
+// Manual Debug implementation for Windows
+#[cfg(windows)]
+impl std::fmt::Debug for AsyncSerialTransport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AsyncSerialTransport")
+            .field("adapter", &"Arc<Mutex<TokioSerialAdapter>>")
+            .field("buffer_manager", &self.buffer_manager)
+            .field("config", &self.config)
+            .finish()
+    }
 }
 
 impl AsyncSerialTransport {
