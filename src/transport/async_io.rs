@@ -268,7 +268,7 @@ mod tests {
     #[tokio::test]
     async fn test_read_raw_visca_frame() {
         // Simple Raw VISCA command
-        let data = vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF];
+        let data = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
         let mut reader = MockAsyncReader::new(data.clone());
         let buffer_manager = BufferManager::new(crate::transport::buffer::BufferConfig::default());
 
@@ -281,14 +281,14 @@ mod tests {
     #[tokio::test]
     async fn test_read_raw_visca_with_ff_in_data() {
         // Raw VISCA stops at first 0xFF
-        let data = vec![0x81, 0x01, 0xFF, 0x02, 0xFF];
+        let data = vec![0x81, 0x01, VISCA_TERMINATOR, 0x02, VISCA_TERMINATOR];
         let mut reader = MockAsyncReader::new(data);
         let buffer_manager = BufferManager::new(crate::transport::buffer::BufferConfig::default());
 
         let result = read_visca_frame(&mut reader, &buffer_manager)
             .await
             .expect("Failed in test");
-        assert_eq!(result.as_ref(), &[0x81, 0x01, 0xFF]);
+        assert_eq!(result.as_ref(), &[0x81, 0x01, VISCA_TERMINATOR]);
     }
 
     #[tokio::test]
@@ -400,7 +400,7 @@ mod tests {
     #[tokio::test]
     async fn test_partial_sony_header() {
         // Only 6 bytes when we need 8 for Sony header, followed by 0xFF
-        let data = vec![0x01, 0x00, 0x00, 0x05, 0x00, 0xFF];
+        let data = vec![0x01, 0x00, 0x00, 0x05, 0x00, VISCA_TERMINATOR];
         let mut reader = MockAsyncReader::new(data.clone());
         let buffer_manager = BufferManager::new(crate::transport::buffer::BufferConfig::default());
 
