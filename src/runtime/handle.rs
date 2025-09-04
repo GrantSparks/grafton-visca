@@ -1,12 +1,12 @@
 //! RuntimeHandle implementation for VISCA communication.
 
+use flume::Sender;
+use tracing::{debug, instrument};
+
 use std::sync::{
     atomic::{AtomicBool, AtomicU32, Ordering},
     Arc,
 };
-
-use flume::Sender;
-use tracing::{debug, instrument};
 
 use super::{
     loop_task::runtime_loop_with_config,

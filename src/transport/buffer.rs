@@ -3,8 +3,14 @@
 //! This module provides unified buffer management across all transport implementations,
 //! ensuring consistent buffer sizes and allocation strategies.
 
-#[allow(unused_imports)] // Bytes is conditionally used based on features
-use bytes::{Bytes, BytesMut};
+#[cfg(any(
+    not(feature = "async"),
+    feature = "rt-tokio",
+    feature = "rt-async-std",
+    feature = "rt-smol"
+))]
+use bytes::Bytes;
+use bytes::BytesMut;
 
 /// Default buffer size for most VISCA operations.
 /// VISCA commands are typically small (< 20 bytes) and responses rarely exceed 64 bytes.

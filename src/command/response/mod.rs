@@ -10,15 +10,12 @@ pub mod types;
 
 use std::borrow::Cow;
 
+use self::nibbles::{combine_nibbles_u16, combine_nibbles_u8};
 use crate::{
     command::{image::SharpnessMode, AutoWhiteBalanceSensitivity, InquiryResponse},
     error::Error,
 };
 
-// Import from local modules
-use self::nibbles::{combine_nibbles_u16, combine_nibbles_u8};
-
-// Re-export key types and functions
 pub use self::{
     lift::{lift_inquiry, parse_inquiry_payload},
     types::{ViscaResponse, ViscaResponseType},
