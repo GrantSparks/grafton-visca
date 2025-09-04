@@ -3,8 +3,7 @@
 //! This test scans the source code to verify that all VISCA terminators
 //! use the VISCA_TERMINATOR constant rather than hardcoded 0xFF values.
 
-use std::fs;
-use std::path::Path;
+use std::{fs, path::Path};
 
 /// Patterns that are allowed to have 0xFF
 const ALLOWED_PATTERNS: &[&str] = &[
@@ -39,6 +38,8 @@ const ALLOWED_FILES: &[&str] = &[
     "tests/common/protocol_validator.rs",
     // Documentation examples
     "src/macros/test_utils.rs",
+    // Protocol-aware frame reading tests need literal test data
+    "src/transport/async_io.rs",
 ];
 
 fn check_file_for_hardcoded_terminator(path: &Path) -> Vec<(usize, String)> {

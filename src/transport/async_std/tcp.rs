@@ -1,12 +1,19 @@
 //! async-std TCP transport implementation with zero-cost async using unified helpers.
 
 use bytes::Bytes;
+
 use std::time::Duration;
 
-use crate::transport::async_io::{read_until_terminator, write_all_flush, TcpConnectionConfig};
-use crate::transport::async_std::connectors::{connect_tcp, AsyncStdTcpStream};
-use crate::transport::{builder::TransportConfig, AsyncTransport};
-use crate::Error;
+use crate::{
+    transport::{
+        async_io::{read_visca_frame, write_all_flush, TcpConnectionConfig},
+        async_std::connectors::{connect_tcp, AsyncStdTcpStream},
+        buffer::BufferManager,
+        builder::TransportConfig,
+        AsyncTransport,
+    },
+    Error,
+};
 
 /// TCP transport for async VISCA communication using async-std.
 ///
@@ -15,6 +22,7 @@ use crate::Error;
 #[derive(Debug)]
 pub struct Tcp {
     stream: AsyncStdTcpStream,
+    buffer_manager: BufferManager,
 }
 
 impl Tcp {
@@ -22,19 +30,19 @@ impl Tcp {
     ///
     /// This method resolves hostnames and supports both IPv4 and IPv6 addresses.
     pub async fn connect(address: &str) -> Result<Self, Error> {
-        Self::connect_timeout(address, Duration::from_secs(5)).await
+        let config = TransportConfig::default();
+        Self::connect_with_config(address, config).await
     }
 
     /// Connect with a custom timeout.
     ///
     /// This method resolves hostnames and supports both IPv4 and IPv6 addresses.
     pub async fn connect_timeout(address: &str, timeout: Duration) -> Result<Self, Error> {
-        let config = TcpConnectionConfig {
+        let config = TransportConfig {
             connect_timeout: timeout,
             ..Default::default()
         };
-        let stream = connect_tcp(address, config).await?;
-        Ok(Self { stream })
+        Self::connect_with_config(address, config).await
     }
 
     /// Connect with a full configuration.
@@ -46,7 +54,10 @@ impl Tcp {
     ) -> Result<Self, Error> {
         let tcp_config = TcpConnectionConfig::from(config);
         let stream = connect_tcp(address, tcp_config).await?;
-        Ok(Self { stream })
+        Ok(Self {
+            stream,
+            buffer_manager: BufferManager::new(config.buffer_config),
+        })
     }
 
     /// Split the TCP transport into separate reader and writer halves.
@@ -77,6 +88,7 @@ impl Tcp {
 
         let reader = TcpReader {
             stream: self.stream,
+            buffer_manager: self.buffer_manager,
         };
 
         let writer = TcpWriter {
@@ -93,7 +105,7 @@ impl AsyncTransport for Tcp {
     }
 
     async fn recv(&mut self) -> Result<Bytes, Error> {
-        read_until_terminator(&mut self.stream).await
+        read_visca_frame(&mut self.stream, &self.buffer_manager).await
     }
 }
 
@@ -104,12 +116,13 @@ impl AsyncTransport for Tcp {
 #[derive(Debug)]
 pub struct TcpReader {
     stream: AsyncStdTcpStream,
+    buffer_manager: BufferManager,
 }
 
 impl TcpReader {
     /// Receive data from the TCP connection.
     pub async fn recv(&mut self) -> Result<Bytes, Error> {
-        read_until_terminator(&mut self.stream).await
+        read_visca_frame(&mut self.stream, &self.buffer_manager).await
     }
 }
 
