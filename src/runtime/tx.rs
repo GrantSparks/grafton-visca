@@ -37,7 +37,11 @@ pub async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Execut
                 id = scheduler.next_id();
             }
 
-            trace!("Processing command {id} with priority {priority:?}");
+            trace!(
+                "Processing command {id} with priority {priority:?}",
+                id = id,
+                priority = priority
+            );
 
             // Track metrics for command submission
             scheduler
@@ -68,17 +72,22 @@ pub async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Execut
                 // Frame and send command (zero-copy for raw VISCA)
                 let framed_bytes = envelope.frame_command_owned(bytes.clone(), buffer_manager);
                 debug!(
-                    "Sending command {id} (awaiting ACK): {bytes:02X?} (framed: {framed_bytes:02X?})"
+                    "Sending command {id} (awaiting ACK): {bytes:02X?} (framed: {framed_bytes:02X?})",
+                    id = id, bytes = bytes, framed_bytes = framed_bytes
                 );
-                trace!("Sending command {id} (awaiting ACK): {bytes:02X?}");
+                trace!(
+                    "Sending command {id} (awaiting ACK): {bytes:02X?}",
+                    id = id,
+                    bytes = bytes
+                );
                 match transport.send(&framed_bytes).await {
                     Ok(_) => {
                         // Commit the transaction on successful send
                         guard.commit();
-                        debug!("Command {id} sent successfully, awaiting ACK");
+                        debug!("Command {id} sent successfully, awaiting ACK", id = id);
                     }
                     Err(e) => {
-                        error!("Failed to send command {id}: {e}");
+                        error!("Failed to send command {id}: {e}", id = id, e = e);
                         // Guard automatically rolls back on drop
                         drop(guard); // Explicitly drop to release borrow
 
@@ -93,7 +102,8 @@ pub async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Execut
             } else {
                 // No socket available, add to priority queue
                 debug!(
-                    "No socket available for command {id}, adding to queue with priority {priority:?}"
+                    "No socket available for command {id}, adding to queue with priority {priority:?}",
+                    id = id, priority = priority
                 );
 
                 // Store the response channel for when the command is eventually sent
@@ -127,7 +137,7 @@ pub async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Execut
                 id = scheduler.next_id();
             }
 
-            trace!("Processing inquiry {id}");
+            trace!("Processing inquiry {id}", id = id);
 
             // Track metrics for inquiry submission
             scheduler
@@ -141,9 +151,14 @@ pub async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Execut
 
             // Frame and send inquiry (zero-copy for raw VISCA)
             let framed_bytes = envelope.frame_command_owned(bytes.clone(), buffer_manager);
-            trace!("Sending inquiry {id}: {bytes:02X?} (framed: {framed_bytes:02X?})");
+            trace!(
+                "Sending inquiry {id}: {bytes:02X?} (framed: {framed_bytes:02X?})",
+                id = id,
+                bytes = bytes,
+                framed_bytes = framed_bytes
+            );
             if let Err(e) = transport.send(&framed_bytes).await {
-                error!("Failed to send inquiry {id}: {e}");
+                error!("Failed to send inquiry {id}: {e}", id = id, e = e);
                 scheduler
                     .metrics
                     .commands_failed
@@ -157,7 +172,7 @@ pub async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Execut
         }
 
         TxItem::Cancel { socket } => {
-            trace!("Processing cancel for {socket:?}");
+            trace!("Processing cancel for {socket:?}", socket = socket);
 
             // Send cancel command using typed command
             let cancel_cmd = CommandCancelCommand::new(socket);
@@ -173,7 +188,7 @@ pub async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Execut
             // Frame the cancel command (zero-copy for raw VISCA)
             let framed_cancel = envelope.frame_command_owned(cancel_bytes, buffer_manager);
             if let Err(e) = transport.send(&framed_cancel).await {
-                error!("Failed to send cancel: {e}");
+                error!("Failed to send cancel: {e}", e = e);
                 return Ok(());
             }
 
@@ -184,7 +199,7 @@ pub async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Execut
         }
 
         TxItem::CancelById { id } => {
-            trace!("Processing cancel by ID for command {id}");
+            trace!("Processing cancel by ID for command {id}", id = id);
 
             // Check if command is in pending_ack - if so, just remove it without sending cancel
             if scheduler.is_pending_ack(id) {
@@ -194,7 +209,7 @@ pub async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Execut
                     let _ = response_tx.send(Err(Error::CommandCanceled));
                 }
                 scheduler.remove_command_metadata(id);
-                debug!("Canceled command {id} that was pending ACK");
+                debug!("Canceled command {id} that was pending ACK", id = id);
                 return Ok(());
             }
 
@@ -229,7 +244,7 @@ pub async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Execut
                 // Frame the cancel command (zero-copy for raw VISCA)
                 let framed_cancel = envelope.frame_command_owned(cancel_bytes, buffer_manager);
                 if let Err(e) = transport.send(&framed_cancel).await {
-                    error!("Failed to send cancel: {e}");
+                    error!("Failed to send cancel: {e}", e = e);
                     return Ok(());
                 }
 
@@ -239,10 +254,14 @@ pub async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Execut
                     let _ = response_tx.send(Err(Error::CommandCanceled));
                 }
                 scheduler.remove_command_metadata(id);
-                debug!("Canceled command {id} on socket {socket:?}");
+                debug!(
+                    "Canceled command {id} on socket {socket:?}",
+                    id = id,
+                    socket = socket
+                );
             } else {
                 // Command not found or already completed
-                warn!("Command {id} not found or already completed");
+                warn!("Command {id} not found or already completed", id = id);
                 if let Some(response_tx) = scheduler.get_response_channel(id) {
                     let _ = response_tx.send(Err(Error::CommandCanceled));
                 }

@@ -181,7 +181,7 @@ impl<'a> SendGuard<'a> {
     /// Commit the transaction, preventing rollback on drop.
     pub fn commit(mut self) {
         self.committed = true;
-        debug!("Committed send transaction for command {}", self.id);
+        debug!("Committed send transaction for command {id}", id = self.id);
     }
 }
 
@@ -581,7 +581,11 @@ impl Scheduler {
                 } else {
                     ViscaSocket::S2
                 };
-                debug!("Allocated {socket_id:?} for command {command_id}");
+                debug!(
+                    "Allocated {socket_id:?} for command {command_id}",
+                    socket_id = socket_id,
+                    command_id = command_id
+                );
                 return Some(socket_id);
             }
         }
@@ -627,7 +631,7 @@ impl Scheduler {
     ) {
         self.pending_ack
             .insert(id, (bytes, priority, category, now, camera_id));
-        debug!("Added command {} to pending ACK list", id);
+        debug!("Added command {id} to pending ACK list", id = id);
     }
 
     /// Begin a command send transaction with automatic rollback on failure.
@@ -654,8 +658,8 @@ impl Scheduler {
             ),
         );
         debug!(
-            "Pre-registered command {} in pending ACK list",
-            registration.id
+            "Pre-registered command {id} in pending ACK list",
+            id = registration.id
         );
 
         SendGuard {
@@ -671,7 +675,7 @@ impl Scheduler {
     pub fn rollback_send(&mut self, id: u32) {
         self.pending_ack.remove(&id);
         self.command_channels.remove(&id);
-        debug!("Rolled back command {} registration", id);
+        debug!("Rolled back command {id} registration", id = id);
     }
 
     /// Handle ACK received - assign socket to command.
@@ -727,8 +731,8 @@ impl Scheduler {
         let total_in_flight = pending_count + allocated_count;
 
         debug!(
-            "Commands in flight: {} pending ACK + {} allocated = {}/2",
-            pending_count, allocated_count, total_in_flight
+            "Commands in flight: {pending_count} pending ACK + {allocated_count} allocated = {total_in_flight}/2",
+            pending_count = pending_count, allocated_count = allocated_count, total_in_flight = total_in_flight
         );
 
         total_in_flight < 2
