@@ -4,17 +4,22 @@
 //! vs raw VISCA protocol modes. It probes the camera with both formats to
 //! determine which protocol the camera expects.
 
-use std::time::Duration;
 use tracing::{debug, info, warn};
 
-use crate::capabilities::ProtocolStyle;
-use crate::command::bytes::VISCA_TERMINATOR;
-use crate::executor::Executor;
-use crate::protocol::response::decode_basic;
-use crate::transport::buffer::{BufferConfig, BufferManager};
-use crate::transport::envelope::TransportEnvelope;
-use crate::transport::{AsyncTransport, RetryConfig};
-use crate::Error;
+use std::time::Duration;
+
+use crate::{
+    capabilities::ProtocolStyle,
+    command::bytes::VISCA_TERMINATOR,
+    executor::Executor,
+    protocol::response::decode_basic,
+    transport::{
+        buffer::{BufferConfig, BufferManager},
+        envelope::TransportEnvelope,
+        AsyncTransport, RetryConfig,
+    },
+    Error,
+};
 
 /// Protocol detection timeout - how long to wait for camera response
 const DETECTION_TIMEOUT: Duration = Duration::from_millis(100);

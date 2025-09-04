@@ -4,10 +4,10 @@
 //! operations through the Mode trait system, eliminating the need for separate
 //! AsyncCamera and BlockingCamera types.
 
-use core::marker::PhantomData;
-
 #[cfg(feature = "async")]
 use crate::{executor::Executor, transport::AsyncTransport};
+
+use core::marker::PhantomData;
 
 use crate::{
     camera_id::CameraId,
