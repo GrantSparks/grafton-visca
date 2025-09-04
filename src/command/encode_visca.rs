@@ -32,18 +32,6 @@ fn check_terminator(buffer: &[u8], len: usize) -> Result<(), Error> {
     Ok(())
 }
 
-/// Legacy validation function for backward compatibility.
-/// Retained temporarily for migration purposes.
-#[inline]
-pub fn validate_terminator(buffer: &[u8], len: usize) {
-    assert!(
-        len == 0 || buffer[len - 1] == crate::command::bytes::VISCA_TERMINATOR,
-        "VISCA command missing 0xFF terminator at position {pos}. Command bytes: {bytes:02X?}",
-        pos = len - 1,
-        bytes = &buffer[..len]
-    );
-}
-
 /// Checks that a VISCA command buffer has valid structure.
 ///
 /// This function ensures:
@@ -85,32 +73,6 @@ fn check_command_structure(buffer: &[u8], len: usize) -> Result<(), Error> {
     // Validate terminator
     check_terminator(buffer, len)?;
     Ok(())
-}
-
-/// Legacy validation function for backward compatibility.
-/// Retained temporarily for migration purposes.
-#[inline]
-pub fn validate_command_structure(buffer: &[u8], len: usize) {
-    // Validate minimum length (at least address + terminator)
-    assert!(
-        len >= 2,
-        "VISCA command too short: {len} bytes. Minimum is 2 bytes. Command bytes: {bytes:02X?}",
-        len = len,
-        bytes = &buffer[..len]
-    );
-
-    // Validate camera address byte (0x81-0x88 for cameras 1-8)
-    if len > 0 {
-        assert!(
-            buffer[0] >= 0x81 && buffer[0] <= 0x88,
-            "Invalid VISCA camera address byte: 0x{addr:02X}. Must be 0x81-0x88. Command bytes: {bytes:02X?}",
-            addr = buffer[0],
-            bytes = &buffer[..len]
-        );
-    }
-
-    // Validate terminator
-    validate_terminator(buffer, len);
 }
 
 /// Unified trait for all VISCA commands.
@@ -215,34 +177,12 @@ pub trait ViscaEncode: Send + Sync {
         Ok(buffer)
     }
 
-    /// Encodes the command to a heap-allocated vector.
-    ///
-    /// This is a convenience method that allocates a vector for the encoded bytes.
-    /// Prefer `encode_into` or `encode_array` for performance-critical code.
-    ///
-    /// # Arguments
-    ///
-    /// * `camera_id` - The camera ID to address the command to
-    ///
-    /// # Errors
-    ///
-    /// * `Error::InvalidParameter` if the command contains invalid parameters
-    fn try_into_vec(&self, camera_id: CameraId) -> Result<Vec<u8>, Error> {
-        let mut buffer = vec![0u8; Self::MAX_SIZE];
-        let size = self.encode_into(camera_id, &mut buffer)?;
-
-        // Validate full command structure before truncating (parity with encode_array)
-        check_command_structure(&buffer, size)?;
-
-        buffer.truncate(size);
-        Ok(buffer)
-    }
-
     /// Encodes the command to a `bytes::Bytes` buffer.
     ///
     /// This method provides zero-copy reference-counted buffers via `bytes::Bytes`,
-    /// encoding into a stack buffer and wrapping the result. This is optimal for
-    /// runtime usage where commands are sent through queues and retried.
+    /// encoding into a BytesMut buffer, validating, and freezing the result. This is
+    /// optimal for runtime usage where commands are sent through queues and retried,
+    /// avoiding extra allocations and copies.
     ///
     /// # Arguments
     ///
@@ -251,14 +191,20 @@ pub trait ViscaEncode: Send + Sync {
     /// # Errors
     ///
     /// * `Error::InvalidParameter` if the command contains invalid parameters
+    /// * `Error::InvalidRequest` if command structure validation fails
     fn try_into_bytes(&self, camera_id: CameraId) -> Result<bytes::Bytes, Error> {
-        let mut stack_buffer = vec![0u8; Self::MAX_SIZE];
-        let size = self.encode_into(camera_id, &mut stack_buffer)?;
+        let mut buf = bytes::BytesMut::with_capacity(Self::MAX_SIZE);
+        // Give encode_into a full mutable slice
+        buf.resize(Self::MAX_SIZE, 0);
 
-        // Validate command structure before creating Bytes
-        check_command_structure(&stack_buffer, size)?;
+        let len = self.encode_into(camera_id, &mut buf)?;
 
-        Ok(bytes::Bytes::copy_from_slice(&stack_buffer[..size]))
+        // Validate command structure before freezing
+        check_command_structure(&buf, len)?;
+
+        // Truncate to actual size and freeze
+        buf.truncate(len);
+        Ok(buf.freeze())
     }
 
     /// Returns the expected response type for this command.
@@ -278,7 +224,7 @@ pub trait ViscaEncode: Send + Sync {
 
     /// Validate this command for a specific camera model.
     ///
-    /// The default implementation returns `Ok(())` for backward compatibility.
+    /// The default implementation returns `Ok(())`.
     /// Commands should override this method to implement model-specific validation.
     ///
     /// # Errors
@@ -329,24 +275,6 @@ mod tests {
         }
     }
 
-    struct DummyValid;
-
-    impl ViscaEncode for DummyValid {
-        type ViscaResponse = ();
-        const MAX_SIZE: usize = 2;
-        const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
-
-        fn encode_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
-            buffer[0] = camera_id.to_address_byte();
-            buffer[1] = crate::command::bytes::VISCA_TERMINATOR;
-            Ok(2)
-        }
-
-        fn response_type(&self) -> Option<ViscaResponseType> {
-            None
-        }
-    }
-
     struct DummyMissingTerminator;
 
     impl ViscaEncode for DummyMissingTerminator {
@@ -364,56 +292,6 @@ mod tests {
         fn response_type(&self) -> Option<ViscaResponseType> {
             None
         }
-    }
-
-    #[test]
-    fn try_into_vec_validates_address_byte() {
-        let cmd = DummyInvalidAddr;
-        // Should return error due to invalid address byte validation
-        let result = cmd.try_into_vec(CameraId::CAMERA_1);
-        assert!(result.is_err(), "Expected error for invalid address byte");
-        assert!(
-            matches!(result, Err(Error::InvalidRequest(ref msg)) if msg.contains("Invalid VISCA camera address byte")),
-            "Expected InvalidRequest error with address byte message, got: {:?}",
-            result
-        );
-    }
-
-    #[test]
-    fn try_into_vec_validates_min_length_and_terminator() {
-        let cmd = DummyTooShort;
-        // Should return error due to too-short command (missing terminator)
-        let result = cmd.try_into_vec(CameraId::CAMERA_1);
-        assert!(result.is_err(), "Expected error for too-short command");
-        assert!(
-            matches!(result, Err(Error::InvalidRequest(ref msg)) if msg.contains("VISCA command too short")),
-            "Expected InvalidRequest error with too short message, got: {:?}",
-            result
-        );
-    }
-
-    #[test]
-    fn try_into_vec_succeeds_on_valid_command() {
-        let cmd = DummyValid;
-        let res = cmd.try_into_vec(CameraId::CAMERA_2);
-        assert!(res.is_ok(), "try_into_vec should succeed, got: {res:?}");
-        let v = res.unwrap_or_default();
-        assert_eq!(v.len(), 2);
-        assert!(v[0] >= 0x81 && v[0] <= 0x88);
-        assert_eq!(v[1], crate::command::bytes::VISCA_TERMINATOR);
-    }
-
-    #[test]
-    fn try_into_vec_validates_missing_terminator() {
-        let cmd = DummyMissingTerminator;
-        // Should return error due to missing terminator
-        let result = cmd.try_into_vec(CameraId::CAMERA_1);
-        assert!(result.is_err(), "Expected error for missing terminator");
-        assert!(
-            matches!(result, Err(Error::InvalidRequest(ref msg)) if msg.contains("missing 0xFF terminator")),
-            "Expected InvalidRequest error with missing terminator message, got: {:?}",
-            result
-        );
     }
 
     #[test]

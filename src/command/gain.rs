@@ -143,7 +143,8 @@ mod tests {
             let high = (value >> 4) & 0x0F;
             let low = value & 0x0F;
             assert_eq!(
-                cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                    .map(|b| b.to_vec())
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
                 vec![
                     0x81,
@@ -194,7 +195,8 @@ mod tests {
                 GainLimit::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = GainLimitCommand::new(limit);
             assert_eq!(
-                cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                    .map(|b| b.to_vec())
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
                 vec![0x81, 0x01, 0x04, 0x2C, value, VISCA_TERMINATOR]
             );

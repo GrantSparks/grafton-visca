@@ -486,10 +486,12 @@ mod tests {
         // Verify commands produce same bytes
         assert_eq!(
             backlight_cmd1
-                .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap(),
             backlight_cmd2
-                .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap()
         );
 
@@ -498,7 +500,8 @@ mod tests {
         // Verify the command was copied correctly
         assert_eq!(
             flip_cmd2
-                .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap(),
             vec![0x81, 0x01, 0x04, 0xA4, 0x01, VISCA_TERMINATOR]
         );
@@ -543,9 +546,11 @@ mod tests {
         let cmd1 = BacklightCommand::new(true);
         let cmd2 = BacklightCommand::new(true);
         assert_eq!(
-            cmd1.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            cmd1.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap(),
-            cmd2.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            cmd2.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap()
         );
 
@@ -553,9 +558,11 @@ mod tests {
         let cmd1 = NoiseReduction2D::Level(level);
         let cmd2 = NoiseReduction2D::Level(level);
         assert_eq!(
-            cmd1.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            cmd1.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap(),
-            cmd2.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            cmd2.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap()
         );
     }
@@ -1024,12 +1031,14 @@ mod tests {
         // Test boundary values for sharpness
         let cmd = Sharpness::SetLevel { value: 0 };
         assert!(cmd
-            .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .map(|b| b.to_vec())
             .is_ok());
 
         let cmd = Sharpness::SetLevel { value: 11 };
         assert!(cmd
-            .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .map(|b| b.to_vec())
             .is_ok());
 
         // Test boundary values for luminance
@@ -1037,14 +1046,16 @@ mod tests {
             LuminanceLevel::new(0).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         let cmd = Luminance { value: level };
         assert!(cmd
-            .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .map(|b| b.to_vec())
             .is_ok());
 
         let level =
             LuminanceLevel::new(14).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         let cmd = Luminance { value: level };
         assert!(cmd
-            .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .map(|b| b.to_vec())
             .is_ok());
 
         // Test boundary values for contrast
@@ -1052,14 +1063,16 @@ mod tests {
             ContrastLevel::new(0).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         let cmd = Contrast { value: level };
         assert!(cmd
-            .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .map(|b| b.to_vec())
             .is_ok());
 
         let level =
             ContrastLevel::new(14).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         let cmd = Contrast { value: level };
         assert!(cmd
-            .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .map(|b| b.to_vec())
             .is_ok());
     }
 
@@ -1068,14 +1081,16 @@ mod tests {
         // Test that SetLevel command properly encodes value as nibbles
         let cmd = Sharpness::SetLevel { value: 0x0B };
         let bytes = cmd
-            .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .map(|b| b.to_vec())
             .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         assert_eq!(bytes[6], 0x00); // High nibble
         assert_eq!(bytes[7], 0x0B); // Low nibble
 
         let cmd = Sharpness::SetLevel { value: 0x05 };
         let bytes = cmd
-            .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .map(|b| b.to_vec())
             .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         assert_eq!(bytes[6], 0x00); // High nibble
         assert_eq!(bytes[7], 0x05); // Low nibble

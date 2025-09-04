@@ -203,9 +203,11 @@ mod tests {
         let cmd2 = cmd1.clone();
         // Verify commands produce same bytes
         assert_eq!(
-            cmd1.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            cmd1.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap(),
-            cmd2.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            cmd2.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap()
         );
 
@@ -213,7 +215,8 @@ mod tests {
         let cmd2 = cmd1; // Copy trait
                          // Verify the command was copied correctly
         assert_eq!(
-            cmd2.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            cmd2.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap(),
             vec![0x81, 0x01, 0x04, 0x66, 0x03, VISCA_TERMINATOR]
         );
@@ -234,7 +237,8 @@ mod tests {
         // Verify ImageFlip implements ViscaEncode trait
         let cmd = ImageFlip::new(Flip::On);
         assert!(cmd
-            .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .map(|b| b.to_vec())
             .is_ok());
         assert!(cmd.response_type().is_none());
         assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
@@ -245,7 +249,8 @@ mod tests {
         // Verify the exact byte sequences match VISCA protocol
         let on_cmd = ImageFlip::new(Flip::On);
         let on_bytes = on_cmd
-            .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .map(|b| b.to_vec())
             .unwrap();
         assert_eq!(on_bytes[0], 0x81); // Command header
         assert_eq!(on_bytes[1], 0x01); // Command type
@@ -256,7 +261,8 @@ mod tests {
 
         let off_cmd = ImageFlip::new(Flip::Off);
         let off_bytes = off_cmd
-            .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .map(|b| b.to_vec())
             .unwrap();
         assert_eq!(off_bytes[0], 0x81); // Command header
         assert_eq!(off_bytes[1], 0x01); // Command type
@@ -272,18 +278,22 @@ mod tests {
         let cmd1 = ImageFlip::new(Flip::On);
         let cmd2 = ImageFlip::new(Flip::On);
         assert_eq!(
-            cmd1.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            cmd1.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap(),
-            cmd2.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            cmd2.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap()
         );
 
         let cmd1 = ImageFlip::new(Flip::Off);
         let cmd2 = ImageFlip::new(Flip::Off);
         assert_eq!(
-            cmd1.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            cmd1.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap(),
-            cmd2.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            cmd2.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap()
         );
     }

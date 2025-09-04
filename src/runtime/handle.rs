@@ -380,10 +380,8 @@ impl RuntimeHandle {
     where
         C: crate::command::encode_visca::ViscaEncode,
     {
-        // Encode the command into a stack buffer
-        let mut stack_buffer = vec![0u8; C::MAX_SIZE];
-        let len = cmd.encode_into(camera_id, &mut stack_buffer)?;
-        let bytes = bytes::Bytes::copy_from_slice(&stack_buffer[..len]);
+        // Encode and validate the command using the checked path
+        let bytes = cmd.try_into_bytes(camera_id)?;
 
         // Generate command ID
         let command_id = self.next_command_id.fetch_add(1, Ordering::Relaxed);
@@ -433,10 +431,8 @@ impl RuntimeHandle {
     where
         I: crate::command::encode_visca::ViscaEncode,
     {
-        // Encode the inquiry into a stack buffer
-        let mut stack_buffer = vec![0u8; I::MAX_SIZE];
-        let len = inquiry.encode_into(camera_id, &mut stack_buffer)?;
-        let bytes = bytes::Bytes::copy_from_slice(&stack_buffer[..len]);
+        // Encode and validate the inquiry using the checked path
+        let bytes = inquiry.try_into_bytes(camera_id)?;
 
         // Create response channel
         let (response_tx, response_rx) = flume::bounded(1);

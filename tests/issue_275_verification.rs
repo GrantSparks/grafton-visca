@@ -84,7 +84,8 @@ fn test_issue_275_try_into_vec_allocation() {
     let camera_id = CameraId::new(1).unwrap();
 
     let tally = Tally::RedOn;
-    let tally_vec = tally.try_into_vec(camera_id).unwrap();
+    let tally_bytes = tally.try_into_bytes(camera_id).unwrap();
+    let tally_vec = tally_bytes.to_vec();
     assert!(
         tally_vec.len() <= Tally::MAX_SIZE,
         "try_into_vec should not exceed MAX_SIZE"
@@ -95,7 +96,8 @@ fn test_issue_275_try_into_vec_allocation() {
     );
 
     let spotlight = Spotlight::On;
-    let spotlight_vec = spotlight.try_into_vec(camera_id).unwrap();
+    let spotlight_bytes = spotlight.try_into_bytes(camera_id).unwrap();
+    let spotlight_vec = spotlight_bytes.to_vec();
     assert!(
         spotlight_vec.len() <= Spotlight::MAX_SIZE,
         "try_into_vec should not exceed MAX_SIZE"

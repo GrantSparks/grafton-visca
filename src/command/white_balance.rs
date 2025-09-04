@@ -270,15 +270,19 @@ mod tests {
         let cmd3 = cmd1; // Copy (clone() not needed for Copy types)
 
         assert_eq!(
-            cmd1.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            cmd1.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            cmd2.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            cmd2.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
         );
         assert_eq!(
-            cmd1.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            cmd1.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            cmd3.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            cmd3.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
         );
     }
@@ -298,7 +302,8 @@ mod tests {
         for mode in modes {
             let cmd = WhiteBalanceCommand { mode };
             let bytes = cmd
-                .try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
 
             // Verify command structure
@@ -317,7 +322,8 @@ mod tests {
         // Test High sensitivity
         let cmd = AWBSensitivityCommand::new(AutoWhiteBalanceSensitivity::High);
         assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0xA9, 0x00, VISCA_TERMINATOR]
         );
@@ -325,7 +331,8 @@ mod tests {
         // Test Normal sensitivity
         let cmd = AWBSensitivityCommand::new(AutoWhiteBalanceSensitivity::Normal);
         assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0xA9, 0x01, VISCA_TERMINATOR]
         );
@@ -333,7 +340,8 @@ mod tests {
         // Test Low sensitivity
         let cmd = AWBSensitivityCommand::new(AutoWhiteBalanceSensitivity::Low);
         assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0xA9, 0x02, VISCA_TERMINATOR]
         );

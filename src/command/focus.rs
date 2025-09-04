@@ -364,7 +364,8 @@ mod tests {
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = Focus::FarWithSpeed(speed);
             assert_eq!(
-                cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                    .map(|b| b.to_vec())
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
                 vec![0x81, 0x01, 0x04, 0x08, 0x20 | speed_val, VISCA_TERMINATOR]
             );
@@ -379,7 +380,8 @@ mod tests {
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = Focus::NearWithSpeed(speed);
             assert_eq!(
-                cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+                cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                    .map(|b| b.to_vec())
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
                 vec![0x81, 0x01, 0x04, 0x08, 0x30 | speed_val, VISCA_TERMINATOR]
             );
@@ -405,7 +407,8 @@ mod tests {
             FocusPosition::new(0x1234).unwrap_or_else(|e| panic!("Valid focus position: {e:?}")),
         );
         assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![
                 0x81,
@@ -424,7 +427,8 @@ mod tests {
             FocusPosition::new(0xF000).unwrap_or_else(|e| panic!("Valid focus position: {e:?}")),
         );
         assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![
                 0x81,
@@ -474,7 +478,8 @@ mod tests {
             zone: FocusZone::Top,
         };
         assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0xAA, 0x00, VISCA_TERMINATOR]
         );
@@ -483,7 +488,8 @@ mod tests {
             zone: FocusZone::Center,
         };
         assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0xAA, 0x01, VISCA_TERMINATOR]
         );
@@ -492,7 +498,8 @@ mod tests {
             zone: FocusZone::Bottom,
         };
         assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0xAA, 0x02, VISCA_TERMINATOR]
         );
@@ -504,7 +511,8 @@ mod tests {
             sensitivity: AutoFocusSensitivity::High,
         };
         assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x58, 0x02, VISCA_TERMINATOR]
         );
@@ -513,7 +521,8 @@ mod tests {
             sensitivity: AutoFocusSensitivity::Normal,
         };
         assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x58, 0x01, VISCA_TERMINATOR]
         );
@@ -522,7 +531,8 @@ mod tests {
             sensitivity: AutoFocusSensitivity::Low,
         };
         assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x58, 0x00, VISCA_TERMINATOR]
         );
@@ -535,7 +545,8 @@ mod tests {
                 .unwrap_or_else(|e| panic!("Valid focus position: {e:?}")),
         };
         assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![
                 0x81,
@@ -555,7 +566,8 @@ mod tests {
                 .unwrap_or_else(|e| panic!("Valid focus position: {e:?}")),
         };
         assert_eq!(
-            cmd.try_into_vec(crate::camera_id::CameraId::CAMERA_1)
+            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![
                 0x81,
