@@ -11,14 +11,14 @@
 //! 2. Send I/F Clear and optionally Address Set commands
 //! 3. Send some basic commands to verify operation
 
-use std::env;
-
 use grafton_visca::{
     camera::controls::inquiry::InquiryControl,
     camera::profiles::GenericVisca,
     transport::serial_async::{AsyncSerialConfig, AsyncSerialTransport},
     CameraBuilder, Error,
 };
+
+use std::env;
 
 #[cfg(all(feature = "async", feature = "rt-tokio"))]
 #[tokio::main]

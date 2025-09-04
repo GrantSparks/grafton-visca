@@ -203,26 +203,6 @@ mod tests {
         }
     }
 
-    // #[test]
-    // fn test_gain_limit_g2_validation() {
-    //     // Test valid G2 gain limit values
-    //     for value in GainLimitCommand::G2_VALID_VALUES {
-    //         let limit =
-    //             GainLimit::new(*value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-    //         let cmd = GainLimitCommand::new(limit);
-    //         assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
-    //     }
-
-    //     // Test that non-G2 values might fail (depends on what G2_VALID_VALUES contains)
-    //     // Check if value 0x08 is not in G2_VALID_VALUES
-    //     if !GainLimitCommand::G2_VALID_VALUES.contains(&0x08) {
-    //         if let Ok(limit) = GainLimit::new(0x08) {
-    //             let cmd = GainLimitCommand::new(limit);
-    //             assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_err());
-    //         }
-    //     }
-    // }
-
     #[test]
     fn test_command_categories() {
         // All gain commands should be Quick category

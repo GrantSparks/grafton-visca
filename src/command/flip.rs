@@ -213,7 +213,6 @@ mod tests {
 
         let cmd1 = ImageFlip::new(Flip::Off);
         let cmd2 = cmd1; // Copy trait
-                         // Verify the command was copied correctly
         assert_eq!(
             cmd2.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())

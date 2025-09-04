@@ -96,9 +96,9 @@ pub use blocking::{Tcp as BlockingTcp, Udp as BlockingUdp};
 pub use builder::{NetTransportBuilder, Transport, TransportBuilderExt};
 #[cfg(feature = "async")]
 pub use protocol_detection::{DetectionResult, ProtocolDetector};
-pub use sync_transport::SyncTransport;
-
 use std::time::{Duration, Instant};
+
+pub use sync_transport::SyncTransport;
 
 /// Retry configuration for transport layer operations.
 ///

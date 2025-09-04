@@ -4,10 +4,11 @@
 //! `Command` and `ViscaCommand` traits into a single interface with zero-allocation
 //! encoding support.
 
-use super::response::ViscaResponseType;
 use crate::{
     camera_id::CameraId, constants::CameraVariant, error::Error, timeout::CommandCategory,
 };
+
+use super::response::ViscaResponseType;
 
 /// Checks that a VISCA command buffer has the proper terminator.
 ///
@@ -22,9 +23,9 @@ fn check_terminator(buffer: &[u8], len: usize) -> Result<(), Error> {
     if len > 0 && buffer[len - 1] != crate::command::bytes::VISCA_TERMINATOR {
         return Err(Error::InvalidRequest(
             format!(
-                "VISCA command missing 0xFF terminator at position {}. Command bytes: {:02X?}",
-                len - 1,
-                &buffer[..len]
+                "VISCA command missing 0xFF terminator at position {pos}. Command bytes: {bytes:02X?}",
+                pos = len - 1,
+                bytes = &buffer[..len]
             )
             .into(),
         ));
@@ -50,9 +51,8 @@ fn check_command_structure(buffer: &[u8], len: usize) -> Result<(), Error> {
     if len < 2 {
         return Err(Error::InvalidRequest(
             format!(
-                "VISCA command too short: {} bytes. Minimum is 2 bytes. Command bytes: {:02X?}",
-                len,
-                &buffer[..len]
+                "VISCA command too short: {len} bytes. Minimum is 2 bytes. Command bytes: {bytes:02X?}",
+                bytes = &buffer[..len]
             )
             .into(),
         ));
@@ -62,9 +62,9 @@ fn check_command_structure(buffer: &[u8], len: usize) -> Result<(), Error> {
     if len > 0 && (buffer[0] < 0x81 || buffer[0] > 0x88) {
         return Err(Error::InvalidRequest(
             format!(
-                "Invalid VISCA camera address byte: 0x{:02X}. Must be 0x81-0x88. Command bytes: {:02X?}",
-                buffer[0],
-                &buffer[..len]
+                "Invalid VISCA camera address byte: 0x{addr:02X}. Must be 0x81-0x88. Command bytes: {bytes:02X?}",
+                addr = buffer[0],
+                bytes = &buffer[..len]
             )
             .into(),
         ));

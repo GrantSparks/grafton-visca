@@ -4,9 +4,9 @@
 //! including backlight compensation, noise reduction, image flip, picture effects,
 //! brightness (luminance), contrast, and sharpness adjustments.
 
-use grafton_visca_macros::ViscaEnum;
-
 use std::borrow::Cow;
+
+use grafton_visca_macros::ViscaEnum;
 
 use crate::{
     command::{
@@ -275,8 +275,6 @@ pub enum ImageFlipMode {
 
 visca_param_command! {
     /// Command to set the combined image flip mode.
-    ///
-    /// TODO: Connect to camera API for image flip functionality
     pub(crate) struct ImageFlipCombinedCommand {
         mode: ImageFlipMode,
     }
@@ -302,8 +300,6 @@ visca_param_command! {
     ///
     /// Controls various artistic effects like negative, sepia, sketch, etc.
     /// Note that not all effects are supported on all camera models.
-    ///
-    /// TODO: Connect to camera API for picture effects functionality
     pub(crate) struct PictureEffectCommand {
         mode: PictureEffectMode,
     }

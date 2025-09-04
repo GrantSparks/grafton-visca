@@ -18,8 +18,6 @@ use crate::{
     Error,
 };
 
-// The shared sync reader is used directly via import from sync_io module
-
 /// TCP transport for blocking VISCA communication.
 ///
 /// This transport supports DNS resolution and both IPv4 and IPv6 addresses.

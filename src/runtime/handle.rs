@@ -311,10 +311,6 @@ impl RuntimeHandle {
     pub async fn shutdown(&self) {
         // Set the shutdown flag
         self.shutdown.store(true, Ordering::Relaxed);
-        // Drop the submit channel to signal shutdown
-        // This will cause the runtime loop to exit
-        // Note: dropping a clone doesn't close the channel
-        // We need to ensure no more sends can happen
     }
 
     /// Get current metrics from the runtime scheduler.
