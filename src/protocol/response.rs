@@ -4,14 +4,7 @@
 //! protocol responses and splitting frame buffers. It eliminates duplication between
 //! async and sync paths while preserving socket awareness and type safety.
 
-use crate::{
-    command::{
-        bytes::VISCA_TERMINATOR,
-        response::{parse_inquiry_payload, ViscaResponse, ViscaResponseType},
-    },
-    error::Error,
-    ViscaSocket,
-};
+use crate::{command::bytes::VISCA_TERMINATOR, ViscaSocket};
 
 /// Basic VISCA response kind.
 ///
@@ -144,55 +137,6 @@ pub fn decode_basic(frame: &[u8]) -> Option<BasicResponse<'_>> {
     }
 }
 
-/// Lift a basic response to a full ViscaResponse with inquiry parsing.
-///
-/// This function converts a BasicResponse into a ViscaResponse, optionally
-/// parsing inquiry payloads when an expected type is provided.
-///
-/// # Arguments
-/// * `basic` - The basic response to lift
-/// * `expected` - Optional expected response type for inquiry parsing
-///
-/// # Returns
-/// * `Ok(ViscaResponse)` on successful parsing
-/// * `Err(Error)` if inquiry parsing fails
-pub fn lift_inquiry(
-    basic: &BasicResponse<'_>,
-    expected: Option<&ViscaResponseType>,
-) -> Result<ViscaResponse, Error> {
-    match basic.kind {
-        BasicKind::Ack => Ok(ViscaResponse::CmdAck {
-            socket: basic.socket,
-        }),
-        BasicKind::Completion => Ok(ViscaResponse::Completion {
-            socket: basic.socket,
-        }),
-        BasicKind::Error(code) => Ok(ViscaResponse::Error(Error::from_code(code))),
-        BasicKind::NetworkChange => {
-            // Network change could be treated as Unknown or a special completion
-            Ok(ViscaResponse::Unknown {
-                response_type: None,
-                data: vec![],
-            })
-        }
-        BasicKind::DataReply => {
-            if let Some(response_type) = expected {
-                // Use the new parse_inquiry_payload function directly without re-framing
-                parse_inquiry_payload(basic.payload, response_type)
-            } else {
-                Ok(ViscaResponse::Unknown {
-                    response_type: None,
-                    data: basic.payload.to_vec(),
-                })
-            }
-        }
-        BasicKind::Unknown => Ok(ViscaResponse::Unknown {
-            response_type: None,
-            data: basic.payload.to_vec(),
-        }),
-    }
-}
-
 /// Zero-copy frame iterator for VISCA frame splitting.
 ///
 /// This iterator finds complete frames (terminated by 0xFF) in a buffer
@@ -292,6 +236,8 @@ pub fn find_next_frame(buffer: &[u8]) -> Option<(Vec<u8>, &[u8])> {
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
+
+    use crate::command::response::{lift_inquiry, ViscaResponse, ViscaResponseType};
     use crate::command::InquiryResponse;
 
     #[test]
