@@ -5,10 +5,11 @@
 //! Address Set and I/F Clear initialization using tokio-serial.
 
 use bytes::Bytes;
-use std::{future::Future, io::ErrorKind};
 use tokio::time::{timeout, Duration, Instant};
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
 use tracing::{debug, trace, warn};
+
+use std::{future::Future, io::ErrorKind};
 
 use crate::{
     camera_id::CameraId,

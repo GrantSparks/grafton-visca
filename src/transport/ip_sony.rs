@@ -106,7 +106,9 @@ impl SonyTcpTransport {
     /// Send a command using the transport envelope.
     fn send_framed(&mut self, bytes: &[u8]) -> Result<u32> {
         // Use envelope to frame the command (inquiry detection is now done internally)
-        let (framed, meta) = self.envelope.frame_with_meta(bytes, &self.buffer_manager);
+        let (framed, meta) = self
+            .envelope
+            .frame_with_meta_owned(Bytes::from(bytes.to_vec()), &self.buffer_manager);
 
         // Get the sequence number (should always be Some for Sony)
         let sequence = meta.sequence.unwrap_or(0);
@@ -153,7 +155,9 @@ impl SonyTcpTransport {
                     let frame_bytes = self.read_buffer.split_to(frame_size);
 
                     // Use envelope to extract payload and metadata
-                    let (payload, meta) = self.envelope.extract_with_meta(&frame_bytes)?;
+                    let (payload, meta) = self
+                        .envelope
+                        .extract_with_meta_owned(Bytes::copy_from_slice(&frame_bytes))?;
 
                     trace!(
                         "Received Sony frame: seq={seq:?} payload={payload:02X?}",
@@ -380,7 +384,9 @@ impl SonyUdpTransport {
     /// Send a command using the transport envelope.
     fn send_framed(&mut self, bytes: &[u8]) -> Result<u32> {
         // Use envelope to frame the command (inquiry detection is now done internally)
-        let (framed, meta) = self.envelope.frame_with_meta(bytes, &self.buffer_manager);
+        let (framed, meta) = self
+            .envelope
+            .frame_with_meta_owned(Bytes::from(bytes.to_vec()), &self.buffer_manager);
 
         // Get the sequence number (should always be Some for Sony)
         let sequence = meta.sequence.unwrap_or(0);
@@ -408,7 +414,9 @@ impl SonyUdpTransport {
                 if n >= SonyHeader::SIZE + payload_length {
                     // Use envelope to extract payload and metadata
                     let frame_bytes = &temp_buf[..SonyHeader::SIZE + payload_length];
-                    let (payload, meta) = self.envelope.extract_with_meta(frame_bytes)?;
+                    let (payload, meta) = self
+                        .envelope
+                        .extract_with_meta_owned(Bytes::copy_from_slice(frame_bytes))?;
 
                     trace!(
                         "Received UDP frame: seq={seq:?} payload={payload:02X?}",

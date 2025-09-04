@@ -82,6 +82,8 @@ pub async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Execu
                 } else {
                     warn!("No response channel found for command {cmd_id} completion");
                 }
+                // Clean up sequence tracking for Sony encapsulated protocols
+                scheduler.finish_sequence(cmd_id);
                 scheduler.free_socket(socket);
 
                 // Process any queued commands now that a socket is free
@@ -295,6 +297,8 @@ pub async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Execu
                             let error_code = error.as_byte();
                             let _ = response_tx.send(Err(Error::from_code(error_code)));
                         }
+                        // Clean up sequence tracking for Sony encapsulated protocols
+                        scheduler.finish_sequence(cmd_id);
                         scheduler.free_socket(sock);
 
                         // Process any queued commands now that a socket is free
@@ -328,6 +332,8 @@ pub async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Execu
                             let _ = response_tx.send(Err(Error::from_code(error_code)));
                         }
 
+                        // Clean up sequence tracking for Sony encapsulated protocols
+                        scheduler.finish_sequence(cmd_id);
                         // Free any socket that might be associated with this command
                         scheduler.free_command_socket(cmd_id);
                     } else {

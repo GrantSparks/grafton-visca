@@ -191,14 +191,23 @@ pub async fn runtime_loop_with_config<
 
                         // Drain complete frames without copying
                         for frame in frame_decoder.drain_frames() {
-                            // Extract the VISCA payload using zero-copy method
-                            let payload = match envelope.extract_response_owned(frame) {
-                                Ok(p) => p,
+                            // Extract the VISCA payload and metadata using zero-copy method
+                            let (payload, meta) = match envelope.extract_with_meta_owned(frame) {
+                                Ok(result) => result,
                                 Err(e) => {
                                     warn!("Failed to extract response from frame: {e}");
                                     continue;
                                 }
                             };
+
+                            // For Sony encapsulated protocols, validate sequence
+                            if let Some(seq) = meta.sequence {
+                                // Check if this sequence is known (not a duplicate/late frame)
+                                if !scheduler.observe_sequence(seq) {
+                                    trace!("Dropping duplicate/late frame with sequence {seq}");
+                                    continue;
+                                }
+                            }
 
                             if let Err(e) = handle_response(
                                 &mut transport,

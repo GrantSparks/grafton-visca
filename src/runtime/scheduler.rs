@@ -252,6 +252,12 @@ pub(crate) struct Scheduler {
     max_retries_per_category: HashMap<CommandCategory, u32>,
     /// Runtime metrics.
     pub metrics: SchedulerMetrics,
+    /// Sony sequence tracking: sequence -> command_id.
+    /// Used to correlate Sony encapsulated responses by sequence number.
+    pending_by_sequence: HashMap<u32, u32>,
+    /// Sony sequence tracking: command_id -> sequence.
+    /// Used to clean up sequence mappings when commands complete.
+    sequence_by_command: HashMap<u32, u32>,
 }
 
 /// Command waiting to be retried.
@@ -548,6 +554,8 @@ impl Scheduler {
             max_retries_per_category: max_retries,
             metrics: SchedulerMetrics::new(),
             pending_ack: HashMap::new(),
+            pending_by_sequence: HashMap::new(),
+            sequence_by_command: HashMap::new(),
         }
     }
 
@@ -1021,6 +1029,39 @@ impl Scheduler {
             .iter()
             .find(|(inquiry_id, _, _)| *inquiry_id == id)
             .and_then(|(_, _, response_type)| *response_type)
+    }
+
+    /// Register a sequence number for a command (Sony encapsulated protocol).
+    ///
+    /// This associates a sequence number with a command ID for correlation.
+    pub fn register_sequence(&mut self, cmd_id: u32, sequence: u32) {
+        trace!("Registering sequence {sequence} for command {cmd_id}");
+        self.pending_by_sequence.insert(sequence, cmd_id);
+        self.sequence_by_command.insert(cmd_id, sequence);
+    }
+
+    /// Observe a sequence number in a response (Sony encapsulated protocol).
+    ///
+    /// Returns true if this is a known sequence (not a duplicate/late frame).
+    /// Returns false if the sequence is unknown or already processed.
+    pub fn observe_sequence(&mut self, sequence: u32) -> bool {
+        if let Some(cmd_id) = self.pending_by_sequence.get(&sequence) {
+            trace!("Observed known sequence {sequence} for command {cmd_id}");
+            true
+        } else {
+            trace!("Observed unknown/duplicate sequence {sequence}");
+            false
+        }
+    }
+
+    /// Finish processing a sequence (remove from tracking).
+    ///
+    /// Should be called when a command completes or fails terminally.
+    pub fn finish_sequence(&mut self, cmd_id: u32) {
+        if let Some(sequence) = self.sequence_by_command.remove(&cmd_id) {
+            self.pending_by_sequence.remove(&sequence);
+            trace!("Finished sequence {sequence} for command {cmd_id}");
+        }
     }
 
     /// Add a command to the retry queue.

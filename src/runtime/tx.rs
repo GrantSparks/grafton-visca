@@ -1,8 +1,8 @@
 //! Transmission handling for VISCA commands.
 
-use std::sync::atomic::Ordering;
-
 use tracing::{debug, error, instrument, trace, warn};
+
+use std::sync::atomic::Ordering;
 
 use super::scheduler::{CommandRegistration, Scheduler, SchedulerMetrics, TxItem};
 use crate::{
@@ -58,6 +58,10 @@ pub async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Execut
                 // Enforce command spacing
                 scheduler.enforce_spacing_with(executor, now).await;
 
+                // Frame command first to get sequence (if applicable)
+                let (framed_bytes, meta) =
+                    envelope.frame_with_meta_owned(bytes.clone(), buffer_manager);
+
                 // Begin transaction with automatic rollback on failure
                 let registration = CommandRegistration {
                     id,
@@ -69,13 +73,15 @@ pub async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Execut
                 };
                 let guard = scheduler.begin_send_transaction(registration, now);
 
-                // Frame and send command (zero-copy for raw VISCA)
-                let framed_bytes = envelope.frame_command_owned(bytes.clone(), buffer_manager);
                 debug!("Sending command {id} (awaiting ACK): {bytes:02X?} (framed: {framed_bytes:02X?})");
                 trace!("Sending command {id} (awaiting ACK): {bytes:02X?}");
                 match transport.send(&framed_bytes).await {
                     Ok(_) => {
                         guard.commit();
+                        // Register sequence after commit to avoid borrow issues
+                        if let Some(seq) = meta.sequence {
+                            scheduler.register_sequence(id, seq);
+                        }
                         debug!("Command {id} sent successfully, awaiting ACK");
                     }
                     Err(e) => {
@@ -138,7 +144,14 @@ pub async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Execut
             scheduler.enforce_spacing_with(executor, now).await;
 
             // Frame and send inquiry (zero-copy for raw VISCA)
-            let framed_bytes = envelope.frame_command_owned(bytes.clone(), buffer_manager);
+            let (framed_bytes, meta) =
+                envelope.frame_with_meta_owned(bytes.clone(), buffer_manager);
+
+            // Record sequence for Sony encapsulated protocols (inquiries don't have borrow issues)
+            if let Some(seq) = meta.sequence {
+                scheduler.register_sequence(id, seq);
+            }
+
             trace!("Sending inquiry {id}: {bytes:02X?} (framed: {framed_bytes:02X?})");
             if let Err(e) = transport.send(&framed_bytes).await {
                 error!("Failed to send inquiry {id}: {e}");
@@ -169,6 +182,7 @@ pub async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Execut
             let cancel_bytes = bytes::Bytes::copy_from_slice(&cancel_bytes[..len]);
 
             // Frame the cancel command (zero-copy for raw VISCA)
+            // Cancel commands don't need sequence tracking
             let framed_cancel = envelope.frame_command_owned(cancel_bytes, buffer_manager);
             if let Err(e) = transport.send(&framed_cancel).await {
                 error!("Failed to send cancel: {e}");
@@ -225,6 +239,7 @@ pub async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Execut
                 let cancel_bytes = bytes::Bytes::copy_from_slice(&cancel_bytes[..len]);
 
                 // Frame the cancel command (zero-copy for raw VISCA)
+                // Cancel commands don't need sequence tracking
                 let framed_cancel = envelope.frame_command_owned(cancel_bytes, buffer_manager);
                 if let Err(e) = transport.send(&framed_cancel).await {
                     error!("Failed to send cancel: {e}");
