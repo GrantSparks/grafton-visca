@@ -3,6 +3,7 @@
 //! This module provides unified buffer management across all transport implementations,
 //! ensuring consistent buffer sizes and allocation strategies.
 
+#[allow(unused_imports)] // Bytes is conditionally used based on features
 use bytes::{Bytes, BytesMut};
 
 /// Default buffer size for most VISCA operations.
@@ -102,7 +103,15 @@ impl BufferManager {
 
     /// Create a new buffer manager with default configuration.
     /// Only available in tests to simplify test setup.
-    #[cfg(test)]
+    #[cfg(all(
+        test,
+        any(
+            not(feature = "async"),
+            feature = "rt-tokio",
+            feature = "rt-async-std",
+            feature = "rt-smol"
+        )
+    ))]
     pub fn with_defaults() -> Self {
         Self::new(BufferConfig::default())
     }
@@ -123,7 +132,12 @@ impl BufferManager {
 
     /// Allocate a vector buffer for simple operations.
     /// Available for both blocking transports and async runtime transports.
-    #[allow(dead_code)] // Used by UDP transports in async runtimes
+    #[cfg(any(
+        not(feature = "async"),
+        feature = "rt-tokio",
+        feature = "rt-async-std",
+        feature = "rt-smol"
+    ))]
     pub fn alloc_vec_buffer(&self) -> Vec<u8> {
         vec![0u8; self.config.recv_buffer_size]
     }
@@ -151,8 +165,7 @@ impl BufferManager {
 
     /// Process received data using zero-copy when possible.
     /// Used by async transports that can take ownership of the buffer.
-    #[cfg(feature = "async")]
-    #[allow(dead_code)] // Used by UDP transports with specific runtime features
+    #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
     pub fn process_recv_data(&self, mut buffer: Vec<u8>, received: usize) -> Bytes {
         buffer.truncate(received);
         Bytes::from(buffer) // Takes ownership, no copy
@@ -248,7 +261,7 @@ mod tests {
         assert!(buffer.is_empty());
     }
 
-    #[cfg(feature = "async")]
+    #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
     #[test]
     fn test_process_recv_data() {
         let manager = BufferManager::with_defaults();

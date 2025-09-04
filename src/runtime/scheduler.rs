@@ -49,10 +49,6 @@ pub(crate) enum TxItem {
         id: u32,
         /// Raw VISCA bytes to send.
         bytes: bytes::Bytes,
-        /// Camera ID used to encode the inquiry.
-        /// Note: Currently unused but kept for consistency with Command variant.
-        #[allow(dead_code)]
-        camera_id: crate::camera_id::CameraId,
         /// Expected response type.
         response_type: Option<crate::command::response::ViscaResponseType>,
         /// Channel to send response back.

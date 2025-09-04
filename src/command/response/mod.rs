@@ -24,14 +24,6 @@ pub use self::{
     types::{ViscaResponse, ViscaResponseType},
 };
 
-#[allow(dead_code)]
-fn parse_inquiry_response(
-    payload: &[u8],
-    expected_type: &ViscaResponseType,
-) -> Result<ViscaResponse, Error> {
-    decoders::dispatch(*expected_type, payload)
-}
-
 // Custom parser helper functions for inquiry responses
 // These are used by the derive macro when custom_fn is specified
 

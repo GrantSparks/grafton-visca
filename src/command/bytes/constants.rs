@@ -295,7 +295,10 @@ pub mod tally {
 ///
 /// These are complete inquiry commands that request status information from the camera.
 /// All inquiry commands use 0x09 as the command type byte (after camera ID).
-#[cfg_attr(not(test), allow(dead_code))]
+///
+/// Note: These constants serve as the authoritative byte sequences for VISCA inquiry commands.
+/// Currently used by tests to validate macro-generated code and by tally commands in production.
+/// TODO: Refactor InquiryCommand macro to use these constants as single source of truth.
 pub mod inquiry {
     use super::*;
 
@@ -407,6 +410,104 @@ pub mod inquiry {
 
     /// Focus unlock status inquiry.
     pub const FOCUS_UNLOCK: &[u8] = visca_bytes![0x81, 0x09, 0x54, 0x08];
+
+    // Additional inquiry constants for comprehensive coverage
+
+    /// Inquiry command to get the auto-focus sensitivity setting.
+    pub const AUTO_FOCUS_SENSITIVITY: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x58];
+
+    /// Inquiry command to get the backlight compensation mode.
+    pub const BACKLIGHT: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x33];
+
+    /// Inquiry command to get the black and white mode on/off status.
+    pub const BLACK_WHITE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x01];
+
+    /// Inquiry command to get the current blue gain value.
+    pub const BLUE_GAIN: &[u8] = visca_bytes![0x81, 0x09, 0x0A, 0x13];
+
+    /// Inquiry command to get the current brightness adjustment value.
+    pub const BRIGHT: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x4D];
+
+    /// Inquiry command to get the current color temperature value.
+    pub const COLOR_TEMPERATURE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x20];
+
+    /// Inquiry command to get the digital mode state.
+    pub const DIGITAL: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x7B];
+
+    /// Inquiry command to get the dynamic range mode/level.
+    pub const DYNAMIC_RANGE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x25];
+
+    /// Inquiry command to get the current exposure compensation value.
+    pub const EXPOSURE_COMPENSATION: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x4E];
+
+    /// Inquiry command to get the exposure compensation mode on/off status.
+    pub const EXPOSURE_COMPENSATION_MODE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x3E];
+
+    /// Inquiry command to get the current exposure mode setting.
+    pub const EXPOSURE_MODE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x39];
+
+    /// Inquiry command to get the focus near limit position.
+    pub const FOCUS_NEAR_LIMIT: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x28];
+
+    /// Inquiry command to get the current focus zone selection.
+    pub const FOCUS_ZONE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x3C];
+
+    /// Inquiry command to get the current gain value.
+    pub const GAIN: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x4C];
+
+    /// Inquiry command to get the current gain limit setting.
+    pub const GAIN_LIMIT: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x2C];
+
+    /// Inquiry command to get the current gamma curve setting.
+    pub const GAMMA: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x5B];
+
+    /// Inquiry command to get the current hue adjustment value.
+    pub const HUE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x4F];
+
+    /// Inquiry command to get the image flip (mirror/reverse) settings.
+    pub const IMAGE_FLIP: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x66];
+
+    /// Inquiry command to get the current iris position value.
+    pub const IRIS: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x4B];
+
+    /// Inquiry command to get the ND filter preset setting.
+    pub const ND_FILTER_PRESET: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x66];
+
+    /// Inquiry command to get the 2D noise reduction level.
+    pub const NOISE_REDUCTION_2D: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x53];
+
+    /// Inquiry command to get the 3D noise reduction level.
+    pub const NOISE_REDUCTION_3D: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x54];
+
+    /// Inquiry command to get the current pan/tilt position.
+    pub const PAN_TILT_POSITION: &[u8] = visca_bytes![0x81, 0x09, 0x06, 0x12];
+
+    /// Inquiry command to get the current red gain value.
+    pub const RED_GAIN: &[u8] = visca_bytes![0x81, 0x09, 0x0A, 0x12];
+
+    /// Inquiry command to get the current color saturation level.
+    pub const SATURATION: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x49];
+
+    /// Inquiry command to get the current sharpness mode on/off status.
+    pub const SHARPNESS_MODE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x05];
+
+    /// Inquiry command to get the current shutter speed setting.
+    pub const SHUTTER: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x4A];
+
+    /// Inquiry command to get the tally auto adjust state.
+    pub const TALLY_AUTO_ADJUST: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0xA9];
+
+    /// Inquiry command to get the two tone mode state.
+    pub const TWO_TONE_MODE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x74];
+
+    /// Inquiry command to get the USB audio state.
+    pub const USB_AUDIO: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x7A];
+
+    /// Inquiry command to get the camera version information.
+    pub const VERSION: &[u8] = visca_bytes![0x81, 0x09, 0x00, 0x02];
+
+    /// Inquiry command to get the current white balance mode.
+    pub const WHITE_BALANCE_MODE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x35];
 }
 
 /// Menu command constants.

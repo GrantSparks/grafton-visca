@@ -440,7 +440,6 @@ impl RuntimeHandle {
         let item = TxItem::Inquiry {
             id: 0, // Will be assigned by scheduler
             bytes,
-            camera_id,
             response_type,
             response_tx,
         };

@@ -513,13 +513,10 @@ impl Transport {
 #[derive(Debug, Clone)]
 pub struct NetTransportBuilder {
     #[cfg_attr(
-        not(any(
-            not(feature = "async"),
-            feature = "rt-tokio",
-            feature = "rt-async-std",
-            feature = "rt-smol",
-            test
-        )),
+        all(
+            feature = "async",
+            not(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))
+        ),
         allow(dead_code)
     )]
     protocol: Protocol,

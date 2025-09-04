@@ -336,8 +336,6 @@ pub async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Execu
                         scheduler.finish_sequence(cmd_id);
                         // Free any socket that might be associated with this command
                         scheduler.free_command_socket(cmd_id);
-                    } else {
-                        // No pending commands, just broadcast the error
                     }
                 }
             }

@@ -24,7 +24,6 @@ pub trait AsyncReadExt {
     ///
     /// Returns 0 when the stream is closed.
     /// This method is used by runtimes that implement byte-by-byte reading (smol).
-    #[allow(dead_code)] // Used by trait implementations in runtime-specific connectors
     fn read(&mut self, buf: &mut [u8]) -> impl Future<Output = Result<usize, Error>> + Send;
 
     /// Read until a delimiter byte is encountered.

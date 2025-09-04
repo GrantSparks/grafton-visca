@@ -17,19 +17,13 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
             let attrs = parse_visca_attributes_from_struct(&input);
 
             // Extract required attributes
-            let byte_value = attrs
-                .byte_value
-                .expect("visca attribute must have a 'command' value");
             let response_type = attrs
                 .response_type
                 .expect("visca attribute must have a 'response' value");
 
-            // Generate the bytes based on subcategory
-            let bytes_expr = if let Some(sub) = attrs.subcategory {
-                quote! { vec![camera_id.to_address_byte(), 0x09, #sub, #byte_value, 0xFF] }
-            } else {
-                quote! { vec![camera_id.to_address_byte(), 0x09, 0x04, #byte_value, 0xFF] }
-            };
+            let constant_name = attrs
+                .constant
+                .expect("visca attribute must have a 'constant' value - all inquiries must use predefined constants");
 
             // Determine crate path once for consistency
             let crate_path =
@@ -38,6 +32,17 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
                 } else {
                     quote! { ::grafton_visca }
                 };
+
+            // Use the predefined constant
+            let constant_path = format_ident!("{}", constant_name);
+            let bytes_expr = quote! {
+                {
+                    let mut bytes = #crate_path::command::bytes::constants::inquiry::#constant_path.to_vec();
+                    // Replace camera ID (first byte)
+                    bytes[0] = camera_id.to_address_byte();
+                    bytes
+                }
+            };
 
             // Generate parser implementation if parser info is provided
             let parse_response_impl = if let Some(parser_info) = &attrs.parser {
@@ -111,6 +116,7 @@ struct ViscaAttributes {
     subcategory: Option<u8>,
     response_type: Option<Ident>,
     parser: Option<ParserInfo>,
+    constant: Option<String>, // Name of the constant to use
 }
 
 struct ParserInfo {
@@ -233,6 +239,14 @@ fn parse_visca_attributes_from_struct(input: &DeriveInput) -> ViscaAttributes {
                     if let Some(ref mut parser) = attrs.parser {
                         parser.custom_fn = Some(value.to_string());
                     }
+                } else if part.contains("constant") {
+                    let value = part
+                        .split('=')
+                        .nth(1)
+                        .expect("constant must have a value")
+                        .trim()
+                        .trim_matches('"');
+                    attrs.constant = Some(value.to_string());
                 }
             }
         }

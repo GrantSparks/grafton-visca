@@ -122,7 +122,6 @@ pub async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Execut
         TxItem::Inquiry {
             mut id,
             bytes,
-            camera_id: _,
             response_type,
             response_tx,
         } => {
