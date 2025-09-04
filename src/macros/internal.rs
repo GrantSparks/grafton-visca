@@ -259,13 +259,6 @@ macro_rules! visca_builder {
             const TIMEOUT_CATEGORY: $crate::timeout::CommandCategory = $crate::timeout::CommandCategory::$category;
 
             fn encode_into(&self, camera_id: $crate::camera_id::CameraId, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
-                if buffer.len() < Self::MAX_SIZE {
-                    return Err($crate::Error::BufferTooSmall {
-                        required: Self::MAX_SIZE,
-                        actual: buffer.len(),
-                    });
-                }
-
                 // Use ownership-based type-state pattern
                 // The body must return the builder after chaining operations
                 let $builder = $crate::command::bytes::ConstCommandBuilder::<$size>::new();
