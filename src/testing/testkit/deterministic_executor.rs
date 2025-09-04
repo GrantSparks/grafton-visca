@@ -614,6 +614,18 @@ impl Executor for DeterministicExecutor {
     fn now(&self) -> Instant {
         self.now()
     }
+
+    // Override spawn_bg to properly detach the task.
+    // The default implementation drops the join handle returned by spawn(),
+    // but for DeterministicExecutor, that wrapper owns the underlying Task
+    // and dropping it cancels the task. We must detach it instead.
+    fn spawn_bg<F>(&self, fut: F)
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        self.executor.spawn(fut).detach();
+    }
 }
 
 /// A timeout future that properly integrates with the virtual clock.
@@ -780,6 +792,14 @@ impl Executor for Arc<DeterministicExecutor> {
 
     fn now(&self) -> Instant {
         self.as_ref().now()
+    }
+
+    fn spawn_bg<F>(&self, fut: F)
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        self.as_ref().spawn_bg(fut)
     }
 }
 
@@ -1038,6 +1058,47 @@ mod tests {
             counter.load(Ordering::SeqCst),
             3,
             "All tasks should have completed"
+        );
+    }
+
+    #[test]
+    fn test_spawn_bg_runs() {
+        // Test that spawn_bg properly detaches the task and it runs
+        let (executor, _clock) = DeterministicExecutor::new();
+        let flag = Arc::new(AtomicBool::new(false));
+        let flag_clone = flag.clone();
+
+        // Use spawn_bg directly from the Executor trait
+        executor.spawn_bg(async move {
+            flag_clone.store(true, Ordering::SeqCst);
+        });
+
+        // Drive the executor to run the background task
+        executor.drive_until_idle();
+
+        // The task should have run
+        assert!(flag.load(Ordering::SeqCst), "spawn_bg task should have run");
+    }
+
+    #[test]
+    fn test_spawn_bg_with_arc() {
+        // Test that Arc<DeterministicExecutor> also correctly implements spawn_bg
+        let (executor, _clock) = DeterministicExecutor::new();
+        let flag = Arc::new(AtomicBool::new(false));
+        let flag_clone = flag.clone();
+
+        // Use spawn_bg on Arc<DeterministicExecutor>
+        <Arc<DeterministicExecutor> as Executor>::spawn_bg(&executor, async move {
+            flag_clone.store(true, Ordering::SeqCst);
+        });
+
+        // Drive the executor to run the background task
+        executor.drive_until_idle();
+
+        // The task should have run
+        assert!(
+            flag.load(Ordering::SeqCst),
+            "spawn_bg task on Arc should have run"
         );
     }
 }

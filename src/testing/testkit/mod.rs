@@ -10,7 +10,9 @@ pub mod deterministic_executor;
 pub mod scripted_transport;
 
 #[cfg(feature = "async")]
-pub use deterministic_executor::{DeterministicClock, DeterministicExecutor};
+pub use deterministic_executor::{
+    DeterministicClock, DeterministicExecutor, DeterministicExecutorExt,
+};
 #[cfg(not(feature = "async"))]
 pub use scripted_transport::ScriptedSyncTransport;
 pub use scripted_transport::{helpers, Step};
