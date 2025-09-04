@@ -4,7 +4,7 @@
 //! real-world response patterns from PTZ cameras.
 
 use grafton_visca::command::{
-    response::{parse_response, ViscaResponse, ViscaResponseType},
+    response::{ViscaResponse, ViscaResponseType},
     InquiryResponse,
 };
 
@@ -12,7 +12,7 @@ use grafton_visca::command::{
 fn test_parse_power_inquiry_responses() {
     // Power On response
     let data = vec![0x90, 0x50, 0x02, 0xFF];
-    let result = parse_response(&data, &ViscaResponseType::Power);
+    let result = ViscaResponse::parse_with_type(&data, &ViscaResponseType::Power);
     assert!(
         result.is_ok(),
         "Failed to parse power on response: {:?}",
@@ -28,7 +28,7 @@ fn test_parse_power_inquiry_responses() {
 
     // Power Off response
     let data = vec![0x90, 0x50, 0x03, 0xFF];
-    let result = parse_response(&data, &ViscaResponseType::Power);
+    let result = ViscaResponse::parse_with_type(&data, &ViscaResponseType::Power);
     assert!(
         result.is_ok(),
         "Failed to parse power off response: {:?}",
@@ -49,7 +49,7 @@ fn test_parse_pan_tilt_position_inquiry() {
     let data = vec![
         0x90, 0x50, 0x00, 0x01, 0x02, 0x03, 0x00, 0x04, 0x05, 0x06, 0xFF,
     ];
-    let result = parse_response(&data, &ViscaResponseType::PanTiltPosition);
+    let result = ViscaResponse::parse_with_type(&data, &ViscaResponseType::PanTiltPosition);
     assert!(
         result.is_ok(),
         "Failed to parse pan/tilt response: {:?}",
@@ -68,7 +68,7 @@ fn test_parse_pan_tilt_position_inquiry() {
     let data = vec![
         0x90, 0x50, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0E, 0x0D, 0xFF,
     ];
-    let result = parse_response(&data, &ViscaResponseType::PanTiltPosition);
+    let result = ViscaResponse::parse_with_type(&data, &ViscaResponseType::PanTiltPosition);
     assert!(
         result.is_ok(),
         "Failed to parse negative pan/tilt: {:?}",
@@ -87,7 +87,7 @@ fn test_parse_pan_tilt_position_inquiry() {
 #[test]
 fn test_parse_zoom_position_inquiry() {
     let data = vec![0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0xFF];
-    let result = parse_response(&data, &ViscaResponseType::ZoomPosition);
+    let result = ViscaResponse::parse_with_type(&data, &ViscaResponseType::ZoomPosition);
     assert!(
         result.is_ok(),
         "Failed to parse zoom response: {:?}",
@@ -103,7 +103,7 @@ fn test_parse_zoom_position_inquiry() {
 
     // Max zoom position
     let data = vec![0x90, 0x50, 0x0F, 0x0F, 0x0F, 0x0F, 0xFF];
-    let result = parse_response(&data, &ViscaResponseType::ZoomPosition);
+    let result = ViscaResponse::parse_with_type(&data, &ViscaResponseType::ZoomPosition);
     assert!(result.is_ok(), "Failed to parse max zoom: {:?}", result);
 
     match result.unwrap() {
@@ -117,7 +117,7 @@ fn test_parse_zoom_position_inquiry() {
 #[test]
 fn test_parse_focus_position_inquiry() {
     let data = vec![0x90, 0x50, 0x05, 0x06, 0x07, 0x08, 0xFF];
-    let result = parse_response(&data, &ViscaResponseType::FocusPosition);
+    let result = ViscaResponse::parse_with_type(&data, &ViscaResponseType::FocusPosition);
     assert!(
         result.is_ok(),
         "Failed to parse focus response: {:?}",
@@ -135,7 +135,7 @@ fn test_parse_focus_position_inquiry() {
 #[test]
 fn test_parse_backlight_inquiry() {
     let data = vec![0x90, 0x50, 0x02, 0xFF];
-    let result = parse_response(&data, &ViscaResponseType::Backlight);
+    let result = ViscaResponse::parse_with_type(&data, &ViscaResponseType::Backlight);
     assert!(
         result.is_ok(),
         "Failed to parse backlight response: {:?}",
@@ -154,7 +154,7 @@ fn test_parse_backlight_inquiry() {
 fn test_parse_image_flip_inquiry() {
     // Both flips on
     let data = vec![0x90, 0x50, 0x03, 0xFF];
-    let result = parse_response(&data, &ViscaResponseType::ImageFlip);
+    let result = ViscaResponse::parse_with_type(&data, &ViscaResponseType::ImageFlip);
     assert!(
         result.is_ok(),
         "Failed to parse image flip response: {:?}",
@@ -174,7 +174,7 @@ fn test_parse_image_flip_inquiry() {
 
     // Only vertical flip
     let data = vec![0x90, 0x50, 0x02, 0xFF];
-    let result = parse_response(&data, &ViscaResponseType::ImageFlip);
+    let result = ViscaResponse::parse_with_type(&data, &ViscaResponseType::ImageFlip);
     assert!(
         result.is_ok(),
         "Failed to parse image flip response: {:?}",
@@ -196,7 +196,7 @@ fn test_parse_image_flip_inquiry() {
 #[test]
 fn test_parse_brightness_inquiry() {
     let data = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x08, 0xFF];
-    let result = parse_response(&data, &ViscaResponseType::Bright);
+    let result = ViscaResponse::parse_with_type(&data, &ViscaResponseType::Bright);
     assert!(
         result.is_ok(),
         "Failed to parse brightness response: {:?}",
@@ -214,7 +214,7 @@ fn test_parse_brightness_inquiry() {
 #[test]
 fn test_parse_gain_level_inquiry() {
     let data = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x05, 0xFF];
-    let result = parse_response(&data, &ViscaResponseType::Gain);
+    let result = ViscaResponse::parse_with_type(&data, &ViscaResponseType::Gain);
     assert!(
         result.is_ok(),
         "Failed to parse gain response: {:?}",
@@ -232,7 +232,7 @@ fn test_parse_gain_level_inquiry() {
 #[test]
 fn test_parse_contrast_inquiry() {
     let data = vec![0x90, 0x50, 0x0C, 0xFF];
-    let result = parse_response(&data, &ViscaResponseType::Contrast);
+    let result = ViscaResponse::parse_with_type(&data, &ViscaResponseType::Contrast);
     assert!(
         result.is_ok(),
         "Failed to parse contrast response: {:?}",
@@ -250,7 +250,7 @@ fn test_parse_contrast_inquiry() {
 #[test]
 fn test_parse_luminance_inquiry() {
     let data = vec![0x90, 0x50, 0x07, 0xFF];
-    let result = parse_response(&data, &ViscaResponseType::Luminance);
+    let result = ViscaResponse::parse_with_type(&data, &ViscaResponseType::Luminance);
     assert!(
         result.is_ok(),
         "Failed to parse luminance response: {:?}",
@@ -268,7 +268,7 @@ fn test_parse_luminance_inquiry() {
 #[test]
 fn test_parse_resolution_inquiry() {
     let data = vec![0x90, 0x50, 0x01, 0xFF];
-    let result = parse_response(&data, &ViscaResponseType::Resolution);
+    let result = ViscaResponse::parse_with_type(&data, &ViscaResponseType::Resolution);
     assert!(
         result.is_ok(),
         "Failed to parse resolution response: {:?}",
@@ -286,7 +286,7 @@ fn test_parse_resolution_inquiry() {
 #[test]
 fn test_parse_sharpness_inquiry() {
     let data = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x08, 0xFF];
-    let result = parse_response(&data, &ViscaResponseType::Sharpness);
+    let result = ViscaResponse::parse_with_type(&data, &ViscaResponseType::Sharpness);
     assert!(
         result.is_ok(),
         "Failed to parse sharpness response: {:?}",
@@ -304,7 +304,7 @@ fn test_parse_sharpness_inquiry() {
 #[test]
 fn test_parse_iris_inquiry() {
     let data = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x0A, 0xFF];
-    let result = parse_response(&data, &ViscaResponseType::Iris);
+    let result = ViscaResponse::parse_with_type(&data, &ViscaResponseType::Iris);
     assert!(
         result.is_ok(),
         "Failed to parse iris response: {:?}",
@@ -322,7 +322,7 @@ fn test_parse_iris_inquiry() {
 #[test]
 fn test_parse_shutter_inquiry() {
     let data = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x07, 0xFF];
-    let result = parse_response(&data, &ViscaResponseType::Shutter);
+    let result = ViscaResponse::parse_with_type(&data, &ViscaResponseType::Shutter);
     assert!(
         result.is_ok(),
         "Failed to parse shutter response: {:?}",
@@ -340,7 +340,7 @@ fn test_parse_shutter_inquiry() {
 #[test]
 fn test_parse_noise_reduction_2d_inquiry() {
     let data = vec![0x90, 0x50, 0x03, 0xFF];
-    let result = parse_response(&data, &ViscaResponseType::NoiseReduction2D);
+    let result = ViscaResponse::parse_with_type(&data, &ViscaResponseType::NoiseReduction2D);
     assert!(
         result.is_ok(),
         "Failed to parse 2D NR response: {:?}",
@@ -358,7 +358,7 @@ fn test_parse_noise_reduction_2d_inquiry() {
 #[test]
 fn test_parse_noise_reduction_3d_inquiry() {
     let data = vec![0x90, 0x50, 0x05, 0xFF];
-    let result = parse_response(&data, &ViscaResponseType::NoiseReduction3D);
+    let result = ViscaResponse::parse_with_type(&data, &ViscaResponseType::NoiseReduction3D);
     assert!(
         result.is_ok(),
         "Failed to parse 3D NR response: {:?}",
@@ -376,7 +376,7 @@ fn test_parse_noise_reduction_3d_inquiry() {
 #[test]
 fn test_parse_saturation_inquiry() {
     let data = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x0A, 0xFF];
-    let result = parse_response(&data, &ViscaResponseType::Saturation);
+    let result = ViscaResponse::parse_with_type(&data, &ViscaResponseType::Saturation);
     assert!(
         result.is_ok(),
         "Failed to parse saturation response: {:?}",
@@ -394,7 +394,7 @@ fn test_parse_saturation_inquiry() {
 #[test]
 fn test_parse_hue_inquiry() {
     let data = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x07, 0xFF];
-    let result = parse_response(&data, &ViscaResponseType::Hue);
+    let result = ViscaResponse::parse_with_type(&data, &ViscaResponseType::Hue);
     assert!(result.is_ok(), "Failed to parse hue response: {:?}", result);
 
     match result.unwrap() {
@@ -409,16 +409,16 @@ fn test_parse_hue_inquiry() {
 fn test_error_handling() {
     // Test missing terminator
     let data = vec![0x90, 0x50, 0x02];
-    let result = parse_response(&data, &ViscaResponseType::Power);
+    let result = ViscaResponse::parse_with_type(&data, &ViscaResponseType::Power);
     assert!(result.is_err(), "Should fail without terminator");
 
     // Test insufficient data for pan/tilt
     let data = vec![0x90, 0x50, 0x00, 0x01, 0xFF];
-    let result = parse_response(&data, &ViscaResponseType::PanTiltPosition);
+    let result = ViscaResponse::parse_with_type(&data, &ViscaResponseType::PanTiltPosition);
     assert!(result.is_err(), "Should fail with insufficient data");
 
     // Test empty data
     let data = vec![];
-    let result = parse_response(&data, &ViscaResponseType::Power);
+    let result = ViscaResponse::parse_with_type(&data, &ViscaResponseType::Power);
     assert!(result.is_err(), "Should fail with empty data");
 }

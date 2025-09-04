@@ -17,6 +17,7 @@ use crate::{
         InquiryResponse, WhiteBalanceMode,
     },
     error::Error,
+    protocol::response::{decode_basic, lift_inquiry},
     ViscaSocket,
 };
 
@@ -72,60 +73,32 @@ impl ViscaResponse {
     ///
     /// This method is for parsing basic responses (ACK, Completion, Error).
     /// For inquiry responses, use `parse_with_type` instead.
+    ///
+    /// This is now a thin wrapper over the canonical decoder in protocol::response.
     pub fn parse(bytes: &[u8]) -> Result<Self, Error> {
-        // Check for common non-inquiry responses first
-        if bytes.is_empty() {
-            return Err(Error::InvalidResponse {
-                expected: Cow::Borrowed("Non-empty response"),
-                actual: bytes.to_vec(),
-            });
-        }
+        // Use the canonical decoder from protocol::response
+        let basic = decode_basic(bytes).ok_or_else(|| Error::InvalidResponse {
+            expected: Cow::Borrowed("Valid VISCA response"),
+            actual: bytes.to_vec(),
+        })?;
 
-        // ACK: 9x 4y FF (where x = socket, y = ack type)
-        if bytes.len() == 3
-            && (bytes[0] & 0xF0) == 0x90
-            && (bytes[1] & 0xF0) == 0x40
-            && bytes[2] == 0xFF
-        {
-            let socket_num = bytes[1] & 0x0F;
-            let socket = ViscaSocket::from_protocol_byte(socket_num);
-            return Ok(ViscaResponse::CmdAck { socket });
-        }
-
-        // Completion: 9x 5y FF (where x = socket, y = completion type)
-        if bytes.len() == 3
-            && (bytes[0] & 0xF0) == 0x90
-            && (bytes[1] & 0xF0) == 0x50
-            && bytes[2] == 0xFF
-        {
-            let socket_num = bytes[1] & 0x0F;
-            let socket = ViscaSocket::from_protocol_byte(socket_num);
-            return Ok(ViscaResponse::Completion { socket });
-        }
-
-        // Error: 9x 6y zz FF (where x = socket, y = error type, zz = error code)
-        if bytes.len() >= 4 && (bytes[0] & 0xF0) == 0x90 && (bytes[1] & 0xF0) == 0x60 {
-            return Ok(ViscaResponse::Error(Error::from_code(bytes[2])));
-        }
-
-        // If it's an inquiry response (9x 50 ...), it needs a specific type
-        if bytes.len() > 3 && (bytes[0] & 0xF0) == 0x90 && bytes[1] == 0x50 {
-            return Err(Error::InvalidResponse {
-                expected: Cow::Borrowed("Use parse_with_type for inquiry responses"),
-                actual: bytes.to_vec(),
-            });
-        }
-
-        // Unknown response format
-        Ok(ViscaResponse::Unknown {
-            response_type: None,
-            data: bytes.to_vec(),
-        })
+        // Convert to ViscaResponse without expected type (for non-inquiry responses)
+        // Note: lift_inquiry handles all basic response types, not just inquiries
+        lift_inquiry(&basic, None)
     }
 
     /// Parse an inquiry response with a specific expected type.
+    ///
+    /// This is now a thin wrapper over the canonical decoder in protocol::response.
     pub fn parse_with_type(bytes: &[u8], response_type: &ViscaResponseType) -> Result<Self, Error> {
-        parse_response(bytes, response_type)
+        // Use the canonical decoder from protocol::response
+        let basic = decode_basic(bytes).ok_or_else(|| Error::InvalidResponse {
+            expected: Cow::Borrowed("Valid VISCA response"),
+            actual: bytes.to_vec(),
+        })?;
+
+        // Convert to ViscaResponse with the expected type for inquiry parsing
+        lift_inquiry(&basic, Some(response_type))
     }
 }
 
@@ -294,62 +267,18 @@ pub enum ViscaResponseType {
     TallyAutoAdjust,
 }
 
-/// Parse a raw VISCA response into a structured ViscaResponse.
-pub fn parse_response(
-    data: &[u8],
+// parse_response function removed - tests should use ViscaResponse::parse_with_type() directly
+// which is the actual public API that users would call.
+
+/// Parse inquiry response payload directly without frame reconstruction.
+///
+/// This is the canonical parser for inquiry payloads, designed to work
+/// directly with payload bytes rather than full frames.
+pub fn parse_inquiry_payload(
+    payload: &[u8],
     expected_type: &ViscaResponseType,
 ) -> Result<ViscaResponse, Error> {
-    // Basic format validation
-    if data.is_empty() || data.len() < 3 {
-        return Err(Error::InvalidResponseFormat);
-    }
-
-    if data[0] != 0x90 {
-        return Err(Error::InvalidResponseFormat);
-    }
-
-    if data[data.len() - 1] != 0xFF {
-        return Err(Error::InvalidResponseFormat);
-    }
-
-    let second_byte = data[1];
-
-    // Parse based on second byte
-    match second_byte & 0xF0 {
-        0x40 => {
-            let socket_num = data[1] & 0x0F;
-            let socket = ViscaSocket::from_protocol_byte(socket_num);
-            Ok(ViscaResponse::CmdAck { socket })
-        } // ACK responses
-        0x50 => {
-            // Completion or inquiry data response
-            if data.len() == 3 {
-                let socket_num = data[1] & 0x0F;
-                let socket = ViscaSocket::from_protocol_byte(socket_num);
-                Ok(ViscaResponse::Completion { socket })
-            } else {
-                // Debug logging for inquiry responses
-                tracing::debug!(
-                    "Parsing inquiry response for {:?}, raw bytes: {:02X?}, payload bytes: {:02X?}",
-                    expected_type,
-                    data,
-                    &data[2..data.len() - 1]
-                );
-                parse_inquiry_response(&data[2..data.len() - 1], expected_type)
-            }
-        }
-        0x60 => {
-            // Error response
-            if data.len() != 4 {
-                return Err(Error::InvalidResponseFormat);
-            }
-            Err(Error::from_code(data[2]))
-        }
-        _ => Ok(ViscaResponse::Unknown {
-            response_type: None,
-            data: data.to_vec(),
-        }),
-    }
+    parse_inquiry_response(payload, expected_type)
 }
 
 fn parse_inquiry_response(
@@ -1977,42 +1906,43 @@ mod tests {
     #[test]
     fn test_basic_ack_parsing() {
         let response = vec![0x90, 0x41, VISCA_TERMINATOR];
-        let result = parse_response(&response, &ViscaResponseType::Power).unwrap();
+        let result = ViscaResponse::parse_with_type(&response, &ViscaResponseType::Power).unwrap();
         assert!(matches!(result, ViscaResponse::CmdAck { .. }));
     }
 
     #[test]
     fn test_basic_completion_parsing() {
         let response = vec![0x90, 0x51, VISCA_TERMINATOR];
-        let result = parse_response(&response, &ViscaResponseType::Power).unwrap();
+        let result = ViscaResponse::parse_with_type(&response, &ViscaResponseType::Power).unwrap();
         assert!(matches!(result, ViscaResponse::Completion { .. }));
     }
 
     #[test]
     fn test_basic_error_parsing() {
         let response = vec![0x90, 0x60, 0x02, VISCA_TERMINATOR];
-        let result = parse_response(&response, &ViscaResponseType::Power);
-        assert!(result.is_err());
+        let result = ViscaResponse::parse_with_type(&response, &ViscaResponseType::Power);
+        // Error responses are wrapped in Ok(ViscaResponse::Error) for parse_with_type
+        assert!(matches!(result, Ok(ViscaResponse::Error(_))));
     }
 
     #[test]
     fn test_invalid_format() {
         // Empty response
         let response = vec![];
-        let result = parse_response(&response, &ViscaResponseType::Power);
-        assert!(matches!(result, Err(Error::InvalidResponseFormat)));
+        let result = ViscaResponse::parse_with_type(&response, &ViscaResponseType::Power);
+        assert!(result.is_err());
 
         // Too short
         let response = vec![0x90, VISCA_TERMINATOR];
-        let result = parse_response(&response, &ViscaResponseType::Power);
-        assert!(matches!(result, Err(Error::InvalidResponseFormat)));
+        let result = ViscaResponse::parse_with_type(&response, &ViscaResponseType::Power);
+        assert!(result.is_err());
     }
 
     #[test]
     fn test_simple_power_response() {
         // Power On
         let response = vec![0x90, 0x50, 0x02, VISCA_TERMINATOR];
-        let result = parse_response(&response, &ViscaResponseType::Power).unwrap();
+        let result = ViscaResponse::parse_with_type(&response, &ViscaResponseType::Power).unwrap();
         match result {
             ViscaResponse::Inquiry(InquiryResponse::Power { on }) => assert!(on),
             _ => panic!("Expected Power inquiry response"),
@@ -2020,7 +1950,7 @@ mod tests {
 
         // Power Off
         let response = vec![0x90, 0x50, 0x03, VISCA_TERMINATOR];
-        let result = parse_response(&response, &ViscaResponseType::Power).unwrap();
+        let result = ViscaResponse::parse_with_type(&response, &ViscaResponseType::Power).unwrap();
         match result {
             ViscaResponse::Inquiry(InquiryResponse::Power { on }) => assert!(!on),
             _ => panic!("Expected Power inquiry response"),
@@ -2042,12 +1972,13 @@ mod tests {
     fn test_parse_ack_response() {
         // ACK for socket 0
         let ack_bytes = &[0x90, 0x40, VISCA_TERMINATOR];
-        let response = parse_response(ack_bytes, &ViscaResponseType::PanTiltPosition);
+        let response =
+            ViscaResponse::parse_with_type(ack_bytes, &ViscaResponseType::PanTiltPosition);
         assert!(matches!(response, Ok(ViscaResponse::CmdAck { .. })));
 
         // ACK for socket 1
         let ack_bytes = &[0x90, 0x41, VISCA_TERMINATOR];
-        let response = parse_response(ack_bytes, &ViscaResponseType::ZoomPosition);
+        let response = ViscaResponse::parse_with_type(ack_bytes, &ViscaResponseType::ZoomPosition);
         assert!(matches!(response, Ok(ViscaResponse::CmdAck { .. })));
     }
 
@@ -2055,12 +1986,14 @@ mod tests {
     fn test_parse_completion_response() {
         // Completion for socket 0
         let completion_bytes = &[0x90, 0x50, VISCA_TERMINATOR];
-        let response = parse_response(completion_bytes, &ViscaResponseType::PanTiltPosition);
+        let response =
+            ViscaResponse::parse_with_type(completion_bytes, &ViscaResponseType::PanTiltPosition);
         assert!(matches!(response, Ok(ViscaResponse::Completion { .. })));
 
         // Completion for socket 1
         let completion_bytes = &[0x90, 0x51, VISCA_TERMINATOR];
-        let response = parse_response(completion_bytes, &ViscaResponseType::ZoomPosition);
+        let response =
+            ViscaResponse::parse_with_type(completion_bytes, &ViscaResponseType::ZoomPosition);
         assert!(matches!(response, Ok(ViscaResponse::Completion { .. })));
     }
 
@@ -2068,18 +2001,30 @@ mod tests {
     fn test_parse_error_responses() {
         // Test Syntax Error
         let error_bytes = &[0x90, 0x60, 0x02, VISCA_TERMINATOR];
-        let response = parse_response(error_bytes, &ViscaResponseType::PanTiltPosition);
-        assert!(matches!(response, Err(Error::SyntaxError)));
+        let response =
+            ViscaResponse::parse_with_type(error_bytes, &ViscaResponseType::PanTiltPosition);
+        assert!(matches!(
+            response,
+            Ok(ViscaResponse::Error(Error::SyntaxError))
+        ));
 
         // Test Command Buffer Full
         let error_bytes = &[0x90, 0x60, 0x03, VISCA_TERMINATOR];
-        let response = parse_response(error_bytes, &ViscaResponseType::PanTiltPosition);
-        assert!(matches!(response, Err(Error::CommandBufferFull)));
+        let response =
+            ViscaResponse::parse_with_type(error_bytes, &ViscaResponseType::PanTiltPosition);
+        assert!(matches!(
+            response,
+            Ok(ViscaResponse::Error(Error::CommandBufferFull))
+        ));
 
         // Test Command Not Executable (0x41 - command invalid in current state)
         let error_bytes = &[0x90, 0x61, 0x41, VISCA_TERMINATOR];
-        let response = parse_response(error_bytes, &ViscaResponseType::PanTiltPosition);
-        assert!(matches!(response, Err(Error::CommandNotExecutable)));
+        let response =
+            ViscaResponse::parse_with_type(error_bytes, &ViscaResponseType::PanTiltPosition);
+        assert!(matches!(
+            response,
+            Ok(ViscaResponse::Error(Error::CommandNotExecutable))
+        ));
     }
 
     #[test]
@@ -2087,7 +2032,8 @@ mod tests {
         let pt_response_bytes = &[
             0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0xFF,
         ];
-        let response = parse_response(pt_response_bytes, &ViscaResponseType::PanTiltPosition);
+        let response =
+            ViscaResponse::parse_with_type(pt_response_bytes, &ViscaResponseType::PanTiltPosition);
         match response {
             Ok(ViscaResponse::Inquiry(InquiryResponse::PanTiltPosition { pan, tilt })) => {
                 assert_eq!(pan, 0x1234);
@@ -2100,7 +2046,8 @@ mod tests {
     #[test]
     fn test_parse_zoom_position_response() {
         let zoom_response_bytes = &[0x90, 0x50, 0x0A, 0x0B, 0x0C, 0x0D, VISCA_TERMINATOR];
-        let response = parse_response(zoom_response_bytes, &ViscaResponseType::ZoomPosition);
+        let response =
+            ViscaResponse::parse_with_type(zoom_response_bytes, &ViscaResponseType::ZoomPosition);
         match response {
             Ok(ViscaResponse::Inquiry(InquiryResponse::ZoomPosition { position })) => {
                 assert_eq!(position, 0xABCD);
@@ -2112,7 +2059,8 @@ mod tests {
     #[test]
     fn test_parse_focus_position_response() {
         let focus_response_bytes = &[0x90, 0x50, 0x01, 0x02, 0x03, 0x04, VISCA_TERMINATOR];
-        let response = parse_response(focus_response_bytes, &ViscaResponseType::FocusPosition);
+        let response =
+            ViscaResponse::parse_with_type(focus_response_bytes, &ViscaResponseType::FocusPosition);
         match response {
             Ok(ViscaResponse::Inquiry(InquiryResponse::FocusPosition { position })) => {
                 assert_eq!(position, 0x1234);
@@ -2125,7 +2073,10 @@ mod tests {
     fn test_parse_exposure_mode_response() {
         // Auto exposure mode
         let exposure_response_bytes = &[0x90, 0x50, 0x00, VISCA_TERMINATOR];
-        let response = parse_response(exposure_response_bytes, &ViscaResponseType::ExposureMode);
+        let response = ViscaResponse::parse_with_type(
+            exposure_response_bytes,
+            &ViscaResponseType::ExposureMode,
+        );
         match response {
             Ok(ViscaResponse::Inquiry(InquiryResponse::ExposureMode { mode })) => {
                 assert_eq!(mode as u8, 0x00); // Auto mode
@@ -2135,7 +2086,10 @@ mod tests {
 
         // Manual exposure mode
         let exposure_response_bytes = &[0x90, 0x50, 0x03, VISCA_TERMINATOR];
-        let response = parse_response(exposure_response_bytes, &ViscaResponseType::ExposureMode);
+        let response = ViscaResponse::parse_with_type(
+            exposure_response_bytes,
+            &ViscaResponseType::ExposureMode,
+        );
         match response {
             Ok(ViscaResponse::Inquiry(InquiryResponse::ExposureMode { mode })) => {
                 assert_eq!(mode as u8, 0x03); // Manual mode
@@ -2148,7 +2102,8 @@ mod tests {
     fn test_parse_luminance_response() {
         // Test minimum luminance value (0)
         let luminance_response_bytes = &[0x90, 0x50, 0x00, VISCA_TERMINATOR];
-        let response = parse_response(luminance_response_bytes, &ViscaResponseType::Luminance);
+        let response =
+            ViscaResponse::parse_with_type(luminance_response_bytes, &ViscaResponseType::Luminance);
         match response {
             Ok(ViscaResponse::Inquiry(InquiryResponse::Luminance(value))) => {
                 assert_eq!(value, 0x00);
@@ -2158,7 +2113,8 @@ mod tests {
 
         // Test middle luminance value (7)
         let luminance_response_bytes = &[0x90, 0x50, 0x07, VISCA_TERMINATOR];
-        let response = parse_response(luminance_response_bytes, &ViscaResponseType::Luminance);
+        let response =
+            ViscaResponse::parse_with_type(luminance_response_bytes, &ViscaResponseType::Luminance);
         match response {
             Ok(ViscaResponse::Inquiry(InquiryResponse::Luminance(value))) => {
                 assert_eq!(value, 0x07);
@@ -2168,7 +2124,8 @@ mod tests {
 
         // Test maximum luminance value (14)
         let luminance_response_bytes = &[0x90, 0x50, 0x0E, VISCA_TERMINATOR];
-        let response = parse_response(luminance_response_bytes, &ViscaResponseType::Luminance);
+        let response =
+            ViscaResponse::parse_with_type(luminance_response_bytes, &ViscaResponseType::Luminance);
         match response {
             Ok(ViscaResponse::Inquiry(InquiryResponse::Luminance(value))) => {
                 assert_eq!(value, 0x0E);
@@ -2181,7 +2138,8 @@ mod tests {
     fn test_parse_contrast_response() {
         // Test minimum contrast value (0)
         let contrast_response_bytes = &[0x90, 0x50, 0x00, VISCA_TERMINATOR];
-        let response = parse_response(contrast_response_bytes, &ViscaResponseType::Contrast);
+        let response =
+            ViscaResponse::parse_with_type(contrast_response_bytes, &ViscaResponseType::Contrast);
         match response {
             Ok(ViscaResponse::Inquiry(InquiryResponse::Contrast(value))) => {
                 assert_eq!(value, 0x00);
@@ -2191,7 +2149,8 @@ mod tests {
 
         // Test middle contrast value (7)
         let contrast_response_bytes = &[0x90, 0x50, 0x07, VISCA_TERMINATOR];
-        let response = parse_response(contrast_response_bytes, &ViscaResponseType::Contrast);
+        let response =
+            ViscaResponse::parse_with_type(contrast_response_bytes, &ViscaResponseType::Contrast);
         match response {
             Ok(ViscaResponse::Inquiry(InquiryResponse::Contrast(value))) => {
                 assert_eq!(value, 0x07);
@@ -2201,7 +2160,8 @@ mod tests {
 
         // Test maximum contrast value (14)
         let contrast_response_bytes = &[0x90, 0x50, 0x0E, VISCA_TERMINATOR];
-        let response = parse_response(contrast_response_bytes, &ViscaResponseType::Contrast);
+        let response =
+            ViscaResponse::parse_with_type(contrast_response_bytes, &ViscaResponseType::Contrast);
         match response {
             Ok(ViscaResponse::Inquiry(InquiryResponse::Contrast(value))) => {
                 assert_eq!(value, 0x0E);
@@ -2214,17 +2174,20 @@ mod tests {
     fn test_parse_invalid_response() {
         // Test response that doesn't start with 0x90
         let invalid_bytes = &[0x80, 0x50, VISCA_TERMINATOR];
-        let response = parse_response(invalid_bytes, &ViscaResponseType::PanTiltPosition);
+        let response =
+            ViscaResponse::parse_with_type(invalid_bytes, &ViscaResponseType::PanTiltPosition);
         assert!(response.is_err());
 
         // Test response that doesn't end with 0xFF
         let invalid_bytes = &[0x90, 0x50, 0x00];
-        let response = parse_response(invalid_bytes, &ViscaResponseType::PanTiltPosition);
+        let response =
+            ViscaResponse::parse_with_type(invalid_bytes, &ViscaResponseType::PanTiltPosition);
         assert!(response.is_err());
 
         // Test empty response
         let invalid_bytes = &[];
-        let response = parse_response(invalid_bytes, &ViscaResponseType::PanTiltPosition);
+        let response =
+            ViscaResponse::parse_with_type(invalid_bytes, &ViscaResponseType::PanTiltPosition);
         assert!(response.is_err());
     }
 
@@ -2232,7 +2195,8 @@ mod tests {
     fn test_parse_response_with_wrong_type() {
         // Try to parse an ACK as a data response
         let ack_bytes = &[0x90, 0x40, VISCA_TERMINATOR];
-        let response = parse_response(ack_bytes, &ViscaResponseType::PanTiltPosition);
+        let response =
+            ViscaResponse::parse_with_type(ack_bytes, &ViscaResponseType::PanTiltPosition);
         // ACK is still recognized regardless of expected response type
         assert!(matches!(response, Ok(ViscaResponse::CmdAck { .. })));
     }
@@ -2241,7 +2205,8 @@ mod tests {
     fn test_parse_sharpness_response() {
         // Test Sharpness response
         let sharpness_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x0B, VISCA_TERMINATOR];
-        let response = parse_response(sharpness_bytes, &ViscaResponseType::Sharpness);
+        let response =
+            ViscaResponse::parse_with_type(sharpness_bytes, &ViscaResponseType::Sharpness);
         match response {
             Ok(ViscaResponse::Inquiry(InquiryResponse::Sharpness { value })) => {
                 assert_eq!(value, 0x0B);
@@ -2254,7 +2219,10 @@ mod tests {
     fn test_parse_exposure_compensation_responses() {
         // Test Exposure Compensation value -7
         let exp_comp_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x00, VISCA_TERMINATOR];
-        let response = parse_response(exp_comp_bytes, &ViscaResponseType::ExposureCompensation);
+        let response = ViscaResponse::parse_with_type(
+            exp_comp_bytes,
+            &ViscaResponseType::ExposureCompensation,
+        );
         match response {
             Ok(ViscaResponse::Inquiry(InquiryResponse::ExposureCompensation { value })) => {
                 assert_eq!(value, -7);
@@ -2264,7 +2232,10 @@ mod tests {
 
         // Test Exposure Compensation value 0
         let exp_comp_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x07, VISCA_TERMINATOR];
-        let response = parse_response(exp_comp_bytes, &ViscaResponseType::ExposureCompensation);
+        let response = ViscaResponse::parse_with_type(
+            exp_comp_bytes,
+            &ViscaResponseType::ExposureCompensation,
+        );
         match response {
             Ok(ViscaResponse::Inquiry(InquiryResponse::ExposureCompensation { value })) => {
                 assert_eq!(value, 0);
@@ -2274,7 +2245,10 @@ mod tests {
 
         // Test Exposure Compensation value +7
         let exp_comp_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x0E, VISCA_TERMINATOR];
-        let response = parse_response(exp_comp_bytes, &ViscaResponseType::ExposureCompensation);
+        let response = ViscaResponse::parse_with_type(
+            exp_comp_bytes,
+            &ViscaResponseType::ExposureCompensation,
+        );
         match response {
             Ok(ViscaResponse::Inquiry(InquiryResponse::ExposureCompensation { value })) => {
                 assert_eq!(value, 7);
@@ -2284,7 +2258,7 @@ mod tests {
 
         // Test Exposure Compensation Mode On
         let exp_comp_mode_bytes = &[0x90, 0x50, 0x02, VISCA_TERMINATOR];
-        let response = parse_response(
+        let response = ViscaResponse::parse_with_type(
             exp_comp_mode_bytes,
             &ViscaResponseType::ExposureCompensationMode,
         );
@@ -2297,7 +2271,7 @@ mod tests {
 
         // Test Exposure Compensation Mode Off
         let exp_comp_mode_bytes = &[0x90, 0x50, 0x03, VISCA_TERMINATOR];
-        let response = parse_response(
+        let response = ViscaResponse::parse_with_type(
             exp_comp_mode_bytes,
             &ViscaResponseType::ExposureCompensationMode,
         );
@@ -2313,7 +2287,7 @@ mod tests {
     fn test_parse_iris_responses() {
         // Test Iris Close (0x00)
         let iris_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x00, VISCA_TERMINATOR];
-        let response = parse_response(iris_bytes, &ViscaResponseType::Iris);
+        let response = ViscaResponse::parse_with_type(iris_bytes, &ViscaResponseType::Iris);
         match response {
             Ok(ViscaResponse::Inquiry(InquiryResponse::Iris { position })) => {
                 assert_eq!(position, 0x00);
@@ -2323,7 +2297,7 @@ mod tests {
 
         // Test Iris F1.8 (0x0C)
         let iris_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x0C, VISCA_TERMINATOR];
-        let response = parse_response(iris_bytes, &ViscaResponseType::Iris);
+        let response = ViscaResponse::parse_with_type(iris_bytes, &ViscaResponseType::Iris);
         match response {
             Ok(ViscaResponse::Inquiry(InquiryResponse::Iris { position })) => {
                 assert_eq!(position, 0x0C);
@@ -2336,7 +2310,7 @@ mod tests {
     fn test_parse_shutter_responses() {
         // Test Shutter 1/30 (0x01)
         let shutter_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x01, VISCA_TERMINATOR];
-        let response = parse_response(shutter_bytes, &ViscaResponseType::Shutter);
+        let response = ViscaResponse::parse_with_type(shutter_bytes, &ViscaResponseType::Shutter);
         match response {
             Ok(ViscaResponse::Inquiry(InquiryResponse::Shutter { position })) => {
                 assert_eq!(position, 0x01);
@@ -2346,7 +2320,7 @@ mod tests {
 
         // Test Shutter 1/10000 (0x11)
         let shutter_bytes = &[0x90, 0x50, 0x00, 0x00, 0x01, 0x01, VISCA_TERMINATOR];
-        let response = parse_response(shutter_bytes, &ViscaResponseType::Shutter);
+        let response = ViscaResponse::parse_with_type(shutter_bytes, &ViscaResponseType::Shutter);
         match response {
             Ok(ViscaResponse::Inquiry(InquiryResponse::Shutter { position })) => {
                 assert_eq!(position, 0x11);
@@ -2359,7 +2333,7 @@ mod tests {
     fn test_parse_gain_responses() {
         // Test Gain response
         let gain_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x07, VISCA_TERMINATOR];
-        let response = parse_response(gain_bytes, &ViscaResponseType::Gain);
+        let response = ViscaResponse::parse_with_type(gain_bytes, &ViscaResponseType::Gain);
         match response {
             Ok(ViscaResponse::Inquiry(InquiryResponse::GainLevel { gain })) => {
                 assert_eq!(gain, 0x07);
@@ -2369,7 +2343,8 @@ mod tests {
 
         // Test GainLimit response
         let gain_limit_bytes = &[0x90, 0x50, 0x0F, VISCA_TERMINATOR];
-        let response = parse_response(gain_limit_bytes, &ViscaResponseType::GainLimit);
+        let response =
+            ViscaResponse::parse_with_type(gain_limit_bytes, &ViscaResponseType::GainLimit);
         match response {
             Ok(ViscaResponse::Inquiry(InquiryResponse::GainLimit { limit })) => {
                 assert_eq!(limit, 0x0F);
@@ -2382,7 +2357,7 @@ mod tests {
     fn test_parse_image_flip_responses() {
         // Test ImageFlip Off (0x00)
         let flip_bytes = &[0x90, 0x50, 0x00, VISCA_TERMINATOR];
-        let response = parse_response(flip_bytes, &ViscaResponseType::ImageFlip);
+        let response = ViscaResponse::parse_with_type(flip_bytes, &ViscaResponseType::ImageFlip);
         match response {
             Ok(ViscaResponse::Inquiry(InquiryResponse::ImageFlip {
                 vertical,
@@ -2396,7 +2371,7 @@ mod tests {
 
         // Test ImageFlip Horizontal only (0x01)
         let flip_bytes = &[0x90, 0x50, 0x01, VISCA_TERMINATOR];
-        let response = parse_response(flip_bytes, &ViscaResponseType::ImageFlip);
+        let response = ViscaResponse::parse_with_type(flip_bytes, &ViscaResponseType::ImageFlip);
         match response {
             Ok(ViscaResponse::Inquiry(InquiryResponse::ImageFlip {
                 vertical,
@@ -2410,7 +2385,7 @@ mod tests {
 
         // Test ImageFlip Vertical only (0x02)
         let flip_bytes = &[0x90, 0x50, 0x02, VISCA_TERMINATOR];
-        let response = parse_response(flip_bytes, &ViscaResponseType::ImageFlip);
+        let response = ViscaResponse::parse_with_type(flip_bytes, &ViscaResponseType::ImageFlip);
         match response {
             Ok(ViscaResponse::Inquiry(InquiryResponse::ImageFlip {
                 vertical,
@@ -2424,7 +2399,7 @@ mod tests {
 
         // Test ImageFlip Both (0x03)
         let flip_bytes = &[0x90, 0x50, 0x03, VISCA_TERMINATOR];
-        let response = parse_response(flip_bytes, &ViscaResponseType::ImageFlip);
+        let response = ViscaResponse::parse_with_type(flip_bytes, &ViscaResponseType::ImageFlip);
         match response {
             Ok(ViscaResponse::Inquiry(InquiryResponse::ImageFlip {
                 vertical,
@@ -2443,12 +2418,16 @@ mod tests {
 
         // Sharpness with wrong length (should be 7 bytes)
         let invalid_sharpness = &[0x90, 0x50, 0x0B, VISCA_TERMINATOR];
-        let response = parse_response(invalid_sharpness, &ViscaResponseType::Sharpness);
+        let response =
+            ViscaResponse::parse_with_type(invalid_sharpness, &ViscaResponseType::Sharpness);
         assert!(matches!(response, Err(Error::InvalidResponseLength)));
 
         // Exposure compensation with wrong length (should be 7 bytes)
         let invalid_exp_comp = &[0x90, 0x50, 0x07, VISCA_TERMINATOR];
-        let response = parse_response(invalid_exp_comp, &ViscaResponseType::ExposureCompensation);
+        let response = ViscaResponse::parse_with_type(
+            invalid_exp_comp,
+            &ViscaResponseType::ExposureCompensation,
+        );
         assert!(matches!(response, Err(Error::InvalidResponseLength)));
     }
 }

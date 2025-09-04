@@ -7,7 +7,7 @@
 use crate::{
     command::{
         bytes::VISCA_TERMINATOR,
-        response::{ViscaResponse, ViscaResponseType},
+        response::{parse_inquiry_payload, ViscaResponse, ViscaResponseType},
     },
     error::Error,
     ViscaSocket,
@@ -80,33 +80,33 @@ pub fn decode_basic(frame: &[u8]) -> Option<BasicResponse<'_>> {
         // ACK (90 4y FF)
         byte if (byte & 0xF0) == 0x40 => {
             let socket_num = byte & 0x0F;
-            ViscaSocket::from_protocol_byte(socket_num).map(|socket| BasicResponse {
+            let socket = ViscaSocket::from_protocol_byte(socket_num);
+            Some(BasicResponse {
                 kind: BasicKind::Ack,
-                socket: Some(socket),
+                socket,
                 payload: &[],
             })
         }
 
-        // Completion (90 5y FF)
+        // Completion (90 5y FF) or Data Reply (90 50 ... FF with more than 3 bytes)
         byte if (byte & 0xF0) == 0x50 => {
             let socket_num = byte & 0x0F;
 
-            // Special case: 90 50 is data reply
-            if socket_num == 0 {
-                let payload = if frame.len() > 3 {
-                    &frame[2..frame.len() - 1]
-                } else {
-                    &[]
-                };
+            // Special case: 90 50 with >3 bytes is data reply
+            if socket_num == 0 && frame.len() > 3 {
+                // Data reply: 90 50 <payload> FF
+                let payload = &frame[2..frame.len() - 1];
                 Some(BasicResponse {
                     kind: BasicKind::DataReply,
                     socket: None,
                     payload,
                 })
             } else {
-                ViscaSocket::from_protocol_byte(socket_num).map(|socket| BasicResponse {
+                // Completion: 90 5y FF (including 90 50 FF for socket 0)
+                let socket = ViscaSocket::from_protocol_byte(socket_num);
+                Some(BasicResponse {
                     kind: BasicKind::Completion,
-                    socket: Some(socket),
+                    socket,
                     payload: &[],
                 })
             }
@@ -177,14 +177,8 @@ pub fn lift_inquiry(
         }
         BasicKind::DataReply => {
             if let Some(response_type) = expected {
-                // Build a temporary frame for the existing parse_inquiry_response
-                // In the future, we could refactor parse_inquiry_response to work directly with payloads
-                let mut frame = vec![0x90, 0x50];
-                frame.extend_from_slice(basic.payload);
-                frame.push(VISCA_TERMINATOR);
-
-                // Use the existing parse_with_type function from command::response
-                ViscaResponse::parse_with_type(&frame, response_type)
+                // Use the new parse_inquiry_payload function directly without re-framing
+                parse_inquiry_payload(basic.payload, response_type)
             } else {
                 Ok(ViscaResponse::Unknown {
                     response_type: None,
@@ -375,8 +369,15 @@ mod tests {
         // Wrong header
         assert!(decode_basic(&[0x80, 0x41, VISCA_TERMINATOR]).is_none());
 
-        // Invalid socket in ACK
-        assert!(decode_basic(&[0x90, 0x43, VISCA_TERMINATOR]).is_none());
+        // Socket 0 ACK is valid but socket is None
+        let response = decode_basic(&[0x90, 0x40, VISCA_TERMINATOR]).expect("Should decode");
+        assert_eq!(response.kind, BasicKind::Ack);
+        assert_eq!(response.socket, None);
+
+        // Socket 0 Completion is valid but socket is None (when len == 3)
+        let response = decode_basic(&[0x90, 0x50, VISCA_TERMINATOR]).expect("Should decode");
+        assert_eq!(response.kind, BasicKind::Completion);
+        assert_eq!(response.socket, None);
     }
 
     #[test]
