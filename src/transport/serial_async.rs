@@ -137,7 +137,16 @@ impl AsyncSerialTransport {
     /// Create a new async serial transport with the given configuration.
     pub async fn new(config: AsyncSerialConfig) -> Result<Self> {
         // Open serial port
+        #[cfg(unix)]
         let mut port = tokio_serial::new(&config.port, config.baud_rate)
+            .timeout(config.read_timeout)
+            .open_native_async()
+            .map_err(|e| {
+                Error::TransportError(format!("Failed to open serial port: {e}").into())
+            })?;
+
+        #[cfg(not(unix))]
+        let port = tokio_serial::new(&config.port, config.baud_rate)
             .timeout(config.read_timeout)
             .open_native_async()
             .map_err(|e| {
