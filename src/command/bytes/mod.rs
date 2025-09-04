@@ -23,7 +23,7 @@ pub const DEFAULT_ADDRESS: u8 = 0x81;
 /// * `bytes` - The VISCA command bytes to check
 ///
 /// # Returns
-/// * `true` if the bytes represent an inquiry (bytes[1] == 0x09)
+/// * `true` if the bytes represent an inquiry (bytes\[1\] == 0x09)
 /// * `false` otherwise (including if bytes is too short)
 #[inline(always)]
 pub fn is_inquiry_bytes(bytes: &[u8]) -> bool {
