@@ -4,7 +4,7 @@ use tracing::{debug, error, instrument, trace, warn};
 
 use std::sync::atomic::Ordering;
 
-use super::scheduler::{Scheduler, SchedulerMetrics, TxItem};
+use super::scheduler::{CommandRegistration, Scheduler, SchedulerMetrics, TxItem};
 use crate::{
     camera_id::CameraId,
     command::{encode_visca::ViscaEncode, system::CommandCancelCommand},
@@ -54,26 +54,42 @@ pub async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Execut
                 // Enforce command spacing
                 scheduler.enforce_spacing_with(executor, now).await;
 
+                // Begin transaction with automatic rollback on failure
+                let registration = CommandRegistration {
+                    id,
+                    bytes: bytes.clone(),
+                    priority,
+                    category,
+                    camera_id,
+                    response_tx: response_tx.clone(),
+                };
+                let guard = scheduler.begin_send_transaction(registration, now);
+
                 // Frame and send command (zero-copy for raw VISCA)
                 let framed_bytes = envelope.frame_command_owned(bytes.clone(), buffer_manager);
                 debug!(
                     "Sending command {id} (awaiting ACK): {bytes:02X?} (framed: {framed_bytes:02X?})"
                 );
                 trace!("Sending command {id} (awaiting ACK): {bytes:02X?}");
-                if let Err(e) = transport.send(&framed_bytes).await {
-                    error!("Failed to send command {id}: {e}");
-                    scheduler
-                        .metrics
-                        .commands_failed
-                        .fetch_add(1, Ordering::Relaxed);
-                    let _ = response_tx.send(Err(Error::TransportError(e.to_string().into())));
-                    return Ok(());
-                }
+                match transport.send(&framed_bytes).await {
+                    Ok(_) => {
+                        // Commit the transaction on successful send
+                        guard.commit();
+                        debug!("Command {id} sent successfully, awaiting ACK");
+                    }
+                    Err(e) => {
+                        error!("Failed to send command {id}: {e}");
+                        // Guard automatically rolls back on drop
+                        drop(guard); // Explicitly drop to release borrow
 
-                // Add to pending ACK list - socket will be assigned when ACK arrives
-                scheduler.add_pending_ack(id, bytes.clone(), priority, category, now, camera_id);
-                scheduler.store_command_channel(id, response_tx);
-                debug!("Command {id} added to pending ACK list");
+                        scheduler
+                            .metrics
+                            .commands_failed
+                            .fetch_add(1, Ordering::Relaxed);
+                        let _ = response_tx.send(Err(Error::TransportError(e.to_string().into())));
+                        return Ok(());
+                    }
+                }
             } else {
                 // No socket available, add to priority queue
                 debug!(

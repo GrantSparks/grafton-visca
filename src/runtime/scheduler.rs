@@ -153,6 +153,47 @@ impl Default for SocketState {
     }
 }
 
+/// Command registration parameters.
+///
+/// Groups all parameters needed for registering a command in the scheduler.
+#[cfg(feature = "async")]
+pub(crate) struct CommandRegistration {
+    pub id: u32,
+    pub bytes: bytes::Bytes,
+    pub priority: Priority,
+    pub category: CommandCategory,
+    pub camera_id: crate::camera_id::CameraId,
+    pub response_tx: Sender<Result<ViscaResponse>>,
+}
+
+/// RAII guard for command send transactions.
+///
+/// Automatically rolls back the command registration if dropped without commit.
+#[cfg(feature = "async")]
+pub(crate) struct SendGuard<'a> {
+    scheduler: &'a mut Scheduler,
+    id: u32,
+    committed: bool,
+}
+
+#[cfg(feature = "async")]
+impl<'a> SendGuard<'a> {
+    /// Commit the transaction, preventing rollback on drop.
+    pub fn commit(mut self) {
+        self.committed = true;
+        debug!("Committed send transaction for command {}", self.id);
+    }
+}
+
+#[cfg(feature = "async")]
+impl<'a> Drop for SendGuard<'a> {
+    fn drop(&mut self) {
+        if !self.committed {
+            self.scheduler.rollback_send(self.id);
+        }
+    }
+}
+
 /// VISCA runtime scheduler.
 ///
 /// Manages command scheduling, socket allocation, and protocol timing.
@@ -574,6 +615,7 @@ impl Scheduler {
     }
 
     /// Add a command to pending ACK list when sent.
+    #[cfg(test)]
     pub fn add_pending_ack(
         &mut self,
         id: u32,
@@ -586,6 +628,50 @@ impl Scheduler {
         self.pending_ack
             .insert(id, (bytes, priority, category, now, camera_id));
         debug!("Added command {} to pending ACK list", id);
+    }
+
+    /// Begin a command send transaction with automatic rollback on failure.
+    ///
+    /// Returns a guard that must be committed after successful send.
+    /// If the guard is dropped without commit, it automatically rolls back.
+    pub fn begin_send_transaction(
+        &mut self,
+        registration: CommandRegistration,
+        now: Instant,
+    ) -> SendGuard<'_> {
+        // Store the response channel
+        self.store_command_channel(registration.id, registration.response_tx);
+
+        // Add to pending ACK list
+        self.pending_ack.insert(
+            registration.id,
+            (
+                registration.bytes,
+                registration.priority,
+                registration.category,
+                now,
+                registration.camera_id,
+            ),
+        );
+        debug!(
+            "Pre-registered command {} in pending ACK list",
+            registration.id
+        );
+
+        SendGuard {
+            scheduler: self,
+            id: registration.id,
+            committed: false,
+        }
+    }
+
+    /// Rollback a command send transaction atomically.
+    ///
+    /// This removes both the pending ACK entry and response channel.
+    pub fn rollback_send(&mut self, id: u32) {
+        self.pending_ack.remove(&id);
+        self.command_channels.remove(&id);
+        debug!("Rolled back command {} registration", id);
     }
 
     /// Handle ACK received - assign socket to command.
