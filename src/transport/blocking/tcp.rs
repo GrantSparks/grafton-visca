@@ -316,8 +316,16 @@ impl SyncTransport for Tcp {
         // Restore the original timeout
         self.reader.get_mut().set_read_timeout(original_timeout)?;
 
-        // Return the result
-        result
+        // Convert timeout-related IO errors to Error::Timeout for consistency with UDP
+        match result {
+            Err(Error::Io(ref io_err))
+                if io_err.kind() == std::io::ErrorKind::TimedOut
+                    || io_err.kind() == std::io::ErrorKind::WouldBlock =>
+            {
+                Err(Error::Timeout)
+            }
+            other => other,
+        }
     }
 }
 
@@ -370,8 +378,16 @@ impl TcpReader {
         // Restore the original timeout
         reader.get_mut().set_read_timeout(original_timeout)?;
 
-        // Return the result
-        result
+        // Convert timeout-related IO errors to Error::Timeout for consistency
+        match result {
+            Err(Error::Io(ref io_err))
+                if io_err.kind() == std::io::ErrorKind::TimedOut
+                    || io_err.kind() == std::io::ErrorKind::WouldBlock =>
+            {
+                Err(Error::Timeout)
+            }
+            other => other,
+        }
     }
 }
 
