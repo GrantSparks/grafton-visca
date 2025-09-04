@@ -3,12 +3,8 @@
 //! This module provides response parsing functionality for VISCA protocol responses,
 //! including ACK/completion messages, error responses, and inquiry data parsing.
 
-// Standard library imports
 use std::borrow::Cow;
 
-// Third-party crate imports
-
-// Workspace / local-crate imports
 use crate::{
     command::{
         image::{BlackWhiteMode, NrMode, NrSpeed, SharpnessMode},
@@ -266,9 +262,6 @@ pub enum ViscaResponseType {
     /// Tally auto adjust inquiry response.
     TallyAutoAdjust,
 }
-
-// parse_response function removed - tests should use ViscaResponse::parse_with_type() directly
-// which is the actual public API that users would call.
 
 /// Parse inquiry response payload directly without frame reconstruction.
 ///
