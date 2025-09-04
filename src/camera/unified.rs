@@ -4,9 +4,6 @@
 //! operations through the Mode trait system, eliminating the need for separate
 //! AsyncCamera and BlockingCamera types.
 
-#[cfg(feature = "async")]
-use crate::{executor::Executor, transport::AsyncTransport};
-
 use core::marker::PhantomData;
 
 use crate::{
@@ -22,6 +19,8 @@ use crate::{
         SyncTransport,
     },
 };
+#[cfg(feature = "async")]
+use crate::{executor::Executor, transport::AsyncTransport};
 
 /// Unified camera client that works in both blocking and async modes.
 ///
@@ -198,7 +197,6 @@ where
     /// and relies on existing const builders/macro invariants instead of runtime fixups.
     #[inline]
     fn encode_and_frame<C: ViscaEncode>(&self, cmd: &C) -> Result<(bytes::Bytes, bool), Error> {
-        // Use a reasonable maximum buffer size for stack allocation
         // Most VISCA commands are well under 32 bytes, but we use 64 for safety
         let mut buf = [0u8; 64];
         let len = cmd.encode_into(self.camera_id(), &mut buf)?;
@@ -374,8 +372,6 @@ where
     }
 
     /// Send a typed command and return the response.
-    ///
-    /// This method demonstrates how typed commands work in the unified API for async mode.
     pub fn send_command_typed<C>(
         &self,
         command: &C,
@@ -476,9 +472,6 @@ where
     Tr: SyncTransport + Send + 'static,
 {
     /// Send a command using the mode-specific return type.
-    ///
-    /// This method connects to the actual transport and command execution system,
-    /// working correctly in blocking mode through direct transport access.
     pub fn send_command<C>(
         &self,
         command: &C,
@@ -573,8 +566,6 @@ where
     }
 
     /// Send a typed command and return the response.
-    ///
-    /// This method demonstrates how typed commands work in the unified API for blocking mode.
     pub fn send_command_typed<C>(
         &self,
         command: &C,

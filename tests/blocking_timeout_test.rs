@@ -7,6 +7,12 @@
 
 #![cfg(not(feature = "async"))]
 
+use std::{
+    net::{TcpListener, UdpSocket},
+    thread,
+    time::{Duration, Instant},
+};
+
 use grafton_visca::{
     command::CommandKind,
     transport::{
@@ -14,12 +20,6 @@ use grafton_visca::{
         SyncTransport,
     },
     Error,
-};
-
-use std::{
-    net::{TcpListener, UdpSocket},
-    thread,
-    time::{Duration, Instant},
 };
 
 /// A slow server that doesn't respond for testing timeouts

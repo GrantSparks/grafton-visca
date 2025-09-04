@@ -8,7 +8,6 @@
 #![allow(clippy::expect_used)]
 
 use bytes::Bytes;
-
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},

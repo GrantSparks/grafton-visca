@@ -1,5 +1,6 @@
 //! Blocking TCP transport implementation with DNS resolution and IPv6 support.
 
+use bytes::Bytes;
 use std::{
     borrow::Cow,
     io::{BufReader, Write},
@@ -7,8 +8,6 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-
-use bytes::Bytes;
 
 use crate::{
     command::CommandKind,

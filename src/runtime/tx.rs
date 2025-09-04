@@ -1,8 +1,7 @@
 //! Transmission handling for VISCA commands.
 
-use tracing::{debug, error, instrument, trace, warn};
-
 use std::sync::atomic::Ordering;
+use tracing::{debug, error, instrument, trace, warn};
 
 use super::scheduler::{CommandRegistration, Scheduler, SchedulerMetrics, TxItem};
 use crate::{

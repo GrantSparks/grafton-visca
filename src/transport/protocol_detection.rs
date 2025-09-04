@@ -4,9 +4,8 @@
 //! vs raw VISCA protocol modes. It probes the camera with both formats to
 //! determine which protocol the camera expects.
 
-use tracing::{debug, info, warn};
-
 use std::time::Duration;
+use tracing::{debug, info, warn};
 
 use crate::{
     capabilities::ProtocolStyle,

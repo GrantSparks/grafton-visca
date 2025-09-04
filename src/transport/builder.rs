@@ -29,7 +29,6 @@ use std::time::Duration;
 
 #[cfg(not(feature = "async"))]
 use crate::transport::SyncTransport;
-
 use crate::transport::{buffer::BufferConfig, RetryConfig};
 use crate::Error;
 

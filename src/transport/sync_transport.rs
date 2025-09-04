@@ -4,7 +4,6 @@
 //! with built-in timeout support using OS-level socket timeouts.
 
 use bytes::Bytes;
-
 use core::time::Duration;
 
 use crate::{command::CommandKind, Error};

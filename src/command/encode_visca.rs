@@ -4,11 +4,10 @@
 //! `Command` and `ViscaCommand` traits into a single interface with zero-allocation
 //! encoding support.
 
+use super::response::ViscaResponseType;
 use crate::{
     camera_id::CameraId, constants::CameraVariant, error::Error, timeout::CommandCategory,
 };
-
-use super::response::ViscaResponseType;
 
 /// Command kind classification for VISCA protocol.
 ///

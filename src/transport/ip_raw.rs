@@ -14,7 +14,6 @@ use tracing::{debug, trace};
 
 #[cfg(not(feature = "async"))]
 use crate::transport::SyncTransport;
-
 use crate::{
     command::{bytes::VISCA_TERMINATOR, CommandKind},
     error::{Error, Result},
