@@ -11,6 +11,12 @@ use tracing::{debug, trace, warn};
 
 use std::{future::Future, io::ErrorKind};
 
+// Platform-specific imports for Windows compatibility
+#[cfg(windows)]
+use std::sync::Arc;
+#[cfg(windows)]
+use tokio::sync::Mutex;
+
 use crate::{
     camera_id::CameraId,
     command::{
@@ -126,10 +132,19 @@ impl Default for AsyncSerialConfig {
     }
 }
 
+// Platform-specific adapter wrapper.
+// On Windows, SerialStream contains a raw pointer that isn't Sync,
+// so we need to wrap it in Arc<Mutex>. On other platforms, we use it directly.
+#[cfg(not(windows))]
+type AdapterWrapper = TokioSerialAdapter;
+
+#[cfg(windows)]
+type AdapterWrapper = Arc<Mutex<TokioSerialAdapter>>;
+
 /// Async serial transport implementation.
-#[derive(Debug)]
+#[cfg_attr(not(windows), derive(Debug))]
 pub struct AsyncSerialTransport {
-    adapter: TokioSerialAdapter,
+    adapter: AdapterWrapper,
     buffer_manager: BufferManager,
     config: AsyncSerialConfig,
 }
@@ -165,8 +180,16 @@ impl AsyncSerialTransport {
 
         let adapter = TokioSerialAdapter::new(port);
         let buffer_manager = BufferManager::new(BufferConfig::for_serial());
+
+        // Wrap adapter based on platform
+        #[cfg(not(windows))]
+        let adapter_wrapper = adapter;
+
+        #[cfg(windows)]
+        let adapter_wrapper = Arc::new(Mutex::new(adapter));
+
         let mut transport = Self {
-            adapter,
+            adapter: adapter_wrapper,
             buffer_manager,
             config,
         };
@@ -247,12 +270,24 @@ impl AsyncSerialTransport {
         while start.elapsed() < timeout_duration {
             // Try to read some data with timeout
             let mut temp_buf = vec![0u8; 64];
-            match timeout(
+            #[cfg(not(windows))]
+            let read_result = timeout(
                 Duration::from_millis(50),
                 self.adapter.inner_mut().read(&mut temp_buf),
             )
-            .await
-            {
+            .await;
+
+            #[cfg(windows)]
+            let read_result = {
+                let mut adapter = self.adapter.lock().await;
+                timeout(
+                    Duration::from_millis(50),
+                    adapter.inner_mut().read(&mut temp_buf),
+                )
+                .await
+            };
+
+            match read_result {
                 Ok(Ok(n)) if n > 0 => {
                     response_buffer.extend_from_slice(&temp_buf[..n]);
                     trace!("Address Set response: {:02X?}", &temp_buf[..n]);
@@ -322,22 +357,50 @@ impl AsyncSerialTransport {
 
     /// Send raw bytes to the serial port.
     async fn send_raw(&mut self, data: &[u8]) -> Result<()> {
-        timeout(
-            self.config.write_timeout,
-            write_all_flush(&mut self.adapter, data),
-        )
-        .await
-        .map_err(|_| Error::Timeout)?
+        #[cfg(not(windows))]
+        {
+            timeout(
+                self.config.write_timeout,
+                write_all_flush(&mut self.adapter, data),
+            )
+            .await
+            .map_err(|_| Error::Timeout)?
+        }
+
+        #[cfg(windows)]
+        {
+            let mut adapter = self.adapter.lock().await;
+            timeout(
+                self.config.write_timeout,
+                write_all_flush(&mut *adapter, data),
+            )
+            .await
+            .map_err(|_| Error::Timeout)?
+        }
     }
 
     /// Receive a complete VISCA frame from the serial port.
     async fn recv_frame(&mut self) -> Result<Bytes> {
-        timeout(
-            self.config.read_timeout,
-            read_visca_frame(&mut self.adapter, &self.buffer_manager),
-        )
-        .await
-        .map_err(|_| Error::Timeout)?
+        #[cfg(not(windows))]
+        {
+            timeout(
+                self.config.read_timeout,
+                read_visca_frame(&mut self.adapter, &self.buffer_manager),
+            )
+            .await
+            .map_err(|_| Error::Timeout)?
+        }
+
+        #[cfg(windows)]
+        {
+            let mut adapter = self.adapter.lock().await;
+            timeout(
+                self.config.read_timeout,
+                read_visca_frame(&mut *adapter, &self.buffer_manager),
+            )
+            .await
+            .map_err(|_| Error::Timeout)?
+        }
     }
 }
 
