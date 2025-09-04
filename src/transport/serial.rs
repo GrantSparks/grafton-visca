@@ -4,7 +4,7 @@
 //! supporting both RS-232 and RS-422 connections with proper
 //! Address Set and I/F Clear initialization.
 
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use std::{
     io::{Read, Write},
     sync::{Arc, Mutex},
@@ -22,6 +22,7 @@ use crate::{
     error::{Error, Result},
     transport::{
         buffer::{BufferConfig, BufferManager},
+        sync_io::read_visca_frame_sync,
         RetryConfig, SyncTransport,
     },
 };
@@ -66,7 +67,7 @@ impl Default for SerialConfig {
 #[derive(Debug)]
 pub struct SerialTransport {
     port: Arc<Mutex<Box<dyn serialport::SerialPort>>>,
-    read_buffer: Arc<Mutex<BytesMut>>,
+    buffer_manager: BufferManager,
     config: SerialConfig,
 }
 
@@ -87,7 +88,7 @@ impl SerialTransport {
         let buffer_manager = BufferManager::new(BufferConfig::for_serial());
         let transport = Self {
             port: Arc::new(Mutex::new(port)),
-            read_buffer: Arc::new(Mutex::new(buffer_manager.alloc_recv_buffer())),
+            buffer_manager,
             config,
         };
 
@@ -254,40 +255,26 @@ impl SerialTransport {
 
     /// Receive a complete VISCA frame from the serial port.
     fn recv_frame(&self) -> Result<Bytes> {
-        let mut buffer = self
-            .read_buffer
-            .lock()
-            .map_err(|_| Error::LockPoisoned("serial port mutex"))?;
         let mut port = self
             .port
             .lock()
             .map_err(|_| Error::LockPoisoned("serial port mutex"))?;
-        let mut temp_buf = [0u8; 256];
 
-        loop {
-            // Check if we have a complete frame in the buffer
-            if let Some(pos) = buffer.iter().position(|&b| b == VISCA_TERMINATOR) {
-                let frame = buffer.split_to(pos + 1);
-                trace!("Received frame: {:02X?}", frame);
-                return Ok(frame.freeze());
-            }
+        // Use a wrapper struct to implement Read for the locked port
+        struct PortReader<'a> {
+            port: &'a mut Box<dyn serialport::SerialPort>,
+        }
 
-            // Read more data
-            match port.read(&mut temp_buf) {
-                Ok(n) if n > 0 => {
-                    buffer.extend_from_slice(&temp_buf[..n]);
-                    trace!("Read {n} bytes from serial");
-                }
-                Ok(_) => {
-                    return Err(Error::Timeout);
-                }
-                Err(e) => {
-                    return Err(Error::TransportError(
-                        format!("Serial read error: {e}").into(),
-                    ));
-                }
+        impl<'a> Read for PortReader<'a> {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                self.port.read(buf)
             }
         }
+
+        let mut reader = PortReader { port: &mut *port };
+        let frame = read_visca_frame_sync(&mut reader, &self.buffer_manager)?;
+        trace!("Received frame: {:02X?}", frame);
+        Ok(frame)
     }
 }
 

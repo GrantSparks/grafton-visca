@@ -28,7 +28,7 @@ readme = "README.md"
 [features]
 default = []
 async = ["dep:futures-lite", "dep:async-lock"]
-rt-tokio = ["async", "dep:tokio"]
+rt-tokio = ["async", "dep:tokio", "dep:tokio-serial"]
 rt-async-std = ["async", "dep:async-std"]
 rt-smol = ["async", "dep:smol", "dep:async-executor"]
 test-utils = ["dep:async-executor", "dep:futures-lite"]
@@ -125,4 +125,4 @@ required-features = ["rt-tokio"]
 
 [[example]]
 name = "serial_async_demo"
-required-features = ["rt-tokio", "tokio-serial"]
+required-features = ["rt-tokio"]

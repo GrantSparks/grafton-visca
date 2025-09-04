@@ -48,6 +48,9 @@ pub mod address;
 // Unified async I/O helpers for reducing code duplication across runtimes
 #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
 pub(crate) mod async_io;
+// Unified sync I/O helpers for reducing code duplication across blocking transports
+#[cfg(not(feature = "async"))]
+pub(crate) mod sync_io;
 // Async transport trait and runtime-specific transports are only public with `async`
 #[cfg(feature = "async")]
 pub mod async_transport;
@@ -72,7 +75,7 @@ pub mod retry;
 // Serial transports: blocking for sync mode, async for async mode
 #[cfg(all(not(feature = "async"), feature = "serialport"))]
 pub mod serial;
-#[cfg(all(feature = "async", feature = "rt-tokio", feature = "tokio-serial"))]
+#[cfg(all(feature = "async", feature = "rt-tokio"))]
 pub mod serial_async;
 
 // Runtime-specific transport implementations are feature-gated extensions

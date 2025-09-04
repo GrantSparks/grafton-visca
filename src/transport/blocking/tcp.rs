@@ -3,112 +3,21 @@
 use bytes::Bytes;
 use std::{
     borrow::Cow,
-    io::{BufRead, BufReader, Write},
+    io::{BufReader, Write},
     net::TcpStream,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
 use crate::{
-    command::bytes::VISCA_TERMINATOR,
-    protocol::sony::SonyHeader,
     transport::{
         address::AddressResolver, buffer::BufferManager, builder::TransportConfig,
-        retry::RetryExecutor, RetryConfig, SyncTransport,
+        retry::RetryExecutor, sync_io::read_visca_frame_sync, RetryConfig, SyncTransport,
     },
     Error,
 };
 
-/// Protocol-aware frame reader for blocking I/O.
-///
-/// Automatically detects whether the incoming frame is:
-/// - Raw VISCA: reads until 0xFF terminator
-/// - Sony 52381: reads exactly header + payload_length bytes
-fn read_visca_frame_blocking<R: BufRead>(
-    reader: &mut R,
-    buffer_manager: &BufferManager,
-) -> Result<Bytes, Error> {
-    let mut initial_buf = buffer_manager.alloc_vec_buffer();
-    initial_buf.clear();
-
-    // Read at least 8 bytes to check for Sony header
-    while initial_buf.len() < SonyHeader::SIZE {
-        let mut temp_byte = [0u8; 1];
-        let n = reader.read(&mut temp_byte)?;
-
-        if n == 0 {
-            if initial_buf.is_empty() {
-                return Err(Error::ConnectionClosed {
-                    reason: Some(Cow::Borrowed("peer closed connection")),
-                });
-            }
-            // Partial read, not enough for Sony header - treat as Raw VISCA
-            if let Some(term_pos) = initial_buf.iter().position(|&b| b == VISCA_TERMINATOR) {
-                initial_buf.truncate(term_pos + 1);
-            }
-            let len = initial_buf.len();
-            return Ok(buffer_manager.process_recv_data_borrowed(&mut initial_buf, len));
-        }
-
-        initial_buf.push(temp_byte[0]);
-
-        // If we got a terminator before 8 bytes AND it's not a valid Sony header start,
-        // it's definitely Raw VISCA
-        if initial_buf.len() < SonyHeader::SIZE && temp_byte[0] == VISCA_TERMINATOR {
-            // Check if what we have so far could be a Sony header
-            if initial_buf.len() >= 2 {
-                let could_be_sony = matches!(&initial_buf[0..2], [0x01, _]);
-                if !could_be_sony {
-                    let len = initial_buf.len();
-                    return Ok(buffer_manager.process_recv_data_borrowed(&mut initial_buf, len));
-                }
-            } else {
-                let len = initial_buf.len();
-                return Ok(buffer_manager.process_recv_data_borrowed(&mut initial_buf, len));
-            }
-        }
-    }
-
-    // Check if this is a Sony header
-    if let Some(header) = SonyHeader::decode(&initial_buf[..SonyHeader::SIZE]) {
-        // It's a Sony frame - read the remaining payload based on header length
-        let total_needed = SonyHeader::SIZE + header.payload_length as usize;
-
-        // Continue reading until we have the full frame
-        while initial_buf.len() < total_needed {
-            let mut temp_byte = [0u8; 1];
-            let n = reader.read(&mut temp_byte)?;
-            if n == 0 {
-                return Err(Error::ConnectionClosed {
-                    reason: Some(Cow::Borrowed("connection closed during Sony frame read")),
-                });
-            }
-            initial_buf.push(temp_byte[0]);
-        }
-
-        // Ensure we have exactly the right amount
-        initial_buf.truncate(total_needed);
-        Ok(buffer_manager.process_recv_data_borrowed(&mut initial_buf, total_needed))
-    } else {
-        // Not a Sony header - continue reading as Raw VISCA until terminator
-        if let Some(term_pos) = initial_buf.iter().position(|&b| b == VISCA_TERMINATOR) {
-            // Found terminator in what we already read
-            initial_buf.truncate(term_pos + 1);
-            let final_len = initial_buf.len();
-            Ok(buffer_manager.process_recv_data_borrowed(&mut initial_buf, final_len))
-        } else {
-            // Continue reading until terminator
-            let n = reader.read_until(VISCA_TERMINATOR, &mut initial_buf)?;
-            if n == 0 {
-                return Err(Error::ConnectionClosed {
-                    reason: Some(Cow::Borrowed("peer closed connection")),
-                });
-            }
-            let final_len = initial_buf.len();
-            Ok(buffer_manager.process_recv_data_borrowed(&mut initial_buf, final_len))
-        }
-    }
-}
+// The shared sync reader is used directly via import from sync_io module
 
 /// TCP transport for blocking VISCA communication.
 ///
@@ -300,7 +209,7 @@ impl SyncTransport for Tcp {
         // Note: Receiving data is typically not retried as it might lead to
         // duplicate data or protocol confusion. However, we can retry on
         // specific transient errors like temporary network issues.
-        read_visca_frame_blocking(&mut self.reader, &self.buffer_manager)
+        read_visca_frame_sync(&mut self.reader, &self.buffer_manager)
     }
 
     fn recv_with_timeout(&mut self, duration: Duration) -> Result<Bytes, Error> {
@@ -311,7 +220,7 @@ impl SyncTransport for Tcp {
         self.reader.get_mut().set_read_timeout(Some(duration))?;
 
         // Perform the read operation with protocol-aware deframing
-        let result = read_visca_frame_blocking(&mut self.reader, &self.buffer_manager);
+        let result = read_visca_frame_sync(&mut self.reader, &self.buffer_manager);
 
         // Restore the original timeout
         self.reader.get_mut().set_read_timeout(original_timeout)?;
@@ -352,7 +261,7 @@ impl TcpReader {
             .map_err(|_| Error::TransportError(Cow::Borrowed("Buffer manager mutex poisoned")))?;
 
         // Use protocol-aware frame reading
-        read_visca_frame_blocking(&mut *reader, &buffer_manager)
+        read_visca_frame_sync(&mut *reader, &buffer_manager)
     }
 
     /// Receive data with a custom timeout.
@@ -373,7 +282,7 @@ impl TcpReader {
         reader.get_mut().set_read_timeout(Some(duration))?;
 
         // Perform the read operation with protocol-aware deframing
-        let result = read_visca_frame_blocking(&mut *reader, &buffer_manager);
+        let result = read_visca_frame_sync(&mut *reader, &buffer_manager);
 
         // Restore the original timeout
         reader.get_mut().set_read_timeout(original_timeout)?;

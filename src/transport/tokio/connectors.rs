@@ -132,3 +132,5 @@ pub async fn connect_udp(address: &str, config: UdpSocketConfig) -> Result<UdpSo
 
     Ok(socket)
 }
+
+// Serial port adapters are defined in the serial_async module where tokio_serial is available

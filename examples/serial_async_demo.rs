@@ -4,7 +4,7 @@
 //! using the new async serial transport implementation.
 //!
 //! Usage:
-//!   cargo run --example serial_async_demo --features "rt-tokio,tokio-serial" [port] [camera_address]
+//!   cargo run --example serial_async_demo --features "rt-tokio" [port] [camera_address]
 //!
 //! The example will:
 //! 1. Connect to the camera using async serial transport
@@ -19,7 +19,7 @@ use grafton_visca::{
 };
 use std::env;
 
-#[cfg(all(feature = "async", feature = "rt-tokio", feature = "tokio-serial"))]
+#[cfg(all(feature = "async", feature = "rt-tokio"))]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
@@ -116,8 +116,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(not(all(feature = "async", feature = "rt-tokio", feature = "tokio-serial")))]
+#[cfg(not(all(feature = "async", feature = "rt-tokio")))]
 fn main() {
     eprintln!("This example requires 'rt-tokio' and 'tokio-serial' features.");
-    eprintln!("Run with: cargo run --example serial_async_demo --features 'rt-tokio,tokio-serial'");
+    eprintln!("Run with: cargo run --example serial_async_demo --features 'rt-tokio'");
 }

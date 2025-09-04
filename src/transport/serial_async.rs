@@ -4,7 +4,7 @@
 //! supporting both RS-232 and RS-422 connections with proper
 //! Address Set and I/F Clear initialization using tokio-serial.
 
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use std::{future::Future, io::ErrorKind};
 use tokio::time::{timeout, Duration, Instant};
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
@@ -18,8 +18,76 @@ use crate::{
         system::{AddressSetCommand, InterfaceClearCommand},
     },
     error::{Error, Result},
-    transport::{AsyncTransport, RetryConfig},
+    transport::{
+        async_io::{
+            read_visca_frame, write_all_flush, AsyncReadExt as AsyncReadExtTrait,
+            AsyncWriteExt as AsyncWriteExtTrait,
+        },
+        buffer::{BufferConfig, BufferManager},
+        AsyncTransport, RetryConfig,
+    },
 };
+
+/// Wrapper around tokio-serial's SerialStream to implement our async I/O traits.
+///
+/// This adapter allows serial ports to use the same unified frame reading logic
+/// as TCP/UDP transports, ensuring consistent VISCA frame handling across all
+/// transport types.
+#[derive(Debug)]
+struct TokioSerialAdapter {
+    stream: SerialStream,
+}
+
+impl TokioSerialAdapter {
+    /// Create a new adapter wrapping a SerialStream.
+    pub fn new(stream: SerialStream) -> Self {
+        Self { stream }
+    }
+
+    /// Get a mutable reference to the underlying SerialStream.
+    pub fn inner_mut(&mut self) -> &mut SerialStream {
+        &mut self.stream
+    }
+}
+
+impl AsyncReadExtTrait for TokioSerialAdapter {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+        use tokio::io::AsyncReadExt;
+        Ok(self.stream.read(buf).await?)
+    }
+
+    async fn read_until(&mut self, delimiter: u8, buf: &mut Vec<u8>) -> Result<usize, Error> {
+        use tokio::io::AsyncReadExt;
+        // For serial, we need to read byte-by-byte since BufReader might not work well
+        // with serial streams due to their low-level nature and potential timing issues
+        let start_len = buf.len();
+        loop {
+            let mut byte = [0u8; 1];
+            match self.stream.read(&mut byte).await? {
+                0 => return Ok(buf.len() - start_len), // EOF
+                1 => {
+                    buf.push(byte[0]);
+                    if byte[0] == delimiter {
+                        return Ok(buf.len() - start_len);
+                    }
+                }
+                _ => unreachable!(), // read(&mut [u8; 1]) should only return 0 or 1
+            }
+        }
+    }
+}
+
+impl AsyncWriteExtTrait for TokioSerialAdapter {
+    async fn write_all(&mut self, buf: &[u8]) -> Result<(), Error> {
+        use tokio::io::AsyncWriteExt;
+        Ok(self.stream.write_all(buf).await?)
+    }
+
+    async fn flush(&mut self) -> Result<(), Error> {
+        use tokio::io::AsyncWriteExt;
+        Ok(self.stream.flush().await?)
+    }
+}
 
 /// Async serial port configuration for VISCA communication.
 #[derive(Debug, Clone)]
@@ -60,8 +128,8 @@ impl Default for AsyncSerialConfig {
 /// Async serial transport implementation.
 #[derive(Debug)]
 pub struct AsyncSerialTransport {
-    port: SerialStream,
-    read_buffer: BytesMut,
+    adapter: TokioSerialAdapter,
+    buffer_manager: BufferManager,
     config: AsyncSerialConfig,
 }
 
@@ -85,10 +153,11 @@ impl AsyncSerialTransport {
         let if_clear = config.if_clear_on_connect;
         let address_set = config.address_set_on_connect;
 
-        let read_buffer = BytesMut::with_capacity(256);
+        let adapter = TokioSerialAdapter::new(port);
+        let buffer_manager = BufferManager::new(BufferConfig::for_serial());
         let mut transport = Self {
-            port,
-            read_buffer,
+            adapter,
+            buffer_manager,
             config,
         };
 
@@ -156,6 +225,9 @@ impl AsyncSerialTransport {
 
     /// Receive and parse Address Set response.
     async fn recv_address_set_response(&mut self, timeout_duration: Duration) -> Result<u8> {
+        use bytes::BytesMut;
+        use tokio::io::AsyncReadExt;
+
         let mut camera_count = 0;
         let start = Instant::now();
 
@@ -164,17 +236,16 @@ impl AsyncSerialTransport {
 
         while start.elapsed() < timeout_duration {
             // Try to read some data with timeout
+            let mut temp_buf = vec![0u8; 64];
             match timeout(
                 Duration::from_millis(50),
-                self.read_into_buffer(&mut response_buffer),
+                self.adapter.inner_mut().read(&mut temp_buf),
             )
             .await
             {
                 Ok(Ok(n)) if n > 0 => {
-                    trace!(
-                        "Address Set response: {:02X?}",
-                        &response_buffer[..n.min(response_buffer.len())]
-                    );
+                    response_buffer.extend_from_slice(&temp_buf[..n]);
+                    trace!("Address Set response: {:02X?}", &temp_buf[..n]);
 
                     // Parse response bytes
                     let mut i = 0;
@@ -239,96 +310,24 @@ impl AsyncSerialTransport {
         }
     }
 
-    /// Helper method to read data into a buffer
-    async fn read_into_buffer(&mut self, buffer: &mut BytesMut) -> std::io::Result<usize> {
-        use tokio::io::AsyncReadExt;
-
-        let mut temp_buf = vec![0u8; 64];
-        match self.port.read(&mut temp_buf).await {
-            Ok(n) => {
-                buffer.extend_from_slice(&temp_buf[..n]);
-                Ok(n)
-            }
-            Err(e) => Err(e),
-        }
-    }
-
     /// Send raw bytes to the serial port.
     async fn send_raw(&mut self, data: &[u8]) -> Result<()> {
-        use tokio::io::AsyncWriteExt;
-
-        timeout(self.config.write_timeout, self.port.write_all(data))
-            .await
-            .map_err(|_| Error::Timeout)?
-            .map_err(|e| Error::TransportError(format!("Serial write error: {e}").into()))?;
-
-        self.port
-            .flush()
-            .await
-            .map_err(|e| Error::TransportError(format!("Serial flush error: {e}").into()))?;
-
-        Ok(())
+        timeout(
+            self.config.write_timeout,
+            write_all_flush(&mut self.adapter, data),
+        )
+        .await
+        .map_err(|_| Error::Timeout)?
     }
 
     /// Receive a complete VISCA frame from the serial port.
     async fn recv_frame(&mut self) -> Result<Bytes> {
-        use tokio::io::AsyncReadExt;
-
-        let start_time = Instant::now();
-        self.read_buffer.clear();
-
-        loop {
-            // Check for timeout
-            if start_time.elapsed() > self.config.read_timeout {
-                return Err(Error::Timeout);
-            }
-
-            // Try to read some bytes
-            let mut temp_buf = [0u8; 64];
-            match timeout(Duration::from_millis(50), self.port.read(&mut temp_buf)).await {
-                Ok(Ok(n)) if n > 0 => {
-                    self.read_buffer.extend_from_slice(&temp_buf[..n]);
-                    trace!(
-                        "Serial read {n} bytes: {bytes:02X?}",
-                        bytes = &temp_buf[..n]
-                    );
-
-                    // Look for complete VISCA frame (ends with 0xFF)
-                    if let Some(terminator_pos) =
-                        self.read_buffer.iter().position(|&b| b == VISCA_TERMINATOR)
-                    {
-                        // Found complete frame
-                        let frame_len = terminator_pos + 1;
-                        let frame = self.read_buffer.split_to(frame_len).freeze();
-                        debug!("Received complete VISCA frame: {:02X?}", frame);
-                        return Ok(frame);
-                    }
-
-                    // Check for buffer overflow
-                    if self.read_buffer.len() > 256 {
-                        warn!("Serial receive buffer overflow, clearing buffer");
-                        self.read_buffer.clear();
-                    }
-                }
-                Ok(Ok(_)) => {
-                    // No data read, continue waiting
-                    tokio::time::sleep(Duration::from_millis(1)).await;
-                }
-                Ok(Err(e)) if e.kind() == ErrorKind::TimedOut => {
-                    // Read timeout, but total timeout not reached
-                    continue;
-                }
-                Ok(Err(e)) => {
-                    return Err(Error::TransportError(
-                        format!("Serial read error: {e}").into(),
-                    ));
-                }
-                Err(_) => {
-                    // Timeout on individual read, continue if total timeout not reached
-                    continue;
-                }
-            }
-        }
+        timeout(
+            self.config.read_timeout,
+            read_visca_frame(&mut self.adapter, &self.buffer_manager),
+        )
+        .await
+        .map_err(|_| Error::Timeout)?
     }
 }
 

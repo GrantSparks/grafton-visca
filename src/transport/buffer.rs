@@ -22,8 +22,9 @@ pub(crate) const SONY_BUFFER_SIZE: usize = 512;
 pub(crate) const RAW_IP_BUFFER_SIZE: usize = 256;
 
 /// Buffer size for serial transports.
-/// Serial typically uses smaller buffers for efficiency.
-pub(crate) const SERIAL_BUFFER_SIZE: usize = 64;
+/// Updated to 256 bytes to match async serial's previous choice and
+/// safely accommodate longer VISCA replies.
+pub(crate) const SERIAL_BUFFER_SIZE: usize = 256;
 
 /// Configuration for buffer management.
 #[derive(Debug, Clone, Copy)]
