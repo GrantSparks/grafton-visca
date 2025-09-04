@@ -1233,10 +1233,9 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
             // First check if this is an error for a pending inquiry
             // Inquiries don't have sockets, so if there's no socket or no command on the socket,
             // and we have a pending inquiry, this error is for the inquiry
-            let has_pending_inquiry = scheduler.get_pending_inquiry().is_some();
             let is_inquiry_error = socket.map_or(true, |s| scheduler.socket_command(s).is_none());
 
-            if has_pending_inquiry && is_inquiry_error {
+            if is_inquiry_error && scheduler.has_pending_inquiry() {
                 // This error is for a pending inquiry
                 if let Some((inquiry_id, response_tx, _response_type)) =
                     scheduler.get_pending_inquiry()
@@ -1629,6 +1628,85 @@ mod tests {
             unexpected => {
                 panic!("Expected Inquiry or Unknown response, got: {unexpected:?}")
             }
+        }
+
+        // Verify inquiry was sent
+        let sent = transport.sent();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0], vec![0x81, 0x09, 0x04, 0x00, 0xFF]); // Inquiry with terminator
+    }
+
+    #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
+    #[tokio::test(start_paused = true)]
+    #[allow(clippy::expect_used)]
+    async fn test_runtime_handles_inquiry_error() {
+        use crate::command::response::ViscaResponse;
+        use crate::command::response::ViscaResponseType;
+        use crate::runtime::scheduler::TxItem;
+        use crate::testing::testkit::{ScriptedTransport, Step};
+        use crate::TokioExecutor;
+        use std::time::Duration;
+        use tokio::runtime::Handle;
+
+        // Create deterministic executor and scripted transport
+        // When the inquiry is sent, the transport returns a VISCA error (0x90 0x60 <code> 0xFF)
+        let executor = Arc::new(TokioExecutor::from_handle(Handle::current()));
+        let transport = ScriptedTransport::new(vec![Step::OnSend {
+            matches: Some(vec![0x81, 0x09, 0x04, 0x00, 0xFF]), // Power inquiry
+            responses: vec![
+                vec![0x90, 0x60, 0x01, 0xFF], // Error code 0x01 (Message Length Error)
+            ],
+        }])
+        .with_executor(executor.clone());
+
+        let runtime = RuntimeHandle::new(transport.clone(), executor.clone())
+            .await
+            .expect("Failed to create runtime handle");
+
+        // Give the runtime a moment to start
+        tokio::time::advance(Duration::from_millis(50)).await;
+
+        // Send an inquiry
+        let (response_tx, response_rx): (
+            Sender<Result<ViscaResponse>>,
+            Receiver<Result<ViscaResponse>>,
+        ) = flume::bounded(1);
+        let inquiry = TxItem::Inquiry {
+            id: 1,
+            bytes: vec![0x81, 0x09, 0x04, 0x00, 0xFF], // Power inquiry
+            camera_id: crate::camera_id::CameraId::CAMERA_1,
+            response_tx,
+            response_type: Some(ViscaResponseType::Power),
+        };
+
+        runtime
+            .inquire(inquiry)
+            .await
+            .expect("Failed to send inquiry");
+
+        // Advance time to allow inquiry processing
+        tokio::time::advance(Duration::from_millis(100)).await;
+
+        // Wait for response
+        let response = response_rx
+            .recv_async()
+            .await
+            .expect("Failed to receive response");
+
+        // Should receive error response
+        assert!(
+            response.is_err(),
+            "Expected error response for inquiry, got: {response:?}"
+        );
+
+        // Verify the error is the one we sent
+        if let Err(e) = response {
+            // The error should be a VISCA error corresponding to code 0x01
+            // Based on Error::from_code(0x01) which should map to MessageLengthError
+            assert!(
+                matches!(e, Error::MessageLengthError),
+                "Expected MessageLengthError, got: {e:?}"
+            );
         }
 
         // Verify inquiry was sent

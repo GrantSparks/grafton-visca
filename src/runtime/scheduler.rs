@@ -886,6 +886,13 @@ impl Scheduler {
         self.command_metadata.remove(&cmd_id);
     }
 
+    /// Check if there is a pending inquiry without consuming it.
+    ///
+    /// Returns true if there's at least one pending inquiry.
+    pub fn has_pending_inquiry(&self) -> bool {
+        !self.pending_inquiries.is_empty()
+    }
+
     /// Get the pending inquiry and its response channel.
     ///
     /// Returns the inquiry ID, response channel, and response type if there's a pending inquiry.
