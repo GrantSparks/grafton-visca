@@ -9,7 +9,7 @@ use std::sync::{
 };
 
 use super::{
-    loop_task::runtime_loop_with_config,
+    loop_task::{runtime_loop_with_config, RuntimeLoopConfig},
     scheduler::{MetricsSummary, Priority, TxItem},
 };
 use crate::{
@@ -91,7 +91,29 @@ impl RuntimeHandle {
         executor: Arc<E>,
         protocol_style: ProtocolStyle,
     ) -> Result<Self> {
-        Self::with_tick_interval_and_style(transport, executor, None, protocol_style).await
+        Self::with_tick_interval_and_style(transport, executor, None, protocol_style, None).await
+    }
+
+    /// Create a new camera runtime with explicit protocol style and timeout config.
+    ///
+    /// This allows specifying both the protocol style and custom timeouts.
+    pub async fn new_with_style_and_timeout<
+        T: AsyncTransport + Send + 'static,
+        E: crate::executor::Executor,
+    >(
+        transport: T,
+        executor: Arc<E>,
+        protocol_style: ProtocolStyle,
+        timeout_config: crate::timeout::TimeoutConfig,
+    ) -> Result<Self> {
+        Self::with_tick_interval_and_style(
+            transport,
+            executor,
+            None,
+            protocol_style,
+            Some(timeout_config),
+        )
+        .await
     }
 
     /// Auto-detect the protocol style and create a new runtime.
@@ -147,6 +169,7 @@ impl RuntimeHandle {
             executor,
             tick_interval_ms,
             ProtocolStyle::RawVisca,
+            None,
         )
         .await
     }
@@ -158,7 +181,8 @@ impl RuntimeHandle {
     /// * `executor` - The async executor to spawn tasks on
     /// * `tick_interval_ms` - Optional tick interval in milliseconds (default: 50ms)
     /// * `protocol_style` - The protocol style to use (Raw VISCA or Sony encapsulated)
-    #[instrument(level = "debug", skip(transport, executor), fields(tick_ms = tick_interval_ms, protocol = ?protocol_style))]
+    /// * `timeout_config` - Optional timeout configuration (defaults to TimeoutConfig::default())
+    #[instrument(level = "debug", skip(transport, executor, timeout_config), fields(tick_ms = tick_interval_ms, protocol = ?protocol_style))]
     pub async fn with_tick_interval_and_style<
         T: AsyncTransport + Send + 'static,
         E: crate::executor::Executor,
@@ -167,6 +191,7 @@ impl RuntimeHandle {
         executor: Arc<E>,
         tick_interval_ms: Option<u64>,
         protocol_style: ProtocolStyle,
+        timeout_config: Option<crate::timeout::TimeoutConfig>,
     ) -> Result<Self> {
         let (submit_tx, submit_rx) = flume::unbounded();
         let (metrics_tx, metrics_rx) = flume::unbounded();
@@ -176,15 +201,22 @@ impl RuntimeHandle {
         let buffer_config = BufferConfig::default();
         let buffer_manager = BufferManager::new(buffer_config);
 
+        // Use provided timeout config or default
+        let timeout_config = timeout_config.unwrap_or_default();
+
         // Spawn the runtime task with configured tick interval and envelope
+        let config = RuntimeLoopConfig {
+            tick_interval_ms,
+            envelope,
+            buffer_manager,
+            timeout_config,
+        };
         let runtime_task = runtime_loop_with_config(
             transport,
             submit_rx,
             metrics_rx,
-            tick_interval_ms,
             Arc::clone(&executor),
-            envelope,
-            buffer_manager,
+            config,
         );
 
         spawn_runtime_task_properly(executor.as_ref(), runtime_task);
@@ -327,6 +359,40 @@ impl RuntimeHandle {
             .recv_async()
             .await
             .map_err(|_| Error::ChannelClosed)
+    }
+
+    /// Sleep for a specified duration.
+    ///
+    /// This is a runtime-agnostic sleep that will work with any executor.
+    /// Note: Since we don't store the executor in RuntimeHandle, this uses
+    /// a simple runtime-specific fallback approach.
+    pub async fn sleep(&self, duration: std::time::Duration) {
+        // Use a timer based on available runtime features
+        #[cfg(feature = "rt-tokio")]
+        {
+            tokio::time::sleep(duration).await;
+        }
+        #[cfg(all(not(feature = "rt-tokio"), feature = "rt-smol"))]
+        {
+            smol::Timer::after(duration).await;
+        }
+        #[cfg(all(
+            not(feature = "rt-tokio"),
+            not(feature = "rt-smol"),
+            feature = "rt-async-std"
+        ))]
+        {
+            async_std::task::sleep(duration).await;
+        }
+        // If no runtime feature is enabled, use a blocking sleep
+        #[cfg(all(
+            not(feature = "rt-tokio"),
+            not(feature = "rt-smol"),
+            not(feature = "rt-async-std")
+        ))]
+        {
+            std::thread::sleep(duration);
+        }
     }
 
     /// Send a VISCA command to the camera using the ViscaEncode trait.

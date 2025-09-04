@@ -18,8 +18,16 @@ use crate::{
     transport::{buffer::BufferManager, envelope::TransportEnvelope, AsyncTransport},
 };
 
+/// Configuration for the runtime loop.
+pub struct RuntimeLoopConfig {
+    pub tick_interval_ms: Option<u64>,
+    pub envelope: TransportEnvelope,
+    pub buffer_manager: BufferManager,
+    pub timeout_config: TimeoutConfig,
+}
+
 /// Main runtime loop with configurable tick interval.
-#[instrument(level = "debug", name = "visca_runtime_loop", skip(transport, submit_rx, metrics_rx, executor, envelope, buffer_manager), fields(tick_ms = tick_interval_ms))]
+#[instrument(level = "debug", name = "visca_runtime_loop", skip(transport, submit_rx, metrics_rx, executor, config), fields(tick_ms = config.tick_interval_ms))]
 pub async fn runtime_loop_with_config<
     T: AsyncTransport + Send + 'static,
     E: crate::executor::Executor,
@@ -27,19 +35,17 @@ pub async fn runtime_loop_with_config<
     mut transport: T,
     submit_rx: Receiver<TxItem>,
     metrics_rx: Receiver<Sender<MetricsSummary>>,
-    tick_interval_ms: Option<u64>,
     executor: Arc<E>,
-    envelope: TransportEnvelope,
-    buffer_manager: BufferManager,
+    config: RuntimeLoopConfig,
 ) -> Result<()> {
-    let mut scheduler = Scheduler::with_timeout_config(submit_rx.clone(), TimeoutConfig::default());
+    let mut scheduler = Scheduler::with_timeout_config(submit_rx.clone(), config.timeout_config);
     let mut frame_decoder = FrameDecoder::new(4096); // Default buffer size
     let mut consecutive_retries = 0usize;
 
     debug!("VISCA runtime started");
 
     // Create a timer interval for periodic checks
-    let tick_ms = tick_interval_ms.unwrap_or(50);
+    let tick_ms = config.tick_interval_ms.unwrap_or(50);
     let tick_duration = std::time::Duration::from_millis(tick_ms);
 
     loop {
@@ -56,8 +62,8 @@ pub async fn runtime_loop_with_config<
                 &mut scheduler,
                 item,
                 executor.as_ref(),
-                &envelope,
-                &buffer_manager,
+                &config.envelope,
+                &config.buffer_manager,
             )
             .await
             {
@@ -72,8 +78,8 @@ pub async fn runtime_loop_with_config<
                         &mut scheduler,
                         executor.as_ref(),
                         allow_retry_defer,
-                        &envelope,
-                        &buffer_manager,
+                        &config.envelope,
+                        &config.buffer_manager,
                     )
                     .await
                     {
@@ -141,8 +147,8 @@ pub async fn runtime_loop_with_config<
                         &mut scheduler,
                         tx_item,
                         executor.as_ref(),
-                        &envelope,
-                        &buffer_manager,
+                        &config.envelope,
+                        &config.buffer_manager,
                     )
                     .await
                     {
@@ -192,13 +198,14 @@ pub async fn runtime_loop_with_config<
                         // Drain complete frames without copying
                         for frame in frame_decoder.drain_frames() {
                             // Extract the VISCA payload and metadata using zero-copy method
-                            let (payload, meta) = match envelope.extract_with_meta_owned(frame) {
-                                Ok(result) => result,
-                                Err(e) => {
-                                    warn!("Failed to extract response from frame: {e}");
-                                    continue;
-                                }
-                            };
+                            let (payload, meta) =
+                                match config.envelope.extract_with_meta_owned(frame) {
+                                    Ok(result) => result,
+                                    Err(e) => {
+                                        warn!("Failed to extract response from frame: {e}");
+                                        continue;
+                                    }
+                                };
 
                             // For Sony encapsulated protocols, validate sequence
                             if let Some(seq) = meta.sequence {
@@ -214,8 +221,8 @@ pub async fn runtime_loop_with_config<
                                 &mut scheduler,
                                 &payload,
                                 executor.as_ref(),
-                                &envelope,
-                                &buffer_manager,
+                                &config.envelope,
+                                &config.buffer_manager,
                             )
                             .await
                             {
@@ -310,8 +317,8 @@ pub async fn runtime_loop_with_config<
                             &mut scheduler,
                             item,
                             executor.as_ref(),
-                            &envelope,
-                            &buffer_manager,
+                            &config.envelope,
+                            &config.buffer_manager,
                         )
                         .await
                         {
