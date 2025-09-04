@@ -380,10 +380,10 @@ impl RuntimeHandle {
     where
         C: crate::command::encode_visca::ViscaEncode,
     {
-        // Encode the command
-        let mut buffer = vec![0u8; C::MAX_SIZE];
-        let len = cmd.encode_into(camera_id, &mut buffer)?;
-        buffer.truncate(len);
+        // Encode the command into a stack buffer
+        let mut stack_buffer = vec![0u8; C::MAX_SIZE];
+        let len = cmd.encode_into(camera_id, &mut stack_buffer)?;
+        let bytes = bytes::Bytes::copy_from_slice(&stack_buffer[..len]);
 
         // Generate command ID
         let command_id = self.next_command_id.fetch_add(1, Ordering::Relaxed);
@@ -394,7 +394,7 @@ impl RuntimeHandle {
         // Create the TxItem
         let item = TxItem::Command {
             id: command_id,
-            bytes: buffer,
+            bytes,
             priority: priority.unwrap_or(Priority::Normal),
             category: C::TIMEOUT_CATEGORY,
             camera_id,
@@ -433,10 +433,10 @@ impl RuntimeHandle {
     where
         I: crate::command::encode_visca::ViscaEncode,
     {
-        // Encode the inquiry
-        let mut buffer = vec![0u8; I::MAX_SIZE];
-        let len = inquiry.encode_into(camera_id, &mut buffer)?;
-        buffer.truncate(len);
+        // Encode the inquiry into a stack buffer
+        let mut stack_buffer = vec![0u8; I::MAX_SIZE];
+        let len = inquiry.encode_into(camera_id, &mut stack_buffer)?;
+        let bytes = bytes::Bytes::copy_from_slice(&stack_buffer[..len]);
 
         // Create response channel
         let (response_tx, response_rx) = flume::bounded(1);
@@ -447,7 +447,7 @@ impl RuntimeHandle {
         // Create the TxItem
         let item = TxItem::Inquiry {
             id: 0, // Will be assigned by scheduler
-            bytes: buffer,
+            bytes,
             camera_id,
             response_type,
             response_tx,

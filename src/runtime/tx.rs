@@ -145,14 +145,14 @@ pub async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Execut
 
             // Send cancel command using typed command
             let cancel_cmd = CommandCancelCommand::new(socket);
-            let mut cancel_bytes = vec![0u8; 16];
+            let mut cancel_bytes = [0u8; 16];
             // CommandCancelCommand is const-constructed and guaranteed to encode
             let len = cancel_cmd
                 .encode_into(CameraId::CAMERA_1, &mut cancel_bytes)
                 .map_err(|e| {
                     Error::TransportError(format!("Failed to encode cancel command: {e}").into())
                 })?;
-            let cancel_bytes = cancel_bytes[..len].to_vec();
+            let cancel_bytes = bytes::Bytes::copy_from_slice(&cancel_bytes[..len]);
 
             // Frame the cancel command as a regular command (not an inquiry)
             let framed_cancel = envelope.frame_command(&cancel_bytes, false, buffer_manager);
@@ -200,7 +200,7 @@ pub async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Execut
             if let Some(socket) = found_socket {
                 // Build cancel command with the correct camera ID
                 let cancel_cmd = CommandCancelCommand::new(socket);
-                let mut cancel_bytes = vec![0u8; 16];
+                let mut cancel_bytes = [0u8; 16];
                 let len = cancel_cmd
                     .encode_into(found_camera_id, &mut cancel_bytes)
                     .map_err(|e| {
@@ -208,7 +208,7 @@ pub async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Execut
                             format!("Failed to encode cancel command: {e}").into(),
                         )
                     })?;
-                let cancel_bytes = cancel_bytes[..len].to_vec();
+                let cancel_bytes = bytes::Bytes::copy_from_slice(&cancel_bytes[..len]);
 
                 // Frame the cancel command as a regular command (not an inquiry)
                 let framed_cancel = envelope.frame_command(&cancel_bytes, false, buffer_manager);

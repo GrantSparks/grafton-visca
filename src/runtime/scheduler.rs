@@ -33,7 +33,7 @@ pub(crate) enum TxItem {
         /// Unique identifier for this command.
         id: u32,
         /// Raw VISCA bytes to send.
-        bytes: Vec<u8>,
+        bytes: bytes::Bytes,
         /// Priority level for scheduling.
         priority: Priority,
         /// Category for timeout calculation.
@@ -48,7 +48,7 @@ pub(crate) enum TxItem {
         /// Unique identifier for this inquiry.
         id: u32,
         /// Raw VISCA bytes to send.
-        bytes: Vec<u8>,
+        bytes: bytes::Bytes,
         /// Camera ID used to encode the inquiry.
         /// Note: Currently unused but kept for consistency with Command variant.
         #[allow(dead_code)]
@@ -184,7 +184,7 @@ pub(crate) struct Scheduler {
     pending_ack: HashMap<
         u32,
         (
-            Vec<u8>,
+            bytes::Bytes,
             Priority,
             CommandCategory,
             Instant,
@@ -197,7 +197,7 @@ pub(crate) struct Scheduler {
     command_metadata: HashMap<
         u32,
         (
-            Vec<u8>,
+            bytes::Bytes,
             Priority,
             CommandCategory,
             crate::camera_id::CameraId,
@@ -220,7 +220,7 @@ pub(crate) struct RetryCommand {
     /// Command ID.
     pub id: u32,
     /// Command bytes.
-    pub bytes: Vec<u8>,
+    pub bytes: bytes::Bytes,
     /// Command priority.
     pub priority: Priority,
     /// Command category.
@@ -577,7 +577,7 @@ impl Scheduler {
     pub fn add_pending_ack(
         &mut self,
         id: u32,
-        bytes: Vec<u8>,
+        bytes: bytes::Bytes,
         priority: Priority,
         category: CommandCategory,
         now: Instant,
@@ -662,7 +662,7 @@ impl Scheduler {
         u32,
         Priority,
         CommandCategory,
-        Vec<u8>,
+        bytes::Bytes,
         crate::camera_id::CameraId,
     )> {
         // Find oldest pending command that would get this error
@@ -834,7 +834,7 @@ impl Scheduler {
     pub fn store_command_metadata(
         &mut self,
         cmd_id: u32,
-        bytes: Vec<u8>,
+        bytes: bytes::Bytes,
         priority: Priority,
         category: CommandCategory,
         camera_id: crate::camera_id::CameraId,
@@ -857,7 +857,7 @@ impl Scheduler {
         &mut self,
         cmd_id: u32,
     ) -> Option<(
-        Vec<u8>,
+        bytes::Bytes,
         Priority,
         CommandCategory,
         Instant,
@@ -873,7 +873,7 @@ impl Scheduler {
         &self,
         cmd_id: u32,
     ) -> Option<&(
-        Vec<u8>,
+        bytes::Bytes,
         Priority,
         CommandCategory,
         crate::camera_id::CameraId,
@@ -940,7 +940,7 @@ impl Scheduler {
     pub fn queue_for_retry(
         &mut self,
         id: u32,
-        bytes: Vec<u8>,
+        bytes: bytes::Bytes,
         priority: Priority,
         category: CommandCategory,
         camera_id: crate::camera_id::CameraId,
@@ -1117,7 +1117,7 @@ impl Scheduler {
         &self,
         cmd_id: u32,
     ) -> Option<(
-        Vec<u8>,
+        bytes::Bytes,
         Priority,
         CommandCategory,
         crate::camera_id::CameraId,
@@ -1240,7 +1240,7 @@ mod tests {
         // Add first pending ACK
         scheduler.add_pending_ack(
             1,
-            vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
+            bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]),
             Priority::Normal,
             CommandCategory::Quick,
             now,
@@ -1251,7 +1251,7 @@ mod tests {
         // Add second pending ACK (with slightly later timestamp for deterministic ordering)
         scheduler.add_pending_ack(
             2,
-            vec![0x81, 0x01, 0x07, 0x00, 0x02, VISCA_TERMINATOR],
+            bytes::Bytes::from(vec![0x81, 0x01, 0x07, 0x00, 0x02, VISCA_TERMINATOR]),
             Priority::Normal,
             CommandCategory::Movement,
             now + Duration::from_nanos(1),
@@ -1438,7 +1438,7 @@ mod tests {
         scheduler.set_max_retries(CommandCategory::Quick, 2);
 
         let cmd_id = 456;
-        let bytes = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
+        let bytes = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
         let priority = Priority::Normal;
         let category = CommandCategory::Quick;
 

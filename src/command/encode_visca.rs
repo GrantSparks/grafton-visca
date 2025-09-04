@@ -190,6 +190,29 @@ pub trait ViscaEncode: Send + Sync {
         Ok(buffer)
     }
 
+    /// Encodes the command to a `bytes::Bytes` buffer.
+    ///
+    /// This method provides zero-copy reference-counted buffers via `bytes::Bytes`,
+    /// encoding into a stack buffer and wrapping the result. This is optimal for
+    /// runtime usage where commands are sent through queues and retried.
+    ///
+    /// # Arguments
+    ///
+    /// * `camera_id` - The camera ID to address the command to
+    ///
+    /// # Errors
+    ///
+    /// * `Error::InvalidParameter` if the command contains invalid parameters
+    fn try_into_bytes(&self, camera_id: CameraId) -> Result<bytes::Bytes, Error> {
+        let mut stack_buffer = vec![0u8; Self::MAX_SIZE];
+        let size = self.encode_into(camera_id, &mut stack_buffer)?;
+
+        // Validate command structure before creating Bytes
+        validate_command_structure(&stack_buffer, size);
+
+        Ok(bytes::Bytes::copy_from_slice(&stack_buffer[..size]))
+    }
+
     /// Returns the expected response type for this command.
     ///
     /// - Returns `None` for action commands that only receive ACK/Completion
