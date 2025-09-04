@@ -10,12 +10,13 @@ use flume::{Receiver, Sender};
 #[cfg(feature = "async")]
 use futures_lite;
 #[cfg(feature = "async")]
+use tracing::{debug, error, instrument, trace, warn};
+
+#[cfg(feature = "async")]
 use std::sync::{
     atomic::{AtomicBool, AtomicU32, Ordering},
     Arc,
 };
-#[cfg(feature = "async")]
-use tracing::{debug, error, instrument, trace, warn};
 
 #[cfg(feature = "async")]
 use crate::{
@@ -207,10 +208,7 @@ impl RuntimeHandle {
             buffer_manager,
         );
 
-        // Spawn the task, with special handling for deterministic executors in test mode
-        debug!("[RuntimeHandle::with_tick_interval_and_style] About to spawn runtime task");
         spawn_runtime_task_properly(executor.as_ref(), runtime_task);
-        debug!("[RuntimeHandle::with_tick_interval_and_style] Runtime task spawned");
 
         Ok(Self {
             submit: submit_tx,
@@ -506,7 +504,7 @@ async fn runtime_loop_with_config<
     let mut response_buffer = Vec::new();
     let mut consecutive_retries = 0usize;
 
-    debug!("[runtime_loop_with_config] VISCA runtime started");
+    debug!("VISCA runtime started");
 
     // Create a timer interval for periodic checks
     let tick_ms = tick_interval_ms.unwrap_or(50);
@@ -721,7 +719,7 @@ async fn runtime_loop_with_config<
                 // Then check if we have retries to process
                 if scheduler.has_retries() {
                     debug!(
-                        "[runtime loop] Has {retry_count} retries pending, free socket: {has_free}, can_send: {can_send}, retry queue: {retry_queue:?}",
+                        "Has {retry_count} retries pending, free socket: {has_free}, can_send: {can_send}, retry queue: {retry_queue:?}",
                         retry_count = scheduler.retry_queue.len(),
                         has_free = scheduler.has_free_socket(),
                         can_send = scheduler.can_send_command(),
@@ -733,15 +731,10 @@ async fn runtime_loop_with_config<
                     );
                 }
                 if scheduler.can_send_command() && scheduler.has_retries() {
-                    debug!("[runtime loop] Has free socket and retries to process");
+                    debug!("Has free socket and retries to process");
                     // get_next_retry() now handles exhausted retries internally
                     let now = executor.as_ref().now();
                     if let Some(retry_cmd) = scheduler.get_next_retry(now) {
-                        debug!(
-                            "[runtime loop] Retrying command {id} (attempt {attempt})",
-                            id = retry_cmd.id,
-                            attempt = retry_cmd.attempt
-                        );
                         debug!(
                             "Retrying command {id} (attempt {attempt})",
                             id = retry_cmd.id,
@@ -798,9 +791,7 @@ async fn runtime_loop_with_config<
         let disconnected = submit_rx.is_disconnected();
         let idle = scheduler.is_idle();
         if disconnected && idle {
-            debug!(
-                "[runtime loop] Submit channel closed and scheduler is idle, shutting down runtime"
-            );
+            debug!("Submit channel closed and scheduler is idle, shutting down runtime");
             break;
         }
     }
@@ -916,7 +907,7 @@ async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
                 // Frame and send command
                 let framed_bytes = envelope.frame_command(&bytes, false, buffer_manager);
                 debug!(
-                    "[handle_tx_item] Sending command {id} (awaiting ACK): {bytes:02X?} (framed: {framed_bytes:02X?})"
+                    "Sending command {id} (awaiting ACK): {bytes:02X?} (framed: {framed_bytes:02X?})"
                 );
                 trace!("Sending command {id} (awaiting ACK): {bytes:02X?}");
                 if let Err(e) = transport.send(&framed_bytes).await {
@@ -932,7 +923,7 @@ async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Executor>(
                 // Add to pending ACK list - socket will be assigned when ACK arrives
                 scheduler.add_pending_ack(id, bytes.clone(), priority, category, now, camera_id);
                 scheduler.store_command_channel(id, response_tx);
-                debug!("[handle_tx_item] Command {id} added to pending ACK list");
+                debug!("Command {id} added to pending ACK list");
             } else {
                 // No socket available, add to priority queue
                 debug!(
@@ -1129,7 +1120,7 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
             return Ok(());
         }
     };
-    debug!("[handle_response] Parsed response: {basic_response:?}");
+    debug!("Parsed response: {basic_response:?}");
     trace!("Parsed response: {basic_response:?}");
 
     match basic_response.kind {
@@ -1325,9 +1316,6 @@ async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Executor>
             if should_retry {
                 if let Some(sock) = socket {
                     if let Some(cmd_id) = scheduler.socket_command(sock) {
-                        debug!(
-                            "[handle_response] Camera busy for command {cmd_id} on {sock:?}, will retry"
-                        );
                         debug!("Camera busy for command {cmd_id} on {sock:?}, will retry");
 
                         // Get command metadata for retry and queue it BEFORE freeing socket
