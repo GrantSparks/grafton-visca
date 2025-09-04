@@ -4,6 +4,7 @@ use bytes::Bytes;
 use std::{net::UdpSocket, time::Duration};
 
 use crate::{
+    command::CommandKind,
     transport::{
         address::AddressResolver,
         buffer::{BufferConfig, BufferManager},
@@ -104,7 +105,7 @@ impl Udp {
 }
 
 impl SyncTransport for Udp {
-    fn send(&mut self, data: &[u8]) -> Result<(), Error> {
+    fn send_with_kind(&mut self, data: &[u8], _kind: CommandKind) -> Result<(), Error> {
         // Clone data for retry closure
         let data_vec = data.to_vec();
 

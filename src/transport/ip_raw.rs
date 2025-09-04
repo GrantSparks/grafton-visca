@@ -16,7 +16,7 @@ use tracing::{debug, trace};
 use crate::transport::SyncTransport;
 
 use crate::{
-    command::bytes::VISCA_TERMINATOR,
+    command::{bytes::VISCA_TERMINATOR, CommandKind},
     error::{Error, Result},
     transport::{
         address::AddressResolver,
@@ -147,7 +147,7 @@ impl RawTcpTransport {
 
 #[cfg(not(feature = "async"))]
 impl SyncTransport for RawTcpTransport {
-    fn send(&mut self, bytes: &[u8]) -> Result<()> {
+    fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<()> {
         // Clone bytes for the closure
         let bytes_vec = bytes.to_vec();
 
@@ -295,7 +295,7 @@ impl RawUdpTransport {
 
 #[cfg(not(feature = "async"))]
 impl SyncTransport for RawUdpTransport {
-    fn send(&mut self, bytes: &[u8]) -> Result<()> {
+    fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<()> {
         // Store the command for potential retry on receive timeout
         self.last_command = Some(bytes.to_vec());
 

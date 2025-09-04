@@ -34,6 +34,8 @@ use crate::{
 struct PendingCommand {
     /// Original command bytes (without header).
     bytes: Vec<u8>,
+    /// Command kind for proper re-framing on retry.
+    kind: crate::command::CommandKind,
     /// Number of retries attempted.
     retries: u32,
     /// Timestamp when sent.
@@ -103,15 +105,18 @@ impl SonyTcpTransport {
         })
     }
 
-    /// Send a command using the transport envelope.
-    fn send_framed(&mut self, bytes: &[u8]) -> Result<u32> {
-        // Use envelope to frame the command (inquiry detection is now done internally)
-        let (framed, meta) = self
+    /// Send a command using the transport envelope with explicit command kind.
+    fn send_framed(&mut self, bytes: &[u8], kind: crate::command::CommandKind) -> Result<u32> {
+        let framed = self
             .envelope
-            .frame_with_meta_owned(Bytes::from(bytes.to_vec()), &self.buffer_manager);
+            .frame_bytes_with_kind(bytes, kind, &self.buffer_manager);
 
-        // Get the sequence number (should always be Some for Sony)
-        let sequence = meta.sequence.unwrap_or(0);
+        // Extract sequence number from the framed bytes (for Sony protocol)
+        let sequence = if framed.len() >= 8 {
+            u32::from_be_bytes([framed[4], framed[5], framed[6], framed[7]])
+        } else {
+            0
+        };
 
         // Send framed packet
         self.writer
@@ -200,7 +205,7 @@ impl SonyTcpTransport {
                 let bytes = cmd.bytes.clone();
 
                 // Send with new sequence (envelope will allocate it)
-                let new_sequence = self.send_framed(&bytes)?;
+                let new_sequence = self.send_framed(&bytes, cmd.kind)?;
 
                 // Insert command with new sequence
                 self.pending.insert(new_sequence, cmd);
@@ -235,15 +240,16 @@ impl SonyTcpTransport {
 
 #[cfg(not(feature = "async"))]
 impl SyncTransport for SonyTcpTransport {
-    fn send(&mut self, bytes: &[u8]) -> Result<()> {
+    fn send_with_kind(&mut self, bytes: &[u8], kind: crate::command::CommandKind) -> Result<()> {
         // Send with envelope and get sequence
-        let sequence = self.send_framed(bytes)?;
+        let sequence = self.send_framed(bytes, kind)?;
 
         // Store pending command for potential retry
         self.pending.insert(
             sequence,
             PendingCommand {
                 bytes: bytes.to_vec(),
+                kind,
                 retries: 0,
                 sent_at: Instant::now(),
             },
@@ -381,15 +387,18 @@ impl SonyUdpTransport {
         })
     }
 
-    /// Send a command using the transport envelope.
-    fn send_framed(&mut self, bytes: &[u8]) -> Result<u32> {
-        // Use envelope to frame the command (inquiry detection is now done internally)
-        let (framed, meta) = self
+    /// Send a command using the transport envelope with explicit command kind.
+    fn send_framed(&mut self, bytes: &[u8], kind: crate::command::CommandKind) -> Result<u32> {
+        let framed = self
             .envelope
-            .frame_with_meta_owned(Bytes::from(bytes.to_vec()), &self.buffer_manager);
+            .frame_bytes_with_kind(bytes, kind, &self.buffer_manager);
 
-        // Get the sequence number (should always be Some for Sony)
-        let sequence = meta.sequence.unwrap_or(0);
+        // Extract sequence number from the framed bytes (for Sony protocol)
+        let sequence = if framed.len() >= 8 {
+            u32::from_be_bytes([framed[4], framed[5], framed[6], framed[7]])
+        } else {
+            0
+        };
 
         // Send framed packet
         self.socket
@@ -448,15 +457,16 @@ impl SonyUdpTransport {
 
 #[cfg(not(feature = "async"))]
 impl SyncTransport for SonyUdpTransport {
-    fn send(&mut self, bytes: &[u8]) -> Result<()> {
+    fn send_with_kind(&mut self, bytes: &[u8], kind: crate::command::CommandKind) -> Result<()> {
         // Send with envelope and get sequence
-        let sequence = self.send_framed(bytes)?;
+        let sequence = self.send_framed(bytes, kind)?;
 
         // Store pending command for potential retry
         self.pending.insert(
             sequence,
             PendingCommand {
                 bytes: bytes.to_vec(),
+                kind,
                 retries: 0,
                 sent_at: Instant::now(),
             },
@@ -503,7 +513,7 @@ impl SyncTransport for SonyUdpTransport {
                         cmd.retries += 1;
 
                         // Send with new sequence (envelope will allocate it)
-                        let new_seq = self.send_framed(&cmd.bytes)?;
+                        let new_seq = self.send_framed(&cmd.bytes, cmd.kind)?;
 
                         warn!(
                             "Retrying UDP command (old seq {old_seq}, new seq {new_seq}, attempt {attempt})",

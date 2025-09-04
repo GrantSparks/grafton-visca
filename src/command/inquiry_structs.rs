@@ -992,6 +992,6 @@ impl crate::command::encode_visca::ViscaEncode for TallyGreenInquiry {
     }
 
     fn response_type(&self) -> Option<crate::command::response::ViscaResponseType> {
-        None
+        Some(crate::command::response::ViscaResponseType::TallyGreen)
     }
 }

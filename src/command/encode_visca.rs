@@ -10,6 +10,18 @@ use crate::{
 
 use super::response::ViscaResponseType;
 
+/// Command kind classification for VISCA protocol.
+///
+/// This enum distinguishes between command and inquiry messages,
+/// which have different response patterns and encapsulation requirements.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandKind {
+    /// A command that performs an action and returns ACK/Completion
+    Command,
+    /// An inquiry that retrieves data and returns a data response
+    Inquiry,
+}
+
 /// Checks that a VISCA command buffer has the proper terminator.
 ///
 /// This function ensures that commands are properly terminated with 0xFF,
@@ -212,6 +224,18 @@ pub trait ViscaEncode: Send + Sync {
     /// - Returns `None` for action commands that only receive ACK/Completion
     /// - Returns `Some(ViscaResponseType::...)` for inquiry commands that receive data
     fn response_type(&self) -> Option<ViscaResponseType>;
+
+    /// Returns the command kind based on the response type.
+    ///
+    /// Commands with a response type are inquiries; others are commands.
+    #[inline(always)]
+    fn command_kind(&self) -> CommandKind {
+        if self.response_type().is_some() {
+            CommandKind::Inquiry
+        } else {
+            CommandKind::Command
+        }
+    }
 
     /// Returns the command category for timeout configuration.
     ///

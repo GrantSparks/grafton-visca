@@ -16,7 +16,7 @@ use std::{
 };
 
 #[cfg(not(feature = "async"))]
-use crate::transport::SyncTransport;
+use crate::{command::CommandKind, transport::SyncTransport};
 #[cfg(feature = "async")]
 use crate::{executor::Executor, transport::AsyncTransport};
 use crate::{Error, Result};
@@ -383,7 +383,7 @@ impl ScriptedSyncTransport {
 
 #[cfg(not(feature = "async"))]
 impl SyncTransport for ScriptedSyncTransport {
-    fn send(&mut self, bytes: &[u8]) -> Result<()> {
+    fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<()> {
         // Record the sent command
         self.sent
             .lock()
@@ -706,7 +706,10 @@ mod tests {
 
         // Send a command
         transport
-            .send(&[0x81, 0x01, 0x04, 0x00, VISCA_TERMINATOR])
+            .send_with_kind(
+                &[0x81, 0x01, 0x04, 0x00, VISCA_TERMINATOR],
+                CommandKind::Command,
+            )
             .unwrap();
 
         // Should receive the scripted response
@@ -727,7 +730,10 @@ mod tests {
 
         // Send a command
         transport
-            .send(&[0x81, 0x01, 0x04, 0x00, VISCA_TERMINATOR])
+            .send_with_kind(
+                &[0x81, 0x01, 0x04, 0x00, VISCA_TERMINATOR],
+                CommandKind::Command,
+            )
             .unwrap();
 
         // Should timeout since no response is scripted

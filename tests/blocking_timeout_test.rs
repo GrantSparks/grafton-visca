@@ -8,6 +8,7 @@
 #![cfg(not(feature = "async"))]
 
 use grafton_visca::{
+    command::CommandKind,
     transport::{
         blocking::{Tcp, Udp},
         SyncTransport,
@@ -104,7 +105,7 @@ fn test_udp_blocking_timeout_enforcement() {
 
     let mut transport = Udp::connect(&addr).expect("Failed to connect");
 
-    let _ = transport.send(b"\x81\x01\x04\x00\x02\xFF");
+    let _ = transport.send_with_kind(b"\x81\x01\x04\x00\x02\xFF", CommandKind::Command);
 
     // CI environments have highly variable timing, so we need much larger tolerances
     let (base_tolerance, multiplier) = if std::env::var("CI").is_ok() {

@@ -7,7 +7,7 @@ use bytes::Bytes;
 
 use core::time::Duration;
 
-use crate::Error;
+use crate::{command::CommandKind, Error};
 
 /// Synchronous transport for VISCA communication.
 ///
@@ -24,8 +24,8 @@ use crate::Error;
 /// struct MySyncTransport { /* ... */ }
 ///
 /// impl SyncTransport for MySyncTransport {
-///     fn send(&mut self, bytes: &[u8]) -> Result<(), Error> {
-///         // Send implementation
+///     fn send_with_kind(&mut self, bytes: &[u8], kind: CommandKind) -> Result<(), Error> {
+///         // Send implementation with command kind for proper framing
 ///         Ok(())
 ///     }
 ///
@@ -41,11 +41,17 @@ use crate::Error;
 /// }
 /// ```
 pub trait SyncTransport: Send {
-    /// Send raw bytes to the device (synchronous).
+    /// Send raw bytes to the device with command kind (synchronous).
     ///
     /// This method blocks until the bytes have been written to the
-    /// underlying transport.
-    fn send(&mut self, bytes: &[u8]) -> Result<(), Error>;
+    /// underlying transport. The CommandKind is used for proper protocol
+    /// framing (e.g., Sony encapsulation).
+    ///
+    /// # Arguments
+    ///
+    /// * `bytes` - The raw VISCA command bytes to send
+    /// * `kind` - Whether this is a command or inquiry for proper framing
+    fn send_with_kind(&mut self, bytes: &[u8], kind: CommandKind) -> Result<(), Error>;
 
     /// Receive raw bytes from the device (synchronous).
     ///
@@ -73,8 +79,8 @@ pub trait SyncTransport: Send {
 
 // Implement SyncTransport for Box<dyn SyncTransport> to enable nested boxing
 impl SyncTransport for Box<dyn SyncTransport> {
-    fn send(&mut self, bytes: &[u8]) -> Result<(), Error> {
-        (**self).send(bytes)
+    fn send_with_kind(&mut self, bytes: &[u8], kind: CommandKind) -> Result<(), Error> {
+        (**self).send_with_kind(bytes, kind)
     }
 
     fn recv(&mut self) -> Result<Bytes, Error> {

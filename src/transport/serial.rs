@@ -18,6 +18,7 @@ use crate::{
         bytes::VISCA_TERMINATOR,
         encode_visca::ViscaEncode,
         system::{AddressSetCommand, InterfaceClearCommand},
+        CommandKind,
     },
     error::{Error, Result},
     transport::{
@@ -281,7 +282,7 @@ impl SerialTransport {
 // SerialTransport keeps using &self because it has interior mutability
 // This is necessary for hardware constraints
 impl SyncTransport for SerialTransport {
-    fn send(&mut self, bytes: &[u8]) -> Result<()> {
+    fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<()> {
         // Pass through the bytes as-is (no address rewrite or building)
         let cmd = bytes.to_vec();
 

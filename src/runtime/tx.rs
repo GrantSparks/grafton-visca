@@ -59,8 +59,11 @@ pub async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Execut
                 scheduler.enforce_spacing_with(executor, now).await;
 
                 // Frame command first to get sequence (if applicable)
-                let (framed_bytes, meta) =
-                    envelope.frame_with_meta_owned(bytes.clone(), buffer_manager);
+                let (framed_bytes, meta) = envelope.frame_bytes_with_kind_owned(
+                    bytes.clone(),
+                    crate::command::CommandKind::Command,
+                    buffer_manager,
+                );
 
                 // Begin transaction with automatic rollback on failure
                 let registration = CommandRegistration {
@@ -143,8 +146,11 @@ pub async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Execut
             scheduler.enforce_spacing_with(executor, now).await;
 
             // Frame and send inquiry (zero-copy for raw VISCA)
-            let (framed_bytes, meta) =
-                envelope.frame_with_meta_owned(bytes.clone(), buffer_manager);
+            let (framed_bytes, meta) = envelope.frame_bytes_with_kind_owned(
+                bytes.clone(),
+                crate::command::CommandKind::Inquiry,
+                buffer_manager,
+            );
 
             // Record sequence for Sony encapsulated protocols (inquiries don't have borrow issues)
             if let Some(seq) = meta.sequence {
@@ -180,9 +186,13 @@ pub async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Execut
                 })?;
             let cancel_bytes = bytes::Bytes::copy_from_slice(&cancel_bytes[..len]);
 
-            // Frame the cancel command (zero-copy for raw VISCA)
+            // Frame the cancel command as a regular command (not an inquiry)
             // Cancel commands don't need sequence tracking
-            let framed_cancel = envelope.frame_command_owned(cancel_bytes, buffer_manager);
+            let (framed_cancel, _meta) = envelope.frame_bytes_with_kind_owned(
+                cancel_bytes,
+                crate::command::CommandKind::Command,
+                buffer_manager,
+            );
             if let Err(e) = transport.send(&framed_cancel).await {
                 error!("Failed to send cancel: {e}");
                 return Ok(());
@@ -237,9 +247,13 @@ pub async fn handle_tx_item<T: AsyncTransport + Send, E: crate::executor::Execut
                     })?;
                 let cancel_bytes = bytes::Bytes::copy_from_slice(&cancel_bytes[..len]);
 
-                // Frame the cancel command (zero-copy for raw VISCA)
+                // Frame the cancel command as a regular command (not an inquiry)
                 // Cancel commands don't need sequence tracking
-                let framed_cancel = envelope.frame_command_owned(cancel_bytes, buffer_manager);
+                let (framed_cancel, _meta) = envelope.frame_bytes_with_kind_owned(
+                    cancel_bytes,
+                    crate::command::CommandKind::Command,
+                    buffer_manager,
+                );
                 if let Err(e) = transport.send(&framed_cancel).await {
                     error!("Failed to send cancel: {e}");
                     return Ok(());

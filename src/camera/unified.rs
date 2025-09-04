@@ -205,24 +205,15 @@ where
 
         debug_assert!(len > 0 && buf[len - 1] == crate::command::bytes::VISCA_TERMINATOR);
 
-        // Use byte-level detection for inquiry classification
-        let is_inquiry = crate::command::bytes::is_inquiry_bytes(&buf[..len]);
+        // Use type-driven command kind from the ViscaEncode trait
+        let kind = cmd.command_kind();
+        let is_inquiry = matches!(kind, crate::command::CommandKind::Inquiry);
 
-        // Add debug assertion to catch type metadata mismatches
-        #[cfg(debug_assertions)]
-        {
-            let type_says_inquiry = cmd.response_type().is_some();
-            if type_says_inquiry != is_inquiry {
-                tracing::warn!(
-                    "Type metadata disagrees with VISCA bytes for inquiry detection: type says {}, bytes say {}",
-                    type_says_inquiry, is_inquiry
-                );
-            }
-        }
-
-        let framed = self
-            .envelope()
-            .frame_command(&buf[..len], self.envelope_buffer_manager());
+        let framed = self.envelope().frame_bytes_with_kind(
+            &buf[..len],
+            kind,
+            self.envelope_buffer_manager(),
+        );
         Ok((framed, is_inquiry))
     }
 }
@@ -505,6 +496,12 @@ where
             Err(e) => return std::future::ready(Err(e)),
         };
 
+        let kind = if is_inquiry {
+            crate::command::CommandKind::Inquiry
+        } else {
+            crate::command::CommandKind::Command
+        };
+
         let transport_cell = self.transport();
         let mut transport = match transport_cell.try_borrow_mut() {
             Ok(transport) => transport,
@@ -513,7 +510,7 @@ where
             }
         };
 
-        if let Err(e) = SyncTransport::send(&mut *transport, &request) {
+        if let Err(e) = SyncTransport::send_with_kind(&mut *transport, &request, kind) {
             return std::future::ready(Err(e));
         }
 
@@ -593,6 +590,12 @@ where
             Err(e) => return std::future::ready(Err(e)),
         };
 
+        let kind = if is_inquiry {
+            crate::command::CommandKind::Inquiry
+        } else {
+            crate::command::CommandKind::Command
+        };
+
         let transport_cell = self.transport();
         let mut transport = match transport_cell.try_borrow_mut() {
             Ok(transport) => transport,
@@ -601,7 +604,7 @@ where
             }
         };
 
-        if let Err(e) = SyncTransport::send(&mut *transport, &request) {
+        if let Err(e) = SyncTransport::send_with_kind(&mut *transport, &request, kind) {
             return std::future::ready(Err(e));
         }
 

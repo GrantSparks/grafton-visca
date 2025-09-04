@@ -38,7 +38,7 @@ pub mod encode_visca;
 // Re-export command types
 pub use self::{
     color::*,
-    encode_visca::ViscaEncode,
+    encode_visca::{CommandKind, ViscaEncode},
     exposure::*,
     // flip::*,  // Commented out - unused
     focus::*,

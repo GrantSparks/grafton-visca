@@ -5,6 +5,7 @@
 //! transports with all the new components (BufferManager, RetryExecutor, etc.)
 
 use grafton_visca::{
+    command::CommandKind,
     transport::{
         builder::{TransportBuilder, TransportBuilderExt},
         SyncTransport,
@@ -61,7 +62,7 @@ fn test_builder_creates_configured_tcp_transport() {
     // Verify transport can send and receive
     let mut transport = transport.unwrap();
     transport
-        .send(&[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF])
+        .send_with_kind(&[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF], CommandKind::Command)
         .unwrap();
     let response = transport.recv();
     assert!(response.is_ok(), "Should receive response");
@@ -101,7 +102,7 @@ fn test_builder_creates_configured_udp_transport() {
 
     let mut transport = transport.unwrap();
     transport
-        .send(&[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF])
+        .send_with_kind(&[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF], CommandKind::Command)
         .unwrap();
 
     thread::sleep(Duration::from_millis(100));
@@ -161,7 +162,7 @@ fn test_builder_retry_configuration() {
 
     // This should succeed after retries
     transport
-        .send(&[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF])
+        .send_with_kind(&[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF], CommandKind::Command)
         .unwrap();
 
     // Give server time to process

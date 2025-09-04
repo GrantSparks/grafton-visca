@@ -198,21 +198,28 @@
 //! The library provides transport traits that you can implement for any communication method:
 //!
 //! ```ignore
-//! use grafton_visca::{transport::SyncTransport, Error};
+//! use grafton_visca::{transport::SyncTransport, command::CommandKind, Error};
+//! use bytes::Bytes;
+//! use std::time::Duration;
 //!
 //! struct MyTransport {
 //!     // Your transport state
 //! }
 //!
 //! impl SyncTransport for MyTransport {
-//!     fn send(&self, data: &[u8]) -> Result<(), Error> {
-//!         // Send data over your transport
+//!     fn send_with_kind(&mut self, data: &[u8], kind: CommandKind) -> Result<(), Error> {
+//!         // Send data over your transport with proper framing based on kind
 //!         Ok(())
 //!     }
 //!
-//!     fn recv(&self) -> Result<Vec<u8>, Error> {
+//!     fn recv(&mut self) -> Result<Bytes, Error> {
 //!         // Receive response from your transport
-//!         Ok(vec![])
+//!         Ok(Bytes::new())
+//!     }
+//!
+//!     fn recv_with_timeout(&mut self, timeout: Duration) -> Result<Bytes, Error> {
+//!         // Receive response with timeout
+//!         Ok(Bytes::new())
 //!     }
 //! }
 //! ```

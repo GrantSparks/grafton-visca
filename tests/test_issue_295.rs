@@ -1,63 +1,60 @@
 //! Test for issue #295: TallyGreenInquiry bug fix
-//! This verifies that commands like TallyGreenInquiry that have the byte-level
-//! inquiry indicator (0x09 at byte 1) are correctly classified as inquiries
-//! even when their type metadata (response_type()) returns None.
+//! This verifies that TallyGreenInquiry is correctly classified as an inquiry
+//! both by its type metadata (response_type()) and by the new command_kind() method.
 
-use grafton_visca::command::{bytes::is_inquiry_bytes, inquiry::TallyGreenInquiry};
+use grafton_visca::command::inquiry::TallyGreenInquiry;
 
 #[test]
 fn test_tally_green_inquiry_is_detected_as_inquiry() {
-    // The TallyGreenInquiry command has 0x09 at byte 1, making it an inquiry
+    // The TallyGreenInquiry command should be correctly classified as an inquiry
     let inquiry = TallyGreenInquiry;
 
     // Encode the command
     let mut buffer = [0u8; 32];
     let camera_id = grafton_visca::camera_id::CameraId::default();
-    let len = grafton_visca::command::encode_visca::ViscaEncode::encode_into(
+    let _len = grafton_visca::command::encode_visca::ViscaEncode::encode_into(
         &inquiry,
         camera_id,
         &mut buffer,
     )
     .expect("Should encode");
 
-    // Verify that the bytes indicate it's an inquiry (has 0x09 at position 1)
-    assert!(
-        is_inquiry_bytes(&buffer[..len]),
-        "TallyGreenInquiry should be detected as inquiry from bytes"
-    );
+    // Verify that the command has the inquiry byte pattern (0x09 at position 1)
     assert_eq!(buffer[1], 0x09, "Second byte should be 0x09 for inquiry");
 
-    // Show that the type metadata says it's NOT an inquiry (this was the bug)
+    // Verify that the type metadata correctly identifies it as an inquiry (bug fixed)
     let response_type = grafton_visca::command::encode_visca::ViscaEncode::response_type(&inquiry);
     assert!(
-        response_type.is_none(),
-        "TallyGreenInquiry incorrectly returns None for response_type"
+        response_type.is_some(),
+        "TallyGreenInquiry should return Some(response_type) for inquiries"
+    );
+
+    // Verify that command_kind() correctly returns Inquiry
+    let command_kind = grafton_visca::command::encode_visca::ViscaEncode::command_kind(&inquiry);
+    assert!(
+        matches!(command_kind, grafton_visca::command::CommandKind::Inquiry),
+        "TallyGreenInquiry should be classified as CommandKind::Inquiry"
     );
 }
 
-// Add a test that verifies the helper function works correctly
+// Test that other inquiry commands work correctly with command_kind()
 #[test]
-fn test_is_inquiry_bytes_helper() {
-    // Test inquiry bytes (second byte is 0x09)
-    let inquiry_bytes = &[0x81, 0x09, 0x04, 0x00, 0xFF];
-    assert!(is_inquiry_bytes(inquiry_bytes), "Should detect inquiry");
+fn test_command_kind_for_inquiries_and_commands() {
+    use grafton_visca::command::{encode_visca::ViscaEncode, CommandKind};
 
-    // Test command bytes (second byte is NOT 0x09)
-    let command_bytes = &[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF];
-    assert!(!is_inquiry_bytes(command_bytes), "Should detect command");
+    // Test an inquiry command
+    use grafton_visca::command::inquiry::PowerInquiry;
+    let power_inquiry = PowerInquiry;
+    assert!(
+        matches!(power_inquiry.command_kind(), CommandKind::Inquiry),
+        "PowerInquiry should be CommandKind::Inquiry"
+    );
 
-    // Test edge cases
-    assert!(!is_inquiry_bytes(&[]), "Empty slice should return false");
+    // Test a regular command
+    use grafton_visca::command::power::Power;
+    let power_on = Power::On;
     assert!(
-        !is_inquiry_bytes(&[0x81]),
-        "Single byte should return false"
-    );
-    assert!(
-        !is_inquiry_bytes(&[0x81, 0x01]),
-        "Non-inquiry two bytes should return false"
-    );
-    assert!(
-        is_inquiry_bytes(&[0x81, 0x09]),
-        "Inquiry two bytes should return true"
+        matches!(power_on.command_kind(), CommandKind::Command),
+        "Power::On should be CommandKind::Command"
     );
 }

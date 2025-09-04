@@ -11,6 +11,7 @@ use std::{
 use bytes::Bytes;
 
 use crate::{
+    command::CommandKind,
     transport::{
         address::AddressResolver, buffer::BufferManager, builder::TransportConfig,
         retry::RetryExecutor, sync_io::read_visca_frame_sync, RetryConfig, SyncTransport,
@@ -192,7 +193,7 @@ impl Tcp {
 }
 
 impl SyncTransport for Tcp {
-    fn send(&mut self, data: &[u8]) -> Result<(), Error> {
+    fn send_with_kind(&mut self, data: &[u8], _kind: CommandKind) -> Result<(), Error> {
         // Clone data for retry closure
         let data_vec = data.to_vec();
 
