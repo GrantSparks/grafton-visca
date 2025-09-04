@@ -153,8 +153,8 @@ impl ProtocolDetector {
         let envelope = TransportEnvelope::new(protocol_style);
         let buffer_manager = BufferManager::new(BufferConfig::default());
 
-        // Frame the command according to the protocol style
-        let framed_command = envelope.frame_command(command, true, &buffer_manager);
+        // Frame the command according to the protocol style (inquiry detection done internally)
+        let framed_command = envelope.frame_command(command, &buffer_manager);
 
         debug!(
             "Sending {len} bytes for protocol detection: {bytes:02X?}",

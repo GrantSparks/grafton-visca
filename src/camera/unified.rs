@@ -205,10 +205,24 @@ where
 
         debug_assert!(len > 0 && buf[len - 1] == crate::command::bytes::VISCA_TERMINATOR);
 
-        let is_inquiry = cmd.response_type().is_some();
-        let framed =
-            self.envelope()
-                .frame_command(&buf[..len], is_inquiry, self.envelope_buffer_manager());
+        // Use byte-level detection for inquiry classification
+        let is_inquiry = crate::command::bytes::is_inquiry_bytes(&buf[..len]);
+
+        // Add debug assertion to catch type metadata mismatches
+        #[cfg(debug_assertions)]
+        {
+            let type_says_inquiry = cmd.response_type().is_some();
+            if type_says_inquiry != is_inquiry {
+                tracing::warn!(
+                    "Type metadata disagrees with VISCA bytes for inquiry detection: type says {}, bytes say {}",
+                    type_says_inquiry, is_inquiry
+                );
+            }
+        }
+
+        let framed = self
+            .envelope()
+            .frame_command(&buf[..len], self.envelope_buffer_manager());
         Ok((framed, is_inquiry))
     }
 }

@@ -105,13 +105,8 @@ impl SonyTcpTransport {
 
     /// Send a command using the transport envelope.
     fn send_framed(&mut self, bytes: &[u8]) -> Result<u32> {
-        // Check if this is an inquiry (second byte is 0x09)
-        let is_inquiry = bytes.len() >= 2 && bytes[1] == 0x09;
-
-        // Use envelope to frame the command
-        let (framed, meta) = self
-            .envelope
-            .frame_with_meta(bytes, is_inquiry, &self.buffer_manager);
+        // Use envelope to frame the command (inquiry detection is now done internally)
+        let (framed, meta) = self.envelope.frame_with_meta(bytes, &self.buffer_manager);
 
         // Get the sequence number (should always be Some for Sony)
         let sequence = meta.sequence.unwrap_or(0);
@@ -384,13 +379,8 @@ impl SonyUdpTransport {
 
     /// Send a command using the transport envelope.
     fn send_framed(&mut self, bytes: &[u8]) -> Result<u32> {
-        // Check if this is an inquiry (second byte is 0x09)
-        let is_inquiry = bytes.len() >= 2 && bytes[1] == 0x09;
-
-        // Use envelope to frame the command
-        let (framed, meta) = self
-            .envelope
-            .frame_with_meta(bytes, is_inquiry, &self.buffer_manager);
+        // Use envelope to frame the command (inquiry detection is now done internally)
+        let (framed, meta) = self.envelope.frame_with_meta(bytes, &self.buffer_manager);
 
         // Get the sequence number (should always be Some for Sony)
         let sequence = meta.sequence.unwrap_or(0);
