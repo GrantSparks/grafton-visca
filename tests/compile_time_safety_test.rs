@@ -16,11 +16,11 @@ use grafton_visca::{
 #[test]
 fn test_ptzoptics_g2_capabilities() -> Result<(), Error> {
     let transport = ScriptedSyncTransport::new(vec![
-        helpers::auto_respond_step(), // power_on
-        helpers::auto_respond_step(), // pan_tilt_home
-        helpers::auto_respond_step(), // zoom_stop
-        helpers::auto_respond_step(), // focus_auto
-        helpers::auto_respond_step(), // preset_recall
+        helpers::auto_respond_step(),
+        helpers::auto_respond_step(),
+        helpers::auto_respond_step(),
+        helpers::auto_respond_step(),
+        helpers::auto_respond_step(),
     ]);
 
     let camera = PtzOpticsG2Cam::new_blocking(transport)?;
@@ -40,9 +40,9 @@ fn test_ptzoptics_g2_capabilities() -> Result<(), Error> {
 #[test]
 fn test_sony_fr7_has_nd_filter() -> Result<(), Error> {
     let transport = ScriptedSyncTransport::new(vec![
-        helpers::sony_auto_respond_step(), // power_on
-        helpers::sony_auto_respond_step(), // pan_tilt_home
-        helpers::sony_auto_respond_step(), // zoom_stop
+        helpers::sony_auto_respond_step(),
+        helpers::sony_auto_respond_step(),
+        helpers::sony_auto_respond_step(),
     ]);
 
     let camera = SonyFR7Cam::new_blocking(transport)?;
@@ -99,32 +99,28 @@ fn test_generic_functions_with_trait_bounds() {
     where
         P: Profile + MotionSync + Default,
     {
-        // This function just demonstrates that the wrapper type still works
-        // for non-generic code paths
         Ok(())
     }
 
     let g2_transport = ScriptedSyncTransport::new(vec![
-        helpers::auto_respond_step(), // power_on
-        helpers::auto_respond_step(), // zoom_stop
+        helpers::auto_respond_step(),
+        helpers::auto_respond_step(),
     ]);
     let mut g2_camera = PtzOpticsG2Cam::new_blocking(g2_transport).unwrap();
 
-    let g2_transport_wrapper = ScriptedSyncTransport::new(vec![
-        helpers::auto_respond_step(), // for motion_sync_control
-    ]);
+    let g2_transport_wrapper = ScriptedSyncTransport::new(vec![helpers::auto_respond_step()]);
     let g2_camera_wrapper = PtzOpticsG2Cam::new_blocking(g2_transport_wrapper).unwrap();
     let g2_wrapper = grafton_visca::BlockingCamera::from(g2_camera_wrapper);
 
     let fr7_transport = ScriptedSyncTransport::new(vec![
-        helpers::sony_auto_respond_step(), // power_on
-        helpers::sony_auto_respond_step(), // zoom_stop
+        helpers::sony_auto_respond_step(),
+        helpers::sony_auto_respond_step(),
     ]);
     let mut fr7_camera = SonyFR7Cam::new_blocking(fr7_transport).unwrap();
 
     let generic_transport = ScriptedSyncTransport::new(vec![
-        helpers::auto_respond_step(), // power_on
-        helpers::auto_respond_step(), // zoom_stop
+        helpers::auto_respond_step(),
+        helpers::auto_respond_step(),
     ]);
     let mut generic_camera = GenericViscaCam::new_blocking(generic_transport).unwrap();
 

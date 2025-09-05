@@ -8,20 +8,20 @@
 #![allow(clippy::expect_used)]
 
 use bytes::Bytes;
+
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
+#[cfg(feature = "async")]
+use super::deterministic_executor::ExecutorExt;
 #[cfg(not(feature = "async"))]
 use crate::{command::CommandKind, transport::SyncTransport};
 #[cfg(feature = "async")]
 use crate::{executor::Executor, transport::AsyncTransport};
 use crate::{Error, Result};
-
-#[cfg(feature = "async")]
-use super::deterministic_executor::ExecutorExt;
 
 /// Function type for dynamic response generation.
 pub type DynamicResponseFn = Box<dyn Fn(&[u8]) -> Vec<Vec<u8>> + Send + Sync>;
@@ -101,13 +101,9 @@ impl Clone for Step {
                 // For other variants, just create a generic transport error with the display representation
                 _ => Error::TransportError(format!("Mock error: {err}").into()),
             }),
-            Step::DynamicResponse(_) => {
-                // DynamicResponse contains a closure that cannot be cloned
-                // Return an error step to indicate the issue
-                Step::InjectError(Error::InvalidState(
-                    "DynamicResponse steps cannot be cloned".into(),
-                ))
-            }
+            Step::DynamicResponse(_) => Step::InjectError(Error::InvalidState(
+                "DynamicResponse steps cannot be cloned".into(),
+            )),
         }
     }
 }
@@ -283,7 +279,6 @@ where
                             executor.clone(),
                         );
                     } else {
-                        // Put the step back if it didn't match
                         steps
                             .lock()
                             .expect("ScriptedSyncTransport mutex poisoned")
@@ -291,7 +286,6 @@ where
                     }
                 }
                 Step::After { delay, responses } => {
-                    // Put it back to be processed by process_after_steps
                     steps
                         .lock()
                         .expect("ScriptedSyncTransport mutex poisoned")
@@ -304,14 +298,12 @@ where
                     );
                 }
                 Step::InjectError(error) => {
-                    // Put the error step back to be handled on recv
                     steps
                         .lock()
                         .expect("ScriptedSyncTransport mutex poisoned")
                         .push_front(Step::InjectError(error));
                 }
                 Step::DynamicResponse(func) => {
-                    // Generate responses based on the sent bytes
                     let responses = func(&bytes_vec);
                     for response in responses {
                         let _ = response_tx.send(Ok(response));
@@ -451,7 +443,6 @@ impl SyncTransport for ScriptedSyncTransport {
                             let _ = self.response_tx.send(Ok(response));
                         }
                     } else {
-                        // Put the step back if it didn't match
                         self.steps
                             .lock()
                             .expect("ScriptedSyncTransport mutex poisoned")
@@ -459,7 +450,6 @@ impl SyncTransport for ScriptedSyncTransport {
                     }
                 }
                 Step::DynamicResponse(func) => {
-                    // Generate responses based on the sent bytes
                     let responses = func(bytes);
                     for response in responses {
                         let _ = self.response_tx.send(Ok(response));
@@ -485,8 +475,8 @@ impl SyncTransport for ScriptedSyncTransport {
         // Try to get a response from the channel (blocking)
         match self.response_rx.recv_timeout(Duration::from_secs(10)) {
             Ok(Ok(response)) => Ok(Bytes::from(response)),
-            Ok(Err(e)) => Err(e),          // Error from the channel
-            Err(_) => Err(Error::Timeout), // Channel timeout or closed
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(Error::Timeout),
         }
     }
 
@@ -697,7 +687,7 @@ pub mod helpers {
             let sequence = if sent_bytes.len() >= 8 {
                 u32::from_be_bytes([sent_bytes[4], sent_bytes[5], sent_bytes[6], sent_bytes[7]])
             } else {
-                0 // Fallback if not a proper Sony frame
+                0
             };
 
             // Generate ACK and completion with matching sequence
@@ -711,16 +701,12 @@ pub mod helpers {
     /// Create a power inquiry response
     pub fn power_inquiry_response(power_on: bool) -> Step {
         let data = if power_on {
-            vec![0x90, 0x50, 0x02, VISCA_TERMINATOR] // Power on
+            vec![0x90, 0x50, 0x02, VISCA_TERMINATOR]
         } else {
-            vec![0x90, 0x50, 0x03, VISCA_TERMINATOR] // Power off
+            vec![0x90, 0x50, 0x03, VISCA_TERMINATOR]
         };
 
-        inquiry_response(
-            vec![0x81, 0x09, 0x04, 0x00, VISCA_TERMINATOR], // Power inquiry command
-            1,
-            data,
-        )
+        inquiry_response(vec![0x81, 0x09, 0x04, 0x00, VISCA_TERMINATOR], 1, data)
     }
 
     /// Common error responses
@@ -782,7 +768,7 @@ mod tests {
     fn test_scripted_blocking_transport_basic() {
         let mut transport = ScriptedSyncTransport::new(vec![Step::OnSend {
             matches: None,
-            responses: vec![vec![0x90, 0x41, VISCA_TERMINATOR]], // ACK
+            responses: vec![vec![0x90, 0x41, VISCA_TERMINATOR]],
         }]);
 
         // Send a command
@@ -833,7 +819,7 @@ mod tests {
         // between DeterministicExecutor and async-executor
         let mut transport = ScriptedTransport::new(vec![Step::OnSend {
             matches: None,
-            responses: vec![vec![0x90, 0x41, VISCA_TERMINATOR]], // ACK immediately
+            responses: vec![vec![0x90, 0x41, VISCA_TERMINATOR]],
         }])
         .with_executor(executor.clone());
 
@@ -898,7 +884,7 @@ mod tests {
                 },
                 Step::After {
                     delay: Duration::from_millis(100),
-                    responses: vec![vec![0x90, 0x41, VISCA_TERMINATOR]], // ACK after 100ms
+                    responses: vec![vec![0x90, 0x41, VISCA_TERMINATOR]],
                 },
             ];
 
