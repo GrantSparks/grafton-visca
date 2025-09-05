@@ -38,7 +38,8 @@ pub trait AsyncTransport: Send {
 
     /// Receive raw bytes from the device.
     ///
-    /// This method receives exactly one VISCA frame from the device.
-    /// It should handle framing internally and return complete frames. TODO: Fix this to be async fn when return type notation is stable in Rust.
+    /// This method returns the next available chunk of bytes from the transport.
+    /// It may return partial frames, complete frames, or multiple frames.
+    /// The runtime is responsible for aggregating chunks and extracting frames. TODO: Fix this to be async fn when return type notation is stable in Rust.
     fn recv(&mut self) -> impl Future<Output = Result<Bytes, Error>> + Send;
 }

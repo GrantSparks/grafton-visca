@@ -3,11 +3,16 @@
 //! This module provides shared functionality across different runtime transports
 //! to reduce code duplication while maintaining zero-cost abstractions.
 
+#[cfg(feature = "rt-tokio")]
 use bytes::Bytes;
 
-use std::{borrow::Cow, future::Future, time::Duration};
+#[cfg(feature = "rt-tokio")]
+use std::borrow::Cow;
+use std::{future::Future, time::Duration};
 
-use crate::{protocol::framer::ProtocolFramer, transport::builder::TransportConfig, Error};
+#[cfg(feature = "rt-tokio")]
+use crate::protocol::framer::ProtocolFramer;
+use crate::{transport::builder::TransportConfig, Error};
 
 /// Trait abstracting async read operations across different runtimes.
 ///
@@ -43,6 +48,7 @@ pub trait AsyncWriteExt {
 ///
 /// This ensures that Sony frames with 0xFF in the header (e.g., in sequence number)
 /// are not prematurely truncated.
+#[cfg(feature = "rt-tokio")]
 pub async fn read_visca_frame<R: AsyncReadExt>(reader: &mut R) -> Result<Bytes, Error> {
     let mut framer = ProtocolFramer::new(1024);
     let mut temp_buf = [0u8; 256];
@@ -133,7 +139,7 @@ impl From<TransportConfig> for UdpSocketConfig {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "rt-tokio"))]
 #[allow(clippy::panic)]
 #[allow(clippy::expect_used)]
 #[allow(clippy::unwrap_used)]

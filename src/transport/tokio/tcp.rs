@@ -6,7 +6,8 @@ use std::time::Duration;
 
 use crate::{
     transport::{
-        async_io::{read_visca_frame, write_all_flush, TcpConnectionConfig},
+        async_io::{write_all_flush, AsyncReadExt, TcpConnectionConfig},
+        buffer::{BufferConfig, BufferManager},
         builder::TransportConfig,
         tokio::connectors::{connect_tcp, TokioTcpStream},
         AsyncTransport,
@@ -21,6 +22,7 @@ use crate::{
 #[derive(Debug)]
 pub struct Tcp {
     stream: TokioTcpStream,
+    buffer_manager: BufferManager,
 }
 
 impl Tcp {
@@ -28,7 +30,17 @@ impl Tcp {
     ///
     /// This method resolves hostnames and supports both IPv4 and IPv6 addresses.
     pub async fn connect(address: &str) -> Result<Self, Error> {
-        let config = TransportConfig::default();
+        // Determine appropriate buffer config based on port
+        let buffer_config = if address.contains(":52381") {
+            BufferConfig::for_sony_ip()
+        } else {
+            BufferConfig::for_raw_ip()
+        };
+
+        let config = TransportConfig {
+            buffer_config,
+            ..Default::default()
+        };
         Self::connect_with_config(address, config).await
     }
 
@@ -36,8 +48,16 @@ impl Tcp {
     ///
     /// This method resolves hostnames and supports both IPv4 and IPv6 addresses.
     pub async fn connect_timeout(address: &str, timeout: Duration) -> Result<Self, Error> {
+        // Determine appropriate buffer config based on port
+        let buffer_config = if address.contains(":52381") {
+            BufferConfig::for_sony_ip()
+        } else {
+            BufferConfig::for_raw_ip()
+        };
+
         let config = TransportConfig {
             connect_timeout: timeout,
+            buffer_config,
             ..Default::default()
         };
         Self::connect_with_config(address, config).await
@@ -53,7 +73,10 @@ impl Tcp {
         let tcp_config = TcpConnectionConfig::from(config);
         let stream = connect_tcp(address, tcp_config).await?;
 
-        Ok(Self { stream })
+        Ok(Self {
+            stream,
+            buffer_manager: BufferManager::new(config.buffer_config),
+        })
     }
 
     /// Split the TCP transport into separate reader and writer halves.
@@ -82,7 +105,10 @@ impl Tcp {
     pub fn split(self) -> (TcpReader, TcpWriter) {
         let TokioTcpStream { reader, writer } = self.stream;
 
-        let tcp_reader = TcpReader { reader };
+        let tcp_reader = TcpReader {
+            reader,
+            buffer_manager: self.buffer_manager,
+        };
         let tcp_writer = TcpWriter { writer };
 
         (tcp_reader, tcp_writer)
@@ -95,7 +121,17 @@ impl AsyncTransport for Tcp {
     }
 
     async fn recv(&mut self) -> Result<Bytes, Error> {
-        read_visca_frame(&mut self.stream).await
+        // Read chunk of data into buffer and return it
+        let mut buffer = self.buffer_manager.alloc_vec_buffer();
+        let n = self.stream.read(&mut buffer).await?;
+
+        if n == 0 {
+            return Err(Error::ConnectionClosed {
+                reason: Some(std::borrow::Cow::Borrowed("peer closed connection")),
+            });
+        }
+
+        Ok(self.buffer_manager.process_recv_data(buffer, n))
     }
 }
 
@@ -107,12 +143,23 @@ impl AsyncTransport for Tcp {
 pub struct TcpReader {
     reader:
         crate::transport::tokio::connectors::TokioBufferedReader<tokio::net::tcp::OwnedReadHalf>,
+    buffer_manager: BufferManager,
 }
 
 impl TcpReader {
     /// Receive data from the TCP connection.
     pub async fn recv(&mut self) -> Result<Bytes, Error> {
-        read_visca_frame(&mut self.reader).await
+        // Read chunk of data into buffer and return it
+        let mut buffer = self.buffer_manager.alloc_vec_buffer();
+        let n = self.reader.read(&mut buffer).await?;
+
+        if n == 0 {
+            return Err(Error::ConnectionClosed {
+                reason: Some(std::borrow::Cow::Borrowed("peer closed connection")),
+            });
+        }
+
+        Ok(self.buffer_manager.process_recv_data(buffer, n))
     }
 }
 

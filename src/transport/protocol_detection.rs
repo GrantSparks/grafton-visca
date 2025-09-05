@@ -11,7 +11,7 @@ use crate::{
     capabilities::ProtocolStyle,
     command::bytes::VISCA_TERMINATOR,
     executor::Executor,
-    protocol::response::decode_basic,
+    protocol::{framer::ProtocolFramer, response::decode_basic},
     transport::{
         buffer::{BufferConfig, BufferManager},
         envelope::TransportEnvelope,
@@ -184,44 +184,74 @@ impl ProtocolDetector {
                 continue;
             }
 
-            // Wait for response with timeout
-            let response_result = executor.timeout(DETECTION_TIMEOUT, transport.recv()).await;
+            // Create a local ProtocolFramer to handle chunked responses
+            let mut framer = ProtocolFramer::new(1024);
+            let start_time = std::time::Instant::now();
 
-            match response_result {
-                Ok(Ok(response_bytes)) => {
+            // Loop to collect chunks until we get a frame or timeout
+            loop {
+                // Check if we've exceeded total detection timeout
+                if start_time.elapsed() > DETECTION_TIMEOUT {
                     debug!(
-                        "Received {len} bytes response: {bytes:02X?}",
-                        len = response_bytes.len(),
-                        bytes = &response_bytes[..std::cmp::min(response_bytes.len(), 16)]
-                    );
-
-                    // Try to extract VISCA payload
-                    match envelope.extract_response(&response_bytes) {
-                        Ok(visca_payload) => {
-                            // Validate this looks like a VISCA response
-                            if self.is_valid_visca_response(&visca_payload) {
-                                debug!(
-                                    "Valid VISCA response detected for protocol style: {:?}",
-                                    protocol_style
-                                );
-                                return Ok(true);
-                            } else {
-                                debug!("Received data but not a valid VISCA response");
-                            }
-                        }
-                        Err(e) => {
-                            debug!("Failed to extract VISCA payload: {e}");
-                        }
-                    }
-                }
-                Ok(Err(e)) => {
-                    debug!("Transport error during detection: {e}");
-                }
-                Err(_timeout) => {
-                    debug!(
-                        "Timeout waiting for response (attempt {attempt})",
+                        "Detection timeout exceeded (attempt {attempt})",
                         attempt = attempt + 1
                     );
+                    break;
+                }
+
+                // Calculate remaining timeout for this recv call
+                let remaining = DETECTION_TIMEOUT.saturating_sub(start_time.elapsed());
+                let recv_timeout = std::cmp::min(remaining, Duration::from_millis(20));
+
+                // Try to receive a chunk with timeout
+                match executor.timeout(recv_timeout, transport.recv()).await {
+                    Ok(Ok(chunk)) => {
+                        debug!(
+                            "Received {len} bytes chunk: {bytes:02X?}",
+                            len = chunk.len(),
+                            bytes = &chunk[..std::cmp::min(chunk.len(), 16)]
+                        );
+
+                        // Push chunk to framer
+                        framer.push(chunk);
+
+                        // Try to extract a complete frame
+                        if let Some(frame) = framer.drain_frames().next() {
+                            debug!(
+                                "Extracted complete frame: {bytes:02X?}",
+                                bytes = &frame[..std::cmp::min(frame.len(), 16)]
+                            );
+
+                            // Try to extract VISCA payload
+                            match envelope.extract_response(&frame) {
+                                Ok(visca_payload) => {
+                                    // Validate this looks like a VISCA response
+                                    if self.is_valid_visca_response(&visca_payload) {
+                                        debug!(
+                                            "Valid VISCA response detected for protocol style: {:?}",
+                                            protocol_style
+                                        );
+                                        return Ok(true);
+                                    } else {
+                                        debug!("Received data but not a valid VISCA response");
+                                    }
+                                }
+                                Err(e) => {
+                                    debug!("Failed to extract VISCA payload: {e}");
+                                }
+                            }
+                            // Got a frame but it wasn't valid, break to retry
+                            break;
+                        }
+                    }
+                    Ok(Err(e)) => {
+                        debug!("Transport error during detection: {e}");
+                        break;
+                    }
+                    Err(_timeout) => {
+                        // Short recv timeout, continue to check total timeout
+                        continue;
+                    }
                 }
             }
 

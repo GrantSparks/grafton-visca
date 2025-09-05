@@ -4,9 +4,6 @@
 //! protocol responses and splitting frame buffers. It eliminates duplication between
 //! async and sync paths while preserving socket awareness and type safety.
 
-/// Zero-copy frame decoder for VISCA protocol responses.
-pub mod frame_decoder;
-
 use crate::{command::bytes::VISCA_TERMINATOR, command::response::payload::Payload, ViscaSocket};
 
 /// Basic VISCA response kind.
