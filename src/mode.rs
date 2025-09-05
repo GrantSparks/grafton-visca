@@ -174,6 +174,8 @@ impl<T> BlockingFutureExt for Ready<T> {
     fn block(self) -> T {
         // NOTE: Ready futures are immediately ready, so we can use pollster
         // which is zero-cost for already-ready futures
+        #[cfg(test)]
+        eprintln!("BlockingFutureExt::block called for Ready<T>");
         pollster::block_on(self)
     }
 }

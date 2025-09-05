@@ -157,7 +157,20 @@ where
     where
         C: crate::command::ViscaEncode + Send + Sync + Clone + 'static,
     {
-        let result = pollster::block_on(self.send_command(&command));
+        #[cfg(test)]
+        eprintln!("send_and_complete: entering");
+
+        // In blocking mode, send_command already returns a Ready<Result<...>>
+        // so we need to extract the value from it using pollster
+        use crate::mode::BlockingFutureExt;
+        #[cfg(test)]
+        eprintln!("send_and_complete: calling send_command");
+        let future = self.send_command(&command);
+        #[cfg(test)]
+        eprintln!("send_and_complete: got future, calling .block()");
+        let result = future.block();
+        #[cfg(test)]
+        eprintln!("send_and_complete: got result from .block()");
         use crate::command::response::ViscaResponse;
         std::future::ready(match result {
             Ok(ViscaResponse::Completion { .. }) => Ok(()),
@@ -180,7 +193,10 @@ where
             + 'static,
         C::Response: Send + 'static,
     {
-        std::future::ready(pollster::block_on(self.send_command_typed(&command)))
+        // send_command_typed already returns a Ready future in blocking mode
+        // so we need to extract the value from it using .block()
+        use crate::mode::BlockingFutureExt;
+        std::future::ready(self.send_command_typed(&command).block())
     }
 
     fn error<T>(
