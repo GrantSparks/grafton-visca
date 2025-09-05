@@ -27,9 +27,8 @@ pub(crate) fn decode(
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            // 0x02 = ON, 0x03 = OFF (standby)
             Some(Ok(ViscaResponse::Inquiry(InquiryResponse::Standby {
-                in_standby: payload.as_slice()[0] != 0x02, // 0x02 = ON (not in standby), 0x03 = OFF (in standby)
+                in_standby: payload.as_slice()[0] != 0x02,
             })))
         }
         _ => None,

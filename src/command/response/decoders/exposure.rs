@@ -2,8 +2,6 @@
 
 use std::borrow::Cow;
 
-use super::super::nibbles::{combine_nibbles_u16, combine_nibbles_u8};
-use super::super::payload::Payload;
 use crate::{
     command::{
         response::types::{ViscaResponse, ViscaResponseType},
@@ -11,6 +9,9 @@ use crate::{
     },
     error::Error,
 };
+
+use super::super::nibbles::{combine_nibbles_u16, combine_nibbles_u8};
+use super::super::payload::Payload;
 
 /// Decode exposure-related inquiry responses.
 pub(crate) fn decode(
@@ -31,7 +32,7 @@ pub(crate) fn decode(
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "exposure_mode",
-                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
+                        value: Cow::Owned(format!("{value:02X}", value = payload.as_slice()[0])),
                         reason: Cow::Borrowed("Unknown exposure mode value"),
                     }))
                 }
@@ -62,8 +63,6 @@ pub(crate) fn decode(
             )))
         }
         ViscaResponseType::ExposureCompensationPosition => {
-            // Exposure compensation position inquiry response
-            // 4 bytes: PP PP (position as nibbles)
             if payload.len() != 4 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -119,17 +118,16 @@ pub(crate) fn decode(
             })))
         }
         ViscaResponseType::IrisControl => {
-            // Iris control inquiry response
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
             let auto = match payload.as_slice()[0] {
-                0x02 => false, // Manual iris control
-                0x03 => true,  // Auto iris control
+                0x02 => false,
+                0x03 => true,
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "iris_control",
-                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
+                        value: Cow::Owned(format!("{value:02X}", value = payload.as_slice()[0])),
                         reason: Cow::Borrowed(
                             "Invalid iris control value. Expected 0x02 (manual) or 0x03 (auto)",
                         ),
@@ -150,7 +148,7 @@ pub(crate) fn decode(
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "IrisUp status",
-                        value: Cow::Owned(format!("0x{:02X}", payload.as_slice()[0])),
+                        value: Cow::Owned(format!("0x{value:02X}", value = payload.as_slice()[0])),
                         reason: Cow::Borrowed("Expected 0x02 (inactive) or 0x03 (active)"),
                     }))
                 }
@@ -169,7 +167,7 @@ pub(crate) fn decode(
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "IrisDown status",
-                        value: Cow::Owned(format!("0x{:02X}", payload.as_slice()[0])),
+                        value: Cow::Owned(format!("0x{value:02X}", value = payload.as_slice()[0])),
                         reason: Cow::Borrowed("Expected 0x02 (inactive) or 0x03 (active)"),
                     }))
                 }

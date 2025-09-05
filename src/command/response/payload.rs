@@ -82,8 +82,8 @@ impl<'a, const N: usize> Nibbles<'a, N> {
 
     /// Combine two nibbles into a u8 value.
     ///
-    /// Takes bytes at positions [start] and [start+1] and combines them as:
-    /// (byte[start] << 4) | byte[start+1]
+    /// Takes bytes at positions \[start\] and \[start+1\] and combines them as:
+    /// (byte\[start\] << 4) | byte\[start+1\]
     #[inline]
     pub fn u8_pair(&self, start: usize) -> u8 {
         debug_assert!(start + 1 < N, "u8_pair index out of bounds");
@@ -92,8 +92,8 @@ impl<'a, const N: usize> Nibbles<'a, N> {
 
     /// Combine four nibbles into a u16 value.
     ///
-    /// Takes bytes at positions [start..start+4] and combines them as:
-    /// (byte[0] << 12) | (byte[1] << 8) | (byte[2] << 4) | byte[3]
+    /// Takes bytes at positions \[start..start+4\] and combines them as:
+    /// (byte\[0\] << 12) | (byte\[1\] << 8) | (byte\[2\] << 4) | byte\[3\]
     #[inline]
     pub fn u16_quad(&self, start: usize) -> u16 {
         debug_assert!(start + 3 < N, "u16_quad index out of bounds");

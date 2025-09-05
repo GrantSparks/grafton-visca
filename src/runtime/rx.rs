@@ -108,9 +108,6 @@ pub async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Execu
             let data = basic_response.payload;
             debug!("Data reply received: {data:02X?}");
 
-            // For inquiries, we need to match this with the pending inquiry
-            // Since inquiries don't use sockets, we need a different mechanism
-            // For now, assume the most recent inquiry is the one being responded to
             if let Some((_inquiry_id, response_tx, response_type)) = scheduler.get_pending_inquiry()
             {
                 // Use the unified lift_inquiry function to parse the response
@@ -136,9 +133,6 @@ pub async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Execu
             let error = ViscaError::from_byte(error_code);
             warn!("Error response: {error:?} on socket {socket:?}");
 
-            // First check if this is an error for a pending inquiry
-            // Inquiries don't have sockets, so if there's no socket or no command on the socket,
-            // and we have a pending inquiry, this error is for the inquiry
             let is_inquiry_error = socket.map_or(true, |s| scheduler.socket_command(s).is_none());
 
             if is_inquiry_error && scheduler.has_pending_inquiry() {
@@ -157,13 +151,9 @@ pub async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Execu
                 }
             }
 
-            // Handle errors for commands that haven't received ACK yet
-            // Check if we have pending ACK commands and no command assigned to the socket yet
             let is_pending_ack_error = if let Some(sock) = socket {
-                // If socket has error but no command assigned, it's a pending ACK error
                 scheduler.socket_command(sock).is_none() && scheduler.pending_ack_count() > 0
             } else {
-                // No socket specified - always check pending ACK
                 scheduler.pending_ack_count() > 0
             };
 
@@ -173,7 +163,6 @@ pub async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Execu
                 {
                     debug!("{error:?} for pending ACK command {cmd_id}");
 
-                    // Store metadata for potential retry (it wasn't stored since we never got ACK)
                     scheduler.store_command_metadata(
                         cmd_id,
                         bytes.clone(),
@@ -182,7 +171,6 @@ pub async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Execu
                         camera_id,
                     );
 
-                    // Queue for retry if it's a retryable error
                     let retryable = error.is_retryable(Some(category));
 
                     if retryable {
@@ -190,14 +178,11 @@ pub async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Execu
                         let queued = scheduler
                             .queue_for_retry(cmd_id, bytes, priority, category, camera_id, now);
                         if !queued {
-                            // Retries exhausted - error already sent to response channel by queue_for_retry
                             debug!("Command {cmd_id} exhausted retries");
                         } else {
-                            // Successfully queued for retry
                             debug!("Command {cmd_id} queued for retry: {error:?}");
                         }
                     } else {
-                        // Non-retryable error - send error response immediately
                         debug!("Non-retryable error {error:?} for command {cmd_id}");
                         if let Some(response_tx) = scheduler.get_response_channel(cmd_id) {
                             // Convert ViscaError to Error using the byte code
@@ -288,12 +273,9 @@ pub async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Execu
 
                 if let Some(sock) = socket {
                     if let Some(cmd_id) = scheduler.socket_command(sock) {
-                        // Remove from retry queue if it was being retried
                         scheduler.remove_from_retry_queue(cmd_id);
 
-                        // Notify the waiting command and free the socket
                         if let Some(response_tx) = scheduler.get_response_channel(cmd_id) {
-                            // Convert ViscaError to Error using the byte code
                             let error_code = error.as_byte();
                             let _ = response_tx.send(Err(Error::from_code(error_code)));
                         }

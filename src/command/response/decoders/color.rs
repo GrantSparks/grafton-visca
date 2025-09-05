@@ -2,7 +2,6 @@
 
 use std::borrow::Cow;
 
-use super::super::payload::Payload;
 use crate::{
     command::{
         response::types::{ViscaResponse, ViscaResponseType},
@@ -10,6 +9,8 @@ use crate::{
     },
     error::Error,
 };
+
+use super::super::payload::Payload;
 
 /// Decode color-related inquiry responses.
 pub(crate) fn decode(
@@ -31,7 +32,7 @@ pub(crate) fn decode(
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "white_balance_mode",
-                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
+                        value: Cow::Owned(format!("{value:02X}", value = payload.as_slice()[0])),
                         reason: Cow::Borrowed("Unknown white balance mode value"),
                     }))
                 }
@@ -68,8 +69,6 @@ pub(crate) fn decode(
             })))
         }
         ViscaResponseType::RedTuning => {
-            // Red channel tuning inquiry response
-            // Single byte: tuning level
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -78,8 +77,6 @@ pub(crate) fn decode(
             })))
         }
         ViscaResponseType::BlueTuning => {
-            // Blue channel tuning inquiry response
-            // Single byte: tuning level
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -97,7 +94,7 @@ pub(crate) fn decode(
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "auto_white_balance_sensitivity",
-                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
+                        value: Cow::Owned(format!("{value:02X}", value = payload.as_slice()[0])),
                         reason: Cow::Borrowed("Unknown auto white balance sensitivity value"),
                     }))
                 }

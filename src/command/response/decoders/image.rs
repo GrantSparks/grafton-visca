@@ -38,7 +38,7 @@ pub(crate) fn decode(
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "sharpness_mode",
-                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
+                        value: Cow::Owned(format!("{value:02X}", value = payload.as_slice()[0])),
                         reason: Cow::Borrowed("Unknown sharpness mode value"),
                     }))
                 }
@@ -51,7 +51,6 @@ pub(crate) fn decode(
             if payload.len() != 4 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            // Extract the saturation level from the last nibble
             let level = payload.as_slice()[3];
             Some(Ok(ViscaResponse::Inquiry(InquiryResponse::Saturation {
                 level,
@@ -61,7 +60,6 @@ pub(crate) fn decode(
             if payload.len() != 4 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            // Extract the hue value from the last nibble
             let hue = payload.as_slice()[3];
             Some(Ok(ViscaResponse::Inquiry(InquiryResponse::Hue { hue })))
         }
@@ -74,16 +72,9 @@ pub(crate) fn decode(
             ))))
         }
         ViscaResponseType::PictureEffect => {
-            // Picture effect inquiry response
-            // Single byte indicating current effect
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            // Picture effect values:
-            // 0x00 = Off (normal)
-            // 0x01 = Negative
-            // 0x02 = B&W
-            // Other values are camera-specific effects
             let effect = payload.as_slice()[0];
             Some(Ok(ViscaResponse::Inquiry(InquiryResponse::PictureEffect {
                 effect,
@@ -110,8 +101,6 @@ pub(crate) fn decode(
             )))
         }
         ViscaResponseType::NoiseReduction2D => {
-            // 2D noise reduction level response
-            // Based on common VISCA patterns, expecting single byte level value
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -121,8 +110,6 @@ pub(crate) fn decode(
             )))
         }
         ViscaResponseType::NoiseReduction3D => {
-            // 3D noise reduction level response
-            // Based on common VISCA patterns, expecting single byte level value
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -164,16 +151,9 @@ pub(crate) fn decode(
             })))
         }
         ViscaResponseType::FlipMode => {
-            // Combined flip mode inquiry response
-            // Single byte encoding both horizontal and vertical flip
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            // Flip mode encoding:
-            // 0x00 = No flip
-            // 0x01 = Horizontal flip only
-            // 0x02 = Vertical flip only
-            // 0x03 = Both horizontal and vertical flip
             let mode = payload.as_slice()[0];
             let horizontal = (mode & 0x01) != 0;
             let vertical = (mode & 0x02) != 0;
@@ -183,8 +163,6 @@ pub(crate) fn decode(
             })))
         }
         ViscaResponseType::DynamicRange => {
-            // Dynamic range level response
-            // Single byte level value (0x0=0 to 0x8=8)
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -210,26 +188,15 @@ pub(crate) fn decode(
             ))))
         }
         ViscaResponseType::NdFilter => {
-            // ND filter inquiry response
-            // Single byte indicating current ND filter position
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            // ND filter values:
-            // 0x00 = Through (no filter)
-            // 0x01 = 1/4 ND
-            // 0x02 = 1/8 ND
-            // 0x03 = 1/16 ND
-            // 0x04 = 1/32 ND
-            // 0x05 = 1/64 ND
             let position = payload.as_slice()[0];
             Some(Ok(ViscaResponse::Inquiry(InquiryResponse::NdFilter {
                 position,
             })))
         }
         ViscaResponseType::Gamma => {
-            // Gamma curve setting inquiry response
-            // Single byte: gamma setting (0=Standard, 1-4=different curves)
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }

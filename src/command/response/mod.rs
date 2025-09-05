@@ -22,9 +22,6 @@ pub use self::{
     types::{ViscaResponse, ViscaResponseType},
 };
 
-// Custom parser helper functions for inquiry responses
-// These are used by the derive macro when custom_fn is specified
-
 /// Parse the last nibble from a 4-byte payload for Gain
 pub fn parse_gain_last_nibble(data: &[u8]) -> Result<InquiryResponse, Error> {
     if data.len() < 4 {
@@ -126,12 +123,12 @@ pub fn parse_menu_open_close(data: &[u8]) -> Result<InquiryResponse, Error> {
         return Err(Error::InvalidResponseLength);
     }
     let is_open = match data[0] {
-        0x02 => false, // Menu closed
-        0x03 => true,  // Menu open
+        0x02 => false,
+        0x03 => true,
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "menu_status",
-                value: Cow::Owned(format!("{:02X}", data[0])),
+                value: Cow::Owned(format!("{value:02X}", value = data[0])),
                 reason: Cow::Borrowed(
                     "Invalid menu status value. Expected 0x02 (closed) or 0x03 (open)",
                 ),
@@ -147,12 +144,12 @@ pub fn parse_auto_focus(data: &[u8]) -> Result<InquiryResponse, Error> {
         return Err(Error::InvalidResponseLength);
     }
     let enabled = match data[0] {
-        0x02 => false, // AF off
-        0x03 => true,  // AF on
+        0x02 => false,
+        0x03 => true,
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "autofocus_status",
-                value: Cow::Owned(format!("{:02X}", data[0])),
+                value: Cow::Owned(format!("{value:02X}", value = data[0])),
                 reason: Cow::Borrowed(
                     "Invalid autofocus status value. Expected 0x02 (off) or 0x03 (on)",
                 ),
@@ -173,7 +170,7 @@ pub fn parse_tally_status(data: &[u8]) -> Result<InquiryResponse, Error> {
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "tally_red_status",
-                value: Cow::Owned(format!("{:02X}", data[0])),
+                value: Cow::Owned(format!("{value:02X}", value = data[0])),
                 reason: Cow::Borrowed(
                     "Invalid tally status value. Expected 0x02 (off) or 0x03 (on)",
                 ),
@@ -202,12 +199,12 @@ pub fn parse_night_day_mode(data: &[u8]) -> Result<InquiryResponse, Error> {
         return Err(Error::InvalidResponseLength);
     }
     let is_night = match data[0] {
-        0x02 => false, // Day mode
-        0x03 => true,  // Night mode
+        0x02 => false,
+        0x03 => true,
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "night_day_mode",
-                value: Cow::Owned(format!("{:02X}", data[0])),
+                value: Cow::Owned(format!("{value:02X}", value = data[0])),
                 reason: Cow::Borrowed(
                     "Invalid night/day mode value. Expected 0x02 (day) or 0x03 (night)",
                 ),
@@ -222,11 +219,6 @@ pub fn parse_flip_mode(data: &[u8]) -> Result<InquiryResponse, Error> {
     if data.is_empty() {
         return Err(Error::InvalidResponseLength);
     }
-    // Flip mode encoding:
-    // 0x00 = No flip
-    // 0x01 = Horizontal flip only
-    // 0x02 = Vertical flip only
-    // 0x03 = Both horizontal and vertical flip
     let mode = data[0];
     let horizontal = (mode & 0x01) != 0;
     let vertical = (mode & 0x02) != 0;
@@ -242,12 +234,12 @@ pub fn parse_standby(data: &[u8]) -> Result<InquiryResponse, Error> {
         return Err(Error::InvalidResponseLength);
     }
     let in_standby = match data[0] {
-        0x02 => false, // Active
-        0x03 => true,  // Standby
+        0x02 => false,
+        0x03 => true,
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "standby_mode",
-                value: Cow::Owned(format!("{:02X}", data[0])),
+                value: Cow::Owned(format!("{value:02X}", value = data[0])),
                 reason: Cow::Borrowed(
                     "Invalid standby mode value. Expected 0x02 (active) or 0x03 (standby)",
                 ),
@@ -263,12 +255,12 @@ pub fn parse_tally_green(data: &[u8]) -> Result<InquiryResponse, Error> {
         return Err(Error::InvalidResponseLength);
     }
     let on = match data[0] {
-        0x02 => true,  // On
-        0x03 => false, // Off
+        0x02 => true,
+        0x03 => false,
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "tally_green_status",
-                value: Cow::Owned(format!("{:02X}", data[0])),
+                value: Cow::Owned(format!("{value:02X}", value = data[0])),
                 reason: Cow::Borrowed(
                     "Invalid green tally status value. Expected 0x02 (on) or 0x03 (off)",
                 ),
@@ -300,12 +292,12 @@ pub fn parse_iris_control(data: &[u8]) -> Result<InquiryResponse, Error> {
         return Err(Error::InvalidResponseLength);
     }
     let auto = match data[0] {
-        0x02 => false, // Manual control
-        0x03 => true,  // Auto control
+        0x02 => false,
+        0x03 => true,
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "iris_control",
-                value: Cow::Owned(format!("{:02X}", data[0])),
+                value: Cow::Owned(format!("{value:02X}", value = data[0])),
                 reason: Cow::Borrowed(
                     "Invalid iris control value. Expected 0x02 (manual) or 0x03 (auto)",
                 ),
@@ -321,12 +313,12 @@ pub fn parse_defog_mode(data: &[u8]) -> Result<InquiryResponse, Error> {
         return Err(Error::InvalidResponseLength);
     }
     let enabled = match data[0] {
-        0x02 => false, // Defog off
-        0x03 => true,  // Defog on
+        0x02 => false,
+        0x03 => true,
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "defog_mode",
-                value: Cow::Owned(format!("{:02X}", data[0])),
+                value: Cow::Owned(format!("{value:02X}", value = data[0])),
                 reason: Cow::Borrowed("Invalid defog mode value. Expected 0x02 (off) or 0x03 (on)"),
             })
         }
@@ -340,12 +332,12 @@ pub fn parse_digital_ptz(data: &[u8]) -> Result<InquiryResponse, Error> {
         return Err(Error::InvalidResponseLength);
     }
     let enabled = match data[0] {
-        0x02 => false, // Digital Ptz off
-        0x03 => true,  // Digital Ptz on
+        0x02 => false,
+        0x03 => true,
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "digital_ptz",
-                value: Cow::Owned(format!("{:02X}", data[0])),
+                value: Cow::Owned(format!("{value:02X}", value = data[0])),
                 reason: Cow::Borrowed(
                     "Invalid digital Ptz value. Expected 0x02 (off) or 0x03 (on)",
                 ),
@@ -375,7 +367,7 @@ pub fn parse_auto_wb_sensitivity(data: &[u8]) -> Result<InquiryResponse, Error> 
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "auto_wb_sensitivity",
-                value: Cow::Owned(format!("{:02X}", data[0])),
+                value: Cow::Owned(format!("{value:02X}", value = data[0])),
                 reason: Cow::Borrowed("Invalid auto white balance sensitivity. Expected 0x00 (Low), 0x01 (Normal), or 0x02 (High)"),
             })
         }
@@ -422,12 +414,12 @@ pub fn parse_auto_trace(data: &[u8]) -> Result<InquiryResponse, Error> {
         return Err(Error::InvalidResponseLength);
     }
     let enabled = match data[0] {
-        0x02 => false, // Auto trace off
-        0x03 => true,  // Auto trace on
+        0x02 => false,
+        0x03 => true,
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "auto_trace",
-                value: Cow::Owned(format!("{:02X}", data[0])),
+                value: Cow::Owned(format!("{value:02X}", value = data[0])),
                 reason: Cow::Borrowed("Invalid auto trace value. Expected 0x02 (off) or 0x03 (on)"),
             })
         }
@@ -441,12 +433,12 @@ pub fn parse_focus_unlock(data: &[u8]) -> Result<InquiryResponse, Error> {
         return Err(Error::InvalidResponseLength);
     }
     let unlocked = match data[0] {
-        0x02 => false, // Focus locked
-        0x03 => true,  // Focus unlocked
+        0x02 => false,
+        0x03 => true,
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "focus_unlock",
-                value: Cow::Owned(format!("{:02X}", data[0])),
+                value: Cow::Owned(format!("{value:02X}", value = data[0])),
                 reason: Cow::Borrowed(
                     "Invalid focus unlock value. Expected 0x02 (locked) or 0x03 (unlocked)",
                 ),
@@ -466,9 +458,6 @@ pub fn parse_focus_range(data: &[u8]) -> Result<InquiryResponse, Error> {
     let range = FocusRange::try_from(data[0])?;
     Ok(InquiryResponse::FocusRange { range })
 }
-
-// Note: Complex response parsing tests moved to tests/response_parsing_comprehensive.rs
-// Only basic unit tests remain here for fast feedback during development
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::panic)]
