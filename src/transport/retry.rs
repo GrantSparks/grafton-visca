@@ -3,12 +3,10 @@
 //! This module provides a unified retry mechanism that can be used across
 //! all transport implementations, both blocking and async.
 
-// Standard library
 #[cfg(feature = "async")]
 use std::future::Future;
 use std::time::{Duration, Instant};
 
-// Local modules
 use super::RetryConfig;
 #[cfg(feature = "async")]
 use crate::executor::Executor;

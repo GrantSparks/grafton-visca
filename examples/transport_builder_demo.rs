@@ -5,11 +5,11 @@
 //!
 //! Run with: cargo run --example transport_builder_demo --features rt-tokio
 
-#[cfg(not(feature = "async"))]
-use grafton_visca::transport::{builder::TransportBuilder, RetryConfig};
-
 #[cfg(any(not(feature = "async"), feature = "rt-tokio"))]
 use std::time::Duration;
+
+#[cfg(not(feature = "async"))]
+use grafton_visca::transport::{builder::TransportBuilder, RetryConfig};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Transport Builder Pattern Demo");

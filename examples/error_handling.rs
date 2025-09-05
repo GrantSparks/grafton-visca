@@ -37,7 +37,6 @@ fn main() {
     println!("=== VISCA Error Handling Demo ===\n");
     println!("This example demonstrates error handling patterns.\n");
 
-    // Still demonstrate error classification even without a transport
     demonstrate_error_classification();
 
     println!("\nFor full demo with camera connection:");
@@ -57,15 +56,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("- Implementing retry logic");
     println!("- Classifying different error types\n");
 
-    // Get camera address
     let camera_addr = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "192.168.0.110:5678".to_string());
 
-    // Demonstrate error classification first (no camera needed)
     demonstrate_error_classification();
 
-    // Try to connect and demonstrate error handling
     println!("\n2. Camera Connection and Error Handling:");
     match demonstrate_camera_errors(&camera_addr) {
         Ok(_) => println!("   ✓ Camera demonstration completed"),
@@ -90,15 +86,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("- Implementing retry logic");
     println!("- Classifying different error types\n");
 
-    // Get camera address
     let camera_addr = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "192.168.0.110:5678".to_string());
 
-    // Demonstrate error classification first (no camera needed)
     demonstrate_error_classification();
 
-    // Try to connect and demonstrate error handling
     println!("\n2. Camera Connection and Error Handling:");
     match demonstrate_camera_errors(&camera_addr).await {
         Ok(_) => println!("   ✓ Camera demonstration completed"),
@@ -113,7 +106,6 @@ fn demonstrate_error_classification() {
     println!("1. Error Types and Classification:");
     println!("   Different errors require different handling strategies\n");
 
-    // Create example errors to demonstrate
     let errors = vec![
         ("CameraBusy", Error::CameraBusy),
         ("CameraMoving", Error::CameraMoving { pan: 100, tilt: 50 }),
@@ -140,7 +132,6 @@ fn demonstrate_error_classification() {
     for (name, error) in errors {
         println!("   {name}: {error}");
 
-        // Check if error is transient (might succeed on retry)
         let is_transient = matches!(
             error,
             Error::CameraBusy
@@ -152,7 +143,6 @@ fn demonstrate_error_classification() {
 
         println!("     Transient (retryable): {is_transient}");
 
-        // Suggest retry delay based on error type
         let suggested_delay = match error {
             Error::CameraBusy => Some(Duration::from_millis(100)),
             Error::CameraMoving { .. } => Some(Duration::from_millis(500)),
@@ -217,7 +207,6 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
                 let elapsed = start.elapsed();
                 println!("   ✗ Power on failed after {elapsed:?}: {e}");
 
-                // Check if error is retryable
                 let is_retryable = matches!(
                     e,
                     Error::CameraBusy
@@ -377,7 +366,6 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
                 let elapsed = start.elapsed();
                 println!("   ✗ Power on failed after {elapsed:?}: {e}");
 
-                // Check if error is retryable
                 let is_retryable = matches!(
                     e,
                     Error::CameraBusy

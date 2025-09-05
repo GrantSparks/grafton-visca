@@ -1,9 +1,7 @@
 //! Pan/Tilt capability trait and associated types.
 
-// Standard library
 use std::{ops::Range, time::Duration};
 
-// Local modules
 use crate::capabilities::{CoordinateSystem, ValidationError};
 
 /// Trait for cameras that support pan and tilt movement.

@@ -3,16 +3,13 @@
 //! This module provides abstraction for protocol envelopes, specifically
 //! handling Sony's 8-byte encapsulated VISCA protocol vs raw VISCA bytes.
 
-// External crates
 use bytes::Bytes;
 
-// Standard library
 use std::{
     borrow::Cow,
     sync::atomic::{AtomicU32, Ordering},
 };
 
-// Local modules
 use crate::{
     capabilities::ProtocolStyle,
     command::CommandKind,

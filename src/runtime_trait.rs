@@ -5,13 +5,14 @@
 //! cross-runtime mismatches at compile time.
 
 #[cfg(feature = "async")]
-use crate::{
-    executor::Executor, transport::builder::TransportConfig, transport::AsyncTransport, Error,
-};
-#[cfg(feature = "async")]
 use core::future::Future;
 #[cfg(feature = "async")]
 use std::time::Instant;
+
+#[cfg(feature = "async")]
+use crate::{
+    executor::Executor, transport::builder::TransportConfig, transport::AsyncTransport, Error,
+};
 
 /// Runtime trait that binds executor and transport connectors at the type level.
 ///

@@ -19,12 +19,6 @@ fn main() {
 }
 
 #[cfg(feature = "rt-tokio")]
-use tokio::time::{sleep, Duration};
-
-#[cfg(feature = "rt-tokio")]
-use std::sync::Arc;
-
-#[cfg(feature = "rt-tokio")]
 use grafton_visca::{
     camera::{
         controls::{
@@ -42,6 +36,11 @@ use grafton_visca::{
     units::Normalized,
     PanTiltDirection, PresetNumber, Result, TokioRuntime,
 };
+#[cfg(feature = "rt-tokio")]
+use tokio::time::{sleep, Duration};
+
+#[cfg(feature = "rt-tokio")]
+use std::sync::Arc;
 
 #[cfg(feature = "rt-tokio")]
 #[tokio::main]
@@ -251,7 +250,6 @@ async fn producer_consumer_pattern() -> Result<()> {
     let camera: Arc<Camera<Async, PtzOpticsG2, TransportHandle<TokioRuntime>, TokioRuntime>> =
         Arc::new(Camera::connect_tcp("192.168.0.110:5678", runtime).await?);
 
-    // Save initial state
     let (tx, mut rx) = mpsc::channel(10);
 
     // Consumer task - executes commands
@@ -334,7 +332,6 @@ async fn synchronized_movement() -> Result<()> {
         let camera: Arc<Camera<Async, PtzOpticsG2, TransportHandle<TokioRuntime>, TokioRuntime>> =
             Arc::new(Camera::connect_tcp(format!("{addr}:5678"), runtime.clone()).await?);
 
-        // Save initial state
         let state = camera.get_pan_tilt_position().await.ok();
         initial_states.push(state);
         cameras.push(camera);
@@ -390,7 +387,6 @@ async fn synchronized_movement() -> Result<()> {
         let state = *state;
         let handle = tokio::spawn(async move {
             if let Some(_position) = state {
-                // Move back to initial position
                 cam.pan_tilt_home().await?;
             }
             Ok::<(), grafton_visca::Error>(())

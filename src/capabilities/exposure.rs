@@ -1,9 +1,7 @@
 //! Exposure capability trait and associated types.
 
-// Standard library
 use std::{borrow::Cow, ops::Range};
 
-// Local modules
 use crate::capabilities::ValidationError;
 
 /// Trait for cameras that support exposure control.

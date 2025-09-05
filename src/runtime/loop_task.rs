@@ -1,13 +1,10 @@
 //! Main runtime event loop for VISCA communication.
 
-// External crates
 use flume::{Receiver, Sender};
 use tracing::{debug, error, instrument, trace, warn};
 
-// Standard library
 use std::sync::Arc;
 
-// Local modules
 use super::{
     queue::process_command_queue,
     rx::handle_response,

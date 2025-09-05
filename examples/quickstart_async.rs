@@ -289,7 +289,6 @@ async fn main() -> Result<(), Error> {
         println!("  Recalling Preset {i}...");
         camera.preset_recall(PresetNumber::new(i)?).await?;
         camera.await_idle(Duration::from_secs(5)).await?;
-        // Position saved to preset
         println!("    Position saved");
     }
     println!("✓ Preset recall complete");

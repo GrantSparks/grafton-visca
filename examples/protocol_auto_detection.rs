@@ -14,16 +14,15 @@
 //! 3. Send some basic commands to verify operation
 //! 4. Display the difference in wire format between protocols
 
+use std::env;
+
 use grafton_visca::{
-    camera::controls::inquiry::InquiryControl,
-    camera::profiles::GenericVisca, // Works with both Sony and PTZOptics
-    camera::Camera,
+    camera::{controls::inquiry::InquiryControl, profiles::GenericVisca, Camera},
     mode::Async,
     runtime_trait::TokioRuntime,
     transport::Transport,
     Error,
 };
-use std::env;
 
 #[cfg(feature = "rt-tokio")]
 #[tokio::main]

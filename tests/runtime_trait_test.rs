@@ -196,8 +196,9 @@ mod smol_runtime_tests {
 // Compile-time tests to ensure type safety
 #[cfg(all(feature = "rt-tokio", feature = "rt-async-std"))]
 mod compile_time_safety_tests {
-    use grafton_visca::runtime_trait::{AsyncStdRuntime, TokioRuntime};
     use std::any::TypeId;
+
+    use grafton_visca::runtime_trait::{AsyncStdRuntime, TokioRuntime};
 
     // This function should NOT compile if uncommented, proving type safety:
     // fn mismatched_runtime_transport() {
