@@ -1,6 +1,7 @@
 //! smol TCP transport implementation using the generic async_tcp module.
 
 use bytes::Bytes;
+
 use std::time::Duration;
 
 use crate::{

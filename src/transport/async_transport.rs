@@ -5,8 +5,9 @@
 
 use bytes::Bytes;
 
-use crate::Error;
 use std::future::Future;
+
+use crate::Error;
 
 /// Async transport for VISCA communication.
 ///

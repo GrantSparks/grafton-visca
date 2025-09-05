@@ -7,10 +7,8 @@ use bytes::Bytes;
 
 use crate::{
     transport::{
-        async_io::AsyncDatagram,
-        buffer::BufferManager,
-        retry::RetryExecutor,
-        {builder::TransportConfig, AsyncTransport, RetryConfig},
+        async_io::AsyncDatagram, buffer::BufferManager, builder::TransportConfig,
+        retry::RetryExecutor, AsyncTransport, RetryConfig,
     },
     Error,
 };

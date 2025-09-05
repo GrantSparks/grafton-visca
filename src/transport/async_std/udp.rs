@@ -4,10 +4,8 @@ use async_std::net::UdpSocket;
 
 use crate::{
     transport::{
-        async_io::UdpSocketConfig,
-        async_std::connectors::connect_udp,
-        buffer::BufferConfig,
-        {builder::TransportConfig, RetryConfig},
+        async_io::UdpSocketConfig, async_std::connectors::connect_udp, buffer::BufferConfig,
+        builder::TransportConfig, RetryConfig,
     },
     Error,
 };

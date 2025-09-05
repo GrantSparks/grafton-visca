@@ -8,7 +8,8 @@ use bytes::Bytes;
 
 #[cfg(feature = "rt-tokio")]
 use std::borrow::Cow;
-use std::{future::Future, time::Duration};
+use std::future::Future;
+use std::time::Duration;
 
 #[cfg(feature = "rt-tokio")]
 use crate::protocol::framer::ProtocolFramer;
