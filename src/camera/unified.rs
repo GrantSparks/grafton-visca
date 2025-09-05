@@ -299,6 +299,76 @@ where
         })
     }
 
+    /// Send a command and return immediately with ID and response future.
+    ///
+    /// This method allows for mid-flight cancellation by returning the command ID
+    /// immediately along with a future that can be awaited separately. This is useful
+    /// for scenarios where you need to cancel a command while it's still in progress.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// let (id, future) = camera.start_command_with_id(&cmd).await?;
+    /// // Can cancel by ID here
+    /// runtime.cancel(id).await?;
+    /// // Future will resolve with Err(CommandCanceled)
+    /// let result = future.await;
+    /// ```
+    pub async fn start_command_with_id<C>(
+        &self,
+        command: &C,
+    ) -> Result<
+        (
+            u32,
+            std::pin::Pin<
+                Box<
+                    dyn std::future::Future<
+                            Output = Result<crate::command::response::ViscaResponse, Error>,
+                        > + Send
+                        + 'static,
+                >,
+            >,
+        ),
+        Error,
+    >
+    where
+        C: ViscaEncode + Send + Sync + Clone + 'static,
+        Tr: AsyncTransport + Send + Sync,
+        Exec: Executor + Send + Sync + Clone,
+    {
+        let camera_id = self.camera_id;
+        let is_inquiry = matches!(command.command_kind(), crate::command::CommandKind::Inquiry);
+
+        if is_inquiry {
+            // Inquiries don't support command IDs in the current runtime
+            // Return ID 0 with a future that immediately resolves
+            let response = self.runtime.send_inquiry(command, camera_id).await?;
+            let future: std::pin::Pin<
+                Box<
+                    dyn std::future::Future<
+                            Output = Result<crate::command::response::ViscaResponse, Error>,
+                        > + Send
+                        + 'static,
+                >,
+            > = Box::pin(async move { Ok(response) });
+            Ok((0, future))
+        } else {
+            // Return the ID and future directly without awaiting
+            let (id, fut) = self
+                .runtime
+                .send_command_with_id(command, camera_id, None)
+                .await?;
+            let future: std::pin::Pin<
+                Box<
+                    dyn std::future::Future<
+                            Output = Result<crate::command::response::ViscaResponse, Error>,
+                        > + Send
+                        + 'static,
+                >,
+            > = Box::pin(fut);
+            Ok((id, future))
+        }
+    }
+
     /// Cancel all commands on a specific socket.
     ///
     /// This method sends a cancel command to the specified VISCA socket.
@@ -308,6 +378,18 @@ where
         Exec: Executor + Send + Sync + Clone,
     {
         self.runtime.cancel_socket(socket).await
+    }
+
+    /// Cancel a command by its ID.
+    ///
+    /// This cancels a specific command that was submitted with send_command_with_id
+    /// or start_command_with_id. The command's future will resolve with CommandCanceled error.
+    pub async fn cancel(&self, command_id: u32) -> Result<(), Error>
+    where
+        Tr: AsyncTransport + Send + Sync,
+        Exec: Executor + Send + Sync + Clone,
+    {
+        self.runtime.cancel(command_id).await
     }
 
     /// Sleep for a specified duration using the runtime.

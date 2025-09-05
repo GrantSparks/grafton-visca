@@ -27,65 +27,60 @@ fn test_cancel_command_by_id() {
     // Create steps for the scripted transport
     // IMPORTANT: Specific matches must come first before generic ones
     let steps = vec![
-        // Response to zoom command - send ACK then completion
+        // Response to zoom command - send ACK but NOT completion (simulating in-progress command)
         Step::OnSend {
             matches: Some(vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]), // Zoom Tele Standard
             responses: vec![
-                vec![0x90, 0x41, 0xFF], // ACK on socket 1
-                vec![0x90, 0x51, 0xFF], // Completion
+                vec![0x90, 0x41, 0xFF], // ACK on socket 1 - command is now in flight
+                                        // No completion sent - command stays pending so we can cancel it
             ],
         },
-        // Response to cancel socket 1 (must be early to match properly)
+        // Response to cancel by ID (runtime will send cancel on the socket)
         Step::OnSend {
             matches: Some(vec![0x81, 0x21, 0xFF]), // Cancel socket 1
             responses: vec![
-                vec![0x90, 0x41, 0xFF],       // ACK
                 vec![0x90, 0x61, 0x04, 0xFF], // Command cancelled
-            ],
-        },
-        // Response to cancel socket 2 (must be early to match properly)
-        Step::OnSend {
-            matches: Some(vec![0x81, 0x22, 0xFF]), // Cancel socket 2
-            responses: vec![
-                vec![0x90, 0x42, 0xFF],       // ACK
-                vec![0x90, 0x62, 0x05, 0xFF], // No socket error
             ],
         },
     ];
 
     let transport = ScriptedTransport::new(steps).with_executor(executor.clone());
 
-    // Run the entire test in a single async block
-    executor.block_on(async {
+    // Create camera outside the async block
+    let camera = executor.block_on(async {
         use grafton_visca::camera::profiles::PtzOpticsG2;
 
-        // Create camera
-        let camera = CameraBuilder::with_executor(executor.clone())
+        CameraBuilder::with_executor(executor.clone())
             .build_async::<PtzOpticsG2, _>(transport)
             .await
-            .expect("Failed to create camera");
+            .expect("Failed to create camera")
+    });
 
-        // Send a command with ID and get the response
-        let (cmd_id, response) = camera
-            .send_command_with_id(&Zoom::TeleStd)
+    // Run the test in a separate async block
+    executor.block_on(async {
+        // Use start_command_with_id to get ID and future without awaiting
+        let (cmd_id, future) = camera
+            .start_command_with_id(&Zoom::TeleStd)
             .await
             .expect("Failed to send command");
 
         // Verify we got a valid command ID
         assert!(cmd_id > 0, "Should have valid command ID");
 
-        // Verify we got a completion response
-        use grafton_visca::command::response::ViscaResponse;
-        assert!(
-            matches!(response, ViscaResponse::Completion { .. }),
-            "Should receive completion response"
-        );
-
-        // Cancel the command using socket (this should work even after completion)
+        // Cancel the command by ID while it's still in flight
         camera
-            .cancel_socket(ViscaSocket::S1)
+            .cancel(cmd_id)
             .await
-            .expect("Failed to cancel socket");
+            .expect("Failed to cancel command");
+
+        // Now await the future - it should resolve with CommandCanceled error
+        use grafton_visca::Error;
+        let result = future.await;
+        assert!(
+            matches!(result, Err(Error::CommandCanceled)),
+            "Command should be canceled, got: {:?}",
+            result
+        );
     });
 }
 
