@@ -38,7 +38,6 @@ fn test_ptzoptics_g2_capabilities() -> Result<(), Error> {
 
 #[cfg(feature = "test-utils")]
 #[test]
-#[ignore = "Sony protocol blocking mode has issues - see issue #311"]
 fn test_sony_fr7_has_nd_filter() -> Result<(), Error> {
     let transport = ScriptedSyncTransport::new(vec![
         helpers::sony_auto_respond_step(), // power_on
@@ -78,7 +77,6 @@ fn test_compile_time_capability_checking() {
 
 #[cfg(feature = "test-utils")]
 #[test]
-#[ignore = "Sony protocol blocking mode has issues - see issue #311"]
 fn test_generic_functions_with_trait_bounds() {
     fn basic_control<P, T>(
         camera: &mut grafton_visca::camera::Camera<grafton_visca::mode::Blocking, P, T, ()>,
