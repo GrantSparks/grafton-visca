@@ -1345,6 +1345,21 @@ impl Scheduler {
     pub fn next_retry_deadline(&self) -> Option<Instant> {
         self.retry_queue.iter().map(|c| c.retry_at).min()
     }
+
+    /// Get all command IDs that are pending ACK.
+    pub fn get_all_pending_ack_commands(&self) -> Vec<u32> {
+        self.pending_ack.keys().copied().collect()
+    }
+
+    /// Get the command ID currently assigned to a socket, if any.
+    pub fn get_socket_command(&self, socket: ViscaSocket) -> Option<u32> {
+        let idx = socket.as_index();
+        if !self.sockets[idx].free {
+            self.sockets[idx].command_id
+        } else {
+            None
+        }
+    }
 }
 
 #[cfg(all(test, feature = "async"))]

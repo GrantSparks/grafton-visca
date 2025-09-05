@@ -232,6 +232,36 @@ pub async fn runtime_loop_with_config<
                     }
                     Err(e) => {
                         error!("Error receiving from transport: {e}");
+
+                        // When transport recv fails, we should fail any pending commands
+                        // as they won't receive responses. This prevents infinite waiting.
+
+                        // Get all pending ACK commands and fail them
+                        let pending_acks = scheduler.get_all_pending_ack_commands();
+                        for cmd_id in pending_acks {
+                            debug!("Failing command {cmd_id} due to transport recv error");
+                            if let Some(tx) = scheduler.get_response_channel(cmd_id) {
+                                let _ = tx.send(Err(Error::TransportError(
+                                    format!("Transport recv failed: {}", e).into(),
+                                )));
+                            }
+                            // Remove from pending to prevent repeated failures
+                            scheduler.remove_pending_ack(cmd_id);
+                        }
+
+                        // Also fail any commands in sockets (waiting for completion)
+                        let sockets = [crate::ViscaSocket::S1, crate::ViscaSocket::S2];
+                        for socket in sockets {
+                            if let Some(cmd_id) = scheduler.get_socket_command(socket) {
+                                debug!("Failing command {cmd_id} in socket {socket:?} due to transport recv error");
+                                if let Some(tx) = scheduler.get_response_channel(cmd_id) {
+                                    let _ = tx.send(Err(Error::TransportError(
+                                        format!("Transport recv failed: {}", e).into(),
+                                    )));
+                                }
+                                scheduler.free_socket(socket);
+                            }
+                        }
                     }
                 }
             }
