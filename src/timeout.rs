@@ -5,11 +5,15 @@
 //! of each operation type. It also includes socket-level timeout management to prevent
 //! duplication across transport implementations.
 
-use std::io;
-use std::net::{TcpStream, UdpSocket};
-use std::sync::MutexGuard;
-use std::time::{Duration, Instant};
+// Standard library
+use std::{
+    io,
+    net::{TcpStream, UdpSocket},
+    sync::MutexGuard,
+    time::{Duration, Instant},
+};
 
+// Local modules
 use crate::Error;
 
 /// Categories of VISCA commands with different timeout requirements.

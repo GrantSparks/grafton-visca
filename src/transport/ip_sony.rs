@@ -4,15 +4,19 @@
 //! which adds an 8-byte header containing sequence numbers for request/response
 //! matching and automatic retry on network errors.
 
+// External crates
 use bytes::{Bytes, BytesMut};
+use tracing::{debug, trace};
+
+// Standard library
 use std::{
     borrow::Cow,
     io::{BufReader, Read, Write},
     net::TcpStream,
     time::Duration,
 };
-use tracing::{debug, trace};
 
+// Local modules
 pub use crate::transport::sony_config::SonyIpConfig;
 #[cfg(not(feature = "async"))]
 use crate::transport::SyncTransport;

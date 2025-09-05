@@ -1,8 +1,9 @@
 //! Preset capability trait and associated types.
 
-use std::ops::Range;
-use std::time::Duration;
+// Standard library
+use std::{ops::Range, time::Duration};
 
+// Local modules
 use crate::capabilities::ValidationError;
 
 /// Trait for cameras that support preset positions.
