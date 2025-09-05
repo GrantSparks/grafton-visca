@@ -120,7 +120,7 @@ pub async fn handle_response<T: AsyncTransport + Send, E: crate::executor::Execu
                         warn!("Failed to parse inquiry response: {e}");
                         Ok(ViscaResponse::Unknown {
                             response_type,
-                            data: data.to_vec(),
+                            data: data.as_slice().to_vec(),
                         })
                     }
                 };

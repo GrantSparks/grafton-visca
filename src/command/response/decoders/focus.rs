@@ -2,7 +2,7 @@
 
 use std::borrow::Cow;
 
-use super::super::nibbles::combine_nibbles_u16;
+use super::super::payload::{Nibbles, Payload};
 use crate::{
     command::{
         response::types::{ViscaResponse, ViscaResponseType},
@@ -14,39 +14,39 @@ use crate::{
 /// Decode focus-related inquiry responses.
 pub(crate) fn decode(
     kind: ViscaResponseType,
-    payload: &[u8],
+    payload: Payload<'_>,
 ) -> Option<Result<ViscaResponse, Error>> {
     match kind {
-        ViscaResponseType::FocusPosition => {
-            if payload.len() != 4 {
-                return Some(Err(Error::InvalidResponseLength));
+        ViscaResponseType::FocusPosition => match Nibbles::<4>::try_from(payload) {
+            Ok(nibbles) => {
+                let position = nibbles.u16_quad(0);
+                Some(Ok(ViscaResponse::Inquiry(InquiryResponse::FocusPosition {
+                    position,
+                })))
             }
-            let position = combine_nibbles_u16(&payload[0..4]);
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::FocusPosition {
-                position,
-            })))
-        }
-        ViscaResponseType::FocusNearLimit => {
-            if payload.len() != 4 {
-                return Some(Err(Error::InvalidResponseLength));
+            Err(e) => Some(Err(e)),
+        },
+        ViscaResponseType::FocusNearLimit => match Nibbles::<4>::try_from(payload) {
+            Ok(nibbles) => {
+                let position = nibbles.u16_quad(0);
+                Some(Ok(ViscaResponse::Inquiry(
+                    InquiryResponse::FocusNearLimit { position },
+                )))
             }
-            let position = combine_nibbles_u16(&payload[0..4]);
-            Some(Ok(ViscaResponse::Inquiry(
-                InquiryResponse::FocusNearLimit { position },
-            )))
-        }
+            Err(e) => Some(Err(e)),
+        },
         ViscaResponseType::FocusZone => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            let zone = match payload[0] {
+            let zone = match payload.as_slice()[0] {
                 0x00 => FocusZone::Top,
                 0x01 => FocusZone::Center,
                 0x02 => FocusZone::Bottom,
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "focus_zone",
-                        value: Cow::Owned(format!("{:02X}", payload[0])),
+                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed("Unknown focus zone value"),
                     }))
                 }
@@ -59,14 +59,14 @@ pub(crate) fn decode(
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            let sensitivity = match payload[0] {
+            let sensitivity = match payload.as_slice()[0] {
                 0x00 => AutoFocusSensitivity::Low,
                 0x01 => AutoFocusSensitivity::Normal,
                 0x02 => AutoFocusSensitivity::High,
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "auto_focus_sensitivity",
-                        value: Cow::Owned(format!("{:02X}", payload[0])),
+                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed("Unknown auto focus sensitivity value"),
                     }))
                 }
@@ -79,13 +79,13 @@ pub(crate) fn decode(
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            let mode = match payload[0] {
+            let mode = match payload.as_slice()[0] {
                 0x02 => FocusMode::Auto,
                 0x03 => FocusMode::Manual,
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "focus_mode",
-                        value: Cow::Owned(format!("{:02X}", payload[0])),
+                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed("Unknown focus mode value"),
                     }))
                 }
@@ -101,7 +101,7 @@ pub(crate) fn decode(
                 return Some(Err(Error::InvalidResponseLength));
             }
             // Parse custom focus range response
-            match parse_focus_range(payload) {
+            match parse_focus_range(payload.as_slice()) {
                 Ok(response) => Some(Ok(ViscaResponse::Inquiry(response))),
                 Err(e) => Some(Err(e)),
             }
@@ -112,13 +112,13 @@ pub(crate) fn decode(
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            let enabled = match payload[0] {
+            let enabled = match payload.as_slice()[0] {
                 0x02 => false, // AF off
                 0x03 => true,  // AF on
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "autofocus_status",
-                        value: Cow::Owned(format!("{:02X}", payload[0])),
+                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed(
                             "Invalid autofocus status value. Expected 0x02 (off) or 0x03 (on)",
                         ),
@@ -136,12 +136,12 @@ pub(crate) fn decode(
                 return Some(Err(Error::InvalidResponseLength));
             }
             let unlocked =
-                match payload[0] {
+                match payload.as_slice()[0] {
                     0x02 => false, // Focus locked
                     0x03 => true,  // Focus unlocked
                     _ => return Some(Err(Error::InvalidParameter {
                         parameter: "focus_unlock",
-                        value: Cow::Owned(format!("{:02X}", payload[0])),
+                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed(
                             "Invalid focus unlock value. Expected 0x02 (locked) or 0x03 (unlocked)",
                         ),
@@ -155,13 +155,13 @@ pub(crate) fn decode(
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            let near = match payload[0] {
+            let near = match payload.as_slice()[0] {
                 0x02 => false, // Far active
                 0x03 => true,  // Near active
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "FocusNearFar status",
-                        value: Cow::Owned(format!("0x{:02X}", payload[0])),
+                        value: Cow::Owned(format!("0x{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed("Expected 0x02 (far) or 0x03 (near)"),
                     }))
                 }

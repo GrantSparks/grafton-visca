@@ -43,13 +43,13 @@ pub fn lift_inquiry(
             } else {
                 Ok(ViscaResponse::Unknown {
                     response_type: None,
-                    data: basic.payload.to_vec(),
+                    data: basic.payload.as_slice().to_vec(),
                 })
             }
         }
         BasicKind::Unknown => Ok(ViscaResponse::Unknown {
             response_type: None,
-            data: basic.payload.to_vec(),
+            data: basic.payload.as_slice().to_vec(),
         }),
     }
 }
@@ -62,7 +62,8 @@ pub fn parse_inquiry_payload(
     payload: &[u8],
     expected_type: &ViscaResponseType,
 ) -> Result<ViscaResponse, Error> {
-    dispatch(*expected_type, payload)
+    use crate::command::response::payload::Payload;
+    dispatch(*expected_type, Payload::new(payload))
 }
 
 impl ViscaResponse {

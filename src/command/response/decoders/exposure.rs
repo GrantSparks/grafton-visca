@@ -3,6 +3,7 @@
 use std::borrow::Cow;
 
 use super::super::nibbles::{combine_nibbles_u16, combine_nibbles_u8};
+use super::super::payload::Payload;
 use crate::{
     command::{
         response::types::{ViscaResponse, ViscaResponseType},
@@ -14,14 +15,14 @@ use crate::{
 /// Decode exposure-related inquiry responses.
 pub(crate) fn decode(
     kind: ViscaResponseType,
-    payload: &[u8],
+    payload: Payload<'_>,
 ) -> Option<Result<ViscaResponse, Error>> {
     match kind {
         ViscaResponseType::ExposureMode => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            let mode = match payload[0] {
+            let mode = match payload.as_slice()[0] {
                 0x00 => ExposureMode::Auto,
                 0x03 => ExposureMode::Manual,
                 0x0A => ExposureMode::Shutter,
@@ -30,7 +31,7 @@ pub(crate) fn decode(
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "exposure_mode",
-                        value: Cow::Owned(format!("{:02X}", payload[0])),
+                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed("Unknown exposure mode value"),
                     }))
                 }
@@ -45,7 +46,7 @@ pub(crate) fn decode(
             }
             Some(Ok(ViscaResponse::Inquiry(
                 InquiryResponse::ExposureCompensationMode {
-                    on: payload[0] == 0x02,
+                    on: payload.as_slice()[0] == 0x02,
                 },
             )))
         }
@@ -53,7 +54,7 @@ pub(crate) fn decode(
             if payload.len() != 4 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            let raw_value = combine_nibbles_u8(&payload[2..4]);
+            let raw_value = combine_nibbles_u8(&payload.as_slice()[2..4]);
             Some(Ok(ViscaResponse::Inquiry(
                 InquiryResponse::ExposureCompensation {
                     value: raw_value as i8 - 7,
@@ -66,7 +67,7 @@ pub(crate) fn decode(
             if payload.len() != 4 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            let position = combine_nibbles_u16(&payload[0..4]);
+            let position = combine_nibbles_u16(&payload.as_slice()[0..4]);
             Some(Ok(ViscaResponse::Inquiry(
                 InquiryResponse::ExposureCompensationPosition { position },
             )))
@@ -75,7 +76,7 @@ pub(crate) fn decode(
             if payload.len() != 4 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            let position = combine_nibbles_u8(&payload[2..4]) as u16;
+            let position = combine_nibbles_u8(&payload.as_slice()[2..4]) as u16;
             Some(Ok(ViscaResponse::Inquiry(InquiryResponse::Shutter {
                 position,
             })))
@@ -85,7 +86,7 @@ pub(crate) fn decode(
                 return Some(Err(Error::InvalidResponseLength));
             }
             // Extract the iris position from the last nibble
-            let position = payload[3];
+            let position = payload.as_slice()[3];
             Some(Ok(ViscaResponse::Inquiry(InquiryResponse::Iris {
                 position,
             })))
@@ -94,7 +95,7 @@ pub(crate) fn decode(
             if payload.len() != 4 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            let position = combine_nibbles_u16(&payload[0..4]);
+            let position = combine_nibbles_u16(&payload.as_slice()[0..4]);
             Some(Ok(ViscaResponse::Inquiry(InquiryResponse::Bright {
                 position,
             })))
@@ -104,7 +105,7 @@ pub(crate) fn decode(
                 return Some(Err(Error::InvalidResponseLength));
             }
             // Extract the gain value from the last nibble
-            let gain = payload[3];
+            let gain = payload.as_slice()[3];
             Some(Ok(ViscaResponse::Inquiry(InquiryResponse::GainLevel {
                 gain,
             })))
@@ -114,7 +115,7 @@ pub(crate) fn decode(
                 return Some(Err(Error::InvalidResponseLength));
             }
             Some(Ok(ViscaResponse::Inquiry(InquiryResponse::GainLimit {
-                limit: payload[0],
+                limit: payload.as_slice()[0],
             })))
         }
         ViscaResponseType::IrisControl => {
@@ -122,13 +123,13 @@ pub(crate) fn decode(
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            let auto = match payload[0] {
+            let auto = match payload.as_slice()[0] {
                 0x02 => false, // Manual iris control
                 0x03 => true,  // Auto iris control
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "iris_control",
-                        value: Cow::Owned(format!("{:02X}", payload[0])),
+                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed(
                             "Invalid iris control value. Expected 0x02 (manual) or 0x03 (auto)",
                         ),
@@ -143,13 +144,13 @@ pub(crate) fn decode(
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            let active = match payload[0] {
+            let active = match payload.as_slice()[0] {
                 0x02 => false,
                 0x03 => true,
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "IrisUp status",
-                        value: Cow::Owned(format!("0x{:02X}", payload[0])),
+                        value: Cow::Owned(format!("0x{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed("Expected 0x02 (inactive) or 0x03 (active)"),
                     }))
                 }
@@ -162,13 +163,13 @@ pub(crate) fn decode(
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            let active = match payload[0] {
+            let active = match payload.as_slice()[0] {
                 0x02 => false,
                 0x03 => true,
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "IrisDown status",
-                        value: Cow::Owned(format!("0x{:02X}", payload[0])),
+                        value: Cow::Owned(format!("0x{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed("Expected 0x02 (inactive) or 0x03 (active)"),
                     }))
                 }

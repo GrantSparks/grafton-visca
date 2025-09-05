@@ -7,7 +7,7 @@
 /// Zero-copy frame decoder for VISCA protocol responses.
 pub mod frame_decoder;
 
-use crate::{command::bytes::VISCA_TERMINATOR, ViscaSocket};
+use crate::{command::bytes::VISCA_TERMINATOR, command::response::payload::Payload, ViscaSocket};
 
 /// Basic VISCA response kind.
 ///
@@ -39,8 +39,8 @@ pub struct BasicResponse<'a> {
     pub kind: BasicKind,
     /// Socket number if present (for ACK/Completion/Error).
     pub socket: Option<ViscaSocket>,
-    /// Payload data between header and terminator (for DataReply), empty otherwise.
-    pub payload: &'a [u8],
+    /// Payload data between header and terminator (for DataReply), wrapped in a type-safe view.
+    pub payload: Payload<'a>,
 }
 
 /// Decode a single VISCA response frame.
@@ -80,7 +80,7 @@ pub fn decode_basic(frame: &[u8]) -> Option<BasicResponse<'_>> {
             Some(BasicResponse {
                 kind: BasicKind::Ack,
                 socket,
-                payload: &[],
+                payload: Payload::new(&[]),
             })
         }
 
@@ -91,7 +91,7 @@ pub fn decode_basic(frame: &[u8]) -> Option<BasicResponse<'_>> {
             // Special case: 90 50 with >3 bytes is data reply
             if socket_num == 0 && frame.len() > 3 {
                 // Data reply: 90 50 <payload> FF
-                let payload = &frame[2..frame.len() - 1];
+                let payload = Payload::new(&frame[2..frame.len() - 1]);
                 Some(BasicResponse {
                     kind: BasicKind::DataReply,
                     socket: None,
@@ -103,7 +103,7 @@ pub fn decode_basic(frame: &[u8]) -> Option<BasicResponse<'_>> {
                 Some(BasicResponse {
                     kind: BasicKind::Completion,
                     socket,
-                    payload: &[],
+                    payload: Payload::new(&[]),
                 })
             }
         }
@@ -117,7 +117,7 @@ pub fn decode_basic(frame: &[u8]) -> Option<BasicResponse<'_>> {
                 Some(BasicResponse {
                     kind: BasicKind::Error(error_code),
                     socket,
-                    payload: &[],
+                    payload: Payload::new(&[]),
                 })
             } else {
                 None
@@ -128,14 +128,14 @@ pub fn decode_basic(frame: &[u8]) -> Option<BasicResponse<'_>> {
         0x38 => Some(BasicResponse {
             kind: BasicKind::NetworkChange,
             socket: None,
-            payload: &[],
+            payload: Payload::new(&[]),
         }),
 
         // Unknown
         _ => Some(BasicResponse {
             kind: BasicKind::Unknown,
             socket: None,
-            payload: &frame[2..frame.len() - 1],
+            payload: Payload::new(&frame[2..frame.len() - 1]),
         }),
     }
 }
@@ -249,7 +249,7 @@ mod tests {
         let response = decode_basic(&frame).expect("Failed to decode ACK");
         assert_eq!(response.kind, BasicKind::Ack);
         assert_eq!(response.socket, Some(ViscaSocket::S1));
-        assert_eq!(response.payload, [].as_slice());
+        assert_eq!(response.payload, Payload::new(&[]));
 
         let frame = vec![0x90, 0x42, VISCA_TERMINATOR];
         let response = decode_basic(&frame).expect("Failed to decode ACK");
@@ -263,7 +263,7 @@ mod tests {
         let response = decode_basic(&frame).expect("Failed to decode Completion");
         assert_eq!(response.kind, BasicKind::Completion);
         assert_eq!(response.socket, Some(ViscaSocket::S1));
-        assert_eq!(response.payload, [].as_slice());
+        assert_eq!(response.payload, Payload::new(&[]));
 
         let frame = vec![0x90, 0x52, VISCA_TERMINATOR];
         let response = decode_basic(&frame).expect("Failed to decode Completion");
@@ -277,12 +277,12 @@ mod tests {
         let response = decode_basic(&frame).expect("Failed to decode DataReply");
         assert_eq!(response.kind, BasicKind::DataReply);
         assert_eq!(response.socket, None);
-        assert_eq!(response.payload, &[0x02]);
+        assert_eq!(response.payload, Payload::new(&[0x02]));
 
         let frame = vec![0x90, 0x50, 0x00, 0x01, 0x02, 0x03, VISCA_TERMINATOR];
         let response = decode_basic(&frame).expect("Failed to decode DataReply");
         assert_eq!(response.kind, BasicKind::DataReply);
-        assert_eq!(response.payload, &[0x00, 0x01, 0x02, 0x03]);
+        assert_eq!(response.payload, Payload::new(&[0x00, 0x01, 0x02, 0x03]));
     }
 
     #[test]
@@ -304,7 +304,7 @@ mod tests {
         let response = decode_basic(&frame).expect("Failed to decode NetworkChange");
         assert_eq!(response.kind, BasicKind::NetworkChange);
         assert_eq!(response.socket, None);
-        assert_eq!(response.payload, [].as_slice());
+        assert_eq!(response.payload, Payload::new(&[]));
     }
 
     #[test]
@@ -367,7 +367,7 @@ mod tests {
         let basic = BasicResponse {
             kind: BasicKind::Ack,
             socket: Some(ViscaSocket::S1),
-            payload: &[],
+            payload: Payload::new(&[]),
         };
         let lifted = lift_inquiry(&basic, None).expect("Failed to lift ACK");
         assert!(
@@ -378,7 +378,7 @@ mod tests {
         let basic = BasicResponse {
             kind: BasicKind::Completion,
             socket: Some(ViscaSocket::S2),
-            payload: &[],
+            payload: Payload::new(&[]),
         };
         let lifted = lift_inquiry(&basic, None).expect("Failed to lift Completion");
         assert!(
@@ -389,7 +389,7 @@ mod tests {
         let basic = BasicResponse {
             kind: BasicKind::Error(0x02),
             socket: None,
-            payload: &[],
+            payload: Payload::new(&[]),
         };
         let lifted = lift_inquiry(&basic, None).expect("Failed to lift Error");
         assert!(matches!(lifted, ViscaResponse::Error(_)));
@@ -398,7 +398,7 @@ mod tests {
         let basic = BasicResponse {
             kind: BasicKind::DataReply,
             socket: None,
-            payload: &[0x02],
+            payload: Payload::new(&[0x02]),
         };
         let lifted = lift_inquiry(&basic, None).expect("Failed to lift DataReply");
         assert!(matches!(
@@ -410,7 +410,7 @@ mod tests {
         let basic = BasicResponse {
             kind: BasicKind::DataReply,
             socket: None,
-            payload: &[0x02],
+            payload: Payload::new(&[0x02]),
         };
         let lifted = lift_inquiry(&basic, Some(&ViscaResponseType::Power))
             .expect("Failed to lift Power inquiry");

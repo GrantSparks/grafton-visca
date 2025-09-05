@@ -3,6 +3,7 @@
 use std::borrow::Cow;
 
 use super::super::nibbles::combine_nibbles_u8;
+use super::super::payload::Payload;
 use crate::{
     command::{
         image::{BlackWhiteMode, NrMode, NrSpeed, SharpnessMode},
@@ -15,14 +16,14 @@ use crate::{
 /// Decode image-related inquiry responses.
 pub(crate) fn decode(
     kind: ViscaResponseType,
-    payload: &[u8],
+    payload: Payload<'_>,
 ) -> Option<Result<ViscaResponse, Error>> {
     match kind {
         ViscaResponseType::Sharpness => {
             if payload.len() != 4 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            let value = combine_nibbles_u8(&payload[2..4]);
+            let value = combine_nibbles_u8(&payload.as_slice()[2..4]);
             Some(Ok(ViscaResponse::Inquiry(InquiryResponse::Sharpness {
                 value,
             })))
@@ -31,13 +32,13 @@ pub(crate) fn decode(
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            let mode = match payload[0] {
+            let mode = match payload.as_slice()[0] {
                 0x02 => SharpnessMode::Auto,
                 0x03 => SharpnessMode::Manual,
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "sharpness_mode",
-                        value: Cow::Owned(format!("{:02X}", payload[0])),
+                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed("Unknown sharpness mode value"),
                     }))
                 }
@@ -51,7 +52,7 @@ pub(crate) fn decode(
                 return Some(Err(Error::InvalidResponseLength));
             }
             // Extract the saturation level from the last nibble
-            let level = payload[3];
+            let level = payload.as_slice()[3];
             Some(Ok(ViscaResponse::Inquiry(InquiryResponse::Saturation {
                 level,
             })))
@@ -61,7 +62,7 @@ pub(crate) fn decode(
                 return Some(Err(Error::InvalidResponseLength));
             }
             // Extract the hue value from the last nibble
-            let hue = payload[3];
+            let hue = payload.as_slice()[3];
             Some(Ok(ViscaResponse::Inquiry(InquiryResponse::Hue { hue })))
         }
         ViscaResponseType::Contrast => {
@@ -69,7 +70,7 @@ pub(crate) fn decode(
                 return Some(Err(Error::InvalidResponseLength));
             }
             Some(Ok(ViscaResponse::Inquiry(InquiryResponse::Contrast(
-                payload[0],
+                payload.as_slice()[0],
             ))))
         }
         ViscaResponseType::PictureEffect => {
@@ -83,7 +84,7 @@ pub(crate) fn decode(
             // 0x01 = Negative
             // 0x02 = B&W
             // Other values are camera-specific effects
-            let effect = payload[0];
+            let effect = payload.as_slice()[0];
             Some(Ok(ViscaResponse::Inquiry(InquiryResponse::PictureEffect {
                 effect,
             })))
@@ -93,14 +94,14 @@ pub(crate) fn decode(
                 return Some(Err(Error::InvalidResponseLength));
             }
             Some(Ok(ViscaResponse::Inquiry(InquiryResponse::BlackWhite {
-                on: payload[0] == 0x04,
+                on: payload.as_slice()[0] == 0x04,
             })))
         }
         ViscaResponseType::BlackWhiteMode => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            let mode = match BlackWhiteMode::try_from(payload[0]) {
+            let mode = match BlackWhiteMode::try_from(payload.as_slice()[0]) {
                 Ok(mode) => mode,
                 Err(e) => return Some(Err(e)),
             };
@@ -114,7 +115,7 @@ pub(crate) fn decode(
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            let level = payload[0];
+            let level = payload.as_slice()[0];
             Some(Ok(ViscaResponse::Inquiry(
                 InquiryResponse::NoiseReduction2D { level },
             )))
@@ -125,7 +126,7 @@ pub(crate) fn decode(
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            let level = payload[0];
+            let level = payload.as_slice()[0];
             Some(Ok(ViscaResponse::Inquiry(
                 InquiryResponse::NoiseReduction3D { level },
             )))
@@ -134,7 +135,7 @@ pub(crate) fn decode(
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            let mode = match NrMode::try_from(payload[0]) {
+            let mode = match NrMode::try_from(payload.as_slice()[0]) {
                 Ok(mode) => mode,
                 Err(e) => return Some(Err(e)),
             };
@@ -144,7 +145,7 @@ pub(crate) fn decode(
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            let speed = match NrSpeed::try_from(payload[0]) {
+            let speed = match NrSpeed::try_from(payload.as_slice()[0]) {
                 Ok(speed) => speed,
                 Err(e) => return Some(Err(e)),
             };
@@ -156,7 +157,7 @@ pub(crate) fn decode(
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            let value = payload[0];
+            let value = payload.as_slice()[0];
             Some(Ok(ViscaResponse::Inquiry(InquiryResponse::ImageFlip {
                 horizontal: (value & 0x01) != 0,
                 vertical: (value & 0x02) != 0,
@@ -173,7 +174,7 @@ pub(crate) fn decode(
             // 0x01 = Horizontal flip only
             // 0x02 = Vertical flip only
             // 0x03 = Both horizontal and vertical flip
-            let mode = payload[0];
+            let mode = payload.as_slice()[0];
             let horizontal = (mode & 0x01) != 0;
             let vertical = (mode & 0x02) != 0;
             Some(Ok(ViscaResponse::Inquiry(InquiryResponse::FlipMode {
@@ -187,7 +188,7 @@ pub(crate) fn decode(
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            let level = payload[0];
+            let level = payload.as_slice()[0];
             Some(Ok(ViscaResponse::Inquiry(InquiryResponse::DynamicRange {
                 level,
             })))
@@ -197,7 +198,7 @@ pub(crate) fn decode(
                 return Some(Err(Error::InvalidResponseLength));
             }
             Some(Ok(ViscaResponse::Inquiry(InquiryResponse::Backlight {
-                status: payload[0] == 0x02,
+                status: payload.as_slice()[0] == 0x02,
             })))
         }
         ViscaResponseType::Luminance => {
@@ -205,7 +206,7 @@ pub(crate) fn decode(
                 return Some(Err(Error::InvalidResponseLength));
             }
             Some(Ok(ViscaResponse::Inquiry(InquiryResponse::Luminance(
-                payload[0],
+                payload.as_slice()[0],
             ))))
         }
         ViscaResponseType::NdFilter => {
@@ -221,7 +222,7 @@ pub(crate) fn decode(
             // 0x03 = 1/16 ND
             // 0x04 = 1/32 ND
             // 0x05 = 1/64 ND
-            let position = payload[0];
+            let position = payload.as_slice()[0];
             Some(Ok(ViscaResponse::Inquiry(InquiryResponse::NdFilter {
                 position,
             })))
@@ -233,7 +234,7 @@ pub(crate) fn decode(
                 return Some(Err(Error::InvalidResponseLength));
             }
             Some(Ok(ViscaResponse::Inquiry(InquiryResponse::Gamma {
-                value: payload[0],
+                value: payload.as_slice()[0],
             })))
         }
         ViscaResponseType::TwoToneMode => {
@@ -241,7 +242,7 @@ pub(crate) fn decode(
                 return Some(Err(Error::InvalidResponseLength));
             }
             Some(Ok(ViscaResponse::Inquiry(InquiryResponse::TwoToneMode {
-                on: payload[0] == 0x02,
+                on: payload.as_slice()[0] == 0x02,
             })))
         }
         _ => None,

@@ -10,6 +10,7 @@ mod system;
 mod tally;
 mod zoom;
 
+use super::payload::Payload;
 use super::types::{ViscaResponse, ViscaResponseType};
 use crate::error::Error;
 
@@ -17,7 +18,10 @@ use crate::error::Error;
 ///
 /// Each submodule exposes a decode function that returns Some(Result) if
 /// the response type belongs to that domain, or None otherwise.
-pub(crate) fn dispatch(kind: ViscaResponseType, payload: &[u8]) -> Result<ViscaResponse, Error> {
+pub(crate) fn dispatch(
+    kind: ViscaResponseType,
+    payload: Payload<'_>,
+) -> Result<ViscaResponse, Error> {
     // Try each decoder in order
     for decoder_fn in &[
         power::decode,

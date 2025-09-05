@@ -1,6 +1,7 @@
 //! Pan/Tilt-related response decoders.
 
 use super::super::nibbles::combine_nibbles_i16;
+use super::super::payload::Payload;
 use crate::{
     command::{
         response::types::{ViscaResponse, ViscaResponseType},
@@ -12,7 +13,7 @@ use crate::{
 /// Decode pan/tilt-related inquiry responses.
 pub(crate) fn decode(
     kind: ViscaResponseType,
-    payload: &[u8],
+    payload: Payload<'_>,
 ) -> Option<Result<ViscaResponse, Error>> {
     match kind {
         ViscaResponseType::PanTiltPosition => {
@@ -20,8 +21,8 @@ pub(crate) fn decode(
             // But some cameras may return 4 bytes with combined values
             if payload.len() == 8 {
                 // Standard format: PP PP PP PP TT TT TT TT
-                let pan = combine_nibbles_i16(&payload[0..4]);
-                let tilt = combine_nibbles_i16(&payload[4..8]);
+                let pan = combine_nibbles_i16(&payload.as_slice()[0..4]);
+                let tilt = combine_nibbles_i16(&payload.as_slice()[4..8]);
                 Some(Ok(ViscaResponse::Inquiry(
                     InquiryResponse::PanTiltPosition { pan, tilt },
                 )))
@@ -34,12 +35,12 @@ pub(crate) fn decode(
                 // For now, treat 4-byte response as home position (0, 0)
                 // This may need adjustment based on specific camera models
                 let pan = if payload.len() >= 2 {
-                    ((payload[0] as i16) << 8) | (payload[1] as i16)
+                    ((payload.as_slice()[0] as i16) << 8) | (payload.as_slice()[1] as i16)
                 } else {
                     0
                 };
                 let tilt = if payload.len() >= 4 {
-                    ((payload[2] as i16) << 8) | (payload[3] as i16)
+                    ((payload.as_slice()[2] as i16) << 8) | (payload.as_slice()[3] as i16)
                 } else {
                     0
                 };

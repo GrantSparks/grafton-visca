@@ -6,6 +6,7 @@
 mod decoders;
 mod lift;
 mod nibbles;
+pub mod payload;
 pub mod types;
 
 use std::borrow::Cow;
