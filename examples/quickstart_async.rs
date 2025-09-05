@@ -34,12 +34,14 @@ use grafton_visca::{
             presets::PresetsControl, white_balance::WhiteBalanceControl, zoom::ZoomControl,
         },
         profiles::PtzOpticsG2,
+        Camera,
     },
     command::preset::PresetNumber,
-    transport::Transport,
+    mode::Async,
+    runtime_trait::TokioRuntime,
     types::{PanSpeed, SpeedLevel, TiltSpeed},
     units::{Degrees, Normalized},
-    CameraBuilder, Error, PanTiltDirection,
+    Error, PanTiltDirection,
 };
 
 #[cfg(feature = "rt-tokio")]
@@ -56,16 +58,9 @@ async fn main() -> Result<(), Error> {
     println!("Connecting to camera at {camera_addr}");
     println!();
 
-    // Using uniform Transport API - runtime is automatically selected
-    let transport = Transport::tcp()
-        .address(camera_addr)
-        .connect_timeout(Duration::from_secs(5))
-        .build_async()
-        .await?;
-
-    let camera = CameraBuilder::tokio()?
-        .build_async::<PtzOpticsG2, _>(transport)
-        .await?;
+    // Create the Tokio runtime and connect with type-safe pairing
+    let runtime = TokioRuntime::from_current()?;
+    let camera = Camera::<Async, PtzOpticsG2, _, _>::connect_tcp(camera_addr, runtime).await?;
 
     println!("✅ Connected successfully!");
     println!();

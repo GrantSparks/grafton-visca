@@ -9,17 +9,20 @@
 //! selects the appropriate runtime implementation based on enabled features:
 //!
 //! ```rust,no_run
-//! # #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")))]
+//! # #[cfg(feature = "rt-tokio")]
 //! use grafton_visca::transport::Transport;
+//! # #[cfg(feature = "rt-tokio")]
+//! use grafton_visca::runtime_trait::TokioRuntime;
 //!
-//! # #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")))]
+//! # #[cfg(feature = "rt-tokio")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! // Uniform API - runtime is automatically selected
+//! // Runtime-based API with type-safe pairing
+//! let runtime = TokioRuntime::from_current()?;
 //! let transport = Transport::tcp()
 //!     .address("192.168.0.110:5678")
 //!     .connect_timeout(std::time::Duration::from_secs(10))
 //!     .tcp_nodelay(true)
-//!     .build_async()
+//!     .build_async_with(runtime)
 //!     .await?;
 //! # Ok(())
 //! # }
@@ -295,79 +298,6 @@ impl TransportBuilder {
     }
 }
 
-/// Any transport wrapper that can hold any transport type.
-///
-/// This enum allows the transport API to return different concrete
-/// transport types while maintaining type safety and avoiding trait objects.
-///
-/// This type is not exported from the public API of the library.
-/// Use generic transport types for zero-cost abstractions.
-#[derive(Debug)]
-#[cfg(all(
-    feature = "async",
-    any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")
-))]
-pub enum AnyTransport {
-    /// Tokio TCP transport.
-    #[cfg(feature = "rt-tokio")]
-    TokioTcp(crate::runtime_adapters::tokio::TcpTransport),
-    /// Tokio UDP transport.
-    #[cfg(feature = "rt-tokio")]
-    TokioUdp(crate::runtime_adapters::tokio::UdpTransport),
-    /// async-std TCP transport.
-    #[cfg(feature = "rt-async-std")]
-    AsyncStdTcp(crate::runtime_adapters::async_std::TcpTransport),
-    /// async-std UDP transport.
-    #[cfg(feature = "rt-async-std")]
-    AsyncStdUdp(crate::runtime_adapters::async_std::UdpTransport),
-    /// smol TCP transport.
-    #[cfg(feature = "rt-smol")]
-    SmolTcp(crate::runtime_adapters::smol::TcpTransport),
-    /// smol UDP transport.
-    #[cfg(feature = "rt-smol")]
-    SmolUdp(crate::runtime_adapters::smol::UdpTransport),
-}
-
-#[cfg(all(
-    feature = "async",
-    any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")
-))]
-impl crate::transport::AsyncTransport for AnyTransport {
-    async fn send(&mut self, bytes: &[u8]) -> Result<(), Error> {
-        match self {
-            #[cfg(feature = "rt-tokio")]
-            AnyTransport::TokioTcp(transport) => transport.send(bytes).await,
-            #[cfg(feature = "rt-tokio")]
-            AnyTransport::TokioUdp(transport) => transport.send(bytes).await,
-            #[cfg(feature = "rt-async-std")]
-            AnyTransport::AsyncStdTcp(transport) => transport.send(bytes).await,
-            #[cfg(feature = "rt-async-std")]
-            AnyTransport::AsyncStdUdp(transport) => transport.send(bytes).await,
-            #[cfg(feature = "rt-smol")]
-            AnyTransport::SmolTcp(transport) => transport.send(bytes).await,
-            #[cfg(feature = "rt-smol")]
-            AnyTransport::SmolUdp(transport) => transport.send(bytes).await,
-        }
-    }
-
-    async fn recv(&mut self) -> Result<bytes::Bytes, Error> {
-        match self {
-            #[cfg(feature = "rt-tokio")]
-            AnyTransport::TokioTcp(transport) => transport.recv().await,
-            #[cfg(feature = "rt-tokio")]
-            AnyTransport::TokioUdp(transport) => transport.recv().await,
-            #[cfg(feature = "rt-async-std")]
-            AnyTransport::AsyncStdTcp(transport) => transport.recv().await,
-            #[cfg(feature = "rt-async-std")]
-            AnyTransport::AsyncStdUdp(transport) => transport.recv().await,
-            #[cfg(feature = "rt-smol")]
-            AnyTransport::SmolTcp(transport) => transport.recv().await,
-            #[cfg(feature = "rt-smol")]
-            AnyTransport::SmolUdp(transport) => transport.recv().await,
-        }
-    }
-}
-
 /// Uniform transport API.
 ///
 /// Provides a clean interface for creating transports without exposing runtime details.
@@ -394,13 +324,15 @@ impl Transport {
     /// # Ok(())
     /// # }
     ///
-    /// # #[cfg(feature = "async")]
+    /// # #[cfg(feature = "rt-tokio")]
     /// # async fn async_example() -> Result<(), Box<dyn std::error::Error>> {
-    /// // Building async transports
+    /// // Building async transports with Runtime
+    /// use grafton_visca::runtime_trait::TokioRuntime;
+    /// let runtime = TokioRuntime::from_current()?;
     /// let transport = Transport::tcp()
     ///     .address("192.168.0.110:5678")
     ///     .tcp_nodelay(true)
-    ///     .build_async()
+    ///     .build_async_with(runtime)
     ///     .await?;
     /// # Ok(())
     /// # }
@@ -427,13 +359,15 @@ impl Transport {
     /// # Ok(())
     /// # }
     ///
-    /// # #[cfg(feature = "async")]
+    /// # #[cfg(feature = "rt-tokio")]
     /// # async fn async_example() -> Result<(), Box<dyn std::error::Error>> {
-    /// // Building async transports
+    /// // Building async transports with Runtime
+    /// use grafton_visca::runtime_trait::TokioRuntime;
+    /// let runtime = TokioRuntime::from_current()?;
     /// let transport = Transport::udp()
     ///     .address("192.168.0.110:5678")
     ///     .max_retries(5)
-    ///     .build_async()
+    ///     .build_async_with(runtime)
     ///     .await?;
     /// # Ok(())
     /// # }
@@ -442,7 +376,7 @@ impl Transport {
         NetTransportBuilder::udp()
     }
 
-    /// Connect to a camera with automatic protocol detection (EPIC task B3).
+    /// Connect to a camera with automatic protocol detection using a specific runtime.
     ///
     /// This is a convenience method that automatically detects whether the camera
     /// uses Sony encapsulated format (8-byte header) or raw VISCA format.
@@ -452,27 +386,34 @@ impl Transport {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")))]
+    /// # #[cfg(feature = "async")]
     /// use grafton_visca::transport::Transport;
+    /// # #[cfg(feature = "rt-tokio")]
+    /// use grafton_visca::TokioRuntime;
     ///
-    /// # #[cfg(all(feature = "async", any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")))]
+    /// # #[cfg(feature = "rt-tokio")]
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let runtime = TokioRuntime::from_current()?;
     /// // Auto-detect protocol for camera (could be Sony or PTZOptics)
-    /// let (transport, detected_protocol) = Transport::auto_detect("192.168.0.110:5678").await?;
+    /// let (transport, detected_protocol) = Transport::auto_detect("192.168.0.110:5678", runtime).await?;
     /// println!("Detected protocol: {:?}", detected_protocol);
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg(all(
-        feature = "async",
-        any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")
-    ))]
-    pub async fn auto_detect(
+    #[cfg(feature = "async")]
+    pub async fn auto_detect<R: crate::runtime_trait::Runtime>(
         address: impl Into<String>,
-    ) -> Result<(AnyTransport, super::DetectionResult), Error> {
+        runtime: R,
+    ) -> Result<
+        (
+            crate::runtime_trait::TransportHandle<R>,
+            super::DetectionResult,
+        ),
+        Error,
+    > {
         Self::tcp()
             .address(address)
-            .build_async_with_auto_detection()
+            .build_async_with_auto_detection(runtime)
             .await
     }
 }
@@ -499,13 +440,15 @@ impl Transport {
 /// # Ok(())
 /// # }
 ///
-/// # #[cfg(feature = "async")]
+/// # #[cfg(feature = "rt-tokio")]
 /// # async fn async_example() -> Result<(), Box<dyn std::error::Error>> {
-/// // Building async transports
+/// // Building async transports with Runtime
+/// use grafton_visca::runtime_trait::TokioRuntime;
+/// let runtime = TokioRuntime::from_current()?;
 /// let async_transport = NetTransportBuilder::tcp()
 ///     .address("192.168.0.110:5678")
 ///     .connect_timeout(Duration::from_secs(10))
-///     .build_async()
+///     .build_async_with(runtime)
 ///     .await?;
 /// # Ok(())
 /// # }
@@ -712,115 +655,43 @@ impl NetTransportBuilder {
         ))
     }
 
-    /// Build an async transport.
+    /// Build an async transport with a specific runtime.
     ///
-    /// This method automatically selects the appropriate runtime implementation
-    /// based on enabled features and establishes the connection.
-    ///
-    /// # Priority Order
-    ///
-    /// When multiple runtime features are enabled, the selection priority is:
-    /// 1. `rt-tokio` - Most common, well-tested
-    /// 2. `rt-async-std` - Alternative async runtime
-    /// 3. `rt-smol` - Lightweight runtime
+    /// This method uses the provided runtime to establish the connection,
+    /// ensuring type-safe pairing of executor and transport.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     /// - No address has been set
-    /// - No async runtime features are enabled
     /// - Connection fails
     /// - Socket configuration fails
-    #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
-    #[allow(unreachable_code)]
-    pub async fn build_async(self) -> Result<AnyTransport, Error> {
+    #[cfg(feature = "async")]
+    pub async fn build_async_with<R: crate::runtime_trait::Runtime>(
+        self,
+        _runtime: R,
+    ) -> Result<crate::runtime_trait::TransportHandle<R>, Error> {
+        use crate::runtime_trait::TransportHandle;
+
         let address = self.address.ok_or_else(|| Error::InvalidParameter {
             parameter: "address",
             value: "None".into(),
             reason: "No address specified for transport".into(),
         })?;
 
-        // Priority-based runtime selection when multiple runtimes are available
-        #[cfg(feature = "rt-tokio")]
-        {
-            return match self.protocol {
-                Protocol::Tcp => {
-                    let transport =
-                        crate::runtime_adapters::tokio::TcpTransport::connect_with_config(
-                            &address,
-                            self.config,
-                        )
-                        .await?;
-                    Ok(AnyTransport::TokioTcp(transport))
-                }
-                Protocol::Udp => {
-                    let transport =
-                        crate::runtime_adapters::tokio::UdpTransport::connect_with_config(
-                            &address,
-                            self.config,
-                        )
-                        .await?;
-                    Ok(AnyTransport::TokioUdp(transport))
-                }
-            };
+        match self.protocol {
+            Protocol::Tcp => {
+                let transport = R::connect_tcp(&address, self.config).await?;
+                Ok(TransportHandle::Tcp(transport))
+            }
+            Protocol::Udp => {
+                let transport = R::connect_udp(&address, self.config).await?;
+                Ok(TransportHandle::Udp(transport))
+            }
         }
-
-        #[cfg(feature = "rt-async-std")]
-        #[cfg(not(feature = "rt-tokio"))]
-        {
-            return match self.protocol {
-                Protocol::Tcp => {
-                    let transport =
-                        crate::runtime_adapters::async_std::TcpTransport::connect_with_config(
-                            &address,
-                            self.config,
-                        )
-                        .await?;
-                    Ok(AnyTransport::AsyncStdTcp(transport))
-                }
-                Protocol::Udp => {
-                    let transport =
-                        crate::runtime_adapters::async_std::UdpTransport::connect_with_config(
-                            &address,
-                            self.config,
-                        )
-                        .await?;
-                    Ok(AnyTransport::AsyncStdUdp(transport))
-                }
-            };
-        }
-
-        #[cfg(feature = "rt-smol")]
-        #[cfg(not(feature = "rt-tokio"))]
-        #[cfg(not(feature = "rt-async-std"))]
-        {
-            return match self.protocol {
-                Protocol::Tcp => {
-                    let transport =
-                        crate::runtime_adapters::smol::TcpTransport::connect_with_config(
-                            &address,
-                            self.config,
-                        )
-                        .await?;
-                    Ok(AnyTransport::SmolTcp(transport))
-                }
-                Protocol::Udp => {
-                    let transport =
-                        crate::runtime_adapters::smol::UdpTransport::connect_with_config(
-                            &address,
-                            self.config,
-                        )
-                        .await?;
-                    Ok(AnyTransport::SmolUdp(transport))
-                }
-            };
-        }
-
-        // This should never be reached due to the cfg guard at the function level
-        unreachable!("No runtime available - this should be prevented by cfg guard")
     }
 
-    /// Build an async transport with automatic protocol detection (EPIC task B3).
+    /// Build an async transport with automatic protocol detection using a specific runtime.
     ///
     /// This method implements automatic detection of Sony encapsulated
     /// vs raw VISCA protocol modes. It probes the camera with both formats and
@@ -836,18 +707,20 @@ impl NetTransportBuilder {
     ///
     /// Returns an error if:
     /// - No address has been set
-    /// - No async runtime features are enabled
     /// - Connection fails
     /// - Socket configuration fails
     /// - No protocol response detected from camera
-    #[cfg(all(
-        feature = "async",
-        any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")
-    ))]
-    #[allow(unreachable_code)]
-    pub async fn build_async_with_auto_detection(
+    #[cfg(feature = "async")]
+    pub async fn build_async_with_auto_detection<R: crate::runtime_trait::Runtime>(
         self,
-    ) -> Result<(AnyTransport, super::DetectionResult), Error> {
+        runtime: R,
+    ) -> Result<
+        (
+            crate::runtime_trait::TransportHandle<R>,
+            super::DetectionResult,
+        ),
+        Error,
+    > {
         let address = self
             .address
             .clone()
@@ -858,132 +731,26 @@ impl NetTransportBuilder {
             })?;
 
         // First establish the connection
-        let mut transport = self.build_async().await?;
+        let mut transport = self.build_async_with(runtime.clone()).await?;
 
-        // For now, use a feature-specific executor approach
-        // This will be improved when we have more specific builder methods
-        #[cfg(feature = "rt-tokio")]
-        {
-            let executor = crate::executor::TokioExecutor::from_current()
-                .map_err(|_| Error::MissingRuntime)?;
-            let detector = super::ProtocolDetector::new();
-            let detection_result = detector.detect_protocol(&mut transport, &executor).await?;
-            match detection_result {
-                super::DetectionResult::SonyEncapsulated | super::DetectionResult::RawVisca => {
-                    return Ok((transport, detection_result));
-                }
-                super::DetectionResult::NoResponse => {
-                    return Err(Error::ConnectionFailed {
-                        addr: address.into(),
-                        source: std::io::Error::new(
-                            std::io::ErrorKind::TimedOut,
-                            "No VISCA protocol response detected from camera - verify camera is powered on and address is correct"
-                        ),
-                    });
-                }
+        // Perform protocol detection
+        let detector = super::ProtocolDetector::new();
+        let detection_result = detector.detect_protocol(&mut transport, &runtime).await?;
+
+        match detection_result {
+            super::DetectionResult::SonyEncapsulated | super::DetectionResult::RawVisca => {
+                Ok((transport, detection_result))
+            }
+            super::DetectionResult::NoResponse => {
+                Err(Error::ConnectionFailed {
+                    addr: address.into(),
+                    source: std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "No VISCA protocol response detected from camera - verify camera is powered on and address is correct"
+                    ),
+                })
             }
         }
-
-        #[cfg(all(feature = "rt-async-std", not(feature = "rt-tokio")))]
-        {
-            let executor = crate::executor::AsyncStdExecutor::new();
-            let detector = super::ProtocolDetector::new();
-            let detection_result = detector.detect_protocol(&mut transport, &executor).await?;
-            match detection_result {
-                super::DetectionResult::SonyEncapsulated | super::DetectionResult::RawVisca => {
-                    return Ok((transport, detection_result));
-                }
-                super::DetectionResult::NoResponse => {
-                    return Err(Error::ConnectionFailed {
-                        addr: address.into(),
-                        source: std::io::Error::new(
-                            std::io::ErrorKind::TimedOut,
-                            "No VISCA protocol response detected from camera - verify camera is powered on and address is correct"
-                        ),
-                    });
-                }
-            }
-        }
-
-        #[cfg(all(
-            feature = "rt-smol",
-            not(any(feature = "rt-tokio", feature = "rt-async-std"))
-        ))]
-        {
-            let executor = crate::executor::SmolExecutor::new();
-            let detector = super::ProtocolDetector::new();
-            let detection_result = detector.detect_protocol(&mut transport, &executor).await?;
-            match detection_result {
-                super::DetectionResult::SonyEncapsulated | super::DetectionResult::RawVisca => {
-                    return Ok((transport, detection_result));
-                }
-                super::DetectionResult::NoResponse => {
-                    return Err(Error::ConnectionFailed {
-                        addr: address.into(),
-                        source: std::io::Error::new(
-                            std::io::ErrorKind::TimedOut,
-                            "No VISCA protocol response detected from camera - verify camera is powered on and address is correct"
-                        ),
-                    });
-                }
-            }
-        }
-
-        // If no runtime features are enabled, return an error
-        Err(Error::MissingRuntime)
-    }
-
-    /// Build an async transport (not available without async runtime features).
-    ///
-    /// This method returns an error when no async runtime features are enabled.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error indicating that async transport creation requires runtime features.
-    #[cfg(all(
-        feature = "async",
-        not(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))
-    ))]
-    pub async fn build_async(self) -> Result<(), Error> {
-        Err(Error::MissingRuntime)
-    }
-
-    /// Build an async transport (not available without async features).
-    ///
-    /// This method is not available when async features are disabled.
-    #[cfg(not(feature = "async"))]
-    pub async fn build_async(self) -> Result<(), Error> {
-        Err(Error::InvalidState(
-            "Async transport not available without async features enabled".into(),
-        ))
-    }
-
-    /// Build an async transport with auto-detection (not available without async runtime features).
-    ///
-    /// This method returns an error when no async runtime features are enabled.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error indicating that async transport creation requires runtime features.
-    #[cfg(all(
-        feature = "async",
-        not(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))
-    ))]
-    pub async fn build_async_with_auto_detection(
-        self,
-    ) -> Result<((), super::DetectionResult), Error> {
-        Err(Error::MissingRuntime)
-    }
-
-    /// Build an async transport with auto-detection (not available without async features).
-    ///
-    /// This method is not available when async features are disabled.
-    #[cfg(not(feature = "async"))]
-    pub async fn build_async_with_auto_detection(self) -> Result<(), Error> {
-        Err(Error::InvalidState(
-            "Async transport with auto-detection not available without async features enabled"
-                .into(),
-        ))
     }
 }
 

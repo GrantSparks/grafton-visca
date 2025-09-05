@@ -546,6 +546,10 @@ pub mod transport;
 #[cfg(feature = "async")]
 pub mod runtime_adapters;
 
+/// Runtime trait for binding executor and transport connectors
+#[cfg(feature = "async")]
+pub mod runtime_trait;
+
 /// Protocol encoding and decoding utilities
 pub mod protocol;
 
@@ -635,6 +639,16 @@ pub use crate::executor::SmolExecutor;
 pub use crate::executor::TokioExecutor;
 #[cfg(feature = "async")]
 pub use crate::executor::{ExecError, Executor};
+
+// Re-export Runtime trait and implementations
+#[cfg(all(feature = "async", feature = "rt-async-std"))]
+pub use crate::runtime_trait::AsyncStdRuntime;
+#[cfg(all(feature = "async", feature = "rt-smol"))]
+pub use crate::runtime_trait::SmolRuntime;
+#[cfg(all(feature = "async", feature = "rt-tokio"))]
+pub use crate::runtime_trait::TokioRuntime;
+#[cfg(feature = "async")]
+pub use crate::runtime_trait::{Runtime, TransportHandle};
 
 /// Camera profiles with compositional capabilities
 pub mod profiles {

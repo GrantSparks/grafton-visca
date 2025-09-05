@@ -19,6 +19,10 @@ pub mod movement_probe;
 pub mod profiles;
 pub mod unified;
 
+// Runtime-aware camera construction methods
+#[cfg(feature = "async")]
+pub mod runtime_camera;
+
 // Blocking-specific wrapper module
 #[cfg(not(feature = "async"))]
 pub mod blocking_api;

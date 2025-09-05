@@ -110,37 +110,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("    - Exponential backoff: enabled\n");
     }
 
-    // Example 7: Uniform async transport API (requires rt-tokio feature)
+    // Example 7: Runtime-based async transport API (requires rt-tokio feature)
     #[cfg(feature = "rt-tokio")]
     {
         use grafton_visca::transport::Transport;
-        println!("Example 7: Uniform async transport API (rt-tokio feature)");
+        println!("Example 7: Runtime-based async transport API (rt-tokio feature)");
 
-        // Example 7a: Uniform TCP transport builder
-        println!("  7a. Uniform TCP transport:");
+        // Example 7a: TCP transport with Runtime
+        println!("  7a. TCP transport with Runtime:");
         let _async_tcp = Transport::tcp()
             .address("192.168.0.110:5678")
             .connect_timeout(Duration::from_secs(10))
             .tcp_nodelay(true);
-        println!("     Created uniform TCP builder");
-        println!("     Would connect with: .build_async().await (runtime auto-selected)");
+        println!("     Created TCP builder");
+        println!("     Would connect with: .build_async_with(runtime).await");
+        println!("     Where runtime = TokioRuntime::from_current()?");
 
-        // Example 7b: Uniform UDP transport builder
-        println!("\n  7b. Uniform UDP transport:");
+        // Example 7b: UDP transport with Runtime
+        println!("\n  7b. UDP transport with Runtime:");
         let _async_udp = Transport::udp()
             .address("192.168.0.110:5678")
             .ttl(64)
             .max_retries(5);
-        println!("     Created uniform UDP builder");
-        println!("     Would connect with: .build_async().await (runtime auto-selected)");
+        println!("     Created UDP builder");
+        println!("     Would connect with: .build_async_with(runtime).await");
 
-        // Example 7c: Runtime auto-selection
-        println!("\n  7c. Runtime auto-selection:");
-        println!("     Transport::tcp().build_async().await automatically selects:");
-        println!("     - tokio when rt-tokio feature is enabled");
-        println!("     - async-std when rt-async-std feature is enabled");
-        println!("     - smol when rt-smol feature is enabled");
-        println!("     No need to mention runtime in application code!");
+        // Example 7c: Type-safe runtime pairing
+        println!("\n  7c. Type-safe runtime pairing:");
+        println!("     The Runtime trait ensures executor and transport match:");
+        println!("     - TokioRuntime binds Tokio executor + Tokio transports");
+        println!("     - AsyncStdRuntime binds async-std executor + async-std transports");
+        println!("     - SmolRuntime binds smol executor + smol transports");
+        println!("     Mismatched combinations are impossible at compile time!");
         println!();
     }
 

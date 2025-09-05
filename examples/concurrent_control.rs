@@ -34,12 +34,13 @@ use grafton_visca::{
             zoom::ZoomControl,
         },
         profiles::PtzOpticsG2,
-        AsyncCamera,
+        Camera,
     },
-    transport::{builder::AnyTransport, Transport},
+    mode::Async,
+    runtime_trait::TransportHandle,
     types::SpeedLevel,
     units::Normalized,
-    CameraBuilder, PanTiltDirection, PresetNumber, Result, TokioExecutor,
+    PanTiltDirection, PresetNumber, Result, TokioRuntime,
 };
 
 #[cfg(feature = "rt-tokio")]
@@ -68,56 +69,40 @@ async fn main() -> Result<()> {
 async fn multi_camera_control() -> Result<()> {
     println!("--- Example 1: Multiple Cameras Simultaneously ---");
 
-    // Create multiple cameras using uniform Transport API
-    // Using .build_async() for true async transports (requires tokio runtime)
-    let transport1 = Transport::tcp()
-        .address("192.168.0.109:5678")
-        .connect_timeout(Duration::from_secs(5))
-        .build_async()
-        .await
-        .map_err(|e| {
-            eprintln!("Failed to connect to camera 1: {e}");
-            e
-        })?;
+    // Create a Tokio runtime for all cameras
+    let runtime = TokioRuntime::from_current()?;
 
-    let transport2 = Transport::tcp()
-        .address("192.168.0.110:5678")
-        .connect_timeout(Duration::from_secs(5))
-        .build_async()
-        .await
-        .map_err(|e| {
-            eprintln!("Failed to connect to camera 2: {e}");
-            e
-        })?;
+    // Connect to cameras using the runtime API
+    // This ensures type-safe pairing of executor and transports
+    let cam1: Arc<Camera<Async, PtzOpticsG2, TransportHandle<TokioRuntime>, TokioRuntime>> =
+        Arc::new(
+            Camera::connect_tcp("192.168.0.109:5678", runtime.clone())
+                .await
+                .map_err(|e| {
+                    eprintln!("Failed to connect to camera 1: {e}");
+                    e
+                })?,
+        );
 
-    let transport3 = Transport::tcp()
-        .address("192.168.0.111:5678")
-        .connect_timeout(Duration::from_secs(5))
-        .build_async()
-        .await
-        .map_err(|e| {
-            eprintln!("Failed to connect to camera 3: {e}");
-            e
-        })?;
+    let cam2: Arc<Camera<Async, PtzOpticsG2, TransportHandle<TokioRuntime>, TokioRuntime>> =
+        Arc::new(
+            Camera::connect_tcp("192.168.0.110:5678", runtime.clone())
+                .await
+                .map_err(|e| {
+                    eprintln!("Failed to connect to camera 2: {e}");
+                    e
+                })?,
+        );
 
-    // Build cameras with the Tokio executor using the builder pattern
-    let cam1: Arc<AsyncCamera<PtzOpticsG2, AnyTransport, TokioExecutor>> = Arc::new(
-        CameraBuilder::tokio()?
-            .build_async::<PtzOpticsG2, _>(transport1)
-            .await?,
-    );
-
-    let cam2: Arc<AsyncCamera<PtzOpticsG2, AnyTransport, TokioExecutor>> = Arc::new(
-        CameraBuilder::tokio()?
-            .build_async::<PtzOpticsG2, _>(transport2)
-            .await?,
-    );
-
-    let cam3: Arc<AsyncCamera<PtzOpticsG2, AnyTransport, TokioExecutor>> = Arc::new(
-        CameraBuilder::tokio()?
-            .build_async::<PtzOpticsG2, _>(transport3)
-            .await?,
-    );
+    let cam3: Arc<Camera<Async, PtzOpticsG2, TransportHandle<TokioRuntime>, TokioRuntime>> =
+        Arc::new(
+            Camera::connect_tcp("192.168.0.111:5678", runtime.clone())
+                .await
+                .map_err(|e| {
+                    eprintln!("Failed to connect to camera 3: {e}");
+                    e
+                })?,
+        );
 
     // Spawn concurrent tasks for each camera
     let handle1 = {
@@ -189,22 +174,17 @@ async fn multi_camera_control() -> Result<()> {
 async fn parallel_single_camera() -> Result<()> {
     println!("--- Example 2: Parallel Operations on Single Camera ---");
 
-    // Create camera with proper error handling
-    let transport = Transport::tcp()
-        .address("192.168.0.110:5678")
-        .connect_timeout(Duration::from_secs(5))
-        .build_async()
-        .await
-        .map_err(|e| {
-            eprintln!("Failed to connect to camera: {e}");
-            e
-        })?;
-
-    let camera: Arc<AsyncCamera<PtzOpticsG2, AnyTransport, TokioExecutor>> = Arc::new(
-        CameraBuilder::tokio()?
-            .build_async::<PtzOpticsG2, _>(transport)
-            .await?,
-    );
+    // Create a Tokio runtime and connect to a single camera
+    let runtime = TokioRuntime::from_current()?;
+    let camera: Arc<Camera<Async, PtzOpticsG2, TransportHandle<TokioRuntime>, TokioRuntime>> =
+        Arc::new(
+            Camera::connect_tcp("192.168.0.110:5678", runtime)
+                .await
+                .map_err(|e| {
+                    eprintln!("Failed to connect to camera: {e}");
+                    e
+                })?,
+        );
 
     println!("Querying multiple states in parallel...");
 
@@ -267,15 +247,9 @@ async fn producer_consumer_pattern() -> Result<()> {
 
     use tokio::sync::mpsc;
 
-    let transport = Transport::tcp()
-        .address("192.168.0.110:5678")
-        .build_async()
-        .await?;
-    let camera: Arc<AsyncCamera<PtzOpticsG2, AnyTransport, TokioExecutor>> = Arc::new(
-        CameraBuilder::tokio()?
-            .build_async::<PtzOpticsG2, _>(transport)
-            .await?,
-    );
+    let runtime = TokioRuntime::from_current()?;
+    let camera: Arc<Camera<Async, PtzOpticsG2, TransportHandle<TokioRuntime>, TokioRuntime>> =
+        Arc::new(Camera::connect_tcp("192.168.0.110:5678", runtime).await?);
 
     // Save initial state
     let (tx, mut rx) = mpsc::channel(10);
@@ -355,16 +329,10 @@ async fn synchronized_movement() -> Result<()> {
     let mut cameras = vec![];
     let mut initial_states = vec![];
 
+    let runtime = TokioRuntime::from_current()?;
     for addr in camera_addrs {
-        let transport = Transport::tcp()
-            .address(format!("{addr}:5678"))
-            .build_async()
-            .await?;
-        let camera: Arc<AsyncCamera<PtzOpticsG2, AnyTransport, TokioExecutor>> = Arc::new(
-            CameraBuilder::tokio()?
-                .build_async::<PtzOpticsG2, _>(transport)
-                .await?,
-        );
+        let camera: Arc<Camera<Async, PtzOpticsG2, TransportHandle<TokioRuntime>, TokioRuntime>> =
+            Arc::new(Camera::connect_tcp(format!("{addr}:5678"), runtime.clone()).await?);
 
         // Save initial state
         let state = camera.get_pan_tilt_position().await.ok();

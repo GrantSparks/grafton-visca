@@ -17,8 +17,10 @@
 use grafton_visca::{
     camera::controls::inquiry::InquiryControl,
     camera::profiles::GenericVisca, // Works with both Sony and PTZOptics
+    camera::Camera,
+    mode::Async,
+    runtime_trait::TokioRuntime,
     transport::Transport,
-    CameraBuilder,
     Error,
 };
 use std::env;
@@ -40,7 +42,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // EPIC B3: Auto-detect handshake
     // This probes both Sony encapsulated and raw VISCA formats
-    match Transport::auto_detect(&camera_addr).await {
+    // Create the runtime for type-safe pairing
+    let runtime = TokioRuntime::from_current()?;
+
+    match Transport::auto_detect(&camera_addr, runtime.clone()).await {
         Ok((transport, detected_protocol)) => {
             println!("✅ Protocol Detection Successful!");
 
@@ -64,10 +69,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             println!();
 
-            // Create camera with detected transport
-            let camera = CameraBuilder::tokio()?
-                .build_async::<GenericVisca, _>(transport)
-                .await?;
+            // Create camera with detected transport and runtime
+            let camera = Camera::<Async, GenericVisca, _, _>::new_async(transport, runtime).await?;
 
             println!("🔍 Testing basic camera operations...");
 

@@ -16,9 +16,10 @@ use grafton_visca::{
     camera::{
         controls::{pan_tilt::PanTiltControl, power::PowerControl, zoom::ZoomControl},
         profiles::PtzOpticsG2,
+        Camera,
     },
-    transport::Transport,
-    CameraBuilder,
+    mode::Async,
+    runtime_trait::AsyncStdRuntime,
 };
 
 #[async_std::main]
@@ -30,12 +31,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .nth(1)
         .unwrap_or_else(|| "192.168.0.110:5678".into());
     println!("Connecting to camera at {addr} with async-std...");
-    // Use TransportBuilder for native async-std TCP transport
-    let transport = Transport::tcp().address(&addr).build_async().await?;
-
-    let camera = CameraBuilder::async_std()
-        .build_async::<PtzOpticsG2, _>(transport)
-        .await?;
+    // Create the async-std runtime and connect with type-safe pairing
+    let runtime = AsyncStdRuntime::new();
+    let camera = Camera::<Async, PtzOpticsG2, _, _>::connect_tcp(addr, runtime).await?;
 
     // High-level control
     println!("Powering on...\n");
