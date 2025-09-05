@@ -2,8 +2,6 @@
 
 use std::time::Duration;
 
-use crate::capabilities::CameraFeature;
-
 /// Core trait that all camera profiles must implement.
 ///
 /// This trait provides essential metadata about the camera model including
@@ -133,124 +131,6 @@ pub trait HasOnePushWhiteBalance {}
 /// Marker trait indicating support for auto exposure.
 pub trait HasAutoExposure {}
 
-/// Extension trait for profile introspection.
-///
-/// This trait provides runtime capability discovery methods. While the
-/// primary API uses compile-time trait bounds, these methods can be
-/// useful for debugging, logging, or dynamic UI generation.
-pub trait ProfileIntrospection: ProfileMetadata {
-    /// Check if camera supports pan/tilt movement.
-    fn supports_pan_tilt(&self) -> bool {
-        false // Default, overridden by blanket impls
-    }
-
-    /// Check if camera supports zoom control.
-    fn supports_zoom(&self) -> bool {
-        false
-    }
-
-    /// Check if camera supports focus control.
-    fn supports_focus(&self) -> bool {
-        false
-    }
-
-    /// Check if camera supports exposure control.
-    fn supports_exposure(&self) -> bool {
-        false
-    }
-
-    /// Check if camera supports white balance.
-    fn supports_white_balance(&self) -> bool {
-        false
-    }
-
-    /// Check if camera supports image processing.
-    fn supports_image_processing(&self) -> bool {
-        false
-    }
-
-    /// Check if camera supports presets.
-    fn supports_presets(&self) -> bool {
-        false
-    }
-
-    /// Check if camera supports power control.
-    fn supports_power(&self) -> bool {
-        false
-    }
-
-    /// Check if camera supports ND filter.
-    fn supports_nd_filter(&self) -> bool {
-        false
-    }
-
-    /// Get a list of supported camera features.
-    fn supported_features(&self) -> Vec<CameraFeature> {
-        let mut features = Vec::new();
-
-        if self.supports_pan_tilt() {
-            features.push(CameraFeature::PanTilt);
-        }
-        if self.supports_zoom() {
-            features.push(CameraFeature::Zoom);
-        }
-        if self.supports_focus() {
-            features.push(CameraFeature::Focus);
-        }
-        if self.supports_exposure() {
-            features.push(CameraFeature::Exposure);
-        }
-        if self.supports_white_balance() {
-            features.push(CameraFeature::WhiteBalance);
-        }
-        if self.supports_image_processing() {
-            features.push(CameraFeature::ImageProcessing);
-        }
-        if self.supports_presets() {
-            features.push(CameraFeature::Presets);
-        }
-        if self.supports_power() {
-            features.push(CameraFeature::Power);
-        }
-        if self.supports_nd_filter() {
-            features.push(CameraFeature::NdFilter);
-        }
-
-        features
-    }
-
-    /// Get a human-readable summary of camera capabilities.
-    fn capability_summary(&self) -> String {
-        let features = self.supported_features();
-        let capabilities: Vec<&str> = features.iter().map(|f| f.name()).collect();
-
-        format!(
-            "{} - Protocol: {:?} - Capabilities: {}",
-            Self::MODEL_NAME,
-            Self::PROTOCOL_STYLE,
-            if capabilities.is_empty() {
-                "None".to_string()
-            } else {
-                capabilities.join(", ")
-            }
-        )
-    }
-
-    /// Get a detailed description of supported features.
-    fn feature_descriptions(&self) -> Vec<(CameraFeature, &'static str)> {
-        self.supported_features()
-            .into_iter()
-            .map(|feature| (feature, feature.description()))
-            .collect()
-    }
-}
-
-// Blanket implementation for all types with ProfileMetadata
-// Note: Since Rust doesn't support trait specialization, the introspection
-// methods will need to be implemented manually for each profile based on
-// which capability traits it implements.
-impl<T: ProfileMetadata> ProfileIntrospection for T {}
-
 // Specialized blanket implementations for each marker trait.
 // These automatically implement the marker trait for any type that implements
 // both ProfileMetadata and the corresponding capability trait.
@@ -302,20 +182,5 @@ mod tests {
             sony_style,
             ProtocolStyle::SonyEncapsulated { use_sequence: true }
         ));
-    }
-
-    #[test]
-    fn test_introspection() {
-        let camera = TestCamera;
-
-        // Without implementing capability traits, all return false
-        assert!(!camera.supports_pan_tilt());
-        assert!(!camera.supports_zoom());
-        assert!(!camera.supports_nd_filter());
-
-        // Summary shows no capabilities
-        let summary = camera.capability_summary();
-        assert!(summary.contains("Test Camera"));
-        assert!(summary.contains("RawVisca"));
     }
 }

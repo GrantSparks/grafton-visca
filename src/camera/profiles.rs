@@ -999,23 +999,4 @@ mod tests {
             ProtocolStyle::SonyEncapsulated { use_sequence: true }
         ));
     }
-
-    #[test]
-    fn test_profile_introspection() {
-        use crate::capabilities::ProfileIntrospection;
-
-        let g2 = PtzOpticsG2;
-        let fr7 = SonyFR7;
-        let generic = GenericVisca;
-
-        assert!(!g2.supports_nd_filter());
-        assert!(!fr7.supports_nd_filter());
-        assert!(!generic.supports_nd_filter());
-
-        let g2_summary = g2.capability_summary();
-        assert!(g2_summary.contains("PtzOptics G2"));
-
-        let fr7_summary = fr7.capability_summary();
-        assert!(fr7_summary.contains("Sony FR7"));
-    }
 }

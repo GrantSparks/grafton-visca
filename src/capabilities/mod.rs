@@ -45,7 +45,6 @@ pub use profile_metadata::{
     HasWDR,
     HasWhiteBalance,
     HasZoom,
-    ProfileIntrospection,
     ProfileMetadata,
     ProtocolStyle,
 };
@@ -71,10 +70,6 @@ pub use types::*;
 // Validation utilities
 mod validation;
 pub use validation::ValidationError;
-
-// Feature enumeration for documentation/logging
-mod feature_detection;
-pub use feature_detection::CameraFeature;
 
 /// Super-trait that encompasses all camera capabilities.
 ///
