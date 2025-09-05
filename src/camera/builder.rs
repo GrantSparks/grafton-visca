@@ -179,7 +179,12 @@ where
             self.protocol_style.unwrap_or(P::PROTOCOL_STYLE)
         };
 
-        let mut camera = Camera::new_async_with_style(transport, executor, protocol_style).await?;
+        let mut camera = Camera::<mode::Async, P, T, E>::new_async_with_style(
+            transport,
+            executor,
+            protocol_style,
+        )
+        .await?;
         camera.set_camera_id(self.camera_id);
         camera.set_timeout_config(self.timeout_config);
 

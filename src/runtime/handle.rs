@@ -116,6 +116,30 @@ impl RuntimeHandle {
         .await
     }
 
+    /// Create a new camera runtime with explicit protocol style, timeout config, and retry config.
+    ///
+    /// This allows specifying the protocol style, custom timeouts, and retry behavior.
+    pub async fn new_with_style_timeout_and_retry<
+        T: AsyncTransport + Send + 'static,
+        E: crate::executor::Executor,
+    >(
+        transport: T,
+        executor: Arc<E>,
+        protocol_style: ProtocolStyle,
+        timeout_config: crate::timeout::TimeoutConfig,
+        retry_config: crate::transport::RetryConfig,
+    ) -> Result<Self> {
+        Self::with_tick_interval_style_and_retry(
+            transport,
+            executor,
+            None,
+            protocol_style,
+            Some(timeout_config),
+            retry_config,
+        )
+        .await
+    }
+
     /// Auto-detect the protocol style and create a new runtime.
     ///
     /// This probes the camera to determine whether it uses raw VISCA or Sony encapsulated protocol.
@@ -193,6 +217,40 @@ impl RuntimeHandle {
         protocol_style: ProtocolStyle,
         timeout_config: Option<crate::timeout::TimeoutConfig>,
     ) -> Result<Self> {
+        // Use default retry config
+        let retry_config = crate::transport::RetryConfig::default();
+        Self::with_tick_interval_style_and_retry(
+            transport,
+            executor,
+            tick_interval_ms,
+            protocol_style,
+            timeout_config,
+            retry_config,
+        )
+        .await
+    }
+
+    /// Create a new camera runtime with a custom tick interval, protocol style, and retry config.
+    ///
+    /// # Arguments
+    /// * `transport` - The transport to use for communication
+    /// * `executor` - The async executor to spawn tasks on
+    /// * `tick_interval_ms` - Optional tick interval in milliseconds (default: 50ms)
+    /// * `protocol_style` - The protocol style to use (Raw VISCA or Sony encapsulated)
+    /// * `timeout_config` - Optional timeout configuration (defaults to TimeoutConfig::default())
+    /// * `retry_config` - Retry configuration for the runtime
+    #[instrument(level = "debug", skip(transport, executor, timeout_config, retry_config), fields(tick_ms = tick_interval_ms, protocol = ?protocol_style))]
+    pub async fn with_tick_interval_style_and_retry<
+        T: AsyncTransport + Send + 'static,
+        E: crate::executor::Executor,
+    >(
+        transport: T,
+        executor: Arc<E>,
+        tick_interval_ms: Option<u64>,
+        protocol_style: ProtocolStyle,
+        timeout_config: Option<crate::timeout::TimeoutConfig>,
+        retry_config: crate::transport::RetryConfig,
+    ) -> Result<Self> {
         let (submit_tx, submit_rx) = flume::unbounded();
         let (metrics_tx, metrics_rx) = flume::unbounded();
 
@@ -210,6 +268,7 @@ impl RuntimeHandle {
             envelope,
             buffer_manager,
             timeout_config,
+            retry_config,
         };
         let runtime_task = runtime_loop_with_config(
             transport,

@@ -1,12 +1,13 @@
 //! Camera construction methods using the Runtime trait for type-safe pairing.
 
 use crate::{
-    camera::Camera,
     capabilities::Profile,
     runtime_trait::{Runtime, TransportHandle},
     transport::Transport,
     Error,
 };
+
+use super::Camera;
 
 // Camera construction methods that use the Runtime trait for type-safe pairing
 #[cfg(feature = "async")]
@@ -15,6 +16,47 @@ where
     P: Profile + Default,
     R: Runtime,
 {
+    /// Create a new async camera instance with a TransportHandle.
+    /// This extracts the RetryConfig from the TransportHandle and passes it to the RuntimeHandle.
+    pub async fn new_async_runtime(
+        transport: TransportHandle<R>,
+        executor: R,
+    ) -> Result<Self, Error> {
+        Self::new_async_with_runtime_transport(transport, executor, P::PROTOCOL_STYLE).await
+    }
+
+    /// Create a new async camera instance with explicit protocol style and TransportHandle.
+    /// This extracts the RetryConfig from the TransportHandle and passes it to the RuntimeHandle.
+    async fn new_async_with_runtime_transport(
+        transport: TransportHandle<R>,
+        executor: R,
+        protocol_style: crate::capabilities::ProtocolStyle,
+    ) -> Result<Self, Error> {
+        let camera_id = crate::camera_id::CameraId::new(1)?;
+
+        // Extract the config from the TransportHandle
+        let config = transport.config();
+        let timeout_config = crate::timeout::TimeoutConfig::default();
+        let retry_config = config.retry_config;
+
+        // Create RuntimeHandle with the transport, executor, protocol style, and retry config
+        let runtime_handle = crate::runtime::RuntimeHandle::new_with_style_timeout_and_retry(
+            transport,
+            std::sync::Arc::new(executor),
+            protocol_style,
+            timeout_config,
+            retry_config,
+        )
+        .await?;
+
+        // Use the from_runtime_handle method to create the camera
+        Ok(Self::from_runtime_handle(
+            camera_id,
+            timeout_config,
+            runtime_handle,
+        ))
+    }
+
     /// Connect to a camera with automatic protocol detection using a specific runtime.
     ///
     /// This method automatically detects whether the camera uses Sony encapsulated
@@ -43,7 +85,8 @@ where
             Transport::auto_detect(address, runtime.clone()).await?;
 
         // Use the detected protocol style from the camera profile
-        Self::new_async(transport, runtime).await
+        // The Camera implementation will extract RetryConfig from TransportHandle
+        Camera::new_async_runtime(transport, runtime).await
     }
 
     /// Connect to a camera via TCP using a specific runtime.
@@ -75,7 +118,7 @@ where
             .build_async_with(runtime.clone())
             .await?;
 
-        Self::new_async(transport, runtime).await
+        Camera::new_async_runtime(transport, runtime).await
     }
 
     /// Connect to a camera via UDP using a specific runtime.
@@ -107,6 +150,6 @@ where
             .build_async_with(runtime.clone())
             .await?;
 
-        Self::new_async(transport, runtime).await
+        Camera::new_async_runtime(transport, runtime).await
     }
 }

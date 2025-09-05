@@ -457,13 +457,6 @@ impl Transport {
 /// ```
 #[derive(Debug, Clone)]
 pub struct NetTransportBuilder {
-    #[cfg_attr(
-        all(
-            feature = "async",
-            not(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))
-        ),
-        allow(dead_code)
-    )]
     protocol: Protocol,
     address: Option<String>,
     config: TransportConfig,
@@ -684,11 +677,11 @@ impl NetTransportBuilder {
         match self.protocol {
             Protocol::Tcp => {
                 let transport = R::connect_tcp(&address, self.config).await?;
-                Ok(TransportHandle::Tcp(transport))
+                Ok(TransportHandle::Tcp(transport, self.config))
             }
             Protocol::Udp => {
                 let transport = R::connect_udp(&address, self.config).await?;
-                Ok(TransportHandle::Udp(transport))
+                Ok(TransportHandle::Udp(transport, self.config))
             }
         }
     }

@@ -26,7 +26,7 @@ use crate::{
     transport::{
         buffer::{BufferConfig, BufferManager},
         envelope::TransportEnvelope,
-        SyncTransport,
+        RetryConfig, SyncTransport,
     },
     visca_socket::ViscaSocket,
 };
@@ -51,6 +51,16 @@ pub struct BlockingRunner {
 impl BlockingRunner {
     /// Create a new blocking runner.
     pub fn new(style: ProtocolStyle, timeout_config: TimeoutConfig) -> Self {
+        // Use default retry config for backward compatibility
+        Self::new_with_retry(style, timeout_config, RetryConfig::default())
+    }
+
+    /// Create a new blocking runner with retry configuration.
+    pub fn new_with_retry(
+        style: ProtocolStyle,
+        timeout_config: TimeoutConfig,
+        retry_config: RetryConfig,
+    ) -> Self {
         let buffer_config = if matches!(style, ProtocolStyle::SonyEncapsulated { .. }) {
             BufferConfig::for_sony_ip()
         } else {
@@ -58,7 +68,7 @@ impl BlockingRunner {
         };
 
         Self {
-            core: SchedulerCore::new(timeout_config),
+            core: SchedulerCore::with_retry_config(timeout_config, retry_config),
             envelope: TransportEnvelope::new(style),
             buffer_manager: BufferManager::new(buffer_config),
             next_id: AtomicU32::new(1),

@@ -9,8 +9,7 @@ use crate::{
         address::AddressResolver,
         buffer::{BufferConfig, BufferManager},
         builder::TransportConfig,
-        retry::RetryExecutor,
-        RetryConfig, SyncTransport,
+        SyncTransport,
     },
     Error,
 };
@@ -21,7 +20,6 @@ use crate::{
 #[derive(Debug)]
 pub struct Udp {
     socket: UdpSocket,
-    retry_executor: RetryExecutor,
     buffer_manager: BufferManager,
 }
 
@@ -65,24 +63,10 @@ impl Udp {
         // Create buffer manager with config
         let buffer_manager = BufferManager::new(config.buffer_config);
 
-        // Create retry executor with config
-        let retry_executor = RetryExecutor::new(config.retry_config);
-
         Ok(Self {
             socket,
-            retry_executor,
             buffer_manager,
         })
-    }
-
-    /// Set the retry configuration for this transport.
-    pub fn set_retry_config(&mut self, config: RetryConfig) {
-        self.retry_executor.set_config(config);
-    }
-
-    /// Get the current retry configuration.
-    pub fn retry_config(&self) -> &RetryConfig {
-        self.retry_executor.config()
     }
 
     /// Set the read timeout for receive operations.
@@ -106,13 +90,10 @@ impl Udp {
 
 impl SyncTransport for Udp {
     fn send_with_kind(&mut self, data: &[u8], _kind: CommandKind) -> Result<(), Error> {
-        // Clone data for retry closure
-        let data_vec = data.to_vec();
-
-        self.retry_executor.execute(|| {
-            self.socket.send(&data_vec)?;
-            Ok(())
-        })
+        // Send directly - retry logic is handled at the runtime/scheduler level for async
+        // For blocking mode, the blocking runner will handle retries
+        self.socket.send(data)?;
+        Ok(())
     }
 
     fn recv(&mut self) -> Result<Bytes, Error> {

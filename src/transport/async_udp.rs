@@ -7,8 +7,7 @@ use bytes::Bytes;
 
 use crate::{
     transport::{
-        async_io::AsyncDatagram, buffer::BufferManager, builder::TransportConfig,
-        retry::RetryExecutor, AsyncTransport, RetryConfig,
+        async_io::AsyncDatagram, buffer::BufferManager, builder::TransportConfig, AsyncTransport,
     },
     Error,
 };
@@ -21,7 +20,6 @@ use crate::{
 #[derive(Debug)]
 pub struct Udp<S: AsyncDatagram> {
     socket: S,
-    retry_executor: RetryExecutor,
     buffer_manager: BufferManager,
 }
 
@@ -32,27 +30,20 @@ impl<S: AsyncDatagram> Udp<S> {
     pub fn new(socket: S, config: TransportConfig) -> Self {
         Self {
             socket,
-            retry_executor: RetryExecutor::new(config.retry_config),
             buffer_manager: BufferManager::new(config.buffer_config),
         }
-    }
-
-    /// Get the current retry configuration.
-    pub fn retry_config(&self) -> &RetryConfig {
-        self.retry_executor.config()
     }
 }
 
 impl<S: AsyncDatagram> AsyncTransport for Udp<S> {
     async fn send(&mut self, data: &[u8]) -> Result<(), Error> {
-        // Note: Retry logic for async UDP would require more complex refactoring
-        // For now, send directly without retry
+        // Send directly - retry logic is handled at the runtime/scheduler level
         self.socket.send(data).await?;
         Ok(())
     }
 
     async fn recv(&mut self) -> Result<Bytes, Error> {
-        // Receiving is typically not retried to avoid protocol confusion
+        // Receive data from the socket
         let mut buffer = self.buffer_manager.alloc_vec_buffer();
         let n = self.socket.recv(&mut buffer).await?;
         Ok(self.buffer_manager.process_recv_data(buffer, n))

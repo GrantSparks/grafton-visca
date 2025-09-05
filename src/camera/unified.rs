@@ -97,6 +97,24 @@ where
     Tr: AsyncTransport + Send + 'static,
     Exec: Executor + Send + Sync + 'static,
 {
+    /// Create a camera from pre-constructed components.
+    /// This is primarily used internally when RetryConfig needs to be extracted from TransportHandle.
+    pub(crate) fn from_runtime_handle(
+        camera_id: CameraId,
+        timeout_config: TimeoutConfig,
+        runtime_handle: crate::runtime::RuntimeHandle,
+    ) -> Self {
+        Self {
+            camera_id,
+            timeout_config,
+            runtime: runtime_handle,
+            _phantom_mode: PhantomData,
+            _phantom_profile: PhantomData,
+            _phantom_exec: PhantomData,
+            _phantom_transport: PhantomData,
+        }
+    }
+
     /// Create a new async camera instance using the profile's protocol style.
     pub async fn new_async(transport: Tr, executor: Exec) -> Result<Self, Error> {
         Self::new_async_with_style(transport, executor, P::PROTOCOL_STYLE).await

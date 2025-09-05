@@ -15,7 +15,7 @@ use crate::{
     error::{Error, Result},
     protocol::framer::ProtocolFramer,
     timeout::TimeoutConfig,
-    transport::{buffer::BufferManager, envelope::TransportEnvelope, AsyncTransport},
+    transport::{buffer::BufferManager, envelope::TransportEnvelope, AsyncTransport, RetryConfig},
 };
 
 /// Configuration for the runtime loop.
@@ -24,6 +24,7 @@ pub struct RuntimeLoopConfig {
     pub envelope: TransportEnvelope,
     pub buffer_manager: BufferManager,
     pub timeout_config: TimeoutConfig,
+    pub retry_config: RetryConfig,
 }
 
 /// Main runtime loop with configurable tick interval.
@@ -38,7 +39,11 @@ pub async fn runtime_loop_with_config<
     executor: Arc<E>,
     config: RuntimeLoopConfig,
 ) -> Result<()> {
-    let mut scheduler = Scheduler::with_timeout_config(submit_rx.clone(), config.timeout_config);
+    let mut scheduler = Scheduler::with_timeout_and_retry_config(
+        submit_rx.clone(),
+        config.timeout_config,
+        config.retry_config,
+    );
     let mut protocol_framer = ProtocolFramer::new(4096); // Default buffer size
     let mut consecutive_retries = 0usize;
 

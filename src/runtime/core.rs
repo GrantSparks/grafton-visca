@@ -224,6 +224,8 @@ pub struct SchedulerCore {
     sockets: [SocketState; 2],
     /// Timeout configuration.
     timeout_config: TimeoutConfig,
+    /// Retry configuration.
+    retry_config: crate::transport::RetryConfig,
     /// Commands that have been sent but not yet acknowledged.
     /// Maps command ID to (bytes, priority, category, sent_time, camera_id).
     pending_ack: HashMap<
@@ -263,18 +265,33 @@ pub struct SchedulerCore {
 impl SchedulerCore {
     /// Create a new scheduler core with the given timeout configuration.
     pub fn new(timeout_config: TimeoutConfig) -> Self {
-        // Set default max retries per category
+        // Use default retry config
+        Self::with_retry_config(timeout_config, crate::transport::RetryConfig::default())
+    }
+
+    /// Create a new scheduler core with the given timeout and retry configuration.
+    pub fn with_retry_config(
+        timeout_config: TimeoutConfig,
+        retry_config: crate::transport::RetryConfig,
+    ) -> Self {
+        // Set max retries per category based on retry config
         let mut max_retries = HashMap::new();
-        max_retries.insert(CommandCategory::Quick, 5);
-        max_retries.insert(CommandCategory::Movement, 3);
-        max_retries.insert(CommandCategory::Preset, 3);
-        max_retries.insert(CommandCategory::Network, 2);
-        max_retries.insert(CommandCategory::LongRunning, 1);
-        max_retries.insert(CommandCategory::Custom, 3);
+        // Scale the category-specific retries based on the overall max_retries setting
+        let base_retries = retry_config.max_retries;
+        max_retries.insert(CommandCategory::Quick, base_retries.max(1) + 2); // Quick commands get extra retries
+        max_retries.insert(CommandCategory::Movement, base_retries);
+        max_retries.insert(CommandCategory::Preset, base_retries);
+        max_retries.insert(
+            CommandCategory::Network,
+            base_retries.saturating_sub(1).max(1),
+        );
+        max_retries.insert(CommandCategory::LongRunning, 1); // Long running always get minimal retries
+        max_retries.insert(CommandCategory::Custom, base_retries);
 
         Self {
             sockets: Default::default(),
             timeout_config,
+            retry_config,
             pending_ack: HashMap::new(),
             retry_queue: Vec::new(),
             command_metadata: HashMap::new(),
@@ -687,9 +704,8 @@ impl SchedulerCore {
             let attempt = self.retry_attempts.entry(cmd_id).or_insert(0);
             *attempt += 1;
 
-            // Calculate backoff delay
-            let base_delay = Duration::from_millis(100);
-            let delay = base_delay * 2u32.pow(*attempt);
+            // Calculate backoff delay using RetryConfig
+            let delay = self.retry_config.calculate_delay(*attempt, None);
 
             let retry_cmd = RetryCommand {
                 id: cmd_id,

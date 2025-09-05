@@ -8,7 +8,7 @@ use std::{
     borrow::Cow,
     io::{BufReader, Read, Write},
     net::{TcpStream, UdpSocket},
-    time::{Duration, Instant},
+    time::Duration,
 };
 use tracing::{debug, trace};
 
@@ -20,7 +20,6 @@ use crate::{
     transport::{
         address::AddressResolver,
         buffer::{BufferConfig, BufferManager},
-        retry::RetryExecutor,
         RetryConfig,
     },
 };
@@ -59,7 +58,6 @@ pub struct RawTcpTransport {
     writer: TcpStream,
     buffer_manager: BufferManager,
     read_buffer: BytesMut,
-    retry_executor: RetryExecutor,
 }
 
 impl RawTcpTransport {
@@ -98,15 +96,11 @@ impl RawTcpTransport {
         // Create buffer manager with raw IP optimized sizes
         let buffer_manager = BufferManager::new(BufferConfig::for_raw_ip());
 
-        // Create retry executor with the configured retry settings
-        let retry_executor = RetryExecutor::new(config.retry_config);
-
         Ok(Self {
             reader,
             writer,
             buffer_manager,
             read_buffer: buffer_manager.alloc_recv_buffer(),
-            retry_executor,
         })
     }
 
@@ -147,26 +141,18 @@ impl RawTcpTransport {
 #[cfg(not(feature = "async"))]
 impl SyncTransport for RawTcpTransport {
     fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<()> {
-        // Clone bytes for the closure
-        let bytes_vec = bytes.to_vec();
+        // Send directly - retry logic is handled at the runtime/scheduler level
+        self.writer
+            .write_all(bytes)
+            .and_then(|_| self.writer.flush())
+            .map_err(|e| Error::TransportError(format!("TCP write error: {e}").into()))?;
 
-        // Create a mutable reference to writer for the retry closure
-        let writer = &mut self.writer;
-
-        // Use the retry executor for automatic retry handling
-        self.retry_executor.execute(|| {
-            writer
-                .write_all(&bytes_vec)
-                .and_then(|_| writer.flush())
-                .map_err(|e| Error::TransportError(format!("TCP write error: {e}").into()))?;
-
-            trace!(
-                "Sent {len} bytes: {bytes:02X?}",
-                len = bytes_vec.len(),
-                bytes = bytes_vec
-            );
-            Ok(())
-        })
+        trace!(
+            "Sent {len} bytes: {bytes:02X?}",
+            len = bytes.len(),
+            bytes = bytes
+        );
+        Ok(())
     }
 
     fn recv(&mut self) -> Result<Bytes> {
@@ -206,10 +192,6 @@ pub struct RawUdpTransport {
     socket: UdpSocket,
     buffer_manager: BufferManager,
     read_buffer: BytesMut,
-    retry_executor: RetryExecutor,
-    config: RawIpConfig,
-    /// Track last sent command for retry on timeout
-    last_command: Option<Vec<u8>>,
 }
 
 impl RawUdpTransport {
@@ -247,16 +229,10 @@ impl RawUdpTransport {
         // Create buffer manager with UDP optimized sizes
         let buffer_manager = BufferManager::new(BufferConfig::for_udp());
 
-        // Create retry executor with the configured retry settings
-        let retry_executor = RetryExecutor::new(config.retry_config);
-
         Ok(Self {
             socket,
             buffer_manager,
             read_buffer: buffer_manager.alloc_recv_buffer(),
-            retry_executor,
-            config,
-            last_command: None,
         })
     }
 
@@ -295,86 +271,22 @@ impl RawUdpTransport {
 #[cfg(not(feature = "async"))]
 impl SyncTransport for RawUdpTransport {
     fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<()> {
-        // Store the command for potential retry on receive timeout
-        self.last_command = Some(bytes.to_vec());
+        // Send directly - retry logic is handled at the runtime/scheduler level
+        self.socket
+            .send(bytes)
+            .map_err(|e| Error::TransportError(format!("UDP send error: {e}").into()))?;
 
-        // Clone bytes for the closure
-        let bytes_vec = bytes.to_vec();
-
-        // Create a reference to socket for the retry closure
-        let socket = &self.socket;
-
-        // Use the retry executor for automatic retry handling
-        self.retry_executor.execute(|| {
-            socket
-                .send(&bytes_vec)
-                .map_err(|e| Error::TransportError(format!("UDP send error: {e}").into()))?;
-
-            trace!(
-                "Sent {len} bytes: {bytes:02X?}",
-                len = bytes_vec.len(),
-                bytes = bytes_vec
-            );
-            Ok(())
-        })
+        trace!(
+            "Sent {len} bytes: {bytes:02X?}",
+            len = bytes.len(),
+            bytes = bytes
+        );
+        Ok(())
     }
 
     fn recv(&mut self) -> Result<Bytes> {
-        let mut attempts = 0;
-        let start_time = Instant::now();
-
-        loop {
-            match self.recv_frame() {
-                Ok(frame) => return Ok(frame),
-                Err(Error::Timeout)
-                    if self.config.retry_config.should_retry(attempts, start_time) =>
-                {
-                    // For UDP, timeout might mean packet loss - resend last command
-                    if let Some(cmd) = self.last_command.clone() {
-                        attempts += 1;
-                        let delay = self
-                            .config
-                            .retry_config
-                            .calculate_delay(attempts, Error::Timeout.suggested_retry_delay());
-
-                        if start_time.elapsed() + delay
-                            > self.config.retry_config.max_retry_duration
-                        {
-                            return Err(Error::MaxRetriesExceeded);
-                        }
-
-                        debug!("UDP receive timeout, resending command (attempt {attempts})");
-
-                        // Resend the command
-                        self.socket.send(&cmd).map_err(|e| {
-                            Error::TransportError(format!("UDP resend error: {e}").into())
-                        })?;
-
-                        std::thread::sleep(delay);
-                    } else {
-                        return Err(Error::Timeout);
-                    }
-                }
-                Err(e)
-                    if e.is_retryable()
-                        && self.config.retry_config.should_retry(attempts, start_time) =>
-                {
-                    attempts += 1;
-                    let delay = self
-                        .config
-                        .retry_config
-                        .calculate_delay(attempts, e.suggested_retry_delay());
-
-                    if start_time.elapsed() + delay > self.config.retry_config.max_retry_duration {
-                        return Err(Error::MaxRetriesExceeded);
-                    }
-
-                    debug!("Retrying UDP receive (attempt {attempts}): {e:?}");
-                    std::thread::sleep(delay);
-                }
-                Err(e) => return Err(e),
-            }
-        }
+        // Simply receive a frame - retry logic is handled at the blocking runner level
+        self.recv_frame()
     }
 
     fn recv_with_timeout(&mut self, timeout: Duration) -> Result<Bytes> {

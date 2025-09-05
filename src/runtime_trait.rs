@@ -11,7 +11,9 @@ use std::time::Instant;
 
 #[cfg(feature = "async")]
 use crate::{
-    executor::Executor, transport::builder::TransportConfig, transport::AsyncTransport, Error,
+    executor::Executor,
+    transport::{builder::TransportConfig, AsyncTransport},
+    Error,
 };
 
 /// Runtime trait that binds executor and transport connectors at the type level.
@@ -95,25 +97,36 @@ pub trait Runtime: Executor + Clone + Send + Sync + 'static {
 #[cfg(feature = "async")]
 #[derive(Debug)]
 pub enum TransportHandle<R: Runtime> {
-    /// TCP transport for this runtime.
-    Tcp(R::TcpTransport),
-    /// UDP transport for this runtime.
-    Udp(R::UdpTransport),
+    /// TCP transport for this runtime with its configuration.
+    Tcp(R::TcpTransport, TransportConfig),
+    /// UDP transport for this runtime with its configuration.
+    Udp(R::UdpTransport, TransportConfig),
+}
+
+#[cfg(feature = "async")]
+impl<R: Runtime> TransportHandle<R> {
+    /// Get the transport configuration.
+    pub fn config(&self) -> &TransportConfig {
+        match self {
+            TransportHandle::Tcp(_, config) => config,
+            TransportHandle::Udp(_, config) => config,
+        }
+    }
 }
 
 #[cfg(feature = "async")]
 impl<R: Runtime> AsyncTransport for TransportHandle<R> {
     async fn send(&mut self, bytes: &[u8]) -> Result<(), Error> {
         match self {
-            TransportHandle::Tcp(transport) => transport.send(bytes).await,
-            TransportHandle::Udp(transport) => transport.send(bytes).await,
+            TransportHandle::Tcp(transport, _) => transport.send(bytes).await,
+            TransportHandle::Udp(transport, _) => transport.send(bytes).await,
         }
     }
 
     async fn recv(&mut self) -> Result<bytes::Bytes, Error> {
         match self {
-            TransportHandle::Tcp(transport) => transport.recv().await,
-            TransportHandle::Udp(transport) => transport.recv().await,
+            TransportHandle::Tcp(transport, _) => transport.recv().await,
+            TransportHandle::Udp(transport, _) => transport.recv().await,
         }
     }
 }

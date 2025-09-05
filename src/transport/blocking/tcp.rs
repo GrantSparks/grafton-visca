@@ -12,8 +12,8 @@ use std::{
 use crate::{
     command::CommandKind,
     transport::{
-        address::AddressResolver, builder::TransportConfig, retry::RetryExecutor,
-        sync_io::read_visca_frame_sync, RetryConfig, SyncTransport,
+        address::AddressResolver, builder::TransportConfig, sync_io::read_visca_frame_sync,
+        SyncTransport,
     },
     Error,
 };
@@ -25,7 +25,6 @@ use crate::{
 pub struct Tcp {
     reader: BufReader<TcpStream>,
     writer: TcpStream,
-    retry_executor: RetryExecutor,
 }
 
 impl Tcp {
@@ -89,13 +88,9 @@ impl Tcp {
                     // Clone the stream for separate reader and writer
                     let reader_stream = stream.try_clone()?;
 
-                    // Create retry executor with config
-                    let retry_executor = RetryExecutor::new(config.retry_config);
-
                     return Ok(Self {
                         reader: BufReader::new(reader_stream),
                         writer: stream,
-                        retry_executor,
                     });
                 }
                 Err(e) => {
@@ -108,15 +103,7 @@ impl Tcp {
         Err(last_error.map(Into::into).unwrap_or_else(|| Error::Timeout))
     }
 
-    /// Set the retry configuration for this transport.
-    pub fn set_retry_config(&mut self, config: RetryConfig) {
-        self.retry_executor.set_config(config);
-    }
-
-    /// Get the current retry configuration.
-    pub fn retry_config(&self) -> &RetryConfig {
-        self.retry_executor.config()
-    }
+    // Retry configuration is now handled at the runtime/scheduler level
 
     /// Set TCP nodelay option (disable Nagle's algorithm).
     pub fn set_nodelay(&mut self, nodelay: bool) -> Result<(), Error> {
@@ -178,7 +165,6 @@ impl Tcp {
 
         let writer = TcpWriter {
             writer: Arc::new(Mutex::new(writer_stream)),
-            retry_executor: Arc::new(Mutex::new(self.retry_executor)),
         };
 
         Ok((reader, writer))
@@ -187,14 +173,10 @@ impl Tcp {
 
 impl SyncTransport for Tcp {
     fn send_with_kind(&mut self, data: &[u8], _kind: CommandKind) -> Result<(), Error> {
-        // Clone data for retry closure
-        let data_vec = data.to_vec();
-
-        self.retry_executor.execute(|| {
-            self.writer.write_all(&data_vec)?;
-            self.writer.flush()?;
-            Ok(())
-        })
+        // Send directly - retry logic is handled at the runtime/scheduler level
+        self.writer.write_all(data)?;
+        self.writer.flush()?;
+        Ok(())
     }
 
     fn recv(&mut self) -> Result<Bytes, Error> {
@@ -290,7 +272,6 @@ impl TcpReader {
 #[derive(Debug, Clone)]
 pub struct TcpWriter {
     writer: Arc<Mutex<TcpStream>>,
-    retry_executor: Arc<Mutex<RetryExecutor>>,
 }
 
 impl TcpWriter {
@@ -300,18 +281,10 @@ impl TcpWriter {
             .writer
             .lock()
             .map_err(|_| Error::TransportError(Cow::Borrowed("Writer mutex poisoned")))?;
-        let retry_executor = self
-            .retry_executor
-            .lock()
-            .map_err(|_| Error::TransportError(Cow::Borrowed("Retry executor mutex poisoned")))?;
 
-        // Clone data for retry closure
-        let data_vec = data.to_vec();
-
-        retry_executor.execute(|| {
-            writer.write_all(&data_vec)?;
-            writer.flush()?;
-            Ok(())
-        })
+        // Send directly - retry logic is handled at the runtime/scheduler level
+        writer.write_all(data)?;
+        writer.flush()?;
+        Ok(())
     }
 }

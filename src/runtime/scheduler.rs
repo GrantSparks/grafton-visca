@@ -192,6 +192,8 @@ pub(crate) struct Scheduler {
     next_id: AtomicU32,
     /// Timeout configuration.
     timeout_config: TimeoutConfig,
+    /// Retry configuration.
+    retry_config: crate::transport::RetryConfig,
     /// Minimum inter-command spacing.
     #[cfg(feature = "async")]
     command_spacing: Duration,
@@ -506,27 +508,42 @@ impl Scheduler {
     /// Create a new scheduler with given channels.
     #[cfg(test)]
     pub fn new(_submit_rx: Receiver<TxItem>) -> Self {
-        Self::with_timeout_config(_submit_rx, TimeoutConfig::default())
+        Self::with_timeout_and_retry_config(
+            _submit_rx,
+            TimeoutConfig::default(),
+            crate::transport::RetryConfig::default(),
+        )
     }
 
-    /// Create a new scheduler with custom timeout configuration.
-    pub fn with_timeout_config(
+    /// Create a new scheduler with custom timeout and retry configuration.
+    pub fn with_timeout_and_retry_config(
         _submit_rx: Receiver<TxItem>,
         timeout_config: TimeoutConfig,
+        retry_config: crate::transport::RetryConfig,
     ) -> Self {
-        // Set default max retries per category
+        // Use RetryConfig's max_retries for all categories initially
+        // We may want to scale these based on category in the future
+        let base_max_retries = retry_config.max_retries;
         let mut max_retries = HashMap::new();
-        max_retries.insert(CommandCategory::Quick, 5); // Quick commands can retry more
-        max_retries.insert(CommandCategory::Movement, 3); // Movement commands retry moderately
-        max_retries.insert(CommandCategory::Preset, 3); // Preset commands retry moderately
-        max_retries.insert(CommandCategory::Network, 2); // Network commands retry less
-        max_retries.insert(CommandCategory::LongRunning, 1); // Long operations retry minimally
-        max_retries.insert(CommandCategory::Custom, 3); // Custom commands use default
+
+        // Scale max retries per category based on the base value
+        // Quick commands can retry more (100% of base)
+        max_retries.insert(CommandCategory::Quick, base_max_retries);
+        // Movement and Preset commands retry moderately (60% of base, min 1)
+        max_retries.insert(CommandCategory::Movement, (base_max_retries * 3 / 5).max(1));
+        max_retries.insert(CommandCategory::Preset, (base_max_retries * 3 / 5).max(1));
+        // Network commands retry less (40% of base, min 1)
+        max_retries.insert(CommandCategory::Network, (base_max_retries * 2 / 5).max(1));
+        // Long operations retry minimally (20% of base, min 1)
+        max_retries.insert(CommandCategory::LongRunning, (base_max_retries / 5).max(1));
+        // Custom commands use 60% of base
+        max_retries.insert(CommandCategory::Custom, (base_max_retries * 3 / 5).max(1));
 
         Self {
             sockets: Default::default(),
             next_id: AtomicU32::new(1),
             timeout_config,
+            retry_config,
             #[cfg(feature = "async")]
             command_spacing: Duration::from_millis(50), // Default 50ms spacing
             #[cfg(feature = "async")]
@@ -1110,9 +1127,11 @@ impl Scheduler {
             return false;
         }
 
-        // Calculate exponential backoff: 100ms * 2^(attempt-1)
-        let backoff_ms = 100 * (1 << (current_attempt - 1).min(5)); // Cap at 3.2 seconds
-        let retry_at = now + Duration::from_millis(backoff_ms);
+        // Calculate retry delay using RetryConfig
+        // current_attempt is 1-based, but calculate_delay expects 0-based retry count
+        let retry_count = current_attempt - 1;
+        let delay = self.retry_config.calculate_delay(retry_count, None);
+        let retry_at = now + delay;
 
         // Check if this command is already in the retry queue
         if let Some(idx) = self.retry_queue.iter().position(|c| c.id == id) {
@@ -1121,8 +1140,10 @@ impl Scheduler {
             cmd.attempt = current_attempt;
             cmd.retry_at = retry_at;
             debug!(
-                "Command {} queued for retry attempt {} with {}ms backoff",
-                id, current_attempt, backoff_ms
+                "Command {} queued for retry attempt {} with {}ms delay",
+                id,
+                current_attempt,
+                delay.as_millis()
             );
         } else {
             // Add new retry command
@@ -1137,8 +1158,11 @@ impl Scheduler {
                 retry_at,
             });
             debug!(
-                "Command {} queued for retry attempt {} with {}ms backoff (max retries: {})",
-                id, current_attempt, backoff_ms, max_retries
+                "Command {} queued for retry attempt {} with {}ms delay (max retries: {})",
+                id,
+                current_attempt,
+                delay.as_millis(),
+                max_retries
             );
         }
 
