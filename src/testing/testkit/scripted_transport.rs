@@ -23,8 +23,10 @@ use crate::{Error, Result};
 #[cfg(feature = "async")]
 use super::deterministic_executor::ExecutorExt;
 
+/// Function type for dynamic response generation.
+pub type DynamicResponseFn = Box<dyn Fn(&[u8]) -> Vec<Vec<u8>> + Send + Sync>;
+
 /// A step in a transport script defining what should happen when commands are sent.
-#[derive(Debug)]
 pub enum Step {
     /// Respond immediately when the next send occurs.
     /// If `matches` is provided, only respond if the sent bytes start with those bytes.
@@ -41,6 +43,29 @@ pub enum Step {
 
     /// Inject a transport-level error on the next recv attempt.
     InjectError(Error),
+
+    /// Generate responses dynamically based on the sent command bytes.
+    /// The function receives the sent bytes and returns responses to send back.
+    DynamicResponse(DynamicResponseFn),
+}
+
+impl std::fmt::Debug for Step {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Step::OnSend { matches, responses } => f
+                .debug_struct("OnSend")
+                .field("matches", matches)
+                .field("responses", responses)
+                .finish(),
+            Step::After { delay, responses } => f
+                .debug_struct("After")
+                .field("delay", delay)
+                .field("responses", responses)
+                .finish(),
+            Step::InjectError(err) => f.debug_tuple("InjectError").field(err).finish(),
+            Step::DynamicResponse(_) => f.write_str("DynamicResponse(<function>)"),
+        }
+    }
 }
 
 impl Clone for Step {
@@ -76,6 +101,13 @@ impl Clone for Step {
                 // For other variants, just create a generic transport error with the display representation
                 _ => Error::TransportError(format!("Mock error: {err}").into()),
             }),
+            Step::DynamicResponse(_) => {
+                // DynamicResponse contains a closure that cannot be cloned
+                // Return an error step to indicate the issue
+                Step::InjectError(Error::InvalidState(
+                    "DynamicResponse steps cannot be cloned".into(),
+                ))
+            }
         }
     }
 }
@@ -278,6 +310,13 @@ where
                         .expect("ScriptedSyncTransport mutex poisoned")
                         .push_front(Step::InjectError(error));
                 }
+                Step::DynamicResponse(func) => {
+                    // Generate responses based on the sent bytes
+                    let responses = func(&bytes_vec);
+                    for response in responses {
+                        let _ = response_tx.send(Ok(response));
+                    }
+                }
             }
         }
 
@@ -417,6 +456,13 @@ impl SyncTransport for ScriptedSyncTransport {
                             .lock()
                             .expect("ScriptedSyncTransport mutex poisoned")
                             .push_front(Step::OnSend { matches, responses });
+                    }
+                }
+                Step::DynamicResponse(func) => {
+                    // Generate responses based on the sent bytes
+                    let responses = func(bytes);
+                    for response in responses {
+                        let _ = self.response_tx.send(Ok(response));
                     }
                 }
                 Step::After { responses, .. } => {
@@ -603,15 +649,39 @@ pub mod helpers {
 
     /// Create a completion response with Sony envelope for the given socket number (0-7)
     pub fn sony_complete(socket: u8) -> Vec<u8> {
+        sony_complete_with_sequence(socket, 0)
+    }
+
+    /// Create an ACK response with Sony envelope and specific sequence number
+    pub fn sony_ack_with_sequence(socket: u8, sequence: u32) -> Vec<u8> {
+        let seq_bytes = sequence.to_be_bytes();
         vec![
             0x01,
             0x11,
             0x00,
             0x03,
+            seq_bytes[0],
+            seq_bytes[1],
+            seq_bytes[2],
+            seq_bytes[3], // Sony header with sequence
+            0x90,
+            0x40 | (socket & 0x0F),
+            VISCA_TERMINATOR,
+        ]
+    }
+
+    /// Create a completion response with Sony envelope and specific sequence number
+    pub fn sony_complete_with_sequence(socket: u8, sequence: u32) -> Vec<u8> {
+        let seq_bytes = sequence.to_be_bytes();
+        vec![
+            0x01,
+            0x11,
             0x00,
-            0x00,
-            0x00,
-            0x00, // Sony header
+            0x03,
+            seq_bytes[0],
+            seq_bytes[1],
+            seq_bytes[2],
+            seq_bytes[3], // Sony header with sequence
             0x90,
             0x50 | (socket & 0x0F),
             VISCA_TERMINATOR,
@@ -619,11 +689,23 @@ pub mod helpers {
     }
 
     /// Auto-response mode for Sony cameras: generate Sony envelope responses
+    /// This function returns a Step that dynamically extracts the sequence number
+    /// from the incoming command and echoes it back in the responses.
     pub fn sony_auto_respond_step() -> Step {
-        Step::OnSend {
-            matches: None,
-            responses: vec![sony_ack(1), sony_complete(1)], // Default to socket 1
-        }
+        Step::DynamicResponse(Box::new(|sent_bytes| {
+            // Extract sequence number from the Sony header (bytes 4-7)
+            let sequence = if sent_bytes.len() >= 8 {
+                u32::from_be_bytes([sent_bytes[4], sent_bytes[5], sent_bytes[6], sent_bytes[7]])
+            } else {
+                0 // Fallback if not a proper Sony frame
+            };
+
+            // Generate ACK and completion with matching sequence
+            vec![
+                sony_ack_with_sequence(1, sequence),
+                sony_complete_with_sequence(1, sequence),
+            ]
+        }))
     }
 
     /// Create a power inquiry response
