@@ -1,7 +1,6 @@
-//! Tokio TCP transport implementation with zero-cost async using unified helpers.
+//! Tokio TCP transport implementation using the generic async_tcp module.
 
 use bytes::Bytes;
-
 use std::time::Duration;
 
 use crate::{
@@ -10,21 +9,16 @@ use crate::{
         buffer::{BufferConfig, BufferManager},
         builder::TransportConfig,
         tokio::connectors::{connect_tcp, TokioTcpStream},
-        AsyncTransport,
     },
     Error,
 };
 
 /// TCP transport for async VISCA communication using tokio.
 ///
-/// This transport uses native async functions without boxing and unified helpers
-/// to reduce code duplication across runtimes.
-#[derive(Debug)]
-pub struct Tcp {
-    stream: TokioTcpStream,
-    buffer_manager: BufferManager,
-}
+/// This is a type alias for the generic TCP transport specialized for tokio's TokioTcpStream.
+pub type Tcp = crate::transport::async_tcp::Tcp<TokioTcpStream>;
 
+/// Helper methods for creating tokio TCP transports.
 impl Tcp {
     /// Connect to a TCP endpoint.
     ///
@@ -73,10 +67,7 @@ impl Tcp {
         let tcp_config = TcpConnectionConfig::from(config);
         let stream = connect_tcp(address, tcp_config).await?;
 
-        Ok(Self {
-            stream,
-            buffer_manager: BufferManager::new(config.buffer_config),
-        })
+        Ok(Self::new(stream, config))
     }
 
     /// Split the TCP transport into separate reader and writer halves.
@@ -112,26 +103,6 @@ impl Tcp {
         let tcp_writer = TcpWriter { writer };
 
         (tcp_reader, tcp_writer)
-    }
-}
-
-impl AsyncTransport for Tcp {
-    async fn send(&mut self, data: &[u8]) -> Result<(), Error> {
-        write_all_flush(&mut self.stream, data).await
-    }
-
-    async fn recv(&mut self) -> Result<Bytes, Error> {
-        // Read chunk of data into buffer and return it
-        let mut buffer = self.buffer_manager.alloc_vec_buffer();
-        let n = self.stream.read(&mut buffer).await?;
-
-        if n == 0 {
-            return Err(Error::ConnectionClosed {
-                reason: Some(std::borrow::Cow::Borrowed("peer closed connection")),
-            });
-        }
-
-        Ok(self.buffer_manager.process_recv_data(buffer, n))
     }
 }
 

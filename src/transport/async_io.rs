@@ -40,6 +40,23 @@ pub trait AsyncWriteExt {
     fn flush(&mut self) -> impl Future<Output = Result<(), Error>> + Send;
 }
 
+/// Trait abstracting async datagram (UDP) operations across different runtimes.
+///
+/// This trait unifies the async UDP socket capabilities needed for VISCA communication
+/// across tokio, async-std, and smol runtimes, enabling zero-cost abstractions
+/// through monomorphization.
+pub trait AsyncDatagram: Send + Sync {
+    /// Send data on the socket to the connected remote address.
+    ///
+    /// Returns the number of bytes written on success.
+    fn send(&self, buf: &[u8]) -> impl Future<Output = Result<usize, Error>> + Send;
+
+    /// Receive data from the socket.
+    ///
+    /// Returns the number of bytes read on success.
+    fn recv(&self, buf: &mut [u8]) -> impl Future<Output = Result<usize, Error>> + Send;
+}
+
 /// Unified helper for reading VISCA frames with protocol-aware deframing.
 ///
 /// This function uses the ProtocolFramer to automatically detect and handle:
@@ -48,6 +65,8 @@ pub trait AsyncWriteExt {
 ///
 /// This ensures that Sony frames with 0xFF in the header (e.g., in sequence number)
 /// are not prematurely truncated.
+///
+/// Currently only used by tokio serial transport and tests.
 #[cfg(feature = "rt-tokio")]
 pub async fn read_visca_frame<R: AsyncReadExt>(reader: &mut R) -> Result<Bytes, Error> {
     let mut framer = ProtocolFramer::new(1024);

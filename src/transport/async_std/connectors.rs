@@ -6,8 +6,8 @@ use async_std::prelude::FutureExt;
 
 use crate::transport::address::AddressResolver;
 use crate::transport::async_io::{
-    AsyncReadExt as AsyncReadExtTrait, AsyncWriteExt as AsyncWriteExtTrait, TcpConnectionConfig,
-    UdpSocketConfig,
+    AsyncDatagram, AsyncReadExt as AsyncReadExtTrait, AsyncWriteExt as AsyncWriteExtTrait,
+    TcpConnectionConfig, UdpSocketConfig,
 };
 use crate::Error;
 
@@ -87,4 +87,15 @@ pub async fn connect_udp(address: &str, config: UdpSocketConfig) -> Result<UdpSo
     }
 
     Ok(socket)
+}
+
+/// Implement AsyncDatagram for async-std's UdpSocket
+impl AsyncDatagram for UdpSocket {
+    async fn send(&self, buf: &[u8]) -> Result<usize, Error> {
+        Ok(UdpSocket::send(self, buf).await?)
+    }
+
+    async fn recv(&self, buf: &mut [u8]) -> Result<usize, Error> {
+        Ok(UdpSocket::recv(self, buf).await?)
+    }
 }

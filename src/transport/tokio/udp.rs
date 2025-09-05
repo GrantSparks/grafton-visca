@@ -1,30 +1,23 @@
-//! Tokio UDP transport implementation with zero-cost async and unified helpers.
+//! Tokio UDP transport implementation using the generic async_udp module.
 
-use bytes::Bytes;
 use tokio::net::UdpSocket;
 
 use crate::{
     transport::{
         async_io::UdpSocketConfig,
-        buffer::{BufferConfig, BufferManager},
-        retry::RetryExecutor,
+        buffer::BufferConfig,
         tokio::connectors::connect_udp,
-        {builder::TransportConfig, AsyncTransport, RetryConfig},
+        {builder::TransportConfig, RetryConfig},
     },
     Error,
 };
 
 /// UDP transport for async VISCA communication using tokio.
 ///
-/// This transport uses native async functions without boxing and supports
-/// both IPv4 and IPv6 addresses.
-#[derive(Debug)]
-pub struct Udp {
-    socket: UdpSocket,
-    retry_executor: RetryExecutor,
-    buffer_manager: BufferManager,
-}
+/// This is a type alias for the generic UDP transport specialized for tokio's UdpSocket.
+pub type Udp = crate::transport::async_udp::Udp<UdpSocket>;
 
+/// Helper methods for creating tokio UDP transports.
 impl Udp {
     /// Connect to a UDP endpoint.
     ///
@@ -52,11 +45,6 @@ impl Udp {
         Self::connect_with_config(address, config).await
     }
 
-    /// Get the current retry configuration.
-    pub fn retry_config(&self) -> &RetryConfig {
-        self.retry_executor.config()
-    }
-
     /// Connect with a full configuration.
     ///
     /// This method provides full control over connection and socket parameters.
@@ -67,26 +55,6 @@ impl Udp {
         let udp_config = UdpSocketConfig::from(config);
         let socket = connect_udp(address, udp_config).await?;
 
-        Ok(Self {
-            socket,
-            retry_executor: RetryExecutor::new(config.retry_config),
-            buffer_manager: BufferManager::new(config.buffer_config),
-        })
-    }
-}
-
-impl AsyncTransport for Udp {
-    async fn send(&mut self, data: &[u8]) -> Result<(), Error> {
-        // Note: Retry logic for async UDP would require more complex refactoring
-        // For now, send directly without retry
-        self.socket.send(data).await?;
-        Ok(())
-    }
-
-    async fn recv(&mut self) -> Result<Bytes, Error> {
-        // Receiving is typically not retried to avoid protocol confusion
-        let mut buffer = self.buffer_manager.alloc_vec_buffer();
-        let n = self.socket.recv(&mut buffer).await?;
-        Ok(self.buffer_manager.process_recv_data(buffer, n))
+        Ok(Self::new(socket, config))
     }
 }

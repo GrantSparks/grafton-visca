@@ -46,8 +46,14 @@
 
 pub mod address;
 // Unified async I/O helpers for reducing code duplication across runtimes
+// Only needed when we have at least one runtime
 #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
 pub(crate) mod async_io;
+// Generic async transport implementations (require runtime for BufferManager methods)
+#[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
+pub(crate) mod async_tcp;
+#[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
+pub(crate) mod async_udp;
 // Unified sync I/O helpers for reducing code duplication across blocking transports
 #[cfg(not(feature = "async"))]
 pub(crate) mod sync_io;
