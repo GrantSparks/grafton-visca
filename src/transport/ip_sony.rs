@@ -7,50 +7,34 @@
 use bytes::{Bytes, BytesMut};
 use std::{
     borrow::Cow,
-    collections::HashMap,
     io::{BufReader, Read, Write},
     net::TcpStream,
-    time::{Duration, Instant},
+    time::Duration,
 };
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, trace};
 
 pub use crate::transport::sony_config::SonyIpConfig;
 #[cfg(not(feature = "async"))]
-use crate::transport::{envelope::FrameMeta, SyncTransport};
+use crate::transport::SyncTransport;
 use crate::{
-    capabilities::ProtocolStyle,
     error::{Error, Result},
     protocol::sony::SonyHeader,
     transport::{
         address::AddressResolver,
         buffer::{BufferConfig, BufferManager},
-        envelope::TransportEnvelope,
     },
 };
 
-/// Pending command information for retry handling.
-#[derive(Debug, Clone)]
-struct PendingCommand {
-    /// Original command bytes (without header).
-    bytes: Vec<u8>,
-    /// Command kind for proper re-framing on retry.
-    kind: crate::command::CommandKind,
-    /// Number of retries attempted.
-    retries: u32,
-    /// Timestamp when sent.
-    sent_at: Instant,
-}
-
 /// Sony TCP transport for blocking I/O.
+///
+/// This transport handles basic TCP I/O and Sony framing. Retry logic and sequence
+/// management are handled by the BlockingRunner and SchedulerCore.
 #[derive(Debug)]
 pub struct SonyTcpTransport {
     reader: BufReader<TcpStream>,
     writer: TcpStream,
-    envelope: TransportEnvelope,
-    pending: HashMap<u32, PendingCommand>,
     buffer_manager: BufferManager,
     read_buffer: BytesMut,
-    config: SonyIpConfig,
 }
 
 impl SonyTcpTransport {
@@ -89,53 +73,16 @@ impl SonyTcpTransport {
         // Create buffer manager with Sony IP optimized sizes
         let buffer_manager = BufferManager::new(BufferConfig::for_sony_ip());
 
-        // Create envelope for Sony protocol with sequence tracking
-        let envelope =
-            TransportEnvelope::new(ProtocolStyle::SonyEncapsulated { use_sequence: true });
-
         Ok(Self {
             reader,
             writer,
-            envelope,
-            pending: HashMap::new(),
             buffer_manager,
             read_buffer: buffer_manager.alloc_recv_buffer(),
-            config,
         })
     }
 
-    /// Send a command using the transport envelope with explicit command kind.
-    fn send_framed(&mut self, bytes: &[u8], kind: crate::command::CommandKind) -> Result<u32> {
-        let framed = self
-            .envelope
-            .frame_bytes_with_kind(bytes, kind, &self.buffer_manager);
-
-        // Extract sequence number from the framed bytes (for Sony protocol)
-        let sequence = if framed.len() >= 8 {
-            u32::from_be_bytes([framed[4], framed[5], framed[6], framed[7]])
-        } else {
-            0
-        };
-
-        // Send framed packet
-        self.writer
-            .write_all(&framed)
-            .map_err(|e| Error::TransportError(format!("TCP write error: {e}").into()))?;
-        self.writer
-            .flush()
-            .map_err(|e| Error::TransportError(format!("TCP flush error: {e}").into()))?;
-
-        trace!(
-            "Sent packet with seq {sequence}: framed={framed:02X?}",
-            sequence = sequence,
-            framed = framed
-        );
-
-        Ok(sequence)
-    }
-
-    /// Receive a Sony encapsulated frame using the transport envelope.
-    fn recv_sony_frame(&mut self) -> Result<(Bytes, FrameMeta)> {
+    /// Receive raw bytes from TCP, assembling complete Sony frames.
+    fn recv_frame(&mut self) -> Result<Bytes> {
         let mut temp_buf = self.buffer_manager.alloc_vec_buffer();
 
         loop {
@@ -145,12 +92,6 @@ impl SonyTcpTransport {
                 let _payload_type = u16::from_be_bytes([self.read_buffer[0], self.read_buffer[1]]);
                 let payload_length =
                     u16::from_be_bytes([self.read_buffer[2], self.read_buffer[3]]) as usize;
-                let _sequence_number = u32::from_be_bytes([
-                    self.read_buffer[4],
-                    self.read_buffer[5],
-                    self.read_buffer[6],
-                    self.read_buffer[7],
-                ]);
 
                 // Check if we have the complete payload
                 if self.read_buffer.len() >= SonyHeader::SIZE + payload_length {
@@ -158,18 +99,8 @@ impl SonyTcpTransport {
                     let frame_size = SonyHeader::SIZE + payload_length;
                     let frame_bytes = self.read_buffer.split_to(frame_size);
 
-                    // Use envelope to extract payload and metadata
-                    let (payload, meta) = self
-                        .envelope
-                        .extract_with_meta_owned(Bytes::copy_from_slice(&frame_bytes))?;
-
-                    trace!(
-                        "Received Sony frame: seq={seq:?} payload={payload:02X?}",
-                        seq = meta.sequence,
-                        payload = payload
-                    );
-
-                    return Ok((payload, meta));
+                    trace!("Received complete Sony frame: {} bytes", frame_size);
+                    return Ok(Bytes::copy_from_slice(&frame_bytes));
                 }
             }
 
@@ -193,114 +124,28 @@ impl SonyTcpTransport {
             }
         }
     }
-
-    /// Handle retries for a command.
-    fn handle_retry(&mut self, old_sequence: u32) -> Result<()> {
-        if let Some(mut cmd) = self.pending.remove(&old_sequence) {
-            if cmd.retries < self.config.max_retries {
-                cmd.retries += 1;
-                let retry_count = cmd.retries;
-                cmd.sent_at = Instant::now();
-                let bytes = cmd.bytes.clone();
-
-                // Send with new sequence (envelope will allocate it)
-                let new_sequence = self.send_framed(&bytes, cmd.kind)?;
-
-                // Insert command with new sequence
-                self.pending.insert(new_sequence, cmd);
-
-                warn!(
-                    "Retrying command (old seq: {old_sequence}, new seq: {new_sequence}, attempt {retry_count})"
-                );
-            } else {
-                error!("Max retries exceeded for seq {old_sequence}");
-                return Err(Error::MaxRetriesExceeded);
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Clean up old pending commands.
-    fn cleanup_pending(&mut self) {
-        let now = Instant::now();
-        let timeout = self.config.response_timeout;
-
-        self.pending.retain(|seq, cmd| {
-            if now.duration_since(cmd.sent_at) > timeout {
-                warn!("Command seq {seq} timed out");
-                false
-            } else {
-                true
-            }
-        });
-    }
 }
 
 #[cfg(not(feature = "async"))]
 impl SyncTransport for SonyTcpTransport {
-    fn send_with_kind(&mut self, bytes: &[u8], kind: crate::command::CommandKind) -> Result<()> {
-        // Send with envelope and get sequence
-        let sequence = self.send_framed(bytes, kind)?;
+    fn send_with_kind(&mut self, bytes: &[u8], _kind: crate::command::CommandKind) -> Result<()> {
+        // The bytes should already be framed by the caller (BlockingRunner or Camera)
+        // We just send them as-is
+        self.writer
+            .write_all(bytes)
+            .map_err(|e| Error::TransportError(format!("TCP write error: {e}").into()))?;
+        self.writer
+            .flush()
+            .map_err(|e| Error::TransportError(format!("TCP flush error: {e}").into()))?;
 
-        // Store pending command for potential retry
-        self.pending.insert(
-            sequence,
-            PendingCommand {
-                bytes: bytes.to_vec(),
-                kind,
-                retries: 0,
-                sent_at: Instant::now(),
-            },
-        );
-
-        // Clean up old pending commands
-        self.cleanup_pending();
-
+        trace!("Sent {} bytes over TCP", bytes.len());
         Ok(())
     }
 
     fn recv(&mut self) -> Result<Bytes> {
-        loop {
-            match self.recv_sony_frame() {
-                Ok((payload, meta)) => {
-                    // Get sequence from metadata
-                    if let Some(seq) = meta.sequence {
-                        // Only accept replies that match a pending command
-                        if self.pending.remove(&seq).is_none() {
-                            // Late or duplicate reply - discard it
-                            warn!(
-                                "TCP: Discarding late/duplicate reply with seq {seq} (not in pending)"
-                            );
-                            continue; // Keep waiting for a valid response
-                        }
-                    }
-
-                    return Ok(payload);
-                }
-                Err(e) => {
-                    // Check if we should retry any pending commands
-                    if matches!(e, Error::Timeout) {
-                        // Check for timed out commands
-                        let now = Instant::now();
-                        let timed_out: Vec<u32> = self
-                            .pending
-                            .iter()
-                            .filter(|(_, cmd)| {
-                                now.duration_since(cmd.sent_at) > self.config.response_timeout
-                            })
-                            .map(|(seq, _)| *seq)
-                            .collect();
-
-                        for seq in timed_out {
-                            self.handle_retry(seq)?;
-                        }
-                    }
-
-                    return Err(e);
-                }
-            }
-        }
+        // Return a complete Sony frame (with header)
+        // The caller (BlockingRunner or Camera) will handle extraction
+        self.recv_frame()
     }
 
     fn recv_with_timeout(&mut self, timeout: Duration) -> Result<Bytes> {
@@ -329,13 +174,13 @@ impl SyncTransport for SonyTcpTransport {
 }
 
 /// Sony UDP transport for blocking I/O.
+///
+/// This transport handles basic UDP I/O and Sony framing. Retry logic and sequence
+/// management are handled by the BlockingRunner and SchedulerCore.
 #[derive(Debug)]
 pub struct SonyUdpTransport {
     socket: std::net::UdpSocket,
-    envelope: TransportEnvelope,
-    pending: HashMap<u32, PendingCommand>,
     buffer_manager: BufferManager,
-    config: SonyIpConfig,
 }
 
 impl SonyUdpTransport {
@@ -373,44 +218,14 @@ impl SonyUdpTransport {
         // Create buffer manager with Sony IP optimized sizes
         let buffer_manager = BufferManager::new(BufferConfig::for_sony_ip());
 
-        // Create envelope for Sony protocol with sequence tracking
-        let envelope =
-            TransportEnvelope::new(ProtocolStyle::SonyEncapsulated { use_sequence: true });
-
         Ok(Self {
             socket,
-            envelope,
-            pending: HashMap::new(),
             buffer_manager,
-            config,
         })
     }
 
-    /// Send a command using the transport envelope with explicit command kind.
-    fn send_framed(&mut self, bytes: &[u8], kind: crate::command::CommandKind) -> Result<u32> {
-        let framed = self
-            .envelope
-            .frame_bytes_with_kind(bytes, kind, &self.buffer_manager);
-
-        // Extract sequence number from the framed bytes (for Sony protocol)
-        let sequence = if framed.len() >= 8 {
-            u32::from_be_bytes([framed[4], framed[5], framed[6], framed[7]])
-        } else {
-            0
-        };
-
-        // Send framed packet
-        self.socket
-            .send(&framed)
-            .map_err(|e| Error::TransportError(format!("UDP send error: {e}").into()))?;
-
-        trace!("Sent UDP packet with seq {sequence}: {framed:02X?}");
-
-        Ok(sequence)
-    }
-
-    /// Receive a Sony encapsulated frame using the transport envelope.
-    fn recv_sony_frame(&mut self) -> Result<(Bytes, FrameMeta)> {
+    /// Receive raw bytes from UDP, expecting complete Sony frames.
+    fn recv_frame(&mut self) -> Result<Bytes> {
         let mut temp_buf = self.buffer_manager.alloc_vec_buffer();
 
         match self.socket.recv(&mut temp_buf) {
@@ -420,19 +235,10 @@ impl SonyUdpTransport {
                 let payload_length = u16::from_be_bytes([temp_buf[2], temp_buf[3]]) as usize;
 
                 if n >= SonyHeader::SIZE + payload_length {
-                    // Use envelope to extract payload and metadata
+                    // Return the complete frame
                     let frame_bytes = &temp_buf[..SonyHeader::SIZE + payload_length];
-                    let (payload, meta) = self
-                        .envelope
-                        .extract_with_meta_owned(Bytes::copy_from_slice(frame_bytes))?;
-
-                    trace!(
-                        "Received UDP frame: seq={seq:?} payload={payload:02X?}",
-                        seq = meta.sequence,
-                        payload = payload
-                    );
-
-                    Ok((payload, meta))
+                    trace!("Received complete Sony UDP frame: {} bytes", n);
+                    Ok(Bytes::copy_from_slice(frame_bytes))
                 } else {
                     Err(Error::InvalidResponse {
                         expected: format!("Sony frame with {payload_length} byte payload").into(),
@@ -456,82 +262,21 @@ impl SonyUdpTransport {
 
 #[cfg(not(feature = "async"))]
 impl SyncTransport for SonyUdpTransport {
-    fn send_with_kind(&mut self, bytes: &[u8], kind: crate::command::CommandKind) -> Result<()> {
-        // Send with envelope and get sequence
-        let sequence = self.send_framed(bytes, kind)?;
+    fn send_with_kind(&mut self, bytes: &[u8], _kind: crate::command::CommandKind) -> Result<()> {
+        // The bytes should already be framed by the caller (BlockingRunner or Camera)
+        // We just send them as-is
+        self.socket
+            .send(bytes)
+            .map_err(|e| Error::TransportError(format!("UDP send error: {e}").into()))?;
 
-        // Store pending command for potential retry
-        self.pending.insert(
-            sequence,
-            PendingCommand {
-                bytes: bytes.to_vec(),
-                kind,
-                retries: 0,
-                sent_at: Instant::now(),
-            },
-        );
-
+        trace!("Sent {} bytes over UDP", bytes.len());
         Ok(())
     }
 
     fn recv(&mut self) -> Result<Bytes> {
-        loop {
-            match self.recv_sony_frame() {
-                Ok((payload, meta)) => {
-                    // Get sequence from metadata
-                    if let Some(seq) = meta.sequence {
-                        // Only accept replies that match a pending command
-                        if self.pending.remove(&seq).is_none() {
-                            // Late or duplicate reply - discard it
-                            warn!(
-                                "UDP: Discarding late/duplicate reply with seq {seq} (not in pending)"
-                            );
-                            continue; // Keep waiting for a valid response
-                        }
-                    }
-
-                    return Ok(payload);
-                }
-                Err(Error::Timeout) => {
-                    // Implement retry logic for UDP
-                    let now = Instant::now();
-
-                    // Find commands that need retry
-                    let to_retry: Vec<(u32, PendingCommand)> = self
-                        .pending
-                        .iter()
-                        .filter(|(_, cmd)| {
-                            now.duration_since(cmd.sent_at) > Duration::from_millis(500)
-                                && cmd.retries < self.config.max_retries
-                        })
-                        .map(|(seq, cmd)| (*seq, cmd.clone()))
-                        .collect();
-
-                    // Retry commands with new sequence numbers (per Sony spec)
-                    for (old_seq, mut cmd) in to_retry {
-                        cmd.retries += 1;
-
-                        // Send with new sequence (envelope will allocate it)
-                        let new_seq = self.send_framed(&cmd.bytes, cmd.kind)?;
-
-                        warn!(
-                            "Retrying UDP command (old seq {old_seq}, new seq {new_seq}, attempt {attempt})",
-                            attempt = cmd.retries
-                        );
-
-                        // Remove old sequence entry
-                        self.pending.remove(&old_seq);
-                        // Insert with new sequence
-                        cmd.sent_at = Instant::now();
-                        self.pending.insert(new_seq, cmd);
-                    }
-
-                    // Continue waiting for response
-                    continue;
-                }
-                Err(e) => return Err(e),
-            }
-        }
+        // Return a complete Sony frame (with header)
+        // The caller (BlockingRunner or Camera) will handle extraction
+        self.recv_frame()
     }
 
     fn recv_with_timeout(&mut self, timeout: Duration) -> Result<Bytes> {

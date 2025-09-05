@@ -3,7 +3,11 @@
 //! This module provides the core runtime for VISCA communication,
 //! managing command scheduling, socket allocation, and protocol timing.
 
+pub mod core;
 pub mod scheduler;
+
+#[cfg(not(feature = "async"))]
+pub mod blocking_runner;
 
 #[cfg(feature = "async")]
 mod handle;
@@ -16,7 +20,8 @@ mod rx;
 #[cfg(feature = "async")]
 mod tx;
 
-pub use scheduler::{MetricsSummary, Priority};
+pub use core::Priority;
+pub use scheduler::MetricsSummary;
 
 #[cfg(feature = "async")]
 pub use handle::RuntimeHandle;

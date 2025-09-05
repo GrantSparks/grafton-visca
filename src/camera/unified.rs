@@ -21,6 +21,9 @@ use crate::transport::{
     envelope::TransportEnvelope,
 };
 
+#[cfg(not(feature = "async"))]
+use crate::runtime::blocking_runner::BlockingRunner;
+
 use crate::transport::SyncTransport;
 
 #[cfg(feature = "async")]
@@ -64,7 +67,7 @@ where
     timeout_config: TimeoutConfig,
 
     // Mode-specific storage: either transport or runtime
-    // For blocking mode: stores transport directly with envelope for framing
+    // For blocking mode: stores transport directly with BlockingRunner for state management
     // For async mode: stores runtime handle (transport and envelope managed by runtime)
     #[cfg(not(feature = "async"))]
     transport: M::Shared<Tr>,
@@ -72,6 +75,8 @@ where
     envelope: TransportEnvelope,
     #[cfg(not(feature = "async"))]
     envelope_buffer_manager: BufferManager,
+    #[cfg(not(feature = "async"))]
+    blocking_runner: std::cell::RefCell<BlockingRunner>,
 
     #[cfg(feature = "async")]
     runtime: crate::runtime::RuntimeHandle,
@@ -149,6 +154,7 @@ where
         let envelope = TransportEnvelope::new(protocol_style);
         let envelope_buffer_manager = BufferManager::new(buffer_config);
         let timeout_config = TimeoutConfig::default();
+        let blocking_runner = BlockingRunner::new(protocol_style, timeout_config);
 
         let shared_transport = crate::mode::Blocking::share(transport);
 
@@ -158,6 +164,7 @@ where
             transport: shared_transport,
             envelope,
             envelope_buffer_manager,
+            blocking_runner: std::cell::RefCell::new(blocking_runner),
             _phantom_mode: PhantomData,
             _phantom_profile: PhantomData,
             _phantom_exec: PhantomData,
@@ -423,94 +430,134 @@ where
     {
         use crate::command::response::ViscaResponse;
 
-        // Encode command
-        let mut buf = [0u8; 64];
-        let len = match command.encode_into(self.camera_id, &mut buf) {
-            Ok(len) => len,
-            Err(e) => return std::future::ready(Err(e)),
-        };
+        // Check if we should use the BlockingRunner for Sony protocol
+        let use_blocking_runner = matches!(
+            self.envelope.style(),
+            ProtocolStyle::SonyEncapsulated { .. }
+        );
 
-        debug_assert!(len > 0 && buf[len - 1] == crate::command::bytes::VISCA_TERMINATOR);
-
-        let kind = command.command_kind();
-        let is_inquiry = matches!(kind, crate::command::CommandKind::Inquiry);
-
-        let request =
-            self.envelope
-                .frame_bytes_with_kind(&buf[..len], kind, &self.envelope_buffer_manager);
-
-        let kind = if is_inquiry {
-            crate::command::CommandKind::Inquiry
-        } else {
-            crate::command::CommandKind::Command
-        };
-
-        let transport_cell = self.transport();
-        let mut transport = match transport_cell.try_borrow_mut() {
-            Ok(transport) => transport,
-            Err(_) => {
-                return std::future::ready(Err(Error::TransportBusy));
-            }
-        };
-
-        if let Err(e) = SyncTransport::send_with_kind(&mut *transport, &request, kind) {
-            return std::future::ready(Err(e));
-        }
-
-        let timeout_config = self.timeout_config();
-        let envelope = &self.envelope;
-
-        if !is_inquiry {
-            match SyncTransport::recv_with_timeout(&mut *transport, timeout_config.ack_timeout) {
-                Ok(first_response_bytes) => {
-                    match envelope.extract_response(&first_response_bytes[..]) {
-                        Ok(first_visca) => match ViscaResponse::parse(&first_visca[..]) {
-                            Ok(ViscaResponse::Error(e)) => std::future::ready(Err(e)),
-                            Ok(ViscaResponse::CmdAck { .. }) => {
-                                let completion_timeout =
-                                    timeout_config.get_timeout(C::TIMEOUT_CATEGORY);
-                                match transport.recv_with_timeout(completion_timeout) {
-                                    Ok(second_response_bytes) => match envelope
-                                        .extract_response(&second_response_bytes[..])
-                                    {
-                                        Ok(second_visca) => {
-                                            match ViscaResponse::parse(&second_visca[..]) {
-                                                Ok(response) => std::future::ready(Ok(response)),
-                                                Err(e) => std::future::ready(Err(e)),
-                                            }
-                                        }
-                                        Err(e) => std::future::ready(Err(e)),
-                                    },
-                                    Err(e) => std::future::ready(Err(e)),
-                                }
-                            }
-                            Ok(response) => std::future::ready(Ok(response)),
-                            Err(e) => std::future::ready(Err(e)),
-                        },
-                        Err(e) => std::future::ready(Err(e)),
-                    }
+        if use_blocking_runner {
+            // Use BlockingRunner for Sony protocol to handle retry and sequencing
+            let transport_cell = self.transport();
+            let mut transport = match transport_cell.try_borrow_mut() {
+                Ok(transport) => transport,
+                Err(_) => {
+                    return std::future::ready(Err(Error::TransportBusy));
                 }
+            };
+
+            let mut runner = match self.blocking_runner.try_borrow_mut() {
+                Ok(runner) => runner,
+                Err(_) => {
+                    return std::future::ready(Err(Error::TransportBusy));
+                }
+            };
+
+            // Determine command category
+            let category = C::TIMEOUT_CATEGORY;
+
+            // Send command through BlockingRunner
+            match runner.send_command(&mut *transport, command, self.camera_id, category) {
+                Ok(response) => std::future::ready(Ok(response)),
                 Err(e) => std::future::ready(Err(e)),
             }
         } else {
-            let inquiry_timeout = timeout_config.get_timeout(C::TIMEOUT_CATEGORY);
-            match SyncTransport::recv_with_timeout(&mut *transport, inquiry_timeout) {
-                Ok(response_bytes) => match envelope.extract_response(&response_bytes[..]) {
-                    Ok(visca) => {
-                        let parse_result = if let Some(response_type) = command.response_type() {
-                            ViscaResponse::parse_with_type(&visca[..], &response_type)
-                        } else {
-                            ViscaResponse::parse(&visca[..])
-                        };
+            // Use existing implementation for Raw VISCA
+            // Encode command
+            let mut buf = [0u8; 64];
+            let len = match command.encode_into(self.camera_id, &mut buf) {
+                Ok(len) => len,
+                Err(e) => return std::future::ready(Err(e)),
+            };
 
-                        match parse_result {
-                            Ok(response) => std::future::ready(Ok(response)),
+            debug_assert!(len > 0 && buf[len - 1] == crate::command::bytes::VISCA_TERMINATOR);
+
+            let kind = command.command_kind();
+            let is_inquiry = matches!(kind, crate::command::CommandKind::Inquiry);
+
+            let request = self.envelope.frame_bytes_with_kind(
+                &buf[..len],
+                kind,
+                &self.envelope_buffer_manager,
+            );
+
+            let kind = if is_inquiry {
+                crate::command::CommandKind::Inquiry
+            } else {
+                crate::command::CommandKind::Command
+            };
+
+            let transport_cell = self.transport();
+            let mut transport = match transport_cell.try_borrow_mut() {
+                Ok(transport) => transport,
+                Err(_) => {
+                    return std::future::ready(Err(Error::TransportBusy));
+                }
+            };
+
+            if let Err(e) = SyncTransport::send_with_kind(&mut *transport, &request, kind) {
+                return std::future::ready(Err(e));
+            }
+
+            let timeout_config = self.timeout_config();
+            let envelope = &self.envelope;
+
+            if !is_inquiry {
+                match SyncTransport::recv_with_timeout(&mut *transport, timeout_config.ack_timeout)
+                {
+                    Ok(first_response_bytes) => {
+                        match envelope.extract_response(&first_response_bytes[..]) {
+                            Ok(first_visca) => match ViscaResponse::parse(&first_visca[..]) {
+                                Ok(ViscaResponse::Error(e)) => std::future::ready(Err(e)),
+                                Ok(ViscaResponse::CmdAck { .. }) => {
+                                    let completion_timeout =
+                                        timeout_config.get_timeout(C::TIMEOUT_CATEGORY);
+                                    match transport.recv_with_timeout(completion_timeout) {
+                                        Ok(second_response_bytes) => match envelope
+                                            .extract_response(&second_response_bytes[..])
+                                        {
+                                            Ok(second_visca) => {
+                                                match ViscaResponse::parse(&second_visca[..]) {
+                                                    Ok(response) => {
+                                                        std::future::ready(Ok(response))
+                                                    }
+                                                    Err(e) => std::future::ready(Err(e)),
+                                                }
+                                            }
+                                            Err(e) => std::future::ready(Err(e)),
+                                        },
+                                        Err(e) => std::future::ready(Err(e)),
+                                    }
+                                }
+                                Ok(response) => std::future::ready(Ok(response)),
+                                Err(e) => std::future::ready(Err(e)),
+                            },
                             Err(e) => std::future::ready(Err(e)),
                         }
                     }
                     Err(e) => std::future::ready(Err(e)),
-                },
-                Err(e) => std::future::ready(Err(e)),
+                }
+            } else {
+                let inquiry_timeout = timeout_config.get_timeout(C::TIMEOUT_CATEGORY);
+                match SyncTransport::recv_with_timeout(&mut *transport, inquiry_timeout) {
+                    Ok(response_bytes) => match envelope.extract_response(&response_bytes[..]) {
+                        Ok(visca) => {
+                            let parse_result = if let Some(response_type) = command.response_type()
+                            {
+                                ViscaResponse::parse_with_type(&visca[..], &response_type)
+                            } else {
+                                ViscaResponse::parse(&visca[..])
+                            };
+
+                            match parse_result {
+                                Ok(response) => std::future::ready(Ok(response)),
+                                Err(e) => std::future::ready(Err(e)),
+                            }
+                        }
+                        Err(e) => std::future::ready(Err(e)),
+                    },
+                    Err(e) => std::future::ready(Err(e)),
+                }
             }
         }
     }

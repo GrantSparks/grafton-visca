@@ -43,6 +43,12 @@ impl TransportEnvelope {
         }
     }
 
+    /// Get the protocol style.
+    #[cfg(not(feature = "async"))]
+    pub fn style(&self) -> &ProtocolStyle {
+        &self.style
+    }
+
     /// Frame VISCA bytes with an explicit command kind.
     ///
     /// This method replaces byte-heuristic detection with type-driven classification,
@@ -83,7 +89,6 @@ impl TransportEnvelope {
     /// For raw VISCA, passes through without copying.
     /// For Sony encapsulated, wraps with 8-byte header using the specified kind.
     /// Returns the framed bytes and metadata including sequence number if applicable.
-    #[cfg(feature = "async")]
     pub fn frame_bytes_with_kind_owned(
         &self,
         visca: Bytes,

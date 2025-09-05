@@ -16,6 +16,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+// Re-export Priority from core for backwards compatibility
+pub use crate::runtime::core::Priority;
+
 #[cfg(feature = "async")]
 use crate::{
     command::response::ViscaResponse,
@@ -64,19 +67,6 @@ pub(crate) enum TxItem {
         /// Command ID to cancel.
         id: u32,
     },
-}
-
-/// Command priority levels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Priority {
-    /// Low priority - normal operations.
-    Low = 0,
-    /// Normal priority - default.
-    Normal = 1,
-    /// High priority - user-initiated actions.
-    High = 2,
-    /// Critical priority - emergency/safety operations.
-    Critical = 3,
 }
 
 /// VISCA protocol error codes wrapper.
