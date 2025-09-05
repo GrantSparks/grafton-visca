@@ -14,6 +14,10 @@ use core::{
 };
 use std::future::Future;
 
+/// Type alias for boxed futures used in async mode.
+/// This provides a more readable name for the boxed future type.
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
 /// Mode trait that abstracts over async and blocking execution modes.
 ///
 /// This trait uses GATs (Generic Associated Types) to allow the same API
@@ -41,15 +45,18 @@ pub trait Mode {
     fn share<T>(value: T) -> Self::Shared<T>;
 
     /// Create a return value from a result.
-    fn ret<T>(result: T) -> Self::Ret<'static, T>
+    fn ret<'a, T>(result: T) -> Self::Ret<'a, T>
     where
-        T: Send + 'static;
+        T: Send + 'a;
 
     /// Create a return value from a future.
-    fn ret_fut<F, T>(future: F) -> Self::Ret<'static, T>
+    ///
+    /// This method accepts futures with non-'static lifetimes, allowing
+    /// futures to borrow from the caller without requiring 'static promotion.
+    fn ret_fut<'a, F, T>(future: F) -> Self::Ret<'a, T>
     where
-        F: Future<Output = T> + Send + 'static,
-        T: Send + 'static;
+        F: Future<Output = T> + Send + 'a,
+        T: Send + 'a;
 }
 
 /// Zero-sized type representing async execution mode.
@@ -68,7 +75,7 @@ impl Mode for Async {
     // maintains a single allocation per async operation.
     // See: https://github.com/rust-lang/rust/issues/63063
     type Ret<'a, T>
-        = Pin<Box<dyn Future<Output = T> + Send + 'a>>
+        = BoxFuture<'a, T>
     where
         T: Send + 'a;
 
@@ -87,17 +94,17 @@ impl Mode for Async {
         value
     }
 
-    fn ret<T>(result: T) -> Self::Ret<'static, T>
+    fn ret<'a, T>(result: T) -> Self::Ret<'a, T>
     where
-        T: Send + 'static,
+        T: Send + 'a,
     {
         Box::pin(ready(result))
     }
 
-    fn ret_fut<F, T>(future: F) -> Self::Ret<'static, T>
+    fn ret_fut<'a, F, T>(future: F) -> Self::Ret<'a, T>
     where
-        F: Future<Output = T> + Send + 'static,
-        T: Send + 'static,
+        F: Future<Output = T> + Send + 'a,
+        T: Send + 'a,
     {
         Box::pin(future)
     }
@@ -115,17 +122,17 @@ impl Mode for Blocking {
         std::cell::RefCell::new(value)
     }
 
-    fn ret<T>(result: T) -> Self::Ret<'static, T>
+    fn ret<'a, T>(result: T) -> Self::Ret<'a, T>
     where
-        T: Send + 'static,
+        T: Send + 'a,
     {
         ready(result)
     }
 
-    fn ret_fut<F, T>(_future: F) -> Self::Ret<'static, T>
+    fn ret_fut<'a, F, T>(_future: F) -> Self::Ret<'a, T>
     where
-        F: Future<Output = T> + Send + 'static,
-        T: Send + 'static,
+        F: Future<Output = T> + Send + 'a,
+        T: Send + 'a,
     {
         // NOTE: For blocking mode, futures should be avoided.
         unreachable!("Blocking mode should not use futures directly - use Mode::ret() instead")
