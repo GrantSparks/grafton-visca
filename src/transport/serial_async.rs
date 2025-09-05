@@ -27,7 +27,6 @@ use crate::{
             read_visca_frame, write_all_flush, AsyncReadExt as AsyncReadExtTrait,
             AsyncWriteExt as AsyncWriteExtTrait,
         },
-        buffer::{BufferConfig, BufferManager},
         AsyncTransport, RetryConfig,
     },
 };
@@ -58,26 +57,6 @@ impl AsyncReadExtTrait for TokioSerialAdapter {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         use tokio::io::AsyncReadExt;
         Ok(self.stream.read(buf).await?)
-    }
-
-    async fn read_until(&mut self, delimiter: u8, buf: &mut Vec<u8>) -> Result<usize, Error> {
-        use tokio::io::AsyncReadExt;
-        // For serial, we need to read byte-by-byte since BufReader might not work well
-        // with serial streams due to their low-level nature and potential timing issues
-        let start_len = buf.len();
-        loop {
-            let mut byte = [0u8; 1];
-            match self.stream.read(&mut byte).await? {
-                0 => return Ok(buf.len() - start_len), // EOF
-                1 => {
-                    buf.push(byte[0]);
-                    if byte[0] == delimiter {
-                        return Ok(buf.len() - start_len);
-                    }
-                }
-                _ => unreachable!(), // read(&mut [u8; 1]) should only return 0 or 1
-            }
-        }
     }
 }
 
@@ -143,7 +122,6 @@ type AdapterWrapper = Arc<Mutex<TokioSerialAdapter>>;
 #[derive(Debug)]
 pub struct AsyncSerialTransport {
     adapter: AdapterWrapper,
-    buffer_manager: BufferManager,
     config: AsyncSerialConfig,
 }
 
@@ -151,7 +129,6 @@ pub struct AsyncSerialTransport {
 #[cfg(windows)]
 pub struct AsyncSerialTransport {
     adapter: AdapterWrapper,
-    buffer_manager: BufferManager,
     config: AsyncSerialConfig,
 }
 
@@ -161,7 +138,6 @@ impl std::fmt::Debug for AsyncSerialTransport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AsyncSerialTransport")
             .field("adapter", &"Arc<Mutex<TokioSerialAdapter>>")
-            .field("buffer_manager", &self.buffer_manager)
             .field("config", &self.config)
             .finish()
     }
@@ -197,7 +173,6 @@ impl AsyncSerialTransport {
         let address_set = config.address_set_on_connect;
 
         let adapter = TokioSerialAdapter::new(port);
-        let buffer_manager = BufferManager::new(BufferConfig::for_serial());
 
         // Wrap adapter based on platform
         #[cfg(not(windows))]
@@ -208,7 +183,6 @@ impl AsyncSerialTransport {
 
         let mut transport = Self {
             adapter: adapter_wrapper,
-            buffer_manager,
             config,
         };
 
@@ -403,7 +377,7 @@ impl AsyncSerialTransport {
         {
             timeout(
                 self.config.read_timeout,
-                read_visca_frame(&mut self.adapter, &self.buffer_manager),
+                read_visca_frame(&mut self.adapter),
             )
             .await
             .map_err(|_| Error::Timeout)?
@@ -412,12 +386,9 @@ impl AsyncSerialTransport {
         #[cfg(windows)]
         {
             let mut adapter = self.adapter.lock().await;
-            timeout(
-                self.config.read_timeout,
-                read_visca_frame(&mut *adapter, &self.buffer_manager),
-            )
-            .await
-            .map_err(|_| Error::Timeout)?
+            timeout(self.config.read_timeout, read_visca_frame(&mut *adapter))
+                .await
+                .map_err(|_| Error::Timeout)?
         }
     }
 }

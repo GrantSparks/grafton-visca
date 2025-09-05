@@ -13,7 +13,7 @@ use super::{
 };
 use crate::{
     error::{Error, Result},
-    protocol::response::frame_decoder::FrameDecoder,
+    protocol::framer::ProtocolFramer,
     timeout::TimeoutConfig,
     transport::{buffer::BufferManager, envelope::TransportEnvelope, AsyncTransport},
 };
@@ -39,7 +39,7 @@ pub async fn runtime_loop_with_config<
     config: RuntimeLoopConfig,
 ) -> Result<()> {
     let mut scheduler = Scheduler::with_timeout_config(submit_rx.clone(), config.timeout_config);
-    let mut frame_decoder = FrameDecoder::new(4096); // Default buffer size
+    let mut protocol_framer = ProtocolFramer::new(4096); // Default buffer size
     let mut consecutive_retries = 0usize;
 
     debug!("VISCA runtime started");
@@ -192,11 +192,11 @@ pub async fn runtime_loop_with_config<
                 match recv_result {
                     Ok(bytes) => {
                         trace!("Received bytes from transport: {bytes:02X?}");
-                        // Push received bytes into the zero-copy frame decoder
-                        frame_decoder.push(bytes);
+                        // Push received bytes into the protocol-aware framer
+                        protocol_framer.push(bytes);
 
                         // Drain complete frames without copying
-                        for frame in frame_decoder.drain_frames() {
+                        for frame in protocol_framer.drain_frames() {
                             // Extract the VISCA payload and metadata using zero-copy method
                             let (payload, meta) =
                                 match config.envelope.extract_with_meta_owned(frame) {

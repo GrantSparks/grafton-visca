@@ -7,12 +7,7 @@ use bytes::Bytes;
 
 use std::{borrow::Cow, future::Future, time::Duration};
 
-use crate::{
-    command::bytes::VISCA_TERMINATOR,
-    protocol::sony::SonyHeader,
-    transport::{buffer::BufferManager, builder::TransportConfig},
-    Error,
-};
+use crate::{protocol::framer::ProtocolFramer, transport::builder::TransportConfig, Error};
 
 /// Trait abstracting async read operations across different runtimes.
 ///
@@ -23,19 +18,7 @@ pub trait AsyncReadExt {
     /// Read data into a buffer, returning the number of bytes read.
     ///
     /// Returns 0 when the stream is closed.
-    /// This method is used by runtimes that implement byte-by-byte reading (smol).
     fn read(&mut self, buf: &mut [u8]) -> impl Future<Output = Result<usize, Error>> + Send;
-
-    /// Read until a delimiter byte is encountered.
-    ///
-    /// The delimiter byte is included in the returned data.
-    /// Returns the number of bytes read (including delimiter).
-    /// This method is used by runtimes with efficient buffered reading (tokio, async-std).
-    fn read_until(
-        &mut self,
-        delimiter: u8,
-        buf: &mut Vec<u8>,
-    ) -> impl Future<Output = Result<usize, Error>> + Send;
 }
 
 /// Trait abstracting async write operations across different runtimes.
@@ -54,100 +37,44 @@ pub trait AsyncWriteExt {
 
 /// Unified helper for reading VISCA frames with protocol-aware deframing.
 ///
-/// This function automatically detects whether the incoming frame is:
+/// This function uses the ProtocolFramer to automatically detect and handle:
 /// - Raw VISCA: reads until 0xFF terminator
 /// - Sony 52381: reads exactly header + payload_length bytes
 ///
 /// This ensures that Sony frames with 0xFF in the header (e.g., in sequence number)
 /// are not prematurely truncated.
-pub async fn read_visca_frame<R: AsyncReadExt>(
-    reader: &mut R,
-    buffer_manager: &BufferManager,
-) -> Result<Bytes, Error> {
-    // Read at least 8 bytes to check for Sony header
-    let mut initial_buf = buffer_manager.alloc_vec_buffer();
-    initial_buf.clear(); // Ensure it's empty
+pub async fn read_visca_frame<R: AsyncReadExt>(reader: &mut R) -> Result<Bytes, Error> {
+    let mut framer = ProtocolFramer::new(1024);
+    let mut temp_buf = [0u8; 256];
 
-    // First, try to read enough bytes to check for Sony header
-    // We need to handle the case where 0xFF appears in the header
-    while initial_buf.len() < SonyHeader::SIZE {
-        let mut temp_byte = [0u8; 1];
-        let n = reader.read(&mut temp_byte).await?;
+    loop {
+        // Read some data
+        let n = reader.read(&mut temp_buf).await?;
 
         if n == 0 {
-            if initial_buf.is_empty() {
+            // Connection closed - try to extract any frame that's terminated
+            if let Some(frame) = framer.drain_on_eof() {
+                return Ok(frame);
+            }
+
+            // No valid frame could be extracted
+            if framer.is_empty() {
                 return Err(Error::ConnectionClosed {
                     reason: Some(Cow::Borrowed("peer closed connection")),
                 });
-            }
-            // Partial read, not enough for Sony header - treat as Raw VISCA
-            // Look for terminator in what we have
-            if let Some(term_pos) = initial_buf.iter().position(|&b| b == VISCA_TERMINATOR) {
-                initial_buf.truncate(term_pos + 1);
-            }
-            let len = initial_buf.len();
-            return Ok(buffer_manager.process_recv_data(initial_buf, len));
-        }
-
-        initial_buf.push(temp_byte[0]);
-
-        // If we got a terminator before 8 bytes AND it's not a valid Sony header start,
-        // it's definitely Raw VISCA
-        if initial_buf.len() < SonyHeader::SIZE && temp_byte[0] == VISCA_TERMINATOR {
-            // Check if what we have so far could be a Sony header
-            if initial_buf.len() >= 2 {
-                let could_be_sony = matches!(&initial_buf[0..2], [0x01, _]);
-                if !could_be_sony {
-                    let len = initial_buf.len();
-                    return Ok(buffer_manager.process_recv_data(initial_buf, len));
-                }
             } else {
-                let len = initial_buf.len();
-                return Ok(buffer_manager.process_recv_data(initial_buf, len));
-            }
-        }
-    }
-
-    // Check if this is a Sony header
-    if let Some(header) = SonyHeader::decode(&initial_buf[..SonyHeader::SIZE]) {
-        // It's a Sony frame - read the remaining payload based on header length
-        let total_needed = SonyHeader::SIZE + header.payload_length as usize;
-
-        // Continue reading until we have the full frame
-        while initial_buf.len() < total_needed {
-            let mut temp_byte = [0u8; 1];
-            let n = reader.read(&mut temp_byte).await?;
-            if n == 0 {
                 return Err(Error::ConnectionClosed {
-                    reason: Some(Cow::Borrowed("connection closed during Sony frame read")),
+                    reason: Some(Cow::Borrowed("connection closed with partial frame")),
                 });
             }
-            initial_buf.push(temp_byte[0]);
         }
 
-        // Ensure we have exactly the right amount
-        initial_buf.truncate(total_needed);
-        Ok(buffer_manager.process_recv_data(initial_buf, total_needed))
-    } else {
-        // Not a Sony header - continue reading as Raw VISCA until terminator
-        // We may have read past the terminator if checking for Sony header
-        if let Some(term_pos) = initial_buf.iter().position(|&b| b == VISCA_TERMINATOR) {
-            // Found terminator in what we already read
-            initial_buf.truncate(term_pos + 1);
-            let final_len = initial_buf.len();
-            Ok(buffer_manager.process_recv_data(initial_buf, final_len))
-        } else {
-            // Continue reading until terminator
-            let n = reader
-                .read_until(VISCA_TERMINATOR, &mut initial_buf)
-                .await?;
-            if n == 0 {
-                return Err(Error::ConnectionClosed {
-                    reason: Some(Cow::Borrowed("peer closed connection")),
-                });
-            }
-            let final_len = initial_buf.len();
-            Ok(buffer_manager.process_recv_data(initial_buf, final_len))
+        // Push data to framer
+        framer.push(Bytes::copy_from_slice(&temp_buf[..n]));
+
+        // Try to extract a complete frame
+        if let Some(frame) = framer.drain_frames().next() {
+            return Ok(frame);
         }
     }
 }
@@ -212,6 +139,8 @@ impl From<TransportConfig> for UdpSocketConfig {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use crate::command::bytes::VISCA_TERMINATOR;
+
     use std::io::Cursor;
 
     /// Mock reader for testing
@@ -232,26 +161,6 @@ mod tests {
             use std::io::Read;
             self.data.read(buf).map_err(Error::Io)
         }
-
-        async fn read_until(&mut self, delimiter: u8, buf: &mut Vec<u8>) -> Result<usize, Error> {
-            use std::io::Read;
-            let start_len = buf.len();
-
-            loop {
-                let mut byte = [0u8; 1];
-                match self.data.read(&mut byte) {
-                    Ok(0) => return Ok(buf.len() - start_len),
-                    Ok(1) => {
-                        buf.push(byte[0]);
-                        if byte[0] == delimiter {
-                            return Ok(buf.len() - start_len);
-                        }
-                    }
-                    Ok(_) => unreachable!(),
-                    Err(e) => return Err(Error::Io(e)),
-                }
-            }
-        }
     }
 
     impl AsyncWriteExt for MockAsyncReader {
@@ -269,11 +178,7 @@ mod tests {
         // Simple Raw VISCA command
         let data = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
         let mut reader = MockAsyncReader::new(data.clone());
-        let buffer_manager = BufferManager::new(crate::transport::buffer::BufferConfig::default());
-
-        let result = read_visca_frame(&mut reader, &buffer_manager)
-            .await
-            .expect("Failed in test");
+        let result = read_visca_frame(&mut reader).await.expect("Failed in test");
         assert_eq!(result.as_ref(), &data[..]);
     }
 
@@ -282,11 +187,7 @@ mod tests {
         // Raw VISCA stops at first 0xFF
         let data = vec![0x81, 0x01, VISCA_TERMINATOR, 0x02, VISCA_TERMINATOR];
         let mut reader = MockAsyncReader::new(data);
-        let buffer_manager = BufferManager::new(crate::transport::buffer::BufferConfig::default());
-
-        let result = read_visca_frame(&mut reader, &buffer_manager)
-            .await
-            .expect("Failed in test");
+        let result = read_visca_frame(&mut reader).await.expect("Failed in test");
         assert_eq!(result.as_ref(), &[0x81, 0x01, VISCA_TERMINATOR]);
     }
 
@@ -301,10 +202,7 @@ mod tests {
         ];
 
         let mut reader = MockAsyncReader::new(data.clone());
-        let buffer_manager = BufferManager::new(crate::transport::buffer::BufferConfig::default());
-        let result = read_visca_frame(&mut reader, &buffer_manager)
-            .await
-            .expect("Failed in test");
+        let result = read_visca_frame(&mut reader).await.expect("Failed in test");
         assert_eq!(result.as_ref(), &data[..]);
     }
 
@@ -319,10 +217,7 @@ mod tests {
         ];
 
         let mut reader = MockAsyncReader::new(data.clone());
-        let buffer_manager = BufferManager::new(crate::transport::buffer::BufferConfig::default());
-        let result = read_visca_frame(&mut reader, &buffer_manager)
-            .await
-            .expect("Failed in test");
+        let result = read_visca_frame(&mut reader).await.expect("Failed in test");
 
         // Should read exactly 8 header + 5 payload = 13 bytes
         assert_eq!(result.len(), 13);
@@ -340,7 +235,6 @@ mod tests {
             0xFFFF_FFFF_u32, // All 0xFF
         ];
 
-        let buffer_manager = BufferManager::new(crate::transport::buffer::BufferConfig::default());
         for seq_num in test_cases {
             let mut data = vec![
                 0x01, 0x11, // Payload type: ViscaReply
@@ -350,9 +244,7 @@ mod tests {
             data.extend_from_slice(&[0x90, 0x50, 0xFF]); // Short VISCA payload
 
             let mut reader = MockAsyncReader::new(data.clone());
-            let result = read_visca_frame(&mut reader, &buffer_manager)
-                .await
-                .expect("Failed in test");
+            let result = read_visca_frame(&mut reader).await.expect("Failed in test");
 
             assert_eq!(result.len(), 11, "Failed for sequence: 0x{:08X}", seq_num);
             assert_eq!(
@@ -376,10 +268,7 @@ mod tests {
         ];
 
         let mut reader = MockAsyncReader::new(data.clone());
-        let buffer_manager = BufferManager::new(crate::transport::buffer::BufferConfig::default());
-        let result = read_visca_frame(&mut reader, &buffer_manager)
-            .await
-            .expect("Failed in test");
+        let result = read_visca_frame(&mut reader).await.expect("Failed in test");
 
         // Should read as Raw VISCA up to first 0xFF (at position 10)
         assert_eq!(result.len(), 11);
@@ -390,9 +279,7 @@ mod tests {
     async fn test_connection_closed() {
         let data = vec![];
         let mut reader = MockAsyncReader::new(data);
-        let buffer_manager = BufferManager::new(crate::transport::buffer::BufferConfig::default());
-
-        let result = read_visca_frame(&mut reader, &buffer_manager).await;
+        let result = read_visca_frame(&mut reader).await;
         assert!(matches!(result, Err(Error::ConnectionClosed { .. })));
     }
 
@@ -401,11 +288,7 @@ mod tests {
         // Only 6 bytes when we need 8 for Sony header, followed by 0xFF
         let data = vec![0x01, 0x00, 0x00, 0x05, 0x00, VISCA_TERMINATOR];
         let mut reader = MockAsyncReader::new(data.clone());
-        let buffer_manager = BufferManager::new(crate::transport::buffer::BufferConfig::default());
-
-        let result = read_visca_frame(&mut reader, &buffer_manager)
-            .await
-            .expect("Failed in test");
+        let result = read_visca_frame(&mut reader).await.expect("Failed in test");
         // Should read as Raw VISCA since we hit 0xFF before getting full header
         assert_eq!(result.as_ref(), &data[..]);
     }

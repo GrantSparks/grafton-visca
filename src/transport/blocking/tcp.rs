@@ -12,8 +12,8 @@ use std::{
 use crate::{
     command::CommandKind,
     transport::{
-        address::AddressResolver, buffer::BufferManager, builder::TransportConfig,
-        retry::RetryExecutor, sync_io::read_visca_frame_sync, RetryConfig, SyncTransport,
+        address::AddressResolver, builder::TransportConfig, retry::RetryExecutor,
+        sync_io::read_visca_frame_sync, RetryConfig, SyncTransport,
     },
     Error,
 };
@@ -26,7 +26,6 @@ pub struct Tcp {
     reader: BufReader<TcpStream>,
     writer: TcpStream,
     retry_executor: RetryExecutor,
-    buffer_manager: BufferManager,
 }
 
 impl Tcp {
@@ -90,9 +89,6 @@ impl Tcp {
                     // Clone the stream for separate reader and writer
                     let reader_stream = stream.try_clone()?;
 
-                    // Create buffer manager with config
-                    let buffer_manager = BufferManager::new(config.buffer_config);
-
                     // Create retry executor with config
                     let retry_executor = RetryExecutor::new(config.retry_config);
 
@@ -100,7 +96,6 @@ impl Tcp {
                         reader: BufReader::new(reader_stream),
                         writer: stream,
                         retry_executor,
-                        buffer_manager,
                     });
                 }
                 Err(e) => {
@@ -179,7 +174,6 @@ impl Tcp {
 
         let reader = TcpReader {
             reader: Arc::new(Mutex::new(self.reader)),
-            buffer_manager: Arc::new(Mutex::new(self.buffer_manager)),
         };
 
         let writer = TcpWriter {
@@ -207,7 +201,7 @@ impl SyncTransport for Tcp {
         // Note: Receiving data is typically not retried as it might lead to
         // duplicate data or protocol confusion. However, we can retry on
         // specific transient errors like temporary network issues.
-        read_visca_frame_sync(&mut self.reader, &self.buffer_manager)
+        read_visca_frame_sync(&mut self.reader)
     }
 
     fn recv_with_timeout(&mut self, duration: Duration) -> Result<Bytes, Error> {
@@ -218,7 +212,7 @@ impl SyncTransport for Tcp {
         self.reader.get_mut().set_read_timeout(Some(duration))?;
 
         // Perform the read operation with protocol-aware deframing
-        let result = read_visca_frame_sync(&mut self.reader, &self.buffer_manager);
+        let result = read_visca_frame_sync(&mut self.reader);
 
         // Restore the original timeout
         self.reader.get_mut().set_read_timeout(original_timeout)?;
@@ -243,7 +237,6 @@ impl SyncTransport for Tcp {
 #[derive(Debug, Clone)]
 pub struct TcpReader {
     reader: Arc<Mutex<BufReader<TcpStream>>>,
-    buffer_manager: Arc<Mutex<BufferManager>>,
 }
 
 impl TcpReader {
@@ -253,13 +246,9 @@ impl TcpReader {
             .reader
             .lock()
             .map_err(|_| Error::TransportError(Cow::Borrowed("Reader mutex poisoned")))?;
-        let buffer_manager = self
-            .buffer_manager
-            .lock()
-            .map_err(|_| Error::TransportError(Cow::Borrowed("Buffer manager mutex poisoned")))?;
 
         // Use protocol-aware frame reading
-        read_visca_frame_sync(&mut *reader, &buffer_manager)
+        read_visca_frame_sync(&mut *reader)
     }
 
     /// Receive data with a custom timeout.
@@ -268,10 +257,6 @@ impl TcpReader {
             .reader
             .lock()
             .map_err(|_| Error::TransportError(Cow::Borrowed("Reader mutex poisoned")))?;
-        let buffer_manager = self
-            .buffer_manager
-            .lock()
-            .map_err(|_| Error::TransportError(Cow::Borrowed("Buffer manager mutex poisoned")))?;
 
         // Save the current timeout
         let original_timeout = reader.get_ref().read_timeout()?;
@@ -280,7 +265,7 @@ impl TcpReader {
         reader.get_mut().set_read_timeout(Some(duration))?;
 
         // Perform the read operation with protocol-aware deframing
-        let result = read_visca_frame_sync(&mut *reader, &buffer_manager);
+        let result = read_visca_frame_sync(&mut *reader);
 
         // Restore the original timeout
         reader.get_mut().set_read_timeout(original_timeout)?;

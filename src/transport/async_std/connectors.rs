@@ -1,6 +1,6 @@
 //! async-std-specific implementations of unified async I/O connectors.
 
-use async_std::io::{prelude::*, BufReader};
+use async_std::io::prelude::*;
 use async_std::net::{TcpStream, UdpSocket};
 use async_std::prelude::FutureExt;
 
@@ -30,11 +30,6 @@ impl AsyncStdTcpStream {
 impl AsyncReadExtTrait for AsyncStdTcpStream {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         Ok(self.stream.read(buf).await?)
-    }
-
-    async fn read_until(&mut self, delimiter: u8, buf: &mut Vec<u8>) -> Result<usize, Error> {
-        let mut reader = BufReader::new(&self.stream);
-        Ok(reader.read_until(delimiter, buf).await?)
     }
 }
 

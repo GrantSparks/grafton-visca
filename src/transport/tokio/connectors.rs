@@ -1,6 +1,6 @@
 //! Tokio-specific implementations of unified async I/O connectors.
 
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpStream, UdpSocket};
 
 use crate::transport::address::AddressResolver;
@@ -27,10 +27,6 @@ impl<R: AsyncReadExt + Unpin> TokioBufferedReader<R> {
 impl<R: AsyncReadExt + Unpin + Send> AsyncReadExtTrait for TokioBufferedReader<R> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         Ok(self.inner.read(buf).await?)
-    }
-
-    async fn read_until(&mut self, delimiter: u8, buf: &mut Vec<u8>) -> Result<usize, Error> {
-        Ok(self.inner.read_until(delimiter, buf).await?)
     }
 }
 
@@ -66,10 +62,6 @@ pub struct TokioTcpStream {
 impl AsyncReadExtTrait for TokioTcpStream {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         self.reader.read(buf).await
-    }
-
-    async fn read_until(&mut self, delimiter: u8, buf: &mut Vec<u8>) -> Result<usize, Error> {
-        self.reader.read_until(delimiter, buf).await
     }
 }
 

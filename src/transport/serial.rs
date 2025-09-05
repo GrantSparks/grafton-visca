@@ -21,11 +21,7 @@ use crate::{
         CommandKind,
     },
     error::{Error, Result},
-    transport::{
-        buffer::{BufferConfig, BufferManager},
-        sync_io::read_visca_frame_sync,
-        RetryConfig, SyncTransport,
-    },
+    transport::{sync_io::read_visca_frame_sync, RetryConfig, SyncTransport},
 };
 
 /// Serial port configuration for VISCA communication.
@@ -68,7 +64,6 @@ impl Default for SerialConfig {
 #[derive(Debug)]
 pub struct SerialTransport {
     port: Arc<Mutex<Box<dyn serialport::SerialPort>>>,
-    buffer_manager: BufferManager,
     config: SerialConfig,
 }
 
@@ -86,10 +81,8 @@ impl SerialTransport {
         let if_clear = config.if_clear_on_connect;
         let address_set = config.address_set_on_connect;
 
-        let buffer_manager = BufferManager::new(BufferConfig::for_serial());
         let transport = Self {
             port: Arc::new(Mutex::new(port)),
-            buffer_manager,
             config,
         };
 
@@ -273,7 +266,7 @@ impl SerialTransport {
         }
 
         let mut reader = PortReader { port: &mut *port };
-        let frame = read_visca_frame_sync(&mut reader, &self.buffer_manager)?;
+        let frame = read_visca_frame_sync(&mut reader)?;
         trace!("Received frame: {:02X?}", frame);
         Ok(frame)
     }

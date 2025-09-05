@@ -7,7 +7,6 @@ use std::time::Duration;
 use crate::{
     transport::{
         async_io::{read_visca_frame, write_all_flush, TcpConnectionConfig},
-        buffer::BufferManager,
         builder::TransportConfig,
         tokio::connectors::{connect_tcp, TokioTcpStream},
         AsyncTransport,
@@ -22,7 +21,6 @@ use crate::{
 #[derive(Debug)]
 pub struct Tcp {
     stream: TokioTcpStream,
-    buffer_manager: BufferManager,
 }
 
 impl Tcp {
@@ -55,10 +53,7 @@ impl Tcp {
         let tcp_config = TcpConnectionConfig::from(config);
         let stream = connect_tcp(address, tcp_config).await?;
 
-        Ok(Self {
-            stream,
-            buffer_manager: BufferManager::new(config.buffer_config),
-        })
+        Ok(Self { stream })
     }
 
     /// Split the TCP transport into separate reader and writer halves.
@@ -87,10 +82,7 @@ impl Tcp {
     pub fn split(self) -> (TcpReader, TcpWriter) {
         let TokioTcpStream { reader, writer } = self.stream;
 
-        let tcp_reader = TcpReader {
-            reader,
-            buffer_manager: self.buffer_manager,
-        };
+        let tcp_reader = TcpReader { reader };
         let tcp_writer = TcpWriter { writer };
 
         (tcp_reader, tcp_writer)
@@ -103,7 +95,7 @@ impl AsyncTransport for Tcp {
     }
 
     async fn recv(&mut self) -> Result<Bytes, Error> {
-        read_visca_frame(&mut self.stream, &self.buffer_manager).await
+        read_visca_frame(&mut self.stream).await
     }
 }
 
@@ -115,13 +107,12 @@ impl AsyncTransport for Tcp {
 pub struct TcpReader {
     reader:
         crate::transport::tokio::connectors::TokioBufferedReader<tokio::net::tcp::OwnedReadHalf>,
-    buffer_manager: BufferManager,
 }
 
 impl TcpReader {
     /// Receive data from the TCP connection.
     pub async fn recv(&mut self) -> Result<Bytes, Error> {
-        read_visca_frame(&mut self.reader, &self.buffer_manager).await
+        read_visca_frame(&mut self.reader).await
     }
 }
 

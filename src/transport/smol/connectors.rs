@@ -30,24 +30,6 @@ impl AsyncReadExtTrait for SmolTcpStream {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         Ok(self.stream.read(buf).await?)
     }
-
-    async fn read_until(&mut self, delimiter: u8, buf: &mut Vec<u8>) -> Result<usize, Error> {
-        // smol doesn't have read_until, so we read byte by byte
-        let mut total_read = 0;
-        loop {
-            let mut byte = [0u8; 1];
-            let n = self.stream.read(&mut byte).await?;
-            if n == 0 {
-                break;
-            }
-            buf.push(byte[0]);
-            total_read += 1;
-            if byte[0] == delimiter {
-                break;
-            }
-        }
-        Ok(total_read)
-    }
 }
 
 impl AsyncWriteExtTrait for SmolTcpStream {

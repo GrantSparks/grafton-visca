@@ -8,7 +8,6 @@ use crate::{
     transport::{
         async_io::{read_visca_frame, write_all_flush, TcpConnectionConfig},
         async_std::connectors::{connect_tcp, AsyncStdTcpStream},
-        buffer::BufferManager,
         builder::TransportConfig,
         AsyncTransport,
     },
@@ -22,7 +21,6 @@ use crate::{
 #[derive(Debug)]
 pub struct Tcp {
     stream: AsyncStdTcpStream,
-    buffer_manager: BufferManager,
 }
 
 impl Tcp {
@@ -54,10 +52,7 @@ impl Tcp {
     ) -> Result<Self, Error> {
         let tcp_config = TcpConnectionConfig::from(config);
         let stream = connect_tcp(address, tcp_config).await?;
-        Ok(Self {
-            stream,
-            buffer_manager: BufferManager::new(config.buffer_config),
-        })
+        Ok(Self { stream })
     }
 
     /// Split the TCP transport into separate reader and writer halves.
@@ -88,7 +83,6 @@ impl Tcp {
 
         let reader = TcpReader {
             stream: self.stream,
-            buffer_manager: self.buffer_manager,
         };
 
         let writer = TcpWriter {
@@ -105,7 +99,7 @@ impl AsyncTransport for Tcp {
     }
 
     async fn recv(&mut self) -> Result<Bytes, Error> {
-        read_visca_frame(&mut self.stream, &self.buffer_manager).await
+        read_visca_frame(&mut self.stream).await
     }
 }
 
@@ -116,13 +110,12 @@ impl AsyncTransport for Tcp {
 #[derive(Debug)]
 pub struct TcpReader {
     stream: AsyncStdTcpStream,
-    buffer_manager: BufferManager,
 }
 
 impl TcpReader {
     /// Receive data from the TCP connection.
     pub async fn recv(&mut self) -> Result<Bytes, Error> {
-        read_visca_frame(&mut self.stream, &self.buffer_manager).await
+        read_visca_frame(&mut self.stream).await
     }
 }
 
