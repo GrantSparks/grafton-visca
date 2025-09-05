@@ -4,8 +4,12 @@
 //! operations through the Mode trait system, eliminating the need for separate
 //! AsyncCamera and BlockingCamera types.
 
+// Standard library
 use core::marker::PhantomData;
+#[cfg(feature = "async")]
+use std::{future::Future, pin::Pin};
 
+// Local modules
 use crate::{
     camera_id::CameraId,
     capabilities::{Profile, ProtocolStyle},
@@ -13,21 +17,20 @@ use crate::{
     error::Error,
     mode::Mode,
     timeout::TimeoutConfig,
+    transport::SyncTransport,
 };
-
-#[cfg(not(feature = "async"))]
-use crate::transport::{
-    buffer::{BufferConfig, BufferManager},
-    envelope::TransportEnvelope,
-};
-
-#[cfg(not(feature = "async"))]
-use crate::runtime::blocking_runner::BlockingRunner;
-
-use crate::transport::SyncTransport;
 
 #[cfg(feature = "async")]
 use crate::{executor::Executor, transport::AsyncTransport};
+
+#[cfg(not(feature = "async"))]
+use crate::{
+    runtime::blocking_runner::BlockingRunner,
+    transport::{
+        buffer::{BufferConfig, BufferManager},
+        envelope::TransportEnvelope,
+    },
+};
 
 /// Unified camera client that works in both blocking and async modes.
 ///
@@ -66,7 +69,7 @@ where
     camera_id: CameraId,
     timeout_config: TimeoutConfig,
 
-    // Mode-specific storage: either transport or runtime
+    // NOTE: Mode-specific storage: either transport or runtime
     // For blocking mode: stores transport directly with BlockingRunner for state management
     // For async mode: stores runtime handle (transport and envelope managed by runtime)
     #[cfg(not(feature = "async"))]
@@ -81,14 +84,12 @@ where
     #[cfg(feature = "async")]
     runtime: crate::runtime::RuntimeHandle,
 
-    // Phantom data for compile-time parameters
     _phantom_mode: PhantomData<M>,
     _phantom_profile: PhantomData<P>,
     _phantom_exec: PhantomData<Exec>,
     _phantom_transport: PhantomData<Tr>,
 }
 
-// Implementation for async mode
 #[cfg(feature = "async")]
 impl<P, Tr, Exec> Camera<crate::mode::Async, P, Tr, Exec>
 where
@@ -132,7 +133,6 @@ where
     }
 }
 
-// Implementation for blocking mode
 #[cfg(not(feature = "async"))]
 impl<P, Tr> Camera<crate::mode::Blocking, P, Tr, ()>
 where
@@ -173,7 +173,6 @@ where
     }
 }
 
-// Common methods available for all camera types
 impl<M, P, Tr, Exec> Camera<M, P, Tr, Exec>
 where
     M: Mode,
@@ -251,9 +250,9 @@ where
     }
 
     /// Send a typed command and return the response.
-    pub fn send_command_typed<C>(
-        &self,
-        command: &C,
+    pub fn send_command_typed<'a, C>(
+        &'a self,
+        command: &'a C,
     ) -> <crate::mode::Async as Mode>::Ret<'static, Result<C::Response, Error>>
     where
         C: ViscaCommand + ViscaEncode + Send + Sync + Clone + 'static,
@@ -261,9 +260,8 @@ where
         Tr: AsyncTransport + Send + Sync,
         Exec: Executor + Send + Sync + Clone,
     {
-        let command = command.clone();
-        let response_future = self.send_command(&command);
-        crate::mode::Async::ret_fut(async move {
+        let response_future = self.send_command(command);
+        Box::pin(async move {
             let response = response_future.await?;
             C::from_response(response)
         })
@@ -273,9 +271,9 @@ where
     ///
     /// This allows advanced users to track and potentially cancel commands.
     /// Most users should use the high-level trait methods instead.
-    pub fn send_command_with_id<C>(
-        &self,
-        command: &C,
+    pub fn send_command_with_id<'a, C>(
+        &'a self,
+        command: &'a C,
     ) -> <crate::mode::Async as Mode>::Ret<
         'static,
         Result<(u32, crate::command::response::ViscaResponse), Error>,
@@ -326,11 +324,10 @@ where
     ) -> Result<
         (
             u32,
-            std::pin::Pin<
+            Pin<
                 Box<
-                    dyn std::future::Future<
-                            Output = Result<crate::command::response::ViscaResponse, Error>,
-                        > + Send
+                    dyn Future<Output = Result<crate::command::response::ViscaResponse, Error>>
+                        + Send
                         + 'static,
                 >,
             >,
@@ -349,14 +346,7 @@ where
             // Inquiries don't support command IDs in the current runtime
             // Return ID 0 with a future that immediately resolves
             let response = self.runtime.send_inquiry(command, camera_id).await?;
-            let future: std::pin::Pin<
-                Box<
-                    dyn std::future::Future<
-                            Output = Result<crate::command::response::ViscaResponse, Error>,
-                        > + Send
-                        + 'static,
-                >,
-            > = Box::pin(async move { Ok(response) });
+            let future = Box::pin(async move { Ok(response) });
             Ok((0, future))
         } else {
             // Return the ID and future directly without awaiting
@@ -364,14 +354,7 @@ where
                 .runtime
                 .send_command_with_id(command, camera_id, None)
                 .await?;
-            let future: std::pin::Pin<
-                Box<
-                    dyn std::future::Future<
-                            Output = Result<crate::command::response::ViscaResponse, Error>,
-                        > + Send
-                        + 'static,
-                >,
-            > = Box::pin(fut);
+            let future = Box::pin(fut);
             Ok((id, future))
         }
     }
@@ -410,7 +393,6 @@ where
     }
 }
 
-// Implementation for blocking mode
 #[cfg(not(feature = "async"))]
 impl<P, Tr> Camera<crate::mode::Blocking, P, Tr, ()>
 where

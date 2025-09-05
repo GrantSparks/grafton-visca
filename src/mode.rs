@@ -3,9 +3,11 @@
 //! This module provides the Mode trait that enables a single API surface
 //! to work in both blocking and async modes through type-state parameters.
 
+// External crates
 #[cfg(feature = "async")]
 use async_lock;
 
+// Standard library
 use core::{
     future::{ready, Ready},
     pin::Pin,
@@ -59,6 +61,12 @@ pub struct Async;
 pub struct Blocking;
 
 impl Mode for Async {
+    // NOTE: We use boxed futures here because TAIT (Type Alias Impl Trait)
+    // in associated types is not yet stable in Rust. Once it becomes stable,
+    // this can be changed to `impl Future<Output = T> + Send + 'a` to achieve
+    // zero-cost futures. The current approach still avoids double-boxing and
+    // maintains a single allocation per async operation.
+    // See: https://github.com/rust-lang/rust/issues/63063
     type Ret<'a, T>
         = Pin<Box<dyn Future<Output = T> + Send + 'a>>
     where
@@ -76,7 +84,7 @@ impl Mode for Async {
 
     #[cfg(not(feature = "async"))]
     fn share<T>(value: T) -> Self::Shared<T> {
-        value // Fallback for when async is not available
+        value
     }
 
     fn ret<T>(result: T) -> Self::Ret<'static, T>
@@ -119,7 +127,7 @@ impl Mode for Blocking {
         F: Future<Output = T> + Send + 'static,
         T: Send + 'static,
     {
-        // For blocking mode, futures should be avoided.
+        // NOTE: For blocking mode, futures should be avoided.
         unreachable!("Blocking mode should not use futures directly - use Mode::ret() instead")
     }
 }
@@ -157,7 +165,7 @@ pub trait BlockingFutureExt: Future {
 impl<T> BlockingFutureExt for Ready<T> {
     #[inline]
     fn block(self) -> T {
-        // Ready futures are immediately ready, so we can use pollster
+        // NOTE: Ready futures are immediately ready, so we can use pollster
         // which is zero-cost for already-ready futures
         pollster::block_on(self)
     }
