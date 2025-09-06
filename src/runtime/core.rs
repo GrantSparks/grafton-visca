@@ -1498,4 +1498,90 @@ mod tests {
         assert_eq!(core.seq_to_cmd.len(), 0);
         assert_eq!(core.cmd_to_seqs.len(), 0);
     }
+
+    #[test]
+    fn test_raw_visca_content_based_matching() {
+        // This test verifies that the scheduler core correctly handles
+        // out-of-order inquiry replies in raw VISCA mode.
+        // The actual content-based matching happens in the adapter layer,
+        // but the core should correctly process the events with proper cmd_id.
+
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = crate::transport::RetryConfig::default();
+        let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+        let now = Instant::now();
+        let priority = Priority::Normal;
+        let category = CommandCategory::Quick;
+        let camera_id = crate::camera_id::CameraId::CAMERA_1;
+
+        // Start two different inquiries in raw VISCA mode
+        let power_bytes = bytes::Bytes::from(vec![0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR]);
+        let zoom_bytes = bytes::Bytes::from(vec![0x81, 0x09, 0x04, 0x47, VISCA_TERMINATOR]);
+
+        core.start_inquiry(1, power_bytes, priority, category, camera_id, now);
+        core.start_inquiry(2, zoom_bytes, priority, category, camera_id, now);
+
+        // Verify both are tracked
+        assert_eq!(core.inquiries_order.len(), 2);
+        assert!(core.inquiries_inflight.contains_key(&1));
+        assert!(core.inquiries_inflight.contains_key(&2));
+
+        // Process replies out of order
+        // Second inquiry (zoom) reply arrives first - with explicit cmd_id
+        // (This simulates the adapter layer doing content-based matching)
+        let zoom_response = ViscaResponse::Inquiry(crate::command::InquiryResponse::ZoomPosition {
+            position: 0x1234,
+        });
+        let event2 = SchedulerEvent::InquiryReply {
+            cmd_id: Some(2), // Content-based matching identified this as inquiry 2
+            response: zoom_response,
+        };
+
+        let actions = core.process_event(event2, now);
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            SchedulerAction::CommandComplete { id, response } => {
+                assert_eq!(*id, 2); // Second inquiry completed
+                                    // Verify it's a zoom response
+                match response {
+                    ViscaResponse::Inquiry(crate::command::InquiryResponse::ZoomPosition {
+                        position,
+                    }) => {
+                        assert_eq!(*position, 0x1234);
+                    }
+                    _ => panic!("Expected ZoomPosition response"),
+                }
+            }
+            _ => panic!("Expected CommandComplete action"),
+        }
+
+        // First inquiry (power) reply arrives second
+        let power_response =
+            ViscaResponse::Inquiry(crate::command::InquiryResponse::Power { on: true });
+        let event1 = SchedulerEvent::InquiryReply {
+            cmd_id: Some(1), // Content-based matching identified this as inquiry 1
+            response: power_response,
+        };
+
+        let actions = core.process_event(event1, now);
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            SchedulerAction::CommandComplete { id, response } => {
+                assert_eq!(*id, 1); // First inquiry completed
+                                    // Verify it's a power response
+                match response {
+                    ViscaResponse::Inquiry(crate::command::InquiryResponse::Power { on }) => {
+                        assert!(*on);
+                    }
+                    _ => panic!("Expected Power response"),
+                }
+            }
+            _ => panic!("Expected CommandComplete action"),
+        }
+
+        // All inquiries should be completed
+        assert_eq!(core.inquiries_order.len(), 0);
+        assert!(!core.inquiries_inflight.contains_key(&1));
+        assert!(!core.inquiries_inflight.contains_key(&2));
+    }
 }

@@ -14,8 +14,11 @@ use crate::{
     error::{Error, Result},
     executor::Executor,
     protocol::response::{decode_basic, BasicKind},
-    runtime::core::{
-        PendingCommand, Priority, RetryCommand, SchedulerAction, SchedulerCore, SchedulerEvent,
+    runtime::{
+        core::{
+            PendingCommand, Priority, RetryCommand, SchedulerAction, SchedulerCore, SchedulerEvent,
+        },
+        inquiry_matcher::{resolve_raw_inquiry_id, ResolveResult},
     },
     timeout::{CommandCategory, TimeoutConfig},
     transport::RetryConfig,
@@ -344,19 +347,31 @@ impl<E: Executor> AsyncAdapter<E> {
             }
             BasicKind::DataReply => {
                 // Data replies are completions for inquiries
-                // Try to find command ID from sequence (Sony) or let the core handle it
-                let cmd_id = sequence.and_then(|seq| self.core.get_command_by_sequence(seq));
+                // Try to find command ID from sequence (Sony) first
+                let cmd_id = sequence
+                    .and_then(|seq| self.core.get_command_by_sequence(seq))
+                    .or_else(|| {
+                        // No sequence - use content-based matching for raw VISCA
+                        match resolve_raw_inquiry_id(
+                            basic.payload.as_slice(),
+                            &self.inquiry_response_types,
+                        ) {
+                            ResolveResult::Unique(id) => Some(id),
+                            ResolveResult::Ambiguous(_) => {
+                                // Fall back to FIFO for ambiguous cases
+                                debug!("Ambiguous inquiry match, falling back to FIFO");
+                                self.active_inquiry_ids.front().copied()
+                            }
+                            ResolveResult::None => {
+                                // No match - try FIFO as last resort
+                                debug!("No inquiry match, falling back to FIFO");
+                                self.active_inquiry_ids.front().copied()
+                            }
+                        }
+                    });
 
                 // Get the expected response type for this inquiry
-                // For raw VISCA (no sequence), use the first inquiry in the queue
-                let response_type = if let Some(id) = cmd_id {
-                    self.inquiry_response_types.get(&id)
-                } else if let Some(&first_id) = self.active_inquiry_ids.front() {
-                    // Raw VISCA: use the response type from the first queued inquiry
-                    self.inquiry_response_types.get(&first_id)
-                } else {
-                    None
-                };
+                let response_type = cmd_id.and_then(|id| self.inquiry_response_types.get(&id));
 
                 let response = lift_inquiry(&basic, response_type)?;
 

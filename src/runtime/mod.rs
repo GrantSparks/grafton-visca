@@ -38,6 +38,7 @@
 //! - This provides better error specificity while maintaining resilience
 
 pub mod core;
+pub mod inquiry_matcher;
 
 #[cfg(not(feature = "async"))]
 pub mod blocking_runner;
