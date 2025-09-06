@@ -25,15 +25,8 @@ impl Tcp {
     ///
     /// This method resolves hostnames and supports both IPv4 and IPv6 addresses.
     pub async fn connect(address: &str) -> Result<Self, Error> {
-        // Determine appropriate buffer config based on port
-        let buffer_config = if address.contains(":52381") {
-            BufferConfig::for_sony_ip()
-        } else {
-            BufferConfig::for_raw_ip()
-        };
-
         let config = TransportConfig {
-            buffer_config,
+            buffer_config: BufferConfig::for_raw_ip(),
             ..Default::default()
         };
         Self::connect_with_config(address, config).await
@@ -43,16 +36,9 @@ impl Tcp {
     ///
     /// This method resolves hostnames and supports both IPv4 and IPv6 addresses.
     pub async fn connect_timeout(address: &str, timeout: Duration) -> Result<Self, Error> {
-        // Determine appropriate buffer config based on port
-        let buffer_config = if address.contains(":52381") {
-            BufferConfig::for_sony_ip()
-        } else {
-            BufferConfig::for_raw_ip()
-        };
-
         let config = TransportConfig {
             connect_timeout: timeout,
-            buffer_config,
+            buffer_config: BufferConfig::for_raw_ip(),
             ..Default::default()
         };
         Self::connect_with_config(address, config).await

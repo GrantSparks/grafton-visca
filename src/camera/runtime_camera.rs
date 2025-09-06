@@ -81,12 +81,26 @@ where
     /// # }
     /// ```
     pub async fn connect_auto(address: impl Into<String>, runtime: R) -> Result<Self, Error> {
-        let (transport, _detection_result) =
+        use crate::capabilities::ProtocolStyle;
+        use crate::transport::protocol_detection::DetectionResult;
+
+        let (transport, detection_result) =
             Transport::auto_detect(address, runtime.clone()).await?;
 
-        // Use the detected protocol style from the camera profile
-        // The Camera implementation will extract RetryConfig from TransportHandle
-        Camera::new_async_runtime(transport, runtime).await
+        // Map the detection result to protocol style
+        let protocol_style = match detection_result {
+            DetectionResult::SonyEncapsulated => {
+                ProtocolStyle::SonyEncapsulated { use_sequence: true }
+            }
+            DetectionResult::RawVisca => ProtocolStyle::RawVisca,
+            DetectionResult::NoResponse => {
+                // This should not happen as auto_detect returns an error for NoResponse
+                unreachable!("auto_detect returns Err for NoResponse")
+            }
+        };
+
+        // Use the detected protocol style
+        Self::new_async_with_runtime_transport(transport, runtime, protocol_style).await
     }
 
     /// Connect to a camera via TCP using a specific runtime.
