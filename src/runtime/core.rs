@@ -230,6 +230,56 @@ pub enum SchedulerEvent {
     NetworkError,
 }
 
+/// Sequence list enum for efficient 1:Many command-to-sequences mapping.
+/// Uses zero allocation for the common case (no retries).
+#[derive(Debug, Clone)]
+enum SeqList {
+    /// Single sequence (no retries yet) - zero allocation.
+    One(u32),
+    /// Multiple sequences (with retries) - allocated only when needed.
+    Many(Vec<u32>),
+}
+
+impl SeqList {
+    /// Create a new SeqList with a single sequence.
+    fn new(seq: u32) -> Self {
+        SeqList::One(seq)
+    }
+
+    /// Add a sequence to the list, upgrading from One to Many if needed.
+    /// Returns the evicted sequence if the list was at capacity.
+    fn push(&mut self, seq: u32) -> Option<u32> {
+        match self {
+            SeqList::One(existing) => {
+                // Upgrade to Many on first retry
+                *self = SeqList::Many(vec![*existing, seq]);
+                None
+            }
+            SeqList::Many(vec) => {
+                // Optional: Cap at a reasonable limit (e.g., 8 sequences)
+                const MAX_SEQUENCES_PER_CMD: usize = 8;
+                if vec.len() >= MAX_SEQUENCES_PER_CMD {
+                    // Remove oldest sequence to make room
+                    let evicted = vec.remove(0);
+                    vec.push(seq);
+                    Some(evicted)
+                } else {
+                    vec.push(seq);
+                    None
+                }
+            }
+        }
+    }
+
+    /// Iterate over all sequences.
+    fn iter(&self) -> Box<dyn Iterator<Item = u32> + '_> {
+        match self {
+            SeqList::One(seq) => Box::new(std::iter::once(*seq)),
+            SeqList::Many(vec) => Box::new(vec.iter().copied()),
+        }
+    }
+}
+
 /// Runtime-agnostic scheduler core.
 ///
 /// This contains all the state machine logic without any async dependencies.
@@ -272,9 +322,9 @@ pub struct SchedulerCore {
     /// Maximum retries per command category.
     max_retries_per_category: HashMap<CommandCategory, u32>,
     /// Sony sequence tracking: sequence -> command_id.
-    pending_by_sequence: HashMap<u32, u32>,
-    /// Sony sequence tracking: command_id -> sequence.
-    sequence_by_command: HashMap<u32, u32>,
+    seq_to_cmd: HashMap<u32, u32>,
+    /// Sony sequence tracking: command_id -> sequences.
+    cmd_to_seqs: HashMap<u32, SeqList>,
     /// Inquiries in flight: command_id -> (sent_time, category).
     inquiries_inflight: HashMap<u32, (Instant, CommandCategory)>,
     /// Inquiry order tracking for raw VISCA (no sequence).
@@ -317,8 +367,8 @@ impl SchedulerCore {
             retry_attempts: HashMap::new(),
             command_queue: BinaryHeap::new(),
             max_retries_per_category: max_retries,
-            pending_by_sequence: HashMap::new(),
-            sequence_by_command: HashMap::new(),
+            seq_to_cmd: HashMap::new(),
+            cmd_to_seqs: HashMap::new(),
             inquiries_inflight: HashMap::new(),
             inquiries_order: VecDeque::new(),
         }
@@ -378,7 +428,7 @@ impl SchedulerCore {
         );
 
         // Check for duplicate sequence
-        if let Some(existing_cmd) = self.pending_by_sequence.get(&sequence) {
+        if let Some(existing_cmd) = self.seq_to_cmd.get(&sequence) {
             if *existing_cmd != cmd_id {
                 warn!(
                     "Sequence {} already mapped to command {}, overwriting with {}",
@@ -387,28 +437,69 @@ impl SchedulerCore {
             }
         }
 
-        self.pending_by_sequence.insert(sequence, cmd_id);
-        self.sequence_by_command.insert(cmd_id, sequence);
+        // Map sequence to command
+        self.seq_to_cmd.insert(sequence, cmd_id);
+
+        // Add sequence to command's sequence list
+        match self.cmd_to_seqs.get_mut(&cmd_id) {
+            Some(seq_list) => {
+                // Command already has sequences (this is a retry)
+                if let Some(evicted) = seq_list.push(sequence) {
+                    // Remove the evicted sequence from seq_to_cmd
+                    self.seq_to_cmd.remove(&evicted);
+                    debug!(
+                        "Added retry sequence {} to command {}, evicted old sequence {}",
+                        sequence, cmd_id, evicted
+                    );
+                } else {
+                    debug!("Added retry sequence {} to command {}", sequence, cmd_id);
+                }
+            }
+            None => {
+                // First sequence for this command
+                self.cmd_to_seqs.insert(cmd_id, SeqList::new(sequence));
+            }
+        }
 
         trace!(
-            "Sequence mappings: pending_by_seq has {} entries, seq_by_cmd has {} entries",
-            self.pending_by_sequence.len(),
-            self.sequence_by_command.len()
+            "Sequence mappings: seq_to_cmd has {} entries, cmd_to_seqs has {} entries",
+            self.seq_to_cmd.len(),
+            self.cmd_to_seqs.len()
         );
     }
 
     /// Get command ID for a Sony sequence number.
     pub fn get_command_by_sequence(&self, sequence: u32) -> Option<u32> {
-        self.pending_by_sequence.get(&sequence).copied()
+        // Look up the command ID for this sequence
+        let cmd_id = self.seq_to_cmd.get(&sequence).copied()?;
+
+        // Extra safety: verify the command is still active
+        // If the command has been completed/failed, we shouldn't process stale replies
+        if self.command_metadata.contains_key(&cmd_id)
+            || self.inquiries_inflight.contains_key(&cmd_id)
+        {
+            Some(cmd_id)
+        } else {
+            debug!(
+                "Ignoring stale sequence {} for completed command {}",
+                sequence, cmd_id
+            );
+            None
+        }
     }
 
     /// Finish a command by sequence number (Sony protocol).
     pub fn finish_sequence(&mut self, cmd_id: u32) {
-        if let Some(sequence) = self.sequence_by_command.remove(&cmd_id) {
-            self.pending_by_sequence.remove(&sequence);
+        // Remove all sequences for this command
+        if let Some(seq_list) = self.cmd_to_seqs.remove(&cmd_id) {
+            let mut count = 0;
+            for seq in seq_list.iter() {
+                self.seq_to_cmd.remove(&seq);
+                count += 1;
+            }
             debug!(
-                "Cleaned up Sony sequence {} for command {}",
-                sequence, cmd_id
+                "Cleaned up {} Sony sequence(s) for command {}",
+                count, cmd_id
             );
         }
     }
@@ -1212,5 +1303,199 @@ mod tests {
                 other
             ),
         }
+    }
+
+    #[test]
+    fn test_sequence_tracking_with_retries() {
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = crate::transport::RetryConfig::default();
+        let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+
+        let now = Instant::now();
+        let bytes = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
+        let priority = Priority::Normal;
+        let category = CommandCategory::Movement;
+        let camera_id = crate::camera_id::CameraId::CAMERA_1;
+
+        // Register command with initial sequence
+        core.register_pending_ack(1, bytes.clone(), priority, category, camera_id, now);
+        core.register_sequence(1, 100);
+
+        // Verify initial sequence is tracked
+        assert_eq!(core.get_command_by_sequence(100), Some(1));
+        assert_eq!(core.seq_to_cmd.len(), 1);
+        assert_eq!(core.cmd_to_seqs.len(), 1);
+
+        // Simulate retry - register new sequence for same command
+        core.register_sequence(1, 101);
+
+        // Both sequences should now map to command 1
+        assert_eq!(core.get_command_by_sequence(100), Some(1));
+        assert_eq!(core.get_command_by_sequence(101), Some(1));
+        assert_eq!(core.seq_to_cmd.len(), 2);
+        assert_eq!(core.cmd_to_seqs.len(), 1); // Still one command
+
+        // Simulate another retry
+        core.register_sequence(1, 102);
+
+        // All three sequences should map to command 1
+        assert_eq!(core.get_command_by_sequence(100), Some(1));
+        assert_eq!(core.get_command_by_sequence(101), Some(1));
+        assert_eq!(core.get_command_by_sequence(102), Some(1));
+        assert_eq!(core.seq_to_cmd.len(), 3);
+
+        // Finish the command - all sequences should be cleaned up
+        core.finish_sequence(1);
+        core.command_metadata.remove(&1);
+
+        // No sequences should remain
+        assert_eq!(core.get_command_by_sequence(100), None);
+        assert_eq!(core.get_command_by_sequence(101), None);
+        assert_eq!(core.get_command_by_sequence(102), None);
+        assert_eq!(core.seq_to_cmd.len(), 0);
+        assert_eq!(core.cmd_to_seqs.len(), 0);
+    }
+
+    #[test]
+    fn test_late_reply_after_completion_ignored() {
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = crate::transport::RetryConfig::default();
+        let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+
+        let now = Instant::now();
+        let bytes = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
+        let priority = Priority::Normal;
+        let category = CommandCategory::Movement;
+        let camera_id = crate::camera_id::CameraId::CAMERA_1;
+
+        // Register command with sequences from multiple retries
+        core.register_pending_ack(1, bytes.clone(), priority, category, camera_id, now);
+        core.register_sequence(1, 100);
+        core.register_sequence(1, 101); // Retry 1
+        core.register_sequence(1, 102); // Retry 2
+
+        // Verify all sequences are active
+        assert_eq!(core.get_command_by_sequence(100), Some(1));
+        assert_eq!(core.get_command_by_sequence(101), Some(1));
+        assert_eq!(core.get_command_by_sequence(102), Some(1));
+
+        // Complete the command (simulating success on the third attempt)
+        let response = ViscaResponse::Completion {
+            socket: Some(ViscaSocket::S1),
+        };
+        let event = SchedulerEvent::Completion {
+            socket: Some(ViscaSocket::S1),
+            cmd_id: Some(1),
+            response,
+        };
+
+        let actions = core.process_event(event, now);
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            SchedulerAction::CommandComplete { id, .. } => {
+                assert_eq!(*id, 1);
+            }
+            _ => panic!("Expected CommandComplete"),
+        }
+
+        // Now simulate a late reply from an earlier sequence
+        // This should be ignored since the command is already completed
+        assert_eq!(core.get_command_by_sequence(100), None);
+        assert_eq!(core.get_command_by_sequence(101), None);
+        assert_eq!(core.get_command_by_sequence(102), None);
+
+        // Verify all mappings are cleaned up
+        assert_eq!(core.seq_to_cmd.len(), 0);
+        assert_eq!(core.cmd_to_seqs.len(), 0);
+    }
+
+    #[test]
+    fn test_sequence_cap_at_max() {
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = crate::transport::RetryConfig::default();
+        let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+
+        let now = Instant::now();
+        let bytes = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
+        let priority = Priority::Normal;
+        let category = CommandCategory::Movement;
+        let camera_id = crate::camera_id::CameraId::CAMERA_1;
+
+        // Register command
+        core.register_pending_ack(1, bytes.clone(), priority, category, camera_id, now);
+
+        // Register more than MAX_SEQUENCES_PER_CMD (8) sequences
+        for seq in 100..110 {
+            core.register_sequence(1, seq);
+        }
+
+        // Only the last 8 sequences should be active (102-109)
+        // 100 and 101 should have been dropped
+        assert_eq!(core.get_command_by_sequence(100), None); // Dropped
+        assert_eq!(core.get_command_by_sequence(101), None); // Dropped
+
+        for seq in 102..110 {
+            assert_eq!(core.get_command_by_sequence(seq), Some(1));
+        }
+
+        // Verify we have exactly 8 sequence mappings
+        assert!(core.seq_to_cmd.len() <= 8);
+    }
+
+    #[test]
+    fn test_multiple_commands_with_sequences() {
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = crate::transport::RetryConfig::default();
+        let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+
+        let now = Instant::now();
+        let priority = Priority::Normal;
+        let category = CommandCategory::Movement;
+        let camera_id = crate::camera_id::CameraId::CAMERA_1;
+
+        // Register two different commands
+        let bytes1 = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
+        let bytes2 = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]);
+
+        core.register_pending_ack(1, bytes1.clone(), priority, category, camera_id, now);
+        core.register_pending_ack(2, bytes2.clone(), priority, category, camera_id, now);
+
+        // Command 1 has sequences 100, 101 (retry)
+        core.register_sequence(1, 100);
+        core.register_sequence(1, 101);
+
+        // Command 2 has sequences 200, 201, 202 (two retries)
+        core.register_sequence(2, 200);
+        core.register_sequence(2, 201);
+        core.register_sequence(2, 202);
+
+        // Verify all sequences map correctly
+        assert_eq!(core.get_command_by_sequence(100), Some(1));
+        assert_eq!(core.get_command_by_sequence(101), Some(1));
+        assert_eq!(core.get_command_by_sequence(200), Some(2));
+        assert_eq!(core.get_command_by_sequence(201), Some(2));
+        assert_eq!(core.get_command_by_sequence(202), Some(2));
+
+        // Complete command 1
+        core.finish_sequence(1);
+        core.command_metadata.remove(&1);
+
+        // Command 1's sequences should be gone, command 2's should remain
+        assert_eq!(core.get_command_by_sequence(100), None);
+        assert_eq!(core.get_command_by_sequence(101), None);
+        assert_eq!(core.get_command_by_sequence(200), Some(2));
+        assert_eq!(core.get_command_by_sequence(201), Some(2));
+        assert_eq!(core.get_command_by_sequence(202), Some(2));
+
+        // Complete command 2
+        core.finish_sequence(2);
+        core.command_metadata.remove(&2);
+
+        // All sequences should be cleaned up
+        assert_eq!(core.get_command_by_sequence(200), None);
+        assert_eq!(core.get_command_by_sequence(201), None);
+        assert_eq!(core.get_command_by_sequence(202), None);
+        assert_eq!(core.seq_to_cmd.len(), 0);
+        assert_eq!(core.cmd_to_seqs.len(), 0);
     }
 }
