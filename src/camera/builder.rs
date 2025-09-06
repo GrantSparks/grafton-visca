@@ -38,6 +38,8 @@ use crate::{
     error::Error,
     timeout::TimeoutConfig,
 };
+#[cfg(feature = "async")]
+use std::sync::Arc;
 
 /// Builder for creating cameras with explicit executor configuration.
 ///
@@ -50,7 +52,7 @@ pub struct CameraBuilder<E = ()> {
     #[cfg(feature = "async")]
     auto_detect_protocol: bool,
     #[cfg(feature = "async")]
-    executor: Option<E>,
+    executor: Option<Arc<E>>,
     #[cfg(not(feature = "async"))]
     _phantom: std::marker::PhantomData<E>,
 }
@@ -95,19 +97,19 @@ impl Default for CameraBuilder<()> {
 #[cfg(feature = "async")]
 impl<E> CameraBuilder<E>
 where
-    E: Executor,
+    E: Executor + Send + Sync + 'static,
 {
     /// Create a new camera builder with the specified executor.
     ///
     /// This is the primary way to create async cameras, ensuring
     /// that the executor is configured upfront.
-    pub fn with_executor(executor: E) -> Self {
+    pub fn with_executor(executor: impl Into<Arc<E>>) -> Self {
         Self {
             camera_id: CameraId::default(),
             timeout_config: TimeoutConfig::default(),
             protocol_style: None,
             auto_detect_protocol: false,
-            executor: Some(executor),
+            executor: Some(executor.into()),
         }
     }
 
@@ -152,7 +154,7 @@ where
     where
         P: Profile + Default,
         T: AsyncTransport + Send + Sync + 'static,
-        E: Clone,
+        E: Send + Sync + 'static,
     {
         let executor = self.executor.ok_or_else(|| {
             Error::InvalidState("Executor not configured for async camera".into())
@@ -162,7 +164,10 @@ where
         let protocol_style = if self.auto_detect_protocol {
             // Auto-detection has highest priority
             let detector = ProtocolDetector::new();
-            match detector.detect_protocol(&mut transport, &executor).await? {
+            match detector
+                .detect_protocol(&mut transport, executor.as_ref())
+                .await?
+            {
                 crate::transport::protocol_detection::DetectionResult::SonyEncapsulated => {
                     ProtocolStyle::SonyEncapsulated { use_sequence: true }
                 }
@@ -193,27 +198,6 @@ where
 }
 
 impl CameraBuilder<()> {
-    /// Set the camera ID.
-    pub fn camera_id(mut self, id: CameraId) -> Self {
-        self.camera_id = id;
-        self
-    }
-
-    /// Set the timeout configuration.
-    pub fn timeout_config(mut self, config: TimeoutConfig) -> Self {
-        self.timeout_config = config;
-        self
-    }
-
-    /// Override the protocol style.
-    ///
-    /// By default, the camera will use the protocol style declared by the profile.
-    /// This method allows overriding that for specific deployments.
-    pub fn protocol_style(mut self, style: ProtocolStyle) -> Self {
-        self.protocol_style = Some(style);
-        self
-    }
-
     /// Build a blocking camera with the specified profile and transport.
     #[cfg(not(feature = "async"))]
     pub fn build_blocking<P, T>(
@@ -323,8 +307,21 @@ pub mod blocking_cameras {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    // Profile types are only used in feature-gated tests
+    // Only import what's needed based on which tests are enabled
+    #[cfg(any(
+        all(feature = "async", feature = "rt-tokio"),
+        all(not(feature = "async"), feature = "rt-tokio")
+    ))]
+    use super::CameraBuilder;
+
+    #[cfg(any(
+        all(feature = "async", feature = "rt-tokio"),
+        all(not(feature = "async"), feature = "rt-tokio")
+    ))]
+    use crate::capabilities::ProtocolStyle;
+
+    #[cfg(all(feature = "async", feature = "rt-tokio"))]
+    use crate::error::Error;
 
     #[cfg(all(feature = "async", feature = "rt-tokio"))]
     #[tokio::test]
@@ -404,18 +401,5 @@ mod tests {
             .build_blocking::<SonyFR7, _>(transport)
             .unwrap();
         // Camera should be configured with RawVisca protocol despite SonyFR7 default
-    }
-
-    #[test]
-    fn test_builder_configuration() -> Result<(), Error> {
-        let builder = CameraBuilder::new()
-            .camera_id(CameraId::new(5)?)
-            .timeout_config(TimeoutConfig::default())
-            .protocol_style(ProtocolStyle::RawVisca);
-
-        // Verify builder is properly configured
-        assert_eq!(builder.camera_id, CameraId::new(5)?);
-        assert!(builder.protocol_style.is_some());
-        Ok(())
     }
 }

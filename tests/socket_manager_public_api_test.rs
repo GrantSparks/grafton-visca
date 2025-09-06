@@ -43,7 +43,7 @@ mod tokio_tests {
         let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
         let transport = create_power_inquiry_transport().with_executor(executor.clone());
 
-        let camera = CameraBuilder::with_executor(executor)
+        let camera = CameraBuilder::<TokioExecutor>::with_executor(executor)
             .build_async::<PtzOpticsG2, _>(transport.clone())
             .await
             .unwrap();
@@ -69,7 +69,7 @@ mod tokio_tests {
         let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
         let transport = create_auto_respond_transport().with_executor(executor.clone());
 
-        let camera = CameraBuilder::with_executor(executor.clone())
+        let camera = CameraBuilder::<TokioExecutor>::with_executor(executor.clone())
             .build_async::<PtzOpticsG2, _>(transport.clone())
             .await
             .unwrap();
@@ -106,7 +106,7 @@ mod tokio_tests {
         let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
         let transport = create_auto_respond_transport().with_executor(executor.clone());
 
-        let camera = CameraBuilder::with_executor(executor.clone())
+        let camera = CameraBuilder::<TokioExecutor>::with_executor(executor.clone())
             .build_async::<PtzOpticsG2, _>(transport.clone())
             .await
             .unwrap();
@@ -132,7 +132,7 @@ mod tokio_tests {
         let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
         let transport = create_auto_respond_transport().with_executor(executor.clone());
 
-        let camera = CameraBuilder::with_executor(executor.clone())
+        let camera = CameraBuilder::<TokioExecutor>::with_executor(executor.clone())
             .build_async::<PtzOpticsG2, _>(transport.clone())
             .await
             .unwrap();
@@ -177,7 +177,7 @@ mod tokio_tests {
         let transport = ScriptedTransport::new(vec![]).with_executor(executor.clone());
 
         // Try to create camera - this should fail or succeed quickly depending on initialization
-        let camera_result = CameraBuilder::with_executor(executor.clone())
+        let camera_result = CameraBuilder::<TokioExecutor>::with_executor(executor.clone())
             .build_async::<PtzOpticsG2, _>(transport.clone())
             .await;
 

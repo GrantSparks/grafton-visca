@@ -638,7 +638,7 @@ impl SchedulerCore {
         self.sockets[socket.as_index()].command_id
     }
 
-    fn find_socket_for_command(&self, cmd_id: u32) -> Option<ViscaSocket> {
+    pub(crate) fn find_socket_for_command(&self, cmd_id: u32) -> Option<ViscaSocket> {
         for (idx, state) in self.sockets.iter().enumerate() {
             if state.command_id == Some(cmd_id) {
                 return Some(if idx == 0 {

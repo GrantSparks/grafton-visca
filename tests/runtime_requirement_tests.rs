@@ -107,7 +107,7 @@ async fn test_movement_detection_works_with_default_runtime() {
     ]);
     let transport = transport.with_executor(executor.clone());
 
-    let camera = CameraBuilder::with_executor(executor)
+    let camera = CameraBuilder::<TokioExecutor>::with_executor(executor)
         .build_async::<PtzOpticsG2, _>(transport)
         .await
         .unwrap();
@@ -138,7 +138,7 @@ async fn test_power_operations_work_with_default_runtime() {
     ]);
     let transport = transport.with_executor(executor.clone());
 
-    let camera = CameraBuilder::with_executor(executor)
+    let camera = CameraBuilder::<TokioExecutor>::with_executor(executor)
         .build_async::<PtzOpticsG2, _>(transport)
         .await
         .unwrap();

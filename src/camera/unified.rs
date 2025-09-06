@@ -7,7 +7,7 @@
 // Standard library
 use core::marker::PhantomData;
 #[cfg(feature = "async")]
-use std::{future::Future, pin::Pin};
+use std::{future::Future, pin::Pin, sync::Arc};
 
 // Local modules
 use crate::{
@@ -116,24 +116,25 @@ where
     }
 
     /// Create a new async camera instance using the profile's protocol style.
-    pub async fn new_async(transport: Tr, executor: Exec) -> Result<Self, Error> {
+    pub async fn new_async(transport: Tr, executor: impl Into<Arc<Exec>>) -> Result<Self, Error> {
         Self::new_async_with_style(transport, executor, P::PROTOCOL_STYLE).await
     }
 
     /// Create a new async camera instance with explicit protocol style.
     pub async fn new_async_with_style(
         transport: Tr,
-        executor: Exec,
+        executor: impl Into<Arc<Exec>>,
         protocol_style: ProtocolStyle,
     ) -> Result<Self, Error> {
         let camera_id = CameraId::new(1)?;
         let timeout_config = TimeoutConfig::default();
+        let executor: Arc<Exec> = executor.into();
 
         // Create RuntimeHandle with the transport, executor, and protocol style
         // The runtime handle encapsulates all transport, envelope, and buffer management
         let runtime_handle = crate::runtime::RuntimeHandle::new_with_style_and_timeout(
             transport,
-            std::sync::Arc::new(executor),
+            executor,
             protocol_style,
             timeout_config,
         )

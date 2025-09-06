@@ -3,7 +3,7 @@
 use flume::{Receiver, Sender};
 use tracing::{debug, error, instrument, trace, warn};
 
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use super::async_adapter::{process_inquiry, AsyncAdapter, MetricsSummary, TxItem};
 use crate::{
@@ -28,7 +28,7 @@ pub struct RuntimeLoopConfig {
 #[instrument(level = "debug", name = "visca_runtime_loop", skip(transport, submit_rx, metrics_rx, executor, config), fields(tick_ms = config.tick_interval_ms))]
 pub async fn runtime_loop_with_config<
     T: AsyncTransport + Send + 'static,
-    E: crate::executor::Executor,
+    E: crate::executor::Executor + Send + Sync + 'static,
 >(
     mut transport: T,
     submit_rx: Receiver<TxItem>,
@@ -39,6 +39,8 @@ pub async fn runtime_loop_with_config<
     let mut adapter =
         AsyncAdapter::new(config.timeout_config, config.retry_config, executor.clone());
     let mut protocol_framer = ProtocolFramer::new(4096); // Default buffer size
+                                                         // Track cancel requests that arrived before the command was bound to a socket
+    let mut pending_cancel_ids: HashSet<u32> = HashSet::new();
 
     debug!("VISCA runtime started");
 
@@ -108,8 +110,35 @@ pub async fn runtime_loop_with_config<
                     debug!("Sent cancel for socket {:?}", socket);
                 }
                 TxItem::CancelById { id } => {
-                    // TODO: Implement cancel by ID when core supports it
-                    warn!("Cancel by ID not yet implemented for command {}", id);
+                    // Find the socket for this command and send cancel
+                    if let Some(socket) = adapter.socket_for_command(id) {
+                        use crate::camera_id::CameraId;
+                        use crate::command::{
+                            encode_visca::ViscaEncode, system::CommandCancelCommand,
+                        };
+
+                        let cancel_cmd = CommandCancelCommand::new(socket);
+                        let mut cancel_bytes = [0u8; 16];
+
+                        let len = cancel_cmd
+                            .encode_into(CameraId::CAMERA_1, &mut cancel_bytes)
+                            .unwrap_or_else(|e| {
+                                error!("Failed to encode cancel command: {e}");
+                                3 // Minimum VISCA command length
+                            });
+
+                        let kind = CommandKind::Command;
+                        let (framed, _meta) = config.envelope.frame_bytes_with_kind_owned(
+                            bytes::Bytes::copy_from_slice(&cancel_bytes[..len]),
+                            kind,
+                            &config.buffer_manager,
+                        );
+                        transport.send(&framed).await?;
+                        debug!("Sent cancel for command {} on socket {:?}", id, socket);
+                    } else {
+                        debug!("No socket for command {} yet; queuing cancel", id);
+                        pending_cancel_ids.insert(id);
+                    }
                 }
             }
             continue;
@@ -191,6 +220,48 @@ pub async fn runtime_loop_with_config<
                                 send_command(&mut transport, &mut adapter, cmd, &config).await?;
                             } else {
                                 break;
+                            }
+                        }
+
+                        // After processing responses (e.g., ACKs that bind commands to sockets),
+                        // flush any queued cancels whose sockets are now known.
+                        if !pending_cancel_ids.is_empty() {
+                            // Collect first to avoid holding a mutable borrow during iteration
+                            let ready: Vec<u32> = pending_cancel_ids
+                                .iter()
+                                .copied()
+                                .filter(|id| adapter.socket_for_command(*id).is_some())
+                                .collect();
+
+                            for id in ready {
+                                if let Some(socket) = adapter.socket_for_command(id) {
+                                    use crate::camera_id::CameraId;
+                                    use crate::command::{
+                                        encode_visca::ViscaEncode, system::CommandCancelCommand,
+                                    };
+
+                                    let cancel_cmd = CommandCancelCommand::new(socket);
+                                    let mut cancel_bytes = [0u8; 16];
+                                    let len = cancel_cmd
+                                        .encode_into(CameraId::CAMERA_1, &mut cancel_bytes)
+                                        .unwrap_or(3);
+
+                                    let kind = CommandKind::Command;
+                                    let (framed, _meta) =
+                                        config.envelope.frame_bytes_with_kind_owned(
+                                            bytes::Bytes::copy_from_slice(&cancel_bytes[..len]),
+                                            kind,
+                                            &config.buffer_manager,
+                                        );
+                                    transport.send(&framed).await?;
+                                    debug!(
+                                        "Sent queued cancel for command {} on socket {:?}",
+                                        id, socket
+                                    );
+
+                                    // Remove from pending set
+                                    pending_cancel_ids.remove(&id);
+                                }
                             }
                         }
                     }

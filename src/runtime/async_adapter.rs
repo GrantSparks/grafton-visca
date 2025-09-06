@@ -337,6 +337,11 @@ impl<E: Executor> AsyncAdapter<E> {
             retry_queue_depth: self.core.retry_queue.len(),
         }
     }
+
+    /// Find the socket for a given command ID.
+    pub fn socket_for_command(&self, id: u32) -> Option<ViscaSocket> {
+        self.core.find_socket_for_command(id)
+    }
 }
 
 /// Process an inquiry directly without the scheduler.

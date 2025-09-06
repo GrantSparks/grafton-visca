@@ -1,9 +1,4 @@
 //! Tests for command cancellation functionality.
-//!
-//! NOTE: These tests are currently disabled as command cancellation features
-//! are not available in the unified camera design. The unified design operates
-//! directly on the transport without a runtime background task, so command
-//! cancellation would need to be implemented at the transport level.
 
 #![cfg(all(feature = "async", feature = "test-utils"))]
 
@@ -16,7 +11,7 @@ use grafton_visca::{
         scripted_transport::{ScriptedTransport, Step},
         DeterministicExecutor,
     },
-    Executor, ViscaSocket,
+    ViscaSocket,
 };
 
 #[test]
@@ -46,18 +41,18 @@ fn test_cancel_command_by_id() {
 
     let transport = ScriptedTransport::new(steps).with_executor(executor.clone());
 
-    // Create camera outside the async block
-    let camera = executor.block_on(async {
+    // Clone executor for use inside async block
+    let executor_clone = executor.clone();
+
+    // Use block_on_bg to run the test with background tasks
+    executor.clone().block_on_bg(async move {
         use grafton_visca::camera::profiles::PtzOpticsG2;
 
-        CameraBuilder::with_executor(executor.clone())
+        // Create camera
+        let camera = CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone)
             .build_async::<PtzOpticsG2, _>(transport)
             .await
-            .expect("Failed to create camera")
-    });
-
-    // Run the test in a separate async block
-    executor.block_on(async {
+            .expect("Failed to create camera");
         // Use start_command_with_id to get ID and future without awaiting
         let (cmd_id, future) = camera
             .start_command_with_id(&Zoom::TeleStd)
@@ -127,39 +122,47 @@ fn test_cancel_socket_directly() {
 
     let transport = ScriptedTransport::new(steps).with_executor(executor.clone());
 
-    // Create camera
-    let camera = executor.block_on(async {
+    // Clone executor and clock for use inside async block
+    let executor_clone = executor.clone();
+    let clock_clone = clock.clone();
+
+    // Use block_on_bg to handle background tasks
+    executor.clone().block_on_bg(async move {
         use grafton_visca::camera::profiles::PtzOpticsG2;
-        CameraBuilder::with_executor(executor.clone())
+
+        // Create camera
+        let camera = CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone.clone())
             .build_async::<PtzOpticsG2, _>(transport)
             .await
-            .expect("Failed to create camera")
+            .expect("Failed to create camera");
+
+        // Send a pan/tilt command using the public API
+        let camera = std::sync::Arc::new(camera);
+        let camera_clone = camera.clone();
+        use grafton_visca::Executor;
+        executor_clone.spawn_bg(async move {
+            use grafton_visca::camera::controls::pan_tilt::PanTiltControl;
+            let _ = camera_clone
+                .pan_tilt_move(
+                    PanTiltDirection::UpRight,
+                    5.try_into().unwrap(),
+                    5.try_into().unwrap(),
+                )
+                .await;
+        });
+
+        // Advance time to process the command and ACK
+        clock_clone.advance(Duration::from_millis(10));
+
+        // Cancel socket 1 directly
+        camera
+            .cancel_socket(ViscaSocket::S1)
+            .await
+            .expect("Failed to cancel socket");
+
+        // Advance time to process cancellation
+        clock_clone.advance(Duration::from_millis(10));
     });
-
-    // Send a pan/tilt command using the public API
-    let camera = std::sync::Arc::new(camera);
-    let camera_clone = camera.clone();
-    std::mem::drop(executor.spawn(async move {
-        use grafton_visca::camera::controls::pan_tilt::PanTiltControl;
-        let _ = camera_clone
-            .pan_tilt_move(
-                PanTiltDirection::UpRight,
-                5.try_into().unwrap(),
-                5.try_into().unwrap(),
-            )
-            .await;
-    }));
-
-    // Advance time to process the command and ACK
-    clock.advance(Duration::from_millis(10));
-
-    // Cancel socket 1 directly
-    executor
-        .block_on(async { camera.cancel_socket(ViscaSocket::S1).await })
-        .expect("Failed to cancel socket");
-
-    // Advance time to process cancellation
-    clock.advance(Duration::from_millis(10));
 }
 
 #[test]
@@ -183,22 +186,29 @@ fn test_cancel_nonexistent_command() {
 
     let transport = ScriptedTransport::new(steps).with_executor(executor.clone());
 
-    // Create camera
-    let camera = executor.block_on(async {
+    // Clone executor and clock for use inside async block
+    let executor_clone = executor.clone();
+    let clock_clone = clock.clone();
+
+    // Use block_on_bg to handle background tasks
+    executor.clone().block_on_bg(async move {
         use grafton_visca::camera::profiles::PtzOpticsG2;
-        CameraBuilder::with_executor(executor.clone())
+
+        // Create camera
+        let camera = CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone)
             .build_async::<PtzOpticsG2, _>(transport)
             .await
-            .expect("Failed to create camera")
+            .expect("Failed to create camera");
+
+        // Try to cancel commands on sockets (even if no commands are running)
+        camera
+            .cancel_socket(ViscaSocket::S1)
+            .await
+            .expect("Cancel should succeed even for non-existent command");
+
+        // Advance time to process cancellation attempts
+        clock_clone.advance(Duration::from_millis(20));
     });
-
-    // Try to cancel commands on sockets (even if no commands are running)
-    executor
-        .block_on(async { camera.cancel_socket(ViscaSocket::S1).await })
-        .expect("Cancel should succeed even for non-existent command");
-
-    // Advance time to process cancellation attempts
-    clock.advance(Duration::from_millis(20));
 }
 
 #[test]
@@ -225,23 +235,25 @@ fn test_cancel_during_movement() {
 
     let transport = ScriptedTransport::new(steps).with_executor(executor.clone());
 
-    // Create camera outside async block to avoid lifetime issues
-    let camera = executor.block_on(async {
+    // Clone executor and clock for use inside async block
+    let executor_clone = executor.clone();
+    let clock_clone = clock.clone();
+
+    // Use block_on_bg to handle background tasks
+    executor.clone().block_on_bg(async move {
         use grafton_visca::camera::profiles::PtzOpticsG2;
 
-        CameraBuilder::with_executor(executor.clone())
+        // Create camera
+        let camera = CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone)
             .build_async::<PtzOpticsG2, _>(transport)
             .await
-            .expect("Failed to create camera")
-    });
+            .expect("Failed to create camera");
 
-    // Test cancel command
-    executor.block_on(async {
         // Test that cancel_command can be called (even with no running commands)
         let result = camera.cancel_socket(ViscaSocket::S1).await;
         assert!(result.is_ok(), "Cancel command should not fail");
-    });
 
-    // Advance time to process any pending operations
-    clock.advance(Duration::from_millis(10));
+        // Advance time to process any pending operations
+        clock_clone.advance(Duration::from_millis(10));
+    });
 }

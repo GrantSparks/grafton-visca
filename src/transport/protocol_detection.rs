@@ -204,8 +204,16 @@ impl ProtocolDetector {
                 let remaining = DETECTION_TIMEOUT.saturating_sub(start_time.elapsed());
                 let recv_timeout = std::cmp::min(remaining, Duration::from_millis(20));
 
-                // Try to receive a chunk with timeout
-                match executor.timeout(recv_timeout, transport.recv()).await {
+                // Try to receive a chunk with timeout using futures_lite::or
+                use futures_lite::future;
+
+                let outcome = future::or(async { Ok::<_, ()>(transport.recv().await) }, async {
+                    executor.sleep(recv_timeout).await;
+                    Err::<_, ()>(())
+                })
+                .await;
+
+                match outcome {
                     Ok(Ok(chunk)) => {
                         debug!(
                             "Received {len} bytes chunk: {bytes:02X?}",
@@ -249,7 +257,7 @@ impl ProtocolDetector {
                         debug!("Transport error during detection: {e}");
                         break;
                     }
-                    Err(_timeout) => {
+                    Err(()) => {
                         // Short recv timeout, continue to check total timeout
                         continue;
                     }

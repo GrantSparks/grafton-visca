@@ -27,7 +27,7 @@ use crate::{
 
 /// Helper function to spawn runtime tasks properly for different executor types.
 #[instrument(level = "debug", skip(executor, runtime_task))]
-fn spawn_runtime_task_properly<E: crate::executor::Executor>(
+fn spawn_runtime_task_properly<E: crate::executor::Executor + Send + Sync + 'static>(
     executor: &E,
     runtime_task: impl std::future::Future<Output = Result<(), Error>> + Send + 'static,
 ) {
@@ -61,7 +61,10 @@ impl RuntimeHandle {
     ///
     /// This spawns a background task to handle communication with the camera.
     /// For compatibility, this defaults to raw VISCA protocol.
-    pub async fn new<T: AsyncTransport + Send + 'static, E: crate::executor::Executor>(
+    pub async fn new<
+        T: AsyncTransport + Send + 'static,
+        E: crate::executor::Executor + Send + Sync + 'static,
+    >(
         transport: T,
         executor: Arc<E>,
     ) -> Result<Self> {
@@ -73,7 +76,7 @@ impl RuntimeHandle {
     /// This is an alias for `new` to match the expected API used by AsyncCamera.
     pub async fn spawn_with_transport<
         T: AsyncTransport + Send + 'static,
-        E: crate::executor::Executor,
+        E: crate::executor::Executor + Send + Sync + 'static,
     >(
         transport: T,
         executor: E,
@@ -86,7 +89,7 @@ impl RuntimeHandle {
     /// This allows specifying whether to use raw VISCA or Sony encapsulated protocol.
     pub async fn new_with_style<
         T: AsyncTransport + Send + 'static,
-        E: crate::executor::Executor,
+        E: crate::executor::Executor + Send + Sync + 'static,
     >(
         transport: T,
         executor: Arc<E>,
@@ -100,7 +103,7 @@ impl RuntimeHandle {
     /// This allows specifying both the protocol style and custom timeouts.
     pub async fn new_with_style_and_timeout<
         T: AsyncTransport + Send + 'static,
-        E: crate::executor::Executor,
+        E: crate::executor::Executor + Send + Sync + 'static,
     >(
         transport: T,
         executor: Arc<E>,
@@ -122,7 +125,7 @@ impl RuntimeHandle {
     /// This allows specifying the protocol style, custom timeouts, and retry behavior.
     pub async fn new_with_style_timeout_and_retry<
         T: AsyncTransport + Send + 'static,
-        E: crate::executor::Executor,
+        E: crate::executor::Executor + Send + Sync + 'static,
     >(
         transport: T,
         executor: Arc<E>,
@@ -144,7 +147,10 @@ impl RuntimeHandle {
     /// Auto-detect the protocol style and create a new runtime.
     ///
     /// This probes the camera to determine whether it uses raw VISCA or Sony encapsulated protocol.
-    pub async fn auto_detect<T: AsyncTransport + Send + 'static, E: crate::executor::Executor>(
+    pub async fn auto_detect<
+        T: AsyncTransport + Send + 'static,
+        E: crate::executor::Executor + Send + Sync + 'static,
+    >(
         mut transport: T,
         executor: Arc<E>,
     ) -> Result<Self> {
@@ -183,7 +189,7 @@ impl RuntimeHandle {
     #[instrument(level = "debug", skip(transport, executor), fields(tick_ms = tick_interval_ms))]
     pub async fn with_tick_interval<
         T: AsyncTransport + Send + 'static,
-        E: crate::executor::Executor,
+        E: crate::executor::Executor + Send + Sync + 'static,
     >(
         transport: T,
         executor: Arc<E>,
@@ -210,7 +216,7 @@ impl RuntimeHandle {
     #[instrument(level = "debug", skip(transport, executor, timeout_config), fields(tick_ms = tick_interval_ms, protocol = ?protocol_style))]
     pub async fn with_tick_interval_and_style<
         T: AsyncTransport + Send + 'static,
-        E: crate::executor::Executor,
+        E: crate::executor::Executor + Send + Sync + 'static,
     >(
         transport: T,
         executor: Arc<E>,
@@ -243,7 +249,7 @@ impl RuntimeHandle {
     #[instrument(level = "debug", skip(transport, executor, timeout_config, retry_config), fields(tick_ms = tick_interval_ms, protocol = ?protocol_style))]
     pub async fn with_tick_interval_style_and_retry<
         T: AsyncTransport + Send + 'static,
-        E: crate::executor::Executor,
+        E: crate::executor::Executor + Send + Sync + 'static,
     >(
         transport: T,
         executor: Arc<E>,
@@ -293,7 +299,7 @@ impl RuntimeHandle {
     ///
     /// Note: This method requires the "rt-tokio" feature as it uses tokio-specific async transports.
     #[cfg(feature = "rt-tokio")]
-    pub async fn new_tcp_raw<E: crate::executor::Executor>(
+    pub async fn new_tcp_raw<E: crate::executor::Executor + Send + Sync + 'static>(
         address: impl AsRef<str>,
         executor: Arc<E>,
     ) -> Result<Self> {
@@ -306,7 +312,7 @@ impl RuntimeHandle {
     ///
     /// Note: This method requires the "rt-tokio" feature as it uses tokio-specific async transports.
     #[cfg(feature = "rt-tokio")]
-    pub async fn new_udp_raw<E: crate::executor::Executor>(
+    pub async fn new_udp_raw<E: crate::executor::Executor + Send + Sync + 'static>(
         address: impl AsRef<str>,
         executor: Arc<E>,
     ) -> Result<Self> {
@@ -319,7 +325,7 @@ impl RuntimeHandle {
     ///
     /// Note: This method is available when using tokio runtime for async serial I/O.
     #[cfg(all(feature = "async", feature = "rt-tokio"))]
-    pub async fn new_serial<E: crate::executor::Executor>(
+    pub async fn new_serial<E: crate::executor::Executor + Send + Sync + 'static>(
         port: impl AsRef<str>,
         camera_address: u8,
         executor: Arc<E>,

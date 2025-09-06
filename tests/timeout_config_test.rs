@@ -70,22 +70,6 @@ mod timeout_config_tests {
         );
     }
 
-    #[test]
-    fn test_camera_builder_with_timeout_config() {
-        let timeout_config = TimeoutConfig::builder()
-            .quick_timeout(Duration::from_secs(1))
-            .movement_timeout(Duration::from_secs(5))
-            .build();
-
-        // Test that camera builder accepts timeout config
-        let builder = CameraBuilder::new().timeout_config(timeout_config);
-
-        // Verify the builder has the timeout config set
-        // Note: We can't directly inspect the builder's internal state,
-        // but we can verify it compiles and the method exists
-        assert!(std::mem::size_of_val(&builder) > 0);
-    }
-
     #[cfg(feature = "async")]
     #[test]
     fn test_async_camera_with_custom_timeouts() {
@@ -101,7 +85,8 @@ mod timeout_config_tests {
         let (executor, _clock) = DeterministicExecutor::new();
 
         // Verify the executor can be used with a camera builder
-        let _builder = CameraBuilder::with_executor(executor).timeout_config(timeout_config);
+        let _builder = CameraBuilder::<DeterministicExecutor>::with_executor(executor)
+            .timeout_config(timeout_config);
 
         // The actual runtime behavior with timeouts is tested via the scheduler unit tests
         // This test verifies that the API allows setting custom timeouts
@@ -119,7 +104,8 @@ mod timeout_config_tests {
 
         // Test with deterministic executor
         let (executor, _clock) = DeterministicExecutor::new();
-        let _builder = CameraBuilder::with_executor(executor).timeout_config(timeout_config);
+        let _builder = CameraBuilder::<DeterministicExecutor>::with_executor(executor)
+            .timeout_config(timeout_config);
 
         // This test verifies that timeout configs can be used with different executor types
     }

@@ -570,8 +570,10 @@ impl Executor for DeterministicExecutor {
     }
 
     #[allow(clippy::manual_async_fn)]
-    fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
-        async move { self.clock.sleep(duration).await }
+    #[allow(refining_impl_trait)]
+    fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + 'static {
+        let clock = self.clock.clone();
+        async move { clock.sleep(duration).await }
     }
 
     #[allow(clippy::manual_async_fn)]
@@ -584,10 +586,12 @@ impl Executor for DeterministicExecutor {
         F: Future<Output = T> + Send + 'a,
         T: Send + 'a,
     {
+        // Clone the clock outside the async block to avoid capturing &self
+        let clock = self.clock.clone();
         async move {
             let timeout_future = TimeoutFuture {
                 future: Box::pin(fut),
-                sleep: self.clock.sleep(duration),
+                sleep: clock.sleep(duration),
             };
             timeout_future.await
         }
@@ -762,8 +766,10 @@ impl Executor for Arc<DeterministicExecutor> {
     }
 
     #[allow(clippy::manual_async_fn)]
-    fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
-        async move { self.as_ref().sleep(duration).await }
+    #[allow(refining_impl_trait)]
+    fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + 'static {
+        let clock = self.as_ref().clock.clone();
+        async move { clock.sleep(duration).await }
     }
 
     #[allow(clippy::manual_async_fn)]
@@ -776,7 +782,8 @@ impl Executor for Arc<DeterministicExecutor> {
         F: Future<Output = T> + Send + 'a,
         T: Send + 'a,
     {
-        async move { self.as_ref().timeout(duration, fut).await }
+        // Forward directly to avoid capturing &self in an async block
+        self.as_ref().timeout(duration, fut)
     }
 
     fn timeout_owned<T>(
