@@ -9,8 +9,9 @@ use std::sync::{
 };
 
 use super::{
+    async_adapter::{MetricsSummary, TxItem},
+    core::Priority,
     loop_task::{runtime_loop_with_config, RuntimeLoopConfig},
-    scheduler::{MetricsSummary, Priority, TxItem},
 };
 use crate::{
     capabilities::ProtocolStyle,

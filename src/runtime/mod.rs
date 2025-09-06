@@ -4,24 +4,21 @@
 //! managing command scheduling, socket allocation, and protocol timing.
 
 pub mod core;
-pub mod scheduler;
 
 #[cfg(not(feature = "async"))]
 pub mod blocking_runner;
 
 #[cfg(feature = "async")]
+mod async_adapter;
+#[cfg(feature = "async")]
 mod handle;
 #[cfg(feature = "async")]
 mod loop_task;
-#[cfg(feature = "async")]
-mod queue;
-#[cfg(feature = "async")]
-mod rx;
-#[cfg(feature = "async")]
-mod tx;
 
 pub use core::Priority;
-pub use scheduler::MetricsSummary;
+
+#[cfg(feature = "async")]
+pub use async_adapter::MetricsSummary;
 
 #[cfg(feature = "async")]
 pub use handle::RuntimeHandle;

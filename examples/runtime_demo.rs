@@ -100,10 +100,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Get runtime metrics
     println!("\n5. Getting runtime metrics...");
     let metrics = runtime.metrics().await?;
-    println!("   Commands submitted: {}", metrics.commands_submitted);
+    println!("   Commands sent: {}", metrics.commands_sent);
     println!("   Commands completed: {}", metrics.commands_completed);
-    println!("   Inquiries submitted: {}", metrics.inquiries_submitted);
-    println!("   Retry attempts: {}", metrics.retry_attempts);
+    println!("   Commands failed: {}", metrics.commands_failed);
+    println!("   Commands retried: {}", metrics.commands_retried);
 
     // Demonstrate priority scheduling
     println!("\n6. Demonstrating priority scheduling...");

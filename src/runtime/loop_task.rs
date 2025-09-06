@@ -5,15 +5,12 @@ use tracing::{debug, error, instrument, trace, warn};
 
 use std::sync::Arc;
 
-use super::{
-    queue::process_command_queue,
-    rx::handle_response,
-    scheduler::{MetricsSummary, Scheduler, TxItem},
-    tx::handle_tx_item,
-};
+use super::async_adapter::{process_inquiry, AsyncAdapter, MetricsSummary, TxItem};
 use crate::{
+    command::CommandKind,
     error::{Error, Result},
     protocol::framer::ProtocolFramer,
+    runtime::core::PendingCommand,
     timeout::TimeoutConfig,
     transport::{buffer::BufferManager, envelope::TransportEnvelope, AsyncTransport, RetryConfig},
 };
@@ -39,13 +36,9 @@ pub async fn runtime_loop_with_config<
     executor: Arc<E>,
     config: RuntimeLoopConfig,
 ) -> Result<()> {
-    let mut scheduler = Scheduler::with_timeout_and_retry_config(
-        submit_rx.clone(),
-        config.timeout_config,
-        config.retry_config,
-    );
+    let mut adapter =
+        AsyncAdapter::new(config.timeout_config, config.retry_config, executor.clone());
     let mut protocol_framer = ProtocolFramer::new(4096); // Default buffer size
-    let mut consecutive_retries = 0usize;
 
     debug!("VISCA runtime started");
 
@@ -62,37 +55,61 @@ pub async fn runtime_loop_with_config<
 
         // Check for submit items non-blockingly first
         if let Ok(item) = submit_rx.try_recv() {
-            match handle_tx_item(
-                &mut transport,
-                &mut scheduler,
-                item,
-                executor.as_ref(),
-                &config.envelope,
-                &config.buffer_manager,
-            )
-            .await
-            {
-                Ok(_) => {
-                    // Successfully handled a TX item - reset consecutive retries
-                    consecutive_retries = 0;
+            match item {
+                TxItem::Command { .. } => {
+                    // Submit command to adapter
+                    adapter.submit(item);
 
-                    // Process command queue with retry budget check
-                    let allow_retry_defer = consecutive_retries < 8;
-                    if let Err(e) = process_command_queue(
+                    // Try to send immediately if possible
+                    if let Some(cmd) = adapter.next_command_to_send() {
+                        send_command(&mut transport, &mut adapter, cmd, &config).await?;
+                    }
+                }
+                TxItem::Inquiry { .. } => {
+                    // Process inquiry directly without scheduler
+                    if let Err(e) = process_inquiry(
                         &mut transport,
-                        &mut scheduler,
-                        executor.as_ref(),
-                        allow_retry_defer,
+                        item,
                         &config.envelope,
                         &config.buffer_manager,
                     )
                     .await
                     {
-                        error!("Error processing command queue after TX item: {e}");
+                        error!("Error processing inquiry: {e}");
+                    } else {
+                        trace!("Inquiry processed successfully");
                     }
                 }
-                Err(e) => {
-                    error!("Error handling TX item: {e}");
+                TxItem::Cancel { socket } => {
+                    // Send cancel command
+                    use crate::camera_id::CameraId;
+                    use crate::command::{encode_visca::ViscaEncode, system::CommandCancelCommand};
+
+                    let cancel_cmd = CommandCancelCommand::new(socket);
+                    let mut cancel_bytes = [0u8; 16];
+
+                    // Cancel commands are simple and should always encode successfully
+                    // Use unwrap_or to provide a fallback in the extremely unlikely case of failure
+                    let len = cancel_cmd
+                        .encode_into(CameraId::CAMERA_1, &mut cancel_bytes)
+                        .unwrap_or_else(|e| {
+                            error!("Failed to encode cancel command: {e}");
+                            // Return a minimal valid length to avoid panic
+                            3 // Minimum VISCA command length
+                        });
+
+                    let kind = CommandKind::Command;
+                    let (framed, _meta) = config.envelope.frame_bytes_with_kind_owned(
+                        bytes::Bytes::copy_from_slice(&cancel_bytes[..len]),
+                        kind,
+                        &config.buffer_manager,
+                    );
+                    transport.send(&framed).await?;
+                    debug!("Sent cancel for socket {:?}", socket);
+                }
+                TxItem::CancelById { id } => {
+                    // TODO: Implement cancel by ID when core supports it
+                    warn!("Cancel by ID not yet implemented for command {}", id);
                 }
             }
             continue;
@@ -100,85 +117,34 @@ pub async fn runtime_loop_with_config<
 
         // Check for metrics requests non-blockingly
         if let Ok(response_tx) = metrics_rx.try_recv() {
-            let summary = scheduler.metrics.summary();
+            let summary = adapter.metrics_summary();
             let _ = response_tx.send(summary);
             continue;
         }
 
-        // Pre-drain any retries that are due now to avoid race conditions
-        // This ensures deterministic behavior when retry deadline == now
-        let now = executor.as_ref().now();
-        if scheduler.can_send_command() {
-            while let Some(deadline) = scheduler.next_retry_deadline() {
-                if deadline > now {
-                    break; // No more retries due now
-                }
+        // Process any ready retries
+        let ready_retries = adapter.get_ready_retries();
+        for retry in ready_retries {
+            debug!(
+                "Processing retry for command {} (attempt {})",
+                retry.id, retry.attempt
+            );
 
-                // Get the next retry that's due now
-                if let Some(retry_cmd) = scheduler.get_next_retry(now) {
-                    debug!(
-                        "Pre-draining retry for command {id} (attempt {attempt})",
-                        id = retry_cmd.id,
-                        attempt = retry_cmd.attempt
-                    );
+            // Create pending command from retry
+            let pending_cmd = PendingCommand {
+                id: retry.id,
+                bytes: retry.bytes,
+                priority: retry.priority,
+                category: retry.category,
+                camera_id: retry.camera_id,
+                submitted_at: executor.now(),
+            };
 
-                    // Re-submit the command for retry
-                    let response_tx = if let Some(tx) =
-                        scheduler.peek_response_channel(retry_cmd.id)
-                    {
-                        tx.clone()
-                    } else {
-                        warn!(
-                            "Missing response channel for retry of command {id} - this indicates a bug",
-                            id = retry_cmd.id
-                        );
-                        let (tx, _rx) = flume::bounded(1);
-                        tx
-                    };
-
-                    // Create TxItem for the retry
-                    let tx_item = TxItem::Command {
-                        id: retry_cmd.id,
-                        bytes: retry_cmd.bytes.clone(),
-                        priority: retry_cmd.priority,
-                        category: retry_cmd.category,
-                        camera_id: retry_cmd.camera_id,
-                        response_tx,
-                    };
-
-                    // Send the retry immediately
-                    if let Err(e) = handle_tx_item(
-                        &mut transport,
-                        &mut scheduler,
-                        tx_item,
-                        executor.as_ref(),
-                        &config.envelope,
-                        &config.buffer_manager,
-                    )
-                    .await
-                    {
-                        error!("Error handling retry TX item: {e}");
-                    }
-
-                    // If can't send more commands, stop draining
-                    if !scheduler.can_send_command() {
-                        break;
-                    }
-                } else {
-                    break; // No retry ready (shouldn't happen since we checked deadline)
-                }
-            }
+            send_command(&mut transport, &mut adapter, pending_cmd, &config).await?;
         }
 
-        // Dynamic tick scheduling: sleep until the earliest retry deadline or housekeeping tick
-        let now = executor.as_ref().now();
-        let sleep_dur = if let Some(deadline) = scheduler.next_retry_deadline() {
-            // Wake exactly when a retry becomes eligible (but never later than the housekeeping tick)
-            let until_retry = deadline.saturating_duration_since(now);
-            std::cmp::min(until_retry, tick_duration)
-        } else {
-            tick_duration
-        };
+        // Dynamic tick scheduling: sleep until housekeeping tick
+        let sleep_dur = tick_duration;
 
         // Use select to handle both recv and tick operations
         let operation = {
@@ -212,174 +178,78 @@ pub async fn runtime_loop_with_config<
                                     }
                                 };
 
-                            // For Sony encapsulated protocols, validate sequence
-                            if let Some(seq) = meta.sequence {
-                                // Check if this sequence is known (not a duplicate/late frame)
-                                if !scheduler.observe_sequence(seq) {
-                                    trace!("Dropping duplicate/late frame with sequence {seq}");
-                                    continue;
-                                }
-                            }
-
-                            if let Err(e) = handle_response(
-                                &mut transport,
-                                &mut scheduler,
-                                &payload,
-                                executor.as_ref(),
-                                &config.envelope,
-                                &config.buffer_manager,
-                            )
-                            .await
+                            // Process the response through the adapter
+                            if let Err(e) = adapter.process_response(&payload, meta.sequence).await
                             {
-                                error!("Error handling response: {e}");
+                                error!("Error processing response: {e}");
+                            }
+                        }
+
+                        // Try to send more commands if we can
+                        while adapter.can_send_command() {
+                            if let Some(cmd) = adapter.next_command_to_send() {
+                                send_command(&mut transport, &mut adapter, cmd, &config).await?;
+                            } else {
+                                break;
                             }
                         }
                     }
                     Err(e) => {
                         error!("Error receiving from transport: {e}");
-
-                        // When transport recv fails, we should fail any pending commands
-                        // as they won't receive responses. This prevents infinite waiting.
-
-                        // Get all pending ACK commands and fail them
-                        let pending_acks = scheduler.get_all_pending_ack_commands();
-                        for cmd_id in pending_acks {
-                            debug!("Failing command {cmd_id} due to transport recv error");
-                            if let Some(tx) = scheduler.get_response_channel(cmd_id) {
-                                let _ = tx.send(Err(Error::TransportError(
-                                    format!("Transport recv failed: {}", e).into(),
-                                )));
-                            }
-                            // Remove from pending to prevent repeated failures
-                            scheduler.remove_pending_ack(cmd_id);
-                        }
-
-                        // Also fail any commands in sockets (waiting for completion)
-                        let sockets = [crate::ViscaSocket::S1, crate::ViscaSocket::S2];
-                        for socket in sockets {
-                            if let Some(cmd_id) = scheduler.get_socket_command(socket) {
-                                debug!("Failing command {cmd_id} in socket {socket:?} due to transport recv error");
-                                if let Some(tx) = scheduler.get_response_channel(cmd_id) {
-                                    let _ = tx.send(Err(Error::TransportError(
-                                        format!("Transport recv failed: {}", e).into(),
-                                    )));
-                                }
-                                scheduler.free_socket(socket);
-                            }
-                        }
+                        // Handle network error - all pending commands will be retried or failed
+                        adapter.handle_network_error().await?;
                     }
                 }
             }
             Operation::Tick => {
-                // Handle tick - check for timeouts and retries
-                let now = executor.as_ref().now();
+                // Handle tick - check for timeouts
+                adapter.check_timeouts().await?;
 
-                // Check for commands that have timed out waiting for ACK
-                let pending_ack_timeouts = scheduler.check_pending_ack_timeouts(now);
-                for cmd_id in pending_ack_timeouts {
-                    debug!("Command {cmd_id} timed out waiting for ACK");
-                    // Notify the waiting high-level caller
-                    if let Some(tx) = scheduler.get_response_channel(cmd_id) {
-                        let _ = tx.send(Err(Error::Timeout));
-                    }
-                }
-
-                // Check for commands in sockets that have timed out
-                let timed_out = scheduler.check_timeouts(now);
-                for (socket, cmd_id) in timed_out {
-                    // First, notify the waiting high-level caller
-                    if let Some(tx) = scheduler.get_response_channel(cmd_id) {
-                        let _ = tx.send(Err(Error::Timeout));
-                    }
-
-                    // Finally, free the socket & clean up metadata
-                    scheduler.free_socket(socket);
-                }
-
-                // Then check if we have retries to process
-                if scheduler.has_retries() {
-                    debug!(
-                        "Has {retry_count} retries pending, free socket: {has_free}, can_send: {can_send}, retry queue: {retry_queue:?}",
-                        retry_count = scheduler.retry_queue.len(),
-                        has_free = scheduler.has_free_socket(),
-                        can_send = scheduler.can_send_command(),
-                        retry_queue = scheduler
-                            .retry_queue
-                            .iter()
-                            .map(|r| r.id)
-                            .collect::<Vec<_>>()
-                    );
-                }
-                if scheduler.can_send_command() && scheduler.has_retries() {
-                    debug!("Has free socket and retries to process");
-                    // get_next_retry() now handles exhausted retries internally
-                    let now = executor.as_ref().now();
-                    if let Some(retry_cmd) = scheduler.get_next_retry(now) {
-                        debug!(
-                            "Retrying command {id} (attempt {attempt})",
-                            id = retry_cmd.id,
-                            attempt = retry_cmd.attempt
-                        );
-
-                        // Re-submit the command for retry
-                        let response_tx = if let Some(tx) =
-                            scheduler.peek_response_channel(retry_cmd.id)
-                        {
-                            tx.clone()
-                        } else {
-                            warn!(
-                                "Missing response channel for retry of command {id} - this indicates a bug",
-                                id = retry_cmd.id
-                            );
-                            continue;
-                        };
-                        debug!(
-                            "Using existing response channel for retry of command {id}",
-                            id = retry_cmd.id
-                        );
-
-                        let item = TxItem::Command {
-                            id: retry_cmd.id,
-                            bytes: retry_cmd.bytes.clone(),
-                            priority: retry_cmd.priority,
-                            category: retry_cmd.category,
-                            camera_id: retry_cmd.camera_id,
-                            response_tx,
-                        };
-
-                        if let Err(e) = handle_tx_item(
-                            &mut transport,
-                            &mut scheduler,
-                            item,
-                            executor.as_ref(),
-                            &config.envelope,
-                            &config.buffer_manager,
-                        )
-                        .await
-                        {
-                            error!("Error retrying command {id}: {e}", id = retry_cmd.id);
-                        } else {
-                            // Successfully submitted a retry
-                            consecutive_retries = consecutive_retries.saturating_add(1);
-                        }
+                // Try to send more commands if we have room
+                while adapter.can_send_command() {
+                    if let Some(cmd) = adapter.next_command_to_send() {
+                        send_command(&mut transport, &mut adapter, cmd, &config).await?;
+                    } else {
+                        break;
                     }
                 }
             }
         }
+    }
+}
 
-        // Check if submit channel is closed and scheduler is idle for shutdown
-        let disconnected = submit_rx.is_disconnected();
-        let idle = scheduler.is_idle();
-        if disconnected && idle {
-            debug!("Submit channel closed and scheduler is idle, shutting down runtime");
-            break;
-        }
+/// Helper function to send a command.
+async fn send_command<T: AsyncTransport, E: crate::executor::Executor>(
+    transport: &mut T,
+    adapter: &mut AsyncAdapter<E>,
+    cmd: PendingCommand,
+    config: &RuntimeLoopConfig,
+) -> Result<()> {
+    // Determine command kind
+    let kind = if cmd.bytes.len() > 1 && cmd.bytes[1] == 0x09 {
+        CommandKind::Inquiry
+    } else {
+        CommandKind::Command
+    };
+
+    // Frame the command
+    let (framed, meta) = config.envelope.frame_bytes_with_kind_owned(
+        cmd.bytes.clone(),
+        kind,
+        &config.buffer_manager,
+    );
+
+    // Register as pending ACK
+    adapter.register_pending_ack(&cmd);
+
+    // Register Sony sequence if applicable
+    if let Some(sequence) = meta.sequence {
+        adapter.register_sequence(cmd.id, sequence);
     }
 
-    // The loop above never exits normally
-    #[allow(unreachable_code)]
-    {
-        debug!("VISCA runtime stopped");
-    }
+    // Send the command
+    transport.send(&framed).await?;
+    trace!("Sent command {} with sequence {:?}", cmd.id, meta.sequence);
+
     Ok(())
 }
