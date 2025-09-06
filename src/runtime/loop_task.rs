@@ -236,10 +236,20 @@ pub async fn runtime_loop_with_config<
                     Ok(bytes) => {
                         trace!("Received bytes from transport: {bytes:02X?}");
                         // Push received bytes into the protocol-aware framer
-                        protocol_framer.push(bytes);
+                        if let Err(e) = protocol_framer.push(bytes) {
+                            warn!("Framer buffer exceeded limits: {e}");
+                            continue;
+                        }
 
                         // Drain complete frames without copying
-                        for frame in protocol_framer.drain_frames() {
+                        for frame_result in protocol_framer.drain_frames() {
+                            let frame = match frame_result {
+                                Ok(frame) => frame,
+                                Err(e) => {
+                                    warn!("Failed to extract frame: {e}");
+                                    continue;
+                                }
+                            };
                             // Extract the VISCA payload and metadata using zero-copy method
                             let (payload, meta) =
                                 match config.envelope.extract_with_meta_owned(frame) {

@@ -5,8 +5,7 @@
 
 use bytes::{Bytes, BytesMut};
 use std::{
-    borrow::Cow,
-    io::{BufReader, Read, Write},
+    io::{BufReader, Write},
     net::{TcpStream, UdpSocket},
     time::Duration,
 };
@@ -20,6 +19,7 @@ use crate::{
     transport::{
         address::AddressResolver,
         buffer::{BufferConfig, BufferManager},
+        sync_io::read_visca_frame_sync_with_config,
         RetryConfig,
     },
 };
@@ -56,8 +56,7 @@ impl Default for RawIpConfig {
 pub struct RawTcpTransport {
     reader: BufReader<TcpStream>,
     writer: TcpStream,
-    buffer_manager: BufferManager,
-    read_buffer: BytesMut,
+    buffer_config: BufferConfig,
 }
 
 impl RawTcpTransport {
@@ -93,48 +92,23 @@ impl RawTcpTransport {
             .map_err(|e| Error::TransportError(format!("Failed to clone stream: {e}").into()))?;
         let reader = BufReader::new(stream);
 
-        // Create buffer manager with raw IP optimized sizes
-        let buffer_manager = BufferManager::new(BufferConfig::for_raw_ip());
+        // Create buffer config with raw IP optimized sizes
+        let buffer_config = BufferConfig::for_raw_ip();
 
         Ok(Self {
             reader,
             writer,
-            buffer_manager,
-            read_buffer: buffer_manager.alloc_recv_buffer(),
+            buffer_config,
         })
     }
 
     /// Receive a complete VISCA frame.
     fn recv_frame(&mut self) -> Result<Bytes> {
-        let mut temp_buf = self.buffer_manager.alloc_vec_buffer();
-
-        loop {
-            // Check if we have a complete frame in the buffer
-            if let Some(pos) = self.read_buffer.iter().position(|&b| b == VISCA_TERMINATOR) {
-                let frame = self.read_buffer.split_to(pos + 1);
-                trace!("Received frame: {frame:02X?}");
-                return Ok(frame.freeze());
-            }
-
-            // Read more data
-            match self.reader.read(&mut temp_buf) {
-                Ok(n) if n > 0 => {
-                    self.read_buffer.extend_from_slice(&temp_buf[..n]);
-                    trace!("Read {n} bytes from TCP");
-                }
-                Ok(_) => {
-                    return Err(Error::ConnectionClosed {
-                        reason: Some(Cow::Borrowed("peer closed connection")),
-                    });
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    return Err(Error::Timeout);
-                }
-                Err(e) => {
-                    return Err(Error::TransportError(format!("TCP read error: {e}").into()));
-                }
-            }
+        let result = read_visca_frame_sync_with_config(&mut self.reader, self.buffer_config);
+        if let Ok(ref frame) = result {
+            trace!("Received frame: {:02X?}", frame);
         }
+        result
     }
 }
 

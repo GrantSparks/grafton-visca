@@ -6,18 +6,27 @@
 use bytes::Bytes;
 use std::io::Read;
 
-use crate::{protocol::framer::ProtocolFramer, Error};
+use crate::{protocol::framer::ProtocolFramer, transport::buffer::BufferConfig, Error};
 
 /// Unified helper for reading VISCA frames with protocol-aware deframing (synchronous version).
 ///
 /// This function uses the ProtocolFramer to automatically detect and handle:
 /// - Raw VISCA: reads until 0xFF terminator
 /// - Sony 52381: reads exactly header + payload_length bytes
+/// - Maximum frame and buffer sizes to prevent unbounded growth
 ///
 /// This ensures that Sony frames with 0xFF in the header (e.g., in sequence number)
 /// are not prematurely truncated.
 pub fn read_visca_frame_sync<R: Read>(reader: &mut R) -> Result<Bytes, Error> {
-    let mut framer = ProtocolFramer::new(1024);
+    read_visca_frame_sync_with_config(reader, BufferConfig::default())
+}
+
+/// Read VISCA frame with a specific buffer configuration for size limits.
+pub fn read_visca_frame_sync_with_config<R: Read>(
+    reader: &mut R,
+    config: BufferConfig,
+) -> Result<Bytes, Error> {
+    let mut framer = ProtocolFramer::new_with_config(config);
     let mut temp_buf = [0u8; 256];
 
     loop {
@@ -26,8 +35,8 @@ pub fn read_visca_frame_sync<R: Read>(reader: &mut R) -> Result<Bytes, Error> {
 
         if n == 0 {
             // Connection closed - try to extract any frame that's terminated
-            if let Some(frame) = framer.drain_on_eof() {
-                return Ok(frame);
+            if let Some(result) = framer.drain_on_eof() {
+                return result;
             }
 
             // No valid frame could be extracted
@@ -43,11 +52,11 @@ pub fn read_visca_frame_sync<R: Read>(reader: &mut R) -> Result<Bytes, Error> {
         }
 
         // Push data to framer
-        framer.push(Bytes::copy_from_slice(&temp_buf[..n]));
+        framer.push(Bytes::copy_from_slice(&temp_buf[..n]))?;
 
         // Try to extract a complete frame
-        if let Some(frame) = framer.drain_frames().next() {
-            return Ok(frame);
+        if let Some(result) = framer.drain_frames().next() {
+            return result;
         }
     }
 }

@@ -13,6 +13,8 @@ use std::time::Duration;
 
 #[cfg(feature = "rt-tokio")]
 use crate::protocol::framer::ProtocolFramer;
+#[cfg(feature = "rt-tokio")]
+use crate::transport::buffer::BufferConfig;
 use crate::{transport::builder::TransportConfig, Error};
 
 /// Trait abstracting async read operations across different runtimes.
@@ -63,6 +65,7 @@ pub trait AsyncDatagram: Send + Sync {
 /// This function uses the ProtocolFramer to automatically detect and handle:
 /// - Raw VISCA: reads until 0xFF terminator
 /// - Sony 52381: reads exactly header + payload_length bytes
+/// - Maximum frame and buffer sizes to prevent unbounded growth
 ///
 /// This ensures that Sony frames with 0xFF in the header (e.g., in sequence number)
 /// are not prematurely truncated.
@@ -70,7 +73,16 @@ pub trait AsyncDatagram: Send + Sync {
 /// Currently only used by tokio serial transport and tests.
 #[cfg(feature = "rt-tokio")]
 pub async fn read_visca_frame<R: AsyncReadExt>(reader: &mut R) -> Result<Bytes, Error> {
-    let mut framer = ProtocolFramer::new(1024);
+    read_visca_frame_with_config(reader, BufferConfig::default()).await
+}
+
+/// Read VISCA frame with a specific buffer configuration for size limits.
+#[cfg(feature = "rt-tokio")]
+pub async fn read_visca_frame_with_config<R: AsyncReadExt>(
+    reader: &mut R,
+    config: BufferConfig,
+) -> Result<Bytes, Error> {
+    let mut framer = ProtocolFramer::new_with_config(config);
     let mut temp_buf = [0u8; 256];
 
     loop {
@@ -79,8 +91,8 @@ pub async fn read_visca_frame<R: AsyncReadExt>(reader: &mut R) -> Result<Bytes, 
 
         if n == 0 {
             // Connection closed - try to extract any frame that's terminated
-            if let Some(frame) = framer.drain_on_eof() {
-                return Ok(frame);
+            if let Some(result) = framer.drain_on_eof() {
+                return result;
             }
 
             // No valid frame could be extracted
@@ -96,11 +108,11 @@ pub async fn read_visca_frame<R: AsyncReadExt>(reader: &mut R) -> Result<Bytes, 
         }
 
         // Push data to framer
-        framer.push(Bytes::copy_from_slice(&temp_buf[..n]));
+        framer.push(Bytes::copy_from_slice(&temp_buf[..n]))?;
 
         // Try to extract a complete frame
-        if let Some(frame) = framer.drain_frames().next() {
-            return Ok(frame);
+        if let Some(result) = framer.drain_frames().next() {
+            return result;
         }
     }
 }

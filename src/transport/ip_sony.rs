@@ -4,12 +4,11 @@
 //! which adds an 8-byte header containing sequence numbers for request/response
 //! matching and automatic retry on network errors.
 
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use tracing::{debug, trace};
 
 use std::{
-    borrow::Cow,
-    io::{BufReader, Read, Write},
+    io::{BufReader, Write},
     net::TcpStream,
     time::Duration,
 };
@@ -23,6 +22,7 @@ use crate::{
     transport::{
         address::AddressResolver,
         buffer::{BufferConfig, BufferManager},
+        sync_io::read_visca_frame_sync_with_config,
     },
 };
 
@@ -34,8 +34,7 @@ use crate::{
 pub struct SonyTcpTransport {
     reader: BufReader<TcpStream>,
     writer: TcpStream,
-    buffer_manager: BufferManager,
-    read_buffer: BytesMut,
+    buffer_config: BufferConfig,
 }
 
 impl SonyTcpTransport {
@@ -71,59 +70,24 @@ impl SonyTcpTransport {
             .map_err(|e| Error::TransportError(format!("Failed to clone stream: {e}").into()))?;
         let reader = BufReader::new(stream);
 
-        // Create buffer manager with Sony IP optimized sizes
-        let buffer_manager = BufferManager::new(BufferConfig::for_sony_ip());
+        // Create buffer config with Sony IP optimized sizes
+        let buffer_config = BufferConfig::for_sony_ip();
 
         Ok(Self {
             reader,
             writer,
-            buffer_manager,
-            read_buffer: buffer_manager.alloc_recv_buffer(),
+            buffer_config,
         })
     }
 
     /// Receive raw bytes from TCP, assembling complete Sony frames.
     fn recv_frame(&mut self) -> Result<Bytes> {
-        let mut temp_buf = self.buffer_manager.alloc_vec_buffer();
-
-        loop {
-            // Check if we have a complete header
-            if self.read_buffer.len() >= SonyHeader::SIZE {
-                // Parse header to get payload length
-                let _payload_type = u16::from_be_bytes([self.read_buffer[0], self.read_buffer[1]]);
-                let payload_length =
-                    u16::from_be_bytes([self.read_buffer[2], self.read_buffer[3]]) as usize;
-
-                // Check if we have the complete payload
-                if self.read_buffer.len() >= SonyHeader::SIZE + payload_length {
-                    // Extract complete frame
-                    let frame_size = SonyHeader::SIZE + payload_length;
-                    let frame_bytes = self.read_buffer.split_to(frame_size);
-
-                    trace!("Received complete Sony frame: {} bytes", frame_size);
-                    return Ok(Bytes::copy_from_slice(&frame_bytes));
-                }
-            }
-
-            // Read more data
-            match self.reader.read(&mut temp_buf) {
-                Ok(n) if n > 0 => {
-                    self.read_buffer.extend_from_slice(&temp_buf[..n]);
-                    trace!("Read {n} bytes from TCP");
-                }
-                Ok(_) => {
-                    return Err(Error::ConnectionClosed {
-                        reason: Some(Cow::Borrowed("peer closed connection")),
-                    });
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    return Err(Error::Timeout);
-                }
-                Err(e) => {
-                    return Err(Error::TransportError(format!("TCP read error: {e}").into()));
-                }
-            }
+        // Use the unified helper that handles both Sony and raw VISCA with bounded buffering
+        let result = read_visca_frame_sync_with_config(&mut self.reader, self.buffer_config);
+        if let Ok(ref frame) = result {
+            trace!("Received complete Sony frame: {} bytes", frame.len());
         }
+        result
     }
 }
 
@@ -178,6 +142,9 @@ impl SyncTransport for SonyTcpTransport {
 ///
 /// This transport handles basic UDP I/O and Sony framing. Retry logic and sequence
 /// management are handled by the BlockingRunner and SchedulerCore.
+///
+/// Note: UDP transports still use manual parsing as they receive complete datagrams
+/// rather than stream data.
 #[derive(Debug)]
 pub struct SonyUdpTransport {
     socket: std::net::UdpSocket,

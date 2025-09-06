@@ -368,10 +368,20 @@ impl ProtocolDetector {
                         );
 
                         // Push chunk to framer
-                        framer.push(chunk);
+                        if let Err(e) = framer.push(chunk) {
+                            debug!("Framer buffer exceeded limits: {e}");
+                            return Ok(false);
+                        }
 
                         // Try to extract a complete frame
-                        if let Some(frame) = framer.drain_frames().next() {
+                        if let Some(frame_result) = framer.drain_frames().next() {
+                            let frame = match frame_result {
+                                Ok(frame) => frame,
+                                Err(e) => {
+                                    debug!("Failed to extract frame: {e}");
+                                    return Ok(false);
+                                }
+                            };
                             debug!(
                                 "Extracted complete frame: {bytes:02X?}",
                                 bytes = &frame[..std::cmp::min(frame.len(), 16)]
