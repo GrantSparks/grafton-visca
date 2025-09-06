@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Streamlined runtime and protocol modules
   - Consolidated envelope tests for better maintainability
   - Enhanced frame parsing with better error recovery
+- **Unified Inquiry Scheduler** (#320):
+  - Inquiries now flow through the same `SchedulerCore` path as commands
+  - RAII `SendGuard` for automatic rollback on send failures in both async and blocking runners
+  - `DataReply` frames are now properly handled as completion events
+  - Added `CommandKind` field to `PendingCommand` for cleaner command type tracking
 
 ### Changed
 - **Transport Refactoring**: Major refactoring of transport layer
@@ -35,12 +40,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Cleaned up imports and module organization
   - Consolidated test utilities for better reusability
   - Simplified example code for better clarity
+- **BREAKING: Error Semantics** (#320):
+  - Send failures now fail immediately with `TransportError` instead of retrying
+  - Receive failures eventually result in `Error::Timeout` instead of `TransportError`
+  - Better error specificity while maintaining network resilience
 
 ### Fixed
 - TCP test race condition on Windows
 - Missing `AsyncTransport` import in build_async_wrapper doctest
 - Various clippy warnings and formatting issues
 - Visibility issues in envelope and protocol modules
+- **Critical: Inquiry Handling** (#320):
+  - Fixed head-of-line blocking caused by inquiries awaiting in the event loop
+  - Fixed frame theft where inquiries could consume frames meant for commands
+  - Fixed dropped `DataReply` frames that were previously ignored
+  - Inquiries now properly participate in timeouts, retries, and metrics
 
 ### Internal
 - Reduced test suite complexity by removing redundant tests

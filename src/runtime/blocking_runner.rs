@@ -16,7 +16,7 @@ use crate::{
     camera_id::CameraId,
     capabilities::ProtocolStyle,
     command::{
-        response::{lift_inquiry, ViscaResponse},
+        response::{lift_inquiry, ViscaResponse, ViscaResponseType},
         CommandKind, ViscaEncode,
     },
     error::{Error, Result},
@@ -30,6 +30,61 @@ use crate::{
     },
     visca_socket::ViscaSocket,
 };
+
+/// RAII guard for send operations to ensure proper rollback on failure.
+///
+/// This guard tracks reservations made during send operations and automatically
+/// rolls them back if the send fails, preventing resource leaks.
+struct SendGuard {
+    id: u32,
+    reserved_socket: Option<ViscaSocket>,
+    ack_registered: bool,
+    committed: bool,
+}
+
+impl SendGuard {
+    fn new(id: u32) -> Self {
+        Self {
+            id,
+            reserved_socket: None,
+            ack_registered: false,
+            committed: false,
+        }
+    }
+
+    fn reserve_socket(&mut self, socket: ViscaSocket) {
+        self.reserved_socket = Some(socket);
+    }
+
+    fn register_ack(&mut self) {
+        self.ack_registered = true;
+    }
+
+    fn commit(&mut self) {
+        self.committed = true;
+    }
+
+    fn rollback(self, core: &mut SchedulerCore) {
+        if !self.committed {
+            // Rollback on failure
+            if let Some(socket) = self.reserved_socket {
+                debug!(
+                    "SendGuard: Rolling back inquiry {} socket reservation",
+                    self.id
+                );
+                core.free_socket(socket);
+            }
+            if self.ack_registered {
+                debug!(
+                    "SendGuard: Rolling back command {} ACK registration",
+                    self.id
+                );
+                core.unregister_pending_ack(self.id);
+            }
+            // Note: fail_after_send_error is called by the caller after rollback
+        }
+    }
+}
 
 /// Blocking runner for VISCA commands.
 ///
@@ -46,6 +101,12 @@ pub struct BlockingRunner {
     buffer_manager: BufferManager,
     /// Command ID generator.
     next_id: AtomicU32,
+    /// Response types for inquiries (for parsing DataReply).
+    inquiry_response_types: std::collections::HashMap<u32, ViscaResponseType>,
+    /// Queue of in-flight inquiries (for raw VISCA DataReply without socket info).
+    /// We process DataReplies in FIFO order since raw VISCA doesn't identify which
+    /// inquiry a response belongs to.
+    active_inquiry_ids: std::collections::VecDeque<u32>,
 }
 
 impl BlockingRunner {
@@ -72,6 +133,8 @@ impl BlockingRunner {
             envelope: TransportEnvelope::new(style),
             buffer_manager: BufferManager::new(buffer_config),
             next_id: AtomicU32::new(1),
+            inquiry_response_types: std::collections::HashMap::new(),
+            active_inquiry_ids: std::collections::VecDeque::new(),
         }
     }
 
@@ -90,16 +153,19 @@ impl BlockingRunner {
         let len = command.encode_into(camera_id, &mut buf)?;
         let visca_bytes = Bytes::copy_from_slice(&buf[..len]);
 
-        let kind = command.command_kind();
-        let is_inquiry = matches!(kind, CommandKind::Inquiry);
-
-        // For inquiries, we can send directly without the scheduler
-        if is_inquiry {
-            return self.send_inquiry(transport, visca_bytes, kind);
+        // Store response type for inquiries
+        if let Some(rt) = command.response_type() {
+            self.inquiry_response_types.insert(cmd_id, rt);
         }
 
-        // Queue the command
+        // Queue the command (both commands and inquiries use the unified path)
         let now = Instant::now();
+        // Determine kind from bytes
+        let kind = if visca_bytes.len() > 1 && visca_bytes[1] == 0x09 {
+            CommandKind::Inquiry
+        } else {
+            CommandKind::Command
+        };
         let pending_cmd = PendingCommand {
             id: cmd_id,
             bytes: visca_bytes.clone(),
@@ -107,39 +173,13 @@ impl BlockingRunner {
             category,
             camera_id,
             submitted_at: now,
+            kind,
         };
 
         self.core.queue_command(pending_cmd);
 
         // Process until command completes
         self.run_until_complete(transport, cmd_id)
-    }
-
-    /// Send an inquiry directly without using the scheduler.
-    fn send_inquiry<T: SyncTransport>(
-        &mut self,
-        transport: &mut T,
-        visca_bytes: Bytes,
-        kind: CommandKind,
-    ) -> Result<ViscaResponse> {
-        // Frame and send
-        let (framed, _meta) =
-            self.envelope
-                .frame_bytes_with_kind_owned(visca_bytes, kind, &self.buffer_manager);
-
-        transport.send_with_kind(&framed, kind)?;
-
-        // Receive response
-        let response_bytes = transport.recv()?;
-        let (payload, _meta) = self.envelope.extract_with_meta_owned(response_bytes)?;
-
-        // Parse response using decode_basic and lift_inquiry
-        let basic = decode_basic(&payload).ok_or_else(|| Error::InvalidResponse {
-            expected: std::borrow::Cow::Borrowed("Valid VISCA response"),
-            actual: payload.to_vec(),
-        })?;
-
-        lift_inquiry(&basic, None)
     }
 
     /// Run the scheduler until a specific command completes.
@@ -155,74 +195,233 @@ impl BlockingRunner {
 
             // Check for commands to send
             if let Some(cmd) = self.core.next_command_to_send() {
-                // Frame the command
-                let kind = if cmd.bytes[1] == 0x09 {
-                    CommandKind::Inquiry
-                } else {
-                    CommandKind::Command
-                };
+                // Use command kind from PendingCommand
+                let kind = cmd.kind;
 
+                // Frame the command
                 let (framed, meta) = self.envelope.frame_bytes_with_kind_owned(
                     cmd.bytes.clone(),
                     kind,
                     &self.buffer_manager,
                 );
 
-                // Register as pending ACK
-                self.core.register_pending_ack(
-                    cmd.id,
-                    cmd.bytes,
-                    cmd.priority,
-                    cmd.category,
-                    cmd.camera_id,
-                    now,
-                );
+                // Create RAII guard for rollback
+                let mut guard = SendGuard::new(cmd.id);
+
+                // For inquiries, reserve socket directly (no ACK)
+                // For commands, register as pending ACK
+                if kind == CommandKind::Inquiry {
+                    // Reserve socket for inquiry
+                    if let Some(socket) = self.core.reserve_socket_for_inquiry(
+                        cmd.id,
+                        cmd.bytes.clone(),
+                        cmd.priority,
+                        cmd.category,
+                        cmd.camera_id,
+                        now,
+                    ) {
+                        debug!("Reserved socket {:?} for inquiry {}", socket, cmd.id);
+                        guard.reserve_socket(socket);
+                    } else {
+                        warn!("Failed to reserve socket for inquiry {}", cmd.id);
+                        // The inquiry will remain queued and retry later
+                        continue;
+                    }
+                } else {
+                    // Register as pending ACK for commands
+                    self.core.register_pending_ack(
+                        cmd.id,
+                        cmd.bytes.clone(),
+                        cmd.priority,
+                        cmd.category,
+                        cmd.camera_id,
+                        now,
+                    );
+                    guard.register_ack();
+                }
+
+                // Try to send the command
+                if let Err(e) = transport.send_with_kind(&framed, kind) {
+                    debug!(
+                        "Send failed for {} {}: {:?}",
+                        if kind == CommandKind::Inquiry {
+                            "inquiry"
+                        } else {
+                            "command"
+                        },
+                        cmd.id,
+                        e
+                    );
+
+                    // Rollback via RAII guard
+                    guard.rollback(&mut self.core);
+
+                    // Handle send failure - fails immediately
+                    if let Some(action) = self.core.fail_after_send_error(cmd.id) {
+                        match action {
+                            SchedulerAction::CommandFailed { id, error } if id == target_cmd_id => {
+                                // Return the error to the caller
+                                return Err(error);
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    warn!(
+                        "Scheduled retry for {} {}",
+                        if kind == CommandKind::Inquiry {
+                            "inquiry"
+                        } else {
+                            "command"
+                        },
+                        cmd.id
+                    );
+                    continue; // Continue with next command instead of returning error
+                }
+
+                // Send succeeded - commit the guard to prevent rollback
+                guard.commit();
+
+                // Post-send side effects (only after successful send)
 
                 // Register Sony sequence if applicable
                 if let Some(sequence) = meta.sequence {
                     self.core.register_sequence(cmd.id, sequence);
                 }
 
-                // Send the command
-                transport.send_with_kind(&framed, kind)?;
-                trace!("Sent command {} with sequence {:?}", cmd.id, meta.sequence);
+                // Mark inquiry as in-flight (for DataReply handling)
+                if kind == CommandKind::Inquiry {
+                    self.active_inquiry_ids.push_back(cmd.id);
+                }
+                trace!(
+                    "Sent {} {} with sequence {:?}",
+                    if kind == CommandKind::Inquiry {
+                        "inquiry"
+                    } else {
+                        "command"
+                    },
+                    cmd.id,
+                    meta.sequence
+                );
             }
 
             // Check for retries
             let ready_retries = self.core.get_ready_retries(now);
             for retry in ready_retries {
-                // Frame and send the retry
-                let kind = if retry.bytes[1] == 0x09 {
+                // Determine command kind
+                let kind = if retry.bytes.len() > 1 && retry.bytes[1] == 0x09 {
                     CommandKind::Inquiry
                 } else {
                     CommandKind::Command
                 };
 
+                // Frame the retry
                 let (framed, meta) = self.envelope.frame_bytes_with_kind_owned(
                     retry.bytes.clone(),
                     kind,
                     &self.buffer_manager,
                 );
 
-                // Register as pending ACK
-                self.core.register_pending_ack(
-                    retry.id,
-                    retry.bytes,
-                    retry.priority,
-                    retry.category,
-                    retry.camera_id,
-                    now,
-                );
+                // Create RAII guard for rollback
+                let mut guard = SendGuard::new(retry.id);
+
+                // For inquiries, reserve socket directly (no ACK)
+                // For commands, register as pending ACK
+                if kind == CommandKind::Inquiry {
+                    // Reserve socket for inquiry retry
+                    if let Some(socket) = self.core.reserve_socket_for_inquiry(
+                        retry.id,
+                        retry.bytes.clone(),
+                        retry.priority,
+                        retry.category,
+                        retry.camera_id,
+                        now,
+                    ) {
+                        debug!(
+                            "Reserved socket {:?} for inquiry retry {}",
+                            socket, retry.id
+                        );
+                        guard.reserve_socket(socket);
+                    } else {
+                        warn!("Failed to reserve socket for inquiry retry {}", retry.id);
+                        // The inquiry will remain queued and retry later
+                        continue;
+                    }
+                } else {
+                    // Register as pending ACK for command retries
+                    self.core.register_pending_ack(
+                        retry.id,
+                        retry.bytes.clone(),
+                        retry.priority,
+                        retry.category,
+                        retry.camera_id,
+                        now,
+                    );
+                    guard.register_ack();
+                }
+
+                // Try to send the retry
+                if let Err(e) = transport.send_with_kind(&framed, kind) {
+                    debug!(
+                        "Send failed for retry {} {}: {:?}",
+                        if kind == CommandKind::Inquiry {
+                            "inquiry"
+                        } else {
+                            "command"
+                        },
+                        retry.id,
+                        e
+                    );
+
+                    // Rollback via RAII guard
+                    guard.rollback(&mut self.core);
+
+                    // Handle send failure for retry - fails immediately
+                    if let Some(action) = self.core.fail_after_send_error(retry.id) {
+                        match action {
+                            SchedulerAction::CommandFailed { id, error } if id == target_cmd_id => {
+                                // Return the error to the caller
+                                return Err(error);
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    warn!(
+                        "Scheduled another retry for {} {}",
+                        if kind == CommandKind::Inquiry {
+                            "inquiry"
+                        } else {
+                            "command"
+                        },
+                        retry.id
+                    );
+                    continue; // Continue with next retry instead of returning error
+                }
+
+                // Send succeeded - commit the guard to prevent rollback
+                guard.commit();
+
+                // Post-send side effects (only after successful send)
 
                 // Register Sony sequence if applicable
                 if let Some(sequence) = meta.sequence {
                     self.core.register_sequence(retry.id, sequence);
                 }
 
-                transport.send_with_kind(&framed, kind)?;
+                // Mark inquiry as in-flight (for DataReply handling)
+                if kind == CommandKind::Inquiry {
+                    self.active_inquiry_ids.push_back(retry.id);
+                }
                 debug!(
-                    "Sent retry for command {} (attempt {})",
-                    retry.id, retry.attempt
+                    "Sent retry for {} {} (attempt {})",
+                    if kind == CommandKind::Inquiry {
+                        "inquiry"
+                    } else {
+                        "command"
+                    },
+                    retry.id,
+                    retry.attempt
                 );
             }
 
@@ -276,14 +475,19 @@ impl BlockingRunner {
                             if let Some(cmd_id) = cmd_id {
                                 if cmd_id == target_cmd_id {
                                     debug!("Command {} completed successfully", cmd_id);
+                                    // Get the expected response type for this inquiry
+                                    let response_type = self.inquiry_response_types.get(&cmd_id);
                                     // Convert to ViscaResponse for return
-                                    let response = lift_inquiry(&basic, None)?;
+                                    let response = lift_inquiry(&basic, response_type)?;
                                     return Ok(response);
                                 }
                             }
 
                             debug!("Received completion for socket {:?}", socket);
-                            let response = lift_inquiry(&basic, None)?;
+                            // Get the expected response type for this inquiry
+                            let response_type =
+                                cmd_id.and_then(|id| self.inquiry_response_types.get(&id));
+                            let response = lift_inquiry(&basic, response_type)?;
                             SchedulerEvent::Completion { socket, response }
                         }
                         BasicKind::Error(code) => {
@@ -291,8 +495,43 @@ impl BlockingRunner {
                             debug!("Received error 0x{:02X} for socket {:?}", code, socket);
                             SchedulerEvent::Error { socket, code }
                         }
-                        BasicKind::DataReply | BasicKind::NetworkChange | BasicKind::Unknown => {
-                            // Other response types (inquiries, etc) are handled separately
+                        BasicKind::DataReply => {
+                            // Data replies are completions for inquiries
+                            // Try to find command ID from sequence (Sony) or active inquiry queue (raw VISCA)
+                            let cmd_id = if let Some(seq) = meta.sequence {
+                                // Sony protocol: use sequence to find command
+                                self.core.get_command_by_sequence(seq)
+                            } else {
+                                // Raw VISCA: pop from front of queue (FIFO order)
+                                self.active_inquiry_ids.pop_front()
+                            };
+
+                            // Get the expected response type for this inquiry
+                            let response_type =
+                                cmd_id.and_then(|id| self.inquiry_response_types.get(&id).cloned());
+
+                            if let Some(cmd_id) = cmd_id {
+                                if cmd_id == target_cmd_id {
+                                    debug!("Inquiry {} completed successfully", cmd_id);
+                                    // Clean up inquiry tracking
+                                    self.inquiry_response_types.remove(&cmd_id);
+                                    // Remove from active inquiry queue
+                                    self.active_inquiry_ids.retain(|&x| x != cmd_id);
+                                    // Convert to ViscaResponse for return
+                                    let response = lift_inquiry(&basic, response_type.as_ref())?;
+                                    return Ok(response);
+                                }
+                            }
+
+                            debug!("Received data reply for socket {:?}", basic.socket);
+                            let response = lift_inquiry(&basic, response_type.as_ref())?;
+                            SchedulerEvent::Completion {
+                                socket: basic.socket,
+                                response,
+                            }
+                        }
+                        BasicKind::NetworkChange | BasicKind::Unknown => {
+                            // Other response types are ignored for now
                             continue;
                         }
                     };
@@ -304,9 +543,17 @@ impl BlockingRunner {
                             SchedulerAction::CommandComplete { id, response }
                                 if id == target_cmd_id =>
                             {
+                                // Clean up inquiry tracking
+                                self.inquiry_response_types.remove(&id);
+                                // Remove from active inquiry queue
+                                self.active_inquiry_ids.retain(|&x| x != id);
                                 return Ok(response);
                             }
                             SchedulerAction::CommandFailed { id, error } if id == target_cmd_id => {
+                                // Clean up inquiry tracking
+                                self.inquiry_response_types.remove(&id);
+                                // Remove from active inquiry queue
+                                self.active_inquiry_ids.retain(|&x| x != id);
                                 return Err(error);
                             }
                             _ => {}
@@ -379,6 +626,7 @@ mod tests {
             category: CommandCategory::Quick,
             camera_id,
             submitted_at: Instant::now(),
+            kind: CommandKind::Command,
         };
 
         // Queue the command

@@ -8,15 +8,15 @@ use std::sync::{
     Arc,
 };
 
-use super::{
-    async_adapter::{MetricsSummary, TxItem},
-    core::Priority,
-    loop_task::{runtime_loop_with_config, RuntimeLoopConfig},
-};
 use crate::{
     capabilities::ProtocolStyle,
     command::response::ViscaResponse,
     error::{Error, Result},
+    runtime::{
+        async_adapter::{MetricsSummary, TxItem},
+        core::Priority,
+        loop_task::{runtime_loop_with_config, RuntimeLoopConfig},
+    },
     transport::{
         buffer::{BufferConfig, BufferManager},
         envelope::TransportEnvelope,
@@ -350,14 +350,6 @@ impl RuntimeHandle {
             .map_err(|_| Error::ChannelClosed)
     }
 
-    /// Send an inquiry item to the runtime.
-    pub(crate) async fn inquire(&self, item: TxItem) -> Result<()> {
-        self.submit
-            .send_async(item)
-            .await
-            .map_err(|_| Error::ChannelClosed)
-    }
-
     /// Cancel a command by its ID.
     ///
     /// This method performs targeted, camera-correct cancellation:
@@ -562,22 +554,24 @@ impl RuntimeHandle {
         // Encode and validate the inquiry using the checked path
         let bytes = inquiry.try_into_bytes(camera_id)?;
 
+        // Generate inquiry ID
+        let inquiry_id = self.next_command_id.fetch_add(1, Ordering::Relaxed);
+
         // Create response channel
         let (response_tx, response_rx) = flume::bounded(1);
 
-        // Get the expected response type from the inquiry
-        let response_type = inquiry.response_type();
-
         // Create the TxItem
         let item = TxItem::Inquiry {
-            id: 0, // Will be assigned by scheduler
+            id: inquiry_id,
             bytes,
-            response_type,
+            category: inquiry.timeout_kind(),
+            camera_id,
+            response_type: inquiry.response_type(),
             response_tx,
         };
 
-        // Submit the inquiry
-        self.inquire(item).await?;
+        // Submit the inquiry (using command channel, not inquire)
+        self.command(item).await?;
 
         // Wait for response
         response_rx

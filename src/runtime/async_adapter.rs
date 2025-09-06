@@ -10,7 +10,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use crate::{
     camera_id::CameraId,
-    command::response::{lift_inquiry, ViscaResponse},
+    command::response::{lift_inquiry, ViscaResponse, ViscaResponseType},
     error::{Error, Result},
     executor::Executor,
     protocol::response::{decode_basic, BasicKind},
@@ -18,7 +18,7 @@ use crate::{
         PendingCommand, Priority, RetryCommand, SchedulerAction, SchedulerCore, SchedulerEvent,
     },
     timeout::{CommandCategory, TimeoutConfig},
-    transport::{buffer::BufferManager, envelope::TransportEnvelope, AsyncTransport, RetryConfig},
+    transport::RetryConfig,
     visca_socket::ViscaSocket,
 };
 
@@ -46,8 +46,12 @@ pub(crate) enum TxItem {
         id: u32,
         /// Raw VISCA bytes to send.
         bytes: bytes::Bytes,
-        /// Expected response type.
-        response_type: Option<crate::command::response::ViscaResponseType>,
+        /// Category for timeout calculation.
+        category: CommandCategory,
+        /// Camera ID used to encode the inquiry.
+        camera_id: CameraId,
+        /// Expected response type for parsing DataReply.
+        response_type: Option<ViscaResponseType>,
         /// Channel to send response back.
         response_tx: Sender<Result<ViscaResponse>>,
     },
@@ -96,6 +100,12 @@ pub(crate) struct AsyncAdapter<E: Executor> {
     executor: Arc<E>,
     /// Response channels for commands.
     response_channels: HashMap<u32, Sender<Result<ViscaResponse>>>,
+    /// Response types for inquiries (for parsing DataReply).
+    inquiry_response_types: HashMap<u32, ViscaResponseType>,
+    /// Queue of in-flight inquiries (for raw VISCA DataReply without socket info).
+    /// We process DataReplies in FIFO order since raw VISCA doesn't identify which
+    /// inquiry a response belongs to.
+    active_inquiry_ids: std::collections::VecDeque<u32>,
     /// Metrics tracking.
     metrics: Metrics,
 }
@@ -119,6 +129,8 @@ impl<E: Executor> AsyncAdapter<E> {
             core: SchedulerCore::with_retry_config(timeout_config, retry_config),
             executor,
             response_channels: HashMap::new(),
+            inquiry_response_types: HashMap::new(),
+            active_inquiry_ids: std::collections::VecDeque::new(),
             metrics: Metrics::default(),
         }
     }
@@ -146,6 +158,7 @@ impl<E: Executor> AsyncAdapter<E> {
                     category,
                     camera_id,
                     submitted_at: now,
+                    kind: crate::command::CommandKind::Command,
                 };
                 self.core.queue_command(pending_cmd);
 
@@ -154,11 +167,36 @@ impl<E: Executor> AsyncAdapter<E> {
                 id
             }
             TxItem::Inquiry {
-                id, response_tx, ..
+                id,
+                bytes,
+                category,
+                camera_id,
+                response_type,
+                response_tx,
             } => {
-                // Inquiries bypass the scheduler and are handled directly
-                // Store channel for direct response
+                // Store response channel
                 self.response_channels.insert(id, response_tx);
+
+                // Store response type if present
+                if let Some(rt) = response_type {
+                    self.inquiry_response_types.insert(id, rt);
+                }
+
+                // Queue inquiry in core (same as commands but with Quick priority)
+                let now = self.executor.now();
+                let pending_cmd = PendingCommand {
+                    id,
+                    bytes,
+                    priority: Priority::Normal, // Inquiries use normal priority
+                    category,
+                    camera_id,
+                    submitted_at: now,
+                    kind: crate::command::CommandKind::Inquiry,
+                };
+                self.core.queue_command(pending_cmd);
+
+                self.metrics.commands_sent += 1;
+
                 id
             }
             TxItem::Cancel { .. } | TxItem::CancelById { .. } => {
@@ -186,9 +224,77 @@ impl<E: Executor> AsyncAdapter<E> {
         );
     }
 
+    /// Reserve a socket for an inquiry (which doesn't receive ACK).
+    pub fn reserve_socket_for_inquiry(&mut self, cmd: &PendingCommand) -> Option<ViscaSocket> {
+        let now = self.executor.now();
+
+        // Note: active_inquiry_ids.push_back is now done after successful send
+        // via mark_inquiry_inflight() to support rollback on send failure
+
+        self.core.reserve_socket_for_inquiry(
+            cmd.id,
+            cmd.bytes.clone(),
+            cmd.priority,
+            cmd.category,
+            cmd.camera_id,
+            now,
+        )
+    }
+
     /// Register a Sony sequence number for a command.
+    ///
+    /// Should only be called after a successful send.
     pub fn register_sequence(&mut self, cmd_id: u32, sequence: u32) {
+        debug_assert!(
+            self.core.is_command_pending(cmd_id),
+            "register_sequence called for non-pending command {}",
+            cmd_id
+        );
         self.core.register_sequence(cmd_id, sequence);
+    }
+
+    /// Unregister a pending ACK (used for rollback on send failure).
+    pub fn unregister_pending_ack(&mut self, id: u32) -> bool {
+        self.core.unregister_pending_ack(id)
+    }
+
+    /// Free a reserved socket (used for rollback on inquiry send failure).
+    pub fn free_socket(&mut self, socket: ViscaSocket) {
+        self.core.free_socket(socket);
+    }
+
+    /// Handle a send failure - fails immediately with transport error.
+    pub fn fail_after_send_error(&mut self, id: u32) {
+        if let Some(SchedulerAction::CommandFailed {
+            id: failed_id,
+            error,
+        }) = self.core.fail_after_send_error(id)
+        {
+            // Send failure to waiting future
+            if let Some(tx) = self.response_channels.remove(&failed_id) {
+                let _ = tx.send(Err(error));
+            }
+            // Also remove from inquiry tracking if applicable
+            self.inquiry_response_types.remove(&failed_id);
+        }
+    }
+
+    /// Mark an inquiry as in-flight after successful send.
+    ///
+    /// This adds the inquiry ID to the active queue for DataReply handling.
+    /// Should only be called after a successful send.
+    pub fn mark_inquiry_inflight(&mut self, id: u32) {
+        debug_assert!(
+            !self.active_inquiry_ids.contains(&id),
+            "mark_inquiry_inflight called for already in-flight inquiry {}",
+            id
+        );
+        debug_assert!(
+            self.response_channels.contains_key(&id),
+            "mark_inquiry_inflight called for inquiry {} without response channel",
+            id
+        );
+        self.active_inquiry_ids.push_back(id);
     }
 
     /// Process a received VISCA response.
@@ -208,9 +314,12 @@ impl<E: Executor> AsyncAdapter<E> {
             },
             BasicKind::Completion => {
                 // For Sony, try to use sequence to find command
-                let _cmd_id = sequence.and_then(|seq| self.core.get_command_by_sequence(seq));
+                let cmd_id = sequence.and_then(|seq| self.core.get_command_by_sequence(seq));
 
-                let response = lift_inquiry(&basic, None)?;
+                // Get the expected response type for this inquiry
+                let response_type = cmd_id.and_then(|id| self.inquiry_response_types.get(&id));
+
+                let response = lift_inquiry(&basic, response_type)?;
                 SchedulerEvent::Completion {
                     socket: basic.socket,
                     response,
@@ -229,8 +338,27 @@ impl<E: Executor> AsyncAdapter<E> {
                 }
             }
             BasicKind::DataReply => {
-                // Data replies (inquiries) bypass the scheduler
-                return Ok(());
+                // Data replies are completions for inquiries
+                // Try to find command ID from sequence (Sony) or active inquiry queue (raw VISCA)
+                let cmd_id = if let Some(seq) = sequence {
+                    // Sony protocol: use sequence to find command
+                    self.core.get_command_by_sequence(seq)
+                } else {
+                    // Raw VISCA: pop from front of queue (FIFO order)
+                    self.active_inquiry_ids.pop_front()
+                };
+
+                // Get the expected response type for this inquiry
+                let response_type = cmd_id.and_then(|id| self.inquiry_response_types.get(&id));
+
+                let response = lift_inquiry(&basic, response_type)?;
+
+                // For raw VISCA, determine socket from active inquiry
+                let socket = basic
+                    .socket
+                    .or_else(|| cmd_id.and_then(|id| self.core.find_socket_for_command(id)));
+
+                SchedulerEvent::Completion { socket, response }
             }
             BasicKind::NetworkChange | BasicKind::Unknown => {
                 // Ignore these for now
@@ -257,12 +385,22 @@ impl<E: Executor> AsyncAdapter<E> {
             SchedulerAction::CommandComplete { id, response } => {
                 self.metrics.commands_completed += 1;
 
+                // Clean up inquiry tracking
+                self.inquiry_response_types.remove(&id);
+                // Remove from active inquiry queue
+                self.active_inquiry_ids.retain(|&x| x != id);
+
                 if let Some(tx) = self.response_channels.remove(&id) {
                     let _ = tx.send_async(Ok(response)).await;
                 }
             }
             SchedulerAction::CommandFailed { id, error } => {
                 self.metrics.commands_failed += 1;
+
+                // Clean up inquiry tracking
+                self.inquiry_response_types.remove(&id);
+                // Remove from active inquiry queue
+                self.active_inquiry_ids.retain(|&x| x != id);
 
                 if let Some(tx) = self.response_channels.remove(&id) {
                     let _ = tx.send_async(Err(error)).await;
@@ -341,49 +479,5 @@ impl<E: Executor> AsyncAdapter<E> {
     /// Find the socket for a given command ID.
     pub fn socket_for_command(&self, id: u32) -> Option<ViscaSocket> {
         self.core.find_socket_for_command(id)
-    }
-}
-
-/// Process an inquiry directly without the scheduler.
-pub async fn process_inquiry<T: AsyncTransport>(
-    transport: &mut T,
-    inquiry: TxItem,
-    envelope: &TransportEnvelope,
-    buffer_manager: &BufferManager,
-) -> Result<()> {
-    if let TxItem::Inquiry {
-        bytes,
-        response_type,
-        response_tx,
-        ..
-    } = inquiry
-    {
-        // Frame and send
-        let kind = crate::command::CommandKind::Inquiry;
-        let (framed, _meta) = envelope.frame_bytes_with_kind_owned(bytes, kind, buffer_manager);
-
-        transport.send(&framed).await?;
-
-        // Receive response
-        let response_bytes = transport.recv().await?;
-        let (payload, _meta) = envelope.extract_with_meta_owned(response_bytes)?;
-
-        // Parse response
-        let basic = decode_basic(&payload).ok_or_else(|| Error::InvalidResponse {
-            expected: std::borrow::Cow::Borrowed("Valid VISCA response"),
-            actual: payload.to_vec(),
-        })?;
-
-        let response = lift_inquiry(&basic, response_type.as_ref())?;
-
-        // Send response through channel
-        let _ = response_tx.send_async(Ok(response)).await;
-
-        Ok(())
-    } else {
-        Err(Error::InvalidResponse {
-            expected: std::borrow::Cow::Borrowed("Inquiry"),
-            actual: vec![],
-        })
     }
 }

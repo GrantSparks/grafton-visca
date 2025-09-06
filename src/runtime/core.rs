@@ -4,16 +4,16 @@
 //! socket allocation, ACK/completion routing, and retry logic without any dependency
 //! on async runtimes or channels.
 
+use tracing::{debug, trace, warn};
+
 use std::{
     cmp::Ordering as CmpOrdering,
     collections::{BinaryHeap, HashMap},
     time::{Duration, Instant},
 };
 
-use tracing::{debug, trace, warn};
-
 use crate::{
-    command::response::ViscaResponse,
+    command::{response::ViscaResponse, CommandKind},
     timeout::{CommandCategory, TimeoutConfig},
     visca_socket::ViscaSocket,
     Error,
@@ -124,6 +124,8 @@ pub struct PendingCommand {
     pub camera_id: crate::camera_id::CameraId,
     /// When the command was submitted.
     pub submitted_at: Instant,
+    /// Command kind (Command or Inquiry).
+    pub kind: CommandKind,
 }
 
 impl PartialEq for PendingCommand {
@@ -392,6 +394,13 @@ impl SchedulerCore {
         }
     }
 
+    /// Unregister a pending ACK without removing command metadata.
+    /// This is used for rollback when a send operation fails.
+    /// Returns true if the command was found and removed from pending_ack.
+    pub fn unregister_pending_ack(&mut self, id: u32) -> bool {
+        self.pending_ack.remove(&id).is_some()
+    }
+
     /// Process an event and return any actions to take.
     pub fn process_event(&mut self, event: SchedulerEvent, now: Instant) -> Vec<SchedulerAction> {
         let mut actions = Vec::new();
@@ -404,7 +413,7 @@ impl SchedulerCore {
             }
             SchedulerEvent::Completion { socket, response } => {
                 if let Some(socket) = socket {
-                    if let Some(cmd_id) = self.socket_command(socket) {
+                    if let Some(cmd_id) = self.find_command_on_socket(socket) {
                         self.free_socket(socket);
                         self.finish_sequence(cmd_id);
                         self.command_metadata.remove(&cmd_id);
@@ -434,7 +443,7 @@ impl SchedulerCore {
                 let error = ViscaError::from_byte(code);
 
                 if let Some(socket) = socket {
-                    if let Some(cmd_id) = self.socket_command(socket) {
+                    if let Some(cmd_id) = self.find_command_on_socket(socket) {
                         let should_retry = self.should_retry_command(cmd_id, &error);
 
                         if should_retry {
@@ -620,7 +629,61 @@ impl SchedulerCore {
         }
     }
 
-    fn free_socket(&mut self, socket: ViscaSocket) {
+    /// Reserve a socket for an inquiry without waiting for ACK.
+    ///
+    /// Inquiries don't receive ACK responses, so we need to allocate a socket
+    /// immediately when sending them. This method follows the same fairness
+    /// and availability rules as ACK-based allocation.
+    pub fn reserve_socket_for_inquiry(
+        &mut self,
+        id: u32,
+        bytes: bytes::Bytes,
+        priority: Priority,
+        category: CommandCategory,
+        camera_id: crate::camera_id::CameraId,
+        now: Instant,
+    ) -> Option<ViscaSocket> {
+        // Check if we can send (respects 2-in-flight limit)
+        if !self.can_send_command() {
+            debug!("Cannot reserve socket for inquiry {}: no free sockets", id);
+            return None;
+        }
+
+        // Find a free socket
+        let socket = if self.sockets[0].free {
+            ViscaSocket::S1
+        } else if self.sockets[1].free {
+            ViscaSocket::S2
+        } else {
+            debug!("No free socket available for inquiry {}", id);
+            return None;
+        };
+
+        let idx = socket.as_index();
+        let state = &mut self.sockets[idx];
+
+        // Allocate the socket
+        state.free = false;
+        state.command_id = Some(id);
+        state.started_at = Some(now);
+        state.category = Some(category);
+
+        // Store metadata for potential retry
+        self.command_metadata
+            .insert(id, (bytes, priority, category, camera_id));
+
+        debug!("Reserved {:?} for inquiry {}", socket, id);
+        Some(socket)
+    }
+
+    /// Check if a command is pending (either awaiting ACK or has a socket).
+    pub fn is_command_pending(&self, cmd_id: u32) -> bool {
+        self.pending_ack.contains_key(&cmd_id)
+            || self.sockets.iter().any(|s| s.command_id == Some(cmd_id))
+    }
+
+    /// Free a previously reserved socket (used for rollback on inquiry send failure).
+    pub fn free_socket(&mut self, socket: ViscaSocket) {
         let idx = socket.as_index();
         let state = &mut self.sockets[idx];
 
@@ -634,7 +697,8 @@ impl SchedulerCore {
         state.category = None;
     }
 
-    fn socket_command(&self, socket: ViscaSocket) -> Option<u32> {
+    /// Find the command ID currently assigned to a socket.
+    pub fn find_command_on_socket(&self, socket: ViscaSocket) -> Option<u32> {
         self.sockets[socket.as_index()].command_id
     }
 
@@ -649,6 +713,16 @@ impl SchedulerCore {
             }
         }
         None
+    }
+
+    /// Get socket state for testing.
+    #[cfg(test)]
+    pub fn socket_state(
+        &self,
+        socket: ViscaSocket,
+    ) -> (bool, Option<u32>, Option<CommandCategory>) {
+        let state = &self.sockets[socket.as_index()];
+        (state.free, state.command_id, state.category)
     }
 
     fn find_most_recent_command(&self) -> Option<u32> {
@@ -691,7 +765,28 @@ impl SchedulerCore {
         }
     }
 
-    fn queue_retry_for_command(&mut self, cmd_id: u32, now: Instant) -> Option<SchedulerAction> {
+    /// Handle a send failure by immediately failing the command.
+    ///
+    /// This method is called when a command fails to send over the transport.
+    /// The command is immediately failed without retry since we cannot know if
+    /// it reached the camera.
+    pub fn fail_after_send_error(&mut self, cmd_id: u32) -> Option<SchedulerAction> {
+        // For send failures on first attempt, fail immediately with transport error
+        self.finish_sequence(cmd_id);
+        self.command_metadata.remove(&cmd_id);
+        self.retry_attempts.remove(&cmd_id);
+        Some(SchedulerAction::CommandFailed {
+            id: cmd_id,
+            error: Error::TransportError("Send failed".into()),
+        })
+    }
+
+    /// Queue a command for retry based on the retry configuration.
+    pub fn queue_retry_for_command(
+        &mut self,
+        cmd_id: u32,
+        now: Instant,
+    ) -> Option<SchedulerAction> {
         if let Some((bytes, priority, category, camera_id)) =
             self.command_metadata.get(&cmd_id).cloned()
         {
@@ -704,6 +799,24 @@ impl SchedulerCore {
             let attempt = self.retry_attempts.entry(cmd_id).or_insert(0);
             *attempt += 1;
 
+            // Check if we've exceeded max retries
+            let max_retries = self
+                .max_retries_per_category
+                .get(&category)
+                .copied()
+                .unwrap_or(3);
+
+            if *attempt > max_retries {
+                // Command has exceeded retries
+                self.finish_sequence(cmd_id);
+                self.command_metadata.remove(&cmd_id);
+                self.retry_attempts.remove(&cmd_id);
+                return Some(SchedulerAction::CommandFailed {
+                    id: cmd_id,
+                    error: Error::Timeout,
+                });
+            }
+
             // Calculate backoff delay using RetryConfig
             let delay = self.retry_config.calculate_delay(*attempt, None);
 
@@ -714,17 +827,13 @@ impl SchedulerCore {
                 category,
                 camera_id,
                 attempt: *attempt,
-                max_retries: self
-                    .max_retries_per_category
-                    .get(&category)
-                    .copied()
-                    .unwrap_or(3),
+                max_retries,
                 retry_at: now + delay,
             };
 
             debug!(
-                "Queueing retry for command {} (attempt {})",
-                cmd_id, attempt
+                "Queueing retry for command {} (attempt {} of {})",
+                cmd_id, attempt, max_retries
             );
             self.retry_queue.push(retry_cmd);
 
@@ -735,6 +844,215 @@ impl SchedulerCore {
             })
         } else {
             None
+        }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::panic, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::command::bytes::VISCA_TERMINATOR;
+
+    #[test]
+    fn test_reserve_socket_for_inquiry_when_free() {
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = crate::transport::RetryConfig::default();
+        let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+
+        let now = Instant::now();
+        let bytes = bytes::Bytes::from(vec![0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR]);
+        let priority = Priority::Normal;
+        let category = CommandCategory::Quick;
+        let camera_id = crate::camera_id::CameraId::CAMERA_1;
+
+        // Should be able to reserve when sockets are free
+        let socket =
+            core.reserve_socket_for_inquiry(1, bytes.clone(), priority, category, camera_id, now);
+
+        assert!(socket.is_some());
+        let socket = socket.unwrap();
+
+        // Verify socket is now occupied
+        let state = core.socket_state(socket);
+        assert!(!state.0); // free = false
+        assert_eq!(state.1, Some(1)); // command_id
+        assert_eq!(state.2, Some(category)); // category
+    }
+
+    #[test]
+    fn test_reserve_socket_for_inquiry_when_one_busy() {
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = crate::transport::RetryConfig::default();
+        let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+
+        let now = Instant::now();
+        let bytes = bytes::Bytes::from(vec![0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR]);
+        let priority = Priority::Normal;
+        let category = CommandCategory::Quick;
+        let camera_id = crate::camera_id::CameraId::CAMERA_1;
+
+        // Reserve first socket
+        let socket1 =
+            core.reserve_socket_for_inquiry(1, bytes.clone(), priority, category, camera_id, now);
+        assert!(socket1.is_some());
+
+        // Should be able to reserve second socket
+        let socket2 =
+            core.reserve_socket_for_inquiry(2, bytes.clone(), priority, category, camera_id, now);
+        assert!(socket2.is_some());
+
+        // Sockets should be different
+        assert_ne!(socket1, socket2);
+    }
+
+    #[test]
+    fn test_reserve_socket_for_inquiry_when_both_busy() {
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = crate::transport::RetryConfig::default();
+        let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+
+        let now = Instant::now();
+        let bytes = bytes::Bytes::from(vec![0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR]);
+        let priority = Priority::Normal;
+        let category = CommandCategory::Quick;
+        let camera_id = crate::camera_id::CameraId::CAMERA_1;
+
+        // Reserve both sockets
+        let socket1 =
+            core.reserve_socket_for_inquiry(1, bytes.clone(), priority, category, camera_id, now);
+        assert!(socket1.is_some());
+
+        let socket2 =
+            core.reserve_socket_for_inquiry(2, bytes.clone(), priority, category, camera_id, now);
+        assert!(socket2.is_some());
+
+        // Third inquiry should fail to reserve
+        let socket3 =
+            core.reserve_socket_for_inquiry(3, bytes.clone(), priority, category, camera_id, now);
+        assert!(socket3.is_none());
+    }
+
+    #[test]
+    fn test_inquiry_completion_frees_socket() {
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = crate::transport::RetryConfig::default();
+        let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+
+        let now = Instant::now();
+        let bytes = bytes::Bytes::from(vec![0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR]);
+        let priority = Priority::Normal;
+        let category = CommandCategory::Quick;
+        let camera_id = crate::camera_id::CameraId::CAMERA_1;
+
+        // Reserve socket for inquiry
+        let socket =
+            core.reserve_socket_for_inquiry(1, bytes.clone(), priority, category, camera_id, now);
+        assert!(socket.is_some());
+        let socket = socket.unwrap();
+
+        // Process completion event
+        let response = ViscaResponse::Inquiry(crate::command::InquiryResponse::Power { on: true });
+        let event = SchedulerEvent::Completion {
+            socket: Some(socket),
+            response,
+        };
+
+        let actions = core.process_event(event, now);
+
+        // Should get CommandComplete action
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            SchedulerAction::CommandComplete { id, response: resp } => {
+                assert_eq!(*id, 1);
+                // Verify it's a power inquiry response
+                match resp {
+                    ViscaResponse::Inquiry(crate::command::InquiryResponse::Power { on }) => {
+                        assert!(*on);
+                    }
+                    _ => panic!("Expected Power inquiry response"),
+                }
+            }
+            _ => panic!("Expected CommandComplete action"),
+        }
+
+        // Socket should be free again
+        let state = core.socket_state(socket);
+        assert!(state.0); // free = true
+        assert_eq!(state.1, None); // command_id
+    }
+
+    #[test]
+    fn test_inquiry_timeout_handling() {
+        let timeout_config = TimeoutConfig {
+            quick_timeout: Duration::from_millis(100),
+            ..Default::default()
+        };
+        let retry_config = crate::transport::RetryConfig::default();
+        let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+
+        let now = Instant::now();
+        let bytes = bytes::Bytes::from(vec![0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR]);
+        let priority = Priority::Normal;
+        let category = CommandCategory::Quick;
+        let camera_id = crate::camera_id::CameraId::CAMERA_1;
+
+        // Reserve socket for inquiry
+        let socket =
+            core.reserve_socket_for_inquiry(1, bytes.clone(), priority, category, camera_id, now);
+        assert!(socket.is_some());
+
+        // Check timeout immediately - should not timeout
+        let actions = core.check_timeouts(now);
+        assert!(actions.is_empty());
+
+        // Check timeout after the timeout period
+        let later = now + Duration::from_millis(200);
+        let actions = core.check_timeouts(later);
+
+        // Quick commands get retries, so first timeout triggers a retry
+        assert!(!actions.is_empty(), "Expected timeout action but got none");
+        assert_eq!(
+            actions.len(),
+            1,
+            "Expected exactly one action, got: {:?}",
+            actions
+        );
+        match &actions[0] {
+            SchedulerAction::RetryCommand { id, .. } => {
+                assert_eq!(*id, 1);
+            }
+            other => panic!("Expected RetryCommand action, got: {:?}", other),
+        }
+
+        // Socket should be free after retry scheduling
+        let state = core.socket_state(socket.unwrap());
+        assert!(state.0); // free = true
+
+        // Exhaust retries by timing out again (simulate max retries reached)
+        // For Quick category, we get extra retries, so we need to exhaust them
+        // Set retry attempts to max to force failure on next timeout
+        core.retry_attempts.insert(1, 10); // Force max retries exceeded
+
+        // Allocate socket again for the retry
+        let socket2 =
+            core.reserve_socket_for_inquiry(1, bytes.clone(), priority, category, camera_id, later);
+        assert!(socket2.is_some());
+
+        // Now timeout should fail
+        let later2 = later + Duration::from_millis(200);
+        let actions2 = core.check_timeouts(later2);
+
+        assert_eq!(actions2.len(), 1, "Expected exactly one action");
+        match &actions2[0] {
+            SchedulerAction::CommandFailed { id, error } => {
+                assert_eq!(*id, 1);
+                assert!(matches!(error, Error::Timeout));
+            }
+            other => panic!(
+                "Expected CommandFailed action after max retries, got: {:?}",
+                other
+            ),
         }
     }
 }

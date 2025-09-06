@@ -73,14 +73,10 @@ async fn test_timeout_config_passed_to_runtime() {
     // Should fail with timeout
     assert!(result.is_err(), "Command should have failed");
     match result.unwrap_err() {
-        Error::TransportError(msg) => {
-            assert!(
-                msg.contains("timeout") || msg.contains("timed out"),
-                "Should be timeout error, got: {}",
-                msg
-            );
+        Error::Timeout => {
+            // Expected - commands timeout according to the configured timeout
         }
-        other => panic!("Expected TransportError with timeout, got: {:?}", other),
+        other => panic!("Expected Timeout, got: {:?}", other),
     }
 
     // Should have timed out quickly (within 200ms plus some margin for runtime)
@@ -196,19 +192,16 @@ async fn test_transport_error_propagation() {
         .await
         .unwrap();
 
-    // Send command - should get transport error
+    // Send command - should get timeout error (recv failures trigger retries until timeout)
     let result = camera.zoom_stop().await;
     assert!(result.is_err(), "Command should have failed");
 
     match result.unwrap_err() {
-        Error::TransportError(msg) => {
-            assert!(
-                msg.contains("Network failure"),
-                "Wrong error message: {}",
-                msg
-            );
+        Error::Timeout => {
+            // Expected - recv failures are treated as transient network events
+            // that trigger retries until the command eventually times out
         }
-        other => panic!("Expected TransportError, got: {:?}", other),
+        other => panic!("Expected Timeout, got: {:?}", other),
     }
 
     drop(camera);

@@ -5,12 +5,14 @@ use tracing::{debug, error, instrument, trace, warn};
 
 use std::{collections::HashSet, sync::Arc};
 
-use super::async_adapter::{process_inquiry, AsyncAdapter, MetricsSummary, TxItem};
 use crate::{
     command::CommandKind,
     error::{Error, Result},
     protocol::framer::ProtocolFramer,
-    runtime::core::PendingCommand,
+    runtime::{
+        async_adapter::{AsyncAdapter, MetricsSummary, TxItem},
+        core::PendingCommand,
+    },
     timeout::TimeoutConfig,
     transport::{buffer::BufferManager, envelope::TransportEnvelope, AsyncTransport, RetryConfig},
 };
@@ -22,6 +24,55 @@ pub struct RuntimeLoopConfig {
     pub buffer_manager: BufferManager,
     pub timeout_config: TimeoutConfig,
     pub retry_config: RetryConfig,
+}
+
+/// RAII guard for automatic rollback of send operations on failure.
+///
+/// This guard ensures that if a send operation fails, any reserved resources
+/// (sockets, pending ACK registrations) are automatically rolled back.
+struct SendGuard {
+    id: u32,
+    reserved_socket: Option<crate::visca_socket::ViscaSocket>,
+    ack_registered: bool,
+    committed: bool,
+}
+
+impl SendGuard {
+    fn new(id: u32) -> Self {
+        Self {
+            id,
+            reserved_socket: None,
+            ack_registered: false,
+            committed: false,
+        }
+    }
+
+    fn commit(&mut self) {
+        self.committed = true;
+    }
+
+    fn rollback<E: crate::executor::Executor>(self, adapter: &mut AsyncAdapter<E>) {
+        if !self.committed {
+            // Rollback on failure
+            if let Some(socket) = self.reserved_socket {
+                debug!(
+                    "SendGuard: Rolling back inquiry {} socket reservation",
+                    self.id
+                );
+                adapter.free_socket(socket);
+            }
+            if self.ack_registered {
+                debug!(
+                    "SendGuard: Rolling back command {} ACK registration",
+                    self.id
+                );
+                adapter.unregister_pending_ack(self.id);
+            }
+            // Handle send failure - fails immediately with transport error
+            debug!("SendGuard: Handling send failure for {}", self.id);
+            adapter.fail_after_send_error(self.id);
+        }
+    }
 }
 
 /// Main runtime loop with configurable tick interval.
@@ -58,28 +109,13 @@ pub async fn runtime_loop_with_config<
         // Check for submit items non-blockingly first
         if let Ok(item) = submit_rx.try_recv() {
             match item {
-                TxItem::Command { .. } => {
-                    // Submit command to adapter
+                TxItem::Command { .. } | TxItem::Inquiry { .. } => {
+                    // Submit command or inquiry to adapter
                     adapter.submit(item);
 
                     // Try to send immediately if possible
                     if let Some(cmd) = adapter.next_command_to_send() {
                         send_command(&mut transport, &mut adapter, cmd, &config).await?;
-                    }
-                }
-                TxItem::Inquiry { .. } => {
-                    // Process inquiry directly without scheduler
-                    if let Err(e) = process_inquiry(
-                        &mut transport,
-                        item,
-                        &config.envelope,
-                        &config.buffer_manager,
-                    )
-                    .await
-                    {
-                        error!("Error processing inquiry: {e}");
-                    } else {
-                        trace!("Inquiry processed successfully");
                     }
                 }
                 TxItem::Cancel { socket } => {
@@ -160,6 +196,12 @@ pub async fn runtime_loop_with_config<
             );
 
             // Create pending command from retry
+            // Determine kind from bytes
+            let kind = if retry.bytes.len() > 1 && retry.bytes[1] == 0x09 {
+                CommandKind::Inquiry
+            } else {
+                CommandKind::Command
+            };
             let pending_cmd = PendingCommand {
                 id: retry.id,
                 bytes: retry.bytes,
@@ -167,6 +209,7 @@ pub async fn runtime_loop_with_config<
                 category: retry.category,
                 camera_id: retry.camera_id,
                 submitted_at: executor.now(),
+                kind,
             };
 
             send_command(&mut transport, &mut adapter, pending_cmd, &config).await?;
@@ -296,12 +339,8 @@ async fn send_command<T: AsyncTransport, E: crate::executor::Executor>(
     cmd: PendingCommand,
     config: &RuntimeLoopConfig,
 ) -> Result<()> {
-    // Determine command kind
-    let kind = if cmd.bytes.len() > 1 && cmd.bytes[1] == 0x09 {
-        CommandKind::Inquiry
-    } else {
-        CommandKind::Command
-    };
+    // Use command kind from PendingCommand
+    let kind = cmd.kind;
 
     // Frame the command
     let (framed, meta) = config.envelope.frame_bytes_with_kind_owned(
@@ -310,17 +349,75 @@ async fn send_command<T: AsyncTransport, E: crate::executor::Executor>(
         &config.buffer_manager,
     );
 
-    // Register as pending ACK
-    adapter.register_pending_ack(&cmd);
+    // Track reservation state for rollback
+    let mut reserved_socket = None;
+    let mut registered_ack = false;
+
+    // For inquiries, reserve socket directly (no ACK)
+    // For commands, register as pending ACK
+    if kind == CommandKind::Inquiry {
+        // Reserve socket for inquiry
+        if let Some(socket) = adapter.reserve_socket_for_inquiry(&cmd) {
+            debug!("Reserved socket {:?} for inquiry {}", socket, cmd.id);
+            reserved_socket = Some(socket);
+        } else {
+            warn!("Failed to reserve socket for inquiry {}", cmd.id);
+            // The inquiry will remain queued and retry later
+            return Ok(());
+        }
+    } else {
+        // Register as pending ACK for commands
+        adapter.register_pending_ack(&cmd);
+        registered_ack = true;
+    }
+
+    // Create guard for tracking rollback state
+    let mut guard = SendGuard::new(cmd.id);
+    guard.reserved_socket = reserved_socket;
+    guard.ack_registered = registered_ack;
+
+    // Try to send the command
+    if let Err(e) = transport.send(&framed).await {
+        // Perform rollback
+        warn!(
+            "Send failed for {} {}: {:?}",
+            if kind == CommandKind::Inquiry {
+                "inquiry"
+            } else {
+                "command"
+            },
+            cmd.id,
+            e
+        );
+        guard.rollback(adapter);
+        return Ok(());
+    }
+
+    // Send succeeded - commit post-send side effects
 
     // Register Sony sequence if applicable
     if let Some(sequence) = meta.sequence {
         adapter.register_sequence(cmd.id, sequence);
     }
 
-    // Send the command
-    transport.send(&framed).await?;
-    trace!("Sent command {} with sequence {:?}", cmd.id, meta.sequence);
+    // Mark inquiry as in-flight (for DataReply handling)
+    if kind == CommandKind::Inquiry {
+        adapter.mark_inquiry_inflight(cmd.id);
+    }
+
+    // Mark as committed to prevent rollback
+    guard.commit();
+
+    trace!(
+        "Sent {} {} with sequence {:?}",
+        if kind == CommandKind::Inquiry {
+            "inquiry"
+        } else {
+            "command"
+        },
+        cmd.id,
+        meta.sequence
+    );
 
     Ok(())
 }
