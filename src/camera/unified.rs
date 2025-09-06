@@ -545,7 +545,7 @@ where
                         Ok(visca) => {
                             let parse_result = if let Some(response_type) = command.response_type()
                             {
-                                ViscaResponse::parse_with_type(&visca[..], &response_type)
+                                ViscaResponse::parse_with_profile::<P>(&visca[..], &response_type)
                             } else {
                                 ViscaResponse::parse(&visca[..])
                             };
@@ -650,7 +650,7 @@ where
                 Ok(response_bytes) => match envelope.extract_response(&response_bytes[..]) {
                     Ok(visca) => {
                         let parse_result = if let Some(response_type) = command.response_type() {
-                            ViscaResponse::parse_with_type(&visca[..], &response_type)
+                            ViscaResponse::parse_with_profile::<P>(&visca[..], &response_type)
                         } else {
                             ViscaResponse::parse(&visca[..])
                         };

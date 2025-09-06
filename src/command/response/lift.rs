@@ -3,12 +3,13 @@
 use std::borrow::Cow;
 
 use crate::{
+    capabilities::Profile,
     error::Error,
     protocol::response::{decode_basic, BasicKind, BasicResponse},
 };
 
 use super::{
-    decoders::dispatch,
+    decoders::{dispatch, dispatch_for},
     types::{ViscaResponse, ViscaResponseType},
 };
 
@@ -40,6 +41,48 @@ pub fn lift_inquiry(
             if let Some(response_type) = expected {
                 // Use the decoder dispatch to parse the inquiry payload
                 dispatch(*response_type, basic.payload)
+            } else {
+                Ok(ViscaResponse::Unknown {
+                    response_type: None,
+                    data: basic.payload.as_slice().to_vec(),
+                })
+            }
+        }
+        BasicKind::Unknown => Ok(ViscaResponse::Unknown {
+            response_type: None,
+            data: basic.payload.as_slice().to_vec(),
+        }),
+    }
+}
+
+/// Lift a basic protocol response to a high-level ViscaResponse with profile awareness.
+///
+/// This function converts from the protocol layer's basic response types
+/// to the command layer's semantic response types, parsing inquiry payloads
+/// with profile-specific coordinate system handling when needed.
+pub fn lift_inquiry_for<P: Profile>(
+    basic: &BasicResponse<'_>,
+    expected: Option<&ViscaResponseType>,
+) -> Result<ViscaResponse, Error> {
+    match basic.kind {
+        BasicKind::Ack => Ok(ViscaResponse::CmdAck {
+            socket: basic.socket,
+        }),
+        BasicKind::Completion => Ok(ViscaResponse::Completion {
+            socket: basic.socket,
+        }),
+        BasicKind::Error(code) => Ok(ViscaResponse::Error(Error::from_code(code))),
+        BasicKind::NetworkChange => {
+            // Network change could be treated as Unknown or a special completion
+            Ok(ViscaResponse::Unknown {
+                response_type: None,
+                data: vec![],
+            })
+        }
+        BasicKind::DataReply => {
+            if let Some(response_type) = expected {
+                // Use the profile-aware decoder dispatch to parse the inquiry payload
+                dispatch_for::<P>(*response_type, basic.payload)
             } else {
                 Ok(ViscaResponse::Unknown {
                     response_type: None,
@@ -92,5 +135,24 @@ impl ViscaResponse {
 
         // Convert to ViscaResponse with the expected type for inquiry parsing
         lift_inquiry(&basic, Some(response_type))
+    }
+
+    /// Parse an inquiry response with profile-specific handling.
+    ///
+    /// This method enables profile-aware parsing for responses that require
+    /// coordinate system conversion (e.g., PanTiltPosition on cameras with
+    /// unsigned-centered coordinates).
+    pub fn parse_with_profile<P: Profile>(
+        bytes: &[u8],
+        response_type: &ViscaResponseType,
+    ) -> Result<Self, Error> {
+        // Use the canonical decoder from protocol::response
+        let basic = decode_basic(bytes).ok_or_else(|| Error::InvalidResponse {
+            expected: Cow::Borrowed("Valid VISCA response"),
+            actual: bytes.to_vec(),
+        })?;
+
+        // Convert to ViscaResponse with profile-aware inquiry parsing
+        lift_inquiry_for::<P>(&basic, Some(response_type))
     }
 }

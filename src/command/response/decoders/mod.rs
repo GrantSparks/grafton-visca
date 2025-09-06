@@ -12,7 +12,7 @@ mod zoom;
 
 use super::payload::Payload;
 use super::types::{ViscaResponse, ViscaResponseType};
-use crate::error::Error;
+use crate::{capabilities::Profile, error::Error};
 
 /// Try each domain decoder until one claims the ViscaResponseType.
 ///
@@ -41,4 +41,21 @@ pub(crate) fn dispatch(
 
     // If no decoder handled this type, return an error
     Err(Error::Unsupported)
+}
+
+/// Profile-aware decoder dispatch for responses that need coordinate conversion.
+///
+/// This function uses the Profile's COORDINATE_SYSTEM to correctly convert
+/// pan/tilt values from camera coordinates to logical coordinates.
+pub(crate) fn dispatch_for<P: Profile>(
+    kind: ViscaResponseType,
+    payload: Payload<'_>,
+) -> Result<ViscaResponse, Error> {
+    // Special handling for PanTiltPosition which needs coordinate conversion
+    if kind == ViscaResponseType::PanTiltPosition {
+        return pan_tilt::decode_for::<P>(kind, payload).ok_or(Error::Unsupported)?;
+    }
+
+    // For all other response types, use the standard dispatch
+    dispatch(kind, payload)
 }

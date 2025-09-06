@@ -69,7 +69,7 @@ pub trait PanTiltControl {
 impl<M, P, Tr, Exec> PanTiltControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
-    P: crate::capabilities::Profile + Default,
+    P: crate::capabilities::Profile + crate::capabilities::PanTilt + Default,
     Self: CameraSend<M>,
 {
     type Mode = M;
@@ -106,11 +106,16 @@ where
             Ok(pos) => pos,
             Err(e) => return self.error(e),
         };
+
+        // Convert logical positions to camera coordinates using profile's coordinate system
+        let (pan_u16, tilt_u16) =
+            P::COORDINATE_SYSTEM.to_camera_coords(pan_pos.value(), tilt_pos.value());
+
         let pan_speed = PanSpeed::from(speed);
         let tilt_speed = TiltSpeed::from(speed);
-        let cmd = PanTilt::AbsolutePosition {
-            pan: pan_pos,
-            tilt: tilt_pos,
+        let cmd = PanTilt::AbsolutePositionRaw {
+            pan_u16,
+            tilt_u16,
             pan_speed,
             tilt_speed,
         };
@@ -134,11 +139,17 @@ where
             Ok(pos) => pos,
             Err(e) => return self.error(e),
         };
+
+        // For relative positioning, we still need to convert to camera coordinates
+        // The relative offset is also subject to the coordinate system
+        let (pan_u16, tilt_u16) =
+            P::COORDINATE_SYSTEM.to_camera_coords(pan_pos.value(), tilt_pos.value());
+
         let pan_speed = PanSpeed::from(speed);
         let tilt_speed = TiltSpeed::from(speed);
-        let cmd = PanTilt::RelativePosition {
-            pan: pan_pos,
-            tilt: tilt_pos,
+        let cmd = PanTilt::RelativePositionRaw {
+            pan_u16,
+            tilt_u16,
             pan_speed,
             tilt_speed,
         };
@@ -172,7 +183,15 @@ where
         tilt: TiltPosition,
     ) -> M::Ret<'_, Result<(), Error>> {
         use crate::command::pan_tilt::PanTilt;
-        let cmd = PanTilt::LimitSet { corner, pan, tilt };
+
+        // Convert logical positions to camera coordinates using profile's coordinate system
+        let (pan_u16, tilt_u16) = P::COORDINATE_SYSTEM.to_camera_coords(pan.value(), tilt.value());
+
+        let cmd = PanTilt::LimitSetRaw {
+            corner,
+            pan_u16,
+            tilt_u16,
+        };
         self.send_and_complete(cmd)
     }
 

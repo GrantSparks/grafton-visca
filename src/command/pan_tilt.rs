@@ -160,7 +160,10 @@ mod tests {
 /// - `Move` - Directional movement with speed control
 /// - `AbsolutePosition` - Move to exact coordinates
 /// - `RelativePosition` - Move relative to current position
+/// - `AbsolutePositionRaw` - Move to exact coordinates with pre-converted camera units
+/// - `RelativePositionRaw` - Move relative with pre-converted camera units
 /// - `LimitSet` - Set pan/tilt movement boundaries
+/// - `LimitSetRaw` - Set pan/tilt boundaries with pre-converted camera units
 /// - `LimitClear` - Clear all pan/tilt movement boundaries
 #[derive(Debug, Copy, Clone)]
 pub enum PanTilt {
@@ -203,6 +206,34 @@ pub enum PanTilt {
         /// Tilt movement speed (0x00-0x14).
         tilt_speed: TiltSpeed,
     },
+    /// Move camera to an absolute pan/tilt position using raw camera units.
+    ///
+    /// The pan and tilt values are pre-converted to camera coordinate system.
+    /// This is used internally when the profile-aware conversion has already been applied.
+    AbsolutePositionRaw {
+        /// Absolute pan position in camera units.
+        pan_u16: u16,
+        /// Absolute tilt position in camera units.
+        tilt_u16: u16,
+        /// Pan movement speed (0x00-0x18).
+        pan_speed: PanSpeed,
+        /// Tilt movement speed (0x00-0x14).
+        tilt_speed: TiltSpeed,
+    },
+    /// Move camera relative to its current position using raw camera units.
+    ///
+    /// The pan and tilt values are pre-converted to camera coordinate system.
+    /// This is used internally when the profile-aware conversion has already been applied.
+    RelativePositionRaw {
+        /// Relative pan movement in camera units.
+        pan_u16: u16,
+        /// Relative tilt movement in camera units.
+        tilt_u16: u16,
+        /// Pan movement speed (0x00-0x18).
+        pan_speed: PanSpeed,
+        /// Tilt movement speed (0x00-0x14).
+        tilt_speed: TiltSpeed,
+    },
     /// Set pan/tilt movement boundaries.
     ///
     /// Sets a specified position as a corner limit for pan/tilt movement.
@@ -214,6 +245,18 @@ pub enum PanTilt {
         pan: PanPosition,
         /// Tilt position for the limit.
         tilt: TiltPosition,
+    },
+    /// Set pan/tilt movement boundaries using raw camera units.
+    ///
+    /// Sets a specified position as a corner limit for pan/tilt movement.
+    /// The pan and tilt values are pre-converted to camera coordinate system.
+    LimitSetRaw {
+        /// Which corner of the movement range to set.
+        corner: PanTiltLimitCorner,
+        /// Pan position for the limit in camera units.
+        pan_u16: u16,
+        /// Tilt position for the limit in camera units.
+        tilt_u16: u16,
     },
     /// Clear pan/tilt movement boundaries.
     ///
@@ -312,6 +355,38 @@ impl ViscaEncode for PanTilt {
                 builder.push_visca_u16_mut(tilt.value() as u16);
                 builder.terminate().build_into(buffer)
             }
+            Self::AbsolutePositionRaw {
+                pan_u16,
+                tilt_u16,
+                pan_speed,
+                tilt_speed,
+            } => {
+                // Absolute position: 81 01 06 02 VV WW PP PP PP PP TT TT TT TT FF
+                let mut builder = ConstCommandBuilder::<15>::from_prefix(pan_tilt::ABSOLUTE_PREFIX);
+                builder.with_camera_id_mut(camera_id);
+
+                builder.push_mut(pan_speed.value());
+                builder.push_mut(tilt_speed.value());
+                builder.push_visca_u16_mut(*pan_u16);
+                builder.push_visca_u16_mut(*tilt_u16);
+                builder.terminate().build_into(buffer)
+            }
+            Self::RelativePositionRaw {
+                pan_u16,
+                tilt_u16,
+                pan_speed,
+                tilt_speed,
+            } => {
+                // Relative position: 81 01 06 03 VV WW PP PP PP PP TT TT TT TT FF
+                let mut builder = ConstCommandBuilder::<15>::from_prefix(pan_tilt::RELATIVE_PREFIX);
+                builder.with_camera_id_mut(camera_id);
+
+                builder.push_mut(pan_speed.value());
+                builder.push_mut(tilt_speed.value());
+                builder.push_visca_u16_mut(*pan_u16);
+                builder.push_visca_u16_mut(*tilt_u16);
+                builder.terminate().build_into(buffer)
+            }
             Self::LimitSet { corner, pan, tilt } => {
                 // PT Limit Set: 81 01 06 07 00 0W PPPP TTTT FF
                 // Where W = corner (0-3), PPPP = pan position, TTTT = tilt position
@@ -320,6 +395,22 @@ impl ViscaEncode for PanTilt {
                     .push(corner.to_byte())
                     .push_visca_u16(pan.value() as u16)
                     .push_visca_u16(tilt.value() as u16)
+                    .terminate();
+
+                builder.build_into(buffer)
+            }
+            Self::LimitSetRaw {
+                corner,
+                pan_u16,
+                tilt_u16,
+            } => {
+                // PT Limit Set: 81 01 06 07 00 0W PPPP TTTT FF
+                // Where W = corner (0-3), PPPP = pan position, TTTT = tilt position
+                let builder = ConstCommandBuilder::<15>::from_prefix(pan_tilt::LIMIT_SET_PREFIX)
+                    .with_camera_id(camera_id)
+                    .push(corner.to_byte())
+                    .push_visca_u16(*pan_u16)
+                    .push_visca_u16(*tilt_u16)
                     .terminate();
 
                 builder.build_into(buffer)
