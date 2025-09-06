@@ -7,13 +7,14 @@
 
 #![cfg(all(feature = "async", feature = "rt-tokio", feature = "test-utils"))]
 
+use std::time::Duration;
+
 use grafton_visca::{
     camera::{profiles::PtzOpticsG2, CameraBuilder},
     testing::testkit::{helpers, ScriptedTransport, Step},
     timeout::TimeoutConfig,
     Error, InquiryControl, TokioExecutor, ZoomControl,
 };
-use std::time::Duration;
 
 /// Test that async Camera properly delegates to runtime.
 ///
