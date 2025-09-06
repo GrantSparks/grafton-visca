@@ -27,6 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added `CommandKind` field to `PendingCommand` for cleaner command type tracking
 
 ### Changed
+- **License**: Changed from Apache-2.0 to MIT OR Apache-2.0 dual license
+  - Now dual-licensed under MIT and Apache 2.0, following Rust ecosystem conventions
+  - Updated all license references across documentation and source files
 - **Transport Refactoring**: Major refactoring of transport layer
   - Simplified `ip_raw` and `ip_sony` transport implementations
   - Improved buffer management with cleaner abstractions

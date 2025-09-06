@@ -2,7 +2,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/grafton-visca-macros.svg)](https://crates.io/crates/grafton-visca-macros)
 [![Documentation](https://docs.rs/grafton-visca-macros/badge.svg)](https://docs.rs/grafton-visca-macros)
-[![License](https://img.shields.io/crates/l/grafton-visca-macros.svg)](../LICENSE)
+[![License](https://img.shields.io/crates/l/grafton-visca-macros.svg)](../LICENSE-MIT)
 
 Procedural macros for the grafton-visca crate, providing derive macros to eliminate boilerplate in VISCA protocol implementations.
 
@@ -244,4 +244,4 @@ grafton-visca-macros = "0.7"
 
 ## License
 
-Licensed under Apache-2.0. See the LICENSE file in the repository root.
+Licensed under MIT OR Apache-2.0 dual license. See the LICENSE-MIT and LICENSE-APACHE files in the repository root.

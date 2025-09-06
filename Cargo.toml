@@ -4,7 +4,7 @@ members = [".", "grafton-visca-macros"]
 [workspace.package]
 version = "0.7.0"
 authors = ["Grant Sparks <grant@grafton.ai>"]
-license = "Apache-2.0"
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/GrantSparks/grafton-visca"
 homepage = "https://www.grafton.ai"
 edition = "2021"

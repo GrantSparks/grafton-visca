@@ -30,6 +30,8 @@
 
 use std::time::Duration;
 
+#[cfg(feature = "async")]
+use crate::transport::AsyncTransport;
 #[cfg(not(feature = "async"))]
 use crate::transport::SyncTransport;
 use crate::{
@@ -380,10 +382,18 @@ impl Transport {
 
     /// Connect to a camera with automatic protocol detection using a specific runtime.
     ///
-    /// This is a convenience method that automatically detects whether the camera
-    /// uses Sony encapsulated format (8-byte header) or raw VISCA format.
+    /// This method automatically detects:
+    /// - Whether the camera uses Sony encapsulated format (8-byte header) or raw VISCA format
+    /// - Which transport protocol (TCP or UDP) the camera responds to
+    /// - Which port the camera is listening on (if not specified)
     ///
-    /// Defaults to TCP transport on the provided address.
+    /// Detection is performed across multiple transport/protocol combinations in priority order:
+    /// 1. UDP 52381 with Sony encapsulated (primary Sony path)
+    /// 2. TCP 52381 with Sony encapsulated (some stacks support TCP)
+    /// 3. UDP 1259 with raw VISCA (PTZOptics default)
+    /// 4. TCP 5678 with raw VISCA (PTZOptics TCP)
+    ///
+    /// If a port is specified in the address, only that port will be tried with both protocols.
     ///
     /// # Example
     ///
@@ -397,7 +407,7 @@ impl Transport {
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let runtime = TokioRuntime::from_current()?;
     /// // Auto-detect protocol for camera (could be Sony or PTZOptics)
-    /// let (transport, detected_protocol) = Transport::auto_detect("192.168.0.110:5678", runtime).await?;
+    /// let (transport, detected_protocol) = Transport::auto_detect("192.168.0.110", runtime).await?;
     /// println!("Detected protocol: {:?}", detected_protocol);
     /// # Ok(())
     /// # }
@@ -413,10 +423,153 @@ impl Transport {
         ),
         Error,
     > {
-        Self::tcp()
-            .address(address)
-            .build_async_with_auto_detection(runtime)
-            .await
+        use super::protocol_detection::{ProtocolDetector, TransportProtocol};
+
+        let address_str = address.into();
+        let candidates = ProtocolDetector::generate_candidates(&address_str);
+
+        // Extract host from address (remove port if present)
+        let host = if let Some(colon_pos) = address_str.rfind(':') {
+            // Check if this is actually a port (not IPv6)
+            if address_str[colon_pos + 1..].parse::<u16>().is_ok() {
+                &address_str[..colon_pos]
+            } else {
+                &address_str
+            }
+        } else {
+            &address_str
+        };
+
+        // Try each candidate in order
+        for candidate in candidates {
+            let candidate_addr = format!("{}:{}", host, candidate.port);
+
+            tracing::debug!(
+                "Trying detection candidate: {:?} on {} with {:?}",
+                candidate.protocol,
+                candidate_addr,
+                candidate.protocol_style
+            );
+
+            // Create transport based on protocol type
+            let transport_result = match candidate.protocol {
+                TransportProtocol::Tcp => R::connect_tcp(
+                    &candidate_addr,
+                    TransportConfig {
+                        buffer_config: candidate.buffer_config,
+                        ..Default::default()
+                    },
+                )
+                .await
+                .map(|t| {
+                    crate::runtime_trait::TransportHandle::Tcp(
+                        t,
+                        TransportConfig {
+                            buffer_config: candidate.buffer_config,
+                            ..Default::default()
+                        },
+                    )
+                }),
+                TransportProtocol::Udp => R::connect_udp(
+                    &candidate_addr,
+                    TransportConfig {
+                        buffer_config: candidate.buffer_config,
+                        ..Default::default()
+                    },
+                )
+                .await
+                .map(|t| {
+                    crate::runtime_trait::TransportHandle::Udp(
+                        t,
+                        TransportConfig {
+                            buffer_config: candidate.buffer_config,
+                            ..Default::default()
+                        },
+                    )
+                }),
+            };
+
+            // If connection failed, try next candidate
+            let mut transport = match transport_result {
+                Ok(t) => t,
+                Err(e) => {
+                    tracing::debug!("Failed to connect to {}: {}", candidate_addr, e);
+                    continue;
+                }
+            };
+
+            // Test this specific protocol style only
+            let test_command = &[0x81, 0x09, 0x00, 0x02, 0xFF]; // Version Inquiry
+            let envelope = super::envelope::TransportEnvelope::new(candidate.protocol_style);
+            let buffer_manager = super::buffer::BufferManager::new(candidate.buffer_config);
+
+            // Try detection with this transport and protocol style
+            for attempt in 0..=2 {
+                // Frame command with fresh sequence number for Sony
+                let framed_command = envelope.frame_bytes_with_kind(
+                    test_command,
+                    crate::command::CommandKind::Inquiry,
+                    &buffer_manager,
+                );
+
+                // Send and check for response
+                if transport.send(&framed_command).await.is_ok() {
+                    // Try to receive response with short timeout
+                    let recv_future = transport.recv();
+                    let timeout_result = runtime
+                        .timeout(Duration::from_millis(100), recv_future)
+                        .await;
+
+                    if let Ok(Ok(response)) = timeout_result {
+                        // Check if this looks like a valid response for this protocol
+                        if let Ok(visca_payload) = envelope.extract_response(&response) {
+                            // Use the detector's validation method
+                            let is_valid =
+                                ProtocolDetector::new().is_valid_visca_response(&visca_payload);
+                            if is_valid {
+                                tracing::info!(
+                                    "✓ Detected {:?} protocol on {:?} port {}",
+                                    candidate.protocol_style,
+                                    candidate.protocol,
+                                    candidate.port
+                                );
+
+                                let result = match candidate.protocol_style {
+                                    crate::capabilities::ProtocolStyle::SonyEncapsulated {
+                                        ..
+                                    } => super::DetectionResult::SonyEncapsulated,
+                                    crate::capabilities::ProtocolStyle::RawVisca => {
+                                        super::DetectionResult::RawVisca
+                                    }
+                                };
+
+                                return Ok((transport, result));
+                            }
+                        }
+                    }
+                }
+
+                // Short delay before retry
+                if attempt < 2 {
+                    runtime.sleep(Duration::from_millis(50)).await;
+                }
+            }
+
+            tracing::debug!(
+                "No valid response for candidate {:?} on {}",
+                candidate.protocol_style,
+                candidate_addr
+            );
+        }
+
+        // All candidates failed
+        Err(Error::ConnectionFailed {
+            addr: address_str.into(),
+            source: std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "No VISCA protocol response detected from camera - verify camera is powered on and address is correct"
+            ),
+        })
     }
 }
 

@@ -196,4 +196,4 @@ Found an issue or have an improvement? Please:
 
 ## License
 
-These examples are part of the grafton-visca project and are licensed under Apache-2.0.
+These examples are part of the grafton-visca project and are licensed under MIT OR Apache-2.0 dual license.
