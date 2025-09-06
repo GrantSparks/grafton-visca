@@ -23,8 +23,10 @@ fn test_no_tokio_fallback_without_runtime() {
 
 #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
 mod async_tests {
-    use grafton_visca::testing::testkit::{helpers, ScriptedTransport, Step};
-    use grafton_visca::TokioExecutor;
+    use grafton_visca::{
+        testing::testkit::{helpers, ScriptedTransport, Step},
+        TokioExecutor,
+    };
 
     use super::*;
 

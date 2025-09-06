@@ -9,9 +9,9 @@ use grafton_visca::testing::testkit::{ScriptedTransport, Step};
 
 #[cfg(feature = "rt-tokio")]
 mod tokio_tests {
+    use grafton_visca::{capabilities::ProtocolStyle, TokioExecutor};
+
     use super::*;
-    use grafton_visca::capabilities::ProtocolStyle;
-    use grafton_visca::TokioExecutor;
 
     #[tokio::test]
     async fn test_connect_auto_detects_sony_encapsulated() {
@@ -71,8 +71,11 @@ mod tokio_tests {
     async fn test_connect_auto_detects_raw_visca() {
         // Test that the protocol detector correctly identifies raw VISCA format
         // when a camera responds only to raw VISCA commands (not Sony encapsulated)
-        use grafton_visca::transport::protocol_detection::{DetectionResult, ProtocolDetector};
-        use grafton_visca::transport::RetryConfig;
+        use grafton_visca::transport::{
+            protocol_detection::{DetectionResult, ProtocolDetector},
+            RetryConfig,
+        };
+
         use std::time::Duration;
 
         // The protocol detector will:
@@ -159,8 +162,7 @@ mod tokio_tests {
     async fn test_camera_with_explicit_protocol_style() {
         // Test that a camera can be created with an explicit protocol style
         // This validates that our fix to connect_auto would work correctly
-        use grafton_visca::camera::CameraBuilder;
-        use grafton_visca::profiles::GenericVisca;
+        use grafton_visca::{camera::CameraBuilder, profiles::GenericVisca};
 
         // Create a transport that responds with Sony encapsulated format
         let transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(vec![
@@ -192,8 +194,9 @@ mod tokio_tests {
 
 #[cfg(feature = "rt-async-std")]
 mod async_std_tests {
-    use super::*;
     use grafton_visca::AsyncStdExecutor;
+
+    use super::*;
 
     #[async_std::test]
     async fn test_connect_auto_detects_sony_encapsulated_async_std() {
@@ -237,8 +240,9 @@ mod async_std_tests {
 
 #[cfg(feature = "rt-smol")]
 mod smol_tests {
-    use super::*;
     use grafton_visca::SmolExecutor;
+
+    use super::*;
 
     fn test_connect_auto_detects_sony_encapsulated_smol() {
         smol::block_on(async {

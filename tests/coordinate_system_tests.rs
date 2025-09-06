@@ -1,5 +1,6 @@
 //! Tests for profile-aware coordinate system handling.
 
+// External crates
 use grafton_visca::{
     camera::profiles::{PtzOpticsG2, SonyBRC300},
     capabilities::CoordinateSystem,

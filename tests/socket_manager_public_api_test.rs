@@ -2,11 +2,14 @@
 
 #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
 mod tokio_tests {
+    // External crates
     use grafton_visca::{
         camera::{profiles::PtzOpticsG2, CameraBuilder},
         testing::testkit::{helpers, ScriptedTransport},
         PowerControl, TokioExecutor, ZoomControl,
     };
+
+    // Standard library
     use std::sync::Arc;
 
     /// Create a ScriptedTransport that auto-responds to any command with ACK+completion

@@ -8,15 +8,19 @@
 
 #[cfg(all(test, feature = "rt-tokio", feature = "test-utils"))]
 mod timeout_tests {
+    // External crates
     use grafton_visca::{
         testing::testkit::{ScriptedTransport, Step},
         transport::AsyncTransport,
         Executor, TokioExecutor,
     };
+
+    // Standard library
     use std::sync::Arc;
 
     #[tokio::test(start_paused = true)]
     async fn test_deterministic_executor_timeout() {
+        // Standard library
         use std::time::Duration;
 
         let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
@@ -86,6 +90,7 @@ mod timeout_tests {
 
     #[tokio::test(start_paused = true)]
     async fn test_scripted_transport_no_response() {
+        // External crates
         use grafton_visca::testing::testkit::helpers::errors;
 
         // Test ScriptedTransport with injected timeout error to avoid stalling

@@ -2,8 +2,7 @@
 
 #![cfg(all(feature = "async", feature = "test-utils"))]
 
-use std::time::Duration;
-
+// External crates
 use grafton_visca::{
     camera::CameraBuilder,
     command::{pan_tilt::PanTiltDirection, zoom::Zoom},
@@ -14,13 +13,16 @@ use grafton_visca::{
     ViscaSocket,
 };
 
+// Standard library
+use std::time::Duration;
+
 #[test]
 fn test_cancel_command_by_id() {
     // Create executor and transport
     let (executor, _clock) = DeterministicExecutor::new();
 
     // Create steps for the scripted transport
-    // IMPORTANT: Specific matches must come first before generic ones
+    // Specific matches must come first before generic ones
     let steps = vec![
         // Response to zoom command - send ACK but NOT completion (simulating in-progress command)
         Step::OnSend {
@@ -85,7 +87,7 @@ fn test_cancel_socket_directly() {
     let (executor, clock) = DeterministicExecutor::new();
 
     // Create steps for the scripted transport
-    // IMPORTANT: Specific matches must come first before generic ones
+    // Specific matches must come first before generic ones
     let steps = vec![
         // Response to cancel socket 1 (must be first to match properly)
         Step::OnSend {
@@ -99,23 +101,23 @@ fn test_cancel_socket_directly() {
         },
         // Add generic steps for camera initialization
         Step::OnSend {
-            matches: None,                           // Match any command
+            matches: None,
             responses: vec![vec![0x90, 0x41, 0xFF]], // ACK response
         },
         Step::OnSend {
-            matches: None,                           // Match any command
+            matches: None,
             responses: vec![vec![0x90, 0x41, 0xFF]], // ACK response
         },
         Step::OnSend {
-            matches: None,                           // Match any command
+            matches: None,
             responses: vec![vec![0x90, 0x41, 0xFF]], // ACK response
         },
         Step::OnSend {
-            matches: None,                           // Match any command
+            matches: None,
             responses: vec![vec![0x90, 0x41, 0xFF]], // ACK response
         },
         Step::OnSend {
-            matches: None,                           // Match any command
+            matches: None,
             responses: vec![vec![0x90, 0x41, 0xFF]], // ACK response
         },
     ];
@@ -228,7 +230,7 @@ fn test_cancel_during_movement() {
     // Add generic responses for camera initialization
     for _ in 0..10 {
         steps.push(Step::OnSend {
-            matches: None,                           // Match any command
+            matches: None,
             responses: vec![vec![0x90, 0x41, 0xFF]], // ACK response
         });
     }

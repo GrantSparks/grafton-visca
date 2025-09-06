@@ -15,6 +15,7 @@ use grafton_visca::{
     testing::camera_simulator::ViscaCameraSimulator,
     InquiryControl, PanTiltInquiryControl, PowerControl, PresetsControl,
 };
+
 use std::time::Duration;
 
 /// Test basic power inquiry through the full stack

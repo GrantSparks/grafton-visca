@@ -3,6 +3,7 @@
 #[cfg(not(feature = "async"))]
 #[test]
 fn test_blocking_wrapper_api() {
+    // External crates
     use grafton_visca::{capabilities::Profile, transport::SyncTransport, BlockingCamera};
 
     fn _example<P: Profile + Default, T>(
@@ -22,6 +23,7 @@ fn test_blocking_wrapper_api() {
 #[cfg(feature = "rt-tokio")]
 #[tokio::test]
 async fn test_async_wrapper_api() {
+    // External crates
     use grafton_visca::{
         camera::AsyncCamera, capabilities::Profile, transport::AsyncTransport, ZoomControl,
     };
@@ -45,16 +47,14 @@ async fn test_async_wrapper_api() {
 
 #[test]
 fn test_wrapper_creation() {
+    // External crates
     use grafton_visca::{camera::profiles::PtzOpticsG2, capabilities::Profile};
 
     #[cfg(feature = "async")]
     use grafton_visca::{camera::AsyncCamera, transport::AsyncTransport};
 
     #[cfg(not(feature = "async"))]
-    use grafton_visca::BlockingCamera;
-
-    #[cfg(not(feature = "async"))]
-    use grafton_visca::transport::SyncTransport;
+    use grafton_visca::{transport::SyncTransport, BlockingCamera};
 
     #[cfg(feature = "async")]
     fn _check_camera_type<

@@ -6,8 +6,7 @@
 
 #![cfg(feature = "async")]
 
-use std::marker::PhantomData;
-
+// External crates
 #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
 use grafton_visca::testing::testkit::ScriptedTransport;
 
@@ -16,6 +15,9 @@ use grafton_visca::TokioExecutor;
 
 #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
 use grafton_visca::transport::Transport;
+
+// Standard library
+use std::marker::PhantomData;
 
 /// Test that the Transport builder API remains stable.
 #[test]
@@ -42,7 +44,7 @@ fn test_transport_builder_api_stability() {
     }
 }
 
-/// Test that zero-cost generic transports work correctly (replacing dyn patterns).
+/// Test that zero-cost generic transports work correctly.
 #[test]
 fn test_zero_cost_generic_transports() {
     // Test that generic transport types are available and work correctly
@@ -91,7 +93,7 @@ fn test_control_traits_api_stability() {
 /// Test that runtime feature detection works correctly.
 #[test]
 fn test_runtime_feature_detection_stability() {
-    // Count active runtime features using runtime variables to avoid const evaluation
+    // Count active runtime features
     #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
     let mut active_runtimes = 0;
 

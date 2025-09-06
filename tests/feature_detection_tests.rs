@@ -3,6 +3,7 @@
 //! In the mode-based Camera API, feature support is determined at compile-time
 //! through trait bounds and mode markers rather than runtime checks.
 
+// External crates
 #[cfg(feature = "async")]
 use grafton_visca::{camera::AsyncCamera, transport::AsyncTransport, Executor};
 
@@ -14,8 +15,7 @@ use grafton_visca::{
     command::resolution::NdFilterPosition,
 };
 
-// These tests demonstrate that the code compiles correctly with proper trait bounds
-// and mode separation. The actual runtime tests are in other test files.
+// These tests demonstrate compile-time trait bounds and mode separation.
 
 #[test]
 fn test_nd_filter_compile_time_safety() {
