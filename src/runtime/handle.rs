@@ -162,9 +162,7 @@ impl RuntimeHandle {
             .await?;
 
         let protocol_style = match result {
-            DetectionResult::SonyEncapsulated => {
-                ProtocolStyle::SonyEncapsulated { use_sequence: true }
-            }
+            DetectionResult::SonyEncapsulated => ProtocolStyle::SonyEncapsulated,
             DetectionResult::RawVisca => ProtocolStyle::RawVisca,
             DetectionResult::NoResponse => {
                 return Err(Error::TransportError(

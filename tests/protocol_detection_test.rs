@@ -63,7 +63,7 @@ mod tokio_tests {
         // Verify the detection result maps to the correct protocol style
         assert_eq!(
             result.to_protocol_style(),
-            Some(ProtocolStyle::SonyEncapsulated { use_sequence: true })
+            Some(ProtocolStyle::SonyEncapsulated)
         );
     }
 
@@ -180,7 +180,7 @@ mod tokio_tests {
         // Build camera with explicit protocol style
         let camera = CameraBuilder::tokio()
             .expect("Failed to create tokio camera builder")
-            .protocol_style(ProtocolStyle::SonyEncapsulated { use_sequence: true })
+            .protocol_style(ProtocolStyle::SonyEncapsulated)
             .build_async::<GenericVisca, _>(transport)
             .await
             .expect("Failed to create camera");

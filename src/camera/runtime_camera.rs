@@ -89,9 +89,7 @@ where
 
         // Map the detection result to protocol style
         let protocol_style = match detection_result {
-            DetectionResult::SonyEncapsulated => {
-                ProtocolStyle::SonyEncapsulated { use_sequence: true }
-            }
+            DetectionResult::SonyEncapsulated => ProtocolStyle::SonyEncapsulated,
             DetectionResult::RawVisca => ProtocolStyle::RawVisca,
             DetectionResult::NoResponse => {
                 // This should not happen as auto_detect returns an error for NoResponse

@@ -42,9 +42,7 @@ impl DetectionResult {
     /// Convert detection result to protocol style
     pub fn to_protocol_style(self) -> Option<ProtocolStyle> {
         match self {
-            DetectionResult::SonyEncapsulated => {
-                Some(ProtocolStyle::SonyEncapsulated { use_sequence: true })
-            }
+            DetectionResult::SonyEncapsulated => Some(ProtocolStyle::SonyEncapsulated),
             DetectionResult::RawVisca => Some(ProtocolStyle::RawVisca),
             DetectionResult::NoResponse => None,
         }
@@ -118,13 +116,13 @@ impl ProtocolDetector {
                 candidates.push(DetectionCandidate {
                     protocol: TransportProtocol::Udp,
                     port,
-                    protocol_style: ProtocolStyle::SonyEncapsulated { use_sequence: true },
+                    protocol_style: ProtocolStyle::SonyEncapsulated,
                     buffer_config: BufferConfig::for_sony_ip(),
                 });
                 candidates.push(DetectionCandidate {
                     protocol: TransportProtocol::Tcp,
                     port,
-                    protocol_style: ProtocolStyle::SonyEncapsulated { use_sequence: true },
+                    protocol_style: ProtocolStyle::SonyEncapsulated,
                     buffer_config: BufferConfig::for_sony_ip(),
                 });
                 // Also try raw VISCA as fallback
@@ -161,7 +159,7 @@ impl ProtocolDetector {
                 candidates.push(DetectionCandidate {
                     protocol: primary_protocol,
                     port,
-                    protocol_style: ProtocolStyle::SonyEncapsulated { use_sequence: true },
+                    protocol_style: ProtocolStyle::SonyEncapsulated,
                     buffer_config: BufferConfig::for_sony_ip(),
                 });
             } else {
@@ -170,7 +168,7 @@ impl ProtocolDetector {
                     candidates.push(DetectionCandidate {
                         protocol,
                         port,
-                        protocol_style: ProtocolStyle::SonyEncapsulated { use_sequence: true },
+                        protocol_style: ProtocolStyle::SonyEncapsulated,
                         buffer_config: BufferConfig::for_sony_ip(),
                     });
                     candidates.push(DetectionCandidate {
@@ -191,14 +189,14 @@ impl ProtocolDetector {
             candidates.push(DetectionCandidate {
                 protocol: TransportProtocol::Udp,
                 port: 52381,
-                protocol_style: ProtocolStyle::SonyEncapsulated { use_sequence: true },
+                protocol_style: ProtocolStyle::SonyEncapsulated,
                 buffer_config: BufferConfig::for_sony_ip(),
             });
             // 2. Sony TCP on 52381 (some stacks support TCP)
             candidates.push(DetectionCandidate {
                 protocol: TransportProtocol::Tcp,
                 port: 52381,
-                protocol_style: ProtocolStyle::SonyEncapsulated { use_sequence: true },
+                protocol_style: ProtocolStyle::SonyEncapsulated,
                 buffer_config: BufferConfig::for_sony_ip(),
             });
             // 3. Raw UDP on 1259 (PTZOptics default)
@@ -250,7 +248,7 @@ impl ProtocolDetector {
                 transport,
                 executor,
                 test_command,
-                ProtocolStyle::SonyEncapsulated { use_sequence: true },
+                ProtocolStyle::SonyEncapsulated,
             )
             .await
         {
@@ -562,7 +560,7 @@ mod tests {
     fn test_detection_result_to_protocol_style() {
         assert_eq!(
             DetectionResult::SonyEncapsulated.to_protocol_style(),
-            Some(ProtocolStyle::SonyEncapsulated { use_sequence: true })
+            Some(ProtocolStyle::SonyEncapsulated)
         );
 
         assert_eq!(
@@ -672,7 +670,7 @@ mod tests {
         assert_eq!(candidates[0].port, 52381);
         assert!(matches!(
             candidates[0].protocol_style,
-            ProtocolStyle::SonyEncapsulated { use_sequence: true }
+            ProtocolStyle::SonyEncapsulated
         ));
 
         assert_eq!(candidates[1].protocol, TransportProtocol::Tcp);
@@ -698,7 +696,7 @@ mod tests {
         assert_eq!(candidates[0].port, 52381);
         assert!(matches!(
             candidates[0].protocol_style,
-            ProtocolStyle::SonyEncapsulated { use_sequence: true }
+            ProtocolStyle::SonyEncapsulated
         ));
     }
 

@@ -50,12 +50,10 @@ pub enum ProtocolStyle {
     /// Commands are sent as-is without additional framing.
     RawVisca,
 
-    /// Sony 8-byte encapsulated protocol with sequence numbers.
-    /// Commands are wrapped in an 8-byte header with optional sequence tracking.
-    SonyEncapsulated {
-        /// Whether to use sequence numbers for command tracking.
-        use_sequence: bool,
-    },
+    /// Sony 8-byte encapsulated protocol with mandatory sequence numbers.
+    /// Commands are wrapped in an 8-byte header with automatic sequence tracking.
+    /// The sequence numbers are always used for proper command correlation.
+    SonyEncapsulated,
 }
 
 // Marker traits for compile-time capability detection.
@@ -177,10 +175,7 @@ mod tests {
     fn test_protocol_style() {
         assert_eq!(TestCamera::PROTOCOL_STYLE, ProtocolStyle::RawVisca);
 
-        let sony_style = ProtocolStyle::SonyEncapsulated { use_sequence: true };
-        assert!(matches!(
-            sony_style,
-            ProtocolStyle::SonyEncapsulated { use_sequence: true }
-        ));
+        let sony_style = ProtocolStyle::SonyEncapsulated;
+        assert!(matches!(sony_style, ProtocolStyle::SonyEncapsulated));
     }
 }

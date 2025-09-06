@@ -66,12 +66,8 @@ impl TransportEnvelope {
     ) -> Bytes {
         match self.style {
             ProtocolStyle::RawVisca => Bytes::copy_from_slice(visca_bytes),
-            ProtocolStyle::SonyEncapsulated { use_sequence } => {
-                let sequence = if use_sequence {
-                    self.next_sequence()
-                } else {
-                    0
-                };
+            ProtocolStyle::SonyEncapsulated => {
+                let sequence = self.next_sequence();
                 let header = match kind {
                     CommandKind::Inquiry => SonyHeader::new_inquiry(visca_bytes.len(), sequence),
                     CommandKind::Command => SonyHeader::new_command(visca_bytes.len(), sequence),
@@ -98,12 +94,8 @@ impl TransportEnvelope {
     ) -> (Bytes, FrameMeta) {
         match self.style {
             ProtocolStyle::RawVisca => (visca, FrameMeta { sequence: None }), // Zero-copy pass-through
-            ProtocolStyle::SonyEncapsulated { use_sequence } => {
-                let sequence = if use_sequence {
-                    self.next_sequence()
-                } else {
-                    0
-                };
+            ProtocolStyle::SonyEncapsulated => {
+                let sequence = self.next_sequence();
                 let header = match kind {
                     CommandKind::Inquiry => SonyHeader::new_inquiry(visca.len(), sequence),
                     CommandKind::Command => SonyHeader::new_command(visca.len(), sequence),
@@ -115,7 +107,7 @@ impl TransportEnvelope {
                 (
                     envelope.freeze(),
                     FrameMeta {
-                        sequence: if use_sequence { Some(sequence) } else { None },
+                        sequence: Some(sequence),
                     },
                 )
             }
@@ -131,7 +123,7 @@ impl TransportEnvelope {
     pub fn extract_response(&self, framed_bytes: &[u8]) -> Result<Bytes, crate::Error> {
         match self.style {
             ProtocolStyle::RawVisca => Ok(Bytes::copy_from_slice(framed_bytes)),
-            ProtocolStyle::SonyEncapsulated { .. } => self.sony_extract_payload(framed_bytes),
+            ProtocolStyle::SonyEncapsulated => self.sony_extract_payload(framed_bytes),
         }
     }
 
@@ -145,7 +137,7 @@ impl TransportEnvelope {
     ) -> Result<(Bytes, FrameMeta), crate::Error> {
         match self.style {
             ProtocolStyle::RawVisca => Ok((framed, FrameMeta { sequence: None })),
-            ProtocolStyle::SonyEncapsulated { .. } => {
+            ProtocolStyle::SonyEncapsulated => {
                 if framed.len() < SonyHeader::SIZE {
                     return Err(crate::Error::ParseError(Cow::Borrowed(
                         "Sony response too short for header",
@@ -271,9 +263,7 @@ mod tests {
 
     #[test]
     fn test_sony_encapsulation_command() {
-        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated {
-            use_sequence: false,
-        });
+        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated);
         let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]; // Power On
 
         let framed = envelope.frame_bytes_with_kind(
@@ -288,7 +278,7 @@ mod tests {
         // Check header
         assert_eq!(&framed[0..2], &[0x01, 0x00]); // Command payload type
         assert_eq!(&framed[2..4], &(6u16).to_be_bytes()); // Length = 6
-        assert_eq!(&framed[4..8], &0u32.to_be_bytes()); // Sequence = 0
+        assert_eq!(&framed[4..8], &0u32.to_be_bytes()); // Sequence = 0 (first call)
 
         // Check VISCA payload
         assert_eq!(&framed[8..], &visca_cmd[..]);
@@ -296,8 +286,7 @@ mod tests {
 
     #[test]
     fn test_sony_encapsulation_inquiry() {
-        let envelope =
-            TransportEnvelope::new(ProtocolStyle::SonyEncapsulated { use_sequence: true });
+        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated);
         let visca_inquiry = vec![0x81, 0x09, 0x04, 0x00, VISCA_TERMINATOR]; // Power Status Inquiry
 
         let framed = envelope.frame_bytes_with_kind(
@@ -312,7 +301,8 @@ mod tests {
         // Check header
         assert_eq!(&framed[0..2], &[0x01, 0x10]); // Inquiry payload type
         assert_eq!(&framed[2..4], &(5u16).to_be_bytes()); // Length = 5
-        assert_eq!(&framed[4..8], &0u32.to_be_bytes()); // Sequence = 0 (first call)
+                                                          // Sequence should be 0 since this is the first call for this envelope instance
+        assert_eq!(&framed[4..8], &0u32.to_be_bytes()); // Sequence = 0 (first call for this envelope)
 
         // Check VISCA payload
         assert_eq!(&framed[8..], &visca_inquiry[..]);
@@ -320,9 +310,7 @@ mod tests {
 
     #[test]
     fn test_sony_response_extraction() {
-        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated {
-            use_sequence: false,
-        });
+        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated);
 
         // Create a mock Sony response: 8-byte header + VISCA ACK
         let visca_ack = vec![0x90, 0x41, VISCA_TERMINATOR]; // ACK for socket 1
@@ -340,8 +328,7 @@ mod tests {
 
     #[test]
     fn test_sony_sequence_increment() {
-        let envelope =
-            TransportEnvelope::new(ProtocolStyle::SonyEncapsulated { use_sequence: true });
+        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated);
         let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
 
         let framed1 = envelope.frame_bytes_with_kind(
@@ -365,9 +352,7 @@ mod tests {
 
     #[test]
     fn test_invalid_sony_response() {
-        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated {
-            use_sequence: false,
-        });
+        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated);
 
         // ViscaResponse too short
         let short_response = vec![0x01, 0x11, 0x00];
@@ -383,9 +368,7 @@ mod tests {
 
     #[test]
     fn test_sony_response_too_short_for_header() {
-        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated {
-            use_sequence: false,
-        });
+        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated);
 
         let malformed = vec![0x01, 0x11, 0x00, 0x03, 0x00, 0x00, 0x00];
         assert!(
@@ -408,9 +391,7 @@ mod tests {
 
     #[test]
     fn test_sony_invalid_payload_types() {
-        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated {
-            use_sequence: false,
-        });
+        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated);
 
         let invalid_types = [
             [0x00, 0x00], // Zero payload type
@@ -440,9 +421,7 @@ mod tests {
 
     #[test]
     fn test_sony_length_field_mismatches() {
-        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated {
-            use_sequence: false,
-        });
+        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated);
 
         let mut response = Vec::new();
         response.extend_from_slice(&[0x01, 0x11]); // Reply type
@@ -469,9 +448,7 @@ mod tests {
 
     #[test]
     fn test_sony_max_length_boundaries() {
-        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated {
-            use_sequence: false,
-        });
+        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated);
 
         let mut response = Vec::new();
         response.extend_from_slice(&[0x01, 0x11]); // Reply type
@@ -487,8 +464,7 @@ mod tests {
 
     #[test]
     fn test_sony_sequence_number_wraparound() {
-        let envelope =
-            TransportEnvelope::new(ProtocolStyle::SonyEncapsulated { use_sequence: true });
+        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated);
 
         let dummy_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
 
@@ -520,9 +496,7 @@ mod tests {
 
     #[test]
     fn test_sony_malformed_header_bytes() {
-        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated {
-            use_sequence: false,
-        });
+        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated);
 
         let mut response = Vec::new();
         response.push(0x11); // Wrong byte order for type
@@ -589,8 +563,7 @@ mod tests {
     #[test]
     fn test_alternating_protocol_styles() {
         let raw_envelope = TransportEnvelope::new(ProtocolStyle::RawVisca);
-        let sony_envelope =
-            TransportEnvelope::new(ProtocolStyle::SonyEncapsulated { use_sequence: true });
+        let sony_envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated);
 
         let cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
 
@@ -652,9 +625,7 @@ mod tests {
 
     #[test]
     fn test_extract_with_meta_owned_sony_response() {
-        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated {
-            use_sequence: false,
-        });
+        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated);
 
         // Create a mock Sony response with sequence 42
         let visca_ack = vec![0x90, 0x41, VISCA_TERMINATOR];
@@ -677,9 +648,7 @@ mod tests {
 
     #[test]
     fn test_extract_with_meta_owned_invalid_sony() {
-        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated {
-            use_sequence: false,
-        });
+        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated);
 
         // Too short
         let short_response = Bytes::from(vec![0x01, 0x11, 0x00]);

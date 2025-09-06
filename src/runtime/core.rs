@@ -280,6 +280,56 @@ impl SeqList {
     }
 }
 
+/// Sequence list enum for efficient 1:Many command-to-sequences mapping (16-bit version).
+/// Uses zero allocation for the common case (no retries).
+#[derive(Debug, Clone)]
+enum SeqList16 {
+    /// Single sequence (no retries yet) - zero allocation.
+    One(u16),
+    /// Multiple sequences (with retries) - allocated only when needed.
+    Many(Vec<u16>),
+}
+
+impl SeqList16 {
+    /// Create a new SeqList16 with a single sequence.
+    fn new(seq: u16) -> Self {
+        SeqList16::One(seq)
+    }
+
+    /// Add a sequence to the list, upgrading from One to Many if needed.
+    /// Returns the evicted sequence if the list was at capacity.
+    fn push(&mut self, seq: u16) -> Option<u16> {
+        match self {
+            SeqList16::One(existing) => {
+                // Upgrade to Many on first retry
+                *self = SeqList16::Many(vec![*existing, seq]);
+                None
+            }
+            SeqList16::Many(vec) => {
+                // Cap at the same limit as the main sequence list
+                const MAX_SEQUENCES_PER_CMD: usize = 8;
+                if vec.len() >= MAX_SEQUENCES_PER_CMD {
+                    // Remove oldest sequence to make room
+                    let evicted = vec.remove(0);
+                    vec.push(seq);
+                    Some(evicted)
+                } else {
+                    vec.push(seq);
+                    None
+                }
+            }
+        }
+    }
+
+    /// Iterate over all sequences.
+    fn iter(&self) -> Box<dyn Iterator<Item = u16> + '_> {
+        match self {
+            SeqList16::One(seq) => Box::new(std::iter::once(*seq)),
+            SeqList16::Many(vec) => Box::new(vec.iter().copied()),
+        }
+    }
+}
+
 /// Runtime-agnostic scheduler core.
 ///
 /// This contains all the state machine logic without any async dependencies.
@@ -325,6 +375,10 @@ pub struct SchedulerCore {
     seq_to_cmd: HashMap<u32, u32>,
     /// Sony sequence tracking: command_id -> sequences.
     cmd_to_seqs: HashMap<u32, SeqList>,
+    /// Sony 16-bit sequence tracking: lower 16 bits -> command_id (for legacy compatibility).
+    seq16_to_cmd: HashMap<u16, u32>,
+    /// Sony 16-bit sequence tracking: command_id -> 16-bit sequences.
+    cmd_to_seq16s: HashMap<u32, SeqList16>,
     /// Inquiries in flight: command_id -> (sent_time, category).
     inquiries_inflight: HashMap<u32, (Instant, CommandCategory)>,
     /// Inquiry order tracking for raw VISCA (no sequence).
@@ -369,6 +423,8 @@ impl SchedulerCore {
             max_retries_per_category: max_retries,
             seq_to_cmd: HashMap::new(),
             cmd_to_seqs: HashMap::new(),
+            seq16_to_cmd: HashMap::new(),
+            cmd_to_seq16s: HashMap::new(),
             inquiries_inflight: HashMap::new(),
             inquiries_order: VecDeque::new(),
         }
@@ -461,47 +517,160 @@ impl SchedulerCore {
             }
         }
 
+        // Also register the lower 16 bits for legacy compatibility
+        let seq16 = (sequence & 0xFFFF) as u16;
+        debug!(
+            "Also registering 16-bit sequence {} (from {}) for command {}",
+            seq16, sequence, cmd_id
+        );
+
+        // Check for 16-bit collision
+        if let Some(existing_cmd) = self.seq16_to_cmd.get(&seq16) {
+            if *existing_cmd != cmd_id {
+                debug!(
+                    "16-bit sequence {} collision: mapped to command {} but also needed for {}",
+                    seq16, existing_cmd, cmd_id
+                );
+            }
+        }
+
+        // Map 16-bit sequence to command
+        self.seq16_to_cmd.insert(seq16, cmd_id);
+
+        // Add 16-bit sequence to command's 16-bit sequence list
+        match self.cmd_to_seq16s.get_mut(&cmd_id) {
+            Some(seq16_list) => {
+                // Command already has 16-bit sequences (this is a retry)
+                if let Some(evicted) = seq16_list.push(seq16) {
+                    // Remove the evicted 16-bit sequence from seq16_to_cmd
+                    self.seq16_to_cmd.remove(&evicted);
+                    debug!(
+                        "Added retry 16-bit sequence {} to command {}, evicted old sequence {}",
+                        seq16, cmd_id, evicted
+                    );
+                } else {
+                    debug!(
+                        "Added retry 16-bit sequence {} to command {}",
+                        seq16, cmd_id
+                    );
+                }
+            }
+            None => {
+                // First 16-bit sequence for this command
+                self.cmd_to_seq16s.insert(cmd_id, SeqList16::new(seq16));
+            }
+        }
+
         trace!(
-            "Sequence mappings: seq_to_cmd has {} entries, cmd_to_seqs has {} entries",
+            "Sequence mappings: seq_to_cmd has {} entries, cmd_to_seqs has {} entries, seq16_to_cmd has {} entries, cmd_to_seq16s has {} entries",
             self.seq_to_cmd.len(),
-            self.cmd_to_seqs.len()
+            self.cmd_to_seqs.len(),
+            self.seq16_to_cmd.len(),
+            self.cmd_to_seq16s.len()
         );
     }
 
     /// Get command ID for a Sony sequence number.
+    /// First tries exact 32-bit match, then falls back to 16-bit match if unique.
     pub fn get_command_by_sequence(&self, sequence: u32) -> Option<u32> {
-        // Look up the command ID for this sequence
-        let cmd_id = self.seq_to_cmd.get(&sequence).copied()?;
-
-        // Extra safety: verify the command is still active
-        // If the command has been completed/failed, we shouldn't process stale replies
-        if self.command_metadata.contains_key(&cmd_id)
-            || self.inquiries_inflight.contains_key(&cmd_id)
-        {
-            Some(cmd_id)
-        } else {
-            debug!(
-                "Ignoring stale sequence {} for completed command {}",
-                sequence, cmd_id
-            );
-            None
+        // 1. Try exact 32-bit match first
+        if let Some(cmd_id) = self.seq_to_cmd.get(&sequence).copied() {
+            // Extra safety: verify the command is still active
+            if self.command_metadata.contains_key(&cmd_id)
+                || self.inquiries_inflight.contains_key(&cmd_id)
+            {
+                debug!(
+                    "Found exact 32-bit sequence match for {}: command {}",
+                    sequence, cmd_id
+                );
+                return Some(cmd_id);
+            } else {
+                debug!(
+                    "Ignoring stale 32-bit sequence {} for completed command {}",
+                    sequence, cmd_id
+                );
+            }
         }
+
+        // 2. Try 16-bit fallback (lower 16 bits)
+        let seq16 = (sequence & 0xFFFF) as u16;
+        if let Some(cmd_id) = self.seq16_to_cmd.get(&seq16).copied() {
+            // Verify the command is still active
+            if self.command_metadata.contains_key(&cmd_id)
+                || self.inquiries_inflight.contains_key(&cmd_id)
+            {
+                // Check if this 16-bit sequence maps to multiple active commands
+                // If so, it's ambiguous and we should return None
+                let active_commands_with_seq16: Vec<_> = self
+                    .cmd_to_seq16s
+                    .iter()
+                    .filter(|(cmd_id, seq16_list)| {
+                        // Only consider active commands
+                        (self.command_metadata.contains_key(cmd_id)
+                         || self.inquiries_inflight.contains_key(cmd_id))
+                        &&
+                        // That contain this 16-bit sequence
+                        seq16_list.iter().any(|s| s == seq16)
+                    })
+                    .map(|(cmd_id, _)| *cmd_id)
+                    .collect();
+
+                if active_commands_with_seq16.len() == 1 {
+                    debug!(
+                        "Found unique 16-bit sequence match for {} (seq16 {}): command {}",
+                        sequence, seq16, cmd_id
+                    );
+                    return Some(cmd_id);
+                } else if active_commands_with_seq16.len() > 1 {
+                    debug!(
+                        "Ambiguous 16-bit sequence {} (from {}) maps to {} active commands: {:?}",
+                        seq16,
+                        sequence,
+                        active_commands_with_seq16.len(),
+                        active_commands_with_seq16
+                    );
+                } else {
+                    debug!(
+                        "16-bit sequence {} (from {}) found in mapping but no active commands",
+                        seq16, sequence
+                    );
+                }
+            } else {
+                debug!(
+                    "Ignoring stale 16-bit sequence {} (from {}) for completed command {}",
+                    seq16, sequence, cmd_id
+                );
+            }
+        }
+
+        // No unique match found
+        None
     }
 
     /// Finish a command by sequence number (Sony protocol).
     pub fn finish_sequence(&mut self, cmd_id: u32) {
-        // Remove all sequences for this command
+        // Remove all 32-bit sequences for this command
+        let mut count32 = 0;
         if let Some(seq_list) = self.cmd_to_seqs.remove(&cmd_id) {
-            let mut count = 0;
             for seq in seq_list.iter() {
                 self.seq_to_cmd.remove(&seq);
-                count += 1;
+                count32 += 1;
             }
-            debug!(
-                "Cleaned up {} Sony sequence(s) for command {}",
-                count, cmd_id
-            );
         }
+
+        // Remove all 16-bit sequences for this command
+        let mut count16 = 0;
+        if let Some(seq16_list) = self.cmd_to_seq16s.remove(&cmd_id) {
+            for seq16 in seq16_list.iter() {
+                self.seq16_to_cmd.remove(&seq16);
+                count16 += 1;
+            }
+        }
+
+        debug!(
+            "Cleaned up {} Sony sequence(s) and {} 16-bit sequence(s) for command {}",
+            count32, count16, cmd_id
+        );
     }
 
     /// Unregister a pending ACK without removing command metadata.
@@ -1506,6 +1675,93 @@ mod tests {
         assert_eq!(core.get_command_by_sequence(202), None);
         assert_eq!(core.seq_to_cmd.len(), 0);
         assert_eq!(core.cmd_to_seqs.len(), 0);
+    }
+
+    #[test]
+    fn test_16_bit_sequence_fallback() {
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = crate::transport::RetryConfig::default();
+        let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+
+        let now = Instant::now();
+        let bytes = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
+        let priority = Priority::Normal;
+        let category = CommandCategory::Movement;
+        let camera_id = crate::camera_id::CameraId::CAMERA_1;
+
+        // Register a command with a 32-bit sequence that has non-zero high 16 bits
+        let full_sequence = 0x12345678u32; // High 16 bits: 0x1234, Low 16 bits: 0x5678
+        core.register_pending_ack(1, bytes.clone(), priority, category, camera_id, now);
+        core.register_sequence(1, full_sequence);
+
+        // Verify that both 32-bit and 16-bit lookups work
+        assert_eq!(core.get_command_by_sequence(full_sequence), Some(1));
+        assert_eq!(core.get_command_by_sequence(0x5678), Some(1)); // Should find by lower 16 bits
+
+        // Verify that a non-matching 16-bit value doesn't work
+        assert_eq!(core.get_command_by_sequence(0x1234), None);
+    }
+
+    #[test]
+    fn test_16_bit_sequence_ambiguity() {
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = crate::transport::RetryConfig::default();
+        let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+
+        let now = Instant::now();
+        let priority = Priority::Normal;
+        let category = CommandCategory::Movement;
+        let camera_id = crate::camera_id::CameraId::CAMERA_1;
+
+        // Register two commands with different 32-bit sequences but same lower 16 bits
+        let seq1 = 0x12345678u32;
+        let seq2 = 0xABCD5678u32; // Same lower 16 bits (0x5678) but different high bits
+
+        let bytes1 = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
+        let bytes2 = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]);
+
+        core.register_pending_ack(1, bytes1, priority, category, camera_id, now);
+        core.register_sequence(1, seq1);
+
+        core.register_pending_ack(2, bytes2, priority, category, camera_id, now);
+        core.register_sequence(2, seq2);
+
+        // Both 32-bit sequences should work
+        assert_eq!(core.get_command_by_sequence(seq1), Some(1));
+        assert_eq!(core.get_command_by_sequence(seq2), Some(2));
+
+        // 16-bit lookup should be ambiguous and return None
+        assert_eq!(core.get_command_by_sequence(0x5678), None);
+    }
+
+    #[test]
+    fn test_16_bit_sequence_cleanup() {
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = crate::transport::RetryConfig::default();
+        let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+
+        let now = Instant::now();
+        let bytes = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
+        let priority = Priority::Normal;
+        let category = CommandCategory::Movement;
+        let camera_id = crate::camera_id::CameraId::CAMERA_1;
+
+        // Register a command with sequence
+        let sequence = 0x12345678u32;
+        core.register_pending_ack(1, bytes, priority, category, camera_id, now);
+        core.register_sequence(1, sequence);
+
+        // Verify both mappings exist
+        assert_eq!(core.get_command_by_sequence(sequence), Some(1));
+        assert_eq!(core.get_command_by_sequence(0x5678), Some(1));
+
+        // Finish the sequence
+        core.finish_sequence(1);
+        core.command_metadata.remove(&1);
+
+        // Verify both mappings are cleaned up
+        assert_eq!(core.get_command_by_sequence(sequence), None);
+        assert_eq!(core.get_command_by_sequence(0x5678), None);
     }
 
     #[test]

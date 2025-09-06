@@ -535,9 +535,9 @@ impl Transport {
                                 );
 
                                 let result = match candidate.protocol_style {
-                                    crate::capabilities::ProtocolStyle::SonyEncapsulated {
-                                        ..
-                                    } => super::DetectionResult::SonyEncapsulated,
+                                    crate::capabilities::ProtocolStyle::SonyEncapsulated => {
+                                        super::DetectionResult::SonyEncapsulated
+                                    }
                                     crate::capabilities::ProtocolStyle::RawVisca => {
                                         super::DetectionResult::RawVisca
                                     }

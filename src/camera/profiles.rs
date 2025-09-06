@@ -281,7 +281,7 @@ pub struct SonyFR7;
 impl ProfileMetadata for SonyFR7 {
     const MODEL_NAME: &'static str = "Sony FR7";
     const DEFAULT_ADDRESS: u8 = 1;
-    const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::SonyEncapsulated { use_sequence: true };
+    const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::SonyEncapsulated;
     const ACK_TIMEOUT: Duration = Duration::from_millis(200);
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(8000);
     const BUSY_TIMEOUT: Duration = Duration::from_millis(240);
@@ -393,9 +393,7 @@ pub struct SonyBRCH900;
 impl ProfileMetadata for SonyBRCH900 {
     const MODEL_NAME: &'static str = "Sony BRC-H900";
     const DEFAULT_ADDRESS: u8 = 1;
-    const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::SonyEncapsulated {
-        use_sequence: false,
-    };
+    const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::SonyEncapsulated;
     const ACK_TIMEOUT: Duration = Duration::from_millis(150);
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(6000);
     const DEFAULT_TCP_PORT: u16 = 52381;
@@ -996,7 +994,7 @@ mod tests {
         assert_eq!(SonyFR7::MODEL_NAME, "Sony FR7");
         assert!(matches!(
             SonyFR7::PROTOCOL_STYLE,
-            ProtocolStyle::SonyEncapsulated { use_sequence: true }
+            ProtocolStyle::SonyEncapsulated
         ));
     }
 }

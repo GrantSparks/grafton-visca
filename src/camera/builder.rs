@@ -169,7 +169,7 @@ where
                 .await?
             {
                 crate::transport::protocol_detection::DetectionResult::SonyEncapsulated => {
-                    ProtocolStyle::SonyEncapsulated { use_sequence: true }
+                    ProtocolStyle::SonyEncapsulated
                 }
                 crate::transport::protocol_detection::DetectionResult::RawVisca => {
                     ProtocolStyle::RawVisca

@@ -121,7 +121,7 @@ impl BlockingRunner {
         timeout_config: TimeoutConfig,
         retry_config: RetryConfig,
     ) -> Self {
-        let buffer_config = if matches!(style, ProtocolStyle::SonyEncapsulated { .. }) {
+        let buffer_config = if matches!(style, ProtocolStyle::SonyEncapsulated) {
             BufferConfig::for_sony_ip()
         } else {
             BufferConfig::default()
@@ -605,10 +605,7 @@ mod tests {
     #[test]
     fn test_scheduler_core_creation() {
         let timeout_config = TimeoutConfig::default();
-        let runner = BlockingRunner::new(
-            ProtocolStyle::SonyEncapsulated { use_sequence: true },
-            timeout_config,
-        );
+        let runner = BlockingRunner::new(ProtocolStyle::SonyEncapsulated, timeout_config);
 
         // Verify the runner was created successfully
         assert!(runner.core.can_send_command());
@@ -628,10 +625,7 @@ mod tests {
         use crate::command::bytes::VISCA_TERMINATOR;
 
         let timeout_config = TimeoutConfig::default();
-        let mut runner = BlockingRunner::new(
-            ProtocolStyle::SonyEncapsulated { use_sequence: true },
-            timeout_config,
-        );
+        let mut runner = BlockingRunner::new(ProtocolStyle::SonyEncapsulated, timeout_config);
 
         // Create a pending command
         // Use a valid camera ID - 1 is always valid

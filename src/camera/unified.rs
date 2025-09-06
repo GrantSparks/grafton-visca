@@ -432,10 +432,7 @@ where
         use crate::command::response::ViscaResponse;
 
         // Check if we should use the BlockingRunner for Sony protocol
-        let use_blocking_runner = matches!(
-            self.envelope.style(),
-            ProtocolStyle::SonyEncapsulated { .. }
-        );
+        let use_blocking_runner = matches!(self.envelope.style(), ProtocolStyle::SonyEncapsulated);
 
         if use_blocking_runner {
             // Use BlockingRunner for Sony protocol to handle retry and sequencing
@@ -786,10 +783,7 @@ mod tests {
     #[test]
     fn test_profile_protocol_style_constants() {
         // Verify that profiles declare the expected protocol styles
-        assert_eq!(
-            SonyFR7::PROTOCOL_STYLE,
-            ProtocolStyle::SonyEncapsulated { use_sequence: true }
-        );
+        assert_eq!(SonyFR7::PROTOCOL_STYLE, ProtocolStyle::SonyEncapsulated);
         assert_eq!(PtzOpticsG2::PROTOCOL_STYLE, ProtocolStyle::RawVisca);
         assert_eq!(GenericVisca::PROTOCOL_STYLE, ProtocolStyle::RawVisca);
     }
