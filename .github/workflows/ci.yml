@@ -75,16 +75,16 @@ jobs:
       features: "minimal"
       runs-on: ubuntu-latest
 
-  # Test on multiple platforms and Rust versions
-  test:
+  # Test on Unix platforms (Linux/macOS)
+  test-unix:
     name: Test (${{ matrix.os }} / ${{ matrix.rust }})
     # Skip on feature branch pushes (use test-minimal instead)
     if: github.event_name != 'push' || !startsWith(github.ref, 'refs/heads/feature/')
-    timeout-minutes: 45
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest]
         rust: [stable, beta]
     runs-on: ${{ matrix.os }}
     steps:
@@ -144,6 +144,84 @@ jobs:
         run: |
           echo "Running comprehensive test suite..."
           bash .github/scripts/test-all-features.sh
+
+  # Windows-specific parallel test jobs for better performance
+  test-windows:
+    name: Test Windows (${{ matrix.rust }} / ${{ matrix.features || 'default' }})
+    # Skip on feature branch pushes
+    if: github.event_name != 'push' || !startsWith(github.ref, 'refs/heads/feature/')
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        rust: [stable, beta]
+        features:
+          - ""  # default features
+          - "no-default"
+          - "rt-tokio"
+          - "rt-async-std"
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust ${{ matrix.rust }} toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+        continue-on-error: true
+        id: matrix-toolchain
+
+      # Fallback: retry with rustup directly if the action fails
+      - name: Retry ${{ matrix.rust }} toolchain installation
+        if: steps.matrix-toolchain.outcome == 'failure'
+        run: |
+          for i in {1..3}; do
+            echo "Attempt $i of 3..."
+            rustup toolchain install ${{ matrix.rust }} --profile minimal && break
+            sleep 30
+          done
+
+      # Setup sccache for compiler caching (gracefully handle service outages)
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+        continue-on-error: true
+        id: sccache
+
+      # Enhanced caching with registry index
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-cache-windows-${{ matrix.rust }}-${{ matrix.features }}"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-targets: true
+          cache-on-failure: true
+          cache-all-crates: true
+
+      # Cache cargo registry index
+      - name: Cache cargo registry index
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/registry/index
+          key: cargo-index-windows-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            cargo-index-windows-
+            cargo-index-
+
+      # Run targeted tests based on features
+      - name: Run tests - ${{ matrix.features || 'default' }}
+        run: |
+          if [ -z "${{ matrix.features }}" ]; then
+            echo "Testing with default features..."
+            cargo test --verbose
+          elif [ "${{ matrix.features }}" == "no-default" ]; then
+            echo "Testing with no default features..."
+            cargo test --no-default-features --verbose
+          else
+            echo "Testing with features: ${{ matrix.features }}"
+            cargo test --no-default-features --features "${{ matrix.features }}" --verbose
+          fi
+        shell: bash
+        env:
+          TMPDIR: ${{ runner.temp }}
 
   # Parallel feature matrix testing for better performance
   feature-matrix-parallel:
@@ -559,7 +637,8 @@ jobs:
     if: always()
     needs:
       - format
-      - test
+      - test-unix
+      - test-windows
       - feature-matrix-parallel
       - lint-and-docs
       - async-transport-integration
