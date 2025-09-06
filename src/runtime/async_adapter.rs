@@ -338,7 +338,20 @@ impl<E: Executor> AsyncAdapter<E> {
                 }
 
                 // For Sony, try to use sequence to find command
-                let cmd_id = sequence.and_then(|seq| self.core.get_command_by_sequence(seq));
+                let mut cmd_id = sequence.and_then(|seq| self.core.get_command_by_sequence(seq));
+
+                // If no cmd_id and no socket, this is likely an inquiry error
+                // (inquiries get errors without socket assignment)
+                if cmd_id.is_none() && basic.socket.is_none() && !self.active_inquiry_ids.is_empty()
+                {
+                    // Use FIFO for inquiry errors - take the oldest pending inquiry
+                    cmd_id = self.active_inquiry_ids.front().copied();
+                    debug!(
+                        "Error response without socket, assuming it's for inquiry {:?}",
+                        cmd_id
+                    );
+                }
+
                 SchedulerEvent::Error {
                     socket: basic.socket,
                     cmd_id,

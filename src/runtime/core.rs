@@ -593,6 +593,15 @@ impl SchedulerCore {
                 };
 
                 if let Some(cmd_id) = resolved_cmd_id {
+                    // Check if this is an inquiry
+                    let is_inquiry = self.inquiries_inflight.contains_key(&cmd_id);
+
+                    if is_inquiry {
+                        // Remove from inquiry tracking
+                        self.inquiries_inflight.remove(&cmd_id);
+                        self.inquiries_order.retain(|&id| id != cmd_id);
+                    }
+
                     let should_retry = self.should_retry_command(cmd_id, &error);
 
                     if should_retry {
