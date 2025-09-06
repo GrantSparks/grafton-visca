@@ -4,13 +4,13 @@
 //! scheduler core to manage Sony sequence tracking, ACK/completion routing, and
 //! retry logic without any async dependencies.
 
+use bytes::{Bytes, BytesMut};
+use tracing::{debug, trace, warn};
+
 use std::{
     sync::atomic::{AtomicU32, Ordering},
     time::{Duration, Instant},
 };
-
-use bytes::{Bytes, BytesMut};
-use tracing::{debug, trace, warn};
 
 use crate::{
     camera_id::CameraId,
