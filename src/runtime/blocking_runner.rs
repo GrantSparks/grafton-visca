@@ -52,10 +52,6 @@ impl SendGuard {
         }
     }
 
-    fn reserve_socket(&mut self, socket: ViscaSocket) {
-        self.reserved_socket = Some(socket);
-    }
-
     fn register_ack(&mut self) {
         self.ack_registered = true;
     }
@@ -208,25 +204,19 @@ impl BlockingRunner {
                 // Create RAII guard for rollback
                 let mut guard = SendGuard::new(cmd.id);
 
-                // For inquiries, reserve socket directly (no ACK)
+                // For inquiries, start tracking without socket allocation
                 // For commands, register as pending ACK
                 if kind == CommandKind::Inquiry {
-                    // Reserve socket for inquiry
-                    if let Some(socket) = self.core.reserve_socket_for_inquiry(
+                    // Start tracking the inquiry (no socket allocation)
+                    self.core.start_inquiry(
                         cmd.id,
                         cmd.bytes.clone(),
                         cmd.priority,
                         cmd.category,
                         cmd.camera_id,
                         now,
-                    ) {
-                        debug!("Reserved socket {:?} for inquiry {}", socket, cmd.id);
-                        guard.reserve_socket(socket);
-                    } else {
-                        warn!("Failed to reserve socket for inquiry {}", cmd.id);
-                        // The inquiry will remain queued and retry later
-                        continue;
-                    }
+                    );
+                    debug!("Started tracking inquiry {}", cmd.id);
                 } else {
                     // Register as pending ACK for commands
                     self.core.register_pending_ack(
@@ -325,28 +315,19 @@ impl BlockingRunner {
                 // Create RAII guard for rollback
                 let mut guard = SendGuard::new(retry.id);
 
-                // For inquiries, reserve socket directly (no ACK)
+                // For inquiries, start tracking without socket allocation
                 // For commands, register as pending ACK
                 if kind == CommandKind::Inquiry {
-                    // Reserve socket for inquiry retry
-                    if let Some(socket) = self.core.reserve_socket_for_inquiry(
+                    // Start tracking the inquiry retry (no socket allocation)
+                    self.core.start_inquiry(
                         retry.id,
                         retry.bytes.clone(),
                         retry.priority,
                         retry.category,
                         retry.camera_id,
                         now,
-                    ) {
-                        debug!(
-                            "Reserved socket {:?} for inquiry retry {}",
-                            socket, retry.id
-                        );
-                        guard.reserve_socket(socket);
-                    } else {
-                        warn!("Failed to reserve socket for inquiry retry {}", retry.id);
-                        // The inquiry will remain queued and retry later
-                        continue;
-                    }
+                    );
+                    debug!("Started tracking inquiry retry {}", retry.id);
                 } else {
                     // Register as pending ACK for command retries
                     self.core.register_pending_ack(
@@ -457,9 +438,14 @@ impl BlockingRunner {
                     let event = match basic.kind {
                         BasicKind::Ack => {
                             let socket = basic.socket;
-                            debug!("Received ACK for socket {:?}", socket);
+                            // For Sony, try to use sequence to find command
+                            let cmd_id = meta
+                                .sequence
+                                .and_then(|seq| self.core.get_command_by_sequence(seq));
+                            debug!("Received ACK for socket {:?}, cmd_id {:?}", socket, cmd_id);
                             SchedulerEvent::Ack {
                                 socket: socket.unwrap_or(ViscaSocket::S1),
+                                cmd_id,
                             }
                         }
                         BasicKind::Completion => {
@@ -488,34 +474,52 @@ impl BlockingRunner {
                             let response_type =
                                 cmd_id.and_then(|id| self.inquiry_response_types.get(&id));
                             let response = lift_inquiry(&basic, response_type)?;
-                            SchedulerEvent::Completion { socket, response }
+                            SchedulerEvent::Completion {
+                                socket,
+                                cmd_id,
+                                response,
+                            }
                         }
                         BasicKind::Error(code) => {
                             let socket = basic.socket;
-                            debug!("Received error 0x{:02X} for socket {:?}", code, socket);
-                            SchedulerEvent::Error { socket, code }
+                            // For Sony, try to use sequence to find command
+                            let cmd_id = meta
+                                .sequence
+                                .and_then(|seq| self.core.get_command_by_sequence(seq));
+                            debug!(
+                                "Received error 0x{:02X} for socket {:?}, cmd_id {:?}",
+                                code, socket, cmd_id
+                            );
+                            SchedulerEvent::Error {
+                                socket,
+                                cmd_id,
+                                code,
+                            }
                         }
                         BasicKind::DataReply => {
                             // Data replies are completions for inquiries
-                            // Try to find command ID from sequence (Sony) or active inquiry queue (raw VISCA)
-                            let cmd_id = if let Some(seq) = meta.sequence {
-                                // Sony protocol: use sequence to find command
-                                self.core.get_command_by_sequence(seq)
-                            } else {
-                                // Raw VISCA: pop from front of queue (FIFO order)
-                                self.active_inquiry_ids.pop_front()
-                            };
+                            // Try to find command ID from sequence (Sony) or let core handle it
+                            let cmd_id = meta
+                                .sequence
+                                .and_then(|seq| self.core.get_command_by_sequence(seq));
 
                             // Get the expected response type for this inquiry
-                            let response_type =
-                                cmd_id.and_then(|id| self.inquiry_response_types.get(&id).cloned());
+                            // For raw VISCA (no sequence), use the first inquiry in the queue
+                            let response_type = if let Some(id) = cmd_id {
+                                self.inquiry_response_types.get(&id).cloned()
+                            } else if let Some(&first_id) = self.active_inquiry_ids.front() {
+                                // Raw VISCA: use the response type from the first queued inquiry
+                                self.inquiry_response_types.get(&first_id).cloned()
+                            } else {
+                                None
+                            };
 
                             if let Some(cmd_id) = cmd_id {
                                 if cmd_id == target_cmd_id {
                                     debug!("Inquiry {} completed successfully", cmd_id);
                                     // Clean up inquiry tracking
                                     self.inquiry_response_types.remove(&cmd_id);
-                                    // Remove from active inquiry queue
+                                    // Remove from active inquiry queue if present
                                     self.active_inquiry_ids.retain(|&x| x != cmd_id);
                                     // Convert to ViscaResponse for return
                                     let response = lift_inquiry(&basic, response_type.as_ref())?;
@@ -523,12 +527,10 @@ impl BlockingRunner {
                                 }
                             }
 
-                            debug!("Received data reply for socket {:?}", basic.socket);
+                            debug!("Received data reply (inquiry response)");
                             let response = lift_inquiry(&basic, response_type.as_ref())?;
-                            SchedulerEvent::Completion {
-                                socket: basic.socket,
-                                response,
-                            }
+                            // Use InquiryReply event for data replies
+                            SchedulerEvent::InquiryReply { cmd_id, response }
                         }
                         BasicKind::NetworkChange | BasicKind::Unknown => {
                             // Other response types are ignored for now

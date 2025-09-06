@@ -8,7 +8,7 @@ use tracing::{debug, trace, warn};
 
 use std::{
     cmp::Ordering as CmpOrdering,
-    collections::{BinaryHeap, HashMap},
+    collections::{BinaryHeap, HashMap, VecDeque},
     time::{Duration, Instant},
 };
 
@@ -198,11 +198,22 @@ pub enum SchedulerEvent {
     Ack {
         /// Socket that was acknowledged.
         socket: ViscaSocket,
+        /// Command ID (from sequence mapping when available).
+        cmd_id: Option<u32>,
     },
     /// Command completed.
     Completion {
         /// Socket that completed (if known).
         socket: Option<ViscaSocket>,
+        /// Command ID (from sequence mapping when available).
+        cmd_id: Option<u32>,
+        /// Response from the camera.
+        response: ViscaResponse,
+    },
+    /// Inquiry data reply (no socket allocation).
+    InquiryReply {
+        /// Command ID (from sequence mapping or order queue).
+        cmd_id: Option<u32>,
         /// Response from the camera.
         response: ViscaResponse,
     },
@@ -210,6 +221,8 @@ pub enum SchedulerEvent {
     Error {
         /// Socket that errored (if known).
         socket: Option<ViscaSocket>,
+        /// Command ID (from sequence mapping when available).
+        cmd_id: Option<u32>,
         /// Error code from the camera.
         code: u8,
     },
@@ -262,6 +275,10 @@ pub struct SchedulerCore {
     pending_by_sequence: HashMap<u32, u32>,
     /// Sony sequence tracking: command_id -> sequence.
     sequence_by_command: HashMap<u32, u32>,
+    /// Inquiries in flight: command_id -> (sent_time, category).
+    inquiries_inflight: HashMap<u32, (Instant, CommandCategory)>,
+    /// Inquiry order tracking for raw VISCA (no sequence).
+    inquiries_order: VecDeque<u32>,
 }
 
 impl SchedulerCore {
@@ -302,6 +319,8 @@ impl SchedulerCore {
             max_retries_per_category: max_retries,
             pending_by_sequence: HashMap::new(),
             sequence_by_command: HashMap::new(),
+            inquiries_inflight: HashMap::new(),
+            inquiries_order: VecDeque::new(),
         }
     }
 
@@ -406,82 +425,102 @@ impl SchedulerCore {
         let mut actions = Vec::new();
 
         match event {
-            SchedulerEvent::Ack { socket } => {
-                if let Some(cmd_id) = self.handle_ack(socket, now) {
+            SchedulerEvent::Ack { socket, cmd_id } => {
+                if let Some(cmd_id) = self.handle_ack_with_id(socket, cmd_id, now) {
                     debug!("Command {} assigned to socket {:?}", cmd_id, socket);
                 }
             }
-            SchedulerEvent::Completion { socket, response } => {
-                if let Some(socket) = socket {
-                    if let Some(cmd_id) = self.find_command_on_socket(socket) {
-                        self.free_socket(socket);
-                        self.finish_sequence(cmd_id);
-                        self.command_metadata.remove(&cmd_id);
-                        self.retry_attempts.remove(&cmd_id);
-                        actions.push(SchedulerAction::CommandComplete {
-                            id: cmd_id,
-                            response,
-                        });
-                    }
+            SchedulerEvent::Completion {
+                socket,
+                cmd_id,
+                response,
+            } => {
+                // Prefer cmd_id from sequence mapping
+                let resolved_cmd_id = if let Some(id) = cmd_id {
+                    Some(id)
+                } else if let Some(socket) = socket {
+                    self.find_command_on_socket(socket)
                 } else {
-                    // Broadcast completion - route to most recent command
-                    if let Some(cmd_id) = self.find_most_recent_command() {
-                        if let Some(socket) = self.find_socket_for_command(cmd_id) {
-                            self.free_socket(socket);
-                        }
-                        self.finish_sequence(cmd_id);
-                        self.command_metadata.remove(&cmd_id);
-                        self.retry_attempts.remove(&cmd_id);
-                        actions.push(SchedulerAction::CommandComplete {
-                            id: cmd_id,
-                            response,
-                        });
+                    // No longer use find_most_recent_command fallback
+                    None
+                };
+
+                if let Some(cmd_id) = resolved_cmd_id {
+                    if let Some(socket) = socket.or_else(|| self.find_socket_for_command(cmd_id)) {
+                        self.free_socket(socket);
                     }
+                    self.finish_sequence(cmd_id);
+                    self.command_metadata.remove(&cmd_id);
+                    self.retry_attempts.remove(&cmd_id);
+                    actions.push(SchedulerAction::CommandComplete {
+                        id: cmd_id,
+                        response,
+                    });
                 }
             }
-            SchedulerEvent::Error { socket, code } => {
+            SchedulerEvent::InquiryReply { cmd_id, response } => {
+                // Resolve inquiry ID from sequence or order queue
+                let resolved_cmd_id = if let Some(id) = cmd_id {
+                    // Remove from order queue if present (for sequence-based reply)
+                    self.inquiries_order.retain(|&x| x != id);
+                    Some(id)
+                } else {
+                    // Pop from order queue for raw VISCA
+                    self.inquiries_order.pop_front()
+                };
+
+                if let Some(cmd_id) = resolved_cmd_id {
+                    // Remove from inflight tracking
+                    self.inquiries_inflight.remove(&cmd_id);
+                    // Clean up sequence mappings
+                    self.finish_sequence(cmd_id);
+                    // Remove metadata
+                    self.command_metadata.remove(&cmd_id);
+                    self.retry_attempts.remove(&cmd_id);
+                    // Complete the inquiry
+                    actions.push(SchedulerAction::CommandComplete {
+                        id: cmd_id,
+                        response,
+                    });
+                    debug!("Inquiry {} completed with response", cmd_id);
+                }
+            }
+            SchedulerEvent::Error {
+                socket,
+                cmd_id,
+                code,
+            } => {
                 let error = ViscaError::from_byte(code);
 
-                if let Some(socket) = socket {
-                    if let Some(cmd_id) = self.find_command_on_socket(socket) {
-                        let should_retry = self.should_retry_command(cmd_id, &error);
-
-                        if should_retry {
-                            if let Some(retry_action) = self.queue_retry_for_command(cmd_id, now) {
-                                actions.push(retry_action);
-                            }
-                        } else {
-                            self.free_socket(socket);
-                            self.finish_sequence(cmd_id);
-                            self.command_metadata.remove(&cmd_id);
-                            self.retry_attempts.remove(&cmd_id);
-                            actions.push(SchedulerAction::CommandFailed {
-                                id: cmd_id,
-                                error: Error::from_code(code),
-                            });
-                        }
-                    }
+                // Prefer cmd_id from sequence mapping
+                let resolved_cmd_id = if let Some(id) = cmd_id {
+                    Some(id)
+                } else if let Some(socket) = socket {
+                    self.find_command_on_socket(socket)
                 } else {
-                    // Broadcast error - route to most recent command
-                    if let Some(cmd_id) = self.find_most_recent_command() {
-                        let should_retry = self.should_retry_command(cmd_id, &error);
+                    None
+                };
 
-                        if should_retry {
-                            if let Some(retry_action) = self.queue_retry_for_command(cmd_id, now) {
-                                actions.push(retry_action);
-                            }
-                        } else {
-                            if let Some(socket) = self.find_socket_for_command(cmd_id) {
-                                self.free_socket(socket);
-                            }
-                            self.finish_sequence(cmd_id);
-                            self.command_metadata.remove(&cmd_id);
-                            self.retry_attempts.remove(&cmd_id);
-                            actions.push(SchedulerAction::CommandFailed {
-                                id: cmd_id,
-                                error: Error::from_code(code),
-                            });
+                if let Some(cmd_id) = resolved_cmd_id {
+                    let should_retry = self.should_retry_command(cmd_id, &error);
+
+                    if should_retry {
+                        if let Some(retry_action) = self.queue_retry_for_command(cmd_id, now) {
+                            actions.push(retry_action);
                         }
+                    } else {
+                        if let Some(socket) =
+                            socket.or_else(|| self.find_socket_for_command(cmd_id))
+                        {
+                            self.free_socket(socket);
+                        }
+                        self.finish_sequence(cmd_id);
+                        self.command_metadata.remove(&cmd_id);
+                        self.retry_attempts.remove(&cmd_id);
+                        actions.push(SchedulerAction::CommandFailed {
+                            id: cmd_id,
+                            error: Error::from_code(code),
+                        });
                     }
                 }
             }
@@ -527,6 +566,52 @@ impl SchedulerCore {
                         timed_out.push((socket, cmd_id));
                     }
                 }
+            }
+        }
+
+        // Check inquiry timeouts
+        let mut timed_out_inquiries = Vec::new();
+        for (&cmd_id, &(started_at, category)) in &self.inquiries_inflight {
+            let timeout = self.timeout_config.get_timeout(category);
+            if now.duration_since(started_at) > timeout {
+                warn!("Inquiry {} timed out after {:?}", cmd_id, timeout);
+                timed_out_inquiries.push(cmd_id);
+            }
+        }
+
+        // Handle timed out inquiries
+        for cmd_id in timed_out_inquiries {
+            self.inquiries_inflight.remove(&cmd_id);
+            // Remove from order queue if present
+            self.inquiries_order.retain(|&id| id != cmd_id);
+
+            // Check if we should retry
+            let should_retry = self
+                .command_metadata
+                .get(&cmd_id)
+                .map(|(_, _, category, _)| {
+                    let attempts = self.retry_attempts.get(&cmd_id).copied().unwrap_or(0);
+                    let max_retries = self
+                        .max_retries_per_category
+                        .get(category)
+                        .copied()
+                        .unwrap_or(3);
+                    attempts < max_retries
+                })
+                .unwrap_or(false);
+
+            if should_retry {
+                if let Some(retry_action) = self.queue_retry_for_command(cmd_id, now) {
+                    actions.push(retry_action);
+                }
+            } else {
+                self.finish_sequence(cmd_id);
+                self.command_metadata.remove(&cmd_id);
+                self.retry_attempts.remove(&cmd_id);
+                actions.push(SchedulerAction::CommandFailed {
+                    id: cmd_id,
+                    error: Error::Timeout,
+                });
             }
         }
 
@@ -586,16 +671,31 @@ impl SchedulerCore {
 
     // Private helper methods
 
-    fn handle_ack(&mut self, socket: ViscaSocket, now: Instant) -> Option<u32> {
-        // Find oldest pending command (FIFO order for ACKs)
-        let oldest_id = self
-            .pending_ack
-            .iter()
-            .min_by_key(|(_, (_, _, _, sent_time, _))| *sent_time)
-            .map(|(id, _)| *id)?;
+    fn handle_ack_with_id(
+        &mut self,
+        socket: ViscaSocket,
+        cmd_id: Option<u32>,
+        now: Instant,
+    ) -> Option<u32> {
+        // Prefer cmd_id from sequence mapping
+        let target_id = if let Some(id) = cmd_id {
+            // Verify it's actually pending
+            if self.pending_ack.contains_key(&id) {
+                Some(id)
+            } else {
+                debug!("ACK with sequence {} not found in pending commands", id);
+                None
+            }
+        } else {
+            // Fall back to oldest pending command (FIFO order for raw VISCA)
+            self.pending_ack
+                .iter()
+                .min_by_key(|(_, (_, _, _, sent_time, _))| *sent_time)
+                .map(|(id, _)| *id)
+        }?;
 
         // Remove from pending and assign to socket
-        if let Some((bytes, priority, category, _, camera_id)) = self.pending_ack.remove(&oldest_id)
+        if let Some((bytes, priority, category, _, camera_id)) = self.pending_ack.remove(&target_id)
         {
             // Allocate the specific socket the camera assigned
             let idx = socket.as_index();
@@ -610,31 +710,27 @@ impl SchedulerCore {
             }
 
             state.free = false;
-            state.command_id = Some(oldest_id);
+            state.command_id = Some(target_id);
             state.started_at = Some(now);
             state.category = Some(category);
 
             // Store metadata for potential retry
             self.command_metadata
-                .insert(oldest_id, (bytes, priority, category, camera_id));
+                .insert(target_id, (bytes, priority, category, camera_id));
 
             debug!(
                 "Assigned command {} to {:?} per camera ACK",
-                oldest_id, socket
+                target_id, socket
             );
-            Some(oldest_id)
+            Some(target_id)
         } else {
-            warn!("Failed to remove command {} from pending ACK", oldest_id);
+            warn!("Failed to remove command {} from pending ACK", target_id);
             None
         }
     }
 
-    /// Reserve a socket for an inquiry without waiting for ACK.
-    ///
-    /// Inquiries don't receive ACK responses, so we need to allocate a socket
-    /// immediately when sending them. This method follows the same fairness
-    /// and availability rules as ACK-based allocation.
-    pub fn reserve_socket_for_inquiry(
+    /// Start tracking an inquiry (no socket allocation).
+    pub fn start_inquiry(
         &mut self,
         id: u32,
         bytes: bytes::Bytes,
@@ -642,38 +738,18 @@ impl SchedulerCore {
         category: CommandCategory,
         camera_id: crate::camera_id::CameraId,
         now: Instant,
-    ) -> Option<ViscaSocket> {
-        // Check if we can send (respects 2-in-flight limit)
-        if !self.can_send_command() {
-            debug!("Cannot reserve socket for inquiry {}: no free sockets", id);
-            return None;
-        }
-
-        // Find a free socket
-        let socket = if self.sockets[0].free {
-            ViscaSocket::S1
-        } else if self.sockets[1].free {
-            ViscaSocket::S2
-        } else {
-            debug!("No free socket available for inquiry {}", id);
-            return None;
-        };
-
-        let idx = socket.as_index();
-        let state = &mut self.sockets[idx];
-
-        // Allocate the socket
-        state.free = false;
-        state.command_id = Some(id);
-        state.started_at = Some(now);
-        state.category = Some(category);
-
+    ) {
         // Store metadata for potential retry
         self.command_metadata
             .insert(id, (bytes, priority, category, camera_id));
 
-        debug!("Reserved {:?} for inquiry {}", socket, id);
-        Some(socket)
+        // Track the inquiry as in-flight
+        self.inquiries_inflight.insert(id, (now, category));
+
+        // Add to order queue for raw VISCA correlation
+        self.inquiries_order.push_back(id);
+
+        debug!("Started inquiry {} (no socket allocation)", id);
     }
 
     /// Check if a command is pending (either awaiting ACK or has a socket).
@@ -723,28 +799,6 @@ impl SchedulerCore {
     ) -> (bool, Option<u32>, Option<CommandCategory>) {
         let state = &self.sockets[socket.as_index()];
         (state.free, state.command_id, state.category)
-    }
-
-    fn find_most_recent_command(&self) -> Option<u32> {
-        // First check sockets for active commands
-        let mut candidates = Vec::new();
-
-        for state in &self.sockets {
-            if let (Some(cmd_id), Some(started_at)) = (state.command_id, state.started_at) {
-                candidates.push((cmd_id, started_at));
-            }
-        }
-
-        // Also check pending ACK commands
-        for (cmd_id, (_, _, _, sent_at, _)) in &self.pending_ack {
-            candidates.push((*cmd_id, *sent_at));
-        }
-
-        // Return the most recently sent command
-        candidates
-            .into_iter()
-            .max_by_key(|(_, time)| *time)
-            .map(|(cmd_id, _)| cmd_id)
     }
 
     fn should_retry_command(&self, cmd_id: u32, error: &ViscaError) -> bool {
@@ -855,7 +909,7 @@ mod tests {
     use crate::command::bytes::VISCA_TERMINATOR;
 
     #[test]
-    fn test_reserve_socket_for_inquiry_when_free() {
+    fn test_inquiry_does_not_consume_sockets() {
         let timeout_config = TimeoutConfig::default();
         let retry_config = crate::transport::RetryConfig::default();
         let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
@@ -866,22 +920,62 @@ mod tests {
         let category = CommandCategory::Quick;
         let camera_id = crate::camera_id::CameraId::CAMERA_1;
 
-        // Should be able to reserve when sockets are free
-        let socket =
-            core.reserve_socket_for_inquiry(1, bytes.clone(), priority, category, camera_id, now);
+        // Start two commands to occupy both sockets
+        let cmd1_bytes = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
+        let cmd2_bytes = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]);
 
-        assert!(socket.is_some());
-        let socket = socket.unwrap();
+        // Register first command on socket 1
+        core.register_pending_ack(
+            1,
+            cmd1_bytes.clone(),
+            priority,
+            CommandCategory::Movement,
+            camera_id,
+            now,
+        );
+        // Manually allocate socket 1 (simulating ACK received)
+        core.sockets[0].free = false;
+        core.sockets[0].command_id = Some(1);
+        core.sockets[0].started_at = Some(now);
+        core.sockets[0].category = Some(CommandCategory::Movement);
 
-        // Verify socket is now occupied
-        let state = core.socket_state(socket);
-        assert!(!state.0); // free = false
-        assert_eq!(state.1, Some(1)); // command_id
-        assert_eq!(state.2, Some(category)); // category
+        // Register second command on socket 2
+        core.register_pending_ack(
+            2,
+            cmd2_bytes.clone(),
+            priority,
+            CommandCategory::Movement,
+            camera_id,
+            now,
+        );
+        // Manually allocate socket 2 (simulating ACK received)
+        core.sockets[1].free = false;
+        core.sockets[1].command_id = Some(2);
+        core.sockets[1].started_at = Some(now);
+        core.sockets[1].category = Some(CommandCategory::Movement);
+
+        // Both sockets are now occupied, but inquiry should still be sendable
+        assert!(!core.can_send_command()); // Cannot send more commands
+
+        // Start an inquiry - should not need a socket
+        core.start_inquiry(3, bytes.clone(), priority, category, camera_id, now);
+
+        // Verify inquiry is tracked
+        assert!(core.inquiries_inflight.contains_key(&3));
+        assert!(core.inquiries_order.contains(&3));
+
+        // Sockets should still be occupied by commands
+        let state1 = core.socket_state(ViscaSocket::S1);
+        assert!(!state1.0); // Socket 1 still occupied
+        assert_eq!(state1.1, Some(1)); // By command 1
+
+        let state2 = core.socket_state(ViscaSocket::S2);
+        assert!(!state2.0); // Socket 2 still occupied
+        assert_eq!(state2.1, Some(2)); // By command 2
     }
 
     #[test]
-    fn test_reserve_socket_for_inquiry_when_one_busy() {
+    fn test_inquiry_reply_handling() {
         let timeout_config = TimeoutConfig::default();
         let retry_config = crate::transport::RetryConfig::default();
         let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
@@ -892,69 +986,17 @@ mod tests {
         let category = CommandCategory::Quick;
         let camera_id = crate::camera_id::CameraId::CAMERA_1;
 
-        // Reserve first socket
-        let socket1 =
-            core.reserve_socket_for_inquiry(1, bytes.clone(), priority, category, camera_id, now);
-        assert!(socket1.is_some());
+        // Start an inquiry
+        core.start_inquiry(1, bytes.clone(), priority, category, camera_id, now);
 
-        // Should be able to reserve second socket
-        let socket2 =
-            core.reserve_socket_for_inquiry(2, bytes.clone(), priority, category, camera_id, now);
-        assert!(socket2.is_some());
+        // Verify inquiry is tracked
+        assert!(core.inquiries_inflight.contains_key(&1));
+        assert!(core.inquiries_order.contains(&1));
 
-        // Sockets should be different
-        assert_ne!(socket1, socket2);
-    }
-
-    #[test]
-    fn test_reserve_socket_for_inquiry_when_both_busy() {
-        let timeout_config = TimeoutConfig::default();
-        let retry_config = crate::transport::RetryConfig::default();
-        let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
-
-        let now = Instant::now();
-        let bytes = bytes::Bytes::from(vec![0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR]);
-        let priority = Priority::Normal;
-        let category = CommandCategory::Quick;
-        let camera_id = crate::camera_id::CameraId::CAMERA_1;
-
-        // Reserve both sockets
-        let socket1 =
-            core.reserve_socket_for_inquiry(1, bytes.clone(), priority, category, camera_id, now);
-        assert!(socket1.is_some());
-
-        let socket2 =
-            core.reserve_socket_for_inquiry(2, bytes.clone(), priority, category, camera_id, now);
-        assert!(socket2.is_some());
-
-        // Third inquiry should fail to reserve
-        let socket3 =
-            core.reserve_socket_for_inquiry(3, bytes.clone(), priority, category, camera_id, now);
-        assert!(socket3.is_none());
-    }
-
-    #[test]
-    fn test_inquiry_completion_frees_socket() {
-        let timeout_config = TimeoutConfig::default();
-        let retry_config = crate::transport::RetryConfig::default();
-        let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
-
-        let now = Instant::now();
-        let bytes = bytes::Bytes::from(vec![0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR]);
-        let priority = Priority::Normal;
-        let category = CommandCategory::Quick;
-        let camera_id = crate::camera_id::CameraId::CAMERA_1;
-
-        // Reserve socket for inquiry
-        let socket =
-            core.reserve_socket_for_inquiry(1, bytes.clone(), priority, category, camera_id, now);
-        assert!(socket.is_some());
-        let socket = socket.unwrap();
-
-        // Process completion event
+        // Process InquiryReply event
         let response = ViscaResponse::Inquiry(crate::command::InquiryResponse::Power { on: true });
-        let event = SchedulerEvent::Completion {
-            socket: Some(socket),
+        let event = SchedulerEvent::InquiryReply {
+            cmd_id: Some(1),
             response,
         };
 
@@ -965,7 +1007,6 @@ mod tests {
         match &actions[0] {
             SchedulerAction::CommandComplete { id, response: resp } => {
                 assert_eq!(*id, 1);
-                // Verify it's a power inquiry response
                 match resp {
                     ViscaResponse::Inquiry(crate::command::InquiryResponse::Power { on }) => {
                         assert!(*on);
@@ -976,10 +1017,130 @@ mod tests {
             _ => panic!("Expected CommandComplete action"),
         }
 
-        // Socket should be free again
-        let state = core.socket_state(socket);
-        assert!(state.0); // free = true
-        assert_eq!(state.1, None); // command_id
+        // Inquiry should be removed from tracking
+        assert!(!core.inquiries_inflight.contains_key(&1));
+        assert!(!core.inquiries_order.contains(&1));
+    }
+
+    #[test]
+    fn test_raw_visca_inquiry_ordering() {
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = crate::transport::RetryConfig::default();
+        let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+
+        let now = Instant::now();
+        let priority = Priority::Normal;
+        let category = CommandCategory::Quick;
+        let camera_id = crate::camera_id::CameraId::CAMERA_1;
+
+        // Start multiple inquiries in raw VISCA mode (no sequence)
+        let bytes1 = bytes::Bytes::from(vec![0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR]);
+        let bytes2 = bytes::Bytes::from(vec![0x81, 0x09, 0x04, 0x00, VISCA_TERMINATOR]);
+        let bytes3 = bytes::Bytes::from(vec![0x81, 0x09, 0x06, 0x12, VISCA_TERMINATOR]);
+
+        core.start_inquiry(1, bytes1, priority, category, camera_id, now);
+        core.start_inquiry(2, bytes2, priority, category, camera_id, now);
+        core.start_inquiry(3, bytes3, priority, category, camera_id, now);
+
+        // Verify all inquiries are tracked in order
+        assert_eq!(core.inquiries_order.len(), 3);
+        assert_eq!(core.inquiries_order[0], 1);
+        assert_eq!(core.inquiries_order[1], 2);
+        assert_eq!(core.inquiries_order[2], 3);
+
+        // Process InquiryReply events without cmd_id (raw VISCA)
+        // First reply should match first inquiry
+        let response1 = ViscaResponse::Inquiry(crate::command::InquiryResponse::Power { on: true });
+        let event1 = SchedulerEvent::InquiryReply {
+            cmd_id: None, // No sequence in raw VISCA
+            response: response1,
+        };
+
+        let actions = core.process_event(event1, now);
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            SchedulerAction::CommandComplete { id, .. } => {
+                assert_eq!(*id, 1); // First inquiry completed
+            }
+            _ => panic!("Expected CommandComplete action"),
+        }
+
+        // Order should have inquiry 1 removed
+        assert_eq!(core.inquiries_order.len(), 2);
+        assert_eq!(core.inquiries_order[0], 2);
+        assert_eq!(core.inquiries_order[1], 3);
+    }
+
+    #[test]
+    fn test_sony_sequence_attribution() {
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = crate::transport::RetryConfig::default();
+        let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+
+        let now = Instant::now();
+        let priority = Priority::Normal;
+        let camera_id = crate::camera_id::CameraId::CAMERA_1;
+
+        // Register two commands with sequences (simulating Sony protocol)
+        let bytes1 = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
+        let bytes2 = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]);
+
+        core.register_pending_ack(
+            1,
+            bytes1,
+            priority,
+            CommandCategory::Movement,
+            camera_id,
+            now,
+        );
+        core.register_sequence(1, 100); // Command 1 has sequence 100
+
+        core.register_pending_ack(
+            2,
+            bytes2,
+            priority,
+            CommandCategory::Movement,
+            camera_id,
+            now,
+        );
+        core.register_sequence(2, 101); // Command 2 has sequence 101
+
+        // Process ACK for command 2 first (out of order)
+        let cmd_id_2 = core.get_command_by_sequence(101);
+        let event = SchedulerEvent::Ack {
+            socket: ViscaSocket::S2,
+            cmd_id: cmd_id_2, // Using sequence to identify
+        };
+
+        let actions = core.process_event(event, now);
+
+        // ACK processing should be silent (no action returned)
+        assert!(
+            actions.is_empty(),
+            "Expected no actions from ACK processing"
+        );
+
+        // Verify command 2 got socket 2
+        let state = core.socket_state(ViscaSocket::S2);
+        assert!(!state.0); // Socket occupied
+        assert_eq!(state.1, Some(2)); // By command 2
+
+        // Command 1 should still be pending
+        assert!(core.pending_ack.contains_key(&1));
+
+        // Now process ACK for command 1
+        let cmd_id_1 = core.get_command_by_sequence(100);
+        let event = SchedulerEvent::Ack {
+            socket: ViscaSocket::S1,
+            cmd_id: cmd_id_1,
+        };
+
+        core.process_event(event, now);
+
+        // Verify command 1 got socket 1
+        let state = core.socket_state(ViscaSocket::S1);
+        assert!(!state.0); // Socket occupied
+        assert_eq!(state.1, Some(1)); // By command 1
     }
 
     #[test]
@@ -997,10 +1158,9 @@ mod tests {
         let category = CommandCategory::Quick;
         let camera_id = crate::camera_id::CameraId::CAMERA_1;
 
-        // Reserve socket for inquiry
-        let socket =
-            core.reserve_socket_for_inquiry(1, bytes.clone(), priority, category, camera_id, now);
-        assert!(socket.is_some());
+        // Start an inquiry
+        core.start_inquiry(1, bytes.clone(), priority, category, camera_id, now);
+        assert!(core.inquiries_inflight.contains_key(&1));
 
         // Check timeout immediately - should not timeout
         let actions = core.check_timeouts(now);
@@ -1025,19 +1185,17 @@ mod tests {
             other => panic!("Expected RetryCommand action, got: {:?}", other),
         }
 
-        // Socket should be free after retry scheduling
-        let state = core.socket_state(socket.unwrap());
-        assert!(state.0); // free = true
+        // Inquiry should be removed from tracking after timeout
+        assert!(!core.inquiries_inflight.contains_key(&1));
 
         // Exhaust retries by timing out again (simulate max retries reached)
         // For Quick category, we get extra retries, so we need to exhaust them
         // Set retry attempts to max to force failure on next timeout
         core.retry_attempts.insert(1, 10); // Force max retries exceeded
 
-        // Allocate socket again for the retry
-        let socket2 =
-            core.reserve_socket_for_inquiry(1, bytes.clone(), priority, category, camera_id, later);
-        assert!(socket2.is_some());
+        // Start inquiry again for the retry
+        core.start_inquiry(1, bytes.clone(), priority, category, camera_id, later);
+        assert!(core.inquiries_inflight.contains_key(&1));
 
         // Now timeout should fail
         let later2 = later + Duration::from_millis(200);

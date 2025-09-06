@@ -350,21 +350,15 @@ async fn send_command<T: AsyncTransport, E: crate::executor::Executor>(
     );
 
     // Track reservation state for rollback
-    let mut reserved_socket = None;
+    let reserved_socket = None;
     let mut registered_ack = false;
 
-    // For inquiries, reserve socket directly (no ACK)
+    // For inquiries, start tracking without socket allocation
     // For commands, register as pending ACK
     if kind == CommandKind::Inquiry {
-        // Reserve socket for inquiry
-        if let Some(socket) = adapter.reserve_socket_for_inquiry(&cmd) {
-            debug!("Reserved socket {:?} for inquiry {}", socket, cmd.id);
-            reserved_socket = Some(socket);
-        } else {
-            warn!("Failed to reserve socket for inquiry {}", cmd.id);
-            // The inquiry will remain queued and retry later
-            return Ok(());
-        }
+        // Start tracking the inquiry (no socket allocation)
+        adapter.start_inquiry(&cmd);
+        debug!("Started tracking inquiry {}", cmd.id);
     } else {
         // Register as pending ACK for commands
         adapter.register_pending_ack(&cmd);

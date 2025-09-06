@@ -224,21 +224,17 @@ impl<E: Executor> AsyncAdapter<E> {
         );
     }
 
-    /// Reserve a socket for an inquiry (which doesn't receive ACK).
-    pub fn reserve_socket_for_inquiry(&mut self, cmd: &PendingCommand) -> Option<ViscaSocket> {
+    /// Start tracking an inquiry (no socket allocation).
+    pub fn start_inquiry(&mut self, cmd: &PendingCommand) {
         let now = self.executor.now();
-
-        // Note: active_inquiry_ids.push_back is now done after successful send
-        // via mark_inquiry_inflight() to support rollback on send failure
-
-        self.core.reserve_socket_for_inquiry(
+        self.core.start_inquiry(
             cmd.id,
             cmd.bytes.clone(),
             cmd.priority,
             cmd.category,
             cmd.camera_id,
             now,
-        )
+        );
     }
 
     /// Register a Sony sequence number for a command.
@@ -309,9 +305,14 @@ impl<E: Executor> AsyncAdapter<E> {
 
         // Map to scheduler event
         let event = match basic.kind {
-            BasicKind::Ack => SchedulerEvent::Ack {
-                socket: basic.socket.unwrap_or(ViscaSocket::S1),
-            },
+            BasicKind::Ack => {
+                // For Sony, try to use sequence to find command
+                let cmd_id = sequence.and_then(|seq| self.core.get_command_by_sequence(seq));
+                SchedulerEvent::Ack {
+                    socket: basic.socket.unwrap_or(ViscaSocket::S1),
+                    cmd_id,
+                }
+            }
             BasicKind::Completion => {
                 // For Sony, try to use sequence to find command
                 let cmd_id = sequence.and_then(|seq| self.core.get_command_by_sequence(seq));
@@ -322,6 +323,7 @@ impl<E: Executor> AsyncAdapter<E> {
                 let response = lift_inquiry(&basic, response_type)?;
                 SchedulerEvent::Completion {
                     socket: basic.socket,
+                    cmd_id,
                     response,
                 }
             }
@@ -332,33 +334,34 @@ impl<E: Executor> AsyncAdapter<E> {
                     _ => self.metrics.protocol_errors += 1,
                 }
 
+                // For Sony, try to use sequence to find command
+                let cmd_id = sequence.and_then(|seq| self.core.get_command_by_sequence(seq));
                 SchedulerEvent::Error {
                     socket: basic.socket,
+                    cmd_id,
                     code,
                 }
             }
             BasicKind::DataReply => {
                 // Data replies are completions for inquiries
-                // Try to find command ID from sequence (Sony) or active inquiry queue (raw VISCA)
-                let cmd_id = if let Some(seq) = sequence {
-                    // Sony protocol: use sequence to find command
-                    self.core.get_command_by_sequence(seq)
-                } else {
-                    // Raw VISCA: pop from front of queue (FIFO order)
-                    self.active_inquiry_ids.pop_front()
-                };
+                // Try to find command ID from sequence (Sony) or let the core handle it
+                let cmd_id = sequence.and_then(|seq| self.core.get_command_by_sequence(seq));
 
                 // Get the expected response type for this inquiry
-                let response_type = cmd_id.and_then(|id| self.inquiry_response_types.get(&id));
+                // For raw VISCA (no sequence), use the first inquiry in the queue
+                let response_type = if let Some(id) = cmd_id {
+                    self.inquiry_response_types.get(&id)
+                } else if let Some(&first_id) = self.active_inquiry_ids.front() {
+                    // Raw VISCA: use the response type from the first queued inquiry
+                    self.inquiry_response_types.get(&first_id)
+                } else {
+                    None
+                };
 
                 let response = lift_inquiry(&basic, response_type)?;
 
-                // For raw VISCA, determine socket from active inquiry
-                let socket = basic
-                    .socket
-                    .or_else(|| cmd_id.and_then(|id| self.core.find_socket_for_command(id)));
-
-                SchedulerEvent::Completion { socket, response }
+                // Use InquiryReply event for data replies
+                SchedulerEvent::InquiryReply { cmd_id, response }
             }
             BasicKind::NetworkChange | BasicKind::Unknown => {
                 // Ignore these for now
