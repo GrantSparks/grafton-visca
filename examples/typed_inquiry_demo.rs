@@ -9,7 +9,11 @@
 //! ```
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::{profiles::GenericVisca, BlockingCamera, Error};
+use grafton_visca::{
+    mode::{Blocking, BlockingFutureExt},
+    profiles::GenericVisca,
+    Camera, Error, PowerControl, ZoomControl,
+};
 #[cfg(not(feature = "async"))]
 use std::time::Duration;
 
@@ -22,13 +26,18 @@ fn main() -> Result<(), Error> {
     let address = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.1.100:5678".to_string());
     println!("Connecting to camera at {address}...");
 
-    let camera = BlockingCamera::<GenericVisca, _>::connect_tcp(&address)?;
+    let camera = Camera::<
+        Blocking,
+        GenericVisca,
+        Box<dyn grafton_visca::transport::SyncTransport>,
+        (),
+    >::open_tcp(&address)?;
 
     println!("\n=== High-Level API Inquiry Demo ===\n");
 
     // Power status - using high-level PowerControlBlocking trait
     println!("Checking power status...");
-    match camera.power_inquiry() {
+    match camera.power_inquiry().block() {
         Ok(power_on) => {
             let status = if power_on { "ON" } else { "OFF" };
             println!("  Power: {status}");
@@ -41,7 +50,7 @@ fn main() -> Result<(), Error> {
 
     // Zoom position - using high-level ZoomControlBlocking trait
     println!("\nChecking zoom position...");
-    match camera.zoom_position_inquiry() {
+    match camera.zoom_position_inquiry().block() {
         Ok(zoom_pos) => {
             let raw_value = zoom_pos.value();
             let zoom_percentage = (raw_value as f32 / 0x4000 as f32) * 100.0;
@@ -58,12 +67,12 @@ fn main() -> Result<(), Error> {
 
     // Try to zoom in slightly
     println!("Zooming in...");
-    if let Err(e) = camera.zoom_tele_std() {
+    if let Err(e) = camera.zoom_tele_std().block() {
         println!("  Zoom command failed: {e}");
     } else {
         // Wait a moment and stop
         std::thread::sleep(Duration::from_millis(500));
-        let _ = camera.zoom_stop();
+        let _ = camera.zoom_stop().block();
         println!("  Zoom completed");
     }
 

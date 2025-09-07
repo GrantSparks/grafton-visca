@@ -34,7 +34,7 @@ fn main() -> grafton_visca::Result<()> {
     println!("Connecting to camera at {camera_addr}...");
     let camera = CameraBuilder::tcp(&camera_addr)
         .profile::<grafton_visca::camera::profiles::GenericVisca>()
-        .build()?;
+        .open()?;
 
     println!("\n📊 Querying all camera parameters...\n");
 
@@ -208,7 +208,7 @@ async fn main() -> grafton_visca::Result<()> {
     println!("Connecting to camera at {camera_addr}...");
     let transport = Tcp::connect(&camera_addr).await?;
     let camera = CameraBuilder::tokio()?
-        .build_async::<grafton_visca::camera::profiles::GenericVisca, _>(transport)
+        .open_async::<grafton_visca::camera::profiles::GenericVisca, _>(transport)
         .await?;
 
     println!("\n⚡ Executing all inquiries concurrently...\n");

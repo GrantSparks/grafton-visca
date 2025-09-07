@@ -15,15 +15,15 @@
 //! ```ignore
 //! // Tokio
 //! let camera = CameraBuilder::tokio()?
-//!     .build_async::<PtzOpticsG2, _>(transport)?;
+//!     .open_async::<PtzOpticsG2, _>(transport)?;
 //!
 //! // async-std
 //! let camera = CameraBuilder::async_std()
-//!     .build_async::<PtzOpticsG2, _>(transport)?;
+//!     .open_async::<PtzOpticsG2, _>(transport)?;
 //!
 //! // smol
 //! let camera = CameraBuilder::smol()
-//!     .build_async::<PtzOpticsG2, _>(transport)?;
+//!     .open_async::<PtzOpticsG2, _>(transport)?;
 //! ```
 
 #[cfg(feature = "async")]
@@ -55,6 +55,125 @@ pub struct CameraBuilder<E = ()> {
     executor: Option<Arc<E>>,
     #[cfg(not(feature = "async"))]
     _phantom: std::marker::PhantomData<E>,
+}
+
+/// Builder with async transport attached (BYO transport pattern).
+#[cfg(feature = "async")]
+#[derive(Debug)]
+pub struct CameraBuilderWithAsyncTransport<E, T> {
+    transport: T,
+    executor: Option<Arc<E>>,
+    camera_id: CameraId,
+    timeout_config: TimeoutConfig,
+    protocol_style: Option<ProtocolStyle>,
+    auto_detect_protocol: bool,
+}
+
+#[cfg(feature = "async")]
+impl<E, T> CameraBuilderWithAsyncTransport<E, T>
+where
+    E: Executor + Send + Sync + 'static,
+    T: AsyncTransport + Send + Sync + 'static,
+{
+    /// Set the camera profile.
+    ///
+    /// This method configures the camera profile for the attached transport.
+    pub fn profile<P>(self) -> CameraBuilderWithAsyncTransportAndProfile<E, T, P>
+    where
+        P: Profile + Default,
+    {
+        CameraBuilderWithAsyncTransportAndProfile {
+            transport: self.transport,
+            executor: self.executor,
+            camera_id: self.camera_id,
+            timeout_config: self.timeout_config,
+            protocol_style: self.protocol_style,
+            auto_detect_protocol: self.auto_detect_protocol,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    /// Override the protocol style.
+    ///
+    /// By default, the camera will use the protocol style declared by the profile.
+    /// This method allows overriding that for specific deployments.
+    pub fn protocol_style(mut self, style: ProtocolStyle) -> Self {
+        self.protocol_style = Some(style);
+        self
+    }
+
+    /// Enable automatic protocol detection.
+    ///
+    /// When enabled, the builder will probe the camera to detect
+    /// whether it uses Sony encapsulated or raw VISCA protocol.
+    pub fn auto_detect_protocol(mut self, enabled: bool) -> Self {
+        self.auto_detect_protocol = enabled;
+        self
+    }
+}
+
+/// Builder with async transport and profile configured.
+#[cfg(feature = "async")]
+#[derive(Debug)]
+pub struct CameraBuilderWithAsyncTransportAndProfile<E, T, P> {
+    transport: T,
+    executor: Option<Arc<E>>,
+    camera_id: CameraId,
+    timeout_config: TimeoutConfig,
+    protocol_style: Option<ProtocolStyle>,
+    auto_detect_protocol: bool,
+    _phantom: std::marker::PhantomData<P>,
+}
+
+#[cfg(feature = "async")]
+impl<E, T, P> CameraBuilderWithAsyncTransportAndProfile<E, T, P>
+where
+    E: Executor + Send + Sync + 'static,
+    T: AsyncTransport + Send + Sync + 'static,
+    P: Profile + Default,
+{
+    /// Open the async camera with the configured transport.
+    ///
+    /// This method attaches the provided transport to create a camera instance.
+    pub async fn open_async(self) -> Result<Camera<mode::Async, P, T, E>, Error> {
+        let executor = self.executor.ok_or_else(|| {
+            Error::InvalidState("No executor configured. Use CameraBuilder::with_executor() or a runtime-specific constructor like CameraBuilder::tokio()".into())
+        })?;
+
+        // Determine protocol style and build camera
+        if self.auto_detect_protocol {
+            // Create a mutable reference to transport for detection
+            let mut transport = self.transport;
+            let detector = ProtocolDetector::new();
+            let detection_result = detector.detect_protocol(&mut transport, &*executor).await?;
+
+            let protocol_style = match detection_result.to_protocol_style() {
+                Some(style) => style,
+                None => {
+                    return Err(Error::ConnectionFailed {
+                        addr: "camera".into(),
+                        source: std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "No valid VISCA protocol response detected",
+                        ),
+                    });
+                }
+            };
+
+            let mut camera =
+                Camera::new_async_with_style(transport, executor, protocol_style).await?;
+            camera.set_camera_id(self.camera_id);
+            camera.set_timeout_config(self.timeout_config);
+            Ok(camera)
+        } else {
+            let protocol_style = self.protocol_style.unwrap_or(P::PROTOCOL_STYLE);
+            let mut camera =
+                Camera::new_async_with_style(self.transport, executor, protocol_style).await?;
+            camera.set_camera_id(self.camera_id);
+            camera.set_timeout_config(self.timeout_config);
+            Ok(camera)
+        }
+    }
 }
 
 impl<E> std::fmt::Debug for CameraBuilder<E> {
@@ -125,6 +244,43 @@ where
         self
     }
 
+    /// Create a builder from an existing transport (BYO transport pattern).
+    ///
+    /// This is the advanced path for users who want full control over transport
+    /// configuration using the TransportBuilder or custom transports.
+    ///
+    /// # Example
+    /// ```ignore
+    /// use grafton_visca::transport::Transport;
+    ///
+    /// let transport = Transport::tcp()
+    ///     .address("192.168.0.110:5678")
+    ///     .connect_timeout(Duration::from_secs(10))
+    ///     .tcp_nodelay(true)
+    ///     .build_async_with(runtime.clone())
+    ///     .await?;
+    ///
+    /// let camera = CameraBuilder::with_executor(executor)
+    ///     .from_transport(transport)
+    ///     .profile::<PtzOpticsG2>()
+    ///     .open_async()
+    ///     .await?;
+    /// ```
+    pub fn from_transport<T>(self, transport: T) -> CameraBuilderWithAsyncTransport<E, T>
+    where
+        T: AsyncTransport + Send + Sync + 'static,
+        E: Send + Sync + 'static,
+    {
+        CameraBuilderWithAsyncTransport {
+            transport,
+            executor: self.executor,
+            camera_id: self.camera_id,
+            timeout_config: self.timeout_config,
+            protocol_style: self.protocol_style,
+            auto_detect_protocol: self.auto_detect_protocol,
+        }
+    }
+
     /// Override the protocol style.
     ///
     /// By default, the camera will use the protocol style declared by the profile.
@@ -144,10 +300,11 @@ where
         self
     }
 
-    /// Build an async camera with the specified profile and transport.
+    /// Open an async camera connection with the specified profile and transport.
     ///
+    /// This method explicitly connects to the camera using the provided transport.
     /// The executor must have been set via `with_executor()`.
-    pub async fn build_async<P, T>(
+    pub async fn open_async<P, T>(
         self,
         mut transport: T,
     ) -> Result<Camera<mode::Async, P, T, E>, Error>
@@ -213,6 +370,239 @@ pub enum TransportType {
 pub struct CameraBuilderWithTransport {
     transport_type: TransportType,
     address: String,
+    protocol_style: Option<ProtocolStyle>,
+}
+
+/// Builder with BYO (Bring Your Own) transport.
+#[cfg(not(feature = "async"))]
+pub struct CameraBuilderWithBYOTransport {
+    transport: Box<dyn SyncTransport>,
+    protocol_style: Option<ProtocolStyle>,
+}
+
+#[cfg(not(feature = "async"))]
+impl std::fmt::Debug for CameraBuilderWithBYOTransport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CameraBuilderWithBYOTransport")
+            .field("transport", &"Box<dyn SyncTransport>")
+            .field("protocol_style", &self.protocol_style)
+            .finish()
+    }
+}
+
+/// Builder for auto-detecting transport and protocol.
+#[derive(Debug)]
+#[cfg(not(feature = "async"))]
+pub struct CameraBuilderWithAutoDetect {
+    address: String,
+}
+
+#[cfg(not(feature = "async"))]
+impl CameraBuilderWithAutoDetect {
+    /// Set the camera profile.
+    pub fn profile<P>(self) -> CameraBuilderWithAutoDetectAndProfile<P>
+    where
+        P: Profile + Default,
+    {
+        CameraBuilderWithAutoDetectAndProfile {
+            address: self.address,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+/// Builder with auto-detect and profile configured.
+#[derive(Debug)]
+#[cfg(not(feature = "async"))]
+pub struct CameraBuilderWithAutoDetectAndProfile<P> {
+    address: String,
+    _phantom: std::marker::PhantomData<P>,
+}
+
+#[cfg(not(feature = "async"))]
+impl<P> CameraBuilderWithAutoDetectAndProfile<P>
+where
+    P: Profile + Default,
+{
+    /// Open the camera with auto-detected transport and protocol.
+    ///
+    /// This method tries multiple transport/protocol combinations to find
+    /// the one that works with the camera.
+    pub fn open(self) -> Result<crate::BlockingCamera<P, Box<dyn SyncTransport>>, Error> {
+        use crate::transport::blocking::{tcp::Tcp, udp::Udp};
+        use std::time::Duration;
+
+        // Extract host from address (remove port if present)
+        let host = if let Some(colon_pos) = self.address.rfind(':') {
+            // Check if this is actually a port (not IPv6)
+            if self.address[colon_pos + 1..].parse::<u16>().is_ok() {
+                &self.address[..colon_pos]
+            } else {
+                &self.address
+            }
+        } else {
+            &self.address
+        };
+
+        // Detection candidates in priority order
+        let candidates = vec![
+            // Sony cameras
+            (
+                format!("{}:52381", host),
+                TransportType::Udp,
+                ProtocolStyle::SonyEncapsulated,
+            ),
+            (
+                format!("{}:52381", host),
+                TransportType::Tcp,
+                ProtocolStyle::SonyEncapsulated,
+            ),
+            // PTZOptics cameras
+            (
+                format!("{}:1259", host),
+                TransportType::Udp,
+                ProtocolStyle::RawVisca,
+            ),
+            (
+                format!("{}:5678", host),
+                TransportType::Tcp,
+                ProtocolStyle::RawVisca,
+            ),
+        ];
+
+        // Try each candidate
+        for (address, transport_type, protocol_style) in candidates {
+            // Try to connect
+            let transport_result: Result<Box<dyn SyncTransport>, Error> = match transport_type {
+                TransportType::Tcp => {
+                    match Tcp::connect(&address) {
+                        Ok(t) => Ok(Box::new(t)),
+                        Err(_) => continue, // Try next candidate
+                    }
+                }
+                TransportType::Udp => {
+                    match Udp::connect(&address) {
+                        Ok(t) => Ok(Box::new(t)),
+                        Err(_) => continue, // Try next candidate
+                    }
+                }
+            };
+
+            if let Ok(mut transport) = transport_result {
+                // Test with a simple inquiry command
+                let test_command = &[0x81, 0x09, 0x00, 0x02, 0xFF]; // Version Inquiry
+
+                // Send command and check for response
+                if transport
+                    .send_with_kind(test_command, crate::command::CommandKind::Inquiry)
+                    .is_ok()
+                {
+                    // Try to receive with timeout
+                    if let Ok(response) = transport.recv_with_timeout(Duration::from_millis(100)) {
+                        // Check if response looks valid
+                        if !response.is_empty()
+                            && Self::is_valid_response(&response, protocol_style)
+                        {
+                            // Found working combination
+                            return crate::BlockingCamera::new_with_style(
+                                transport,
+                                protocol_style,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        Err(Error::ConnectionFailed {
+            addr: self.address.clone().into(),
+            source: std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "No VISCA protocol response detected from camera - verify camera is powered on and address is correct"
+            ),
+        })
+    }
+
+    /// Check if a response is valid for the given protocol style.
+    fn is_valid_response(data: &[u8], protocol_style: ProtocolStyle) -> bool {
+        match protocol_style {
+            ProtocolStyle::SonyEncapsulated => {
+                // Sony response should have at least 8-byte header
+                data.len() >= 8 && data[0] == 0x01 && data[1] == 0x11
+            }
+            ProtocolStyle::RawVisca => {
+                // Raw VISCA response should start with 0x90
+                !data.is_empty() && (data[0] == 0x90 || data[0] == 0x50)
+            }
+        }
+    }
+}
+
+#[cfg(not(feature = "async"))]
+impl CameraBuilderWithBYOTransport {
+    /// Set the camera profile.
+    pub fn profile<P>(self) -> CameraBuilderWithBYOTransportAndProfile<P>
+    where
+        P: Profile + Default,
+    {
+        CameraBuilderWithBYOTransportAndProfile {
+            transport: self.transport,
+            protocol_style: self.protocol_style,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    /// Override the protocol style.
+    ///
+    /// By default, the camera will use the protocol style declared by the profile.
+    /// This method allows overriding that for specific deployments.
+    pub fn protocol_style(mut self, style: ProtocolStyle) -> Self {
+        self.protocol_style = Some(style);
+        self
+    }
+}
+
+/// Builder with BYO transport and profile configured.
+#[cfg(not(feature = "async"))]
+pub struct CameraBuilderWithBYOTransportAndProfile<P> {
+    transport: Box<dyn SyncTransport>,
+    protocol_style: Option<ProtocolStyle>,
+    _phantom: std::marker::PhantomData<P>,
+}
+
+#[cfg(not(feature = "async"))]
+impl<P> std::fmt::Debug for CameraBuilderWithBYOTransportAndProfile<P> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CameraBuilderWithBYOTransportAndProfile")
+            .field("transport", &"Box<dyn SyncTransport>")
+            .field("protocol_style", &self.protocol_style)
+            .field("_phantom", &self._phantom)
+            .finish()
+    }
+}
+
+#[cfg(not(feature = "async"))]
+impl<P> CameraBuilderWithBYOTransportAndProfile<P>
+where
+    P: Profile + Default,
+{
+    /// Override the protocol style.
+    ///
+    /// By default, the camera will use the protocol style declared by the profile.
+    /// This method allows overriding that for specific deployments.
+    pub fn protocol_style(mut self, style: ProtocolStyle) -> Self {
+        self.protocol_style = Some(style);
+        self
+    }
+
+    /// Open the camera with the configured transport.
+    ///
+    /// This method attaches the provided transport to create a camera instance.
+    pub fn open(self) -> Result<crate::BlockingCamera<P, Box<dyn SyncTransport>>, Error> {
+        // Use protocol style override if provided, otherwise use profile default
+        let protocol_style = self.protocol_style.unwrap_or(P::PROTOCOL_STYLE);
+        crate::BlockingCamera::new_with_style(self.transport, protocol_style)
+    }
 }
 
 #[cfg(not(feature = "async"))]
@@ -225,8 +615,18 @@ impl CameraBuilderWithTransport {
         CameraBuilderWithProfile {
             transport_type: self.transport_type,
             address: self.address,
+            protocol_style: self.protocol_style,
             _phantom: std::marker::PhantomData,
         }
+    }
+
+    /// Override the protocol style.
+    ///
+    /// By default, the camera will use the protocol style declared by the profile.
+    /// This method allows overriding that for specific deployments.
+    pub fn protocol_style(mut self, style: ProtocolStyle) -> Self {
+        self.protocol_style = Some(style);
+        self
     }
 }
 
@@ -236,6 +636,7 @@ impl CameraBuilderWithTransport {
 pub struct CameraBuilderWithProfile<P> {
     transport_type: TransportType,
     address: String,
+    protocol_style: Option<ProtocolStyle>,
     _phantom: std::marker::PhantomData<P>,
 }
 
@@ -244,8 +645,20 @@ impl<P> CameraBuilderWithProfile<P>
 where
     P: Profile + Default,
 {
-    /// Build the camera with the configured settings.
-    pub fn build(self) -> Result<crate::BlockingCamera<P, Box<dyn SyncTransport>>, Error> {
+    /// Override the protocol style.
+    ///
+    /// By default, the camera will use the protocol style declared by the profile.
+    /// This method allows overriding that for specific deployments.
+    pub fn protocol_style(mut self, style: ProtocolStyle) -> Self {
+        self.protocol_style = Some(style);
+        self
+    }
+
+    /// Open the camera connection with the configured settings.
+    ///
+    /// This method explicitly connects to the camera, making it clear that
+    /// network operations occur at this point.
+    pub fn open(self) -> Result<crate::BlockingCamera<P, Box<dyn SyncTransport>>, Error> {
         let transport: Box<dyn SyncTransport> = match self.transport_type {
             TransportType::Tcp => Box::new(crate::transport::blocking::tcp::Tcp::connect(
                 &self.address,
@@ -255,7 +668,9 @@ where
             )?),
         };
 
-        crate::BlockingCamera::new(transport)
+        // Use protocol style override if provided, otherwise use profile default
+        let protocol_style = self.protocol_style.unwrap_or(P::PROTOCOL_STYLE);
+        crate::BlockingCamera::new_with_style(transport, protocol_style)
     }
 }
 
@@ -266,13 +681,14 @@ impl CameraBuilder<()> {
     /// ```ignore
     /// let camera = CameraBuilder::tcp("192.168.0.110:5678")
     ///     .profile::<PtzOpticsG2>()
-    ///     .build()?;
+    ///     .open()?;
     /// ```
     #[cfg(not(feature = "async"))]
     pub fn tcp(address: impl Into<String>) -> CameraBuilderWithTransport {
         CameraBuilderWithTransport {
             transport_type: TransportType::Tcp,
             address: address.into(),
+            protocol_style: None,
         }
     }
 
@@ -282,13 +698,63 @@ impl CameraBuilder<()> {
     /// ```ignore
     /// let camera = CameraBuilder::udp("192.168.0.110:1259")
     ///     .profile::<PtzOpticsG2>()
-    ///     .build()?;
+    ///     .open()?;
     /// ```
     #[cfg(not(feature = "async"))]
     pub fn udp(address: impl Into<String>) -> CameraBuilderWithTransport {
         CameraBuilderWithTransport {
             transport_type: TransportType::Udp,
             address: address.into(),
+            protocol_style: None,
+        }
+    }
+
+    /// Create a builder that automatically detects the transport and protocol.
+    ///
+    /// This method tries multiple transport/protocol combinations to find
+    /// the one that the camera responds to:
+    /// 1. UDP 52381 with Sony encapsulated (primary Sony path)
+    /// 2. TCP 52381 with Sony encapsulated (some stacks support TCP)
+    /// 3. UDP 1259 with raw VISCA (PTZOptics default)
+    /// 4. TCP 5678 with raw VISCA (PTZOptics TCP)
+    ///
+    /// # Example
+    /// ```ignore
+    /// let camera = CameraBuilder::connect_auto("192.168.0.110")
+    ///     .profile::<PtzOpticsG2>()
+    ///     .open()?;
+    /// ```
+    #[cfg(not(feature = "async"))]
+    pub fn connect_auto(address: impl Into<String>) -> CameraBuilderWithAutoDetect {
+        CameraBuilderWithAutoDetect {
+            address: address.into(),
+        }
+    }
+
+    /// Create a builder from an existing transport (BYO transport pattern).
+    ///
+    /// This is the advanced path for users who want full control over transport
+    /// configuration using the TransportBuilder or custom transports.
+    ///
+    /// # Example
+    /// ```ignore
+    /// use grafton_visca::transport::Transport;
+    ///
+    /// let transport = Transport::tcp()
+    ///     .address("192.168.0.110:5678")
+    ///     .connect_timeout(Duration::from_secs(10))
+    ///     .tcp_nodelay(true)
+    ///     .build_blocking()?;
+    ///
+    /// let camera = CameraBuilder::from_transport(transport)
+    ///     .profile::<PtzOpticsG2>()
+    ///     .open()?;
+    /// ```
+    #[cfg(not(feature = "async"))]
+    pub fn from_transport(transport: Box<dyn SyncTransport>) -> CameraBuilderWithBYOTransport {
+        CameraBuilderWithBYOTransport {
+            transport,
+            protocol_style: None,
         }
     }
 
@@ -321,7 +787,7 @@ impl CameraBuilder<crate::executor::TokioExecutor> {
     /// This provides the easiest way to create a Tokio-based camera:
     /// ```ignore
     /// let camera = CameraBuilder::tokio()?
-    ///     .build_async::<PtzOpticsG2, _>(transport)?;
+    ///     .open_async::<PtzOpticsG2, _>(transport).await?;
     /// ```
     pub fn tokio() -> Result<Self, Error> {
         let executor = crate::executor::TokioExecutor::from_current()?;
@@ -336,7 +802,7 @@ impl CameraBuilder<crate::executor::AsyncStdExecutor> {
     /// This provides the easiest way to create an async-std-based camera:
     /// ```ignore
     /// let camera = CameraBuilder::async_std()
-    ///     .build_async::<PtzOpticsG2, _>(transport)?;
+    ///     .open_async::<PtzOpticsG2, _>(transport).await?;
     /// ```
     pub fn async_std() -> Self {
         let executor = crate::executor::AsyncStdExecutor::new();
@@ -351,7 +817,7 @@ impl CameraBuilder<crate::executor::SmolExecutor> {
     /// This provides the easiest way to create a smol-based camera:
     /// ```ignore
     /// let camera = CameraBuilder::smol()
-    ///     .build_async::<PtzOpticsG2, _>(transport)?;
+    ///     .open_async::<PtzOpticsG2, _>(transport).await?;
     /// ```
     pub fn smol() -> Self {
         let executor = crate::executor::SmolExecutor::new();
@@ -429,14 +895,14 @@ mod tests {
         // SonyFR7 should use Sony encapsulated protocol by default
         let transport = ViscaCameraSimulator::new();
         let _camera = CameraBuilder::with_executor(executor.clone())
-            .build_async::<SonyFR7, _>(transport)
+            .open_async::<SonyFR7, _>(transport)
             .await?;
         // Camera should be configured with Sony encapsulated protocol
 
         // PtzOpticsG2 should use RawVisca protocol by default
         let transport = ViscaCameraSimulator::new();
         let _camera = CameraBuilder::with_executor(executor)
-            .build_async::<PtzOpticsG2, _>(transport)
+            .open_async::<PtzOpticsG2, _>(transport)
             .await?;
         // Camera should be configured with RawVisca protocol
         Ok(())
@@ -455,7 +921,7 @@ mod tests {
         let transport = ViscaCameraSimulator::new();
         let _camera = CameraBuilder::with_executor(executor)
             .protocol_style(ProtocolStyle::RawVisca)
-            .build_async::<SonyFR7, _>(transport)
+            .open_async::<SonyFR7, _>(transport)
             .await?;
         // Camera should be configured with RawVisca protocol despite SonyFR7 default
         Ok(())

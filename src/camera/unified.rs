@@ -52,7 +52,7 @@ use crate::{
 /// use grafton_visca::transport::Transport;
 ///
 /// // Async camera
-/// let transport = Transport::tcp().address("192.168.0.110:5678").build_async().await?;
+/// let transport = Transport::tcp().address("192.168.0.110:5678").open_async().await?;
 /// let camera = Camera::<Async, PtzOpticsG2, _, _>::new_async(transport, executor).await?;
 /// camera.power_on().await?;
 ///
@@ -215,6 +215,90 @@ where
     /// Set the timeout configuration.
     pub fn set_timeout_config(&mut self, timeout_config: TimeoutConfig) {
         self.timeout_config = timeout_config;
+    }
+}
+
+// Unified constructor methods for blocking mode
+#[cfg(not(feature = "async"))]
+impl<P> Camera<crate::mode::Blocking, P, Box<dyn SyncTransport>, ()>
+where
+    P: Profile + Default,
+{
+    /// Open a TCP connection to a camera.
+    ///
+    /// This is the primary convenience method for creating a blocking camera via TCP.
+    /// It internally creates the transport and connects to the camera.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use grafton_visca::{Camera, mode::Blocking};
+    /// use grafton_visca::profiles::PtzOpticsG2;
+    ///
+    /// let camera = Camera::<Blocking, PtzOpticsG2>::open_tcp("192.168.0.110:5678")?;
+    /// camera.power_on()?;
+    /// camera.close()?;
+    /// ```
+    pub fn open_tcp(addr: impl Into<String>) -> Result<Self, Error> {
+        let transport: Box<dyn SyncTransport> =
+            Box::new(crate::transport::blocking::tcp::Tcp::connect(&addr.into())?);
+        Self::new_blocking(transport)
+    }
+
+    /// Open a UDP connection to a camera.
+    ///
+    /// This is the primary convenience method for creating a blocking camera via UDP.
+    /// It internally creates the transport and connects to the camera.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use grafton_visca::{Camera, mode::Blocking};
+    /// use grafton_visca::profiles::GenericVisca;
+    ///
+    /// let camera = Camera::<Blocking, GenericVisca>::open_udp("192.168.0.110:1259")?;
+    /// camera.power_on()?;
+    /// camera.close()?;
+    /// ```
+    pub fn open_udp(addr: impl Into<String>) -> Result<Self, Error> {
+        let transport: Box<dyn SyncTransport> =
+            Box::new(crate::transport::blocking::udp::Udp::connect(&addr.into())?);
+        Self::new_blocking(transport)
+    }
+
+    /// Open a camera connection with automatic protocol detection.
+    ///
+    /// This method tries multiple transport/protocol combinations to find
+    /// the one that the camera responds to:
+    /// 1. UDP 52381 with Sony encapsulated (primary Sony path)
+    /// 2. TCP 52381 with Sony encapsulated (some stacks support TCP)
+    /// 3. UDP 1259 with raw VISCA (PTZOptics default)
+    /// 4. TCP 5678 with raw VISCA (PTZOptics TCP)
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use grafton_visca::{Camera, mode::Blocking};
+    /// use grafton_visca::prelude::blocking::*;
+    /// use grafton_visca::capabilities::profiles::PtzOpticsG2;
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let camera = Camera::<Blocking, PtzOpticsG2>::open_auto("192.168.0.110")?;
+    /// camera.power_on()?;
+    /// camera.close()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn open_auto(addr: impl Into<String>) -> Result<Self, Error> {
+        use crate::camera::builder::CameraBuilder;
+
+        CameraBuilder::connect_auto(addr)
+            .profile::<P>()
+            .open()
+            .map(|blocking_camera| {
+                // Convert BlockingCamera to Camera
+                blocking_camera.into_inner()
+            })
     }
 }
 
@@ -667,6 +751,69 @@ where
             Ok(visca_response) => C::from_response(visca_response),
             Err(e) => Err(e),
         })
+    }
+}
+
+// Close/shutdown methods for blocking mode
+#[cfg(not(feature = "async"))]
+impl<P, Tr, Exec> Camera<crate::mode::Blocking, P, Tr, Exec>
+where
+    P: Profile,
+    Tr: SyncTransport,
+{
+    /// Close the camera connection gracefully.
+    ///
+    /// This method performs an orderly shutdown of the camera connection,
+    /// ensuring any pending operations are completed before closing.
+    /// The camera object is consumed and cannot be used after this call.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use grafton_visca::{Camera, mode::Blocking, camera::profiles::PtzOpticsG2};
+    ///
+    /// let camera = Camera::<Blocking, PtzOpticsG2, _, ()>::connect_tcp("192.168.0.110:5678")?;
+    /// // Use the camera...
+    /// camera.close()?;
+    /// // Camera is now closed and cannot be used
+    /// ```
+    pub fn close(self) -> Result<(), Error> {
+        // For blocking mode, we don't have explicit close on transports
+        // The transport will be closed when dropped
+        // We just consume self to ensure no further operations
+        drop(self);
+        Ok(())
+    }
+}
+
+// Close/shutdown methods for async mode
+#[cfg(feature = "async")]
+impl<P, Tr, Exec> Camera<crate::mode::Async, P, Tr, Exec>
+where
+    P: Profile,
+    Tr: AsyncTransport + Send + Sync + 'static,
+    Exec: Executor + Send + Sync + 'static,
+{
+    /// Shutdown the camera connection gracefully.
+    ///
+    /// This method performs an orderly shutdown of the camera connection,
+    /// ensuring any pending operations are completed before closing.
+    /// The camera object is consumed and cannot be used after this call.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use grafton_visca::{Camera, mode::Async, camera::profiles::PtzOpticsG2};
+    ///
+    /// let camera = Camera::<Async, PtzOpticsG2, _, _>::connect_tcp("192.168.0.110:5678", runtime).await?;
+    /// // Use the camera...
+    /// camera.shutdown().await?;
+    /// // Camera is now closed and cannot be used
+    /// ```
+    pub async fn shutdown(self) -> Result<(), Error> {
+        // Shutdown the runtime handle which will close the transport
+        self.runtime.shutdown().await;
+        Ok(())
     }
 }
 

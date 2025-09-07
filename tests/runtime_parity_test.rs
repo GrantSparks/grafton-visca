@@ -59,7 +59,7 @@ mod parity_tests {
             ScriptedTransport::new(create_test_script()).with_executor(executor.clone());
 
         let camera = CameraBuilder::<TokioExecutor>::with_executor(executor)
-            .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+            .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
             .await
             .expect("Failed to create camera");
 
@@ -92,7 +92,7 @@ mod parity_tests {
                 ScriptedTransport::new(create_test_script()).with_executor(executor.clone());
 
             let camera = CameraBuilder::<AsyncStdExecutor>::with_executor(executor)
-                .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+                .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
                 .await
                 .expect("Failed to create camera");
 
@@ -126,7 +126,7 @@ mod parity_tests {
                 ScriptedTransport::new(create_test_script()).with_executor(executor.clone());
 
             let camera = CameraBuilder::<SmolExecutor>::with_executor(executor)
-                .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+                .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
                 .await
                 .expect("Failed to create camera");
 
@@ -164,7 +164,7 @@ mod parity_tests {
             .with_executor(executor.clone());
 
         let camera = CameraBuilder::<TokioExecutor>::with_executor(executor)
-            .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+            .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
             .await
             .expect("Failed to build camera");
 
@@ -188,7 +188,7 @@ mod parity_tests {
                 .with_executor(executor.clone());
 
             let camera = CameraBuilder::<AsyncStdExecutor>::with_executor(executor)
-                .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+                .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
                 .await
                 .expect("Failed to build camera");
 
@@ -213,7 +213,7 @@ mod parity_tests {
                 .with_executor(executor.clone());
 
             let camera = CameraBuilder::<SmolExecutor>::with_executor(executor)
-                .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+                .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
                 .await
                 .expect("Failed to build camera");
 
@@ -238,7 +238,7 @@ mod parity_tests {
             .with_executor(executor.clone());
 
         let camera = CameraBuilder::<TokioExecutor>::with_executor(executor)
-            .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+            .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
             .await
             .expect("Failed to create camera");
 
@@ -262,7 +262,7 @@ mod parity_tests {
                 .with_executor(executor.clone());
 
             let camera = CameraBuilder::<AsyncStdExecutor>::with_executor(executor)
-                .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+                .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
                 .await
                 .expect("Failed to create camera");
 
@@ -287,7 +287,7 @@ mod parity_tests {
                 .with_executor(executor.clone());
 
             let camera = CameraBuilder::<SmolExecutor>::with_executor(executor)
-                .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+                .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
                 .await
                 .expect("Failed to create camera");
 
@@ -326,7 +326,7 @@ mod all_runtimes_test {
             let transport: ScriptedTransport<TokioExecutor> =
                 ScriptedTransport::new(script.clone()).with_executor(executor.clone());
             let camera = CameraBuilder::<TokioExecutor>::with_executor(executor)
-                .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+                .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
                 .await
                 .unwrap();
             camera.power_inquiry().await.unwrap()
@@ -340,7 +340,7 @@ mod all_runtimes_test {
             let transport: ScriptedTransport<AsyncStdExecutor> =
                 ScriptedTransport::new(script.clone()).with_executor(executor.clone());
             let camera = CameraBuilder::<AsyncStdExecutor>::with_executor(executor)
-                .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+                .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
                 .await
                 .unwrap();
             camera.power_inquiry().await.unwrap()
@@ -358,7 +358,7 @@ mod all_runtimes_test {
             std::thread::spawn(move || {
                 smol::block_on(async {
                     let camera = CameraBuilder::<SmolExecutor>::with_executor(executor)
-                        .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+                        .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
                         .await
                         .unwrap();
                     camera.power_inquiry().await.unwrap()

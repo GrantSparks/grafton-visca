@@ -25,7 +25,8 @@ A production-ready, pure Rust implementation of the VISCA protocol for controlli
 
 ```rust
 use grafton_visca::{
-    BlockingCamera,
+    Camera,
+    mode::Blocking,
     camera::profiles::PtzOpticsG2,
     // Import unified traits that work for both blocking and async
     ZoomControl,
@@ -33,12 +34,15 @@ use grafton_visca::{
 };
 
 fn main() -> grafton_visca::Result<()> {
-    // Connect to camera using camera-first API
-    let mut camera = BlockingCamera::<PtzOpticsG2, _>::connect_tcp("192.168.0.110:5678")?;
+    // Connect to camera using unified API
+    let mut camera = Camera::<Blocking, PtzOpticsG2>::open_tcp("192.168.0.110:5678")?;
 
     // Control the camera with unified API
     camera.pan_tilt_home()?;
     camera.zoom_tele_std()?;
+
+    // Explicit cleanup (optional - will auto-close on drop)
+    camera.close()?;
 
     Ok(())
 }
@@ -86,21 +90,80 @@ use grafton_visca::{
 
 #[tokio::main]
 async fn main() -> grafton_visca::Result<()> {
-    // Connect using camera-first API
+    // Connect using unified API
     let runtime = TokioRuntime::new();
     let camera = Camera::<GenericVisca, _, _>::connect_tcp(
         "192.168.0.110:5678",
         runtime
     ).await?;
 
-    let camera = CameraBuilder::tokio()?
-        .build_async::<GenericVisca, _>(transport)
-        .await?;
-
     // Unified API works consistently across runtimes
     camera.power_on().await?;
+
+    // Explicit cleanup (optional - will auto-close on drop)
+    camera.shutdown().await?;
+
     Ok(())
 }
+```
+
+## Usage Patterns
+
+The library provides three clear usage patterns for different needs:
+
+### 1. Simple (Blessed Path)
+Most users should start here - simple and straightforward:
+
+```rust
+use grafton_visca::{Camera, mode::Blocking, camera::profiles::PtzOpticsG2};
+
+// Blocking mode
+let camera = Camera::<Blocking, PtzOpticsG2>::open_tcp("192.168.0.110:5678")?;
+
+// Async mode (with Tokio)
+let runtime = TokioRuntime::new();
+let camera = Camera::<PtzOpticsG2, _, _>::connect_tcp("192.168.0.110:5678", runtime).await?;
+```
+
+### 2. Auto-Detection
+When you don't know the camera's protocol configuration:
+
+```rust
+use grafton_visca::{Camera, mode::Blocking, camera::profiles::PtzOpticsG2};
+
+// Automatically detects transport and protocol
+let camera = Camera::<Blocking, PtzOpticsG2>::open_auto("192.168.0.110")?;
+
+// Or use builder for more control
+let camera = CameraBuilder::connect_auto("192.168.0.110")
+    .profile::<PtzOpticsG2>()
+    .open()?;
+```
+
+### 3. Advanced (BYO Transport)
+For power users who need full control over transport configuration:
+
+```rust
+use grafton_visca::{
+    CameraBuilder,
+    camera::profiles::PtzOpticsG2,
+    transport::Transport,
+};
+use std::time::Duration;
+
+// Configure transport with custom settings
+let transport = Transport::tcp()
+    .address("192.168.0.110:5678")
+    .connect_timeout(Duration::from_secs(10))
+    .tcp_nodelay(true)
+    .max_retries(5)
+    .build_blocking()?;
+
+// Build camera with custom transport
+let camera = CameraBuilder::from_transport(transport)
+    .profile::<PtzOpticsG2>()
+    .protocol_style(ProtocolStyle::RawVisca)  // Override if needed
+    .open()?;
 ```
 
 ## Installation
@@ -167,13 +230,13 @@ where
 // This compiles for Sony FR7
 let mut sony = CameraBuilder::tcp("192.168.0.110:52381")
     .profile::<SonyFR7>()
-    .build()?;
+    .open()?;  // open() explicitly connects
 configure_nd_filter(&mut sony)?;  // ✅ Works
 
 // This won't compile for PTZOptics G2
 let mut ptz = CameraBuilder::tcp("192.168.0.111:5678")
     .profile::<PtzOpticsG2>()
-    .build()?;
+    .open()?;  // open() explicitly connects
 // configure_nd_filter(&mut ptz)?;  // ❌ Compile error - no ND filter
 ```
 
@@ -227,7 +290,7 @@ let camera = CameraBuilder::tokio()?
         .long_running(Duration::from_secs(30)) // Firmware updates
         .network(Duration::from_secs(5))     // Network operations
         .build())
-    .build_async::<PtzOpticsG2, _>(transport)
+    .open_async::<PtzOpticsG2, _>(transport)  // open_async() explicitly connects
     .await?;
 ```
 

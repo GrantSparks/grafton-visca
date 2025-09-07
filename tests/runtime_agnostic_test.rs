@@ -45,7 +45,7 @@ mod async_tests {
 
         let camera = CameraBuilder::tokio()
             .expect("Failed to create tokio camera builder")
-            .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+            .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
             .await
             .expect("Failed to create camera");
 
@@ -69,7 +69,7 @@ mod async_tests {
 
         let camera = CameraBuilder::tokio()
             .expect("Failed to create tokio camera builder")
-            .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+            .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
             .await
             .expect("Failed to create camera");
 
@@ -92,7 +92,7 @@ mod async_tests {
 
         let camera = CameraBuilder::tokio()
             .expect("Failed to create tokio camera builder")
-            .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+            .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
             .await
             .expect("Failed to create camera");
 
@@ -116,7 +116,7 @@ mod async_tests {
 
         let camera = CameraBuilder::tokio()
             .expect("Failed to create tokio camera builder")
-            .build_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+            .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
             .await
             .expect("Failed to create camera");
 

@@ -24,7 +24,7 @@ async fn test_power_inquiry_integration() {
     let simulator = ViscaCameraSimulator::new();
     let camera = CameraBuilder::tokio()
         .unwrap()
-        .build_async::<GenericVisca, _>(simulator)
+        .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -43,7 +43,7 @@ async fn test_position_inquiries_integration() {
     let simulator = ViscaCameraSimulator::new();
     let camera = CameraBuilder::tokio()
         .unwrap()
-        .build_async::<GenericVisca, _>(simulator)
+        .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -101,7 +101,7 @@ async fn test_exposure_inquiries_integration() {
     let simulator = ViscaCameraSimulator::new();
     let camera = CameraBuilder::tokio()
         .unwrap()
-        .build_async::<GenericVisca, _>(simulator)
+        .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -176,7 +176,7 @@ async fn test_white_balance_color_inquiries_integration() {
     let simulator = ViscaCameraSimulator::new();
     let camera = CameraBuilder::tokio()
         .unwrap()
-        .build_async::<GenericVisca, _>(simulator)
+        .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -206,7 +206,7 @@ async fn test_image_adjustment_inquiries_integration() {
     let simulator = ViscaCameraSimulator::new();
     let camera = CameraBuilder::tokio()
         .unwrap()
-        .build_async::<GenericVisca, _>(simulator)
+        .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -240,7 +240,7 @@ async fn test_noise_reduction_inquiries_integration() {
     let simulator = ViscaCameraSimulator::new();
     let camera = CameraBuilder::tokio()
         .unwrap()
-        .build_async::<GenericVisca, _>(simulator)
+        .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -266,7 +266,7 @@ async fn test_focus_mode_inquiries_integration() {
     let simulator = ViscaCameraSimulator::new();
     let camera = CameraBuilder::tokio()
         .unwrap()
-        .build_async::<GenericVisca, _>(simulator)
+        .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -288,7 +288,7 @@ async fn test_resolution_inquiry_integration() {
     let simulator = ViscaCameraSimulator::new();
     let camera = CameraBuilder::tokio()
         .unwrap()
-        .build_async::<GenericVisca, _>(simulator)
+        .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -312,7 +312,7 @@ async fn test_concurrent_inquiries_integration() {
     let simulator = ViscaCameraSimulator::new();
     let camera = CameraBuilder::tokio()
         .unwrap()
-        .build_async::<GenericVisca, _>(simulator)
+        .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -345,7 +345,7 @@ async fn test_sequential_inquiries() {
     let simulator = ViscaCameraSimulator::new();
     let camera = CameraBuilder::tokio()
         .unwrap()
-        .build_async::<GenericVisca, _>(simulator)
+        .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -379,7 +379,7 @@ async fn test_inquiry_timeout_behavior() {
 
     let camera = CameraBuilder::tokio()
         .unwrap()
-        .build_async::<GenericVisca, _>(simulator)
+        .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use
@@ -399,7 +399,7 @@ async fn test_mixed_commands_and_inquiries() {
     let simulator = ViscaCameraSimulator::new();
     let camera = CameraBuilder::tokio()
         .unwrap()
-        .build_async::<GenericVisca, _>(simulator.clone())
+        .open_async::<GenericVisca, _>(simulator.clone())
         .await
         .unwrap();
     // Socket manager is now automatically initialized on first use

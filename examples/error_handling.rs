@@ -167,9 +167,9 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     let transport = match TransportBuilder::tcp()
         .address(camera_addr)
         .connect_timeout(Duration::from_secs(5))
-        .build()
+        .open()
     {
-        // .build() for pure blocking transport
+        // .open() for pure blocking transport
         Ok(t) => {
             println!("   ✓ Transport created successfully");
             t

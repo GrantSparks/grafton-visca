@@ -21,10 +21,15 @@ use std::{
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
+    mode::{Blocking, BlockingFutureExt},
     profiles::PtzOpticsG2,
     types::SpeedLevel,
     units::{Degrees, Normalized},
-    BlockingCamera, Error,
+    Camera,
+    Error,
+    // Import control traits
+    PanTiltControl,
+    ZoomControl,
 };
 
 #[cfg(not(feature = "async"))]
@@ -48,14 +53,18 @@ fn main() -> Result<(), Error> {
     println!();
 
     println!("Connecting via TCP (default port 5678)...");
-    let mut tcp_camera =
-        BlockingCamera::<PtzOpticsG2, _>::connect_tcp(format!("{camera_addr}:5678"))?;
+    let mut tcp_camera = Camera::<
+        Blocking,
+        PtzOpticsG2,
+        Box<dyn grafton_visca::transport::SyncTransport>,
+        (),
+    >::open_tcp(format!("{camera_addr}:5678"))?;
 
     println!("✓ TCP connection established");
 
     // Test TCP connection with a simple command
     println!("Testing TCP transport with zoom command...");
-    tcp_camera.zoom_absolute(Normalized(0.3))?;
+    tcp_camera.zoom_absolute(Normalized(0.3)).block()?;
     tcp_camera.await_zoom_idle(Duration::from_secs(5))?;
     println!("✓ Command sent successfully via TCP");
     println!();
@@ -64,13 +73,13 @@ fn main() -> Result<(), Error> {
     println!("═══ TCP with Custom Port ═══");
     println!("Connecting via TCP on custom port 1259...");
 
-    match BlockingCamera::<PtzOpticsG2, _>::connect_tcp(format!("{camera_addr}:1259")) {
+    match Camera::<Blocking, PtzOpticsG2, Box<dyn grafton_visca::transport::SyncTransport>, ()>::open_tcp(format!("{camera_addr}:1259")) {
         Ok(camera) => {
             println!("✓ TCP connection established on port 1259");
 
             // Test connection
             println!("Testing custom port connection...");
-            camera.pan_tilt_home()?;
+            camera.pan_tilt_home().block()?;
             println!("✓ Command sent successfully via custom port");
         }
         Err(e) => {
@@ -90,18 +99,18 @@ fn main() -> Result<(), Error> {
     // PTZOptics uses UDP port 1259 for raw VISCA
     // Sony cameras typically use UDP port 52381 with encapsulation
 
-    match BlockingCamera::<PtzOpticsG2, _>::connect_udp(format!("{camera_addr}:1259")) {
+    match Camera::<Blocking, PtzOpticsG2, Box<dyn grafton_visca::transport::SyncTransport>, ()>::open_udp(format!("{camera_addr}:1259")) {
         Ok(mut camera) => {
             println!("✓ UDP transport initialized");
 
             // Test UDP connection
             println!("Testing UDP transport with pan/tilt command...");
-            camera.pan_tilt_absolute(Degrees(45.0), Degrees(0.0), SpeedLevel::Medium)?;
+            camera.pan_tilt_absolute(Degrees(45.0), Degrees(0.0), SpeedLevel::Medium).block()?;
             camera.await_pan_tilt_idle(Duration::from_secs(5))?;
             println!("✓ Command sent successfully via UDP");
 
             // Return to home
-            camera.pan_tilt_home()?;
+            camera.pan_tilt_home().block()?;
             camera.await_pan_tilt_idle(Duration::from_secs(5))?;
         }
         Err(e) => {
@@ -119,7 +128,12 @@ fn main() -> Result<(), Error> {
     println!("Attempting to connect to non-existent camera (192.168.255.255)...");
     let start = Instant::now();
 
-    let timeout_result = BlockingCamera::<PtzOpticsG2, _>::connect_tcp("192.168.255.255:5678");
+    let timeout_result = Camera::<
+        Blocking,
+        PtzOpticsG2,
+        Box<dyn grafton_visca::transport::SyncTransport>,
+        (),
+    >::open_tcp("192.168.255.255:5678");
 
     let elapsed = start.elapsed();
 
@@ -161,31 +175,39 @@ fn main() -> Result<(), Error> {
 
     let tcp_start = Instant::now();
     for i in 0..10 {
-        tcp_camera.zoom_absolute(Normalized((i as f32) * 0.1))?;
+        tcp_camera
+            .zoom_absolute(Normalized((i as f32) * 0.1))
+            .block()?;
         thread::sleep(Duration::from_millis(100));
     }
     let tcp_elapsed = tcp_start.elapsed();
     println!("✓ TCP: 10 commands in {:.2}s", tcp_elapsed.as_secs_f32());
 
     // Reset zoom
-    tcp_camera.zoom_absolute(Normalized(0.0))?;
+    tcp_camera.zoom_absolute(Normalized(0.0)).block()?;
 
     // If UDP is available, compare performance
-    if let Ok(udp_camera) =
-        BlockingCamera::<PtzOpticsG2, _>::connect_udp(format!("{camera_addr}:52381"))
+    if let Ok(udp_camera) = Camera::<
+        Blocking,
+        PtzOpticsG2,
+        Box<dyn grafton_visca::transport::SyncTransport>,
+        (),
+    >::open_udp(format!("{camera_addr}:52381"))
     {
         println!("Sending 10 commands via UDP...");
 
         let udp_start = Instant::now();
         for i in 0..10 {
-            udp_camera.zoom_absolute(Normalized((i as f32) * 0.1))?;
+            udp_camera
+                .zoom_absolute(Normalized((i as f32) * 0.1))
+                .block()?;
             thread::sleep(Duration::from_millis(100));
         }
         let udp_elapsed = udp_start.elapsed();
         println!("✓ UDP: 10 commands in {:.2}s", udp_elapsed.as_secs_f32());
 
         // Reset zoom
-        udp_camera.zoom_absolute(Normalized(0.0))?;
+        udp_camera.zoom_absolute(Normalized(0.0)).block()?;
 
         if udp_elapsed < tcp_elapsed {
             println!();

@@ -67,6 +67,23 @@ where
         })
     }
 
+    /// Create a new blocking camera wrapper from a transport with explicit protocol style.
+    pub fn new_with_style(
+        transport: Tr,
+        protocol_style: crate::capabilities::ProtocolStyle,
+    ) -> Result<Self, Error>
+    where
+        P: Default,
+        Tr: crate::transport::SyncTransport + Send + 'static,
+    {
+        Ok(Self {
+            inner: Camera::<Blocking, P, Tr, ()>::new_blocking_with_style(
+                transport,
+                protocol_style,
+            )?,
+        })
+    }
+
     /// Convert from an existing blocking camera.
     pub fn from_camera(camera: Camera<Blocking, P, Tr, ()>) -> Self {
         Self { inner: camera }
@@ -108,6 +125,53 @@ where
     {
         self.inner.await_zoom_idle(timeout)
     }
+
+    /// Wait for all camera movements to complete.
+    ///
+    /// This unified method polls the camera for any ongoing movements (pan/tilt, zoom, focus)
+    /// and waits until all movements have stopped or the timeout occurs.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use grafton_visca::{BlockingCamera, camera::profiles::PtzOpticsG2};
+    /// use std::time::Duration;
+    ///
+    /// let mut camera = Camera::<Blocking, PtzOpticsG2>::open_tcp("192.168.0.110:5678")?;
+    /// camera.zoom_tele_std()?;
+    /// camera.await_idle(Duration::from_secs(10))?;
+    /// // Camera has finished zooming
+    /// ```
+    pub fn await_idle(&mut self, timeout: std::time::Duration) -> Result<(), Error>
+    where
+        P: crate::capabilities::ProfileMetadata + Default,
+        Tr: crate::transport::SyncTransport + 'static,
+    {
+        self.inner.await_idle(timeout)
+    }
+
+    /// Close the camera connection gracefully.
+    ///
+    /// This method performs an orderly shutdown of the camera connection,
+    /// ensuring any pending operations are completed before closing.
+    /// The camera object is consumed and cannot be used after this call.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use grafton_visca::{BlockingCamera, camera::profiles::PtzOpticsG2};
+    ///
+    /// let camera = Camera::<Blocking, PtzOpticsG2>::open_tcp("192.168.0.110:5678")?;
+    /// // Use the camera...
+    /// camera.close()?;
+    /// // Camera is now closed and cannot be used
+    /// ```
+    pub fn close(self) -> Result<(), Error>
+    where
+        Tr: crate::transport::SyncTransport,
+    {
+        self.inner.close()
+    }
 }
 
 impl<P, Tr> From<Camera<Blocking, P, Tr, ()>> for BlockingCamera<P, Tr>
@@ -119,43 +183,9 @@ where
     }
 }
 
-impl<P> BlockingCamera<P, Box<dyn crate::transport::SyncTransport>>
-where
-    P: crate::capabilities::Profile + Default,
+impl<P> BlockingCamera<P, Box<dyn crate::transport::SyncTransport>> where
+    P: crate::capabilities::Profile + Default
 {
-    /// Connect to a camera over TCP.
-    ///
-    /// This provides a camera-first API for creating cameras,
-    /// hiding transport details from users.
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// use grafton_visca::{BlockingCamera, camera::profiles::PtzOpticsG2};
-    ///
-    /// let camera = BlockingCamera::<PtzOpticsG2, _>::connect_tcp("192.168.0.110:5678")?;
-    /// ```
-    pub fn connect_tcp(addr: impl Into<String>) -> Result<Self, Error> {
-        let transport = crate::transport::blocking::tcp::Tcp::connect(&addr.into())?;
-        Self::new(Box::new(transport))
-    }
-
-    /// Connect to a camera over UDP.
-    ///
-    /// This provides a camera-first API for creating cameras,
-    /// hiding transport details from users.
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// use grafton_visca::{BlockingCamera, camera::profiles::PtzOpticsG2};
-    ///
-    /// let camera = BlockingCamera::<PtzOpticsG2, _>::connect_udp("192.168.0.110:1259")?;
-    /// ```
-    pub fn connect_udp(addr: impl Into<String>) -> Result<Self, Error> {
-        let transport = crate::transport::blocking::udp::Udp::connect(&addr.into())?;
-        Self::new(Box::new(transport))
-    }
 }
 
 impl<P, Tr> Deref for BlockingCamera<P, Tr>

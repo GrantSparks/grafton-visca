@@ -30,7 +30,7 @@ async fn test_async_camera_uses_runtime() {
     // Create camera - this should create a RuntimeHandle internally
     let camera = CameraBuilder::tokio()
         .unwrap()
-        .build_async::<PtzOpticsG2, _>(transport)
+        .open_async::<PtzOpticsG2, _>(transport)
         .await
         .unwrap();
 
@@ -62,7 +62,7 @@ async fn test_timeout_config_passed_to_runtime() {
     let camera = CameraBuilder::tokio()
         .unwrap()
         .timeout_config(custom_timeout)
-        .build_async::<PtzOpticsG2, _>(transport)
+        .open_async::<PtzOpticsG2, _>(transport)
         .await
         .unwrap();
 
@@ -113,7 +113,7 @@ async fn test_command_cancellation_through_runtime() {
     // Create camera
     let camera = CameraBuilder::tokio()
         .unwrap()
-        .build_async::<PtzOpticsG2, _>(transport)
+        .open_async::<PtzOpticsG2, _>(transport)
         .await
         .unwrap();
 
@@ -158,7 +158,7 @@ async fn test_inquiry_through_runtime() {
     // Create camera
     let camera = CameraBuilder::tokio()
         .unwrap()
-        .build_async::<PtzOpticsG2, _>(transport)
+        .open_async::<PtzOpticsG2, _>(transport)
         .await
         .unwrap();
 
@@ -189,7 +189,7 @@ async fn test_transport_error_propagation() {
     // Create camera
     let camera = CameraBuilder::tokio()
         .unwrap()
-        .build_async::<PtzOpticsG2, _>(transport)
+        .open_async::<PtzOpticsG2, _>(transport)
         .await
         .unwrap();
 

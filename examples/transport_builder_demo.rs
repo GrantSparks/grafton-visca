@@ -23,7 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Example 1: Simple TCP transport builder");
         let _simple_tcp = TransportBuilder::tcp().address("192.168.0.110:5678");
         println!("  Created builder for TCP at 192.168.0.110:5678");
-        println!("  Would connect with: .build()\n");
+        println!("  Would connect with: .open()\n");
 
         // Example 2: TCP transport builder with custom timeouts
         println!("Example 2: TCP transport builder with custom timeouts");

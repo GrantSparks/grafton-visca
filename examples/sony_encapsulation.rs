@@ -41,7 +41,7 @@ fn main() -> Result<(), Error> {
     // This automatically configures the transport to use Sony encapsulation
     let camera = CameraBuilder::tcp(&camera_addr)
         .profile::<SonyFR7>() // Sony FR7 uses encapsulation with sequence numbers
-        .build()?;
+        .open()?;
 
     println!("✅ Connected successfully!");
     println!("Protocol: Sony Encapsulated (8-byte header with sequence tracking)\n");
@@ -172,7 +172,7 @@ async fn main() -> Result<(), Error> {
     // This automatically configures the transport to use Sony encapsulation
     let transport = Tcp::connect(&camera_addr).await?;
     let camera = CameraBuilder::tokio()?
-        .build_async::<SonyFR7, _>(transport)
+        .open_async::<SonyFR7, _>(transport)
         .await?;
 
     println!("✅ Connected successfully!");

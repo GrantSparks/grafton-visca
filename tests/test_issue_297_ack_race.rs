@@ -32,7 +32,7 @@ async fn test_ack_race_with_immediate_response() {
     // Create camera with the scripted transport
     let camera = CameraBuilder::tokio()
         .unwrap()
-        .build_async::<PtzOpticsG2, _>(transport)
+        .open_async::<PtzOpticsG2, _>(transport)
         .await
         .unwrap();
 
@@ -62,7 +62,7 @@ async fn test_rollback_on_send_failure() {
     // Create camera with the scripted transport
     let camera = CameraBuilder::tokio()
         .unwrap()
-        .build_async::<PtzOpticsG2, _>(transport)
+        .open_async::<PtzOpticsG2, _>(transport)
         .await
         .unwrap();
 
@@ -92,7 +92,7 @@ async fn test_normal_operation_still_works() {
     // Create camera
     let camera = CameraBuilder::tokio()
         .unwrap()
-        .build_async::<PtzOpticsG2, _>(transport)
+        .open_async::<PtzOpticsG2, _>(transport)
         .await
         .unwrap();
 
@@ -127,7 +127,7 @@ async fn test_multiple_immediate_acks_preserve_order() {
     // Create camera
     let camera = CameraBuilder::tokio()
         .unwrap()
-        .build_async::<PtzOpticsG2, _>(transport)
+        .open_async::<PtzOpticsG2, _>(transport)
         .await
         .unwrap();
 

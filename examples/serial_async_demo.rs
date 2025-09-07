@@ -53,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Create camera with async transport
             let camera = CameraBuilder::tokio()?
-                .build_async::<GenericVisca, _>(transport)
+                .open_async::<GenericVisca, _>(transport)
                 .await?;
 
             println!("\n🔍 Testing basic camera operations...");

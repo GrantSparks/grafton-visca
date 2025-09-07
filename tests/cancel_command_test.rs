@@ -52,7 +52,7 @@ fn test_cancel_command_by_id() {
 
         // Create camera
         let camera = CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone)
-            .build_async::<PtzOpticsG2, _>(transport)
+            .open_async::<PtzOpticsG2, _>(transport)
             .await
             .expect("Failed to create camera");
         // Use start_command_with_id to get ID and future without awaiting
@@ -134,7 +134,7 @@ fn test_cancel_socket_directly() {
 
         // Create camera
         let camera = CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone.clone())
-            .build_async::<PtzOpticsG2, _>(transport)
+            .open_async::<PtzOpticsG2, _>(transport)
             .await
             .expect("Failed to create camera");
 
@@ -198,7 +198,7 @@ fn test_cancel_nonexistent_command() {
 
         // Create camera
         let camera = CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone)
-            .build_async::<PtzOpticsG2, _>(transport)
+            .open_async::<PtzOpticsG2, _>(transport)
             .await
             .expect("Failed to create camera");
 
@@ -247,7 +247,7 @@ fn test_cancel_during_movement() {
 
         // Create camera
         let camera = CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone)
-            .build_async::<PtzOpticsG2, _>(transport)
+            .open_async::<PtzOpticsG2, _>(transport)
             .await
             .expect("Failed to create camera");
 

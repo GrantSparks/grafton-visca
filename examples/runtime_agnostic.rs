@@ -228,7 +228,7 @@ fn main() {
     println!("let camera = CameraBuilder::with_transport(transport)");
     println!("    .executor(executor)");
     println!("    .profile::<PtzOpticsG2>()");
-    println!("    .build()");
+    println!("    .open()");
     println!("    .await?;");
     println!();
     println!("// Use the camera - all async operations use YOUR runtime!");

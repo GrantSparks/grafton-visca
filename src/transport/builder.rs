@@ -94,7 +94,7 @@ impl Default for TransportConfig {
 ///     .read_timeout(Duration::from_secs(2))
 ///     .tcp_nodelay(true)
 ///     .max_retries(5)
-///     .build()?;
+///     .open()?;
 /// # Ok(())
 /// # }
 /// ```
@@ -576,7 +576,7 @@ impl Transport {
 /// Unified transport builder that can create both blocking and async transports.
 ///
 /// This builder eliminates the need for separate `TransportBuilder` and `AnyTransportBuilder`
-/// types by providing `.build_blocking()` and `.build_async()` methods on a single builder.
+/// types by providing `.build_blocking()` and `.open_async()` methods on a single builder.
 ///
 /// # Example
 ///

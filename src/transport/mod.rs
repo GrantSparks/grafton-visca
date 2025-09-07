@@ -21,7 +21,7 @@
 //! # #[cfg(not(feature = "async"))]
 //! # fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! # #[cfg(not(feature = "async"))]
-//! let camera = BlockingCamera::<PtzOpticsG2, _>::connect_tcp("192.168.0.110:5678")?;
+//! let camera = Camera::<Blocking, PtzOpticsG2>::open_tcp("192.168.0.110:5678")?;
 //! // camera is ready to use with PowerControl, ZoomControl, etc.
 //! # Ok(())
 //! # }

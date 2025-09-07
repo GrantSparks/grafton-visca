@@ -11,8 +11,62 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 /// The VISCA protocol has a well-defined set of error conditions
 /// that map directly to camera responses and communication failures.
 ///
-/// For detailed error code mappings and retry policies, see the
-/// [error handling documentation](../docs/error-handling.md).
+/// # Error Categories
+///
+/// Errors are categorized into two main types:
+///
+/// ## Retryable Errors
+/// These errors indicate temporary conditions that may succeed on retry:
+/// - `CameraBusy` - Camera is processing another command
+/// - `CommandPending` - Command acknowledged but not yet complete
+/// - `CameraMoving` - Camera is still moving to a position
+/// - `CommandTimeout` - Operation exceeded timeout (may succeed with longer timeout)
+/// - `CommandBufferFull` - Camera's command buffer is full (always retry)
+/// - `Timeout` - General timeout condition
+///
+/// Use [`Error::is_retryable()`] to check if an error can be retried, and
+/// [`Error::suggested_retry_delay()`] to get the recommended delay before retrying.
+///
+/// ## Non-Retryable Errors
+/// These errors indicate permanent failures or invalid operations:
+/// - `SyntaxError` - Invalid VISCA command format
+/// - `CommandNotExecutable` - Command invalid in current state
+/// - `InvalidParameter` - Parameter value is invalid
+/// - `FeatureNotSupported` - Camera model doesn't support this feature
+/// - `PresetNotFound` - Requested preset doesn't exist
+///
+/// # VISCA Error Codes
+///
+/// The VISCA protocol defines specific error codes that are mapped to Error variants:
+/// - `0x01` → `MessageLengthError` - Message length incorrect
+/// - `0x02` → `SyntaxError` - Command format invalid
+/// - `0x03` → `CommandBufferFull` - Camera busy (always retryable)
+/// - `0x04` → `CommandCanceled` - Command was canceled
+/// - `0x05` → `NoSocket` - No socket available
+/// - `0x41` → `CommandNotExecutable` - Command invalid in current state
+///
+/// Use [`Error::from_code()`] to convert VISCA error codes to Error variants.
+///
+/// # Example
+///
+/// ```rust
+/// use grafton_visca::Error;
+/// use std::time::Duration;
+///
+/// fn handle_camera_error(error: Error) -> Result<(), Error> {
+///     if error.is_retryable() {
+///         if let Some(delay) = error.suggested_retry_delay() {
+///             println!("Retrying after {:?}", delay);
+///             std::thread::sleep(delay);
+///             // Retry the operation...
+///         }
+///     } else {
+///         // Handle permanent error
+///         return Err(error);
+///     }
+///     Ok(())
+/// }
+/// ```
 #[derive(ThisError, Debug)]
 pub enum Error {
     /// Failed to establish connection to the camera.
@@ -327,6 +381,23 @@ impl Error {
     }
 
     /// Check if this error is potentially retryable.
+    ///
+    /// Returns `true` for errors that represent temporary conditions
+    /// that may succeed if the operation is retried. This includes:
+    /// - Camera busy states (`CameraBusy`, `CommandBufferFull`)
+    /// - Pending operations (`CommandPending`, `CameraMoving`)
+    /// - Timeout conditions (`CommandTimeout`, `Timeout`)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use grafton_visca::Error;
+    ///
+    /// let error = Error::CameraBusy;
+    /// if error.is_retryable() {
+    ///     println!("This error can be retried");
+    /// }
+    /// ```
     #[must_use]
     pub const fn is_retryable(&self) -> bool {
         matches!(
@@ -341,6 +412,31 @@ impl Error {
     }
 
     /// Get a suggested retry delay for retryable errors.
+    ///
+    /// Returns `Some(Duration)` with a recommended delay before retrying
+    /// the operation, or `None` if the error is not retryable.
+    ///
+    /// The suggested delays are based on typical camera response times:
+    /// - `CameraBusy`: 100ms (camera is processing)
+    /// - `CommandPending`: 50ms (command acknowledged, waiting for completion)
+    /// - `CameraMoving`: 500ms (mechanical movement in progress)
+    /// - `CommandTimeout`: 1s (previous timeout, try with longer duration)
+    /// - `CommandBufferFull`: 200ms (wait for buffer space)
+    /// - `Timeout`: 2s (general timeout, allow more time)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use grafton_visca::Error;
+    /// use std::time::Duration;
+    ///
+    /// let error = Error::CameraBusy;
+    /// if let Some(delay) = error.suggested_retry_delay() {
+    ///     assert_eq!(delay, Duration::from_millis(100));
+    ///     std::thread::sleep(delay);
+    ///     // Retry the operation...
+    /// }
+    /// ```
     #[must_use]
     pub const fn suggested_retry_delay(&self) -> Option<Duration> {
         match self {

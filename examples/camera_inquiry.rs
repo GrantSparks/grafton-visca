@@ -34,7 +34,7 @@ fn main() -> grafton_visca::Result<()> {
     println!("Connecting to camera at {camera_addr}...");
     let camera = CameraBuilder::tcp(&camera_addr)
         .profile::<PtzOpticsG2>()
-        .build()?;
+        .open()?;
 
     println!("\n--- Power State ---");
     match camera.get_power_state() {
@@ -155,7 +155,7 @@ async fn main() -> grafton_visca::Result<()> {
     println!("Connecting to camera at {camera_addr}...");
     let transport = Tcp::connect(&camera_addr).await?;
     let camera = CameraBuilder::tokio()?
-        .build_async::<PtzOpticsG2, _>(transport)
+        .open_async::<PtzOpticsG2, _>(transport)
         .await?;
 
     println!("\n--- Querying All States Concurrently ---");

@@ -60,7 +60,7 @@
 //!     // Create camera using unified API
 //!     let transport = TransportBuilder::tcp()
 //!         .address("192.168.0.110:5678")
-//!         .build()?;
+//!         .open()?;
 //!     let mut camera = Camera::<PtzOpticsG2, _>::new(transport);
 //!
 //!     // Send commands with unified API - same traits work for async mode
@@ -89,7 +89,7 @@
 //!         .connect()
 //!         .await?;
 //!     let camera = CameraBuilder::tokio()?
-//!         .build_async::<PtzOpticsG2, _>(transport)
+//!         .open_async::<PtzOpticsG2, _>(transport)
 //!         .await?;
 //!
 //!     // Same unified API, just add .await - no separate async traits needed
@@ -121,7 +121,7 @@
 //!         .connect()  // Uses tokio if available, async-std otherwise
 //!         .await?;
 //!     let camera = CameraBuilder::async_std()?
-//!         .build_async::<PtzOpticsG2, _>(transport)
+//!         .open_async::<PtzOpticsG2, _>(transport)
 //!         .await?;
 //!
 //!     // Same unified API across all runtimes
@@ -149,7 +149,7 @@
 //!             .connect()  // Runtime auto-selected based on enabled features
 //!             .await?;
 //!         let camera = CameraBuilder::smol()?
-//!             .build_async::<PtzOpticsG2, _>(transport)
+//!             .open_async::<PtzOpticsG2, _>(transport)
 //!             .await?;
 //!
 //!         // All 17 unified traits work consistently across runtimes
@@ -291,17 +291,17 @@
 //! ```ignore
 //! // Tokio
 //! let camera = CameraBuilder::tokio()?
-//!     .build_async::<PtzOpticsG2, _>(transport)
+//!     .open_async::<PtzOpticsG2, _>(transport)
 //!     .await?;
 //!
 //! // async-std
 //! let camera = CameraBuilder::async_std()
-//!     .build_async::<PtzOpticsG2, _>(transport)
+//!     .open_async::<PtzOpticsG2, _>(transport)
 //!     .await?;
 //!
 //! // smol
 //! let camera = CameraBuilder::smol()
-//!     .build_async::<PtzOpticsG2, _>(transport)
+//!     .open_async::<PtzOpticsG2, _>(transport)
 //!     .await?;
 //! ```
 //!
@@ -360,7 +360,7 @@
 //!     // Create camera with custom executor
 //!     let executor = AsyncStdExecutor;
 //!     let camera = CameraBuilder::with_executor(executor)
-//!         .build_async::<PtzOpticsG2, _>(transport)?;
+//!         .open_async::<PtzOpticsG2, _>(transport)?;
 //!
 //!     // All async operations now use async-std
 //!     camera.power_on().await?;
@@ -447,12 +447,12 @@
 //!     .quick_commands(Duration::from_secs(3))
 //!     .movement_commands(Duration::from_secs(20))
 //!     .preset_operations(Duration::from_secs(60))
-//!     .build();
+//!     .open();
 //!
 //! // For async mode (default)
 //! let camera = CameraBuilder::tokio()?
 //!     .timeout_config(config)
-//!     .build_async::<PtzOpticsG2, _>(transport).await?;
+//!     .open_async::<PtzOpticsG2, _>(transport).await?;
 //!
 //! // For blocking mode (when async feature is disabled)
 //! #[cfg(not(feature = "async"))]

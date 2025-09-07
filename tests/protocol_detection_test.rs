@@ -181,7 +181,7 @@ mod tokio_tests {
         let camera = CameraBuilder::tokio()
             .expect("Failed to create tokio camera builder")
             .protocol_style(ProtocolStyle::SonyEncapsulated)
-            .build_async::<GenericVisca, _>(transport)
+            .open_async::<GenericVisca, _>(transport)
             .await
             .expect("Failed to create camera");
 
