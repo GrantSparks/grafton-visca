@@ -280,7 +280,7 @@ where
     /// ```no_run
     /// use grafton_visca::{Camera, mode::Blocking};
     /// use grafton_visca::prelude::blocking::*;
-    /// use grafton_visca::capabilities::profiles::PtzOpticsG2;
+    /// use grafton_visca::camera::profiles::PtzOpticsG2;
     ///
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let camera = Camera::<Blocking, PtzOpticsG2>::open_auto("192.168.0.110")?;

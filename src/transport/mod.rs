@@ -16,7 +16,7 @@
 //! For blocking transports (using camera-first API):
 //! ```rust,no_run
 //! # #[cfg(not(feature = "async"))]
-//! use grafton_visca::{BlockingCamera, camera::profiles::PtzOpticsG2};
+//! use grafton_visca::{Camera, mode::Blocking, capabilities::PtzOpticsG2};
 //!
 //! # #[cfg(not(feature = "async"))]
 //! # fn example() -> Result<(), Box<dyn std::error::Error>> {

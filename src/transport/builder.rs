@@ -94,7 +94,7 @@ impl Default for TransportConfig {
 ///     .read_timeout(Duration::from_secs(2))
 ///     .tcp_nodelay(true)
 ///     .max_retries(5)
-///     .open()?;
+///     .build()?;
 /// # Ok(())
 /// # }
 /// ```
