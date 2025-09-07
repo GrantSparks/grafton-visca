@@ -16,12 +16,12 @@
 //! For blocking transports (using camera-first API):
 //! ```rust,no_run
 //! # #[cfg(not(feature = "async"))]
-//! use grafton_visca::{Camera, mode::Blocking, capabilities::PtzOpticsG2};
+//! use grafton_visca::{Camera, mode::Blocking, profiles::PtzOpticsG2};
 //!
 //! # #[cfg(not(feature = "async"))]
 //! # fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! # #[cfg(not(feature = "async"))]
-//! let camera = Camera::<Blocking, PtzOpticsG2>::open_tcp("192.168.0.110:5678")?;
+//! let camera = Camera::<Blocking, PtzOpticsG2, _>::open_tcp("192.168.0.110:5678")?;
 //! // camera is ready to use with PowerControl, ZoomControl, etc.
 //! # Ok(())
 //! # }
