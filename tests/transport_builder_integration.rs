@@ -114,15 +114,30 @@ fn test_camera_retry_behavior() {
     thread::spawn(move || {
         let mut buf = [0u8; 1024];
         loop {
-            if let Ok((_, src)) = server.recv_from(&mut buf) {
+            if let Ok((len, src)) = server.recv_from(&mut buf) {
                 let count = attempt_count_clone.fetch_add(1, Ordering::SeqCst);
-                if count < 2 {
-                    // Don't respond to first 2 attempts to trigger retries
+
+                // Check if this is a power inquiry command
+                if len >= 5
+                    && buf[0] == 0x81
+                    && buf[1] == 0x09
+                    && buf[2] == 0x04
+                    && buf[3] == 0x00
+                    && buf[4] == 0xFF
+                {
+                    // Respond with power status (off)
+                    server.send_to(&[0x90, 0x50, 0x03, 0xFF], src).unwrap();
+                } else if count < 2 {
+                    // Don't respond to first 2 attempts of other commands to trigger retries
                     continue;
+                } else {
+                    // Finally respond with generic ACK
+                    server.send_to(&[0x90, 0x41, 0xFF], src).unwrap();
                 }
-                // Finally respond
-                server.send_to(&[0x90, 0x50, 0xFF], src).unwrap();
-                break;
+
+                if count >= 2 {
+                    break;
+                }
             }
         }
     });
@@ -132,6 +147,12 @@ fn test_camera_retry_behavior() {
 
     // Camera creation should work
     assert!(camera_result.is_ok(), "Camera creation should succeed");
+
+    let camera = camera_result.unwrap();
+
+    // Send a command to actually communicate with the server
+    // The power_inquiry should work immediately
+    let _ = camera.power_inquiry();
 
     // Give server time to process
     thread::sleep(Duration::from_millis(200));
