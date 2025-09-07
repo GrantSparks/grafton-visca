@@ -25,20 +25,16 @@ A production-ready, pure Rust implementation of the VISCA protocol for controlli
 
 ```rust
 use grafton_visca::{
-    Camera,
+    BlockingCamera,
     camera::profiles::PtzOpticsG2,
-    transport::builder::TransportBuilder,
     // Import unified traits that work for both blocking and async
     ZoomControl,
     PanTiltControl,
 };
 
 fn main() -> grafton_visca::Result<()> {
-    // Connect to camera
-    let transport = TransportBuilder::tcp()
-        .address("192.168.0.110:5678")
-        .build()?;
-    let mut camera = Camera::<PtzOpticsG2, _>::new(transport);
+    // Connect to camera using camera-first API
+    let mut camera = BlockingCamera::<PtzOpticsG2, _>::connect_tcp("192.168.0.110:5678")?;
 
     // Control the camera with unified API
     camera.pan_tilt_home()?;
@@ -52,9 +48,9 @@ fn main() -> grafton_visca::Result<()> {
 
 ```rust
 use grafton_visca::{
-    CameraBuilder,
+    Camera,
     camera::profiles::PtzOpticsG2,
-    transport::Transport,
+    runtime_adapters::tokio::TokioRuntime,
     // Same unified traits work for both blocking and async
     ZoomControl,
     PanTiltControl,
@@ -62,14 +58,12 @@ use grafton_visca::{
 
 #[tokio::main]
 async fn main() -> grafton_visca::Result<()> {
-    // Connect with uniform Transport API - runtime auto-selected
-    let transport = Transport::tcp()
-        .address("192.168.0.110:5678")
-        .connect()
-        .await?;
-    let camera = CameraBuilder::tokio()?
-        .build_async::<PtzOpticsG2, _>(transport)
-        .await?;
+    // Connect using camera-first API with runtime
+    let runtime = TokioRuntime::new();
+    let camera = Camera::<PtzOpticsG2, _, _>::connect_tcp(
+        "192.168.0.110:5678",
+        runtime
+    ).await?;
 
     // Same unified API, just add .await
     camera.pan_tilt_home().await?;
@@ -84,19 +78,20 @@ async fn main() -> grafton_visca::Result<()> {
 ```rust
 // Supports coexistence of multiple runtimes!
 use grafton_visca::{
-    CameraBuilder,
+    Camera,
     camera::profiles::GenericVisca,
-    transport::Transport,
+    runtime_adapters::tokio::TokioRuntime,
     PowerControl, // Unified trait works everywhere
 };
 
 #[tokio::main]
 async fn main() -> grafton_visca::Result<()> {
-    // Same Transport API auto-selects runtime (Tokio priority)
-    let transport = Transport::tcp()
-        .address("192.168.0.110:5678")
-        .connect()
-        .await?;
+    // Connect using camera-first API
+    let runtime = TokioRuntime::new();
+    let camera = Camera::<GenericVisca, _, _>::connect_tcp(
+        "192.168.0.110:5678",
+        runtime
+    ).await?;
 
     let camera = CameraBuilder::tokio()?
         .build_async::<GenericVisca, _>(transport)
@@ -154,7 +149,7 @@ use grafton_visca::{
     Camera,
     camera::profiles::*,
     capabilities::{NDFilter, Profile},
-    transport::builder::TransportBuilder,
+    CameraBuilder,
     NdFilterControl,  // Unified trait
     command::nd_filter::CommandNDFilterMode,
 };
@@ -170,17 +165,15 @@ where
 }
 
 // This compiles for Sony FR7
-let transport = TransportBuilder::tcp()
-    .address("192.168.0.110:52381")
+let mut sony = CameraBuilder::tcp("192.168.0.110:52381")
+    .profile::<SonyFR7>()
     .build()?;
-let mut sony = Camera::<SonyFR7, _>::new(transport);
 configure_nd_filter(&mut sony)?;  // ✅ Works
 
 // This won't compile for PTZOptics G2
-let transport = TransportBuilder::tcp()
-    .address("192.168.0.111:5678")
+let mut ptz = CameraBuilder::tcp("192.168.0.111:5678")
+    .profile::<PtzOpticsG2>()
     .build()?;
-let mut ptz = Camera::<PtzOpticsG2, _>::new(transport);
 // configure_nd_filter(&mut ptz)?;  // ❌ Compile error - no ND filter
 ```
 
