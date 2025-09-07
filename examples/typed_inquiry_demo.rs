@@ -9,7 +9,7 @@
 //! ```
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::{profiles::GenericVisca, transport::blocking::Tcp, BlockingCamera, Error};
+use grafton_visca::{profiles::GenericVisca, BlockingCamera, Error};
 #[cfg(not(feature = "async"))]
 use std::time::Duration;
 
@@ -18,13 +18,11 @@ fn main() -> Result<(), Error> {
     // Initialize logging
     let _ = tracing_subscriber::fmt::try_init();
 
-    // Build a blocking TCP transport
+    // Connect using camera-first API
     let address = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.1.100:5678".to_string());
     println!("Connecting to camera at {address}...");
 
-    let transport = Tcp::connect(&address)?;
-
-    let camera = BlockingCamera::<GenericVisca, _>::new(transport)?;
+    let camera = BlockingCamera::<GenericVisca, _>::connect_tcp(&address)?;
 
     println!("\n=== High-Level API Inquiry Demo ===\n");
 

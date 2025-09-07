@@ -5,11 +5,10 @@
 #[cfg(not(feature = "async"))]
 #[test]
 fn test_blocking_mode_compile() {
-    use grafton_visca::{
-        camera::profiles::PtzOpticsG2, transport::blocking::Tcp as BlockingTcp, BlockingCamera,
-    };
+    use grafton_visca::{camera::profiles::PtzOpticsG2, BlockingCamera};
 
-    type _BlockingCamera = BlockingCamera<PtzOpticsG2, BlockingTcp>;
+    type _BlockingCamera =
+        BlockingCamera<PtzOpticsG2, Box<dyn grafton_visca::transport::SyncTransport>>;
     fn _accepts_blocking(_camera: &_BlockingCamera) {}
 }
 
@@ -68,8 +67,12 @@ fn test_preludes_per_mode() {
     #[cfg(not(feature = "async"))]
     {
         use grafton_visca::prelude::blocking as blocking_prelude;
-        use grafton_visca::transport::blocking::Tcp as BlockingTcp;
-        type _BlockingG2 = blocking_prelude::PtzOpticsG2Cam<BlockingTcp>;
+        use grafton_visca::BlockingCamera;
+        // Use the camera-first API instead of direct transport access
+        type _BlockingG2 = BlockingCamera<
+            blocking_prelude::PtzOpticsG2,
+            Box<dyn grafton_visca::transport::SyncTransport>,
+        >;
         let _ = core::any::type_name::<_BlockingG2>();
     }
 

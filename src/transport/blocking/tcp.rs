@@ -2,10 +2,8 @@
 
 use bytes::Bytes;
 use std::{
-    borrow::Cow,
     io::{BufReader, Write},
     net::TcpStream,
-    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
@@ -104,71 +102,6 @@ impl Tcp {
     }
 
     // Retry configuration is now handled at the runtime/scheduler level
-
-    /// Set TCP nodelay option (disable Nagle's algorithm).
-    pub fn set_nodelay(&mut self, nodelay: bool) -> Result<(), Error> {
-        self.writer.set_nodelay(nodelay)?;
-        Ok(())
-    }
-
-    /// Set TTL (Time To Live) for packets.
-    pub fn set_ttl(&mut self, ttl: u32) -> Result<(), Error> {
-        self.writer.set_ttl(ttl)?;
-        Ok(())
-    }
-
-    /// Set read timeout for receive operations.
-    pub fn set_read_timeout(&mut self, timeout: Option<Duration>) -> Result<(), Error> {
-        self.reader.get_ref().set_read_timeout(timeout)?;
-        Ok(())
-    }
-
-    /// Set write timeout for send operations.
-    pub fn set_write_timeout(&mut self, timeout: Option<Duration>) -> Result<(), Error> {
-        self.writer.set_write_timeout(timeout)?;
-        Ok(())
-    }
-
-    /// Split the TCP transport into separate reader and writer halves.
-    ///
-    /// This allows for concurrent reading and writing without needing mutable
-    /// access to the entire transport. Useful for full-duplex communication patterns.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use grafton_visca::transport::blocking::tcp::Tcp;
-    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let transport = Tcp::connect("192.168.1.100:5678")?;
-    /// let (reader, writer) = transport.split()?;
-    ///
-    /// // Can now read and write concurrently from different threads
-    /// std::thread::spawn(move || {
-    ///     // Use writer in one thread
-    ///     writer.send(&[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]).unwrap();
-    /// });
-    ///
-    /// // Use reader in another thread
-    /// let response = reader.recv()?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn split(self) -> Result<(TcpReader, TcpWriter), Error> {
-        let writer_stream = self.writer.try_clone().map_err(|e| {
-            Error::TransportError(Cow::Owned(format!(
-                "Failed to clone TCP stream for split: {e}"
-            )))
-        })?;
-
-        let reader = TcpReader {
-            reader: Arc::new(Mutex::new(self.reader)),
-        };
-
-        let writer = TcpWriter {
-            writer: Arc::new(Mutex::new(writer_stream)),
-        };
-
-        Ok((reader, writer))
-    }
 }
 
 impl SyncTransport for Tcp {
@@ -209,82 +142,5 @@ impl SyncTransport for Tcp {
             }
             other => other,
         }
-    }
-}
-
-/// Reader half of a split TCP transport.
-///
-/// This type allows reading from a TCP connection that has been split
-/// into separate reader and writer halves.
-#[derive(Debug, Clone)]
-pub struct TcpReader {
-    reader: Arc<Mutex<BufReader<TcpStream>>>,
-}
-
-impl TcpReader {
-    /// Receive data from the TCP connection.
-    pub fn recv(&self) -> Result<Bytes, Error> {
-        let mut reader = self
-            .reader
-            .lock()
-            .map_err(|_| Error::TransportError(Cow::Borrowed("Reader mutex poisoned")))?;
-
-        // Use protocol-aware frame reading
-        read_visca_frame_sync(&mut *reader)
-    }
-
-    /// Receive data with a custom timeout.
-    pub fn recv_timeout(&self, duration: Duration) -> Result<Bytes, Error> {
-        let mut reader = self
-            .reader
-            .lock()
-            .map_err(|_| Error::TransportError(Cow::Borrowed("Reader mutex poisoned")))?;
-
-        // Save the current timeout
-        let original_timeout = reader.get_ref().read_timeout()?;
-
-        // Set the new timeout for this operation
-        reader.get_mut().set_read_timeout(Some(duration))?;
-
-        // Perform the read operation with protocol-aware deframing
-        let result = read_visca_frame_sync(&mut *reader);
-
-        // Restore the original timeout
-        reader.get_mut().set_read_timeout(original_timeout)?;
-
-        // Convert timeout-related IO errors to Error::Timeout for consistency
-        match result {
-            Err(Error::Io(ref io_err))
-                if io_err.kind() == std::io::ErrorKind::TimedOut
-                    || io_err.kind() == std::io::ErrorKind::WouldBlock =>
-            {
-                Err(Error::Timeout)
-            }
-            other => other,
-        }
-    }
-}
-
-/// Writer half of a split TCP transport.
-///
-/// This type allows writing to a TCP connection that has been split
-/// into separate reader and writer halves.
-#[derive(Debug, Clone)]
-pub struct TcpWriter {
-    writer: Arc<Mutex<TcpStream>>,
-}
-
-impl TcpWriter {
-    /// Send data over the TCP connection.
-    pub fn send(&self, data: &[u8]) -> Result<(), Error> {
-        let mut writer = self
-            .writer
-            .lock()
-            .map_err(|_| Error::TransportError(Cow::Borrowed("Writer mutex poisoned")))?;
-
-        // Send directly - retry logic is handled at the runtime/scheduler level
-        writer.write_all(data)?;
-        writer.flush()?;
-        Ok(())
     }
 }

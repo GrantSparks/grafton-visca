@@ -60,9 +60,9 @@ pub(crate) mod sync_io;
 // Async transport trait and runtime-specific transports are only public with `async`
 #[cfg(feature = "async")]
 pub mod async_transport;
-// Blocking transports are only public when NOT in async mode
+// Blocking transports are now private - use camera-first API instead
 #[cfg(not(feature = "async"))]
-pub mod blocking;
+pub(crate) mod blocking;
 pub mod buffer;
 pub mod builder;
 pub mod sony_config;
@@ -97,8 +97,10 @@ pub(crate) mod smol;
 
 #[cfg(feature = "async")]
 pub use async_transport::AsyncTransport;
-#[cfg(not(feature = "async"))]
-pub use blocking::{Tcp as BlockingTcp, Udp as BlockingUdp};
+// Direct transport types are no longer exported - use camera-first API instead:
+// - BlockingCamera::connect_tcp/udp()
+// - CameraBuilder::tcp/udp()
+// - Camera::<Blocking, _, _, _>::connect_tcp/udp()
 pub use builder::{NetTransportBuilder, Transport, TransportBuilderExt};
 #[cfg(feature = "async")]
 pub use protocol_detection::{DetectionResult, ProtocolDetector};

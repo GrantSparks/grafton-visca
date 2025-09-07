@@ -68,24 +68,6 @@ impl Udp {
             buffer_manager,
         })
     }
-
-    /// Set the read timeout for receive operations.
-    pub fn set_read_timeout(&mut self, timeout: Option<Duration>) -> Result<(), Error> {
-        self.socket.set_read_timeout(timeout)?;
-        Ok(())
-    }
-
-    /// Set the write timeout for send operations.
-    pub fn set_write_timeout(&mut self, timeout: Option<Duration>) -> Result<(), Error> {
-        self.socket.set_write_timeout(timeout)?;
-        Ok(())
-    }
-
-    /// Set TTL (Time To Live) for packets.
-    pub fn set_ttl(&mut self, ttl: u32) -> Result<(), Error> {
-        self.socket.set_ttl(ttl)?;
-        Ok(())
-    }
 }
 
 impl SyncTransport for Udp {

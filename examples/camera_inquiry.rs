@@ -20,7 +20,6 @@ fn main() -> grafton_visca::Result<()> {
             methods::inquiry::{InquiryControlBlocking, PanTiltInquiryControlBlocking},
             profiles::PtzOpticsG2,
         },
-        transport::BlockingTcp,
         CameraBuilder,
     };
 
@@ -33,8 +32,9 @@ fn main() -> grafton_visca::Result<()> {
         .unwrap_or_else(|| "192.168.0.110:5678".to_string());
 
     println!("Connecting to camera at {camera_addr}...");
-    let transport = BlockingTcp::connect(&camera_addr)?;
-    let camera = CameraBuilder::new().build_blocking::<PtzOpticsG2, _>(transport);
+    let camera = CameraBuilder::tcp(&camera_addr)
+        .profile::<PtzOpticsG2>()
+        .build()?;
 
     println!("\n--- Power State ---");
     match camera.get_power_state() {

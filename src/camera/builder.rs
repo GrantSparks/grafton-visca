@@ -197,7 +197,101 @@ where
     }
 }
 
+/// Transport type for builder.
+#[cfg(not(feature = "async"))]
+#[derive(Debug, Clone, Copy)]
+pub enum TransportType {
+    /// TCP transport
+    Tcp,
+    /// UDP transport
+    Udp,
+}
+
+/// Builder with transport configuration.
+#[derive(Debug)]
+#[cfg(not(feature = "async"))]
+pub struct CameraBuilderWithTransport {
+    transport_type: TransportType,
+    address: String,
+}
+
+#[cfg(not(feature = "async"))]
+impl CameraBuilderWithTransport {
+    /// Set the camera profile.
+    pub fn profile<P>(self) -> CameraBuilderWithProfile<P>
+    where
+        P: Profile + Default,
+    {
+        CameraBuilderWithProfile {
+            transport_type: self.transport_type,
+            address: self.address,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+/// Builder with both transport and profile configured.
+#[derive(Debug)]
+#[cfg(not(feature = "async"))]
+pub struct CameraBuilderWithProfile<P> {
+    transport_type: TransportType,
+    address: String,
+    _phantom: std::marker::PhantomData<P>,
+}
+
+#[cfg(not(feature = "async"))]
+impl<P> CameraBuilderWithProfile<P>
+where
+    P: Profile + Default,
+{
+    /// Build the camera with the configured settings.
+    pub fn build(self) -> Result<crate::BlockingCamera<P, Box<dyn SyncTransport>>, Error> {
+        let transport: Box<dyn SyncTransport> = match self.transport_type {
+            TransportType::Tcp => Box::new(crate::transport::blocking::tcp::Tcp::connect(
+                &self.address,
+            )?),
+            TransportType::Udp => Box::new(crate::transport::blocking::udp::Udp::connect(
+                &self.address,
+            )?),
+        };
+
+        crate::BlockingCamera::new(transport)
+    }
+}
+
 impl CameraBuilder<()> {
+    /// Create a builder for TCP transport.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let camera = CameraBuilder::tcp("192.168.0.110:5678")
+    ///     .profile::<PtzOpticsG2>()
+    ///     .build()?;
+    /// ```
+    #[cfg(not(feature = "async"))]
+    pub fn tcp(address: impl Into<String>) -> CameraBuilderWithTransport {
+        CameraBuilderWithTransport {
+            transport_type: TransportType::Tcp,
+            address: address.into(),
+        }
+    }
+
+    /// Create a builder for UDP transport.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let camera = CameraBuilder::udp("192.168.0.110:1259")
+    ///     .profile::<PtzOpticsG2>()
+    ///     .build()?;
+    /// ```
+    #[cfg(not(feature = "async"))]
+    pub fn udp(address: impl Into<String>) -> CameraBuilderWithTransport {
+        CameraBuilderWithTransport {
+            transport_type: TransportType::Udp,
+            address: address.into(),
+        }
+    }
+
     /// Build a blocking camera with the specified profile and transport.
     #[cfg(not(feature = "async"))]
     pub fn build_blocking<P, T>(

@@ -22,7 +22,6 @@ use std::{
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     profiles::PtzOpticsG2,
-    transport::blocking::{Tcp, Udp},
     types::SpeedLevel,
     units::{Degrees, Normalized},
     BlockingCamera, Error,
@@ -49,8 +48,8 @@ fn main() -> Result<(), Error> {
     println!();
 
     println!("Connecting via TCP (default port 5678)...");
-    let tcp_transport = Tcp::connect(&format!("{camera_addr}:5678"))?;
-    let mut tcp_camera = BlockingCamera::<PtzOpticsG2, _>::new(tcp_transport)?;
+    let mut tcp_camera =
+        BlockingCamera::<PtzOpticsG2, _>::connect_tcp(format!("{camera_addr}:5678"))?;
 
     println!("✓ TCP connection established");
 
@@ -65,9 +64,8 @@ fn main() -> Result<(), Error> {
     println!("═══ TCP with Custom Port ═══");
     println!("Connecting via TCP on custom port 1259...");
 
-    match Tcp::connect(&format!("{camera_addr}:1259")) {
-        Ok(transport) => {
-            let camera = BlockingCamera::<PtzOpticsG2, _>::new(transport)?;
+    match BlockingCamera::<PtzOpticsG2, _>::connect_tcp(format!("{camera_addr}:1259")) {
+        Ok(camera) => {
             println!("✓ TCP connection established on port 1259");
 
             // Test connection
@@ -92,9 +90,8 @@ fn main() -> Result<(), Error> {
     // PTZOptics uses UDP port 1259 for raw VISCA
     // Sony cameras typically use UDP port 52381 with encapsulation
 
-    match Udp::connect(&format!("{camera_addr}:1259")) {
-        Ok(transport) => {
-            let mut camera = BlockingCamera::<PtzOpticsG2, _>::new(transport)?;
+    match BlockingCamera::<PtzOpticsG2, _>::connect_udp(format!("{camera_addr}:1259")) {
+        Ok(mut camera) => {
             println!("✓ UDP transport initialized");
 
             // Test UDP connection
@@ -114,15 +111,15 @@ fn main() -> Result<(), Error> {
     }
     println!();
 
-    // === CONNECTION WITH TIMEOUT ===
-    println!("═══ Connection with Timeout ═══");
-    println!("Testing connection timeout handling...");
+    // === CONNECTION ERROR HANDLING ===
+    println!("═══ Connection Error Handling ═══");
+    println!("Testing connection error handling...");
 
-    // Try to connect to a non-existent address with timeout
+    // Try to connect to a non-existent address
     println!("Attempting to connect to non-existent camera (192.168.255.255)...");
     let start = Instant::now();
 
-    let timeout_result = Tcp::connect_timeout("192.168.255.255:5678", Duration::from_secs(2));
+    let timeout_result = BlockingCamera::<PtzOpticsG2, _>::connect_tcp("192.168.255.255:5678");
 
     let elapsed = start.elapsed();
 
@@ -174,8 +171,9 @@ fn main() -> Result<(), Error> {
     tcp_camera.zoom_absolute(Normalized(0.0))?;
 
     // If UDP is available, compare performance
-    if let Ok(udp_transport) = Udp::connect(&format!("{camera_addr}:52381")) {
-        let udp_camera = BlockingCamera::<PtzOpticsG2, _>::new(udp_transport)?;
+    if let Ok(udp_camera) =
+        BlockingCamera::<PtzOpticsG2, _>::connect_udp(format!("{camera_addr}:52381"))
+    {
         println!("Sending 10 commands via UDP...");
 
         let udp_start = Instant::now();

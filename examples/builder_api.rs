@@ -35,39 +35,45 @@ use grafton_visca::camera::profiles::PtzOpticsG2;
 
 #[cfg(not(feature = "async"))]
 fn main() -> Result<()> {
-    use grafton_visca::transport::{BlockingTcp, BlockingUdp};
+    // Direct transport types are no longer available - use CameraBuilder instead
 
     tracing_subscriber::fmt::init();
 
     println!("=== CameraBuilder API Demo (Blocking) ===\n");
 
     println!("--- Example 1: Simple TCP with Default Port ---");
-    let transport = BlockingTcp::connect("192.168.0.110:5678")?;
-    let _camera = CameraBuilder::new().build_blocking::<PtzOpticsG2, _>(transport);
+    let _camera = CameraBuilder::tcp("192.168.0.110:5678")
+        .profile::<PtzOpticsG2>()
+        .build()?;
     println!("✓ Created PTZOptics G2 camera on TCP port 5678");
 
     println!("\n--- Example 2: TCP with Custom Port ---");
-    let transport = BlockingTcp::connect("192.168.0.110:52381")?;
-    let _camera = CameraBuilder::new().build_blocking::<PtzOpticsG2, _>(transport);
+    let _camera = CameraBuilder::tcp("192.168.0.110:52381")
+        .profile::<PtzOpticsG2>()
+        .build()?;
     println!("✓ Created camera with custom port 52381");
 
     println!("\n--- Example 3: UDP Transport ---");
-    let transport = BlockingUdp::connect("192.168.0.110:1259")?;
-    let _camera = CameraBuilder::new().build_blocking::<PtzOpticsG2, _>(transport);
+    let _camera = CameraBuilder::udp("192.168.0.110:1259")
+        .profile::<PtzOpticsG2>()
+        .build()?;
     println!("✓ Created camera on UDP port 1259");
 
     println!("\n--- Example 4: Camera Profiles ---");
 
-    let transport = BlockingTcp::connect("192.168.0.110:5678")?;
-    let _generic = CameraBuilder::new().build_blocking::<PtzOpticsG2, _>(transport);
+    let _generic = CameraBuilder::tcp("192.168.0.110:5678")
+        .profile::<PtzOpticsG2>()
+        .build()?;
     println!("✓ PTZOptics G2 camera (used as generic example)");
 
-    let transport = BlockingTcp::connect("192.168.0.109:52381")?;
-    let _sony_brc = CameraBuilder::new().build_blocking::<SonyBRC300, _>(transport);
+    let _sony_brc = CameraBuilder::tcp("192.168.0.109:52381")
+        .profile::<SonyBRC300>()
+        .build()?;
     println!("✓ Sony BRC-300 camera (encapsulated protocol)");
 
-    let transport = BlockingTcp::connect("192.168.0.108:5678")?;
-    let _sony_fr7 = CameraBuilder::new().build_blocking::<SonyFR7, _>(transport);
+    let _sony_fr7 = CameraBuilder::tcp("192.168.0.108:5678")
+        .profile::<SonyFR7>()
+        .build()?;
     println!("✓ Sony FR7 camera (ND filter support)");
 
     println!("\n--- Example 5: Type Safety ---");

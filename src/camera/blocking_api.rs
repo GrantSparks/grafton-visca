@@ -119,6 +119,45 @@ where
     }
 }
 
+impl<P> BlockingCamera<P, Box<dyn crate::transport::SyncTransport>>
+where
+    P: crate::capabilities::Profile + Default,
+{
+    /// Connect to a camera over TCP.
+    ///
+    /// This provides a camera-first API for creating cameras,
+    /// hiding transport details from users.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// use grafton_visca::{BlockingCamera, camera::profiles::PtzOpticsG2};
+    ///
+    /// let camera = BlockingCamera::<PtzOpticsG2, _>::connect_tcp("192.168.0.110:5678")?;
+    /// ```
+    pub fn connect_tcp(addr: impl Into<String>) -> Result<Self, Error> {
+        let transport = crate::transport::blocking::tcp::Tcp::connect(&addr.into())?;
+        Self::new(Box::new(transport))
+    }
+
+    /// Connect to a camera over UDP.
+    ///
+    /// This provides a camera-first API for creating cameras,
+    /// hiding transport details from users.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// use grafton_visca::{BlockingCamera, camera::profiles::PtzOpticsG2};
+    ///
+    /// let camera = BlockingCamera::<PtzOpticsG2, _>::connect_udp("192.168.0.110:1259")?;
+    /// ```
+    pub fn connect_udp(addr: impl Into<String>) -> Result<Self, Error> {
+        let transport = crate::transport::blocking::udp::Udp::connect(&addr.into())?;
+        Self::new(Box::new(transport))
+    }
+}
+
 impl<P, Tr> Deref for BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile,
