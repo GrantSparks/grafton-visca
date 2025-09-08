@@ -4,24 +4,32 @@
 //! vs raw VISCA protocol modes. It probes the camera with both formats to
 //! determine which protocol the camera expects.
 
+#[cfg(feature = "async")]
 use tracing::{debug, info, warn};
 
 use std::time::Duration;
 
 use crate::{
     capabilities::ProtocolStyle,
-    command::bytes::VISCA_TERMINATOR,
+    protocol::response::decode_basic,
+    transport::{buffer::BufferConfig, RetryConfig},
+};
+
+#[cfg(any(
+    feature = "async",
+    all(test, feature = "rt-tokio", feature = "test-utils")
+))]
+use crate::{command::bytes::VISCA_TERMINATOR, transport::envelope::TransportEnvelope, Error};
+
+#[cfg(feature = "async")]
+use crate::{
     executor::Executor,
-    protocol::{framer::ProtocolFramer, response::decode_basic},
-    transport::{
-        buffer::{BufferConfig, BufferManager},
-        envelope::TransportEnvelope,
-        AsyncTransport, RetryConfig,
-    },
-    Error,
+    protocol::framer::ProtocolFramer,
+    transport::{buffer::BufferManager, AsyncTransport},
 };
 
 /// Protocol detection timeout - how long to wait for camera response
+#[cfg(feature = "async")]
 const DETECTION_TIMEOUT: Duration = Duration::from_millis(100);
 
 /// Maximum retry attempts during detection
@@ -74,6 +82,7 @@ pub enum TransportProtocol {
 /// Protocol detector for automatic VISCA protocol detection
 #[derive(Debug, Clone, Copy)]
 pub struct ProtocolDetector {
+    #[cfg_attr(not(feature = "async"), allow(dead_code))]
     retry_config: RetryConfig,
 }
 
@@ -227,6 +236,7 @@ impl ProtocolDetector {
     ///
     /// The test command used is a simple Version Inquiry (81 09 00 02 FF)
     /// which should be supported by all VISCA cameras.
+    #[cfg(feature = "async")]
     pub async fn detect_protocol<T, E>(
         &self,
         transport: &mut T,
@@ -287,6 +297,7 @@ impl ProtocolDetector {
     }
 
     /// Test a specific protocol format by sending a command and waiting for response
+    #[cfg(feature = "async")]
     async fn try_protocol<T, E>(
         &self,
         transport: &mut T,

@@ -47,8 +47,11 @@ impl Camera {
         P: Profile + Default,
         R: crate::runtime_trait::Runtime,
     {
+        use crate::camera::config::TransportOptions;
+
+        let address = addr.into();
         CameraConfig::<P>::new()
-            .address(addr)
+            .transport(TransportOptions::Auto { address })
             .auto_protocol()
             .open_async(runtime)
             .await
@@ -144,8 +147,11 @@ impl Camera {
     where
         P: Profile + Default,
     {
+        use crate::camera::config::TransportOptions;
+
+        let address = addr.into();
         CameraConfig::<P>::new()
-            .address(addr)
+            .transport(TransportOptions::Auto { address })
             .auto_protocol()
             .open_blocking()
     }

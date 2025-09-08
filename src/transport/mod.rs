@@ -68,7 +68,7 @@ pub mod sync_transport;
 // since async cameras now do their own protocol framing
 pub mod envelope;
 // Protocol auto-detection for VISCA cameras (EPIC task B3)
-#[cfg(feature = "async")]
+// Core detection types are needed by both async and blocking modes
 pub mod protocol_detection;
 pub mod retry;
 // Serial transports: blocking for sync mode, async for async mode

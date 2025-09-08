@@ -30,6 +30,11 @@ pub enum TransportOptions {
         /// Baud rate (default: 9600)
         baud_rate: u32,
     },
+    /// Auto-detect transport and protocol.
+    Auto {
+        /// Host or host:port string (e.g., "192.168.0.110")
+        address: String,
+    },
     /// Custom transport provided by user.
     Custom,
 }
@@ -54,6 +59,13 @@ impl TransportOptions {
         Self::Serial {
             port: port.into(),
             baud_rate,
+        }
+    }
+
+    /// Create auto-detect transport options.
+    pub fn auto(address: impl Into<String>) -> Self {
+        Self::Auto {
+            address: address.into(),
         }
     }
 }
@@ -296,147 +308,6 @@ impl<P> CameraConfig<P>
 where
     P: crate::capabilities::Profile + Default,
 {
-    /// Detect the protocol style by probing the camera.
-    async fn detect_protocol_async<Profile, R>(&self, runtime: R) -> Result<ProtocolStyle, Error>
-    where
-        Profile: crate::capabilities::Profile + Default,
-        R: crate::runtime_trait::Runtime,
-    {
-        use crate::runtime_trait::TransportHandle;
-        use crate::transport::{builder::TransportConfig, AsyncTransport};
-        use std::time::Duration;
-
-        // Extract host from address
-        let (host, _explicit_port) = match &self.transport {
-            TransportOptions::Tcp { address } | TransportOptions::Udp { address } => {
-                if let Some(colon_pos) = address.rfind(':') {
-                    // Check if this is actually a port (not IPv6)
-                    if address[colon_pos + 1..].parse::<u16>().is_ok() {
-                        (
-                            address[..colon_pos].to_string(),
-                            Some(&address[colon_pos + 1..]),
-                        )
-                    } else {
-                        (address.clone(), None)
-                    }
-                } else {
-                    (address.clone(), None)
-                }
-            }
-            _ => {
-                return Err(Error::InvalidState(
-                    "Auto-detection requires TCP or UDP transport".into(),
-                ))
-            }
-        };
-
-        // Detection candidates in priority order based on profile defaults
-        let candidates = if Profile::PROTOCOL_STYLE == ProtocolStyle::SonyEncapsulated {
-            vec![
-                // Sony cameras first
-                (
-                    format!("{}:52381", &host),
-                    true, // is_udp
-                    ProtocolStyle::SonyEncapsulated,
-                ),
-                (
-                    format!("{}:52381", &host),
-                    false, // is_tcp
-                    ProtocolStyle::SonyEncapsulated,
-                ),
-                // Then PTZOptics cameras
-                (format!("{}:1259", &host), true, ProtocolStyle::RawVisca),
-                (format!("{}:5678", &host), false, ProtocolStyle::RawVisca),
-            ]
-        } else {
-            vec![
-                // PTZOptics cameras first
-                (format!("{}:1259", &host), true, ProtocolStyle::RawVisca),
-                (format!("{}:5678", &host), false, ProtocolStyle::RawVisca),
-                // Then Sony cameras
-                (
-                    format!("{}:52381", &host),
-                    true,
-                    ProtocolStyle::SonyEncapsulated,
-                ),
-                (
-                    format!("{}:52381", &host),
-                    false,
-                    ProtocolStyle::SonyEncapsulated,
-                ),
-            ]
-        };
-
-        // Try each candidate
-        for (address, is_udp, protocol_style) in candidates {
-            // Try to connect
-            let transport_result = if is_udp {
-                R::connect_udp(&address, TransportConfig::default())
-                    .await
-                    .map(|t| TransportHandle::<R>::Udp(t, TransportConfig::default()))
-            } else {
-                R::connect_tcp(&address, TransportConfig::default())
-                    .await
-                    .map(|t| TransportHandle::<R>::Tcp(t, TransportConfig::default()))
-            };
-
-            if let Ok(mut transport) = transport_result {
-                // Test with a simple inquiry command
-                let test_command = &[0x81, 0x09, 0x00, 0x02, 0xFF]; // Version Inquiry
-
-                // Frame the command according to protocol style
-                let envelope = crate::transport::envelope::TransportEnvelope::new(protocol_style);
-                let buffer_config = crate::transport::buffer::BufferConfig::default();
-                let buffer_manager = crate::transport::buffer::BufferManager::new(buffer_config);
-                let framed = envelope.frame_bytes_with_kind(
-                    test_command,
-                    crate::command::CommandKind::Inquiry,
-                    &buffer_manager,
-                );
-
-                // Send command and check for response
-                if transport.send(&framed).await.is_ok() {
-                    // Try to receive with timeout
-                    let recv_future = transport.recv();
-                    let timeout_result = runtime
-                        .timeout(Duration::from_millis(100), recv_future)
-                        .await;
-
-                    if let Ok(Ok(response)) = timeout_result {
-                        // Check if response looks valid
-                        if !response.is_empty() && self.is_valid_response(&response, protocol_style)
-                        {
-                            // Found working protocol style
-                            return Ok(protocol_style);
-                        }
-                    }
-                }
-            }
-        }
-
-        Err(Error::ConnectionFailed {
-            addr: host.into(),
-            source: std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                "No VISCA protocol response detected from camera - verify camera is powered on and address is correct",
-            ),
-        })
-    }
-
-    /// Check if a response is valid for the given protocol style.
-    fn is_valid_response(&self, data: &[u8], protocol_style: ProtocolStyle) -> bool {
-        match protocol_style {
-            ProtocolStyle::SonyEncapsulated => {
-                // Sony response should have at least 8-byte header
-                data.len() >= 8 && data[0] == 0x01 && data[1] == 0x11
-            }
-            ProtocolStyle::RawVisca => {
-                // Raw VISCA response should start with 0x90
-                !data.is_empty() && (data[0] == 0x90 || data[0] == 0x50)
-            }
-        }
-    }
-
     /// Open an async camera session using the configuration.
     ///
     /// This method performs all I/O operations needed to establish a connection
@@ -477,35 +348,66 @@ where
         use crate::runtime_trait::TransportHandle;
         use crate::transport::builder::TransportConfig;
 
-        // Create transport based on configuration
-        let transport = match &self.transport {
-            TransportOptions::Tcp { address } => {
-                // Parse address and create TCP transport using Runtime trait
-                let tcp = R::connect_tcp(address, TransportConfig::default()).await?;
-                TransportHandle::Tcp(tcp, TransportConfig::default())
+        // Handle Auto transport option separately
+        let (transport, protocol_style) = match &self.transport {
+            TransportOptions::Auto { address } => {
+                // Use the new unified auto_connect_and_detect function
+                let (transport, detected_style) =
+                    crate::transport::builder::auto_connect_and_detect(
+                        address,
+                        TransportConfig::default(),
+                        &runtime,
+                    )
+                    .await?;
+                (transport, detected_style)
             }
-            TransportOptions::Udp { address } => {
-                // Parse address and create UDP transport using Runtime trait
-                let udp = R::connect_udp(address, TransportConfig::default()).await?;
-                TransportHandle::Udp(udp, TransportConfig::default())
-            }
-            TransportOptions::Serial { .. } => {
-                return Err(Error::Unsupported);
-            }
-            TransportOptions::Custom => {
-                return Err(Error::InvalidState(
-                    "Custom transport requires manual session creation".into(),
-                ));
-            }
-        };
+            _ => {
+                // Create transport based on configuration
+                let mut transport = match &self.transport {
+                    TransportOptions::Tcp { address } => {
+                        // Parse address and create TCP transport using Runtime trait
+                        let tcp = R::connect_tcp(address, TransportConfig::default()).await?;
+                        TransportHandle::Tcp(tcp, TransportConfig::default())
+                    }
+                    TransportOptions::Udp { address } => {
+                        // Parse address and create UDP transport using Runtime trait
+                        let udp = R::connect_udp(address, TransportConfig::default()).await?;
+                        TransportHandle::Udp(udp, TransportConfig::default())
+                    }
+                    TransportOptions::Serial { .. } => {
+                        return Err(Error::Unsupported);
+                    }
+                    TransportOptions::Custom => {
+                        return Err(Error::InvalidState(
+                            "Custom transport requires manual session creation".into(),
+                        ));
+                    }
+                    TransportOptions::Auto { .. } => {
+                        unreachable!("Auto case handled above")
+                    }
+                };
 
-        // Determine protocol style
-        let protocol_style = match self.protocol {
-            ProtocolConfig::Explicit(style) => style,
-            ProtocolConfig::Auto => {
-                // Perform protocol detection inline
-                let detected_style = self.detect_protocol_async::<P, R>(runtime.clone()).await?;
-                detected_style
+                // Determine protocol style
+                let protocol_style = match self.protocol {
+                    ProtocolConfig::Explicit(style) => style,
+                    ProtocolConfig::Auto => {
+                        // Use ProtocolDetector on the established transport
+                        use crate::transport::protocol_detection::ProtocolDetector;
+
+                        let detector = ProtocolDetector::new();
+                        let detection_result =
+                            detector.detect_protocol(&mut transport, &runtime).await?;
+
+                        detection_result.to_protocol_style().ok_or_else(|| {
+                            Error::ConnectionFailed {
+                                addr: "unknown".into(),
+                                source: std::io::Error::other("Failed to detect protocol"),
+                            }
+                        })?
+                    }
+                };
+
+                (transport, protocol_style)
             }
         };
 
@@ -566,34 +468,95 @@ where
             SyncTransport,
         };
 
-        // Create transport based on configuration
-        let transport: Box<dyn SyncTransport> = match &self.transport {
-            TransportOptions::Tcp { address } => {
-                // Parse address and create TCP transport
-                let tcp = Tcp::connect(address)?;
-                Box::new(tcp)
+        // Handle Auto transport option separately
+        let (transport, protocol_style) = match &self.transport {
+            TransportOptions::Auto { address } => {
+                // Use the new unified auto_connect_and_detect_blocking function
+                let (transport, detected_style) =
+                    crate::transport::builder::auto_connect_and_detect_blocking(
+                        address,
+                        crate::transport::builder::TransportConfig::default(),
+                    )?;
+                (transport, detected_style)
             }
-            TransportOptions::Udp { address } => {
-                // Parse address and create UDP transport
-                let udp = Udp::connect(address)?;
-                Box::new(udp)
-            }
-            TransportOptions::Serial { .. } => {
-                return Err(Error::Unsupported);
-            }
-            TransportOptions::Custom => {
-                return Err(Error::InvalidState(
-                    "Custom transport requires manual session creation".into(),
-                ));
-            }
-        };
+            _ => {
+                // Create transport based on configuration
+                let mut transport: Box<dyn SyncTransport> = match &self.transport {
+                    TransportOptions::Tcp { address } => {
+                        // Parse address and create TCP transport
+                        let tcp = Tcp::connect(address)?;
+                        Box::new(tcp)
+                    }
+                    TransportOptions::Udp { address } => {
+                        // Parse address and create UDP transport
+                        let udp = Udp::connect(address)?;
+                        Box::new(udp)
+                    }
+                    TransportOptions::Serial { .. } => {
+                        return Err(Error::Unsupported);
+                    }
+                    TransportOptions::Custom => {
+                        return Err(Error::InvalidState(
+                            "Custom transport requires manual session creation".into(),
+                        ));
+                    }
+                    TransportOptions::Auto { .. } => {
+                        unreachable!("Auto case handled above")
+                    }
+                };
 
-        // Determine protocol style
-        let protocol_style = match self.protocol {
-            ProtocolConfig::Explicit(style) => style,
-            ProtocolConfig::Auto => {
-                // Auto-detect protocol by probing the camera
-                self.detect_protocol_blocking()?
+                // Determine protocol style
+                let protocol_style = match self.protocol {
+                    ProtocolConfig::Explicit(style) => style,
+                    ProtocolConfig::Auto => {
+                        // Use simplified detection for blocking mode
+                        // Try Sony encapsulated first, then raw VISCA
+                        use crate::command::bytes::VISCA_TERMINATOR;
+                        use crate::transport::envelope::TransportEnvelope;
+                        use crate::transport::protocol_detection::ProtocolDetector;
+                        use std::time::Duration;
+
+                        let detector = ProtocolDetector::new();
+                        let test_command = &[0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR];
+
+                        // Try Sony encapsulated first
+                        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated);
+                        let buffer_config = crate::transport::buffer::BufferConfig::for_sony_ip();
+                        let buffer_manager =
+                            crate::transport::buffer::BufferManager::new(buffer_config);
+                        let framed = envelope.frame_bytes_with_kind(
+                            test_command,
+                            crate::command::CommandKind::Inquiry,
+                            &buffer_manager,
+                        );
+
+                        if transport
+                            .send_with_kind(&framed, crate::command::CommandKind::Inquiry)
+                            .is_ok()
+                        {
+                            if let Ok(buffer) =
+                                transport.recv_with_timeout(Duration::from_millis(100))
+                            {
+                                if let Ok(payload) = envelope.extract_response(&buffer) {
+                                    if detector.is_valid_visca_response(&payload) {
+                                        ProtocolStyle::SonyEncapsulated
+                                    } else {
+                                        // Try raw VISCA
+                                        ProtocolStyle::RawVisca
+                                    }
+                                } else {
+                                    ProtocolStyle::RawVisca
+                                }
+                            } else {
+                                ProtocolStyle::RawVisca
+                            }
+                        } else {
+                            ProtocolStyle::RawVisca
+                        }
+                    }
+                };
+
+                (transport, protocol_style)
             }
         };
 
@@ -612,154 +575,5 @@ where
 
         // Wrap in session
         Ok(crate::camera::session::CameraSession::new(camera))
-    }
-}
-
-// Extension methods for blocking auto-detection
-#[cfg(not(feature = "async"))]
-impl<P> CameraConfig<P>
-where
-    P: crate::capabilities::Profile + Default,
-{
-    /// Detect the protocol style by probing the camera.
-    fn detect_protocol_blocking(&self) -> Result<ProtocolStyle, Error> {
-        use crate::camera::builder::TransportType;
-        use crate::transport::{
-            blocking::{Tcp, Udp},
-            SyncTransport,
-        };
-        use std::time::Duration;
-
-        // Extract host from address (remove port if present)
-        let host = match &self.transport {
-            TransportOptions::Tcp { address } | TransportOptions::Udp { address } => {
-                if let Some(colon_pos) = address.rfind(':') {
-                    // Check if this is actually a port (not IPv6)
-                    if address[colon_pos + 1..].parse::<u16>().is_ok() {
-                        address[..colon_pos].to_string()
-                    } else {
-                        address.clone()
-                    }
-                } else {
-                    address.clone()
-                }
-            }
-            _ => {
-                return Err(Error::InvalidState(
-                    "Auto-detection requires TCP or UDP transport".into(),
-                ))
-            }
-        };
-
-        // Detection candidates in priority order based on profile defaults
-        let candidates = if P::PROTOCOL_STYLE == ProtocolStyle::SonyEncapsulated {
-            vec![
-                // Sony cameras first
-                (
-                    format!("{}:52381", &host),
-                    TransportType::Udp,
-                    ProtocolStyle::SonyEncapsulated,
-                ),
-                (
-                    format!("{}:52381", &host),
-                    TransportType::Tcp,
-                    ProtocolStyle::SonyEncapsulated,
-                ),
-                // Then PTZOptics cameras
-                (
-                    format!("{}:1259", host),
-                    TransportType::Udp,
-                    ProtocolStyle::RawVisca,
-                ),
-                (
-                    format!("{}:5678", host),
-                    TransportType::Tcp,
-                    ProtocolStyle::RawVisca,
-                ),
-            ]
-        } else {
-            vec![
-                // PTZOptics cameras first
-                (
-                    format!("{}:1259", host),
-                    TransportType::Udp,
-                    ProtocolStyle::RawVisca,
-                ),
-                (
-                    format!("{}:5678", host),
-                    TransportType::Tcp,
-                    ProtocolStyle::RawVisca,
-                ),
-                // Then Sony cameras
-                (
-                    format!("{}:52381", &host),
-                    TransportType::Udp,
-                    ProtocolStyle::SonyEncapsulated,
-                ),
-                (
-                    format!("{}:52381", &host),
-                    TransportType::Tcp,
-                    ProtocolStyle::SonyEncapsulated,
-                ),
-            ]
-        };
-
-        // Try each candidate
-        for (address, transport_type, protocol_style) in candidates {
-            // Try to connect
-            let transport_result: Result<Box<dyn SyncTransport>, Error> = match transport_type {
-                TransportType::Tcp => match Tcp::connect(&address) {
-                    Ok(t) => Ok(Box::new(t)),
-                    Err(_) => continue, // Try next candidate
-                },
-                TransportType::Udp => match Udp::connect(&address) {
-                    Ok(t) => Ok(Box::new(t)),
-                    Err(_) => continue, // Try next candidate
-                },
-            };
-
-            if let Ok(mut transport) = transport_result {
-                // Test with a simple inquiry command
-                let test_command = &[0x81, 0x09, 0x00, 0x02, 0xFF]; // Version Inquiry
-
-                // Send command and check for response
-                if transport
-                    .send_with_kind(test_command, crate::command::CommandKind::Inquiry)
-                    .is_ok()
-                {
-                    // Try to receive with timeout
-                    if let Ok(response) = transport.recv_with_timeout(Duration::from_millis(100)) {
-                        // Check if response looks valid
-                        if !response.is_empty() && self.is_valid_response(&response, protocol_style)
-                        {
-                            // Found working protocol style
-                            return Ok(protocol_style);
-                        }
-                    }
-                }
-            }
-        }
-
-        Err(Error::ConnectionFailed {
-            addr: host.into(),
-            source: std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                "No VISCA protocol response detected from camera - verify camera is powered on and address is correct",
-            ),
-        })
-    }
-
-    /// Check if a response is valid for the given protocol style.
-    fn is_valid_response(&self, data: &[u8], protocol_style: ProtocolStyle) -> bool {
-        match protocol_style {
-            ProtocolStyle::SonyEncapsulated => {
-                // Sony response should have at least 8-byte header
-                data.len() >= 8 && data[0] == 0x01 && data[1] == 0x11
-            }
-            ProtocolStyle::RawVisca => {
-                // Raw VISCA response should start with 0x90
-                !data.is_empty() && (data[0] == 0x90 || data[0] == 0x50)
-            }
-        }
     }
 }
