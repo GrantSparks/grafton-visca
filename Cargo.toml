@@ -90,8 +90,7 @@ name = "transports"
 name = "builder_api"
 
 [[example]]
-name = "camera_inquiry"
-required-features = ["rt-tokio"]
+name = "inquiry_quickstart"
 
 [[example]]
 name = "concurrent_control"
@@ -113,10 +112,6 @@ required-features = ["async"]
 
 [[example]]
 name = "sony_encapsulation"
-required-features = ["rt-tokio"]
-
-[[example]]
-name = "inquiry_demo"
 required-features = ["rt-tokio"]
 
 [[example]]
