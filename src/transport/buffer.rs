@@ -107,6 +107,13 @@ impl BufferManager {
         Self { config }
     }
 
+    /// Get the buffer configuration (crate-visible for runtime loop).
+    #[inline]
+    #[cfg(feature = "async")]
+    pub(crate) fn config(&self) -> BufferConfig {
+        self.config
+    }
+
     /// Create a new buffer manager with default configuration.
     /// Only available in tests to simplify test setup.
     #[cfg(all(

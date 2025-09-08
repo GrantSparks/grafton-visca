@@ -89,8 +89,8 @@ pub async fn runtime_loop_with_config<
 ) -> Result<()> {
     let mut adapter =
         AsyncAdapter::new(config.timeout_config, config.retry_config, executor.clone());
-    let mut protocol_framer = ProtocolFramer::new(4096); // Default buffer size
-                                                         // Track cancel requests that arrived before the command was bound to a socket
+    let mut protocol_framer = ProtocolFramer::new_with_config(config.buffer_manager.config());
+    // Track cancel requests that arrived before the command was bound to a socket
     let mut pending_cancel_ids: HashSet<u32> = HashSet::new();
 
     debug!("VISCA runtime started");

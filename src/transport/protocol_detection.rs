@@ -332,7 +332,7 @@ impl ProtocolDetector {
             }
 
             // Create a local ProtocolFramer to handle chunked responses
-            let mut framer = ProtocolFramer::new(1024);
+            let mut framer = ProtocolFramer::new_with_config(BufferConfig::default());
             let start_time = std::time::Instant::now();
 
             // Loop to collect chunks until we get a frame or timeout
