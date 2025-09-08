@@ -4,7 +4,10 @@
 //! socket type implementing the AsyncDatagram trait.
 
 use crate::{
-    transport::{async_io::AsyncDatagram, builder::TransportConfig, AsyncTransport},
+    transport::{
+        async_io::AsyncDatagram, async_transport::HasTransportConfig, builder::TransportConfig,
+        AsyncTransport,
+    },
     Error,
 };
 
@@ -16,14 +19,20 @@ use crate::{
 #[derive(Debug)]
 pub struct Udp<S: AsyncDatagram> {
     socket: S,
+    config: TransportConfig,
 }
 
 impl<S: AsyncDatagram> Udp<S> {
     /// Create a new UDP transport from a connected socket.
     ///
     /// The socket should already be connected to the remote endpoint.
-    pub fn new(socket: S, _config: TransportConfig) -> Self {
-        Self { socket }
+    pub fn new(socket: S, config: TransportConfig) -> Self {
+        Self { socket, config }
+    }
+
+    /// Get the transport configuration.
+    pub fn config(&self) -> &TransportConfig {
+        &self.config
     }
 }
 
@@ -38,5 +47,11 @@ impl<S: AsyncDatagram> AsyncTransport for Udp<S> {
         // Receive data directly into the provided buffer
         let n = self.socket.recv(dst).await?;
         Ok(n)
+    }
+}
+
+impl<S: AsyncDatagram> HasTransportConfig for Udp<S> {
+    fn transport_config(&self) -> &TransportConfig {
+        &self.config
     }
 }

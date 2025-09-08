@@ -259,6 +259,7 @@ impl ProtocolDetector {
                 executor,
                 test_command,
                 ProtocolStyle::SonyEncapsulated,
+                BufferConfig::for_sony_ip(),
             )
             .await
         {
@@ -277,7 +278,13 @@ impl ProtocolDetector {
         // Fallback to raw VISCA format
         debug!("Probing raw VISCA protocol (1259/5678 style)");
         match self
-            .try_protocol(transport, executor, test_command, ProtocolStyle::RawVisca)
+            .try_protocol(
+                transport,
+                executor,
+                test_command,
+                ProtocolStyle::RawVisca,
+                BufferConfig::for_raw_ip(),
+            )
             .await
         {
             Ok(true) => {
@@ -304,13 +311,14 @@ impl ProtocolDetector {
         executor: &E,
         command: &[u8],
         protocol_style: ProtocolStyle,
+        buffer_config: BufferConfig,
     ) -> Result<bool, Error>
     where
         T: AsyncTransport,
         E: Executor,
     {
         let envelope = TransportEnvelope::new(protocol_style);
-        let buffer_manager = BufferManager::new(BufferConfig::default());
+        let buffer_manager = BufferManager::new(buffer_config);
 
         // Send command with retries
         for attempt in 0..=self.retry_config.max_retries {
@@ -343,7 +351,7 @@ impl ProtocolDetector {
             }
 
             // Create a local ProtocolFramer to handle chunked responses
-            let mut framer = ProtocolFramer::new_with_config(BufferConfig::default());
+            let mut framer = ProtocolFramer::new_with_config(buffer_config);
             let start_time = std::time::Instant::now();
 
             // Loop to collect chunks until we get a frame or timeout

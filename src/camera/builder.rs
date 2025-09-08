@@ -138,7 +138,7 @@ pub struct CameraBuilderWithAsyncTransportAndProfile<E, T, P> {
 impl<E, T, P> CameraBuilderWithAsyncTransportAndProfile<E, T, P>
 where
     E: Executor + Send + Sync + 'static,
-    T: AsyncTransport + Send + Sync + 'static,
+    T: AsyncTransport + crate::transport::HasTransportConfig + Send + Sync + 'static,
     P: Profile + Default,
 {
     /// Open the async camera with the configured transport.
@@ -319,7 +319,7 @@ where
     ) -> Result<Camera<mode::Async, P, T, E>, Error>
     where
         P: Profile + Default,
-        T: AsyncTransport + Send + Sync + 'static,
+        T: AsyncTransport + crate::transport::HasTransportConfig + Send + Sync + 'static,
         E: Send + Sync + 'static,
     {
         let executor = self.executor.ok_or_else(|| {

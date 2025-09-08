@@ -24,6 +24,10 @@ pub struct RuntimeLoopConfig {
     pub buffer_manager: BufferManager,
     pub timeout_config: TimeoutConfig,
     pub retry_config: RetryConfig,
+    /// Read timeout from transport config
+    pub read_timeout: std::time::Duration,
+    /// Write timeout from transport config
+    pub write_timeout: std::time::Duration,
 }
 
 /// RAII guard for automatic rollback of send operations on failure.
@@ -119,7 +123,7 @@ pub async fn runtime_loop_with_config<
 
                     // Try to send immediately if possible
                     if let Some(cmd) = adapter.next_command_to_send() {
-                        send_command(&mut transport, &mut adapter, cmd, &config).await?;
+                        send_command(&mut transport, &mut adapter, cmd, &config, &executor).await?;
                     }
                 }
                 TxItem::Cancel { socket } => {
@@ -216,26 +220,47 @@ pub async fn runtime_loop_with_config<
                 kind,
             };
 
-            send_command(&mut transport, &mut adapter, pending_cmd, &config).await?;
+            send_command(
+                &mut transport,
+                &mut adapter,
+                pending_cmd,
+                &config,
+                &executor,
+            )
+            .await?;
         }
 
         // Dynamic tick scheduling: sleep until housekeeping tick
         let sleep_dur = tick_duration;
 
-        // Use select to handle both recv and tick operations
+        // Use select to handle both recv with timeout and tick operations
         let operation = {
             use futures_lite::future;
 
-            future::or(
+            // Use read timeout from config
+            let read_timeout = config.read_timeout;
+
+            // Race recv_into against both read timeout and tick
+            future::race(
                 async {
                     match transport.recv_into(&mut read_buf).await {
                         Ok(n) => Operation::RecvOk(n),
-                        Err(e) => Operation::RecvErr(e),
+                        Err(err) => Operation::RecvErr(err),
                     }
                 },
                 async {
-                    executor.sleep(sleep_dur).await;
-                    Operation::Tick
+                    // Race between read timeout and tick
+                    future::race(
+                        async {
+                            executor.sleep(read_timeout).await;
+                            Operation::RecvErr(Error::Timeout)
+                        },
+                        async {
+                            executor.sleep(sleep_dur).await;
+                            Operation::Tick
+                        },
+                    )
+                    .await
                 },
             )
             .await
@@ -285,7 +310,7 @@ pub async fn runtime_loop_with_config<
                 // Try to send more commands if we can
                 while adapter.can_send_command() {
                     if let Some(cmd) = adapter.next_command_to_send() {
-                        send_command(&mut transport, &mut adapter, cmd, &config).await?;
+                        send_command(&mut transport, &mut adapter, cmd, &config, &executor).await?;
                     } else {
                         break;
                     }
@@ -344,7 +369,7 @@ pub async fn runtime_loop_with_config<
                 // Try to send more commands if we have room
                 while adapter.can_send_command() {
                     if let Some(cmd) = adapter.next_command_to_send() {
-                        send_command(&mut transport, &mut adapter, cmd, &config).await?;
+                        send_command(&mut transport, &mut adapter, cmd, &config, &executor).await?;
                     } else {
                         break;
                     }
@@ -360,6 +385,7 @@ async fn send_command<T: AsyncTransport, E: crate::executor::Executor>(
     adapter: &mut AsyncAdapter<E>,
     cmd: PendingCommand,
     config: &RuntimeLoopConfig,
+    executor: &E,
 ) -> Result<()> {
     // Use command kind from PendingCommand
     let kind = cmd.kind;
@@ -392,21 +418,43 @@ async fn send_command<T: AsyncTransport, E: crate::executor::Executor>(
     guard.reserved_socket = reserved_socket;
     guard.ack_registered = registered_ack;
 
-    // Try to send the command
-    if let Err(e) = transport.send(&framed).await {
-        // Perform rollback
-        warn!(
-            "Send failed for {} {}: {:?}",
-            if kind == CommandKind::Inquiry {
-                "inquiry"
+    // Try to send the command with timeout using manual race
+    let write_timeout = config.write_timeout;
+    let send_result = {
+        use futures_lite::future;
+
+        future::race(async { transport.send(&framed).await.map(|_| ()) }, async {
+            executor.sleep(write_timeout).await;
+            Err(Error::Timeout)
+        })
+        .await
+    };
+
+    match send_result {
+        Ok(()) => {
+            // Send succeeded
+        }
+        Err(e) => {
+            // Send failed or timed out
+            let error_type = if matches!(e, Error::Timeout) {
+                "timeout"
             } else {
-                "command"
-            },
-            cmd.id,
-            e
-        );
-        guard.rollback(adapter);
-        return Ok(());
+                "failed"
+            };
+            warn!(
+                "Send {} for {} {}: {:?}",
+                error_type,
+                if kind == CommandKind::Inquiry {
+                    "inquiry"
+                } else {
+                    "command"
+                },
+                cmd.id,
+                e
+            );
+            guard.rollback(adapter);
+            return Ok(());
+        }
     }
 
     // Send succeeded - commit post-send side effects

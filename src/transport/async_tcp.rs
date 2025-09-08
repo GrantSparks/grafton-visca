@@ -6,6 +6,7 @@
 use crate::{
     transport::{
         async_io::{write_all_flush, AsyncReadExt, AsyncWriteExt},
+        async_transport::HasTransportConfig,
         builder::TransportConfig,
         AsyncTransport,
     },
@@ -20,14 +21,15 @@ use crate::{
 #[derive(Debug)]
 pub struct Tcp<S: AsyncReadExt + AsyncWriteExt> {
     pub(crate) stream: S,
+    config: TransportConfig,
 }
 
 impl<S: AsyncReadExt + AsyncWriteExt> Tcp<S> {
     /// Create a new TCP transport from a connected stream.
     ///
     /// The stream should already be connected to the remote endpoint.
-    pub fn new(stream: S, _config: TransportConfig) -> Self {
-        Self { stream }
+    pub fn new(stream: S, config: TransportConfig) -> Self {
+        Self { stream, config }
     }
 
     /// Create a new TCP transport with default configuration.
@@ -35,6 +37,11 @@ impl<S: AsyncReadExt + AsyncWriteExt> Tcp<S> {
     /// Uses default buffer configuration for raw IP protocol.
     pub fn new_default(stream: S) -> Self {
         Self::new(stream, TransportConfig::default())
+    }
+
+    /// Get the transport configuration.
+    pub fn config(&self) -> &TransportConfig {
+        &self.config
     }
 }
 
@@ -54,5 +61,11 @@ impl<S: AsyncReadExt + AsyncWriteExt + Send> AsyncTransport for Tcp<S> {
         }
 
         Ok(n)
+    }
+}
+
+impl<S: AsyncReadExt + AsyncWriteExt> HasTransportConfig for Tcp<S> {
+    fn transport_config(&self) -> &TransportConfig {
+        &self.config
     }
 }

@@ -25,6 +25,8 @@ use crate::{
         async_io::{
             write_all_flush, AsyncReadExt as AsyncReadExtTrait, AsyncWriteExt as AsyncWriteExtTrait,
         },
+        async_transport::HasTransportConfig,
+        builder::TransportConfig,
         AsyncTransport, RetryConfig,
     },
 };
@@ -121,6 +123,7 @@ type AdapterWrapper = Arc<Mutex<TokioSerialAdapter>>;
 pub struct AsyncSerialTransport {
     adapter: AdapterWrapper,
     config: AsyncSerialConfig,
+    transport_config: TransportConfig,
 }
 
 /// Async serial transport implementation.
@@ -128,6 +131,7 @@ pub struct AsyncSerialTransport {
 pub struct AsyncSerialTransport {
     adapter: AdapterWrapper,
     config: AsyncSerialConfig,
+    transport_config: TransportConfig,
 }
 
 // Manual Debug implementation for Windows
@@ -137,6 +141,7 @@ impl std::fmt::Debug for AsyncSerialTransport {
         f.debug_struct("AsyncSerialTransport")
             .field("adapter", &"Arc<Mutex<TokioSerialAdapter>>")
             .field("config", &self.config)
+            .field("transport_config", &self.transport_config)
             .finish()
     }
 }
@@ -179,9 +184,21 @@ impl AsyncSerialTransport {
         #[cfg(windows)]
         let adapter_wrapper = Arc::new(Mutex::new(adapter));
 
+        // Create TransportConfig from AsyncSerialConfig
+        let transport_config = TransportConfig {
+            connect_timeout: Duration::from_secs(5), // Not used for serial
+            read_timeout: config.read_timeout,
+            write_timeout: config.write_timeout,
+            retry_config: config.retry_config,
+            buffer_config: crate::transport::buffer::BufferConfig::for_raw_ip(), // Serial uses raw VISCA
+            tcp_nodelay: None,
+            ttl: None,
+        };
+
         let mut transport = Self {
             adapter: adapter_wrapper,
             config,
+            transport_config,
         };
 
         // Perform initialization if requested
@@ -406,6 +423,12 @@ impl AsyncTransport for AsyncSerialTransport {
 
             Ok(n)
         }
+    }
+}
+
+impl HasTransportConfig for AsyncSerialTransport {
+    fn transport_config(&self) -> &TransportConfig {
+        &self.transport_config
     }
 }
 

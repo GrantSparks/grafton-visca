@@ -12,7 +12,7 @@ use std::time::Instant;
 #[cfg(feature = "async")]
 use crate::{
     executor::Executor,
-    transport::{builder::TransportConfig, AsyncTransport},
+    transport::{async_transport::HasTransportConfig, builder::TransportConfig, AsyncTransport},
     Error,
 };
 
@@ -128,6 +128,13 @@ impl<R: Runtime> AsyncTransport for TransportHandle<R> {
             TransportHandle::Tcp(transport, _) => transport.recv_into(dst).await,
             TransportHandle::Udp(transport, _) => transport.recv_into(dst).await,
         }
+    }
+}
+
+#[cfg(feature = "async")]
+impl<R: Runtime> HasTransportConfig for TransportHandle<R> {
+    fn transport_config(&self) -> &TransportConfig {
+        self.config()
     }
 }
 

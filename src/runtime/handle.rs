@@ -1,7 +1,7 @@
 //! RuntimeHandle implementation for VISCA communication.
 
 use flume::Sender;
-use tracing::{debug, instrument};
+use tracing::instrument;
 
 use std::sync::{
     atomic::{AtomicBool, AtomicU32, Ordering},
@@ -18,23 +18,10 @@ use crate::{
         loop_task::{runtime_loop_with_config, RuntimeLoopConfig},
     },
     transport::{
-        buffer::{BufferConfig, BufferManager},
-        envelope::TransportEnvelope,
-        AsyncTransport,
+        buffer::BufferManager, envelope::TransportEnvelope, AsyncTransport, HasTransportConfig,
     },
     ViscaSocket,
 };
-
-/// Helper function to spawn runtime tasks properly for different executor types.
-#[instrument(level = "debug", skip(executor, runtime_task))]
-fn spawn_runtime_task_properly<E: crate::executor::Executor + Send + Sync + 'static>(
-    executor: &E,
-    runtime_task: impl std::future::Future<Output = Result<(), Error>> + Send + 'static,
-) {
-    // Spawn the runtime loop as a background task
-    debug!("Spawning runtime task using spawn_bg");
-    executor.spawn_bg(runtime_task);
-}
 
 /// VISCA runtime handle.
 ///
@@ -67,7 +54,10 @@ impl RuntimeHandle {
     >(
         transport: T,
         executor: Arc<E>,
-    ) -> Result<Self> {
+    ) -> Result<Self>
+    where
+        for<'a> &'a T: HasTransportConfig,
+    {
         Self::new_with_style(transport, executor, ProtocolStyle::RawVisca).await
     }
 
@@ -80,7 +70,10 @@ impl RuntimeHandle {
     >(
         transport: T,
         executor: E,
-    ) -> Result<Self> {
+    ) -> Result<Self>
+    where
+        for<'a> &'a T: HasTransportConfig,
+    {
         Self::new(transport, Arc::new(executor)).await
     }
 
@@ -94,7 +87,10 @@ impl RuntimeHandle {
         transport: T,
         executor: Arc<E>,
         protocol_style: ProtocolStyle,
-    ) -> Result<Self> {
+    ) -> Result<Self>
+    where
+        for<'a> &'a T: HasTransportConfig,
+    {
         Self::with_tick_interval_and_style(transport, executor, None, protocol_style, None).await
     }
 
@@ -109,7 +105,10 @@ impl RuntimeHandle {
         executor: Arc<E>,
         protocol_style: ProtocolStyle,
         timeout_config: crate::timeout::TimeoutConfig,
-    ) -> Result<Self> {
+    ) -> Result<Self>
+    where
+        for<'a> &'a T: HasTransportConfig,
+    {
         Self::with_tick_interval_and_style(
             transport,
             executor,
@@ -132,7 +131,10 @@ impl RuntimeHandle {
         protocol_style: ProtocolStyle,
         timeout_config: crate::timeout::TimeoutConfig,
         retry_config: crate::transport::RetryConfig,
-    ) -> Result<Self> {
+    ) -> Result<Self>
+    where
+        for<'a> &'a T: HasTransportConfig,
+    {
         Self::with_tick_interval_style_and_retry(
             transport,
             executor,
@@ -153,7 +155,10 @@ impl RuntimeHandle {
     >(
         mut transport: T,
         executor: Arc<E>,
-    ) -> Result<Self> {
+    ) -> Result<Self>
+    where
+        for<'a> &'a T: HasTransportConfig,
+    {
         use crate::transport::protocol_detection::{DetectionResult, ProtocolDetector};
 
         let detector = ProtocolDetector::new();
@@ -186,7 +191,7 @@ impl RuntimeHandle {
     /// * `tick_interval_ms` - Optional tick interval in milliseconds (default: 50ms)
     #[instrument(level = "debug", skip(transport, executor), fields(tick_ms = tick_interval_ms))]
     pub async fn with_tick_interval<
-        T: AsyncTransport + Send + 'static,
+        T: AsyncTransport + HasTransportConfig + Send + 'static,
         E: crate::executor::Executor + Send + Sync + 'static,
     >(
         transport: T,
@@ -221,7 +226,10 @@ impl RuntimeHandle {
         tick_interval_ms: Option<u64>,
         protocol_style: ProtocolStyle,
         timeout_config: Option<crate::timeout::TimeoutConfig>,
-    ) -> Result<Self> {
+    ) -> Result<Self>
+    where
+        for<'a> &'a T: HasTransportConfig,
+    {
         // Use default retry config
         let retry_config = crate::transport::RetryConfig::default();
         Self::with_tick_interval_style_and_retry(
@@ -255,35 +263,47 @@ impl RuntimeHandle {
         protocol_style: ProtocolStyle,
         timeout_config: Option<crate::timeout::TimeoutConfig>,
         retry_config: crate::transport::RetryConfig,
-    ) -> Result<Self> {
+    ) -> Result<Self>
+    where
+        for<'a> &'a T: HasTransportConfig,
+    {
         let (submit_tx, submit_rx) = flume::unbounded();
         let (metrics_tx, metrics_rx) = flume::unbounded();
 
-        // Create envelope and buffer manager for the runtime
+        // Extract config before creating the runtime config
+        // This is done before spawn to avoid lifetime issues
+        let tcfg = *(&transport).transport_config();
+
+        // Create envelope and buffer manager for the runtime using transport's config
         let envelope = TransportEnvelope::new(protocol_style);
-        let buffer_config = BufferConfig::default();
-        let buffer_manager = BufferManager::new(buffer_config);
+        let buffer_manager = BufferManager::new(tcfg.buffer_config);
 
         // Use provided timeout config or default
         let timeout_config = timeout_config.unwrap_or_default();
 
-        // Spawn the runtime task with configured tick interval and envelope
+        // Pre-bake a plain data config for the loop
         let config = RuntimeLoopConfig {
             tick_interval_ms,
             envelope,
             buffer_manager,
             timeout_config,
             retry_config,
+            read_timeout: tcfg.read_timeout,
+            write_timeout: tcfg.write_timeout,
         };
-        let runtime_task = runtime_loop_with_config(
+
+        // Clone executor for the runtime task
+        let task_executor = Arc::clone(&executor);
+
+        // Use a helper function to avoid lifetime issues with HRTB
+        spawn_runtime_loop(
+            executor,
             transport,
             submit_rx,
             metrics_rx,
-            Arc::clone(&executor),
+            task_executor,
             config,
         );
-
-        spawn_runtime_task_properly(executor.as_ref(), runtime_task);
 
         Ok(Self {
             submit: submit_tx,
@@ -577,4 +597,35 @@ impl RuntimeHandle {
             .await
             .map_err(|_| Error::ChannelClosed)?
     }
+}
+
+// Helper function to spawn the runtime loop without trait bounds
+// This avoids lifetime issues with HRTB (Rust issue #100013)
+fn spawn_runtime_loop<T, E>(
+    executor: Arc<E>,
+    transport: T,
+    submit_rx: flume::Receiver<TxItem>,
+    metrics_rx: flume::Receiver<Sender<MetricsSummary>>,
+    task_executor: Arc<E>,
+    config: RuntimeLoopConfig,
+) where
+    T: AsyncTransport + Send + 'static,
+    E: crate::executor::Executor + Send + Sync + 'static,
+{
+    use std::future::Future;
+    use std::pin::Pin;
+
+    // Box the future with explicit 'static bound to work around Rust issue #100013
+    let fut: Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>> =
+        Box::pin(runtime_loop_with_config(
+            transport,     // moved
+            submit_rx,     // moved
+            metrics_rx,    // moved
+            task_executor, // moved Arc<E>
+            config,        // plain data
+        ));
+
+    executor.spawn_bg(async move {
+        let _ = fut.await;
+    });
 }

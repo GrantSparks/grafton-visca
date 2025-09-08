@@ -14,7 +14,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{command::bytes::VISCA_TERMINATOR, transport::AsyncTransport, Error};
+use crate::{
+    command::bytes::VISCA_TERMINATOR,
+    transport::{async_transport::HasTransportConfig, builder::TransportConfig, AsyncTransport},
+    Error,
+};
 
 /// Represents the state of a single VISCA socket
 #[derive(Debug, Clone)]
@@ -42,6 +46,7 @@ pub struct ViscaCameraSimulator {
     inner: Arc<SimulatorInner>,
     // Each clone gets its own receiver to avoid missing broadcasts
     receiver: Option<Arc<tokio::sync::Mutex<broadcast::Receiver<Vec<u8>>>>>,
+    transport_config: TransportConfig,
 }
 
 impl Clone for ViscaCameraSimulator {
@@ -51,6 +56,7 @@ impl Clone for ViscaCameraSimulator {
         Self {
             inner: self.inner.clone(),
             receiver: Some(Arc::new(tokio::sync::Mutex::new(rx))),
+            transport_config: self.transport_config,
         }
     }
 }
@@ -243,6 +249,7 @@ impl ViscaCameraSimulator {
         Self {
             inner,
             receiver: Some(Arc::new(tokio::sync::Mutex::new(rx))),
+            transport_config: TransportConfig::default(),
         }
     }
 
@@ -681,6 +688,7 @@ impl AsyncTransport for ViscaCameraSimulator {
         let simulator = ViscaCameraSimulator {
             inner: inner.clone(),
             receiver: receiver.clone(),
+            transport_config: TransportConfig::default(),
         };
 
         // Update stats
@@ -695,6 +703,7 @@ impl AsyncTransport for ViscaCameraSimulator {
         if ViscaCameraSimulator::should_drop_packet(&ViscaCameraSimulator {
             inner: inner.clone(),
             receiver: None,
+            transport_config: TransportConfig::default(),
         }) {
             let mut stats = inner.stats.write().await;
             stats.packets_dropped += 1;
@@ -734,6 +743,7 @@ impl AsyncTransport for ViscaCameraSimulator {
             let simulator = ViscaCameraSimulator {
                 inner: inner.clone(),
                 receiver: None,
+                transport_config: TransportConfig::default(),
             };
             simulator.allocate_socket().await
         };
@@ -810,6 +820,12 @@ impl AsyncTransport for ViscaCameraSimulator {
         let len = response.len().min(dst.len());
         dst[..len].copy_from_slice(&response[..len]);
         Ok(len)
+    }
+}
+
+impl HasTransportConfig for ViscaCameraSimulator {
+    fn transport_config(&self) -> &TransportConfig {
+        &self.transport_config
     }
 }
 

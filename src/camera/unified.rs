@@ -94,7 +94,7 @@ where
 impl<P, Tr, Exec> Camera<crate::mode::Async, P, Tr, Exec>
 where
     P: Profile + Default,
-    Tr: AsyncTransport + Send + 'static,
+    Tr: AsyncTransport + crate::transport::HasTransportConfig + Send + 'static,
     Exec: Executor + Send + Sync + 'static,
 {
     /// Create a new async camera instance using the profile's protocol style.

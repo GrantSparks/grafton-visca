@@ -18,6 +18,8 @@ use bytes::Bytes;
 
 #[cfg(feature = "async")]
 use super::deterministic_executor::ExecutorExt;
+#[cfg(feature = "async")]
+use crate::transport::{builder::TransportConfig, HasTransportConfig};
 #[cfg(not(feature = "async"))]
 use crate::{command::CommandKind, transport::SyncTransport};
 #[cfg(feature = "async")]
@@ -755,6 +757,16 @@ pub mod helpers {
                 reason: Some("Test connection lost".into()),
             })
         }
+    }
+}
+
+#[cfg(feature = "async")]
+impl<E> HasTransportConfig for ScriptedTransport<E> {
+    fn transport_config(&self) -> &TransportConfig {
+        // Return a static default config for test transports
+        // This is safe because TransportConfig is Copy and we're returning a reference to a static
+        static DEFAULT_CONFIG: std::sync::OnceLock<TransportConfig> = std::sync::OnceLock::new();
+        DEFAULT_CONFIG.get_or_init(TransportConfig::default)
     }
 }
 
