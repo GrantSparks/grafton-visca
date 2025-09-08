@@ -542,6 +542,23 @@ fn generate_typed_impl(
                 }
             }
         }
+        ("MotionSyncSpeed", Some("speed"), Some("MotionSyncSpeed")) => {
+            quote! {
+                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                    type Response = #crate_path::command::MotionSyncSpeed;
+
+                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                        match resp {
+                            #crate_path::command::ViscaResponse::Inquiry(
+                                #crate_path::command::InquiryResponse::MotionSyncSpeed { speed }
+                            ) => Ok(speed),
+                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            _ => Err(#crate_path::Error::UnexpectedResponseType),
+                        }
+                    }
+                }
+            }
+        }
         ("NrMode", Some("mode"), Some("NrMode")) => {
             quote! {
                 impl #crate_path::command::typed::ViscaCommand for #struct_name {
@@ -560,6 +577,23 @@ fn generate_typed_impl(
             }
         }
         ("NrSpeed", Some("mode"), Some("NrSpeed")) => {
+            quote! {
+                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                    type Response = #crate_path::command::NrSpeed;
+
+                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                        match resp {
+                            #crate_path::command::ViscaResponse::Inquiry(
+                                #crate_path::command::InquiryResponse::NrSpeed { speed }
+                            ) => Ok(speed),
+                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            _ => Err(#crate_path::Error::UnexpectedResponseType),
+                        }
+                    }
+                }
+            }
+        }
+        ("NrSpeed", Some("speed"), Some("NrSpeed")) => {
             quote! {
                 impl #crate_path::command::typed::ViscaCommand for #struct_name {
                     type Response = #crate_path::command::NrSpeed;

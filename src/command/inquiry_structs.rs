@@ -995,3 +995,17 @@ impl crate::command::encode_visca::ViscaEncode for TallyGreenInquiry {
         Some(crate::command::response::ViscaResponseType::TallyGreen)
     }
 }
+
+impl crate::command::typed::ViscaCommand for TallyGreenInquiry {
+    type Response = bool;
+
+    fn from_response(resp: crate::command::ViscaResponse) -> Result<Self::Response, crate::Error> {
+        match resp {
+            crate::command::ViscaResponse::Inquiry(
+                crate::command::InquiryResponse::TallyGreen { on },
+            ) => Ok(on),
+            crate::command::ViscaResponse::Error(e) => Err(e),
+            _ => Err(crate::Error::UnexpectedResponseType),
+        }
+    }
+}

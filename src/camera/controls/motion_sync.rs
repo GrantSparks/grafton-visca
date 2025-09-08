@@ -100,12 +100,12 @@ where
     }
 
     fn get_motion_sync_mode(&self) -> M::Ret<'_, Result<MotionSyncMode, Error>> {
-        // Use a dummy command for now - this would need proper inquiry implementation
-        self.error(Error::Unsupported)
+        use crate::command::inquiry_structs::MotionSyncModeInquiry;
+        self.send_and_parse(MotionSyncModeInquiry)
     }
 
     fn get_motion_sync_speed(&self) -> M::Ret<'_, Result<MotionSyncSpeed, Error>> {
-        // Use a dummy command for now - this would need proper inquiry implementation
-        self.error(Error::Unsupported)
+        use crate::command::inquiry_structs::MotionSyncSpeedInquiry;
+        self.send_and_parse(MotionSyncSpeedInquiry)
     }
 }

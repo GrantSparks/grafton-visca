@@ -95,6 +95,12 @@ impl ZoomControl for MockCamera {
     > {
         Box::pin(async { Ok(grafton_visca::types::ZoomPosition::new(0x0000).unwrap()) })
     }
+    fn set_digital_zoom(
+        &self,
+        _enabled: bool,
+    ) -> <Self::Mode as grafton_visca::mode::Mode>::Ret<'_, Result<(), grafton_visca::Error>> {
+        Box::pin(async { Ok(()) })
+    }
 }
 
 #[test]

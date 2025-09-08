@@ -774,6 +774,13 @@ where
             .expect("Cannot access camera after session is closed")
             .zoom_position_inquiry()
     }
+
+    fn set_digital_zoom(&self, enabled: bool) -> M::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .set_digital_zoom(enabled)
+    }
 }
 
 // PanTiltControl delegation

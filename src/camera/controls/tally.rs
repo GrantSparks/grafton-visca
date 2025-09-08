@@ -37,14 +37,24 @@ pub trait TallyControl {
     /// Turn tally light off.
     fn tally_off(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
 
-    /// Get tally light status.
-    fn get_tally_status(&self) -> <Self::Mode as Mode>::Ret<'_, Result<bool, Error>>;
-
-    /// Query red tally light state.
-    fn get_red_tally_status(&self) -> <Self::Mode as Mode>::Ret<'_, Result<bool, Error>>;
+    /// Get tally light status (red and green states).
+    ///
+    /// Returns a TallyStatusState struct containing both red and green tally light states.
+    fn get_tally_status(
+        &self,
+    ) -> <Self::Mode as Mode>::Ret<'_, Result<crate::command::typed::TallyStatusState, Error>>;
 
     /// Query green tally light state (FR7 specific).
+    ///
+    /// Returns true if the green tally light is on, false otherwise.
+    /// Note: This uses a special extended inquiry format (0x7E 0x04 0x1A 0x00) and is only
+    /// supported on Sony FR7 cameras with dual tally lights.
     fn get_green_tally_status(&self) -> <Self::Mode as Mode>::Ret<'_, Result<bool, Error>>;
+
+    /// Check if tally auto adjust is enabled.
+    ///
+    /// Returns true if tally auto adjust is enabled, false otherwise.
+    fn get_tally_auto_adjust_enabled(&self) -> <Self::Mode as Mode>::Ret<'_, Result<bool, Error>>;
 }
 
 // Single unified implementation for all Camera types!
@@ -101,18 +111,20 @@ where
         self.send_and_complete(Tally::Off)
     }
 
-    fn get_tally_status(&self) -> M::Ret<'_, Result<bool, Error>> {
-        // For now, return an error since proper inquiry implementation needs more work
-        self.error(Error::Unsupported)
-    }
-
-    fn get_red_tally_status(&self) -> M::Ret<'_, Result<bool, Error>> {
-        // For now, return an error since proper inquiry implementation needs more work
-        self.error(Error::Unsupported)
+    fn get_tally_status(
+        &self,
+    ) -> M::Ret<'_, Result<crate::command::typed::TallyStatusState, Error>> {
+        use crate::command::inquiry_structs::TallyStatusInquiry;
+        self.send_and_parse(TallyStatusInquiry)
     }
 
     fn get_green_tally_status(&self) -> M::Ret<'_, Result<bool, Error>> {
-        // For now, return an error since proper inquiry implementation needs more work
-        self.error(Error::Unsupported)
+        use crate::command::inquiry_structs::TallyGreenInquiry;
+        self.send_and_parse(TallyGreenInquiry)
+    }
+
+    fn get_tally_auto_adjust_enabled(&self) -> M::Ret<'_, Result<bool, Error>> {
+        use crate::command::inquiry_structs::TallyAutoAdjustInquiry;
+        self.send_and_parse(TallyAutoAdjustInquiry)
     }
 }

@@ -285,6 +285,9 @@ where
 
         /// Query the current zoom position.
         fn zoom_position_inquiry() -> crate::types::ZoomPosition;
+
+        /// Set digital zoom on or off.
+        fn set_digital_zoom(enabled: bool) -> ();
     }
 }
 
@@ -693,13 +696,10 @@ where
         /// Turn off tally light.
         fn tally_off() -> ();
 
-        /// Get tally status.
-        fn get_tally_status() -> bool;
+        /// Get tally status (red and green states).
+        fn get_tally_status() -> crate::command::typed::TallyStatusState;
 
-        /// Get red tally status.
-        fn get_red_tally_status() -> bool;
-
-        /// Get green tally status.
+        /// Get green tally status (FR7 specific).
         fn get_green_tally_status() -> bool;
     }
 }
