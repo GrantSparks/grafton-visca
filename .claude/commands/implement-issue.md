@@ -20,9 +20,9 @@ Analyze:
 ## Implementation Guidelines
 - **Code Understanding**: Use `ReadFile` to examine relevant files and understand code relationships
 - **Precise Editing**: Use `Edit` for accurate code modifications
-- **Code Quality**: Prioritize correctness, completeness, and maintainability
+- **Code Quality**: Prioritize correctness, completeness, and maintainability over passing tests or lazy solutions.  If you can't achieve our quality expectations its better to stop and explain why in a comment on github.  Don't try alternate solutions or workarounds without discussing them first.
 - **Breaking Changes**: This is a breaking change for a fresh API, so backward compatibility is not a concern
-- **Testing**: Use `Bash` commands to run tests and verify changes
+- **Testing**: Use `Bash` commands to run tests and verify changes.  Warnings should be treated as errors.
 
 ## Implementation Process
 1. **Discovery**:

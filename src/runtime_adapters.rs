@@ -25,6 +25,8 @@
 /// # }
 /// ```
 pub mod tokio {
+    #[cfg(feature = "serialport")]
+    pub use crate::transport::tokio::serial::{Serial as SerialTransport, SerialConfig};
     pub use crate::transport::tokio::tcp::Tcp as TcpTransport;
     pub use crate::transport::tokio::udp::Udp as UdpTransport;
 }

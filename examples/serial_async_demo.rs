@@ -11,16 +11,18 @@
 //! 2. Send I/F Clear and optionally Address Set commands
 //! 3. Send some basic commands to verify operation
 
+#[cfg(all(feature = "async", feature = "rt-tokio", feature = "serialport"))]
 use grafton_visca::{
     camera::profiles::GenericVisca,
+    runtime_adapters::tokio::{SerialConfig, SerialTransport},
     runtime_trait::TokioRuntime,
-    transport::serial_async::{AsyncSerialConfig, AsyncSerialTransport},
     CameraBuilder, Error,
 };
 
+#[cfg(all(feature = "async", feature = "rt-tokio", feature = "serialport"))]
 use std::env;
 
-#[cfg(all(feature = "async", feature = "rt-tokio"))]
+#[cfg(all(feature = "async", feature = "rt-tokio", feature = "serialport"))]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
@@ -37,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Connecting to camera...\n");
 
     // Create async serial transport configuration
-    let config = AsyncSerialConfig {
+    let config = SerialConfig {
         port: port.to_string(),
         baud_rate: 9600,
         camera_address,
@@ -46,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ..Default::default()
     };
 
-    match AsyncSerialTransport::new(config).await {
+    match SerialTransport::connect(config).await {
         Ok(transport) => {
             println!("✅ Serial Transport Connected!");
             println!("✓ I/F Clear command sent during initialization");
@@ -116,8 +118,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(not(all(feature = "async", feature = "rt-tokio")))]
+#[cfg(not(all(feature = "async", feature = "rt-tokio", feature = "serialport")))]
 fn main() {
-    eprintln!("This example requires 'rt-tokio' and 'tokio-serial' features.");
-    eprintln!("Run with: cargo run --example serial_async_demo --features 'rt-tokio'");
+    eprintln!("This example requires 'async', 'rt-tokio', and 'serialport' features.");
+    eprintln!(
+        "Run with: cargo run --example serial_async_demo --features 'async,rt-tokio,serialport'"
+    );
 }

@@ -49,6 +49,8 @@ pub mod address;
 pub(crate) mod async_io;
 // Generic async transport implementations (require runtime for BufferManager methods)
 #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
+pub(crate) mod async_serial;
+#[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
 pub(crate) mod async_tcp;
 #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
 pub(crate) mod async_udp;
@@ -71,11 +73,9 @@ pub mod envelope;
 // Core detection types are needed by both async and blocking modes
 pub mod protocol_detection;
 pub mod retry;
-// Serial transports: blocking for sync mode, async for async mode
+// Serial transports: blocking for sync mode
 #[cfg(all(not(feature = "async"), feature = "serialport"))]
 pub mod serial;
-#[cfg(all(feature = "async", feature = "rt-tokio"))]
-pub mod serial_async;
 
 // Runtime-specific transport implementations are feature-gated extensions
 // They should be accessed through the runtime_adapters module
