@@ -1,13 +1,11 @@
 //! smol TCP transport implementation using the generic async_tcp module.
 
-use bytes::Bytes;
-
 use std::time::Duration;
 
 use crate::{
     transport::{
         async_io::{write_all_flush, AsyncReadExt, TcpConnectionConfig},
-        buffer::{BufferConfig, BufferManager},
+        buffer::BufferConfig,
         builder::TransportConfig,
         smol::connectors::{connect_tcp, SmolTcpStream},
     },
@@ -75,7 +73,8 @@ impl Tcp {
     /// }).detach();
     ///
     /// // Use reader in another task
-    /// let response = reader.recv().await?;
+    /// let mut buffer = vec![0u8; 1024];
+    /// let n = reader.recv_into(&mut buffer).await?;
     /// # Ok(())
     /// # }
     /// ```
@@ -84,7 +83,6 @@ impl Tcp {
 
         let reader = TcpReader {
             stream: self.stream,
-            buffer_manager: self.buffer_manager,
         };
 
         let writer = TcpWriter {
@@ -102,15 +100,15 @@ impl Tcp {
 #[derive(Debug)]
 pub struct TcpReader {
     stream: SmolTcpStream,
-    buffer_manager: BufferManager,
 }
 
 impl TcpReader {
-    /// Receive data from the TCP connection.
-    pub async fn recv(&mut self) -> Result<Bytes, Error> {
-        // Read chunk of data into buffer and return it
-        let mut buffer = self.buffer_manager.alloc_vec_buffer();
-        let n = self.stream.read(&mut buffer).await?;
+    /// Receive data from the TCP connection into the provided buffer.
+    ///
+    /// Returns the number of bytes read. Returns an error on connection close.
+    pub async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+        // Read chunk of data directly into the provided buffer
+        let n = self.stream.read(dst).await?;
 
         if n == 0 {
             return Err(Error::ConnectionClosed {
@@ -118,7 +116,7 @@ impl TcpReader {
             });
         }
 
-        Ok(self.buffer_manager.process_recv_data(buffer, n))
+        Ok(n)
     }
 }
 

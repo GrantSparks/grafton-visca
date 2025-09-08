@@ -3,12 +3,7 @@
 //! This module provides unified buffer management across all transport implementations,
 //! ensuring consistent buffer sizes and allocation strategies.
 
-#[cfg(any(
-    not(feature = "async"),
-    feature = "rt-tokio",
-    feature = "rt-async-std",
-    feature = "rt-smol"
-))]
+#[cfg(not(feature = "async"))]
 use bytes::Bytes;
 use bytes::BytesMut;
 
@@ -125,6 +120,7 @@ impl BufferManager {
             feature = "rt-smol"
         )
     ))]
+    #[allow(dead_code)]
     pub fn with_defaults() -> Self {
         Self::new(BufferConfig::default())
     }
@@ -143,14 +139,9 @@ impl BufferManager {
         BytesMut::with_capacity(self.config.send_buffer_size)
     }
 
-    /// Allocate a vector buffer for simple operations.
-    /// Available for both blocking transports and async runtime transports.
-    #[cfg(any(
-        not(feature = "async"),
-        feature = "rt-tokio",
-        feature = "rt-async-std",
-        feature = "rt-smol"
-    ))]
+    /// Allocate a Vec buffer for receiving data.
+    /// Used by blocking UDP transport.
+    #[cfg(not(feature = "async"))]
     pub fn alloc_vec_buffer(&self) -> Vec<u8> {
         vec![0u8; self.config.recv_buffer_size]
     }
@@ -174,14 +165,6 @@ impl BufferManager {
             buffer.resize(self.config.recv_buffer_size, 0);
             buffer.clear();
         }
-    }
-
-    /// Process received data using zero-copy when possible.
-    /// Used by async transports that can take ownership of the buffer.
-    #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
-    pub fn process_recv_data(&self, mut buffer: Vec<u8>, received: usize) -> Bytes {
-        buffer.truncate(received);
-        Bytes::from(buffer) // Takes ownership, no copy
     }
 
     /// Process received data from a mutable reference (fallback for when we can't take ownership).
@@ -230,9 +213,6 @@ mod tests {
 
         let send_buf = manager.alloc_send_buffer();
         assert_eq!(send_buf.capacity(), DEFAULT_BUFFER_SIZE);
-
-        let vec_buf = manager.alloc_vec_buffer();
-        assert_eq!(vec_buf.len(), DEFAULT_BUFFER_SIZE);
     }
 
     #[cfg(not(feature = "async"))]
@@ -272,22 +252,6 @@ mod tests {
         // Reset should clear the buffer
         manager.reset_buffer(&mut buffer);
         assert!(buffer.is_empty());
-    }
-
-    #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
-    #[test]
-    fn test_process_recv_data() {
-        let manager = BufferManager::with_defaults();
-        let mut buffer = vec![0u8; 10];
-        buffer[0] = 0x81;
-        buffer[1] = 0x01;
-        buffer[2] = 0xFF;
-
-        let result = manager.process_recv_data(buffer, 3);
-        assert_eq!(result.len(), 3);
-        assert_eq!(result[0], 0x81);
-        assert_eq!(result[1], 0x01);
-        assert_eq!(result[2], 0xFF);
     }
 
     #[cfg(not(feature = "async"))]

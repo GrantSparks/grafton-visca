@@ -93,6 +93,9 @@ pub async fn runtime_loop_with_config<
     // Track cancel requests that arrived before the command was bound to a socket
     let mut pending_cancel_ids: HashSet<u32> = HashSet::new();
 
+    // Allocate a single reusable buffer for receiving data
+    let mut read_buf = vec![0u8; config.buffer_manager.config().recv_buffer_size];
+
     debug!("VISCA runtime started");
 
     // Create a timer interval for periodic checks
@@ -102,7 +105,8 @@ pub async fn runtime_loop_with_config<
     loop {
         // Use select! style approach with explicit enum
         enum Operation {
-            Recv(Result<bytes::Bytes, Error>),
+            RecvOk(usize),
+            RecvErr(Error),
             Tick,
         }
 
@@ -222,108 +226,116 @@ pub async fn runtime_loop_with_config<
         let operation = {
             use futures_lite::future;
 
-            future::or(async { Operation::Recv(transport.recv().await) }, async {
-                executor.sleep(sleep_dur).await;
-                Operation::Tick
-            })
+            future::or(
+                async {
+                    match transport.recv_into(&mut read_buf).await {
+                        Ok(n) => Operation::RecvOk(n),
+                        Err(e) => Operation::RecvErr(e),
+                    }
+                },
+                async {
+                    executor.sleep(sleep_dur).await;
+                    Operation::Tick
+                },
+            )
             .await
         };
 
         match operation {
-            Operation::Recv(recv_result) => {
+            Operation::RecvOk(n) => {
                 // Handle received data
-                match recv_result {
-                    Ok(bytes) => {
-                        trace!("Received bytes from transport: {bytes:02X?}");
-                        // Push received bytes into the protocol-aware framer
-                        if let Err(e) = protocol_framer.push(bytes) {
-                            warn!("Framer buffer exceeded limits: {e}");
+                if n == 0 {
+                    error!("Connection closed by peer");
+                    return Err(Error::ConnectionClosed {
+                        reason: Some(std::borrow::Cow::Borrowed("peer closed connection")),
+                    });
+                }
+
+                trace!("Received {} bytes from transport", n);
+                // Push received bytes into the protocol-aware framer using slice
+                if let Err(e) = protocol_framer.push_slice(&read_buf[..n]) {
+                    warn!("Framer buffer exceeded limits: {e}");
+                    continue;
+                }
+
+                // Drain complete frames without copying
+                for frame_result in protocol_framer.drain_frames() {
+                    let frame = match frame_result {
+                        Ok(frame) => frame,
+                        Err(e) => {
+                            warn!("Failed to extract frame: {e}");
                             continue;
                         }
-
-                        // Drain complete frames without copying
-                        for frame_result in protocol_framer.drain_frames() {
-                            let frame = match frame_result {
-                                Ok(frame) => frame,
-                                Err(e) => {
-                                    warn!("Failed to extract frame: {e}");
-                                    continue;
-                                }
-                            };
-                            // Extract the VISCA payload and metadata using zero-copy method
-                            let (payload, meta) =
-                                match config.envelope.extract_with_meta_owned(frame) {
-                                    Ok(result) => result,
-                                    Err(e) => {
-                                        warn!("Failed to extract response from frame: {e}");
-                                        continue;
-                                    }
-                                };
-
-                            // Process the response through the adapter
-                            if let Err(e) = adapter.process_response(&payload, meta.sequence).await
-                            {
-                                error!("Error processing response: {e}");
-                            }
+                    };
+                    // Extract the VISCA payload and metadata using zero-copy method
+                    let (payload, meta) = match config.envelope.extract_with_meta_owned(frame) {
+                        Ok(result) => result,
+                        Err(e) => {
+                            warn!("Failed to extract response from frame: {e}");
+                            continue;
                         }
+                    };
 
-                        // Try to send more commands if we can
-                        while adapter.can_send_command() {
-                            if let Some(cmd) = adapter.next_command_to_send() {
-                                send_command(&mut transport, &mut adapter, cmd, &config).await?;
-                            } else {
-                                break;
-                            }
-                        }
-
-                        // After processing responses (e.g., ACKs that bind commands to sockets),
-                        // flush any queued cancels whose sockets are now known.
-                        if !pending_cancel_ids.is_empty() {
-                            // Collect first to avoid holding a mutable borrow during iteration
-                            let ready: Vec<u32> = pending_cancel_ids
-                                .iter()
-                                .copied()
-                                .filter(|id| adapter.socket_for_command(*id).is_some())
-                                .collect();
-
-                            for id in ready {
-                                if let Some(socket) = adapter.socket_for_command(id) {
-                                    use crate::camera_id::CameraId;
-                                    use crate::command::{
-                                        encode_visca::ViscaEncode, system::CommandCancelCommand,
-                                    };
-
-                                    let cancel_cmd = CommandCancelCommand::new(socket);
-                                    let mut cancel_bytes = [0u8; 16];
-                                    let len = cancel_cmd
-                                        .encode_into(CameraId::CAMERA_1, &mut cancel_bytes)
-                                        .unwrap_or(3);
-
-                                    let kind = CommandKind::Command;
-                                    let (framed, _meta) =
-                                        config.envelope.frame_bytes_with_kind_owned(
-                                            bytes::Bytes::copy_from_slice(&cancel_bytes[..len]),
-                                            kind,
-                                            &config.buffer_manager,
-                                        );
-                                    transport.send(&framed).await?;
-                                    debug!(
-                                        "Sent queued cancel for command {} on socket {:?}",
-                                        id, socket
-                                    );
-
-                                    // Remove from pending set
-                                    pending_cancel_ids.remove(&id);
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        error!("Error receiving from transport: {e}");
-                        // Handle network error - all pending commands will be retried or failed
-                        adapter.handle_network_error().await?;
+                    // Process the response through the adapter
+                    if let Err(e) = adapter.process_response(&payload, meta.sequence).await {
+                        error!("Error processing response: {e}");
                     }
                 }
+
+                // Try to send more commands if we can
+                while adapter.can_send_command() {
+                    if let Some(cmd) = adapter.next_command_to_send() {
+                        send_command(&mut transport, &mut adapter, cmd, &config).await?;
+                    } else {
+                        break;
+                    }
+                }
+
+                // After processing responses (e.g., ACKs that bind commands to sockets),
+                // flush any queued cancels whose sockets are now known.
+                if !pending_cancel_ids.is_empty() {
+                    // Collect first to avoid holding a mutable borrow during iteration
+                    let ready: Vec<u32> = pending_cancel_ids
+                        .iter()
+                        .copied()
+                        .filter(|id| adapter.socket_for_command(*id).is_some())
+                        .collect();
+
+                    for id in ready {
+                        if let Some(socket) = adapter.socket_for_command(id) {
+                            use crate::camera_id::CameraId;
+                            use crate::command::{
+                                encode_visca::ViscaEncode, system::CommandCancelCommand,
+                            };
+
+                            let cancel_cmd = CommandCancelCommand::new(socket);
+                            let mut cancel_bytes = [0u8; 16];
+                            let len = cancel_cmd
+                                .encode_into(CameraId::CAMERA_1, &mut cancel_bytes)
+                                .unwrap_or(3);
+
+                            let kind = CommandKind::Command;
+                            let (framed, _meta) = config.envelope.frame_bytes_with_kind_owned(
+                                bytes::Bytes::copy_from_slice(&cancel_bytes[..len]),
+                                kind,
+                                &config.buffer_manager,
+                            );
+                            transport.send(&framed).await?;
+                            debug!(
+                                "Sent queued cancel for command {} on socket {:?}",
+                                id, socket
+                            );
+
+                            // Remove from pending set
+                            pending_cancel_ids.remove(&id);
+                        }
+                    }
+                }
+            }
+            Operation::RecvErr(e) => {
+                error!("Error receiving from transport: {e}");
+                // Handle network error - all pending commands will be retried or failed
+                adapter.handle_network_error().await?;
             }
             Operation::Tick => {
                 // Handle tick - check for timeouts

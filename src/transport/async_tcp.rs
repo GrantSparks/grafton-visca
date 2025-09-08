@@ -3,12 +3,9 @@
 //! This module provides a runtime-agnostic TCP transport that works with any
 //! stream type implementing the AsyncReadExt and AsyncWriteExt traits.
 
-use bytes::Bytes;
-
 use crate::{
     transport::{
         async_io::{write_all_flush, AsyncReadExt, AsyncWriteExt},
-        buffer::{BufferConfig, BufferManager},
         builder::TransportConfig,
         AsyncTransport,
     },
@@ -23,31 +20,21 @@ use crate::{
 #[derive(Debug)]
 pub struct Tcp<S: AsyncReadExt + AsyncWriteExt> {
     pub(crate) stream: S,
-    pub(crate) buffer_manager: BufferManager,
 }
 
 impl<S: AsyncReadExt + AsyncWriteExt> Tcp<S> {
     /// Create a new TCP transport from a connected stream.
     ///
     /// The stream should already be connected to the remote endpoint.
-    pub fn new(stream: S, config: TransportConfig) -> Self {
-        Self {
-            stream,
-            buffer_manager: BufferManager::new(config.buffer_config),
-        }
+    pub fn new(stream: S, _config: TransportConfig) -> Self {
+        Self { stream }
     }
 
     /// Create a new TCP transport with default configuration.
     ///
     /// Uses default buffer configuration for raw IP protocol.
     pub fn new_default(stream: S) -> Self {
-        Self::new(
-            stream,
-            TransportConfig {
-                buffer_config: BufferConfig::for_raw_ip(),
-                ..Default::default()
-            },
-        )
+        Self::new(stream, TransportConfig::default())
     }
 }
 
@@ -56,10 +43,9 @@ impl<S: AsyncReadExt + AsyncWriteExt + Send> AsyncTransport for Tcp<S> {
         write_all_flush(&mut self.stream, data).await
     }
 
-    async fn recv(&mut self) -> Result<Bytes, Error> {
-        // Read chunk of data into buffer and return it
-        let mut buffer = self.buffer_manager.alloc_vec_buffer();
-        let n = self.stream.read(&mut buffer).await?;
+    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+        // Read chunk of data directly into the provided buffer
+        let n = self.stream.read(dst).await?;
 
         if n == 0 {
             return Err(Error::ConnectionClosed {
@@ -67,6 +53,6 @@ impl<S: AsyncReadExt + AsyncWriteExt + Send> AsyncTransport for Tcp<S> {
             });
         }
 
-        Ok(self.buffer_manager.process_recv_data(buffer, n))
+        Ok(n)
     }
 }

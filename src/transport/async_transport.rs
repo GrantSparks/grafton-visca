@@ -3,8 +3,6 @@
 //! This trait provides zero-overhead async transport via RPITIT methods that
 //! return unboxed futures with explicit `Send` guarantees.
 
-use bytes::Bytes;
-
 use std::future::Future;
 
 use crate::Error;
@@ -25,8 +23,8 @@ use crate::Error;
 ///         async move { Ok(()) }
 ///     }
 ///
-///     fn recv(&mut self) -> impl Future<Output = Result<Bytes, Error>> + Send {
-///         async move { Ok(Bytes::new()) }
+///     fn recv_into<'a>(&'a mut self, dst: &'a mut [u8]) -> impl Future<Output = Result<usize, Error>> + Send {
+///         async move { Ok(0) }
 ///     }
 /// }
 /// ```
@@ -37,10 +35,18 @@ pub trait AsyncTransport: Send {
     /// when the bytes have been written to the underlying transport. TODO: Fix this to be async fn when return type notation is stable in Rust.
     fn send(&mut self, bytes: &[u8]) -> impl Future<Output = Result<(), Error>> + Send;
 
-    /// Receive raw bytes from the device.
+    /// Receive raw bytes from the device into the provided buffer.
     ///
-    /// This method returns the next available chunk of bytes from the transport.
+    /// This method reads the next available chunk of bytes from the transport
+    /// into the provided buffer and returns the number of bytes read.
     /// It may return partial frames, complete frames, or multiple frames.
-    /// The runtime is responsible for aggregating chunks and extracting frames. TODO: Fix this to be async fn when return type notation is stable in Rust.
-    fn recv(&mut self) -> impl Future<Output = Result<Bytes, Error>> + Send;
+    /// The runtime is responsible for aggregating chunks and extracting frames.
+    ///
+    /// Returns `Ok(0)` when the connection is closed.
+    /// Stream-based transports should return `Err(Error::ConnectionClosed)` when encountering EOF.
+    /// TODO: Fix this to be async fn when return type notation is stable in Rust.
+    fn recv_into<'a>(
+        &'a mut self,
+        dst: &'a mut [u8],
+    ) -> impl Future<Output = Result<usize, Error>> + Send;
 }

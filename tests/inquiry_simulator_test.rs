@@ -16,7 +16,12 @@ async fn test_simulator_power_inquiry_direct() {
         .expect("send should succeed");
 
     // Receive the response
-    let response = simulator.recv().await.expect("should receive response");
+    let mut buf = vec![0u8; 1024];
+    let n = simulator
+        .recv_into(&mut buf)
+        .await
+        .expect("should receive response");
+    let response = &buf[..n];
 
     // Verify it's a data reply (0x90 0x50)
     assert_eq!(response[0], 0x90, "Should be response header");
@@ -37,7 +42,12 @@ async fn test_simulator_zoom_inquiry_direct() {
         .expect("send should succeed");
 
     // Receive the response
-    let response = simulator.recv().await.expect("should receive response");
+    let mut buf = vec![0u8; 1024];
+    let n = simulator
+        .recv_into(&mut buf)
+        .await
+        .expect("should receive response");
+    let response = &buf[..n];
 
     // Verify it's a data reply with zoom position
     assert_eq!(response[0], 0x90, "Should be response header");
@@ -64,7 +74,12 @@ async fn test_simulator_pan_tilt_inquiry_direct() {
         .expect("send should succeed");
 
     // Receive the response
-    let response = simulator.recv().await.expect("should receive response");
+    let mut buf = vec![0u8; 1024];
+    let n = simulator
+        .recv_into(&mut buf)
+        .await
+        .expect("should receive response");
+    let response = &buf[..n];
 
     // Verify it's a data reply with pan/tilt positions
     assert_eq!(response[0], 0x90, "Should be response header");
@@ -94,7 +109,12 @@ async fn test_simulator_exposure_compensation_inquiry() {
     simulator.send(&inquiry).await.expect("send should succeed");
 
     // Receive the response
-    let response = simulator.recv().await.expect("should receive response");
+    let mut buf = vec![0u8; 1024];
+    let n = simulator
+        .recv_into(&mut buf)
+        .await
+        .expect("should receive response");
+    let response = &buf[..n];
 
     // Verify it's a data reply (0x90 0x50)
     // Exposure compensation response format: 0x90 0x50 0x00 0x00 high_nibble low_nibble 0xFF
@@ -123,7 +143,12 @@ async fn test_simulator_mixed_commands_and_inquiries() {
     simulator.send(&zoom_in).await.expect("send should succeed");
 
     // Should receive ACK
-    let response = simulator.recv().await.expect("should receive ACK");
+    let mut ack_buf = vec![0u8; 1024];
+    let ack_n = simulator
+        .recv_into(&mut ack_buf)
+        .await
+        .expect("should receive ACK");
+    let response = &ack_buf[..ack_n];
     assert_eq!(response[0], 0x90);
     assert_eq!(response[1] & 0xF0, 0x40, "Should be ACK");
 
@@ -135,10 +160,12 @@ async fn test_simulator_mixed_commands_and_inquiries() {
         .expect("send should succeed");
 
     // Should receive inquiry response immediately (not blocked by command)
-    let response = simulator
-        .recv()
+    let mut buf2 = vec![0u8; 1024];
+    let n2 = simulator
+        .recv_into(&mut buf2)
         .await
         .expect("should receive inquiry response");
+    let response = &buf2[..n2];
     assert_eq!(response[0], 0x90);
     assert_eq!(response[1], 0x50, "Should be data reply");
     assert_eq!(response[2], 0x02, "Power should be on");

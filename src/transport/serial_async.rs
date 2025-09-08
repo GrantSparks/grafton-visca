@@ -4,7 +4,6 @@
 //! supporting both RS-232 and RS-422 connections with proper
 //! Address Set and I/F Clear initialization using tokio-serial.
 
-use bytes::Bytes;
 #[cfg(windows)]
 use std::sync::Arc;
 use std::{future::Future, io::ErrorKind};
@@ -24,8 +23,7 @@ use crate::{
     error::{Error, Result},
     transport::{
         async_io::{
-            read_visca_frame, write_all_flush, AsyncReadExt as AsyncReadExtTrait,
-            AsyncWriteExt as AsyncWriteExtTrait,
+            write_all_flush, AsyncReadExt as AsyncReadExtTrait, AsyncWriteExt as AsyncWriteExtTrait,
         },
         AsyncTransport, RetryConfig,
     },
@@ -370,27 +368,6 @@ impl AsyncSerialTransport {
             .map_err(|_| Error::Timeout)?
         }
     }
-
-    /// Receive a complete VISCA frame from the serial port.
-    async fn recv_frame(&mut self) -> Result<Bytes> {
-        #[cfg(not(windows))]
-        {
-            timeout(
-                self.config.read_timeout,
-                read_visca_frame(&mut self.adapter),
-            )
-            .await
-            .map_err(|_| Error::Timeout)?
-        }
-
-        #[cfg(windows)]
-        {
-            let mut adapter = self.adapter.lock().await;
-            timeout(self.config.read_timeout, read_visca_frame(&mut *adapter))
-                .await
-                .map_err(|_| Error::Timeout)?
-        }
-    }
 }
 
 impl AsyncTransport for AsyncSerialTransport {
@@ -404,8 +381,31 @@ impl AsyncTransport for AsyncSerialTransport {
     }
 
     #[allow(clippy::manual_async_fn)]
-    fn recv(&mut self) -> impl Future<Output = Result<Bytes, Error>> + Send {
-        async move { self.recv_frame().await }
+    fn recv_into<'a>(
+        &'a mut self,
+        dst: &'a mut [u8],
+    ) -> impl Future<Output = Result<usize, Error>> + Send {
+        async move {
+            // Read into the provided buffer
+            #[cfg(not(windows))]
+            let n = self.adapter.read(dst).await?;
+
+            #[cfg(windows)]
+            let n = {
+                let mut adapter_guard = self.adapter.lock().await;
+                adapter_guard.read(dst).await?
+            };
+
+            debug!("Received {} bytes from serial port", n);
+
+            if n == 0 {
+                return Err(Error::ConnectionClosed {
+                    reason: Some(std::borrow::Cow::Borrowed("serial port closed")),
+                });
+            }
+
+            Ok(n)
+        }
     }
 }
 

@@ -364,22 +364,25 @@ impl ProtocolDetector {
                 // Try to receive a chunk with timeout using futures_lite::or
                 use futures_lite::future;
 
-                let outcome = future::or(async { Ok::<_, ()>(transport.recv().await) }, async {
-                    executor.sleep(recv_timeout).await;
-                    Err::<_, ()>(())
-                })
+                let mut recv_buffer = vec![0u8; 1024];
+                let outcome = future::or(
+                    async { Ok::<_, ()>(transport.recv_into(&mut recv_buffer).await) },
+                    async {
+                        executor.sleep(recv_timeout).await;
+                        Err::<_, ()>(())
+                    },
+                )
                 .await;
 
                 match outcome {
-                    Ok(Ok(chunk)) => {
+                    Ok(Ok(n)) => {
                         debug!(
-                            "Received {len} bytes chunk: {bytes:02X?}",
-                            len = chunk.len(),
-                            bytes = &chunk[..std::cmp::min(chunk.len(), 16)]
+                            "Received {n} bytes: {bytes:02X?}",
+                            bytes = &recv_buffer[..std::cmp::min(n, 16)]
                         );
 
                         // Push chunk to framer
-                        if let Err(e) = framer.push(chunk) {
+                        if let Err(e) = framer.push_slice(&recv_buffer[..n]) {
                             debug!("Framer buffer exceeded limits: {e}");
                             return Ok(false);
                         }

@@ -3,12 +3,8 @@
 //! This module provides a runtime-agnostic UDP transport that works with any
 //! socket type implementing the AsyncDatagram trait.
 
-use bytes::Bytes;
-
 use crate::{
-    transport::{
-        async_io::AsyncDatagram, buffer::BufferManager, builder::TransportConfig, AsyncTransport,
-    },
+    transport::{async_io::AsyncDatagram, builder::TransportConfig, AsyncTransport},
     Error,
 };
 
@@ -20,18 +16,14 @@ use crate::{
 #[derive(Debug)]
 pub struct Udp<S: AsyncDatagram> {
     socket: S,
-    buffer_manager: BufferManager,
 }
 
 impl<S: AsyncDatagram> Udp<S> {
     /// Create a new UDP transport from a connected socket.
     ///
     /// The socket should already be connected to the remote endpoint.
-    pub fn new(socket: S, config: TransportConfig) -> Self {
-        Self {
-            socket,
-            buffer_manager: BufferManager::new(config.buffer_config),
-        }
+    pub fn new(socket: S, _config: TransportConfig) -> Self {
+        Self { socket }
     }
 }
 
@@ -42,10 +34,9 @@ impl<S: AsyncDatagram> AsyncTransport for Udp<S> {
         Ok(())
     }
 
-    async fn recv(&mut self) -> Result<Bytes, Error> {
-        // Receive data from the socket
-        let mut buffer = self.buffer_manager.alloc_vec_buffer();
-        let n = self.socket.recv(&mut buffer).await?;
-        Ok(self.buffer_manager.process_recv_data(buffer, n))
+    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+        // Receive data directly into the provided buffer
+        let n = self.socket.recv(dst).await?;
+        Ok(n)
     }
 }

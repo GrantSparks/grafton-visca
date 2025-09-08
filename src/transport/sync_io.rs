@@ -52,7 +52,7 @@ pub fn read_visca_frame_sync_with_config<R: Read>(
         }
 
         // Push data to framer
-        framer.push(Bytes::copy_from_slice(&temp_buf[..n]))?;
+        framer.push_slice(&temp_buf[..n])?;
 
         // Try to extract a complete frame
         if let Some(result) = framer.drain_frames().next() {

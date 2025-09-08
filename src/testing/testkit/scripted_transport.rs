@@ -7,13 +7,14 @@
 // Expects in test utilities are intentional for detecting test failures
 #![allow(clippy::expect_used)]
 
-use bytes::Bytes;
-
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
     time::Duration,
 };
+
+#[cfg(not(feature = "async"))]
+use bytes::Bytes;
 
 #[cfg(feature = "async")]
 use super::deterministic_executor::ExecutorExt;
@@ -315,7 +316,7 @@ where
         Ok(())
     }
 
-    async fn recv(&mut self) -> Result<Bytes> {
+    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize> {
         let steps = self.steps.clone();
         let response_rx = self.response_rx.clone();
 
@@ -331,7 +332,7 @@ where
                     _ => unreachable!(),
                 };
                 eprintln!(
-                    "[ScriptedTransport::recv] Returning injected error: {:?}",
+                    "[ScriptedTransport::recv_into] Returning injected error: {:?}",
                     error
                 );
                 return Err(error);
@@ -352,7 +353,10 @@ where
 
             match response_rx.try_recv() {
                 Ok(Ok(response)) => {
-                    return Ok(Bytes::from(response));
+                    // Copy response data into the provided buffer
+                    let len = response.len().min(dst.len());
+                    dst[..len].copy_from_slice(&response[..len]);
+                    return Ok(len);
                 }
                 Ok(Err(_)) => {
                     return Err(Error::Timeout);
@@ -830,8 +834,9 @@ mod tests {
             .unwrap();
 
         // Should receive the response immediately
-        let response = transport.recv().await.unwrap();
-        assert_eq!(response.as_ref(), &[0x90, 0x41, VISCA_TERMINATOR]);
+        let mut buffer = vec![0u8; 256];
+        let n = transport.recv_into(&mut buffer).await.unwrap();
+        assert_eq!(&buffer[..n], &[0x90, 0x41, VISCA_TERMINATOR]);
 
         // Verify the command was recorded
         let sent = transport.sent();
@@ -860,7 +865,8 @@ mod tests {
             .unwrap();
 
         // Assert: recv yields Err(Timeout) immediately (no hangs)
-        let err = transport.recv().await.unwrap_err();
+        let mut buffer = vec![0u8; 256];
+        let err = transport.recv_into(&mut buffer).await.unwrap_err();
         assert!(matches!(err, Error::Timeout));
     }
 
@@ -894,13 +900,14 @@ mod tests {
             transport.send(&cmd).await.unwrap();
 
             // Spawn the recv future and advance time to deliver the delayed response
-            let recv_fut = transport.recv();
+            let mut buffer = vec![0u8; 256];
+            let recv_fut = transport.recv_into(&mut buffer);
             executor.drive_until_idle();
             clock.advance(Duration::from_millis(100));
             executor.drive_until_idle();
 
-            let bytes = recv_fut.await.expect("Delayed response should arrive");
-            assert_eq!(bytes.as_ref(), &[0x90, 0x41, VISCA_TERMINATOR]);
+            let n = recv_fut.await.expect("Delayed response should arrive");
+            assert_eq!(&buffer[..n], &[0x90, 0x41, VISCA_TERMINATOR]);
         });
     }
 }

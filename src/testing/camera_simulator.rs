@@ -5,7 +5,6 @@
 
 #![allow(clippy::expect_used)]
 
-use bytes::Bytes;
 use tokio::sync::{broadcast, RwLock};
 use tokio::time::sleep;
 
@@ -774,7 +773,7 @@ impl AsyncTransport for ViscaCameraSimulator {
         }
     }
 
-    async fn recv(&mut self) -> Result<Bytes, Error> {
+    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
         let inner = self.inner.clone();
         let receiver = self.receiver.clone();
         let jitter = self.calculate_jitter();
@@ -785,15 +784,15 @@ impl AsyncTransport for ViscaCameraSimulator {
         }
 
         // Use persistent receiver if available
-        if let Some(ref receiver) = receiver {
+        let response = if let Some(ref receiver) = receiver {
             let receiver = receiver.clone();
             let mut rx = receiver.lock().await;
 
             // Wait for response with timeout
             match tokio::time::timeout(Duration::from_secs(30), rx.recv()).await {
-                Ok(Ok(response)) => Ok(Bytes::from(response)),
-                Ok(Err(_)) => Err(Error::Timeout),
-                Err(_) => Err(Error::Timeout),
+                Ok(Ok(response)) => response,
+                Ok(Err(_)) => return Err(Error::Timeout),
+                Err(_) => return Err(Error::Timeout),
             }
         } else {
             // Fallback: create a new subscriber
@@ -801,11 +800,16 @@ impl AsyncTransport for ViscaCameraSimulator {
 
             // Wait for response with timeout
             match tokio::time::timeout(Duration::from_secs(30), rx.recv()).await {
-                Ok(Ok(response)) => Ok(Bytes::from(response)),
-                Ok(Err(_)) => Err(Error::Timeout),
-                Err(_) => Err(Error::Timeout),
+                Ok(Ok(response)) => response,
+                Ok(Err(_)) => return Err(Error::Timeout),
+                Err(_) => return Err(Error::Timeout),
             }
-        }
+        };
+
+        // Copy response data into the provided buffer
+        let len = response.len().min(dst.len());
+        dst[..len].copy_from_slice(&response[..len]);
+        Ok(len)
     }
 }
 

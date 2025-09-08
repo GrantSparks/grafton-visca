@@ -71,6 +71,20 @@ impl ProtocolFramer {
         Ok(())
     }
 
+    /// Push a slice of bytes into the framer's buffer.
+    /// Returns an error if the buffer would exceed max_buffer_size.
+    /// This avoids the need to construct a Bytes object when you already have a slice.
+    pub fn push_slice(&mut self, chunk: &[u8]) -> Result<(), Error> {
+        let new_len = self.buf.len() + chunk.len();
+        if new_len > self.max_buffer_size {
+            return Err(Error::ResponseTooLarge {
+                max_size: self.max_buffer_size,
+            });
+        }
+        self.buf.extend_from_slice(chunk);
+        Ok(())
+    }
+
     /// Drain all complete frames from the buffer.
     ///
     /// Returns an iterator that yields zero-copy `Bytes` for each complete frame,

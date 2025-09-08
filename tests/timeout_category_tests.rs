@@ -79,8 +79,9 @@ mod timeout_tests {
             .unwrap();
 
         // Should receive the scripted response
-        let response = transport.recv().await.unwrap();
-        assert_eq!(response.as_ref(), &[0x90, 0x41, 0xFF]);
+        let mut buf = vec![0u8; 1024];
+        let n = transport.recv_into(&mut buf).await.unwrap();
+        assert_eq!(&buf[..n], &[0x90, 0x41, 0xFF]);
 
         // Verify the command was recorded
         let sent = transport.sent();
@@ -109,7 +110,8 @@ mod timeout_tests {
             .unwrap();
 
         // Should get the injected timeout error immediately (no hanging)
-        let result = transport.recv().await;
+        let mut buf = vec![0u8; 1024];
+        let result = transport.recv_into(&mut buf).await;
         assert!(matches!(result, Err(grafton_visca::Error::Timeout)));
     }
 }

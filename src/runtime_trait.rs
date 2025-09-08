@@ -123,10 +123,10 @@ impl<R: Runtime> AsyncTransport for TransportHandle<R> {
         }
     }
 
-    async fn recv(&mut self) -> Result<bytes::Bytes, Error> {
+    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
         match self {
-            TransportHandle::Tcp(transport, _) => transport.recv().await,
-            TransportHandle::Udp(transport, _) => transport.recv().await,
+            TransportHandle::Tcp(transport, _) => transport.recv_into(dst).await,
+            TransportHandle::Udp(transport, _) => transport.recv_into(dst).await,
         }
     }
 }

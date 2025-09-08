@@ -1,13 +1,11 @@
 //! Tokio TCP transport implementation using the generic async_tcp module.
 
-use bytes::Bytes;
-
 use std::time::Duration;
 
 use crate::{
     transport::{
         async_io::{write_all_flush, AsyncReadExt, TcpConnectionConfig},
-        buffer::{BufferConfig, BufferManager},
+        buffer::BufferConfig,
         builder::TransportConfig,
         tokio::connectors::{connect_tcp, TokioTcpStream},
     },
@@ -76,17 +74,15 @@ impl Tcp {
     /// });
     ///
     /// // Use reader in another task
-    /// let response = reader.recv().await?;
+    /// let mut buffer = vec![0u8; 1024];
+    /// let n = reader.recv_into(&mut buffer).await?;
     /// # Ok(())
     /// # }
     /// ```
     pub fn split(self) -> (TcpReader, TcpWriter) {
         let TokioTcpStream { reader, writer } = self.stream;
 
-        let tcp_reader = TcpReader {
-            reader,
-            buffer_manager: self.buffer_manager,
-        };
+        let tcp_reader = TcpReader { reader };
         let tcp_writer = TcpWriter { writer };
 
         (tcp_reader, tcp_writer)
@@ -101,15 +97,15 @@ impl Tcp {
 pub struct TcpReader {
     reader:
         crate::transport::tokio::connectors::TokioBufferedReader<tokio::net::tcp::OwnedReadHalf>,
-    buffer_manager: BufferManager,
 }
 
 impl TcpReader {
-    /// Receive data from the TCP connection.
-    pub async fn recv(&mut self) -> Result<Bytes, Error> {
-        // Read chunk of data into buffer and return it
-        let mut buffer = self.buffer_manager.alloc_vec_buffer();
-        let n = self.reader.read(&mut buffer).await?;
+    /// Receive data from the TCP connection into the provided buffer.
+    ///
+    /// Returns the number of bytes read. Returns an error on connection close.
+    pub async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+        // Read chunk of data directly into the provided buffer
+        let n = self.reader.read(dst).await?;
 
         if n == 0 {
             return Err(Error::ConnectionClosed {
@@ -117,7 +113,7 @@ impl TcpReader {
             });
         }
 
-        Ok(self.buffer_manager.process_recv_data(buffer, n))
+        Ok(n)
     }
 }
 
