@@ -256,7 +256,7 @@ where
     /// Create a builder from an existing transport (BYO transport pattern).
     ///
     /// This is the advanced path for users who want full control over transport
-    /// configuration using the TransportBuilder or custom transports.
+    /// configuration using the Transport builder API or custom transports.
     ///
     /// # Example
     /// ```ignore
@@ -743,7 +743,7 @@ impl CameraBuilder<()> {
     /// Create a builder from an existing transport (BYO transport pattern).
     ///
     /// This is the advanced path for users who want full control over transport
-    /// configuration using the TransportBuilder or custom transports.
+    /// configuration using the Transport builder API or custom transports.
     ///
     /// # Example
     /// ```ignore

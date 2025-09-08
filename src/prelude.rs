@@ -61,7 +61,7 @@
 //!
 //! ```ignore
 //! use grafton_visca::prelude::advanced::*;
-//! use grafton_visca::transport::builder::TransportBuilder as Transport;
+//! use grafton_visca::transport::Transport;
 //!
 //! // Build custom transport with specific settings
 //! let transport = Transport::tcp()
@@ -200,7 +200,7 @@ pub mod blocking {
 ///
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// // Build a custom transport with specific settings
-/// let transport = TransportBuilder::tcp()
+/// let transport = Transport::tcp()
 ///     .address("192.168.0.110:5678")
 ///     .connect_timeout(Duration::from_secs(10))
 ///     .tcp_nodelay(true)
@@ -220,9 +220,6 @@ pub mod advanced {
 
     // Camera builder for advanced configuration
     pub use crate::camera::CameraBuilder;
-
-    // Transport builder and configuration
-    pub use crate::transport::builder::TransportBuilder;
 
     // Protocol configuration
     pub use crate::capabilities::ProtocolStyle;

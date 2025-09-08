@@ -63,15 +63,10 @@ pub mod async_transport;
 pub(crate) mod blocking;
 pub mod buffer;
 pub mod builder;
-pub mod sony_config;
 pub mod sync_transport;
 // The envelope module is now needed for both blocking and async modes
 // since async cameras now do their own protocol framing
 pub mod envelope;
-#[cfg(not(feature = "async"))]
-pub mod ip_raw;
-#[cfg(not(feature = "async"))]
-pub mod ip_sony;
 // Protocol auto-detection for VISCA cameras (EPIC task B3)
 #[cfg(feature = "async")]
 pub mod protocol_detection;

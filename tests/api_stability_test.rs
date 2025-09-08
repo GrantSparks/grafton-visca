@@ -142,14 +142,14 @@ fn test_runtime_feature_detection_stability() {
 #[test]
 #[cfg(not(feature = "async"))]
 fn test_blocking_api_stability() {
-    use grafton_visca::transport::builder::TransportBuilder;
+    use grafton_visca::transport::{NetTransportBuilder, Transport};
 
-    // Test that TransportBuilder is available in blocking mode
-    let _tcp_builder = TransportBuilder::tcp();
-    let _udp_builder = TransportBuilder::udp();
-
-    #[cfg(all(feature = "serialport", not(target_arch = "wasm32")))]
-    let _serial_builder = TransportBuilder::serial();
+    // Test that NetTransportBuilder is available in blocking mode
+    let _tcp_builder = NetTransportBuilder::tcp();
+    let _udp_builder = NetTransportBuilder::udp();
+    // Alternative via Transport facade
+    let _tcp_transport = Transport::tcp();
+    let _udp_transport = Transport::udp();
 }
 
 /// Test that prelude exports remain stable.

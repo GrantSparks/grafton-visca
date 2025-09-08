@@ -51,14 +51,14 @@
 //! use grafton_visca::{
 //!     Camera, Error,
 //!     camera::profiles::PtzOpticsG2,
-//!     transport::builder::TransportBuilder,
+//!     transport::{NetTransportBuilder, Transport},
 //!     // Import unified traits that work for both blocking and async
 //!     PowerControl, ZoomControl,
 //! };
 //!
 //! fn main() -> Result<(), Error> {
 //!     // Create camera using unified API
-//!     let transport = TransportBuilder::tcp()
+//!     let transport = Transport::tcp()
 //!         .address("192.168.0.110:5678")
 //!         .open()?;
 //!     let mut camera = Camera::<PtzOpticsG2, _>::new(transport);

@@ -9,7 +9,7 @@
 use std::time::Duration;
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::transport::{builder::TransportBuilder, RetryConfig};
+use grafton_visca::transport::{NetTransportBuilder, RetryConfig, Transport};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Transport Builder Pattern Demo");
@@ -21,13 +21,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         // Example 1: Simple TCP transport builder
         println!("Example 1: Simple TCP transport builder");
-        let _simple_tcp = TransportBuilder::tcp().address("192.168.0.110:5678");
+        let _simple_tcp = Transport::tcp().address("192.168.0.110:5678");
         println!("  Created builder for TCP at 192.168.0.110:5678");
         println!("  Would connect with: .open()\n");
 
         // Example 2: TCP transport builder with custom timeouts
         println!("Example 2: TCP transport builder with custom timeouts");
-        let _timeout_tcp = TransportBuilder::tcp()
+        let _timeout_tcp = NetTransportBuilder::tcp()
             .address("camera.local:5678")
             .connect_timeout(Duration::from_secs(10))
             .read_timeout(Duration::from_secs(2))
@@ -39,7 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Example 3: UDP transport builder with retry configuration
         println!("Example 3: UDP transport builder with retry configuration");
-        let _retry_udp = TransportBuilder::udp()
+        let _retry_udp = Transport::udp()
             .address("192.168.0.110:5678")
             .max_retries(5)
             .retry_delay(Duration::from_millis(500))
@@ -53,7 +53,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Example 4: TCP transport builder with all options
         println!("Example 4: TCP transport builder with all options");
-        let _full_tcp = TransportBuilder::tcp()
+        let _full_tcp = NetTransportBuilder::tcp()
             .address("192.168.0.110:5678")
             .timeout(Duration::from_secs(3)) // Set all timeouts at once
             .tcp_nodelay(true) // Disable Nagle's algorithm
@@ -76,7 +76,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             max_retry_duration: Duration::from_secs(10),
             exponential_backoff: false,
         };
-        let _custom_retry = TransportBuilder::udp()
+        let _custom_retry = Transport::udp()
             .address("192.168.0.110:5678")
             .retry_config(retry_config);
         println!("  Created builder with custom RetryConfig:");
@@ -90,7 +90,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(not(feature = "async"))]
     {
         println!("Example 6: Demonstrating the fluent API");
-        let _fluent = TransportBuilder::tcp()
+        let _fluent = Transport::tcp()
             .address("192.168.0.110:5678")
             .connect_timeout(Duration::from_secs(5))
             .read_timeout(Duration::from_secs(2))

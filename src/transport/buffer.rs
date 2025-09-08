@@ -124,7 +124,7 @@ impl BufferManager {
 
     /// Allocate a new receive buffer.
     /// Only used by blocking transports that need BytesMut for receive operations.
-    #[cfg(not(feature = "async"))]
+    #[cfg(all(not(feature = "async"), test))]
     pub fn alloc_recv_buffer(&self) -> BytesMut {
         BytesMut::with_capacity(self.config.recv_buffer_size)
     }
