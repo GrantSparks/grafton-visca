@@ -24,8 +24,6 @@ pub struct RuntimeLoopConfig {
     pub buffer_manager: BufferManager,
     pub timeout_config: TimeoutConfig,
     pub retry_config: RetryConfig,
-    /// Read timeout from transport config
-    pub read_timeout: std::time::Duration,
     /// Write timeout from transport config
     pub write_timeout: std::time::Duration,
 }
@@ -233,34 +231,24 @@ pub async fn runtime_loop_with_config<
         // Dynamic tick scheduling: sleep until housekeeping tick
         let sleep_dur = tick_duration;
 
-        // Use select to handle both recv with timeout and tick operations
+        // Use select to handle both recv and tick operations
         let operation = {
             use futures_lite::future;
 
-            // Use read timeout from config
-            let read_timeout = config.read_timeout;
-
-            // Race recv_into against both read timeout and tick
+            // Simplified race: only between recv and tick
+            // If a transport chooses to emit Error::Timeout, we'll treat it as idle
             future::race(
                 async {
                     match transport.recv_into(&mut read_buf).await {
                         Ok(n) => Operation::RecvOk(n),
+                        // If transport emits timeout, treat as idle tick
+                        Err(Error::Timeout) => Operation::Tick,
                         Err(err) => Operation::RecvErr(err),
                     }
                 },
                 async {
-                    // Race between read timeout and tick
-                    future::race(
-                        async {
-                            executor.sleep(read_timeout).await;
-                            Operation::RecvErr(Error::Timeout)
-                        },
-                        async {
-                            executor.sleep(sleep_dur).await;
-                            Operation::Tick
-                        },
-                    )
-                    .await
+                    executor.sleep(sleep_dur).await;
+                    Operation::Tick
                 },
             )
             .await
@@ -357,13 +345,8 @@ pub async fn runtime_loop_with_config<
                     }
                 }
             }
-            Operation::RecvErr(e) => {
-                error!("Error receiving from transport: {e}");
-                // Handle network error - all pending commands will be retried or failed
-                adapter.handle_network_error().await?;
-            }
             Operation::Tick => {
-                // Handle tick - check for timeouts
+                // Handle idle tick - check timeouts and send pending commands
                 adapter.check_timeouts().await?;
 
                 // Try to send more commands if we have room
@@ -374,6 +357,11 @@ pub async fn runtime_loop_with_config<
                         break;
                     }
                 }
+            }
+            Operation::RecvErr(e) => {
+                error!("Error receiving from transport: {e}");
+                // Handle network error - all pending commands will be retried or failed
+                adapter.handle_network_error().await?;
             }
         }
     }

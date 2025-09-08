@@ -288,7 +288,6 @@ impl RuntimeHandle {
             buffer_manager,
             timeout_config,
             retry_config,
-            read_timeout: tcfg.read_timeout,
             write_timeout: tcfg.write_timeout,
         };
 
