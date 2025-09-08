@@ -623,6 +623,7 @@ where
 {
     /// Detect the protocol style by probing the camera.
     fn detect_protocol_blocking(&self) -> Result<ProtocolStyle, Error> {
+        use crate::camera::builder::TransportType;
         use crate::transport::{
             blocking::{Tcp, Udp},
             SyncTransport,
@@ -761,12 +762,4 @@ where
             }
         }
     }
-}
-
-/// Transport type enum for internal use.
-#[derive(Debug, Clone, Copy)]
-#[allow(dead_code)]
-enum TransportType {
-    Tcp,
-    Udp,
 }
