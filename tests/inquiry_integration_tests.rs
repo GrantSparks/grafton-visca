@@ -14,7 +14,7 @@ use grafton_visca::{
     profiles::GenericVisca,
     runtime_trait::TokioRuntime,
     testing::camera_simulator::ViscaCameraSimulator,
-    InquiryControl, PanTiltInquiryControl, PowerControl, PresetsControl,
+    InquiryControl, PanTiltInquiryControl, PresetsControl,
 };
 
 use std::time::Duration;
@@ -413,7 +413,8 @@ async fn test_mixed_commands_and_inquiries() {
 
     // Immediately query power status (should not be blocked by preset execution)
     let power_on = camera
-        .power_inquiry()
+        .power()
+        .state()
         .await
         .expect("power inquiry should succeed during preset execution");
     assert!(power_on, "Power should remain on");

@@ -283,9 +283,6 @@ where
         /// Set zoom to a specific position value.
         fn zoom_position(position: crate::types::ZoomPosition) -> ();
 
-        /// Query the current zoom position.
-        fn zoom_position_inquiry() -> crate::types::ZoomPosition;
-
         /// Set digital zoom on or off.
         fn set_digital_zoom(enabled: bool) -> ();
     }
@@ -306,9 +303,6 @@ where
 
         /// Power off the camera.
         fn power_off() -> ();
-
-        /// Query the current power state.
-        fn power_inquiry() -> bool;
     }
 }
 

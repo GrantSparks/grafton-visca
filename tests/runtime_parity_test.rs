@@ -64,7 +64,7 @@ mod parity_tests {
             .expect("Failed to create camera");
 
         // Test power operations
-        let power_status = camera.power_inquiry().await.expect("Power inquiry failed");
+        let power_status = camera.power().state().await.expect("Power inquiry failed");
         assert!(power_status, "Expected power to be on");
 
         camera.power_off().await.expect("Power off failed");
@@ -97,7 +97,7 @@ mod parity_tests {
                 .expect("Failed to create camera");
 
             // Test power operations
-            let power_status = camera.power_inquiry().await.expect("Power inquiry failed");
+            let power_status = camera.power().state().await.expect("Power inquiry failed");
             assert!(power_status, "Expected power to be on");
 
             camera.power_off().await.expect("Power off failed");
@@ -131,7 +131,7 @@ mod parity_tests {
                 .expect("Failed to create camera");
 
             // Test power operations
-            let power_status = camera.power_inquiry().await.expect("Power inquiry failed");
+            let power_status = camera.power().state().await.expect("Power inquiry failed");
             assert!(power_status, "Expected power to be on");
 
             camera.power_off().await.expect("Power off failed");
@@ -168,7 +168,7 @@ mod parity_tests {
             .await
             .expect("Failed to build camera");
 
-        let power_status = camera.power_inquiry().await.expect("Power inquiry failed");
+        let power_status = camera.power().state().await.expect("Power inquiry failed");
         assert!(!power_status, "Expected power to be off");
     }
 
@@ -192,7 +192,7 @@ mod parity_tests {
                 .await
                 .expect("Failed to build camera");
 
-            let power_status = camera.power_inquiry().await.expect("Power inquiry failed");
+            let power_status = camera.power().state().await.expect("Power inquiry failed");
             assert!(!power_status, "Expected power to be off");
         });
     }
@@ -217,7 +217,7 @@ mod parity_tests {
                 .await
                 .expect("Failed to build camera");
 
-            let power_status = camera.power_inquiry().await.expect("Power inquiry failed");
+            let power_status = camera.power().state().await.expect("Power inquiry failed");
             assert!(!power_status, "Expected power to be off");
         });
     }
@@ -242,7 +242,7 @@ mod parity_tests {
             .await
             .expect("Failed to create camera");
 
-        let result = camera.power_inquiry().await;
+        let result = camera.power().state().await;
         assert!(result.is_err(), "Expected error from error response");
     }
 
@@ -266,7 +266,7 @@ mod parity_tests {
                 .await
                 .expect("Failed to create camera");
 
-            let result = camera.power_inquiry().await;
+            let result = camera.power().state().await;
             assert!(result.is_err(), "Expected error from error response");
         });
     }
@@ -291,7 +291,7 @@ mod parity_tests {
                 .await
                 .expect("Failed to create camera");
 
-            let result = camera.power_inquiry().await;
+            let result = camera.power().state().await;
             assert!(result.is_err(), "Expected error from error response");
         });
     }
@@ -329,7 +329,7 @@ mod all_runtimes_test {
                 .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
                 .await
                 .unwrap();
-            camera.power_inquiry().await.unwrap()
+            camera.power().state().await.unwrap()
         };
 
         // Test with async-std
@@ -343,7 +343,7 @@ mod all_runtimes_test {
                 .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
                 .await
                 .unwrap();
-            camera.power_inquiry().await.unwrap()
+            camera.power().state().await.unwrap()
         };
 
         // Test with smol (in a blocking context since we're already in tokio)
@@ -361,7 +361,7 @@ mod all_runtimes_test {
                         .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
                         .await
                         .unwrap();
-                    camera.power_inquiry().await.unwrap()
+                    camera.power().state().await.unwrap()
                 })
             })
             .join()

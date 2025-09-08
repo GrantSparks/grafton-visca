@@ -668,6 +668,54 @@ where
                 .expect("Cannot access camera after session is closed"),
         )
     }
+
+    /// Access ND filter controls and inquiries.
+    ///
+    /// # Panics
+    /// Panics if the session has been closed.
+    pub fn nd_filter(&self) -> crate::camera::accessors::NdFilterAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::accessors::NdFilterAccessor::new(
+            self.camera
+                .as_ref()
+                .expect("Cannot access camera after session is closed"),
+        )
+    }
+
+    /// Access motion sync controls and inquiries.
+    ///
+    /// # Panics
+    /// Panics if the session has been closed.
+    pub fn motion_sync(&self) -> crate::camera::accessors::MotionSyncAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::accessors::MotionSyncAccessor::new(
+            self.camera
+                .as_ref()
+                .expect("Cannot access camera after session is closed"),
+        )
+    }
+
+    /// Access menu controls and inquiries.
+    ///
+    /// # Panics
+    /// Panics if the session has been closed.
+    pub fn menu(&self) -> crate::camera::accessors::MenuAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::accessors::MenuAccessor::new(
+            self.camera
+                .as_ref()
+                .expect("Cannot access camera after session is closed"),
+        )
+    }
+
+    /// Access advanced settings inquiries.
+    ///
+    /// # Panics
+    /// Panics if the session has been closed.
+    pub fn advanced(&self) -> crate::camera::accessors::AdvancedAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::accessors::AdvancedAccessor::new(
+            self.camera
+                .as_ref()
+                .expect("Cannot access camera after session is closed"),
+        )
+    }
 }
 
 // Implement control traits by delegating to the underlying camera
@@ -699,13 +747,6 @@ where
             .as_ref()
             .expect("Cannot access camera after session is closed")
             .power_off()
-    }
-
-    fn power_inquiry(&self) -> M::Ret<'_, Result<bool, Error>> {
-        self.camera
-            .as_ref()
-            .expect("Cannot access camera after session is closed")
-            .power_inquiry()
     }
 }
 
@@ -766,13 +807,6 @@ where
             .as_ref()
             .expect("Cannot access camera after session is closed")
             .zoom_absolute(position)
-    }
-
-    fn zoom_position_inquiry(&self) -> M::Ret<'_, Result<ZoomPosition, Error>> {
-        self.camera
-            .as_ref()
-            .expect("Cannot access camera after session is closed")
-            .zoom_position_inquiry()
     }
 
     fn set_digital_zoom(&self, enabled: bool) -> M::Ret<'_, Result<(), Error>> {

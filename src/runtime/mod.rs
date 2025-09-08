@@ -56,6 +56,7 @@ pub use core::Priority;
 pub use async_adapter::MetricsSummary;
 
 #[cfg(feature = "async")]
+#[doc(hidden)]
 pub use handle::RuntimeHandle;
 
 #[cfg(test)]

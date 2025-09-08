@@ -105,6 +105,12 @@ name = "preset_demo"
 
 [[example]]
 name = "type_safe_commands"
+path = "examples-advanced/type_safe_commands.rs"
+
+[[example]]
+name = "runtime_demo_lowlevel"
+path = "examples-advanced/runtime_demo_lowlevel.rs"
+required-features = ["async", "rt-tokio"]
 
 [[example]]
 name = "runtime_agnostic"

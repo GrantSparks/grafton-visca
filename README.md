@@ -28,18 +28,16 @@ use grafton_visca::{
     Camera,
     mode::Blocking,
     camera::profiles::PtzOpticsG2,
-    // Import unified traits that work for both blocking and async
-    ZoomControl,
-    PanTiltControl,
+    // No trait imports needed with accessor pattern!
 };
 
 fn main() -> grafton_visca::Result<()> {
     // Connect to camera using unified API
     let mut camera = Camera::<Blocking, PtzOpticsG2>::open_tcp("192.168.0.110:5678")?;
 
-    // Control the camera with unified API
-    camera.pan_tilt_home()?;
-    camera.zoom_tele_std()?;
+    // Control the camera using discoverable accessor pattern
+    camera.pan_tilt().home()?;
+    camera.zoom().tele()?;
 
     // Explicit cleanup (optional - will auto-close on drop)
     camera.close()?;
@@ -55,9 +53,7 @@ use grafton_visca::{
     Camera,
     camera::profiles::PtzOpticsG2,
     runtime_adapters::tokio::TokioRuntime,
-    // Same unified traits work for both blocking and async
-    ZoomControl,
-    PanTiltControl,
+    // No trait imports needed with accessor pattern!
 };
 
 #[tokio::main]
@@ -69,9 +65,9 @@ async fn main() -> grafton_visca::Result<()> {
         runtime
     ).await?;
 
-    // Same unified API, just add .await
-    camera.pan_tilt_home().await?;
-    camera.zoom_tele_std().await?;
+    // Same discoverable accessor pattern, just add .await
+    camera.pan_tilt().home().await?;
+    camera.zoom().tele().await?;
 
     Ok(())
 }
@@ -85,7 +81,7 @@ use grafton_visca::{
     Camera,
     camera::profiles::GenericVisca,
     runtime_adapters::tokio::TokioRuntime,
-    PowerControl, // Unified trait works everywhere
+    // No trait imports needed with accessor pattern!
 };
 
 #[tokio::main]
@@ -97,8 +93,8 @@ async fn main() -> grafton_visca::Result<()> {
         runtime
     ).await?;
 
-    // Unified API works consistently across runtimes
-    camera.power_on().await?;
+    // Discoverable accessor pattern works consistently across runtimes
+    camera.power().on().await?;
 
     // Explicit cleanup (optional - will auto-close on drop)
     camera.shutdown().await?;
@@ -214,16 +210,16 @@ use grafton_visca::{
     capabilities::{NDFilter, Profile},
     CameraBuilder,
     NdFilterControl,  // Unified trait
-    command::nd_filter::CommandNDFilterMode,
+    NdFilterMode,     // Enum type for filter modes
 };
 
-fn configure_nd_filter<P, T>(camera: &mut Camera<P, T>) -> grafton_visca::Result<()>
+fn configure_nd_filter<P, T>(camera: &Camera<P, T>) -> grafton_visca::Result<()>
 where
     P: Profile + NDFilter,  // Only cameras with ND filter support
     T: grafton_visca::transport::BlockingTransport,
 {
-    // Same unified trait works for blocking and async modes
-    camera.set_nd_filter_mode(CommandNDFilterMode::Variable)?;
+    // Discoverable accessor pattern - no trait imports needed
+    camera.nd_filter().set_mode(NdFilterMode::Variable)?;
     Ok(())
 }
 
@@ -239,6 +235,34 @@ let mut ptz = CameraBuilder::tcp("192.168.0.111:5678")
     .open()?;  // open() explicitly connects
 // configure_nd_filter(&mut ptz)?;  // ❌ Compile error - no ND filter
 ```
+
+## API Design: Accessor Pattern
+
+The library provides a clean, discoverable API through accessor methods for inquiries and state queries:
+
+```rust
+use grafton_visca::{Camera, mode::Blocking, camera::profiles::PtzOpticsG2};
+
+let camera = Camera::<Blocking, PtzOpticsG2>::open_tcp("192.168.0.110:5678")?;
+
+// Accessor-based inquiries - clean and discoverable
+let power_state = camera.power().state()?;
+let zoom_position = camera.zoom().position()?;
+let pan_tilt_pos = camera.pan_tilt().position()?;
+
+// System information
+let version = camera.system().version()?;
+
+// Advanced features (when available)
+let nd_filter = camera.nd_filter().position()?;  // Sony cameras only
+let menu_state = camera.menu().state()?;
+```
+
+This design provides:
+- **Discoverability**: IDE autocomplete shows available accessors
+- **Consistency**: All inquiries follow the same pattern
+- **Type Safety**: Only available methods for your camera profile
+- **No trait imports**: Accessors are always available on Camera
 
 ## Examples
 

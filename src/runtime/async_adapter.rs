@@ -14,11 +14,8 @@ use crate::{
     error::{Error, Result},
     executor::Executor,
     protocol::response::{decode_basic, BasicKind},
-    runtime::{
-        core::{
-            PendingCommand, Priority, RetryCommand, SchedulerAction, SchedulerCore, SchedulerEvent,
-        },
-        inquiry_matcher::{resolve_raw_inquiry_id, ResolveResult},
+    runtime::core::{
+        PendingCommand, Priority, RetryCommand, SchedulerAction, SchedulerCore, SchedulerEvent,
     },
     timeout::{CommandCategory, TimeoutConfig},
     transport::RetryConfig,
@@ -103,12 +100,6 @@ pub(crate) struct AsyncAdapter<E: Executor> {
     executor: Arc<E>,
     /// Response channels for commands.
     response_channels: HashMap<u32, Sender<Result<ViscaResponse>>>,
-    /// Response types for inquiries (for parsing DataReply).
-    inquiry_response_types: HashMap<u32, ViscaResponseType>,
-    /// Queue of in-flight inquiries (for raw VISCA DataReply without socket info).
-    /// We process DataReplies in FIFO order since raw VISCA doesn't identify which
-    /// inquiry a response belongs to.
-    active_inquiry_ids: std::collections::VecDeque<u32>,
     /// Metrics tracking.
     metrics: Metrics,
 }
@@ -132,8 +123,6 @@ impl<E: Executor> AsyncAdapter<E> {
             core: SchedulerCore::with_retry_config(timeout_config, retry_config),
             executor,
             response_channels: HashMap::new(),
-            inquiry_response_types: HashMap::new(),
-            active_inquiry_ids: std::collections::VecDeque::new(),
             metrics: Metrics::default(),
         }
     }
@@ -180,9 +169,9 @@ impl<E: Executor> AsyncAdapter<E> {
                 // Store response channel
                 self.response_channels.insert(id, response_tx);
 
-                // Store response type if present
+                // Store response type in core if present
                 if let Some(rt) = response_type {
-                    self.inquiry_response_types.insert(id, rt);
+                    self.core.register_inquiry_type(id, rt);
                 }
 
                 // Queue inquiry in core (same as commands but with Quick priority)
@@ -273,27 +262,7 @@ impl<E: Executor> AsyncAdapter<E> {
             if let Some(tx) = self.response_channels.remove(&failed_id) {
                 let _ = tx.send(Err(error));
             }
-            // Also remove from inquiry tracking if applicable
-            self.inquiry_response_types.remove(&failed_id);
         }
-    }
-
-    /// Mark an inquiry as in-flight after successful send.
-    ///
-    /// This adds the inquiry ID to the active queue for DataReply handling.
-    /// Should only be called after a successful send.
-    pub fn mark_inquiry_inflight(&mut self, id: u32) {
-        debug_assert!(
-            !self.active_inquiry_ids.contains(&id),
-            "mark_inquiry_inflight called for already in-flight inquiry {}",
-            id
-        );
-        debug_assert!(
-            self.response_channels.contains_key(&id),
-            "mark_inquiry_inflight called for inquiry {} without response channel",
-            id
-        );
-        self.active_inquiry_ids.push_back(id);
     }
 
     /// Process a received VISCA response.
@@ -320,8 +289,8 @@ impl<E: Executor> AsyncAdapter<E> {
                 // For Sony, try to use sequence to find command
                 let cmd_id = sequence.and_then(|seq| self.core.get_command_by_sequence(seq));
 
-                // Get the expected response type for this inquiry
-                let response_type = cmd_id.and_then(|id| self.inquiry_response_types.get(&id));
+                // Get the expected response type from core
+                let response_type = cmd_id.and_then(|id| self.core.get_inquiry_type(id));
 
                 let response = lift_inquiry(&basic, response_type)?;
                 SchedulerEvent::Completion {
@@ -340,16 +309,12 @@ impl<E: Executor> AsyncAdapter<E> {
                 // For Sony, try to use sequence to find command
                 let mut cmd_id = sequence.and_then(|seq| self.core.get_command_by_sequence(seq));
 
-                // If no cmd_id and no socket, this is likely an inquiry error
-                // (inquiries get errors without socket assignment)
-                if cmd_id.is_none() && basic.socket.is_none() && !self.active_inquiry_ids.is_empty()
-                {
-                    // Use FIFO for inquiry errors - take the oldest pending inquiry
-                    cmd_id = self.active_inquiry_ids.front().copied();
-                    debug!(
-                        "Error response without socket, assuming it's for inquiry {:?}",
-                        cmd_id
-                    );
+                // If no cmd_id and no socket, this could be an inquiry error
+                // Use resolve_inquiry_id to try to match it
+                if cmd_id.is_none() && basic.socket.is_none() {
+                    // For error responses, we can't use content-based matching on the error code,
+                    // but we can use FIFO from the inquiry queue
+                    cmd_id = self.core.resolve_inquiry_id(&[], sequence);
                 }
 
                 SchedulerEvent::Error {
@@ -360,31 +325,13 @@ impl<E: Executor> AsyncAdapter<E> {
             }
             BasicKind::DataReply => {
                 // Data replies are completions for inquiries
-                // Try to find command ID from sequence (Sony) first
-                let cmd_id = sequence
-                    .and_then(|seq| self.core.get_command_by_sequence(seq))
-                    .or_else(|| {
-                        // No sequence - use content-based matching for raw VISCA
-                        match resolve_raw_inquiry_id(
-                            basic.payload.as_slice(),
-                            &self.inquiry_response_types,
-                        ) {
-                            ResolveResult::Unique(id) => Some(id),
-                            ResolveResult::Ambiguous(_) => {
-                                // Fall back to FIFO for ambiguous cases
-                                debug!("Ambiguous inquiry match, falling back to FIFO");
-                                self.active_inquiry_ids.front().copied()
-                            }
-                            ResolveResult::None => {
-                                // No match - try FIFO as last resort
-                                debug!("No inquiry match, falling back to FIFO");
-                                self.active_inquiry_ids.front().copied()
-                            }
-                        }
-                    });
+                // Use the core's centralized resolution
+                let cmd_id = self
+                    .core
+                    .resolve_inquiry_id(basic.payload.as_slice(), sequence);
 
-                // Get the expected response type for this inquiry
-                let response_type = cmd_id.and_then(|id| self.inquiry_response_types.get(&id));
+                // Get the expected response type from core
+                let response_type = cmd_id.and_then(|id| self.core.get_inquiry_type(id));
 
                 let response = lift_inquiry(&basic, response_type)?;
 
@@ -416,10 +363,7 @@ impl<E: Executor> AsyncAdapter<E> {
             SchedulerAction::CommandComplete { id, response } => {
                 self.metrics.commands_completed += 1;
 
-                // Clean up inquiry tracking
-                self.inquiry_response_types.remove(&id);
-                // Remove from active inquiry queue
-                self.active_inquiry_ids.retain(|&x| x != id);
+                // Core handles all inquiry cleanup now
 
                 if let Some(tx) = self.response_channels.remove(&id) {
                     let _ = tx.send_async(Ok(response)).await;
@@ -428,10 +372,7 @@ impl<E: Executor> AsyncAdapter<E> {
             SchedulerAction::CommandFailed { id, error } => {
                 self.metrics.commands_failed += 1;
 
-                // Clean up inquiry tracking
-                self.inquiry_response_types.remove(&id);
-                // Remove from active inquiry queue
-                self.active_inquiry_ids.retain(|&x| x != id);
+                // Core handles all inquiry cleanup now
 
                 if let Some(tx) = self.response_channels.remove(&id) {
                     let _ = tx.send_async(Err(error)).await;

@@ -53,7 +53,7 @@ mod tokio_tests {
 
         // Socket manager is automatically initialized on first use
         // Test that an operation works, which will trigger auto-initialization
-        let result = camera.power_inquiry().await;
+        let result = camera.power().state().await;
 
         // Should succeed with proper power inquiry response
         assert!(

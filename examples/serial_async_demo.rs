@@ -12,7 +12,6 @@
 //! 3. Send some basic commands to verify operation
 
 use grafton_visca::{
-    camera::controls::inquiry::InquiryControl,
     camera::profiles::GenericVisca,
     runtime_trait::TokioRuntime,
     transport::serial_async::{AsyncSerialConfig, AsyncSerialTransport},
@@ -60,7 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             println!("\n🔍 Testing basic camera operations...");
 
-            match camera.get_version().await {
+            match camera.system().version().await {
                 Ok(version) => {
                     println!("✓ Version Inquiry: {:?}", version);
                 }
@@ -69,7 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
-            match camera.get_power_state().await {
+            match camera.power().state().await {
                 Ok(power_state) => {
                     println!("✓ Power State: {power_state}");
                 }

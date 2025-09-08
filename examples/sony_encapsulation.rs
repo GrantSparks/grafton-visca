@@ -51,12 +51,12 @@ fn main() -> Result<(), Error> {
 
     // Power status inquiry
     println!("Checking power status...");
-    match camera.get_power_state() {
+    match camera.power().state() {
         Ok(is_on) => {
             println!("  Power is: {}", if is_on { "ON" } else { "OFF" });
             if !is_on {
                 println!("  Turning camera ON...");
-                camera.power_on()?;
+                camera.power().on()?;
                 sleep(Duration::from_secs(3));
                 println!("  Camera powered on successfully");
             }
@@ -67,14 +67,17 @@ fn main() -> Result<(), Error> {
 
     // Get current position
     println!("Getting current camera position...");
-    match camera.get_pan_tilt_degrees() {
-        Ok((pan, tilt)) => {
-            println!("  Current position: Pan={}, Tilt={}", pan, tilt);
+    match camera.pan_tilt().position() {
+        Ok(position) => {
+            println!(
+                "  Current position: Pan={}, Tilt={}",
+                position.pan, position.tilt
+            );
         }
         Err(e) => println!("  Could not get position: {}", e),
     }
 
-    match camera.get_zoom_position() {
+    match camera.zoom().position() {
         Ok(zoom) => {
             println!("  Current zoom: {:?}", zoom);
         }
@@ -132,12 +135,7 @@ fn main() -> Result<(), Error> {
 
 #[cfg(feature = "rt-tokio")]
 use grafton_visca::{
-    camera::controls::{
-        inquiry::{InquiryControl, PanTiltInquiryControl},
-        pan_tilt::PanTiltControl,
-        power::PowerControl,
-        zoom::ZoomControl,
-    },
+    camera::controls::{pan_tilt::PanTiltControl, zoom::ZoomControl},
     camera::profiles::SonyFR7,
     runtime_adapters::tokio::TcpTransport as Tcp,
     runtime_trait::TokioRuntime,
@@ -185,12 +183,12 @@ async fn main() -> Result<(), Error> {
 
     // Power status inquiry
     println!("Checking power status...");
-    match camera.get_power_state().await {
+    match camera.power().state().await {
         Ok(is_on) => {
             println!("  Power is: {}", if is_on { "ON" } else { "OFF" });
             if !is_on {
                 println!("  Turning camera ON...");
-                camera.power_on().await?;
+                camera.power().on().await?;
                 sleep(Duration::from_secs(3)).await;
                 println!("  Camera powered on successfully");
             }
@@ -201,7 +199,7 @@ async fn main() -> Result<(), Error> {
 
     // Get current position
     println!("Getting current camera position...");
-    match camera.get_pan_tilt_position().await {
+    match camera.pan_tilt().position().await {
         Ok(position) => {
             println!(
                 "  Current position: Pan={}, Tilt={}",
@@ -211,7 +209,7 @@ async fn main() -> Result<(), Error> {
         Err(e) => println!("  Could not get position: {}", e),
     }
 
-    match camera.get_zoom_position().await {
+    match camera.zoom().position().await {
         Ok(zoom) => {
             println!("  Current zoom: {:?}", zoom);
         }

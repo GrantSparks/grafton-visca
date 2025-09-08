@@ -11,6 +11,8 @@ use crate::{
             exposure::ExposureControl,
             focus::FocusControl,
             inquiry::{InquiryControl, PanTiltInquiryControl},
+            menu::MenuControl,
+            nd_filter::NdFilterControl,
             pan_tilt::PanTiltControl,
             power::PowerControl,
             presets::PresetsControl,
@@ -1223,5 +1225,275 @@ where
         Camera<M, P, Tr, Exec>: TallyControl<Mode = M>,
     {
         self.camera.tally_green_off()
+    }
+}
+
+/// Access to ND filter controls and inquiries.
+#[derive(Debug)]
+pub struct NdFilterAccessor<'a, M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+{
+    camera: &'a Camera<M, P, Tr, Exec>,
+}
+
+impl<'a, M, P, Tr, Exec> NdFilterAccessor<'a, M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+{
+    pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
+        Self { camera }
+    }
+
+    /// Get the current ND filter position.
+    pub fn position(&self) -> M::Ret<'_, Result<u8, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_nd_filter_position()
+    }
+
+    /// Get the ND filter preset setting.
+    pub fn preset(&self) -> M::Ret<'_, Result<u8, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_nd_filter_preset()
+    }
+
+    /// Set the ND filter mode.
+    pub fn set_mode(&self, mode: crate::command::NdFilterMode) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: NdFilterControl<Mode = M>,
+    {
+        self.camera.set_nd_filter_mode(mode)
+    }
+}
+
+/// Access to motion sync controls and inquiries.
+#[derive(Debug)]
+pub struct MotionSyncAccessor<'a, M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+{
+    camera: &'a Camera<M, P, Tr, Exec>,
+}
+
+impl<'a, M, P, Tr, Exec> MotionSyncAccessor<'a, M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+{
+    pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
+        Self { camera }
+    }
+
+    /// Get the motion sync mode setting.
+    pub fn mode(&self) -> M::Ret<'_, Result<crate::command::MotionSyncMode, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_motion_sync_mode()
+    }
+}
+
+/// Access to menu controls and inquiries.
+#[derive(Debug)]
+pub struct MenuAccessor<'a, M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+{
+    camera: &'a Camera<M, P, Tr, Exec>,
+}
+
+impl<'a, M, P, Tr, Exec> MenuAccessor<'a, M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+{
+    pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
+        Self { camera }
+    }
+
+    /// Get the menu open/close status.
+    pub fn is_open(&self) -> M::Ret<'_, Result<bool, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_menu_status()
+    }
+
+    /// Open the menu.
+    pub fn open(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: MenuControl<Mode = M>,
+    {
+        self.camera.set_menu_display(true)
+    }
+
+    /// Close the menu.
+    pub fn close(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: MenuControl<Mode = M>,
+    {
+        self.camera.set_menu_display(false)
+    }
+
+    /// Navigate up in the menu.
+    pub fn up(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: MenuControl<Mode = M>,
+    {
+        use crate::command::MenuDirection;
+        self.camera.menu_navigate(MenuDirection::Up)
+    }
+
+    /// Navigate down in the menu.
+    pub fn down(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: MenuControl<Mode = M>,
+    {
+        use crate::command::MenuDirection;
+        self.camera.menu_navigate(MenuDirection::Down)
+    }
+
+    /// Navigate left in the menu.
+    pub fn left(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: MenuControl<Mode = M>,
+    {
+        use crate::command::MenuDirection;
+        self.camera.menu_navigate(MenuDirection::Left)
+    }
+
+    /// Navigate right in the menu.
+    pub fn right(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: MenuControl<Mode = M>,
+    {
+        use crate::command::MenuDirection;
+        self.camera.menu_navigate(MenuDirection::Right)
+    }
+
+    /// Confirm menu selection.
+    pub fn enter(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: MenuControl<Mode = M>,
+    {
+        use crate::command::MenuAction;
+        self.camera.menu_action(MenuAction::Select)
+    }
+
+    /// Return from current menu level.
+    pub fn return_menu(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: MenuControl<Mode = M>,
+    {
+        use crate::command::MenuAction;
+        self.camera.menu_action(MenuAction::Cancel)
+    }
+}
+
+/// Access to advanced settings inquiries.
+#[derive(Debug)]
+pub struct AdvancedAccessor<'a, M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+{
+    camera: &'a Camera<M, P, Tr, Exec>,
+}
+
+impl<'a, M, P, Tr, Exec> AdvancedAccessor<'a, M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+{
+    pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
+        Self { camera }
+    }
+
+    /// Check if night/day mode is enabled.
+    pub fn night_day_mode(&self) -> M::Ret<'_, Result<bool, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_night_day_mode()
+    }
+
+    /// Check if standby mode is enabled.
+    pub fn standby_enabled(&self) -> M::Ret<'_, Result<bool, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_standby_enabled()
+    }
+
+    /// Check iris control status.
+    pub fn iris_control(&self) -> M::Ret<'_, Result<bool, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_iris_control()
+    }
+
+    /// Check if digital PTZ is enabled.
+    pub fn digital_ptz_enabled(&self) -> M::Ret<'_, Result<bool, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_digital_ptz_enabled()
+    }
+
+    /// Check if auto trace is enabled.
+    pub fn auto_trace_enabled(&self) -> M::Ret<'_, Result<bool, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_auto_trace_enabled()
+    }
+
+    /// Get focus unlock state.
+    pub fn focus_unlock(&self) -> M::Ret<'_, Result<bool, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_focus_unlock()
+    }
+
+    /// Get broadcast domain setting.
+    pub fn broadcast_domain(&self) -> M::Ret<'_, Result<u8, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_broadcast_domain()
+    }
+
+    /// Check if USB audio is enabled.
+    pub fn usb_audio_enabled(&self) -> M::Ret<'_, Result<bool, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_usb_audio_enabled()
+    }
+
+    /// Check if two tone mode is enabled.
+    pub fn two_tone_mode_enabled(&self) -> M::Ret<'_, Result<bool, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_two_tone_mode_enabled()
+    }
+
+    /// Check if digital mode is enabled.
+    pub fn digital_mode_enabled(&self) -> M::Ret<'_, Result<bool, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_digital_mode_enabled()
     }
 }

@@ -43,11 +43,6 @@ pub trait ZoomControl {
         position: crate::types::ZoomPosition,
     ) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
 
-    /// Query the current zoom position.
-    fn zoom_position_inquiry(
-        &self,
-    ) -> <Self::Mode as Mode>::Ret<'_, Result<crate::types::ZoomPosition, Error>>;
-
     /// Set digital zoom on or off.
     ///
     /// When enabled, zoom can continue past the optical zoom limit using digital processing.
@@ -102,11 +97,6 @@ where
     fn zoom_position(&self, position: crate::types::ZoomPosition) -> M::Ret<'_, Result<(), Error>> {
         use crate::command::zoom::Zoom;
         self.send_and_complete(Zoom::Position(position))
-    }
-
-    fn zoom_position_inquiry(&self) -> M::Ret<'_, Result<crate::types::ZoomPosition, Error>> {
-        use crate::command::inquiry_structs::ZoomPositionInquiry;
-        self.send_and_parse(ZoomPositionInquiry)
     }
 
     fn set_digital_zoom(&self, enabled: bool) -> M::Ret<'_, Result<(), Error>> {

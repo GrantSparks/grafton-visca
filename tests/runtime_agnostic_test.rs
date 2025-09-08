@@ -51,7 +51,7 @@ mod async_tests {
             .expect("Failed to create camera");
 
         // Operations should work with the configured executor
-        let result = camera.power_inquiry().await;
+        let result = camera.power().state().await;
 
         // Should succeed with deterministic response
         assert!(result.is_ok(), "Operation failed: {:?}", result);
@@ -76,7 +76,7 @@ mod async_tests {
 
         // Operations should work with the configured executor
         // The socket manager will be automatically initialized on first use
-        let result = camera.power_inquiry().await;
+        let result = camera.power().state().await;
 
         // Should succeed with configured executor
         assert!(result.is_ok(), "Operation failed: {:?}", result);
@@ -122,7 +122,7 @@ mod async_tests {
             .expect("Failed to create camera");
 
         // Operations should work with the executor created from handle
-        let result = camera.power_inquiry().await;
+        let result = camera.power().state().await;
 
         // Should succeed with the executor
         assert!(result.is_ok(), "Operation failed: {:?}", result);

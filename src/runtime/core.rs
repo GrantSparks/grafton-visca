@@ -13,7 +13,10 @@ use std::{
 };
 
 use crate::{
-    command::{response::ViscaResponse, CommandKind},
+    command::{
+        response::{parse_inquiry_payload, ViscaResponse, ViscaResponseType},
+        CommandKind,
+    },
     timeout::{CommandCategory, TimeoutConfig},
     visca_socket::ViscaSocket,
     Error,
@@ -383,6 +386,8 @@ pub struct SchedulerCore {
     inquiries_inflight: HashMap<u32, (Instant, CommandCategory)>,
     /// Inquiry order tracking for raw VISCA (no sequence).
     inquiries_order: VecDeque<u32>,
+    /// Response types for inquiries (for parsing DataReply).
+    inquiry_response_types: HashMap<u32, ViscaResponseType>,
 }
 
 impl SchedulerCore {
@@ -427,6 +432,7 @@ impl SchedulerCore {
             cmd_to_seq16s: HashMap::new(),
             inquiries_inflight: HashMap::new(),
             inquiries_order: VecDeque::new(),
+            inquiry_response_types: HashMap::new(),
         }
     }
 
@@ -680,6 +686,83 @@ impl SchedulerCore {
         self.pending_ack.remove(&id).is_some()
     }
 
+    /// Register the expected response type for an inquiry.
+    pub fn register_inquiry_type(&mut self, id: u32, ty: ViscaResponseType) {
+        self.inquiry_response_types.insert(id, ty);
+    }
+
+    /// Take the response type for an inquiry (removing it from storage).
+    pub fn take_inquiry_type(&mut self, id: u32) -> Option<ViscaResponseType> {
+        self.inquiry_response_types.remove(&id)
+    }
+
+    /// Get the response type for an inquiry (without removing it).
+    pub fn get_inquiry_type(&self, id: u32) -> Option<&ViscaResponseType> {
+        self.inquiry_response_types.get(&id)
+    }
+
+    /// Resolve inquiry ID from a VISCA payload.
+    ///
+    /// Given optional Sony sequence and a VISCA payload, resolve the cmd_id using:
+    /// (a) Sony sequence maps, (b) content-based matcher for Raw VISCA,
+    /// else (c) FIFO front of inquiries_order.
+    pub fn resolve_inquiry_id(&self, payload: &[u8], sequence: Option<u32>) -> Option<u32> {
+        // First try sequence-based resolution if available
+        if let Some(seq) = sequence {
+            if let Some(cmd_id) = self.get_command_by_sequence(seq) {
+                // Verify it's an active inquiry
+                if self.inquiries_inflight.contains_key(&cmd_id) {
+                    return Some(cmd_id);
+                }
+            }
+        }
+
+        // Try content-based matching for raw VISCA
+        // Build a map of active inquiries with their types
+        let active_inquiries: HashMap<u32, ViscaResponseType> = self
+            .inquiries_inflight
+            .keys()
+            .filter_map(|&id| self.inquiry_response_types.get(&id).map(|ty| (id, *ty)))
+            .collect();
+
+        // Try parsing the payload against each expected response type
+        let mut matches: Vec<u32> = active_inquiries
+            .iter()
+            .filter_map(|(id, response_type)| {
+                // Use the existing zero-allocation parser
+                // If parsing succeeds, this inquiry type matches the payload
+                if parse_inquiry_payload(payload, response_type).is_ok() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Remove duplicates (defensive, shouldn't happen with unique IDs)
+        matches.dedup();
+
+        match matches.len() {
+            0 => {
+                // No match - fall back to FIFO as last resort
+                debug!("No inquiry match, falling back to FIFO");
+                self.inquiries_order.front().copied()
+            }
+            1 => {
+                // Unique match found
+                Some(matches[0])
+            }
+            _ => {
+                // Ambiguous - fall back to FIFO
+                debug!(
+                    "Ambiguous inquiry match ({} candidates), falling back to FIFO",
+                    matches.len()
+                );
+                self.inquiries_order.front().copied()
+            }
+        }
+    }
+
     /// Process an event and return any actions to take.
     pub fn process_event(&mut self, event: SchedulerEvent, now: Instant) -> Vec<SchedulerAction> {
         let mut actions = Vec::new();
@@ -732,6 +815,8 @@ impl SchedulerCore {
                 if let Some(cmd_id) = resolved_cmd_id {
                     // Remove from inflight tracking
                     self.inquiries_inflight.remove(&cmd_id);
+                    // Clean up inquiry response type
+                    self.inquiry_response_types.remove(&cmd_id);
                     // Clean up sequence mappings
                     self.finish_sequence(cmd_id);
                     // Remove metadata
@@ -769,6 +854,7 @@ impl SchedulerCore {
                         // Remove from inquiry tracking
                         self.inquiries_inflight.remove(&cmd_id);
                         self.inquiries_order.retain(|&id| id != cmd_id);
+                        self.inquiry_response_types.remove(&cmd_id);
                     }
 
                     let should_retry = self.should_retry_command(cmd_id, &error);
@@ -853,6 +939,20 @@ impl SchedulerCore {
             self.inquiries_inflight.remove(&cmd_id);
             // Remove from order queue if present
             self.inquiries_order.retain(|&id| id != cmd_id);
+            // Clean up response type if retry fails
+            let _should_remove_type = !self
+                .command_metadata
+                .get(&cmd_id)
+                .map(|(_, _, category, _)| {
+                    let attempts = self.retry_attempts.get(&cmd_id).copied().unwrap_or(0);
+                    let max_retries = self
+                        .max_retries_per_category
+                        .get(category)
+                        .copied()
+                        .unwrap_or(3);
+                    attempts < max_retries
+                })
+                .unwrap_or(false);
 
             // Check if we should retry
             let should_retry = self
@@ -877,6 +977,7 @@ impl SchedulerCore {
                 self.finish_sequence(cmd_id);
                 self.command_metadata.remove(&cmd_id);
                 self.retry_attempts.remove(&cmd_id);
+                self.inquiry_response_types.remove(&cmd_id);
                 actions.push(SchedulerAction::CommandFailed {
                     id: cmd_id,
                     error: Error::Timeout,
@@ -1094,6 +1195,11 @@ impl SchedulerCore {
     /// The command is immediately failed without retry since we cannot know if
     /// it reached the camera.
     pub fn fail_after_send_error(&mut self, cmd_id: u32) -> Option<SchedulerAction> {
+        // If inquiry is in-flight, remove from inquiries_inflight and inquiries_order
+        self.inquiries_inflight.remove(&cmd_id);
+        self.inquiries_order.retain(|&x| x != cmd_id);
+        self.inquiry_response_types.remove(&cmd_id);
+
         // For send failures on first attempt, fail immediately with transport error
         self.finish_sequence(cmd_id);
         self.command_metadata.remove(&cmd_id);

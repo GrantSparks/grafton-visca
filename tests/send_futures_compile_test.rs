@@ -37,12 +37,6 @@ impl PowerControl for MockCamera {
     ) -> <Self::Mode as grafton_visca::mode::Mode>::Ret<'_, Result<(), grafton_visca::Error>> {
         Box::pin(async { Ok(()) })
     }
-    fn power_inquiry(
-        &self,
-    ) -> <Self::Mode as grafton_visca::mode::Mode>::Ret<'_, Result<bool, grafton_visca::Error>>
-    {
-        Box::pin(async { Ok(true) })
-    }
 }
 
 impl ZoomControl for MockCamera {
@@ -87,14 +81,6 @@ impl ZoomControl for MockCamera {
     ) -> <Self::Mode as grafton_visca::mode::Mode>::Ret<'_, Result<(), grafton_visca::Error>> {
         Box::pin(async { Ok(()) })
     }
-    fn zoom_position_inquiry(
-        &self,
-    ) -> <Self::Mode as grafton_visca::mode::Mode>::Ret<
-        '_,
-        Result<grafton_visca::types::ZoomPosition, grafton_visca::Error>,
-    > {
-        Box::pin(async { Ok(grafton_visca::types::ZoomPosition::new(0x0000).unwrap()) })
-    }
     fn set_digital_zoom(
         &self,
         _enabled: bool,
@@ -110,7 +96,6 @@ fn test_power_control_futures_are_send() {
     // Test that all PowerControl futures are Send
     assert_send(camera.power_on());
     assert_send(camera.power_off());
-    assert_send(camera.power_inquiry());
 }
 
 #[test]
@@ -129,7 +114,6 @@ fn test_zoom_control_futures_are_send() {
     );
     assert_send(camera.zoom_absolute(grafton_visca::units::Normalized::new(0.5)));
     assert_send(camera.zoom_position(grafton_visca::types::ZoomPosition::new(0x4000).unwrap()));
-    assert_send(camera.zoom_position_inquiry());
 }
 
 /// Compile-time test that verifies trait object compatibility.

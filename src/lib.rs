@@ -544,10 +544,16 @@ pub mod camera_id;
 /// Capability traits for camera feature composition
 pub mod capabilities;
 
-/// Command definitions for VISCA protocol
+/// Command definitions for VISCA protocol (advanced use only)
 ///
-/// This module is public for extensibility, allowing users to create custom commands.
-/// Most users should use the high-level camera API instead.
+/// **⚠️ Advanced API**: This module contains low-level protocol implementation details.
+/// Most users should use the high-level camera accessor API instead:
+/// - `camera.power().on()` instead of manual command construction
+/// - `camera.zoom().position()` instead of response matching
+///
+/// This module remains public for extensibility but its direct use is discouraged.
+/// Consider it unstable and subject to breaking changes.
+#[doc(hidden)]
 pub mod command;
 
 /// Error types
@@ -564,7 +570,11 @@ pub mod runtime_adapters;
 #[cfg(feature = "async")]
 pub mod runtime_trait;
 
-/// Protocol encoding and decoding utilities
+/// Protocol encoding and decoding utilities (internal use)
+///
+/// **⚠️ Internal API**: This module contains protocol-level utilities.
+/// Users should not need to interact with this module directly.
+#[doc(hidden)]
 pub mod protocol;
 
 /// VISCA runtime with flume-based scheduling
@@ -632,7 +642,6 @@ pub use crate::camera::controls::{
     exposure::ExposureControl,
     focus::FocusControl,
     image_processing::ImageProcessingControl,
-    inquiry::{InquiryControl, PanTiltInquiryControl},
     menu::{DirectMenuControl, MenuControl},
     nd_filter::NdFilterControl,
     pan_tilt::PanTiltControl,
@@ -645,6 +654,10 @@ pub use crate::camera::controls::{
     white_balance::WhiteBalanceControl,
     zoom::ZoomControl,
 };
+
+// Internal use only - users should use accessor methods instead
+#[doc(hidden)]
+pub use crate::camera::controls::inquiry::{InquiryControl, PanTiltInquiryControl};
 #[cfg(all(feature = "async", feature = "rt-async-std"))]
 pub use crate::executor::AsyncStdExecutor;
 #[cfg(all(feature = "async", feature = "rt-smol"))]

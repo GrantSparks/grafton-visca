@@ -28,7 +28,7 @@ fn test_type_safe_example_exists() {
     use std::path::Path;
 
     let example = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("examples")
+        .join("examples-advanced")
         .join("type_safe_commands.rs");
 
     assert!(

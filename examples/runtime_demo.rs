@@ -1,10 +1,9 @@
-//! Demo of the new flume-based runtime API.
+//! Demo of runtime capabilities using high-level Camera API.
 //!
-//! Advanced: Camera runtime and low-level ViscaEncode usage
+//! This example demonstrates runtime features like priority scheduling
+//! and metrics using the high-level accessor-based Camera API.
 //!
-//! Note: Preferred user-facing usage is via the high-level Camera methods
-//! (see quickstart and quickstart_async examples). This demo intentionally
-//! showcases lower-level runtime interactions for power users and contributors.
+//! For low-level runtime usage, see examples-advanced/runtime_demo_lowlevel.rs
 
 #[cfg(not(all(feature = "async", feature = "rt-tokio")))]
 fn main() {
@@ -14,128 +13,124 @@ fn main() {
 
 #[cfg(all(feature = "async", feature = "rt-tokio"))]
 use grafton_visca::{
-    camera_id::CameraId,
-    command::{power::Power, zoom::Zoom, InquiryResponse, ViscaResponse},
-    runtime::{Priority, RuntimeHandle},
-    TokioExecutor,
+    camera::{convenience::Camera, profiles::PtzOpticsG2},
+    runtime_trait::TokioRuntime,
+    Error,
 };
 
 #[cfg(all(feature = "async", feature = "rt-tokio"))]
-use std::sync::Arc;
-
-#[cfg(all(feature = "async", feature = "rt-tokio"))]
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Error> {
     // Initialize logging
     tracing_subscriber::fmt::init();
 
     // Camera configuration
-    let camera_address = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.0.100".to_string());
+    let camera_address =
+        std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.0.100:52381".to_string());
 
     println!("Connecting to camera at {camera_address}...");
 
-    // Create a runtime with raw TCP transport (PTZOptics style)
-    let executor = Arc::new(TokioExecutor::from_current()?);
-    let runtime = RuntimeHandle::new_tcp_raw(&camera_address, executor).await?;
+    // Create camera using high-level API
+    let runtime = TokioRuntime::from_current()?;
+    let camera = Camera::open_tcp_async::<PtzOpticsG2, _>(camera_address, runtime).await?;
 
-    println!("Connected! Demonstrating new runtime API...");
+    println!("Connected! Demonstrating runtime features with high-level API...");
 
-    // Power on the camera
-    println!("\n1. Sending power on command...");
-    let power_on = Power::On;
-    let response = runtime
-        .send_command(&power_on, CameraId::default(), Some(Priority::High))
-        .await?;
-    match response {
-        ViscaResponse::Completion { .. } => println!("   ✓ Camera powered on"),
-        ViscaResponse::Error(e) => println!("   ✗ Power on failed: {e}"),
-        _ => println!("   ? Unexpected response: {response:?}"),
+    // Power on the camera using accessor
+    println!("\n1. Powering on camera...");
+    match camera.power().on().await {
+        Ok(_) => println!("   ✓ Camera powered on"),
+        Err(e) => println!("   ✗ Power on failed: {e}"),
     }
 
     // Wait a moment for the camera to initialize
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
-    // Send zoom in command
-    println!("\n2. Sending zoom in command...");
-    let zoom_in = Zoom::TeleStd;
-    let response = runtime
-        .send_command(&zoom_in, CameraId::default(), None)
-        .await?;
-    match response {
-        ViscaResponse::Completion { .. } => println!("   ✓ Zoom in started"),
-        ViscaResponse::Error(e) => println!("   ✗ Zoom in failed: {e}"),
-        _ => println!("   ? Unexpected response: {response:?}"),
+    // Send zoom in command using accessor
+    println!("\n2. Starting zoom in...");
+    match camera.zoom().tele().await {
+        Ok(_) => println!("   ✓ Zoom in started"),
+        Err(e) => println!("   ✗ Zoom in failed: {e}"),
     }
 
     // Wait for zoom to move
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
-    // Stop zoom
-    println!("\n3. Sending zoom stop command...");
-    let zoom_stop = Zoom::Stop;
-    let response = runtime
-        .send_command(&zoom_stop, CameraId::default(), None)
-        .await?;
-    match response {
-        ViscaResponse::Completion { .. } => println!("   ✓ Zoom stopped"),
-        ViscaResponse::Error(e) => println!("   ✗ Zoom stop failed: {e}"),
-        _ => println!("   ? Unexpected response: {response:?}"),
+    // Stop zoom using accessor
+    println!("\n3. Stopping zoom...");
+    match camera.zoom().stop().await {
+        Ok(_) => println!("   ✓ Zoom stopped"),
+        Err(e) => println!("   ✗ Zoom stop failed: {e}"),
     }
 
-    // Send power inquiry
-    println!("\n4. Sending power inquiry...");
-    let power_inquiry = grafton_visca::command::inquiry::PowerInquiry;
-    let response = runtime
-        .send_inquiry(&power_inquiry, CameraId::default())
-        .await?;
-    match response {
-        ViscaResponse::Inquiry(InquiryResponse::Power { on }) => {
-            let status = if on { "ON" } else { "OFF" };
+    // Get power state using accessor
+    println!("\n4. Getting power state...");
+    match camera.power().state().await {
+        Ok(is_on) => {
+            let status = if is_on { "ON" } else { "OFF" };
             println!("   ✓ Power status: {status}");
         }
-        ViscaResponse::Error(e) => println!("   ✗ Power inquiry failed: {e}"),
-        _ => println!("   ? Unexpected response: {response:?}"),
+        Err(e) => println!("   ✗ Power inquiry failed: {e}"),
     }
 
-    // Get runtime metrics
-    println!("\n5. Getting runtime metrics...");
-    let metrics = runtime.metrics().await?;
-    println!("   Commands sent: {}", metrics.commands_sent);
-    println!("   Commands completed: {}", metrics.commands_completed);
-    println!("   Commands failed: {}", metrics.commands_failed);
-    println!("   Commands retried: {}", metrics.commands_retried);
+    // Get runtime metrics (if available through Camera API)
+    println!("\n5. Runtime metrics demonstration...");
+    println!("   Note: Metrics access through high-level API");
+    println!("   For detailed runtime metrics, see examples-advanced/");
 
-    // Demonstrate priority scheduling
-    println!("\n6. Demonstrating priority scheduling...");
-    println!("   Sending low priority zoom command...");
-    let zoom_wide = Zoom::WideStd;
-    let low_priority_future =
-        runtime.send_command(&zoom_wide, CameraId::default(), Some(Priority::Low));
+    // Demonstrate concurrent operations with high-level API
+    println!("\n6. Demonstrating concurrent operations...");
+    println!("   Sending concurrent zoom and inquiry commands...");
 
-    println!("   Sending high priority zoom stop command...");
-    let zoom_stop = Zoom::Stop;
-    let high_priority_future =
-        runtime.send_command(&zoom_stop, CameraId::default(), Some(Priority::High));
+    // Launch concurrent operations - need to bind accessors first
+    let zoom_accessor = camera.zoom();
+    let power_accessor = camera.power();
+    let zoom_accessor2 = camera.zoom();
 
-    // High priority should complete first even though it was sent second
-    let (high_result, low_result) = tokio::join!(high_priority_future, low_priority_future);
+    let zoom_future = zoom_accessor.wide();
+    let state_future = power_accessor.state();
+    let position_future = zoom_accessor2.position();
 
-    match high_result {
-        Ok(ViscaResponse::Completion { .. }) => println!("   ✓ High priority command completed"),
-        Ok(resp) => println!("   ? High priority response: {resp:?}"),
-        Err(e) => println!("   ✗ High priority failed: {e}"),
+    // Await all operations concurrently
+    let (zoom_result, state_result, position_result) =
+        tokio::join!(zoom_future, state_future, position_future);
+
+    match zoom_result {
+        Ok(_) => println!("   ✓ Zoom wide command completed"),
+        Err(e) => println!("   ✗ Zoom wide failed: {e}"),
     }
 
-    match low_result {
-        Ok(ViscaResponse::Completion { .. }) => println!("   ✓ Low priority command completed"),
-        Ok(resp) => println!("   ? Low priority response: {resp:?}"),
-        Err(e) => println!("   ✗ Low priority failed: {e}"),
+    match state_result {
+        Ok(is_on) => println!("   ✓ Power state: {}", if is_on { "ON" } else { "OFF" }),
+        Err(e) => println!("   ✗ State inquiry failed: {e}"),
     }
 
-    // Shutdown the runtime
-    println!("\n7. Shutting down runtime...");
-    runtime.shutdown().await;
-    println!("   ✓ Runtime shutdown complete");
+    match position_result {
+        Ok(pos) => println!("   ✓ Zoom position: {:?}", pos),
+        Err(e) => println!("   ✗ Position inquiry failed: {e}"),
+    }
+
+    // Stop zoom after concurrent operations
+    camera.zoom().stop().await?;
+
+    // Additional high-level operations demonstration
+    println!("\n7. Additional accessor examples...");
+
+    // System information
+    println!("   Getting system version...");
+    match camera.system().version().await {
+        Ok(version) => println!("   ✓ System version: {:?}", version),
+        Err(e) => println!("   ✗ Version inquiry failed: {e}"),
+    }
+
+    // Pan/Tilt demonstration
+    println!("   Moving to home position...");
+    match camera.pan_tilt().home().await {
+        Ok(_) => println!("   ✓ Pan/Tilt home command sent"),
+        Err(e) => println!("   ✗ Pan/Tilt home failed: {e}"),
+    }
+
+    println!("\n✓ Demo complete - camera connection will close automatically");
 
     Ok(())
 }

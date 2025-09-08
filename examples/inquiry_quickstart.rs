@@ -22,7 +22,7 @@
 // Blocking implementation
 #[cfg(not(feature = "async"))]
 fn main() -> grafton_visca::Result<()> {
-    use grafton_visca::{camera::profiles::GenericVisca, CameraBuilder};
+    use grafton_visca::{camera::profiles::GenericVisca, mode::BlockingFutureExt, CameraBuilder};
 
     tracing_subscriber::fmt::init();
 
@@ -41,7 +41,7 @@ fn main() -> grafton_visca::Result<()> {
         .open()?;
 
     println!("\n--- System Information ---");
-    match camera.get_power_state() {
+    match camera.power().state().block() {
         Ok(is_on) => {
             let state = if is_on { "ON" } else { "OFF" };
             println!("Power: {state}");
@@ -49,18 +49,18 @@ fn main() -> grafton_visca::Result<()> {
         Err(e) => println!("Power: Failed - {e}"),
     }
 
-    match camera.get_version() {
+    match camera.system().version().block() {
         Ok(version) => println!("Version: {version:?}"),
         Err(e) => println!("Version: Failed - {e}"),
     }
 
-    match camera.get_resolution() {
+    match camera.image().resolution().block() {
         Ok(res) => println!("Resolution: {res:?}"),
         Err(e) => println!("Resolution: Failed - {e}"),
     }
 
     println!("\n--- Position ---");
-    match camera.get_pan_tilt_position() {
+    match camera.pan_tilt().position().block() {
         Ok(pos) => {
             println!("Pan: {:?}", pos.pan);
             println!("Tilt: {:?}", pos.tilt);
@@ -69,7 +69,7 @@ fn main() -> grafton_visca::Result<()> {
         Err(e) => println!("Pan/Tilt: Failed - {e}"),
     }
 
-    match camera.get_zoom_position() {
+    match camera.zoom().position().block() {
         Ok(zoom) => {
             println!("Zoom: {:?}", zoom);
             // Note: The inner value is not publicly accessible,
@@ -79,71 +79,71 @@ fn main() -> grafton_visca::Result<()> {
     }
 
     println!("\n--- Focus ---");
-    match camera.get_focus_mode() {
+    match camera.focus().mode().block() {
         Ok(mode) => println!("Focus Mode: {mode:?}"),
         Err(e) => println!("Focus Mode: Failed - {e}"),
     }
 
-    match camera.get_focus_position() {
+    match camera.focus().position().block() {
         Ok(focus) => println!("Focus Position: {:?}", focus),
         Err(e) => println!("Focus Position: Failed - {e}"),
     }
 
     println!("\n--- Exposure ---");
-    match camera.get_exposure_mode() {
+    match camera.exposure().mode().block() {
         Ok(mode) => println!("Exposure Mode: {mode:?}"),
         Err(e) => println!("Exposure Mode: Failed - {e}"),
     }
 
-    match camera.get_iris() {
+    match camera.exposure().iris().block() {
         Ok(iris) => println!("Iris: {:?}", iris),
         Err(e) => println!("Iris: Failed - {e}"),
     }
 
-    match camera.get_shutter() {
+    match camera.exposure().shutter().block() {
         Ok(speed) => println!("Shutter: {:?}", speed),
         Err(e) => println!("Shutter: Failed - {e}"),
     }
 
-    match camera.get_gain() {
+    match camera.exposure().gain().block() {
         Ok(gain) => println!("Gain: {:?}", gain),
         Err(e) => println!("Gain: Failed - {e}"),
     }
 
     println!("\n--- White Balance ---");
-    match camera.get_white_balance_mode() {
+    match camera.white_balance().mode().block() {
         Ok(mode) => println!("WB Mode: {mode:?}"),
         Err(e) => println!("WB Mode: Failed - {e}"),
     }
 
-    match camera.get_color_temperature() {
+    match camera.white_balance().color_temperature().block() {
         Ok(temp) => println!("Color Temperature: {temp}K"),
         Err(e) => println!("Color Temperature: Failed - {e}"),
     }
 
     println!("\n--- Image Adjustments ---");
-    match camera.get_saturation() {
+    match camera.image().saturation().block() {
         Ok(val) => println!("Saturation: {:?}", val),
         Err(e) => println!("Saturation: Failed - {e}"),
     }
 
-    match camera.get_hue() {
+    match camera.image().hue().block() {
         Ok(val) => println!("Hue: {:?}", val),
         Err(e) => println!("Hue: Failed - {e}"),
     }
 
-    match camera.get_image_flip() {
+    match camera.image().flip().block() {
         Ok(mode) => println!("Image Flip: {mode:?}"),
         Err(e) => println!("Image Flip: Failed - {e}"),
     }
 
     println!("\n--- Noise Reduction ---");
-    match camera.get_noise_reduction_2d() {
+    match camera.image().noise_reduction_2d().block() {
         Ok(level) => println!("2D NR Level: {level:?}"),
         Err(e) => println!("2D NR: Failed - {e}"),
     }
 
-    match camera.get_noise_reduction_3d() {
+    match camera.image().noise_reduction_3d().block() {
         Ok(level) => println!("3D NR Level: {level:?}"),
         Err(e) => println!("3D NR: Failed - {e}"),
     }
@@ -161,13 +161,8 @@ async fn main() -> grafton_visca::Result<()> {
     use tokio::time::Instant;
 
     use grafton_visca::{
-        camera::{
-            controls::inquiry::{InquiryControl, PanTiltInquiryControl},
-            profiles::GenericVisca,
-        },
-        runtime_adapters::tokio::TcpTransport as Tcp,
-        runtime_trait::TokioRuntime,
-        CameraBuilder,
+        camera::profiles::GenericVisca, runtime_adapters::tokio::TcpTransport as Tcp,
+        runtime_trait::TokioRuntime, CameraBuilder,
     };
 
     tracing_subscriber::fmt::init();
@@ -194,6 +189,16 @@ async fn main() -> grafton_visca::Result<()> {
 
     // Execute all inquiries concurrently using tokio::join!
     // This is much faster than sequential queries
+    // Get accessor references for repeated use
+    let power_acc = camera.power();
+    let system_acc = camera.system();
+    let image_acc = camera.image();
+    let pan_tilt_acc = camera.pan_tilt();
+    let zoom_acc = camera.zoom();
+    let focus_acc = camera.focus();
+    let exposure_acc = camera.exposure();
+    let white_balance_acc = camera.white_balance();
+
     let (
         power,
         version,
@@ -214,24 +219,24 @@ async fn main() -> grafton_visca::Result<()> {
         nr_2d,
         nr_3d,
     ) = tokio::join!(
-        camera.get_power_state(),
-        camera.get_version(),
-        camera.get_resolution(),
-        camera.get_pan_tilt_position(),
-        camera.get_zoom_position(),
-        camera.get_focus_mode(),
-        camera.get_focus_position(),
-        camera.get_exposure_mode(),
-        camera.get_iris(),
-        camera.get_shutter(),
-        camera.get_gain(),
-        camera.get_white_balance_mode(),
-        camera.get_color_temperature(),
-        camera.get_saturation(),
-        camera.get_hue(),
-        camera.get_image_flip(),
-        camera.get_noise_reduction_2d(),
-        camera.get_noise_reduction_3d(),
+        power_acc.state(),
+        system_acc.version(),
+        image_acc.resolution(),
+        pan_tilt_acc.position(),
+        zoom_acc.position(),
+        focus_acc.mode(),
+        focus_acc.position(),
+        exposure_acc.mode(),
+        exposure_acc.iris(),
+        exposure_acc.shutter(),
+        exposure_acc.gain(),
+        white_balance_acc.mode(),
+        white_balance_acc.color_temperature(),
+        image_acc.saturation(),
+        image_acc.hue(),
+        image_acc.flip(),
+        image_acc.noise_reduction_2d(),
+        image_acc.noise_reduction_3d(),
     );
 
     let elapsed = start.elapsed();

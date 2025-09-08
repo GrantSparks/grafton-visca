@@ -464,10 +464,7 @@ async fn send_command<T: AsyncTransport, E: crate::executor::Executor>(
         adapter.register_sequence(cmd.id, sequence);
     }
 
-    // Mark inquiry as in-flight (for DataReply handling)
-    if kind == CommandKind::Inquiry {
-        adapter.mark_inquiry_inflight(cmd.id);
-    }
+    // Core handles inquiry tracking now
 
     // Mark as committed to prevent rollback
     guard.commit();

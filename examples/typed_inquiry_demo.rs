@@ -9,9 +9,7 @@
 //! ```
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::{
-    mode::BlockingFutureExt, profiles::GenericVisca, Camera, Error, PowerControl, ZoomControl,
-};
+use grafton_visca::{mode::BlockingFutureExt, profiles::GenericVisca, Camera, Error, ZoomControl};
 #[cfg(not(feature = "async"))]
 use std::time::Duration;
 
@@ -28,9 +26,9 @@ fn main() -> Result<(), Error> {
 
     println!("\n=== High-Level API Inquiry Demo ===\n");
 
-    // Power status - using high-level PowerControlBlocking trait
+    // Power status - using high-level accessor API
     println!("Checking power status...");
-    match camera.power_inquiry().block() {
+    match camera.power().state().block() {
         Ok(power_on) => {
             let status = if power_on { "ON" } else { "OFF" };
             println!("  Power: {status}");
@@ -41,9 +39,9 @@ fn main() -> Result<(), Error> {
     // Note: Pan/Tilt position inquiry would be available in async mode
     // For this blocking example, we'll skip it
 
-    // Zoom position - using high-level ZoomControlBlocking trait
+    // Zoom position - using high-level accessor API
     println!("\nChecking zoom position...");
-    match camera.zoom_position_inquiry().block() {
+    match camera.zoom().position().block() {
         Ok(zoom_pos) => {
             let raw_value = zoom_pos.value();
             let zoom_percentage = (raw_value as f32 / 0x4000 as f32) * 100.0;

@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     camera.power_on().await?;
 
     // High-level inquiry
-    let is_on = camera.power_inquiry().await?;
+    let is_on = camera.power().state().await?;
     println!("Power state: {}", if is_on { "ON" } else { "OFF" });
 
     camera.zoom_stop().await?;

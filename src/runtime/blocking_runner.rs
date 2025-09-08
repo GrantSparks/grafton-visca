@@ -16,15 +16,12 @@ use crate::{
     camera_id::CameraId,
     capabilities::ProtocolStyle,
     command::{
-        response::{lift_inquiry, ViscaResponse, ViscaResponseType},
+        response::{lift_inquiry, ViscaResponse},
         CommandKind, ViscaEncode,
     },
     error::{Error, Result},
     protocol::response::{decode_basic, BasicKind},
-    runtime::{
-        core::{PendingCommand, Priority, SchedulerAction, SchedulerCore, SchedulerEvent},
-        inquiry_matcher::{resolve_raw_inquiry_id, ResolveResult},
-    },
+    runtime::core::{PendingCommand, Priority, SchedulerAction, SchedulerCore, SchedulerEvent},
     timeout::{CommandCategory, TimeoutConfig},
     transport::{
         buffer::{BufferConfig, BufferManager},
@@ -100,12 +97,6 @@ pub struct BlockingRunner {
     buffer_manager: BufferManager,
     /// Command ID generator.
     next_id: AtomicU32,
-    /// Response types for inquiries (for parsing DataReply).
-    inquiry_response_types: std::collections::HashMap<u32, ViscaResponseType>,
-    /// Queue of in-flight inquiries (for raw VISCA DataReply without socket info).
-    /// We process DataReplies in FIFO order since raw VISCA doesn't identify which
-    /// inquiry a response belongs to.
-    active_inquiry_ids: std::collections::VecDeque<u32>,
 }
 
 impl BlockingRunner {
@@ -132,8 +123,6 @@ impl BlockingRunner {
             envelope: TransportEnvelope::new(style),
             buffer_manager: BufferManager::new(buffer_config),
             next_id: AtomicU32::new(1),
-            inquiry_response_types: std::collections::HashMap::new(),
-            active_inquiry_ids: std::collections::VecDeque::new(),
         }
     }
 
@@ -152,9 +141,9 @@ impl BlockingRunner {
         let len = command.encode_into(camera_id, &mut buf)?;
         let visca_bytes = Bytes::copy_from_slice(&buf[..len]);
 
-        // Store response type for inquiries
+        // Store response type in core for inquiries
         if let Some(rt) = command.response_type() {
-            self.inquiry_response_types.insert(cmd_id, rt);
+            self.core.register_inquiry_type(cmd_id, rt);
         }
 
         // Queue the command (both commands and inquiries use the unified path)
@@ -282,10 +271,7 @@ impl BlockingRunner {
                     self.core.register_sequence(cmd.id, sequence);
                 }
 
-                // Mark inquiry as in-flight (for DataReply handling)
-                if kind == CommandKind::Inquiry {
-                    self.active_inquiry_ids.push_back(cmd.id);
-                }
+                // Core handles inquiry tracking now
                 trace!(
                     "Sent {} {} with sequence {:?}",
                     if kind == CommandKind::Inquiry {
@@ -393,10 +379,7 @@ impl BlockingRunner {
                     self.core.register_sequence(retry.id, sequence);
                 }
 
-                // Mark inquiry as in-flight (for DataReply handling)
-                if kind == CommandKind::Inquiry {
-                    self.active_inquiry_ids.push_back(retry.id);
-                }
+                // Core handles inquiry tracking now
                 debug!(
                     "Sent retry for {} {} (attempt {})",
                     if kind == CommandKind::Inquiry {
@@ -464,8 +447,8 @@ impl BlockingRunner {
                             if let Some(cmd_id) = cmd_id {
                                 if cmd_id == target_cmd_id {
                                     debug!("Command {} completed successfully", cmd_id);
-                                    // Get the expected response type for this inquiry
-                                    let response_type = self.inquiry_response_types.get(&cmd_id);
+                                    // Get the expected response type from core
+                                    let response_type = self.core.get_inquiry_type(cmd_id);
                                     // Convert to ViscaResponse for return
                                     let response = lift_inquiry(&basic, response_type)?;
                                     return Ok(response);
@@ -473,9 +456,9 @@ impl BlockingRunner {
                             }
 
                             debug!("Received completion for socket {:?}", socket);
-                            // Get the expected response type for this inquiry
+                            // Get the expected response type from core
                             let response_type =
-                                cmd_id.and_then(|id| self.inquiry_response_types.get(&id));
+                                cmd_id.and_then(|id| self.core.get_inquiry_type(id));
                             let response = lift_inquiry(&basic, response_type)?;
                             SchedulerEvent::Completion {
                                 socket,
@@ -486,9 +469,18 @@ impl BlockingRunner {
                         BasicKind::Error(code) => {
                             let socket = basic.socket;
                             // For Sony, try to use sequence to find command
-                            let cmd_id = meta
+                            let mut cmd_id = meta
                                 .sequence
                                 .and_then(|seq| self.core.get_command_by_sequence(seq));
+
+                            // If no cmd_id and no socket, this could be an inquiry error
+                            // Use resolve_inquiry_id to try to match it
+                            if cmd_id.is_none() && socket.is_none() {
+                                // For error responses, we can't use content-based matching on the error code,
+                                // but we can use FIFO from the inquiry queue
+                                cmd_id = self.core.resolve_inquiry_id(&[], meta.sequence);
+                            }
+
                             debug!(
                                 "Received error 0x{:02X} for socket {:?}, cmd_id {:?}",
                                 code, socket, cmd_id
@@ -501,41 +493,16 @@ impl BlockingRunner {
                         }
                         BasicKind::DataReply => {
                             // Data replies are completions for inquiries
-                            // Try to find command ID from sequence (Sony) first
-                            let cmd_id = meta
-                                .sequence
-                                .and_then(|seq| self.core.get_command_by_sequence(seq))
-                                .or_else(|| {
-                                    // No sequence - use content-based matching for raw VISCA
-                                    match resolve_raw_inquiry_id(
-                                        &payload,
-                                        &self.inquiry_response_types,
-                                    ) {
-                                        ResolveResult::Unique(id) => Some(id),
-                                        ResolveResult::Ambiguous(_) => {
-                                            // Fall back to FIFO for ambiguous cases
-                                            debug!("Ambiguous inquiry match, falling back to FIFO");
-                                            self.active_inquiry_ids.front().copied()
-                                        }
-                                        ResolveResult::None => {
-                                            // No match - try FIFO as last resort
-                                            debug!("No inquiry match, falling back to FIFO");
-                                            self.active_inquiry_ids.front().copied()
-                                        }
-                                    }
-                                });
+                            // Use the core's centralized resolution
+                            let cmd_id = self.core.resolve_inquiry_id(&payload, meta.sequence);
 
-                            // Get the expected response type for this inquiry
+                            // Get the expected response type from core
                             let response_type =
-                                cmd_id.and_then(|id| self.inquiry_response_types.get(&id).cloned());
+                                cmd_id.and_then(|id| self.core.get_inquiry_type(id).cloned());
 
                             if let Some(cmd_id) = cmd_id {
                                 if cmd_id == target_cmd_id {
                                     debug!("Inquiry {} completed successfully", cmd_id);
-                                    // Clean up inquiry tracking
-                                    self.inquiry_response_types.remove(&cmd_id);
-                                    // Remove from active inquiry queue if present
-                                    self.active_inquiry_ids.retain(|&x| x != cmd_id);
                                     // Convert to ViscaResponse for return
                                     let response = lift_inquiry(&basic, response_type.as_ref())?;
                                     return Ok(response);
@@ -560,17 +527,11 @@ impl BlockingRunner {
                             SchedulerAction::CommandComplete { id, response }
                                 if id == target_cmd_id =>
                             {
-                                // Clean up inquiry tracking
-                                self.inquiry_response_types.remove(&id);
-                                // Remove from active inquiry queue
-                                self.active_inquiry_ids.retain(|&x| x != id);
+                                // Core handles all inquiry cleanup now
                                 return Ok(response);
                             }
                             SchedulerAction::CommandFailed { id, error } if id == target_cmd_id => {
-                                // Clean up inquiry tracking
-                                self.inquiry_response_types.remove(&id);
-                                // Remove from active inquiry queue
-                                self.active_inquiry_ids.retain(|&x| x != id);
+                                // Core handles all inquiry cleanup now
                                 return Err(error);
                             }
                             _ => {}

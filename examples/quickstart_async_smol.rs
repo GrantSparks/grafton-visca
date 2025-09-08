@@ -42,7 +42,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Powering on...\n");
     camera.power_on().await?;
 
-    let is_on = camera.power_inquiry().await?;
+    let is_on = camera.power().state().await?;
     println!("Power state: {}", if is_on { "ON" } else { "OFF" });
 
     camera.zoom_stop().await?;

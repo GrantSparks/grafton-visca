@@ -254,12 +254,6 @@ fn test_async_trait_method_signatures() {
         ) -> <Self::Mode as grafton_visca::mode::Mode>::Ret<'_, Result<(), Error>> {
             Box::pin(async { Ok(()) })
         }
-
-        fn power_inquiry(
-            &self,
-        ) -> <Self::Mode as grafton_visca::mode::Mode>::Ret<'_, Result<bool, Error>> {
-            Box::pin(async { Ok(true) })
-        }
     }
 
     let control = MockPowerControl;
@@ -273,7 +267,6 @@ fn test_async_trait_method_signatures() {
 
     assert_future_type::<_, Result<(), Error>>(control.power_on());
     assert_future_type::<_, Result<(), Error>>(control.power_off());
-    assert_future_type::<_, Result<bool, Error>>(control.power_inquiry());
 }
 
 /// Test that the transport module structure remains stable.

@@ -15,9 +15,6 @@ pub trait PowerControl {
 
     /// Power off the camera.
     fn power_off(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
-
-    /// Query the current power status.
-    fn power_inquiry(&self) -> <Self::Mode as Mode>::Ret<'_, Result<bool, Error>>;
 }
 
 // Single unified implementation for all Camera types!
@@ -37,10 +34,5 @@ where
     fn power_off(&self) -> M::Ret<'_, Result<(), Error>> {
         use crate::command::power::Power;
         self.send_and_complete(Power::Standby)
-    }
-
-    fn power_inquiry(&self) -> M::Ret<'_, Result<bool, Error>> {
-        use crate::command::inquiry_structs::PowerInquiry;
-        self.send_and_parse(PowerInquiry)
     }
 }
