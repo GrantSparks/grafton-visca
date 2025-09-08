@@ -10,28 +10,24 @@
 //!
 //! ```rust,no_run
 //! # #[cfg(feature = "rt-tokio")]
-//! use grafton_visca::transport::Transport;
+//! use grafton_visca::camera::{Camera, CameraConfig, profiles::GenericVisca};
 //! # #[cfg(feature = "rt-tokio")]
 //! use grafton_visca::runtime_trait::TokioRuntime;
 //!
 //! # #[cfg(feature = "rt-tokio")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! // Runtime-based API with type-safe pairing
+//! // New session-centric API with convenience methods
 //! let runtime = TokioRuntime::from_current()?;
-//! let transport = Transport::tcp()
-//!     .address("192.168.0.110:5678")
-//!     .connect_timeout(std::time::Duration::from_secs(10))
-//!     .tcp_nodelay(true)
-//!     .build_async_with(runtime)
-//!     .await?;
+//! let session = Camera::open_tcp_async::<GenericVisca, _>(
+//!     "192.168.0.110:5678",
+//!     runtime
+//! ).await?;
 //! # Ok(())
 //! # }
 //! ```
 
 use std::time::Duration;
 
-#[cfg(feature = "async")]
-use crate::transport::AsyncTransport;
 #[cfg(not(feature = "async"))]
 use crate::transport::SyncTransport;
 use crate::{
@@ -330,14 +326,12 @@ impl Transport {
     ///
     /// # #[cfg(feature = "rt-tokio")]
     /// # async fn async_example() -> Result<(), Box<dyn std::error::Error>> {
-    /// // Building async transports with Runtime
-    /// use grafton_visca::runtime_trait::TokioRuntime;
+    /// // Building cameras with transport configuration
+    /// use grafton_visca::{camera::{CameraConfig, Camera}, runtime_trait::TokioRuntime};
+    /// use grafton_visca::camera::profiles::GenericVisca;
     /// let runtime = TokioRuntime::from_current()?;
-    /// let transport = Transport::tcp()
-    ///     .address("192.168.0.110:5678")
-    ///     .tcp_nodelay(true)
-    ///     .build_async_with(runtime)
-    ///     .await?;
+    /// // Use convenience method for quick setup
+    /// let session = Camera::open_tcp_async::<GenericVisca, _>("192.168.0.110:5678", runtime).await?;
     /// # Ok(())
     /// # }
     /// ```
@@ -365,211 +359,17 @@ impl Transport {
     ///
     /// # #[cfg(feature = "rt-tokio")]
     /// # async fn async_example() -> Result<(), Box<dyn std::error::Error>> {
-    /// // Building async transports with Runtime
-    /// use grafton_visca::runtime_trait::TokioRuntime;
+    /// // Building cameras with transport configuration
+    /// use grafton_visca::{camera::{CameraConfig, Camera}, runtime_trait::TokioRuntime};
+    /// use grafton_visca::camera::profiles::GenericVisca;
     /// let runtime = TokioRuntime::from_current()?;
-    /// let transport = Transport::udp()
-    ///     .address("192.168.0.110:5678")
-    ///     .max_retries(5)
-    ///     .build_async_with(runtime)
-    ///     .await?;
+    /// // Use convenience method for quick setup
+    /// let session = Camera::open_udp_async::<GenericVisca, _>("192.168.0.110:1259", runtime).await?;
     /// # Ok(())
     /// # }
     /// ```
     pub fn udp() -> NetTransportBuilder {
         NetTransportBuilder::udp()
-    }
-
-    /// Connect to a camera with automatic protocol detection using a specific runtime.
-    ///
-    /// This method automatically detects:
-    /// - Whether the camera uses Sony encapsulated format (8-byte header) or raw VISCA format
-    /// - Which transport protocol (TCP or UDP) the camera responds to
-    /// - Which port the camera is listening on (if not specified)
-    ///
-    /// Detection is performed across multiple transport/protocol combinations in priority order:
-    /// 1. UDP 52381 with Sony encapsulated (primary Sony path)
-    /// 2. TCP 52381 with Sony encapsulated (some stacks support TCP)
-    /// 3. UDP 1259 with raw VISCA (PTZOptics default)
-    /// 4. TCP 5678 with raw VISCA (PTZOptics TCP)
-    ///
-    /// If a port is specified in the address, only that port will be tried with both protocols.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # #[cfg(feature = "async")]
-    /// use grafton_visca::transport::Transport;
-    /// # #[cfg(feature = "rt-tokio")]
-    /// use grafton_visca::TokioRuntime;
-    ///
-    /// # #[cfg(feature = "rt-tokio")]
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let runtime = TokioRuntime::from_current()?;
-    /// // Auto-detect protocol for camera (could be Sony or PTZOptics)
-    /// let (transport, detected_protocol) = Transport::auto_detect("192.168.0.110", runtime).await?;
-    /// println!("Detected protocol: {:?}", detected_protocol);
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[cfg(feature = "async")]
-    pub async fn auto_detect<R: crate::runtime_trait::Runtime>(
-        address: impl Into<String>,
-        runtime: R,
-    ) -> Result<
-        (
-            crate::runtime_trait::TransportHandle<R>,
-            super::DetectionResult,
-        ),
-        Error,
-    > {
-        use super::protocol_detection::{ProtocolDetector, TransportProtocol};
-
-        let address_str = address.into();
-        let candidates = ProtocolDetector::generate_candidates(&address_str);
-
-        // Extract host from address (remove port if present)
-        let host = if let Some(colon_pos) = address_str.rfind(':') {
-            // Check if this is actually a port (not IPv6)
-            if address_str[colon_pos + 1..].parse::<u16>().is_ok() {
-                &address_str[..colon_pos]
-            } else {
-                &address_str
-            }
-        } else {
-            &address_str
-        };
-
-        // Try each candidate in order
-        for candidate in candidates {
-            let candidate_addr = format!("{}:{}", host, candidate.port);
-
-            tracing::debug!(
-                "Trying detection candidate: {:?} on {} with {:?}",
-                candidate.protocol,
-                candidate_addr,
-                candidate.protocol_style
-            );
-
-            // Create transport based on protocol type
-            let transport_result = match candidate.protocol {
-                TransportProtocol::Tcp => R::connect_tcp(
-                    &candidate_addr,
-                    TransportConfig {
-                        buffer_config: candidate.buffer_config,
-                        ..Default::default()
-                    },
-                )
-                .await
-                .map(|t| {
-                    crate::runtime_trait::TransportHandle::Tcp(
-                        t,
-                        TransportConfig {
-                            buffer_config: candidate.buffer_config,
-                            ..Default::default()
-                        },
-                    )
-                }),
-                TransportProtocol::Udp => R::connect_udp(
-                    &candidate_addr,
-                    TransportConfig {
-                        buffer_config: candidate.buffer_config,
-                        ..Default::default()
-                    },
-                )
-                .await
-                .map(|t| {
-                    crate::runtime_trait::TransportHandle::Udp(
-                        t,
-                        TransportConfig {
-                            buffer_config: candidate.buffer_config,
-                            ..Default::default()
-                        },
-                    )
-                }),
-            };
-
-            // If connection failed, try next candidate
-            let mut transport = match transport_result {
-                Ok(t) => t,
-                Err(e) => {
-                    tracing::debug!("Failed to connect to {}: {}", candidate_addr, e);
-                    continue;
-                }
-            };
-
-            // Test this specific protocol style only
-            let test_command = &[0x81, 0x09, 0x00, 0x02, 0xFF]; // Version Inquiry
-            let envelope = super::envelope::TransportEnvelope::new(candidate.protocol_style);
-            let buffer_manager = super::buffer::BufferManager::new(candidate.buffer_config);
-
-            // Try detection with this transport and protocol style
-            for attempt in 0..=2 {
-                // Frame command with fresh sequence number for Sony
-                let framed_command = envelope.frame_bytes_with_kind(
-                    test_command,
-                    crate::command::CommandKind::Inquiry,
-                    &buffer_manager,
-                );
-
-                // Send and check for response
-                if transport.send(&framed_command).await.is_ok() {
-                    // Try to receive response with short timeout
-                    let recv_future = transport.recv();
-                    let timeout_result = runtime
-                        .timeout(Duration::from_millis(100), recv_future)
-                        .await;
-
-                    if let Ok(Ok(response)) = timeout_result {
-                        // Check if this looks like a valid response for this protocol
-                        if let Ok(visca_payload) = envelope.extract_response(&response) {
-                            // Use the detector's validation method
-                            let is_valid =
-                                ProtocolDetector::new().is_valid_visca_response(&visca_payload);
-                            if is_valid {
-                                tracing::info!(
-                                    "✓ Detected {:?} protocol on {:?} port {}",
-                                    candidate.protocol_style,
-                                    candidate.protocol,
-                                    candidate.port
-                                );
-
-                                let result = match candidate.protocol_style {
-                                    crate::capabilities::ProtocolStyle::SonyEncapsulated => {
-                                        super::DetectionResult::SonyEncapsulated
-                                    }
-                                    crate::capabilities::ProtocolStyle::RawVisca => {
-                                        super::DetectionResult::RawVisca
-                                    }
-                                };
-
-                                return Ok((transport, result));
-                            }
-                        }
-                    }
-                }
-
-                // Short delay before retry
-                if attempt < 2 {
-                    runtime.sleep(Duration::from_millis(50)).await;
-                }
-            }
-
-            tracing::debug!(
-                "No valid response for candidate {:?} on {}",
-                candidate.protocol_style,
-                candidate_addr
-            );
-        }
-
-        // All candidates failed
-        Err(Error::ConnectionFailed {
-            addr: address_str.into(),
-            source: std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                "No VISCA protocol response detected from camera - verify camera is powered on and address is correct"
-            ),
-        })
     }
 }
 
@@ -597,13 +397,13 @@ impl Transport {
 ///
 /// # #[cfg(feature = "rt-tokio")]
 /// # async fn async_example() -> Result<(), Box<dyn std::error::Error>> {
-/// // Building async transports with Runtime
-/// use grafton_visca::runtime_trait::TokioRuntime;
+/// // Building cameras with custom transport configuration
+/// use grafton_visca::{camera::{CameraConfig, profiles::GenericVisca}, runtime_trait::TokioRuntime};
 /// let runtime = TokioRuntime::from_current()?;
-/// let async_transport = NetTransportBuilder::tcp()
+/// let session = CameraConfig::<GenericVisca>::new()
+///     .tcp()
 ///     .address("192.168.0.110:5678")
-///     .connect_timeout(Duration::from_secs(10))
-///     .build_async_with(runtime)
+///     .open_async(runtime)
 ///     .await?;
 /// # Ok(())
 /// # }
@@ -798,107 +598,13 @@ impl NetTransportBuilder {
     /// Returns an error indicating that blocking transport creation is not available in async mode.
     #[cfg(feature = "async")]
     pub fn build_blocking(self) -> Result<(), Error> {
+        // Consume self to avoid dead code warning
+        let _ = self.protocol;
+        let _ = self.address;
+        let _ = self.config;
         Err(Error::InvalidState(
             "Blocking transport not available when async features are enabled".into(),
         ))
-    }
-
-    /// Build an async transport with a specific runtime.
-    ///
-    /// This method uses the provided runtime to establish the connection,
-    /// ensuring type-safe pairing of executor and transport.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - No address has been set
-    /// - Connection fails
-    /// - Socket configuration fails
-    #[cfg(feature = "async")]
-    pub async fn build_async_with<R: crate::runtime_trait::Runtime>(
-        self,
-        _runtime: R,
-    ) -> Result<crate::runtime_trait::TransportHandle<R>, Error> {
-        use crate::runtime_trait::TransportHandle;
-
-        let address = self.address.ok_or_else(|| Error::InvalidParameter {
-            parameter: "address",
-            value: "None".into(),
-            reason: "No address specified for transport".into(),
-        })?;
-
-        match self.protocol {
-            Protocol::Tcp => {
-                let transport = R::connect_tcp(&address, self.config).await?;
-                Ok(TransportHandle::Tcp(transport, self.config))
-            }
-            Protocol::Udp => {
-                let transport = R::connect_udp(&address, self.config).await?;
-                Ok(TransportHandle::Udp(transport, self.config))
-            }
-        }
-    }
-
-    /// Build an async transport with automatic protocol detection using a specific runtime.
-    ///
-    /// This method implements automatic detection of Sony encapsulated
-    /// vs raw VISCA protocol modes. It probes the camera with both formats and
-    /// returns a transport configured for the detected protocol.
-    ///
-    /// # Protocol Detection Process
-    ///
-    /// 1. Try Sony encapsulated format first (8-byte header)
-    /// 2. If no response, fallback to raw VISCA format
-    /// 3. If neither works, return error
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - No address has been set
-    /// - Connection fails
-    /// - Socket configuration fails
-    /// - No protocol response detected from camera
-    #[cfg(feature = "async")]
-    pub async fn build_async_with_auto_detection<R: crate::runtime_trait::Runtime>(
-        self,
-        runtime: R,
-    ) -> Result<
-        (
-            crate::runtime_trait::TransportHandle<R>,
-            super::DetectionResult,
-        ),
-        Error,
-    > {
-        let address = self
-            .address
-            .clone()
-            .ok_or_else(|| Error::InvalidParameter {
-                parameter: "address",
-                value: "None".into(),
-                reason: "No address specified for transport".into(),
-            })?;
-
-        // First establish the connection
-        let mut transport = self.build_async_with(runtime.clone()).await?;
-
-        // Perform protocol detection
-        let detector = super::ProtocolDetector::new();
-        let detection_result = detector.detect_protocol(&mut transport, &runtime).await?;
-
-        match detection_result {
-            super::DetectionResult::SonyEncapsulated | super::DetectionResult::RawVisca => {
-                Ok((transport, detection_result))
-            }
-            super::DetectionResult::NoResponse => {
-                Err(Error::ConnectionFailed {
-                    addr: address.into(),
-                    source: std::io::Error::new(
-                        std::io::ErrorKind::TimedOut,
-                        "No VISCA protocol response detected from camera - verify camera is powered on and address is correct"
-                    ),
-                })
-            }
-        }
     }
 }
 

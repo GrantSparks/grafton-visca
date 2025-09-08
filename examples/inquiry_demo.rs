@@ -193,6 +193,7 @@ async fn main() -> grafton_visca::Result<()> {
     use grafton_visca::{
         camera::controls::inquiry::{InquiryControl, PanTiltInquiryControl},
         runtime_adapters::tokio::TcpTransport as Tcp,
+        runtime_trait::TokioRuntime,
         CameraBuilder,
     };
 
@@ -207,7 +208,8 @@ async fn main() -> grafton_visca::Result<()> {
 
     println!("Connecting to camera at {camera_addr}...");
     let transport = Tcp::connect(&camera_addr).await?;
-    let camera = CameraBuilder::tokio()?
+    let runtime = TokioRuntime::from_current()?;
+    let camera = CameraBuilder::with_executor(runtime)
         .open_async::<grafton_visca::camera::profiles::GenericVisca, _>(transport)
         .await?;
 

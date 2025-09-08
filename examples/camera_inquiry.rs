@@ -141,6 +141,7 @@ async fn main() -> grafton_visca::Result<()> {
             profiles::PtzOpticsG2,
         },
         runtime_adapters::tokio::TcpTransport as Tcp,
+        runtime_trait::TokioRuntime,
         CameraBuilder,
     };
 
@@ -154,7 +155,8 @@ async fn main() -> grafton_visca::Result<()> {
 
     println!("Connecting to camera at {camera_addr}...");
     let transport = Tcp::connect(&camera_addr).await?;
-    let camera = CameraBuilder::tokio()?
+    let runtime = TokioRuntime::from_current()?;
+    let camera = CameraBuilder::with_executor(runtime)
         .open_async::<PtzOpticsG2, _>(transport)
         .await?;
 

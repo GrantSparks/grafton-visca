@@ -11,24 +11,32 @@
 //! - `AsyncCamera<P, Tr, Exec>` for async cameras with runtime-specific executors
 //! - `BlockingCamera<P, Tr>` for blocking cameras
 
+pub mod accessors;
 pub mod builder;
 pub mod capabilities;
+pub mod config;
 pub mod controls;
+pub mod convenience;
 pub mod movement_detection;
 pub mod movement_probe;
 pub mod profiles;
+pub mod session;
 pub mod unified;
-
-// Runtime-aware camera construction methods
-#[cfg(feature = "async")]
-pub mod runtime_camera;
 
 // Blocking-specific wrapper module
 #[cfg(not(feature = "async"))]
 pub mod blocking_api;
 
-// Re-export the unified camera types with convenient aliases
-pub use unified::Camera;
+// Re-export the unified camera type (the actual implementation)
+pub use unified::Camera as UnifiedCamera;
+
+// Re-export new API types
+pub use config::{CameraConfig, ProtocolConfig, RetryPolicy, TransportOptions};
+pub use session::CameraSession;
+
+// Re-export convenience methods as the main Camera type
+// This provides the one-liner convenience methods that users expect
+pub use convenience::Camera;
 
 // Type aliases for easier usage
 /// Async camera type alias for easier usage.
@@ -36,7 +44,7 @@ pub use unified::Camera;
 /// This type represents a camera operating in async mode with Send-safe futures.
 /// It requires an async transport and executor for operation.
 #[cfg(feature = "async")]
-pub type AsyncCamera<P, Tr, Exec> = Camera<crate::mode::Async, P, Tr, Exec>;
+pub type AsyncCamera<P, Tr, Exec> = UnifiedCamera<crate::mode::Async, P, Tr, Exec>;
 
 /// Blocking camera type alias for unified API usage.
 ///
@@ -44,20 +52,10 @@ pub type AsyncCamera<P, Tr, Exec> = Camera<crate::mode::Async, P, Tr, Exec>;
 /// It requires a sync transport for operation. For ergonomic blocking API with direct
 /// Result returns, see `blocking_api::BlockingCamera`.
 #[cfg(not(feature = "async"))]
-pub type UnifiedBlockingCamera<P, Tr> = Camera<crate::mode::Blocking, P, Tr, ()>;
+pub type UnifiedBlockingCamera<P, Tr> = UnifiedCamera<crate::mode::Blocking, P, Tr, ()>;
 
 // Re-export builder types
 pub use builder::CameraBuilder;
-
-// Re-export camera type aliases for convenience
-#[cfg(all(feature = "async", feature = "rt-tokio"))]
-pub use builder::async_cameras::TokioCamera;
-
-#[cfg(all(feature = "async", feature = "rt-async-std"))]
-pub use builder::async_std_cameras::AsyncStdCamera;
-
-#[cfg(all(feature = "async", feature = "rt-smol"))]
-pub use builder::smol_cameras::SmolCamera;
 
 // Re-export movement detection types
 pub use movement_probe::{MovementConfig, PanTiltPosition};
@@ -94,7 +92,7 @@ where
 
 // Async implementation of CameraSend
 #[cfg(feature = "async")]
-impl<P, Tr, Exec> CameraSend<crate::mode::Async> for Camera<crate::mode::Async, P, Tr, Exec>
+impl<P, Tr, Exec> CameraSend<crate::mode::Async> for UnifiedCamera<crate::mode::Async, P, Tr, Exec>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
@@ -149,7 +147,7 @@ where
 
 // Blocking implementation of CameraSend
 #[cfg(not(feature = "async"))]
-impl<P, Tr> CameraSend<crate::mode::Blocking> for Camera<crate::mode::Blocking, P, Tr, ()>
+impl<P, Tr> CameraSend<crate::mode::Blocking> for UnifiedCamera<crate::mode::Blocking, P, Tr, ()>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::SyncTransport + Send + 'static,

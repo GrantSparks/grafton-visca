@@ -14,6 +14,7 @@
 use grafton_visca::{
     camera::controls::inquiry::InquiryControl,
     camera::profiles::GenericVisca,
+    runtime_trait::TokioRuntime,
     transport::serial_async::{AsyncSerialConfig, AsyncSerialTransport},
     CameraBuilder, Error,
 };
@@ -52,7 +53,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("✓ I/F Clear command sent during initialization");
 
             // Create camera with async transport
-            let camera = CameraBuilder::tokio()?
+            let runtime = TokioRuntime::from_current()?;
+            let camera = CameraBuilder::with_executor(runtime)
                 .open_async::<GenericVisca, _>(transport)
                 .await?;
 

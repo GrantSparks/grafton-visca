@@ -4,14 +4,14 @@
 #[test]
 fn test_tokio_builder() {
     use grafton_visca::camera::CameraBuilder;
-    use grafton_visca::TokioExecutor;
-
+    use grafton_visca::runtime_trait::TokioRuntime;
     // This should compile and work within a tokio runtime
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
-        let builder = CameraBuilder::tokio().unwrap();
+        let runtime = TokioRuntime::from_current().unwrap();
+        let builder = CameraBuilder::with_executor(runtime);
         // Verify we get the right type
-        let _: CameraBuilder<TokioExecutor> = builder;
+        let _: CameraBuilder<TokioRuntime> = builder;
     });
 }
 
@@ -19,24 +19,24 @@ fn test_tokio_builder() {
 #[test]
 fn test_async_std_builder() {
     use grafton_visca::camera::CameraBuilder;
-    use grafton_visca::AsyncStdExecutor;
-
+    use grafton_visca::runtime_trait::AsyncStdRuntime;
     // This should compile - async-std doesn't require runtime setup
-    let builder = CameraBuilder::async_std();
+    let runtime = AsyncStdRuntime::new();
+    let builder = CameraBuilder::with_executor(runtime);
     // Verify we get the right type
-    let _: CameraBuilder<AsyncStdExecutor> = builder;
+    let _: CameraBuilder<AsyncStdRuntime> = builder;
 }
 
 #[cfg(all(feature = "async", feature = "rt-smol"))]
 #[test]
 fn test_smol_builder() {
     use grafton_visca::camera::CameraBuilder;
-    use grafton_visca::SmolExecutor;
-
+    use grafton_visca::runtime_trait::SmolRuntime;
     // This should compile - smol doesn't require runtime setup
-    let builder = CameraBuilder::smol();
+    let runtime = SmolRuntime::new();
+    let builder = CameraBuilder::with_executor(runtime);
     // Verify we get the right type
-    let _: CameraBuilder<SmolExecutor> = builder;
+    let _: CameraBuilder<SmolRuntime> = builder;
 }
 
 #[cfg(all(
@@ -50,11 +50,17 @@ fn test_all_builders_compile() {
     use grafton_visca::camera::CameraBuilder;
 
     // Test that all builder methods exist and compile
+    use grafton_visca::runtime_trait::{AsyncStdRuntime, SmolRuntime, TokioRuntime};
+
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
-        let _ = CameraBuilder::tokio().unwrap();
+        let runtime = TokioRuntime::from_current().unwrap();
+        let _ = CameraBuilder::with_executor(runtime);
     });
 
-    let _ = CameraBuilder::async_std();
-    let _ = CameraBuilder::smol();
+    let async_std_runtime = AsyncStdRuntime::new();
+    let _ = CameraBuilder::with_executor(async_std_runtime);
+
+    let smol_runtime = SmolRuntime::new();
+    let _ = CameraBuilder::with_executor(smol_runtime);
 }

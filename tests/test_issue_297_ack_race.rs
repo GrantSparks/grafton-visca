@@ -7,6 +7,7 @@
 #![cfg(all(feature = "async", feature = "rt-tokio", feature = "test-utils"))]
 
 use grafton_visca::camera::{profiles::PtzOpticsG2, CameraBuilder};
+use grafton_visca::runtime_trait::TokioRuntime;
 use grafton_visca::testing::testkit::{helpers, ScriptedTransport, Step};
 use grafton_visca::{TokioExecutor, ZoomControl};
 
@@ -30,8 +31,8 @@ async fn test_ack_race_with_immediate_response() {
     }]);
 
     // Create camera with the scripted transport
-    let camera = CameraBuilder::tokio()
-        .unwrap()
+    let runtime = TokioRuntime::from_current().unwrap();
+    let camera = CameraBuilder::with_executor(runtime)
         .open_async::<PtzOpticsG2, _>(transport)
         .await
         .unwrap();
@@ -60,8 +61,8 @@ async fn test_rollback_on_send_failure() {
         )]);
 
     // Create camera with the scripted transport
-    let camera = CameraBuilder::tokio()
-        .unwrap()
+    let runtime = TokioRuntime::from_current().unwrap();
+    let camera = CameraBuilder::with_executor(runtime)
         .open_async::<PtzOpticsG2, _>(transport)
         .await
         .unwrap();
@@ -90,8 +91,8 @@ async fn test_normal_operation_still_works() {
     ]);
 
     // Create camera
-    let camera = CameraBuilder::tokio()
-        .unwrap()
+    let runtime = TokioRuntime::from_current().unwrap();
+    let camera = CameraBuilder::with_executor(runtime)
         .open_async::<PtzOpticsG2, _>(transport)
         .await
         .unwrap();
@@ -125,8 +126,8 @@ async fn test_multiple_immediate_acks_preserve_order() {
     ]);
 
     // Create camera
-    let camera = CameraBuilder::tokio()
-        .unwrap()
+    let runtime = TokioRuntime::from_current().unwrap();
+    let camera = CameraBuilder::with_executor(runtime)
         .open_async::<PtzOpticsG2, _>(transport)
         .await
         .unwrap();

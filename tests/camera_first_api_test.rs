@@ -6,28 +6,18 @@
 //! - The new connect helpers function properly
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::{mode::Blocking, profiles::GenericVisca, Camera, CameraBuilder};
+use grafton_visca::{profiles::GenericVisca, Camera, CameraBuilder};
 
 #[cfg(not(feature = "async"))]
 #[test]
 fn test_blocking_camera_tcp_connect() {
     // Test that BlockingCamera::connect_tcp exists and returns appropriate errors
     // for invalid addresses (since we can't connect to real cameras in tests)
-    let result = Camera::<
-        Blocking,
-        GenericVisca,
-        Box<dyn grafton_visca::transport::SyncTransport>,
-        (),
-    >::open_tcp("invalid:address");
+    let result = Camera::open_tcp_blocking::<GenericVisca>("invalid:address");
     assert!(result.is_err(), "Invalid address should fail");
 
     // Test with a proper address format (will fail to connect but proves API exists)
-    let result = Camera::<
-        Blocking,
-        GenericVisca,
-        Box<dyn grafton_visca::transport::SyncTransport>,
-        (),
-    >::open_tcp("192.168.1.100:5678");
+    let result = Camera::open_tcp_blocking::<GenericVisca>("192.168.1.100:5678");
     assert!(
         result.is_err(),
         "Connection to non-existent camera should fail"
@@ -38,22 +28,12 @@ fn test_blocking_camera_tcp_connect() {
 #[test]
 fn test_blocking_camera_udp_connect() {
     // Test that BlockingCamera::connect_udp exists and returns appropriate errors
-    let result = Camera::<
-        Blocking,
-        GenericVisca,
-        Box<dyn grafton_visca::transport::SyncTransport>,
-        (),
-    >::open_udp("invalid:address");
+    let result = Camera::open_udp_blocking::<GenericVisca>("invalid:address");
     assert!(result.is_err(), "Invalid address should fail");
 
     // Note: UDP "connects" don't fail for non-existent hosts since UDP is connectionless
     // Just verify the API exists and can create a camera instance
-    let result = Camera::<
-        Blocking,
-        GenericVisca,
-        Box<dyn grafton_visca::transport::SyncTransport>,
-        (),
-    >::open_udp("192.168.1.100:52381");
+    let result = Camera::open_udp_blocking::<GenericVisca>("192.168.1.100:52381");
     assert!(
         result.is_ok(),
         "UDP should succeed even for non-existent camera (connectionless)"

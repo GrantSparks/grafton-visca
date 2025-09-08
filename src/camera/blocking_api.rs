@@ -1,11 +1,12 @@
 //! Blocking-specific wrapper providing direct `Result<T, E>` returns.
 //!
-//! This module provides a thin wrapper around `Camera<Blocking, _, _, _>` that
+//! This module provides a thin wrapper around `UnifiedCamera<Blocking, _, _, _>` that
 //! converts the `Ready<T>` futures to direct `Result<T, E>` values, restoring
 //! traditional blocking ergonomics while maintaining the unified Mode-generic design.
 
 use crate::{
-    camera::Camera,
+    camera::UnifiedCamera,
+    camera::UnifiedCamera as Camera,
     mode::{Blocking, BlockingFutureExt},
     Error,
 };
@@ -13,7 +14,7 @@ use std::ops::Deref;
 
 /// Zero-cost wrapper for blocking cameras providing direct method access.
 ///
-/// This type wraps a `Camera<Blocking, P, Tr, ()>` and provides methods that
+/// This type wraps a `UnifiedCamera<Blocking, P, Tr, ()>` and provides methods that
 /// return `Result<T, Error>` directly instead of `Ready<Result<T, Error>>`,
 /// eliminating the need for `.block()` calls at every usage site.
 ///
@@ -49,7 +50,7 @@ pub struct BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile,
 {
-    inner: Camera<Blocking, P, Tr, ()>,
+    inner: UnifiedCamera<Blocking, P, Tr, ()>,
 }
 
 impl<P, Tr> BlockingCamera<P, Tr>
@@ -63,7 +64,7 @@ where
         Tr: crate::transport::SyncTransport + Send + 'static,
     {
         Ok(Self {
-            inner: Camera::<Blocking, P, Tr, ()>::new_blocking(transport)?,
+            inner: UnifiedCamera::<Blocking, P, Tr, ()>::new_blocking(transport)?,
         })
     }
 
@@ -77,7 +78,7 @@ where
         Tr: crate::transport::SyncTransport + Send + 'static,
     {
         Ok(Self {
-            inner: Camera::<Blocking, P, Tr, ()>::new_blocking_with_style(
+            inner: UnifiedCamera::<Blocking, P, Tr, ()>::new_blocking_with_style(
                 transport,
                 protocol_style,
             )?,
@@ -85,22 +86,22 @@ where
     }
 
     /// Convert from an existing blocking camera.
-    pub fn from_camera(camera: Camera<Blocking, P, Tr, ()>) -> Self {
+    pub fn from_camera(camera: UnifiedCamera<Blocking, P, Tr, ()>) -> Self {
         Self { inner: camera }
     }
 
     /// Get the inner camera for advanced operations.
-    pub fn into_inner(self) -> Camera<Blocking, P, Tr, ()> {
+    pub fn into_inner(self) -> UnifiedCamera<Blocking, P, Tr, ()> {
         self.inner
     }
 
     /// Get a reference to the inner camera.
-    pub fn inner(&self) -> &Camera<Blocking, P, Tr, ()> {
+    pub fn inner(&self) -> &UnifiedCamera<Blocking, P, Tr, ()> {
         &self.inner
     }
 
     /// Get a mutable reference to the inner camera for advanced operations.
-    pub fn inner_mut(&mut self) -> &mut Camera<Blocking, P, Tr, ()> {
+    pub fn inner_mut(&mut self) -> &mut UnifiedCamera<Blocking, P, Tr, ()> {
         &mut self.inner
     }
 
@@ -137,8 +138,8 @@ where
     /// use grafton_visca::{BlockingCamera, camera::profiles::PtzOpticsG2};
     /// use std::time::Duration;
     ///
-    /// let mut camera = Camera::<Blocking, PtzOpticsG2>::open_tcp("192.168.0.110:5678")?;
-    /// camera.zoom_tele_std()?;
+    /// let camera = Camera::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?;
+    /// camera.zoom().tele()?;
     /// camera.await_idle(Duration::from_secs(10))?;
     /// // Camera has finished zooming
     /// ```
@@ -161,7 +162,7 @@ where
     /// ```rust,ignore
     /// use grafton_visca::{BlockingCamera, camera::profiles::PtzOpticsG2};
     ///
-    /// let camera = Camera::<Blocking, PtzOpticsG2>::open_tcp("192.168.0.110:5678")?;
+    /// let camera = Camera::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?;
     /// // Use the camera...
     /// camera.close()?;
     /// // Camera is now closed and cannot be used
@@ -192,7 +193,7 @@ impl<P, Tr> Deref for BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile,
 {
-    type Target = Camera<Blocking, P, Tr, ()>;
+    type Target = UnifiedCamera<Blocking, P, Tr, ()>;
 
     fn deref(&self) -> &Self::Target {
         &self.inner

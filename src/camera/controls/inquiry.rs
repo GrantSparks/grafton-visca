@@ -216,7 +216,7 @@ pub trait PanTiltInquiryControl {
 }
 
 // Single unified implementation for InquiryControl
-impl<M, P, Tr, Exec> InquiryControl for crate::camera::Camera<M, P, Tr, Exec>
+impl<M, P, Tr, Exec> InquiryControl for crate::camera::UnifiedCamera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + Default,
@@ -498,7 +498,7 @@ where
 }
 
 // Single unified implementation for PanTiltInquiryControl
-impl<M, P, Tr, Exec> PanTiltInquiryControl for crate::camera::Camera<M, P, Tr, Exec>
+impl<M, P, Tr, Exec> PanTiltInquiryControl for crate::camera::UnifiedCamera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + Default,

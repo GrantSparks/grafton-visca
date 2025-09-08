@@ -67,7 +67,7 @@ pub trait DirectMenuControl: MenuControl {
 }
 
 // Single unified implementation for MenuControl
-impl<M, P, Tr, Exec> MenuControl for crate::camera::Camera<M, P, Tr, Exec>
+impl<M, P, Tr, Exec> MenuControl for crate::camera::UnifiedCamera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + crate::capabilities::MenuControl + Default,
@@ -92,7 +92,7 @@ where
 }
 
 // Single unified implementation for DirectMenuControl
-impl<M, P, Tr, Exec> DirectMenuControl for crate::camera::Camera<M, P, Tr, Exec>
+impl<M, P, Tr, Exec> DirectMenuControl for crate::camera::UnifiedCamera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + crate::capabilities::MenuControl + Default,

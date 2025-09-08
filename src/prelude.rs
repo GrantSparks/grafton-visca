@@ -116,14 +116,6 @@ pub mod r#async {
     pub use crate::runtime_trait::SmolRuntime;
     #[cfg(feature = "rt-tokio")]
     pub use crate::runtime_trait::TokioRuntime;
-
-    // Runtime-specific camera type aliases for convenience
-    #[cfg(feature = "rt-async-std")]
-    pub use crate::camera::AsyncStdCamera;
-    #[cfg(feature = "rt-smol")]
-    pub use crate::camera::SmolCamera;
-    #[cfg(feature = "rt-tokio")]
-    pub use crate::camera::TokioCamera;
 }
 
 /// Blocking prelude - import this for synchronous camera control.

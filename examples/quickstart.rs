@@ -22,19 +22,15 @@
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::profiles::PtzOpticsG2,
-    command::preset::PresetNumber,
-    mode::{Blocking, BlockingFutureExt},
+    mode::BlockingFutureExt,
     types::{PanSpeed, SpeedLevel, TiltSpeed},
     units::{Degrees, Normalized},
     Camera,
     Error,
     // Import control traits for blocking mode
-    ExposureControl,
     FocusControl,
     PanTiltControl,
     PanTiltDirection,
-    PresetsControl,
-    WhiteBalanceControl,
     ZoomControl,
 };
 
@@ -55,15 +51,8 @@ fn main() -> Result<(), Error> {
     println!();
 
     // Using the unified API pattern through BlockingCamera
-    // Note: BlockingCamera::connect_tcp is deprecated but still works for compatibility
-    // The new pattern is: Camera::<Blocking, PtzOpticsG2>::open_tcp()
-    // But BlockingCamera provides all the convenience methods in blocking mode
-    let mut camera = Camera::<
-        Blocking,
-        PtzOpticsG2,
-        Box<dyn grafton_visca::transport::SyncTransport>,
-        (),
-    >::open_tcp(&camera_addr)?;
+    // Use the new convenience API for blocking mode
+    let mut camera = Camera::open_tcp_blocking::<PtzOpticsG2>(&camera_addr)?;
 
     println!("✅ Connected successfully!");
     println!();
@@ -170,24 +159,24 @@ fn main() -> Result<(), Error> {
     println!("═══ Exposure & White Balance ═══");
 
     println!("Testing exposure modes...");
-    camera.exposure_auto().block()?;
+    camera.exposure().auto().block()?;
     println!("  ✓ Auto exposure");
-    camera.exposure_manual().block()?;
+    camera.exposure().manual().block()?;
     println!("  ✓ Manual exposure");
-    camera.exposure_shutter_priority().block()?;
+    camera.exposure().shutter_priority().block()?;
     println!("  ✓ Shutter priority");
-    camera.exposure_auto().block()?;
+    camera.exposure().auto().block()?;
 
     println!("Testing white balance modes...");
-    camera.white_balance_auto().block()?;
+    camera.white_balance().auto().block()?;
     println!("  ✓ Auto white balance");
-    camera.white_balance_indoor().block()?;
+    camera.white_balance().indoor().block()?;
     println!("  ✓ Indoor");
-    camera.white_balance_outdoor().block()?;
+    camera.white_balance().outdoor().block()?;
     println!("  ✓ Outdoor");
-    camera.white_balance_one_push().block()?;
+    camera.white_balance().one_push_trigger().block()?;
     println!("  ✓ One-push");
-    camera.white_balance_auto().block()?;
+    camera.white_balance().auto().block()?;
     println!();
 
     println!();
@@ -201,7 +190,7 @@ fn main() -> Result<(), Error> {
         .block()?;
     camera.zoom_absolute(Normalized(0.0)).block()?;
     sleep(Duration::from_secs(3));
-    camera.preset_set(PresetNumber::new(1)?).block()?;
+    camera.presets().set(1).block()?;
     println!("  ✓ Preset 1 (Wide Overview) saved");
 
     camera
@@ -209,7 +198,7 @@ fn main() -> Result<(), Error> {
         .block()?;
     camera.zoom_absolute(Normalized(0.3)).block()?;
     sleep(Duration::from_secs(3));
-    camera.preset_set(PresetNumber::new(2)?).block()?;
+    camera.presets().set(2).block()?;
     println!("  ✓ Preset 2 (Right View) saved");
 
     camera
@@ -217,19 +206,19 @@ fn main() -> Result<(), Error> {
         .block()?;
     camera.zoom_absolute(Normalized(0.3)).block()?;
     sleep(Duration::from_secs(3));
-    camera.preset_set(PresetNumber::new(3)?).block()?;
+    camera.presets().set(3).block()?;
     println!("  ✓ Preset 3 (Left View) saved");
 
     println!("Testing preset recall...");
     for i in 1..=3 {
         println!("  Recalling Preset {i}...");
-        camera.preset_recall(PresetNumber::new(i)?).block()?;
+        camera.presets().recall(i).block()?;
         sleep(Duration::from_secs(3));
     }
     println!("✓ Preset recall complete");
 
     println!("Clearing Preset 3...");
-    camera.preset_reset(PresetNumber::new(3)?).block()?;
+    camera.presets().reset(3).block()?;
     println!("✓ Preset 3 cleared");
     println!();
 

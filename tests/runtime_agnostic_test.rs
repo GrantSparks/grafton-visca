@@ -24,6 +24,7 @@ fn test_no_tokio_fallback_without_runtime() {
 #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
 mod async_tests {
     use grafton_visca::{
+        runtime_trait::TokioRuntime,
         testing::testkit::{helpers, ScriptedTransport, Step},
         TokioExecutor,
     };
@@ -43,8 +44,8 @@ mod async_tests {
                 responses: vec![vec![0x90, 0x50, 0x02, 0xFF]],     // Power on response
             }]);
 
-        let camera = CameraBuilder::tokio()
-            .expect("Failed to create tokio camera builder")
+        let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
+        let camera = CameraBuilder::with_executor(runtime)
             .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
             .await
             .expect("Failed to create camera");
@@ -67,8 +68,8 @@ mod async_tests {
                 responses: vec![vec![0x90, 0x50, 0x02, 0xFF]],     // Power on response
             }]);
 
-        let camera = CameraBuilder::tokio()
-            .expect("Failed to create tokio camera builder")
+        let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
+        let camera = CameraBuilder::with_executor(runtime)
             .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
             .await
             .expect("Failed to create camera");
@@ -90,8 +91,8 @@ mod async_tests {
         let transport: ScriptedTransport<grafton_visca::TokioExecutor> =
             ScriptedTransport::new(vec![helpers::auto_respond_step()]);
 
-        let camera = CameraBuilder::tokio()
-            .expect("Failed to create tokio camera builder")
+        let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
+        let camera = CameraBuilder::with_executor(runtime)
             .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
             .await
             .expect("Failed to create camera");
@@ -114,8 +115,8 @@ mod async_tests {
                 responses: vec![vec![0x90, 0x50, 0x02, 0xFF]],     // Power on response
             }]);
 
-        let camera = CameraBuilder::tokio()
-            .expect("Failed to create tokio camera builder")
+        let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
+        let camera = CameraBuilder::with_executor(runtime)
             .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
             .await
             .expect("Failed to create camera");

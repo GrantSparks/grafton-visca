@@ -97,24 +97,6 @@ where
     Tr: AsyncTransport + Send + 'static,
     Exec: Executor + Send + Sync + 'static,
 {
-    /// Create a camera from pre-constructed components.
-    /// This is primarily used internally when RetryConfig needs to be extracted from TransportHandle.
-    pub(crate) fn from_runtime_handle(
-        camera_id: CameraId,
-        timeout_config: TimeoutConfig,
-        runtime_handle: crate::runtime::RuntimeHandle,
-    ) -> Self {
-        Self {
-            camera_id,
-            timeout_config,
-            runtime: runtime_handle,
-            _phantom_mode: PhantomData,
-            _phantom_profile: PhantomData,
-            _phantom_exec: PhantomData,
-            _phantom_transport: PhantomData,
-        }
-    }
-
     /// Create a new async camera instance using the profile's protocol style.
     pub async fn new_async(transport: Tr, executor: impl Into<Arc<Exec>>) -> Result<Self, Error> {
         Self::new_async_with_style(transport, executor, P::PROTOCOL_STYLE).await
@@ -215,6 +197,60 @@ where
     /// Set the timeout configuration.
     pub fn set_timeout_config(&mut self, timeout_config: TimeoutConfig) {
         self.timeout_config = timeout_config;
+    }
+
+    // Accessor methods for noun-based control trait access
+
+    /// Access power-related controls and inquiries.
+    pub fn power(&self) -> crate::camera::accessors::PowerAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::accessors::PowerAccessor::new(self)
+    }
+
+    /// Access zoom-related controls and inquiries.
+    pub fn zoom(&self) -> crate::camera::accessors::ZoomAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::accessors::ZoomAccessor::new(self)
+    }
+
+    /// Access system-related controls and inquiries.
+    pub fn system(&self) -> crate::camera::accessors::SystemAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::accessors::SystemAccessor::new(self)
+    }
+
+    /// Access pan/tilt-related controls and inquiries.
+    pub fn pan_tilt(&self) -> crate::camera::accessors::PanTiltAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::accessors::PanTiltAccessor::new(self)
+    }
+
+    /// Access focus-related controls and inquiries.
+    pub fn focus(&self) -> crate::camera::accessors::FocusAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::accessors::FocusAccessor::new(self)
+    }
+
+    /// Access exposure-related controls and inquiries.
+    pub fn exposure(&self) -> crate::camera::accessors::ExposureAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::accessors::ExposureAccessor::new(self)
+    }
+
+    /// Access white balance controls and inquiries.
+    pub fn white_balance(
+        &self,
+    ) -> crate::camera::accessors::WhiteBalanceAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::accessors::WhiteBalanceAccessor::new(self)
+    }
+
+    /// Access image processing controls and inquiries.
+    pub fn image(&self) -> crate::camera::accessors::ImageAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::accessors::ImageAccessor::new(self)
+    }
+
+    /// Access preset-related controls.
+    pub fn presets(&self) -> crate::camera::accessors::PresetsAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::accessors::PresetsAccessor::new(self)
+    }
+
+    /// Access tally light controls and inquiries.
+    pub fn tally(&self) -> crate::camera::accessors::TallyAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::accessors::TallyAccessor::new(self)
     }
 }
 

@@ -140,6 +140,7 @@ use grafton_visca::{
     },
     camera::profiles::SonyFR7,
     runtime_adapters::tokio::TcpTransport as Tcp,
+    runtime_trait::TokioRuntime,
     types::SpeedLevel,
     units::Degrees,
     CameraBuilder, Error,
@@ -171,7 +172,8 @@ async fn main() -> Result<(), Error> {
     // Build camera with Sony FR7 profile
     // This automatically configures the transport to use Sony encapsulation
     let transport = Tcp::connect(&camera_addr).await?;
-    let camera = CameraBuilder::tokio()?
+    let runtime = TokioRuntime::from_current()?;
+    let camera = CameraBuilder::with_executor(runtime)
         .open_async::<SonyFR7, _>(transport)
         .await?;
 

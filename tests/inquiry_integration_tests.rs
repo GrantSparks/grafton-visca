@@ -12,6 +12,7 @@ use grafton_visca::{
         white_balance::WhiteBalanceMode,
     },
     profiles::GenericVisca,
+    runtime_trait::TokioRuntime,
     testing::camera_simulator::ViscaCameraSimulator,
     InquiryControl, PanTiltInquiryControl, PowerControl, PresetsControl,
 };
@@ -22,8 +23,8 @@ use std::time::Duration;
 #[tokio::test(start_paused = true)]
 async fn test_power_inquiry_integration() {
     let simulator = ViscaCameraSimulator::new();
-    let camera = CameraBuilder::tokio()
-        .unwrap()
+    let runtime = TokioRuntime::from_current().unwrap();
+    let camera = CameraBuilder::with_executor(runtime)
         .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
@@ -41,8 +42,8 @@ async fn test_power_inquiry_integration() {
 #[tokio::test(start_paused = true)]
 async fn test_position_inquiries_integration() {
     let simulator = ViscaCameraSimulator::new();
-    let camera = CameraBuilder::tokio()
-        .unwrap()
+    let runtime = TokioRuntime::from_current().unwrap();
+    let camera = CameraBuilder::with_executor(runtime)
         .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
@@ -99,8 +100,8 @@ async fn test_position_inquiries_integration() {
 async fn test_exposure_inquiries_integration() {
     let _ = tracing_subscriber::fmt().with_test_writer().try_init();
     let simulator = ViscaCameraSimulator::new();
-    let camera = CameraBuilder::tokio()
-        .unwrap()
+    let runtime = TokioRuntime::from_current().unwrap();
+    let camera = CameraBuilder::with_executor(runtime)
         .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
@@ -174,8 +175,8 @@ async fn test_exposure_inquiries_integration() {
 #[tokio::test(start_paused = true)]
 async fn test_white_balance_color_inquiries_integration() {
     let simulator = ViscaCameraSimulator::new();
-    let camera = CameraBuilder::tokio()
-        .unwrap()
+    let runtime = TokioRuntime::from_current().unwrap();
+    let camera = CameraBuilder::with_executor(runtime)
         .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
@@ -204,8 +205,8 @@ async fn test_white_balance_color_inquiries_integration() {
 #[tokio::test(start_paused = true)]
 async fn test_image_adjustment_inquiries_integration() {
     let simulator = ViscaCameraSimulator::new();
-    let camera = CameraBuilder::tokio()
-        .unwrap()
+    let runtime = TokioRuntime::from_current().unwrap();
+    let camera = CameraBuilder::with_executor(runtime)
         .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
@@ -238,8 +239,8 @@ async fn test_image_adjustment_inquiries_integration() {
 #[tokio::test(start_paused = true)]
 async fn test_noise_reduction_inquiries_integration() {
     let simulator = ViscaCameraSimulator::new();
-    let camera = CameraBuilder::tokio()
-        .unwrap()
+    let runtime = TokioRuntime::from_current().unwrap();
+    let camera = CameraBuilder::with_executor(runtime)
         .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
@@ -264,8 +265,8 @@ async fn test_noise_reduction_inquiries_integration() {
 #[tokio::test(start_paused = true)]
 async fn test_focus_mode_inquiries_integration() {
     let simulator = ViscaCameraSimulator::new();
-    let camera = CameraBuilder::tokio()
-        .unwrap()
+    let runtime = TokioRuntime::from_current().unwrap();
+    let camera = CameraBuilder::with_executor(runtime)
         .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
@@ -286,8 +287,8 @@ async fn test_focus_mode_inquiries_integration() {
 #[tokio::test(start_paused = true)]
 async fn test_resolution_inquiry_integration() {
     let simulator = ViscaCameraSimulator::new();
-    let camera = CameraBuilder::tokio()
-        .unwrap()
+    let runtime = TokioRuntime::from_current().unwrap();
+    let camera = CameraBuilder::with_executor(runtime)
         .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
@@ -310,8 +311,8 @@ async fn test_resolution_inquiry_integration() {
 #[tokio::test(start_paused = true)]
 async fn test_concurrent_inquiries_integration() {
     let simulator = ViscaCameraSimulator::new();
-    let camera = CameraBuilder::tokio()
-        .unwrap()
+    let runtime = TokioRuntime::from_current().unwrap();
+    let camera = CameraBuilder::with_executor(runtime)
         .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
@@ -343,8 +344,8 @@ async fn test_concurrent_inquiries_integration() {
 #[tokio::test(start_paused = true)]
 async fn test_sequential_inquiries() {
     let simulator = ViscaCameraSimulator::new();
-    let camera = CameraBuilder::tokio()
-        .unwrap()
+    let runtime = TokioRuntime::from_current().unwrap();
+    let camera = CameraBuilder::with_executor(runtime)
         .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
@@ -377,8 +378,8 @@ async fn test_inquiry_timeout_behavior() {
         )
         .build();
 
-    let camera = CameraBuilder::tokio()
-        .unwrap()
+    let runtime = TokioRuntime::from_current().unwrap();
+    let camera = CameraBuilder::with_executor(runtime)
         .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
@@ -397,8 +398,8 @@ async fn test_inquiry_timeout_behavior() {
 #[tokio::test]
 async fn test_mixed_commands_and_inquiries() {
     let simulator = ViscaCameraSimulator::new();
-    let camera = CameraBuilder::tokio()
-        .unwrap()
+    let runtime = TokioRuntime::from_current().unwrap();
+    let camera = CameraBuilder::with_executor(runtime)
         .open_async::<GenericVisca, _>(simulator.clone())
         .await
         .unwrap();

@@ -88,7 +88,9 @@
 //!         .address("192.168.0.110:5678")
 //!         .connect()
 //!         .await?;
-//!     let camera = CameraBuilder::tokio()?
+//!     use grafton_visca::runtime_trait::{Runtime, TokioRuntime};
+//!     let runtime = TokioRuntime::from_current()?;
+//!     let camera = CameraBuilder::with_executor(runtime)
 //!         .open_async::<PtzOpticsG2, _>(transport)
 //!         .await?;
 //!
@@ -120,7 +122,9 @@
 //!         .address("192.168.0.110:5678")
 //!         .connect()  // Uses tokio if available, async-std otherwise
 //!         .await?;
-//!     let camera = CameraBuilder::async_std()?
+//!     use grafton_visca::runtime_trait::{AsyncStdRuntime, Runtime};
+//!     let runtime = AsyncStdRuntime::new();
+//!     let camera = CameraBuilder::with_executor(runtime)
 //!         .open_async::<PtzOpticsG2, _>(transport)
 //!         .await?;
 //!
@@ -148,7 +152,9 @@
 //!             .address("192.168.0.110:5678")
 //!             .connect()  // Runtime auto-selected based on enabled features
 //!             .await?;
-//!         let camera = CameraBuilder::smol()?
+//!         use grafton_visca::runtime_trait::{Runtime, SmolRuntime};
+//!         let runtime = SmolRuntime::new();
+//!         let camera = CameraBuilder::with_executor(runtime)
 //!             .open_async::<PtzOpticsG2, _>(transport)
 //!             .await?;
 //!
@@ -244,7 +250,7 @@
 //!
 //! **Multiple Runtime Support**: As of version 0.7.0, runtime features can be enabled simultaneously.
 //! This allows libraries to support multiple runtime ecosystems without forcing users to choose.
-//! Use explicit executor selection (`CameraBuilder::tokio()`, etc.) when multiple runtimes are available.
+//! Use explicit executor selection (`CameraBuilder::with_executor(TokioRuntime::from_current())`, etc.) when multiple runtimes are available.
 //!
 //! ### Send Future Guarantees
 //!
@@ -290,17 +296,23 @@
 //!
 //! ```ignore
 //! // Tokio
-//! let camera = CameraBuilder::tokio()?
+//! use grafton_visca::runtime_trait::{Runtime, TokioRuntime};
+//! let runtime = TokioRuntime::from_current()?;
+//! let camera = CameraBuilder::with_executor(runtime)
 //!     .open_async::<PtzOpticsG2, _>(transport)
 //!     .await?;
 //!
 //! // async-std
-//! let camera = CameraBuilder::async_std()
+//! use grafton_visca::runtime_trait::{AsyncStdRuntime, Runtime};
+//! let runtime = AsyncStdRuntime::new();
+//! let camera = CameraBuilder::with_executor(runtime)
 //!     .open_async::<PtzOpticsG2, _>(transport)
 //!     .await?;
 //!
 //! // smol
-//! let camera = CameraBuilder::smol()
+//! use grafton_visca::runtime_trait::{Runtime, SmolRuntime};
+//! let runtime = SmolRuntime::new();
+//! let camera = CameraBuilder::with_executor(runtime)
 //!     .open_async::<PtzOpticsG2, _>(transport)
 //!     .await?;
 //! ```
@@ -374,8 +386,8 @@
 //! #### Error: `InvalidState("No runtime configured for async operations")`
 //! **Cause:** You're using async mode but haven't configured a runtime.
 //! **Solution:** Either:
-//! - Enable `rt-tokio` feature and use `CameraBuilder::tokio_tcp()`
-//! - Call `.with_runtime()` on your camera builder with a custom runtime
+//! - Enable `rt-tokio` feature and use `CameraBuilder::with_executor(TokioRuntime::from_current())`
+//! - Use `CameraBuilder::with_executor()` with your own runtime implementation
 //!
 //! #### Error: `InvalidState("Operation requires runtime for timeout handling")`
 //! **Cause:** The operation needs timeout support but no runtime is available.
@@ -450,7 +462,9 @@
 //!     .open();
 //!
 //! // For async mode (default)
-//! let camera = CameraBuilder::tokio()?
+//! use grafton_visca::runtime_trait::{Runtime, TokioRuntime};
+//! let runtime = TokioRuntime::from_current()?;
+//! let camera = CameraBuilder::with_executor(runtime)
 //!     .timeout_config(config)
 //!     .open_async::<PtzOpticsG2, _>(transport).await?;
 //!
@@ -654,13 +668,3 @@ pub use crate::runtime_trait::{Runtime, TransportHandle};
 pub mod profiles {
     pub use crate::camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7};
 }
-
-// Re-export camera type aliases for convenience
-#[cfg(all(feature = "async", feature = "rt-tokio"))]
-pub use crate::camera::TokioCamera;
-
-#[cfg(all(feature = "async", feature = "rt-async-std"))]
-pub use crate::camera::AsyncStdCamera;
-
-#[cfg(all(feature = "async", feature = "rt-smol"))]
-pub use crate::camera::SmolCamera;

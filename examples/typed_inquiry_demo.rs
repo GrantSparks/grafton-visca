@@ -10,9 +10,7 @@
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    mode::{Blocking, BlockingFutureExt},
-    profiles::GenericVisca,
-    Camera, Error, PowerControl, ZoomControl,
+    mode::BlockingFutureExt, profiles::GenericVisca, Camera, Error, PowerControl, ZoomControl,
 };
 #[cfg(not(feature = "async"))]
 use std::time::Duration;
@@ -26,12 +24,7 @@ fn main() -> Result<(), Error> {
     let address = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.1.100:5678".to_string());
     println!("Connecting to camera at {address}...");
 
-    let camera = Camera::<
-        Blocking,
-        GenericVisca,
-        Box<dyn grafton_visca::transport::SyncTransport>,
-        (),
-    >::open_tcp(&address)?;
+    let camera = Camera::open_tcp_blocking::<GenericVisca>(&address)?;
 
     println!("\n=== High-Level API Inquiry Demo ===\n");
 

@@ -8,9 +8,9 @@
 use crate::capabilities::{MotionSync, NdFilter, NdFilterMode as CapabilityNdFilterMode, Profile};
 
 #[cfg(feature = "async")]
-use crate::{camera::Camera, executor::Executor, mode, transport::AsyncTransport};
+use crate::{camera::UnifiedCamera as Camera, executor::Executor, mode, transport::AsyncTransport};
 #[cfg(not(feature = "async"))]
-use crate::{camera::Camera, mode, transport::SyncTransport};
+use crate::{camera::UnifiedCamera as Camera, mode, transport::SyncTransport};
 
 // Blocking camera capabilities
 #[cfg(not(feature = "async"))]

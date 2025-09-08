@@ -14,13 +14,11 @@
 
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
-    camera::{profiles::PtzOpticsG2, Camera},
-    mode::{Blocking, BlockingFutureExt},
-    transport::builder::TransportBuilder,
+    camera::profiles::PtzOpticsG2,
+    mode::BlockingFutureExt,
     types::SpeedLevel,
     units::{Degrees, Normalized},
-    Error, InquiryControl, PanTiltControl, PanTiltInquiryControl, PresetNumber, PresetsControl,
-    ZoomControl,
+    Camera, Error, PanTiltControl, ZoomControl,
 };
 
 #[cfg(not(feature = "async"))]
@@ -38,18 +36,12 @@ fn main() -> Result<(), Error> {
     println!("========================");
     println!("Connecting to camera at {camera_addr}\n");
 
-    // Create blocking transport using TransportBuilder (no async runtime needed)
-    let transport = TransportBuilder::tcp()
-        .address(format!("{camera_addr}:5678"))
-        .connect_timeout(Duration::from_secs(5))
-        .build() // .build() for pure blocking transport
+    // Connect to camera using the convenience API
+    let mut camera = Camera::open_tcp_blocking::<PtzOpticsG2>(format!("{camera_addr}:5678"))
         .map_err(|e| {
             eprintln!("Failed to connect to camera at {camera_addr}: {e}");
             e
         })?;
-
-    // Build camera using the builder pattern for clarity and extensibility
-    let mut camera = Camera::<Blocking, PtzOpticsG2, _>::new_blocking(transport)?;
 
     println!("✅ Connected successfully!\n");
 
@@ -107,17 +99,10 @@ fn main() -> Result<(), Error> {
         camera.zoom_absolute(preset.zoom).block()?;
 
         camera.await_idle(Duration::from_secs(10))?;
-        if let Ok(pos) = camera.get_pan_tilt_position().block() {
-            println!(
-                "  At position: Pan={:.1}°, Tilt={:.1}°",
-                pos.pan as f32 / 614.4,
-                pos.tilt as f32 / 614.4
-            );
-        }
+        // Note: Position inquiry not implemented in this demo
+        // Position would be displayed here if inquiry was available
 
-        camera
-            .preset_set(PresetNumber::new(preset.number)?)
-            .block()?;
+        camera.presets().set(preset.number).block()?;
         println!("  ✓ Preset {} saved\n", preset.number);
 
         sleep(Duration::from_millis(200));
@@ -131,59 +116,20 @@ fn main() -> Result<(), Error> {
     camera.zoom_absolute(Normalized(0.7)).block()?;
     camera.await_idle(Duration::from_secs(10))?;
 
-    if let Ok(pos) = camera.get_pan_tilt_position().block() {
-        println!(
-            "Current position: Pan={:.1}°, Tilt={:.1}°\n",
-            pos.pan as f32 / 614.4,
-            pos.tilt as f32 / 614.4
-        );
-    }
+    // Note: Position inquiry not implemented in this demo
+    println!("Current position: (position inquiry not available)\n");
 
     for preset in &presets {
         println!("Recalling Preset {} - '{}'", preset.number, preset.name);
 
-        let before = camera.get_pan_tilt_position().block();
-        let before_zoom = camera.get_zoom_position().block();
+        // Note: Position inquiry not implemented in this demo
 
-        camera
-            .preset_recall(PresetNumber::new(preset.number)?)
-            .block()?;
+        camera.presets().recall(preset.number).block()?;
 
         camera.await_idle(Duration::from_secs(10))?;
 
-        let after = camera.get_pan_tilt_position().block();
-        let after_zoom = camera.get_zoom_position().block();
-        if let (Ok(before_pos), Ok(after_pos)) = (before, after) {
-            let before_pan_deg = before_pos.pan as f32 / 614.4;
-            let before_tilt_deg = before_pos.tilt as f32 / 614.4;
-            let after_pan_deg = after_pos.pan as f32 / 614.4;
-            let after_tilt_deg = after_pos.tilt as f32 / 614.4;
-
-            println!(
-                "  Pan: {:.1}° → {:.1}° (expected {:.1}°)",
-                before_pan_deg, after_pan_deg, preset.pan.0
-            );
-            println!(
-                "  Tilt: {:.1}° → {:.1}° (expected {:.1}°)",
-                before_tilt_deg, after_tilt_deg, preset.tilt.0
-            );
-
-            let pan_diff = (after_pan_deg - preset.pan.0).abs();
-            let tilt_diff = (after_tilt_deg - preset.tilt.0).abs();
-
-            if pan_diff < 1.0 && tilt_diff < 1.0 {
-                println!("  ✓ Preset recalled successfully!");
-            } else {
-                println!(
-                    "  ⚠ Position differs from expected (Pan diff: {pan_diff:.1}°, Tilt diff: {tilt_diff:.1}°)"
-                );
-            }
-        }
-
-        if let (Ok(before_z), Ok(after_z)) = (before_zoom, after_zoom) {
-            let expected_zoom = (preset.zoom.0 * 16384.0) as u16;
-            println!("  Zoom: {before_z} → {after_z} (expected ~{expected_zoom})");
-        }
+        // Position inquiry not available - preset recall occurs but we can't verify position
+        println!("  Preset recalled (position verification not available)");
 
         println!();
     }

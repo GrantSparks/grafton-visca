@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use grafton_visca::{
     camera::{profiles::PtzOpticsG2, CameraBuilder},
+    runtime_trait::TokioRuntime,
     testing::testkit::{helpers, ScriptedTransport, Step},
     timeout::TimeoutConfig,
     Error, InquiryControl, TokioExecutor, ZoomControl,
@@ -28,8 +29,8 @@ async fn test_async_camera_uses_runtime() {
     ]);
 
     // Create camera - this should create a RuntimeHandle internally
-    let camera = CameraBuilder::tokio()
-        .unwrap()
+    let runtime = TokioRuntime::from_current().unwrap();
+    let camera = CameraBuilder::with_executor(runtime)
         .open_async::<PtzOpticsG2, _>(transport)
         .await
         .unwrap();
@@ -59,8 +60,8 @@ async fn test_timeout_config_passed_to_runtime() {
         .ack_timeout(Duration::from_millis(100)) // Very short timeout
         .build();
 
-    let camera = CameraBuilder::tokio()
-        .unwrap()
+    let runtime = TokioRuntime::from_current().unwrap();
+    let camera = CameraBuilder::with_executor(runtime)
         .timeout_config(custom_timeout)
         .open_async::<PtzOpticsG2, _>(transport)
         .await
@@ -111,8 +112,8 @@ async fn test_command_cancellation_through_runtime() {
     ]);
 
     // Create camera
-    let camera = CameraBuilder::tokio()
-        .unwrap()
+    let runtime = TokioRuntime::from_current().unwrap();
+    let camera = CameraBuilder::with_executor(runtime)
         .open_async::<PtzOpticsG2, _>(transport)
         .await
         .unwrap();
@@ -156,8 +157,8 @@ async fn test_inquiry_through_runtime() {
     }]);
 
     // Create camera
-    let camera = CameraBuilder::tokio()
-        .unwrap()
+    let runtime = TokioRuntime::from_current().unwrap();
+    let camera = CameraBuilder::with_executor(runtime)
         .open_async::<PtzOpticsG2, _>(transport)
         .await
         .unwrap();
@@ -187,8 +188,8 @@ async fn test_transport_error_propagation() {
         ))]);
 
     // Create camera
-    let camera = CameraBuilder::tokio()
-        .unwrap()
+    let runtime = TokioRuntime::from_current().unwrap();
+    let camera = CameraBuilder::with_executor(runtime)
         .open_async::<PtzOpticsG2, _>(transport)
         .await
         .unwrap();

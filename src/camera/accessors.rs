@@ -1,0 +1,1227 @@
+//! Accessor structs for noun-based control trait access.
+//!
+//! This module provides accessor structs that group related control methods
+//! under logical nouns, providing a more intuitive API for camera control.
+//!
+//! Instead of using `camera.get_power_state()`, users can use `camera.power().state()`.
+
+use crate::{
+    camera::{
+        controls::{
+            exposure::ExposureControl,
+            focus::FocusControl,
+            inquiry::{InquiryControl, PanTiltInquiryControl},
+            pan_tilt::PanTiltControl,
+            power::PowerControl,
+            presets::PresetsControl,
+            system::SystemControl,
+            tally::TallyControl,
+            white_balance::WhiteBalanceControl,
+            zoom::ZoomControl,
+        },
+        CameraSend, UnifiedCamera as Camera,
+    },
+    capabilities::Profile,
+    mode::Mode,
+    Error,
+};
+
+/// Access to power-related controls and inquiries.
+#[derive(Debug)]
+pub struct PowerAccessor<'a, M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+{
+    camera: &'a Camera<M, P, Tr, Exec>,
+}
+
+impl<'a, M, P, Tr, Exec> PowerAccessor<'a, M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+{
+    pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
+        Self { camera }
+    }
+
+    /// Get the current power state.
+    pub fn state(&self) -> M::Ret<'_, Result<bool, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_power_state()
+    }
+
+    /// Turn the camera on.
+    pub fn on(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: PowerControl<Mode = M>,
+    {
+        self.camera.power_on()
+    }
+
+    /// Turn the camera off (standby).
+    pub fn off(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: PowerControl<Mode = M>,
+    {
+        self.camera.power_off()
+    }
+
+    /// Set power state (true = on, false = off).
+    pub fn set(&self, on: bool) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: PowerControl<Mode = M>,
+    {
+        if on {
+            self.camera.power_on()
+        } else {
+            self.camera.power_off()
+        }
+    }
+}
+
+/// Access to zoom-related controls and inquiries.
+#[derive(Debug)]
+pub struct ZoomAccessor<'a, M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+{
+    camera: &'a Camera<M, P, Tr, Exec>,
+}
+
+impl<'a, M, P, Tr, Exec> ZoomAccessor<'a, M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+{
+    pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
+        Self { camera }
+    }
+
+    /// Get the current zoom position.
+    pub fn position(&self) -> M::Ret<'_, Result<crate::types::ZoomPosition, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_zoom_position()
+    }
+
+    /// Zoom to telephoto (zoom in).
+    pub fn tele(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: ZoomControl<Mode = M>,
+    {
+        self.camera.zoom_tele_std()
+    }
+
+    /// Zoom to wide (zoom out).
+    pub fn wide(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: ZoomControl<Mode = M>,
+    {
+        self.camera.zoom_wide_std()
+    }
+
+    /// Stop zoom movement.
+    pub fn stop(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: ZoomControl<Mode = M>,
+    {
+        self.camera.zoom_stop()
+    }
+
+    /// Set zoom position directly.
+    pub fn set_position(
+        &self,
+        position: impl Into<crate::types::ZoomPosition>,
+    ) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: ZoomControl<Mode = M>,
+    {
+        self.camera.zoom_position(position.into())
+    }
+
+    /// Zoom to telephoto (zoom in) with variable speed.
+    pub fn tele_variable(
+        &self,
+        speed: crate::command::zoom::ZoomSpeed,
+    ) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: ZoomControl<Mode = M>,
+    {
+        self.camera.zoom_tele_variable(speed)
+    }
+
+    /// Zoom to wide (zoom out) with variable speed.
+    pub fn wide_variable(
+        &self,
+        speed: crate::command::zoom::ZoomSpeed,
+    ) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: ZoomControl<Mode = M>,
+    {
+        self.camera.zoom_wide_variable(speed)
+    }
+
+    /// Set zoom to absolute position (0.0 = wide, 1.0 = full tele).
+    pub fn absolute(&self, position: crate::units::Normalized) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: ZoomControl<Mode = M>,
+    {
+        self.camera.zoom_absolute(position)
+    }
+}
+
+/// Access to system-related controls and inquiries.
+#[derive(Debug)]
+pub struct SystemAccessor<'a, M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+{
+    camera: &'a Camera<M, P, Tr, Exec>,
+}
+
+impl<'a, M, P, Tr, Exec> SystemAccessor<'a, M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+{
+    pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
+        Self { camera }
+    }
+
+    /// Get camera version information.
+    pub fn version(&self) -> M::Ret<'_, Result<crate::command::typed::VersionInfo, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_version()
+    }
+
+    /// Clear interface (reset communication).
+    pub fn interface_clear(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: SystemControl<Mode = M>,
+    {
+        self.camera.interface_clear()
+    }
+
+    /// Cancel command on specific socket.
+    pub fn cancel_command(&self, socket: crate::ViscaSocket) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: SystemControl<Mode = M>,
+    {
+        self.camera.cancel_command(socket)
+    }
+}
+
+/// Access to pan/tilt-related controls and inquiries.
+#[derive(Debug)]
+pub struct PanTiltAccessor<'a, M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+{
+    camera: &'a Camera<M, P, Tr, Exec>,
+}
+
+impl<'a, M, P, Tr, Exec> PanTiltAccessor<'a, M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+{
+    pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
+        Self { camera }
+    }
+
+    /// Get the current pan and tilt position.
+    pub fn position(&self) -> M::Ret<'_, Result<crate::camera::PanTiltPosition, Error>>
+    where
+        Camera<M, P, Tr, Exec>: PanTiltInquiryControl<Mode = M>,
+    {
+        self.camera.get_pan_tilt_position()
+    }
+
+    /// Move up.
+    pub fn up(
+        &self,
+        pan_speed: crate::types::PanSpeed,
+        tilt_speed: crate::types::TiltSpeed,
+    ) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: PanTiltControl<Mode = M>,
+    {
+        use crate::command::pan_tilt::PanTiltDirection;
+        self.camera
+            .pan_tilt_move(PanTiltDirection::Up, pan_speed, tilt_speed)
+    }
+
+    /// Move down.
+    pub fn down(
+        &self,
+        pan_speed: crate::types::PanSpeed,
+        tilt_speed: crate::types::TiltSpeed,
+    ) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: PanTiltControl<Mode = M>,
+    {
+        use crate::command::pan_tilt::PanTiltDirection;
+        self.camera
+            .pan_tilt_move(PanTiltDirection::Down, pan_speed, tilt_speed)
+    }
+
+    /// Move left.
+    pub fn left(
+        &self,
+        pan_speed: crate::types::PanSpeed,
+        tilt_speed: crate::types::TiltSpeed,
+    ) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: PanTiltControl<Mode = M>,
+    {
+        use crate::command::pan_tilt::PanTiltDirection;
+        self.camera
+            .pan_tilt_move(PanTiltDirection::Left, pan_speed, tilt_speed)
+    }
+
+    /// Move right.
+    pub fn right(
+        &self,
+        pan_speed: crate::types::PanSpeed,
+        tilt_speed: crate::types::TiltSpeed,
+    ) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: PanTiltControl<Mode = M>,
+    {
+        use crate::command::pan_tilt::PanTiltDirection;
+        self.camera
+            .pan_tilt_move(PanTiltDirection::Right, pan_speed, tilt_speed)
+    }
+
+    /// Stop pan/tilt movement.
+    pub fn stop(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: PanTiltControl<Mode = M>,
+    {
+        self.camera.pan_tilt_stop()
+    }
+
+    /// Move to home position.
+    pub fn home(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: PanTiltControl<Mode = M>,
+    {
+        self.camera.pan_tilt_home()
+    }
+
+    /// Move to absolute position.
+    pub fn absolute(
+        &self,
+        pan: crate::units::Degrees,
+        tilt: crate::units::Degrees,
+        speed: crate::types::SpeedLevel,
+    ) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: PanTiltControl<Mode = M>,
+    {
+        self.camera.pan_tilt_absolute(pan, tilt, speed)
+    }
+}
+
+/// Access to focus-related controls and inquiries.
+#[derive(Debug)]
+pub struct FocusAccessor<'a, M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+{
+    camera: &'a Camera<M, P, Tr, Exec>,
+}
+
+impl<'a, M, P, Tr, Exec> FocusAccessor<'a, M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+{
+    pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
+        Self { camera }
+    }
+
+    /// Get the current focus position.
+    pub fn position(&self) -> M::Ret<'_, Result<u16, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_focus_position()
+    }
+
+    /// Get the current focus mode.
+    pub fn mode(&self) -> M::Ret<'_, Result<crate::command::FocusMode, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_focus_mode()
+    }
+
+    /// Set to auto focus mode.
+    pub fn auto(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
+    {
+        self.camera.focus_auto()
+    }
+
+    /// Set to manual focus mode.
+    pub fn manual(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
+    {
+        self.camera.focus_manual()
+    }
+
+    /// Focus near.
+    pub fn near(&self, speed: crate::types::SpeedLevel) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
+    {
+        self.camera.focus_near(speed)
+    }
+
+    /// Focus far.
+    pub fn far(&self, speed: crate::types::SpeedLevel) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
+    {
+        self.camera.focus_far(speed)
+    }
+
+    /// Stop focus movement.
+    pub fn stop(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
+    {
+        self.camera.focus_stop()
+    }
+
+    /// Set focus position directly.
+    pub fn set_position(
+        &self,
+        position: crate::types::FocusPosition,
+    ) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
+    {
+        self.camera.set_focus(position)
+    }
+
+    /// Get focus near limit.
+    pub fn near_limit(&self) -> M::Ret<'_, Result<u16, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_focus_near_limit()
+    }
+
+    /// Get focus zone.
+    pub fn zone(&self) -> M::Ret<'_, Result<crate::command::FocusZone, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_focus_zone()
+    }
+
+    /// Enable focus lock to prevent changes.
+    pub fn lock(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
+    {
+        self.camera.enable_focus_lock()
+    }
+
+    /// Disable focus lock.
+    pub fn unlock(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
+    {
+        self.camera.disable_focus_lock()
+    }
+
+    /// Press Push AF button (temporary auto focus).
+    pub fn push_af_press(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
+    {
+        self.camera.push_af_press()
+    }
+
+    /// Release Push AF button.
+    pub fn push_af_release(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
+    {
+        self.camera.push_af_release()
+    }
+
+    /// Set the focus zone.
+    pub fn set_zone(&self, zone: crate::command::FocusZone) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
+    {
+        self.camera.set_focus_zone(zone)
+    }
+
+    /// Set auto focus sensitivity.
+    pub fn set_sensitivity(
+        &self,
+        sensitivity: crate::command::AutoFocusSensitivity,
+    ) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
+    {
+        self.camera.set_auto_focus_sensitivity(sensitivity)
+    }
+
+    /// Set the focus near limit.
+    pub fn set_near_limit(
+        &self,
+        position: crate::types::FocusPosition,
+    ) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
+    {
+        self.camera.set_focus_near_limit(position)
+    }
+}
+
+/// Access to exposure-related controls and inquiries.
+#[derive(Debug)]
+pub struct ExposureAccessor<'a, M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+{
+    camera: &'a Camera<M, P, Tr, Exec>,
+}
+
+impl<'a, M, P, Tr, Exec> ExposureAccessor<'a, M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+{
+    pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
+        Self { camera }
+    }
+
+    /// Get the current exposure mode.
+    pub fn mode(&self) -> M::Ret<'_, Result<crate::command::ExposureMode, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_exposure_mode()
+    }
+
+    /// Get exposure compensation value.
+    pub fn compensation(&self) -> M::Ret<'_, Result<i8, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_exposure_compensation()
+    }
+
+    /// Check if exposure compensation is enabled.
+    pub fn compensation_enabled(&self) -> M::Ret<'_, Result<bool, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_exposure_compensation_enabled()
+    }
+
+    /// Get exposure compensation position.
+    pub fn compensation_position(&self) -> M::Ret<'_, Result<u16, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_exposure_compensation_position()
+    }
+
+    /// Get iris value.
+    pub fn iris(&self) -> M::Ret<'_, Result<u8, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_iris()
+    }
+
+    /// Get shutter speed.
+    pub fn shutter(&self) -> M::Ret<'_, Result<u16, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_shutter()
+    }
+
+    /// Get gain value.
+    pub fn gain(&self) -> M::Ret<'_, Result<u8, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_gain()
+    }
+
+    /// Get gain limit.
+    pub fn gain_limit(&self) -> M::Ret<'_, Result<u8, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_gain_limit()
+    }
+
+    /// Set to auto exposure mode.
+    pub fn auto(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: ExposureControl<Mode = M>,
+    {
+        self.camera.exposure_auto()
+    }
+
+    /// Set to manual exposure mode.
+    pub fn manual(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: ExposureControl<Mode = M>,
+    {
+        self.camera.exposure_manual()
+    }
+
+    /// Set to shutter priority mode.
+    pub fn shutter_priority(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: ExposureControl<Mode = M>,
+    {
+        self.camera.exposure_shutter_priority()
+    }
+
+    /// Set to iris priority mode.
+    pub fn iris_priority(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: ExposureControl<Mode = M>,
+    {
+        self.camera.exposure_iris_priority()
+    }
+}
+
+/// Access to white balance controls and inquiries.
+#[derive(Debug)]
+pub struct WhiteBalanceAccessor<'a, M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+{
+    camera: &'a Camera<M, P, Tr, Exec>,
+}
+
+impl<'a, M, P, Tr, Exec> WhiteBalanceAccessor<'a, M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+{
+    pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
+        Self { camera }
+    }
+
+    /// Get white balance mode.
+    pub fn mode(&self) -> M::Ret<'_, Result<crate::command::WhiteBalanceMode, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_white_balance_mode()
+    }
+
+    /// Get red gain.
+    pub fn red_gain(&self) -> M::Ret<'_, Result<i8, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_red_gain()
+    }
+
+    /// Get blue gain.
+    pub fn blue_gain(&self) -> M::Ret<'_, Result<i8, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_blue_gain()
+    }
+
+    /// Get red tuning.
+    pub fn red_tuning(&self) -> M::Ret<'_, Result<u8, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_red_tuning()
+    }
+
+    /// Get blue tuning.
+    pub fn blue_tuning(&self) -> M::Ret<'_, Result<u8, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_blue_tuning()
+    }
+
+    /// Get color temperature.
+    pub fn color_temperature(&self) -> M::Ret<'_, Result<u16, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_color_temperature()
+    }
+
+    /// Set to auto white balance.
+    pub fn auto(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: WhiteBalanceControl<Mode = M>,
+    {
+        self.camera.white_balance_auto()
+    }
+
+    /// Set to indoor white balance.
+    pub fn indoor(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: WhiteBalanceControl<Mode = M>,
+    {
+        self.camera.white_balance_indoor()
+    }
+
+    /// Set to outdoor white balance.
+    pub fn outdoor(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: WhiteBalanceControl<Mode = M>,
+    {
+        self.camera.white_balance_outdoor()
+    }
+
+    /// Set to manual white balance.
+    pub fn manual(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: WhiteBalanceControl<Mode = M>,
+    {
+        self.camera.white_balance_manual()
+    }
+
+    /// Trigger one-push white balance.
+    pub fn one_push_trigger(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: WhiteBalanceControl<Mode = M>,
+    {
+        self.camera.white_balance_one_push()
+    }
+}
+
+/// Access to image processing controls and inquiries.
+#[derive(Debug)]
+pub struct ImageAccessor<'a, M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+{
+    camera: &'a Camera<M, P, Tr, Exec>,
+}
+
+impl<'a, M, P, Tr, Exec> ImageAccessor<'a, M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+{
+    pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
+        Self { camera }
+    }
+
+    /// Get brightness level.
+    pub fn brightness(&self) -> M::Ret<'_, Result<u16, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_brightness()
+    }
+
+    /// Get saturation level.
+    pub fn saturation(&self) -> M::Ret<'_, Result<u8, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_saturation()
+    }
+
+    /// Get hue setting.
+    pub fn hue(&self) -> M::Ret<'_, Result<u8, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_hue()
+    }
+
+    /// Get gamma level.
+    pub fn gamma(&self) -> M::Ret<'_, Result<u8, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_gamma()
+    }
+
+    /// Get sharpness mode.
+    pub fn sharpness_mode(&self) -> M::Ret<'_, Result<crate::command::SharpnessMode, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_sharpness_mode()
+    }
+
+    /// Check if black and white mode is enabled.
+    pub fn black_white(&self) -> M::Ret<'_, Result<bool, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_black_white()
+    }
+
+    /// Get black and white mode setting.
+    pub fn black_white_mode(&self) -> M::Ret<'_, Result<crate::command::BlackWhiteMode, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_black_white_mode()
+    }
+
+    /// Get image flip settings.
+    pub fn flip(&self) -> M::Ret<'_, Result<crate::command::typed::FlipState, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_image_flip()
+    }
+
+    /// Get flip mode (combined horizontal/vertical).
+    pub fn flip_mode(&self) -> M::Ret<'_, Result<crate::command::typed::FlipState, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_flip_mode()
+    }
+
+    /// Get resolution mode.
+    pub fn resolution(&self) -> M::Ret<'_, Result<u8, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_resolution()
+    }
+
+    /// Get picture effect mode.
+    pub fn picture_effect(&self) -> M::Ret<'_, Result<u8, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_picture_effect()
+    }
+
+    /// Check if backlight compensation is enabled.
+    pub fn backlight_enabled(&self) -> M::Ret<'_, Result<bool, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_backlight_enabled()
+    }
+
+    /// Get defog level.
+    pub fn defog_level(&self) -> M::Ret<'_, Result<u8, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_defog_level()
+    }
+
+    /// Get noise reduction level.
+    pub fn noise_reduction_level(&self) -> M::Ret<'_, Result<u8, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_noise_reduction_level()
+    }
+
+    /// Get noise reduction 2D level.
+    pub fn noise_reduction_2d(&self) -> M::Ret<'_, Result<u8, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_noise_reduction_2d()
+    }
+
+    /// Get noise reduction 3D level.
+    pub fn noise_reduction_3d(&self) -> M::Ret<'_, Result<u8, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_noise_reduction_3d()
+    }
+
+    /// Get noise reduction mode.
+    pub fn noise_reduction_mode(&self) -> M::Ret<'_, Result<crate::command::NrMode, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_noise_reduction_mode()
+    }
+
+    // Image processing control methods
+
+    /// Enable image flip.
+    pub fn enable_flip(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>:
+            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+    {
+        use crate::camera::controls::image_processing::ImageProcessingControl;
+        self.camera.enable_flip()
+    }
+
+    /// Disable image flip.
+    pub fn disable_flip(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>:
+            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+    {
+        use crate::camera::controls::image_processing::ImageProcessingControl;
+        self.camera.disable_flip()
+    }
+
+    /// Enable horizontal flip (mirror).
+    pub fn enable_horizontal_flip(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>:
+            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+    {
+        use crate::camera::controls::image_processing::ImageProcessingControl;
+        self.camera.enable_horizontal_flip()
+    }
+
+    /// Disable horizontal flip (mirror).
+    pub fn disable_horizontal_flip(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>:
+            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+    {
+        use crate::camera::controls::image_processing::ImageProcessingControl;
+        self.camera.disable_horizontal_flip()
+    }
+
+    /// Set image flip mode (combined horizontal and vertical).
+    pub fn set_flip_mode(
+        &self,
+        mode: crate::command::ImageFlipMode,
+    ) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>:
+            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+    {
+        use crate::camera::controls::image_processing::ImageProcessingControl;
+        self.camera.set_image_flip(mode)
+    }
+
+    /// Set contrast level.
+    pub fn set_contrast(&self, level: crate::types::ContrastLevel) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>:
+            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+    {
+        use crate::camera::controls::image_processing::ImageProcessingControl;
+        self.camera.set_contrast(level)
+    }
+
+    /// Set sharpness level.
+    pub fn set_sharpness(
+        &self,
+        level: crate::types::SharpnessLevel,
+    ) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>:
+            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+    {
+        use crate::camera::controls::image_processing::ImageProcessingControl;
+        self.camera.set_sharpness(level)
+    }
+
+    /// Set saturation level.
+    pub fn set_saturation(
+        &self,
+        level: crate::types::SaturationLevel,
+    ) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>:
+            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+    {
+        use crate::camera::controls::image_processing::ImageProcessingControl;
+        self.camera.set_saturation(level)
+    }
+
+    /// Set hue level.
+    pub fn set_hue(&self, level: crate::types::HueLevel) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>:
+            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+    {
+        use crate::camera::controls::image_processing::ImageProcessingControl;
+        self.camera.set_hue(level)
+    }
+
+    /// Set luminance (brightness) level.
+    pub fn set_luminance(
+        &self,
+        level: crate::types::LuminanceLevel,
+    ) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>:
+            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+    {
+        use crate::camera::controls::image_processing::ImageProcessingControl;
+        self.camera.set_luminance(level)
+    }
+
+    /// Enable image freeze.
+    pub fn freeze(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>:
+            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+    {
+        use crate::camera::controls::image_processing::ImageProcessingControl;
+        self.camera.enable_freeze()
+    }
+
+    /// Disable image freeze.
+    pub fn unfreeze(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>:
+            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+    {
+        use crate::camera::controls::image_processing::ImageProcessingControl;
+        self.camera.disable_freeze()
+    }
+
+    /// Enable black and white mode.
+    pub fn enable_black_white(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>:
+            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+    {
+        use crate::camera::controls::image_processing::ImageProcessingControl;
+        self.camera.enable_black_white()
+    }
+
+    /// Disable black and white mode.
+    pub fn disable_black_white(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>:
+            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+    {
+        use crate::camera::controls::image_processing::ImageProcessingControl;
+        self.camera.disable_black_white()
+    }
+
+    /// Set picture effect mode.
+    pub fn set_picture_effect(
+        &self,
+        mode: crate::command::resolution::PictureEffectMode,
+    ) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>:
+            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+    {
+        use crate::camera::controls::image_processing::ImageProcessingControl;
+        self.camera.set_picture_effect(mode)
+    }
+
+    /// Set noise reduction 2D level.
+    pub fn set_noise_reduction_2d(
+        &self,
+        level: crate::types::NoiseReduction2DLevel,
+    ) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>:
+            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+    {
+        use crate::camera::controls::image_processing::ImageProcessingControl;
+        self.camera.set_noise_reduction_2d(level)
+    }
+
+    /// Disable noise reduction 2D.
+    pub fn disable_noise_reduction_2d(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>:
+            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+    {
+        use crate::camera::controls::image_processing::ImageProcessingControl;
+        self.camera.disable_noise_reduction_2d()
+    }
+
+    /// Set noise reduction 3D level.
+    pub fn set_noise_reduction_3d(
+        &self,
+        level: crate::types::NoiseReduction3DLevel,
+    ) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>:
+            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+    {
+        use crate::camera::controls::image_processing::ImageProcessingControl;
+        self.camera.set_noise_reduction_3d(level)
+    }
+
+    /// Disable noise reduction 3D.
+    pub fn disable_noise_reduction_3d(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>:
+            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+    {
+        use crate::camera::controls::image_processing::ImageProcessingControl;
+        self.camera.disable_noise_reduction_3d()
+    }
+}
+
+/// Access to preset-related controls.
+#[derive(Debug)]
+pub struct PresetsAccessor<'a, M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+{
+    camera: &'a Camera<M, P, Tr, Exec>,
+}
+
+impl<'a, M, P, Tr, Exec> PresetsAccessor<'a, M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+{
+    pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
+        Self { camera }
+    }
+
+    /// Recall a preset.
+    pub fn recall(&self, preset: u8) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: PresetsControl<Mode = M> + CameraSend<M>,
+    {
+        use crate::command::preset::PresetNumber;
+        match PresetNumber::new(preset) {
+            Ok(preset_number) => self.camera.preset_recall(preset_number),
+            Err(_) => self.camera.error(Error::InvalidParameter {
+                parameter: "preset",
+                value: preset.to_string().into(),
+                reason: "Preset number must be between 0 and 255".into(),
+            }),
+        }
+    }
+
+    /// Set (save) a preset.
+    pub fn set(&self, preset: u8) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: PresetsControl<Mode = M> + CameraSend<M>,
+    {
+        use crate::command::preset::PresetNumber;
+        match PresetNumber::new(preset) {
+            Ok(preset_number) => self.camera.preset_set(preset_number),
+            Err(_) => self.camera.error(Error::InvalidParameter {
+                parameter: "preset",
+                value: preset.to_string().into(),
+                reason: "Preset number must be between 0 and 255".into(),
+            }),
+        }
+    }
+
+    /// Reset (clear) a preset.
+    pub fn reset(&self, preset: u8) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: PresetsControl<Mode = M> + CameraSend<M>,
+    {
+        use crate::command::preset::PresetNumber;
+        match PresetNumber::new(preset) {
+            Ok(preset_number) => self.camera.preset_reset(preset_number),
+            Err(_) => self.camera.error(Error::InvalidParameter {
+                parameter: "preset",
+                value: preset.to_string().into(),
+                reason: "Preset number must be between 0 and 255".into(),
+            }),
+        }
+    }
+}
+
+/// Access to tally light controls and inquiries.
+#[derive(Debug)]
+pub struct TallyAccessor<'a, M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+{
+    camera: &'a Camera<M, P, Tr, Exec>,
+}
+
+impl<'a, M, P, Tr, Exec> TallyAccessor<'a, M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+{
+    pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
+        Self { camera }
+    }
+
+    /// Get tally light status.
+    pub fn status(&self) -> M::Ret<'_, Result<crate::command::typed::TallyStatusState, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_tally_light_status()
+    }
+
+    /// Check if tally auto adjust is enabled.
+    pub fn auto_adjust_enabled(&self) -> M::Ret<'_, Result<bool, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.get_tally_auto_adjust_enabled()
+    }
+
+    /// Turn on red tally light.
+    pub fn red_on(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: TallyControl<Mode = M>,
+    {
+        self.camera.tally_red_on()
+    }
+
+    /// Turn off red tally light.
+    pub fn red_off(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: TallyControl<Mode = M>,
+    {
+        self.camera.tally_red_off()
+    }
+
+    /// Turn on green tally light.
+    pub fn green_on(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: TallyControl<Mode = M>,
+    {
+        self.camera.tally_green_on()
+    }
+
+    /// Turn off green tally light.
+    pub fn green_off(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: TallyControl<Mode = M>,
+    {
+        self.camera.tally_green_off()
+    }
+}

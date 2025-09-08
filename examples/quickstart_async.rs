@@ -29,19 +29,15 @@ use std::env;
 use grafton_visca::{
     camera::{
         controls::{
-            exposure::ExposureControl, focus::FocusControl,
-            image_processing::ImageProcessingControl, pan_tilt::PanTiltControl,
-            presets::PresetsControl, white_balance::WhiteBalanceControl, zoom::ZoomControl,
+            focus::FocusControl, image_processing::ImageProcessingControl,
+            pan_tilt::PanTiltControl, zoom::ZoomControl,
         },
         profiles::PtzOpticsG2,
-        Camera,
     },
-    command::preset::PresetNumber,
-    mode::Async,
     runtime_trait::TokioRuntime,
     types::{PanSpeed, SpeedLevel, TiltSpeed},
     units::{Degrees, Normalized},
-    Error, PanTiltDirection,
+    Error,
 };
 
 #[cfg(feature = "rt-tokio")]
@@ -60,10 +56,17 @@ async fn main() -> Result<(), Error> {
 
     // Create the Tokio runtime and connect with type-safe pairing
     let runtime = TokioRuntime::from_current()?;
-    let camera = Camera::<Async, PtzOpticsG2, _, _>::connect_tcp(camera_addr, runtime).await?;
+    let camera = grafton_visca::camera::convenience::Camera::open_tcp_async::<PtzOpticsG2, _>(
+        camera_addr,
+        runtime,
+    )
+    .await?;
 
     println!("✅ Connected successfully!");
     println!();
+
+    // Get the camera reference from the session
+    let cam = camera.camera().expect("Camera session is open");
 
     println!("═══ Saving Initial Camera State ═══");
 
@@ -76,65 +79,60 @@ async fn main() -> Result<(), Error> {
     println!("═══ Basic Movement Operations ═══");
 
     println!("Moving to home position...");
-    camera.pan_tilt_home().await?;
-    camera.await_pan_tilt_idle(Duration::from_secs(30)).await?;
+    cam.pan_tilt().home().await?;
+    cam.await_pan_tilt_idle(Duration::from_secs(30)).await?;
     println!("✓ At home position");
 
     println!("Testing zoom...");
     println!("  Zooming in briefly...");
-    camera.zoom_tele_std().await?;
+    cam.zoom().tele().await?;
     sleep(Duration::from_millis(100)).await;
-    camera.zoom_stop().await?;
-    camera.await_zoom_idle(Duration::from_secs(5)).await?;
+    cam.zoom().stop().await?;
+    cam.await_zoom_idle(Duration::from_secs(5)).await?;
 
     println!("  Zooming out briefly...");
-    camera.zoom_wide_std().await?;
+    cam.zoom().wide().await?;
     sleep(Duration::from_millis(100)).await;
-    camera.zoom_stop().await?;
-    camera.await_zoom_idle(Duration::from_secs(5)).await?;
+    cam.zoom().stop().await?;
+    cam.await_zoom_idle(Duration::from_secs(5)).await?;
     println!("✓ Zoom complete");
 
     println!("Testing pan/tilt...");
     println!("  Panning right briefly...");
-    camera
-        .pan_tilt_move(
-            PanTiltDirection::Right,
-            PanSpeed::new(10)?,
-            TiltSpeed::new(0)?,
-        )
+    cam.pan_tilt()
+        .right(PanSpeed::new(10)?, TiltSpeed::new(0)?)
         .await?;
     sleep(Duration::from_millis(100)).await;
-    camera.pan_tilt_stop().await?;
-    camera.await_pan_tilt_idle(Duration::from_secs(5)).await?;
+    cam.pan_tilt().stop().await?;
+    cam.await_pan_tilt_idle(Duration::from_secs(5)).await?;
 
     println!("  Tilting up briefly...");
-    camera
-        .pan_tilt_move(PanTiltDirection::Up, PanSpeed::new(0)?, TiltSpeed::new(10)?)
+    cam.pan_tilt()
+        .up(PanSpeed::new(0)?, TiltSpeed::new(10)?)
         .await?;
     sleep(Duration::from_millis(100)).await;
-    camera.pan_tilt_stop().await?;
-    camera.await_pan_tilt_idle(Duration::from_secs(5)).await?;
+    cam.pan_tilt().stop().await?;
+    cam.await_pan_tilt_idle(Duration::from_secs(5)).await?;
     println!("✓ Pan/tilt complete");
     println!();
 
     println!("═══ Advanced Positioning ═══");
     println!("Moving to absolute position (45°, 15°) with custom detection...");
-    camera
-        .pan_tilt_absolute(Degrees::new(45.0), Degrees::new(15.0), SpeedLevel::Fast)
+    cam.pan_tilt()
+        .absolute(Degrees::new(45.0), Degrees::new(15.0), SpeedLevel::Fast)
         .await?;
 
     sleep(Duration::from_secs(3)).await;
     println!("✓ Moved to position");
     println!("Moving relative (+10°, +5°)...");
-    camera
-        .pan_tilt_relative(Degrees(10.0), Degrees(5.0), SpeedLevel::Medium)
+    cam.pan_tilt_relative(Degrees(10.0), Degrees(5.0), SpeedLevel::Medium)
         .await?;
-    camera.await_pan_tilt_idle(Duration::from_secs(30)).await?;
+    cam.await_pan_tilt_idle(Duration::from_secs(30)).await?;
     println!("✓ Relative movement complete");
 
     println!("Setting zoom to 50%...");
-    camera.zoom_absolute(Normalized(0.5)).await?;
-    camera.await_zoom_idle(Duration::from_secs(10)).await?;
+    cam.zoom_absolute(Normalized(0.5)).await?;
+    cam.await_zoom_idle(Duration::from_secs(10)).await?;
     println!("✓ Zoom at 50%");
     println!();
 
@@ -142,28 +140,28 @@ async fn main() -> Result<(), Error> {
     println!("═══ Advanced Movement Detection ═══");
 
     println!("Moving to absolute position with await...");
-    camera
-        .pan_tilt_absolute(Degrees(-30.0), Degrees(10.0), SpeedLevel::Medium)
+    cam.pan_tilt()
+        .absolute(Degrees(-30.0), Degrees(10.0), SpeedLevel::Medium)
         .await?;
-    camera.await_pan_tilt_idle(Duration::from_secs(30)).await?;
+    cam.await_pan_tilt_idle(Duration::from_secs(30)).await?;
     println!("✓ Movement completed");
 
     println!("Initiating multiple movements...");
-    camera
-        .pan_tilt_absolute(Degrees::new(0.0), Degrees::new(0.0), SpeedLevel::Fast)
+    cam.pan_tilt()
+        .absolute(Degrees::new(0.0), Degrees::new(0.0), SpeedLevel::Fast)
         .await?;
-    camera.zoom_absolute(Normalized(0.3)).await?;
+    cam.zoom_absolute(Normalized(0.3)).await?;
 
     println!("Waiting for all movements to complete...");
-    camera.await_idle(Duration::from_secs(30)).await?;
+    cam.await_idle(Duration::from_secs(30)).await?;
     println!("✓ All movements completed");
 
     println!("\nDemonstrating async concurrent operations...");
     use tokio::join;
 
     // Start multiple movements simultaneously
-    let pan_tilt = camera.pan_tilt_absolute(Degrees(20.0), Degrees(-5.0), SpeedLevel::Fast);
-    let zoom = camera.zoom_absolute(Normalized(0.6));
+    let pan_tilt = cam.pan_tilt_absolute(Degrees(20.0), Degrees(-5.0), SpeedLevel::Fast);
+    let zoom = cam.zoom_absolute(Normalized(0.6));
 
     // Execute them concurrently
     let (pt_result, z_result) = join!(pan_tilt, zoom);
@@ -171,7 +169,7 @@ async fn main() -> Result<(), Error> {
     z_result?;
 
     // Wait for all to complete
-    camera.await_idle(Duration::from_secs(30)).await?;
+    cam.await_idle(Duration::from_secs(30)).await?;
     println!("✓ Concurrent operations completed");
     println!();
 
@@ -179,27 +177,27 @@ async fn main() -> Result<(), Error> {
     println!("═══ Focus Control ═══");
 
     println!("Setting auto focus...");
-    camera.focus_auto().await?;
+    cam.focus().auto().await?;
     println!("✓ Auto focus enabled");
 
     println!("Testing manual focus...");
-    camera.focus_manual().await?;
-    camera.focus_near(SpeedLevel::Medium).await?;
+    cam.focus().manual().await?;
+    cam.focus().near(SpeedLevel::Medium).await?;
     sleep(Duration::from_millis(100)).await;
-    camera.focus_stop().await?;
-    camera.await_focus_idle(Duration::from_secs(5)).await?;
+    cam.focus().stop().await?;
+    cam.await_focus_idle(Duration::from_secs(5)).await?;
 
-    camera.focus_far(SpeedLevel::Medium).await?;
+    cam.focus().far(SpeedLevel::Medium).await?;
     sleep(Duration::from_millis(100)).await;
-    camera.focus_stop().await?;
-    camera.await_focus_idle(Duration::from_secs(5)).await?;
+    cam.focus().stop().await?;
+    cam.await_focus_idle(Duration::from_secs(5)).await?;
     println!("✓ Manual focus complete");
 
     println!("Triggering one-push auto focus...");
-    camera.focus_one_push().await?;
-    camera.await_focus_idle(Duration::from_secs(10)).await?;
+    cam.focus_one_push().await?;
+    cam.await_focus_idle(Duration::from_secs(10)).await?;
     println!("✓ One-push focus complete");
-    camera.focus_auto().await?;
+    cam.focus().auto().await?;
     println!();
 
     // === EXPOSURE & WHITE BALANCE ===
@@ -207,25 +205,25 @@ async fn main() -> Result<(), Error> {
 
     // Exposure modes
     println!("Testing exposure modes...");
-    camera.exposure_auto().await?;
+    cam.exposure().auto().await?;
     println!("  ✓ Auto exposure");
-    camera.exposure_manual().await?;
+    cam.exposure().manual().await?;
     println!("  ✓ Manual exposure");
-    camera.exposure_shutter_priority().await?;
+    cam.exposure().shutter_priority().await?;
     println!("  ✓ Shutter priority");
-    camera.exposure_auto().await?;
+    cam.exposure().auto().await?;
 
     // White balance modes
     println!("Testing white balance modes...");
-    camera.white_balance_auto().await?;
+    cam.white_balance().auto().await?;
     println!("  ✓ Auto white balance");
-    camera.white_balance_indoor().await?;
+    cam.white_balance().indoor().await?;
     println!("  ✓ Indoor");
-    camera.white_balance_outdoor().await?;
+    cam.white_balance().outdoor().await?;
     println!("  ✓ Outdoor");
-    camera.white_balance_one_push().await?;
+    cam.white_balance().one_push_trigger().await?;
     println!("  ✓ One-push");
-    camera.white_balance_auto().await?;
+    cam.white_balance().auto().await?;
     println!();
 
     // === IMAGE ADJUSTMENTS ===
@@ -235,18 +233,18 @@ async fn main() -> Result<(), Error> {
     println!("Testing image flip...");
 
     // Enable vertical flip
-    camera.enable_flip().await?;
+    cam.enable_flip().await?;
     println!("  ✓ Vertical flip enabled");
     sleep(Duration::from_millis(500)).await;
 
     // Enable horizontal flip
-    camera.enable_horizontal_flip().await?;
+    cam.enable_horizontal_flip().await?;
     println!("  ✓ Horizontal flip enabled");
     sleep(Duration::from_millis(500)).await;
 
     // Disable both flips
-    camera.disable_flip().await?;
-    camera.disable_horizontal_flip().await?;
+    cam.disable_flip().await?;
+    cam.disable_horizontal_flip().await?;
     println!("  ✓ Flips disabled");
     println!();
 
@@ -257,45 +255,45 @@ async fn main() -> Result<(), Error> {
     println!("Saving preset positions...");
 
     // Preset 1: Wide overview
-    camera
-        .pan_tilt_absolute(Degrees::new(0.0), Degrees::new(0.0), SpeedLevel::Medium)
+    cam.pan_tilt()
+        .absolute(Degrees::new(0.0), Degrees::new(0.0), SpeedLevel::Medium)
         .await?;
-    camera.zoom_absolute(Normalized(0.0)).await?;
-    camera.await_idle(Duration::from_secs(5)).await?;
-    camera.preset_set(PresetNumber::new(1)?).await?;
+    cam.zoom_absolute(Normalized(0.0)).await?;
+    cam.await_idle(Duration::from_secs(5)).await?;
+    cam.presets().set(1).await?;
     println!("  ✓ Preset 1 (Wide Overview) saved");
 
     // Preset 2: Right view
-    camera
-        .pan_tilt_absolute(Degrees::new(45.0), Degrees::new(-10.0), SpeedLevel::Medium)
+    cam.pan_tilt()
+        .absolute(Degrees::new(45.0), Degrees::new(-10.0), SpeedLevel::Medium)
         .await?;
-    camera.zoom_absolute(Normalized(0.3)).await?;
-    camera.await_idle(Duration::from_secs(5)).await?;
-    camera.preset_set(PresetNumber::new(2)?).await?;
+    cam.zoom_absolute(Normalized(0.3)).await?;
+    cam.await_idle(Duration::from_secs(5)).await?;
+    cam.presets().set(2).await?;
     println!("  ✓ Preset 2 (Right View) saved");
 
     // Preset 3: Left view
-    camera
-        .pan_tilt_absolute(Degrees::new(-45.0), Degrees::new(-10.0), SpeedLevel::Medium)
+    cam.pan_tilt()
+        .absolute(Degrees::new(-45.0), Degrees::new(-10.0), SpeedLevel::Medium)
         .await?;
-    camera.zoom_absolute(Normalized(0.3)).await?;
-    camera.await_idle(Duration::from_secs(5)).await?;
-    camera.preset_set(PresetNumber::new(3)?).await?;
+    cam.zoom_absolute(Normalized(0.3)).await?;
+    cam.await_idle(Duration::from_secs(5)).await?;
+    cam.presets().set(3).await?;
     println!("  ✓ Preset 3 (Left View) saved");
 
     // Test preset recall
     println!("Testing preset recall...");
     for i in 1..=3 {
         println!("  Recalling Preset {i}...");
-        camera.preset_recall(PresetNumber::new(i)?).await?;
-        camera.await_idle(Duration::from_secs(5)).await?;
+        cam.presets().recall(i).await?;
+        cam.await_idle(Duration::from_secs(5)).await?;
         println!("    Position saved");
     }
     println!("✓ Preset recall complete");
 
     // Clear a preset
     println!("Clearing Preset 3...");
-    camera.preset_reset(PresetNumber::new(3)?).await?;
+    cam.presets().reset(3).await?;
     println!("✓ Preset 3 cleared");
     println!();
 
@@ -304,7 +302,8 @@ async fn main() -> Result<(), Error> {
     println!("Performing concurrent operations...");
 
     // Execute multiple operations concurrently
-    let _ = tokio::join!(camera.pan_tilt_home(), camera.zoom_stop());
+    let _: (Result<(), Error>, Result<(), Error>) =
+        tokio::join!(cam.pan_tilt_home(), cam.zoom_stop());
 
     println!("✓ Concurrent operations complete");
     println!("  Note: Multiple commands executed in parallel!");
@@ -315,10 +314,10 @@ async fn main() -> Result<(), Error> {
     println!("Restoring camera to initial state...");
 
     // Return to home position
-    camera.pan_tilt_home().await?;
-    camera.await_pan_tilt_idle(Duration::from_secs(30)).await?;
-    camera.zoom_absolute(Normalized(0.0)).await?;
-    camera.await_zoom_idle(Duration::from_secs(10)).await?;
+    cam.pan_tilt().home().await?;
+    cam.await_pan_tilt_idle(Duration::from_secs(30)).await?;
+    cam.zoom_absolute(Normalized(0.0)).await?;
+    cam.await_zoom_idle(Duration::from_secs(10)).await?;
     println!("✓ Camera returned to home position");
 
     println!();

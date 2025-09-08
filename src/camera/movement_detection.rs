@@ -15,7 +15,7 @@ use crate::{
 #[cfg(feature = "async")]
 use crate::{executor::Executor, transport::AsyncTransport};
 
-use super::{Camera, MovementConfig, PanTiltPosition};
+use super::{MovementConfig, PanTiltPosition, UnifiedCamera as Camera};
 
 // Blocking mode implementation is only available without async feature
 #[cfg(not(feature = "async"))]

@@ -7,12 +7,10 @@ use grafton_visca::Error;
 #[cfg(feature = "rt-tokio")]
 use grafton_visca::{
     camera::{
+        builder::CameraBuilder,
         profiles::{G2PresetId, PtzOpticsG2},
-        Camera,
     },
-    mode::Async,
     runtime_trait::TokioRuntime,
-    transport::Transport,
     types::{PanSpeed, TiltSpeed},
     PanTiltControl, PanTiltDirection, PowerControl, PresetNumber, PresetsControl, ZoomControl,
 };
@@ -322,13 +320,9 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     // Create runtime for type-safe pairing
     let runtime = TokioRuntime::from_current()?;
 
-    // Try to create transport using TransportBuilder with runtime
-    let transport = match Transport::tcp()
-        .address(camera_addr)
-        .connect_timeout(Duration::from_secs(5))
-        .build_async_with(runtime.clone())
-        .await
-    {
+    // Try to create transport directly using the runtime's Tcp module
+    use grafton_visca::runtime_adapters::tokio::TcpTransport as Tcp;
+    let transport = match Tcp::connect(camera_addr).await {
         Ok(t) => {
             println!("   ✓ Transport created successfully");
             t
@@ -340,7 +334,13 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         }
     };
 
-    let camera = Camera::<Async, PtzOpticsG2, _, _>::new_async(transport, runtime).await?;
+    // Use the new session-centric API
+    let session = CameraBuilder::with_executor(runtime)
+        .from_transport(transport)
+        .profile::<PtzOpticsG2>()
+        .open_async()
+        .await?;
+    let camera = session;
 
     // Demonstrate retry pattern
     println!("\n3. Retry Pattern Implementation:");

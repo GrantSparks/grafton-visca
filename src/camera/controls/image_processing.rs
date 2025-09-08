@@ -123,7 +123,7 @@ pub trait ImageProcessingControl {
 }
 
 // Single unified implementation for all Camera types!
-impl<M, P, Tr, Exec> ImageProcessingControl for crate::camera::Camera<M, P, Tr, Exec>
+impl<M, P, Tr, Exec> ImageProcessingControl for crate::camera::UnifiedCamera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + Default,

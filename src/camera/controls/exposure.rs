@@ -132,7 +132,7 @@ pub trait ExposureControl {
 }
 
 // Single unified implementation for all Camera types!
-impl<M, P, Tr, Exec> ExposureControl for crate::camera::Camera<M, P, Tr, Exec>
+impl<M, P, Tr, Exec> ExposureControl for crate::camera::UnifiedCamera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + Default + crate::capabilities::exposure::Exposure,
@@ -338,7 +338,7 @@ pub trait ExposureCompensationControl {
 }
 
 // Single unified implementation for ExposureCompensationControl
-impl<M, P, Tr, Exec> ExposureCompensationControl for crate::camera::Camera<M, P, Tr, Exec>
+impl<M, P, Tr, Exec> ExposureCompensationControl for crate::camera::UnifiedCamera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + Default + crate::capabilities::HasExposureCompensation,

@@ -18,7 +18,6 @@ use grafton_visca::{
         profiles::PtzOpticsG2,
         Camera,
     },
-    mode::Async,
     runtime_trait::AsyncStdRuntime,
 };
 
@@ -33,7 +32,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("Connecting to camera at {addr} with async-std...");
     // Create the async-std runtime and connect with type-safe pairing
     let runtime = AsyncStdRuntime::new();
-    let camera = Camera::<Async, PtzOpticsG2, _, _>::connect_tcp(addr, runtime).await?;
+    let camera = Camera::open_tcp_async::<PtzOpticsG2, _>(addr, runtime).await?;
 
     // High-level control
     println!("Powering on...\n");

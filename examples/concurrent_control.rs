@@ -21,13 +21,9 @@ fn main() {
 #[cfg(feature = "rt-tokio")]
 use grafton_visca::{
     camera::{
-        controls::{
-            inquiry::{InquiryControl, PanTiltInquiryControl},
-            pan_tilt::PanTiltControl,
-            presets::PresetsControl,
-            zoom::ZoomControl,
-        },
-        profiles::PtzOpticsG2,
+        controls::{pan_tilt::PanTiltControl, zoom::ZoomControl},
+        profiles::{PtzOpticsG2, PtzOpticsG3, SonyBRC300},
+        session::CameraSession,
         Camera,
     },
     mode::Async,
@@ -71,11 +67,11 @@ async fn multi_camera_control() -> Result<()> {
     // Create a Tokio runtime for all cameras
     let runtime = TokioRuntime::from_current()?;
 
-    // Connect to cameras using the runtime API
-    // This ensures type-safe pairing of executor and transports
-    let cam1: Arc<Camera<Async, PtzOpticsG2, TransportHandle<TokioRuntime>, TokioRuntime>> =
+    // Connect to cameras using the new session-centric API
+    // This returns a CameraSession with a cleaner lifecycle
+    let cam1: Arc<CameraSession<Async, SonyBRC300, TransportHandle<TokioRuntime>, TokioRuntime>> =
         Arc::new(
-            Camera::connect_tcp("192.168.0.109:5678", runtime.clone())
+            Camera::open_tcp_async::<SonyBRC300, _>("192.168.0.109:5678", runtime.clone())
                 .await
                 .map_err(|e| {
                     eprintln!("Failed to connect to camera 1: {e}");
@@ -83,9 +79,9 @@ async fn multi_camera_control() -> Result<()> {
                 })?,
         );
 
-    let cam2: Arc<Camera<Async, PtzOpticsG2, TransportHandle<TokioRuntime>, TokioRuntime>> =
+    let cam2: Arc<CameraSession<Async, PtzOpticsG2, TransportHandle<TokioRuntime>, TokioRuntime>> =
         Arc::new(
-            Camera::connect_tcp("192.168.0.110:5678", runtime.clone())
+            Camera::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110:5678", runtime.clone())
                 .await
                 .map_err(|e| {
                     eprintln!("Failed to connect to camera 2: {e}");
@@ -93,9 +89,9 @@ async fn multi_camera_control() -> Result<()> {
                 })?,
         );
 
-    let cam3: Arc<Camera<Async, PtzOpticsG2, TransportHandle<TokioRuntime>, TokioRuntime>> =
+    let cam3: Arc<CameraSession<Async, PtzOpticsG3, TransportHandle<TokioRuntime>, TokioRuntime>> =
         Arc::new(
-            Camera::connect_tcp("192.168.0.111:5678", runtime.clone())
+            Camera::open_tcp_async::<PtzOpticsG3, _>("192.168.0.111:5678", runtime.clone())
                 .await
                 .map_err(|e| {
                     eprintln!("Failed to connect to camera 3: {e}");
@@ -109,8 +105,9 @@ async fn multi_camera_control() -> Result<()> {
         tokio::spawn(async move {
             println!("Camera 1: Starting preset tour");
             for i in 1..=3 {
-                if let Ok(preset) = PresetNumber::new(i) {
-                    cam.preset_recall(preset).await?;
+                if let Ok(_preset) = PresetNumber::new(i) {
+                    cam.presets().recall(i).await?;
+                    // Movement detection methods now available directly on session
                     cam.await_idle(Duration::from_secs(5)).await?;
                 }
             }
@@ -175,29 +172,33 @@ async fn parallel_single_camera() -> Result<()> {
 
     // Create a Tokio runtime and connect to a single camera
     let runtime = TokioRuntime::from_current()?;
-    let camera: Arc<Camera<Async, PtzOpticsG2, TransportHandle<TokioRuntime>, TokioRuntime>> =
-        Arc::new(
-            Camera::connect_tcp("192.168.0.110:5678", runtime)
-                .await
-                .map_err(|e| {
-                    eprintln!("Failed to connect to camera: {e}");
-                    e
-                })?,
-        );
+    let camera: Arc<
+        CameraSession<Async, PtzOpticsG2, TransportHandle<TokioRuntime>, TokioRuntime>,
+    > = Arc::new(
+        Camera::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110:5678", runtime)
+            .await
+            .map_err(|e| {
+                eprintln!("Failed to connect to camera: {e}");
+                e
+            })?,
+    );
 
     println!("Querying multiple states in parallel...");
 
-    let (power, pan_tilt, zoom, focus) = tokio::join!(
-        camera.get_power_state(),
-        camera.get_pan_tilt_position(),
-        camera.get_zoom_position(),
-        camera.get_focus_position()
-    );
+    // Access the underlying camera for inquiry operations
+    if let Some(_cam) = camera.camera() {
+        let (power, pan_tilt, zoom, focus) = tokio::join!(
+            async { camera.power().state().await },
+            async { camera.pan_tilt().position().await },
+            async { camera.zoom().position().await },
+            async { camera.focus().position().await }
+        );
 
-    println!("Power: {power:?}");
-    println!("Pan/Tilt: {pan_tilt:?}");
-    println!("Zoom: {zoom:?}");
-    println!("Focus: {focus:?}");
+        println!("Power: {power:?}");
+        println!("Pan/Tilt: {pan_tilt:?}");
+        println!("Zoom: {zoom:?}");
+        println!("Focus: {focus:?}");
+    }
 
     println!("\nExecuting coordinated movements...");
 
@@ -247,8 +248,9 @@ async fn producer_consumer_pattern() -> Result<()> {
     use tokio::sync::mpsc;
 
     let runtime = TokioRuntime::from_current()?;
-    let camera: Arc<Camera<Async, PtzOpticsG2, TransportHandle<TokioRuntime>, TokioRuntime>> =
-        Arc::new(Camera::connect_tcp("192.168.0.110:5678", runtime).await?);
+    let camera: Arc<
+        CameraSession<Async, PtzOpticsG2, TransportHandle<TokioRuntime>, TokioRuntime>,
+    > = Arc::new(Camera::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110:5678", runtime).await?);
 
     let (tx, mut rx) = mpsc::channel(10);
 
@@ -265,8 +267,8 @@ async fn producer_consumer_pattern() -> Result<()> {
                     }
                     Command::Preset(n) => {
                         println!("Executing: Preset {n}");
-                        if let Ok(preset) = PresetNumber::new(n) {
-                            let _ = cam.preset_recall(preset).await;
+                        if let Ok(_preset) = PresetNumber::new(n) {
+                            let _ = cam.presets().recall(n).await;
                             let _ = cam.await_idle(Duration::from_secs(5)).await;
                         }
                     }
@@ -329,10 +331,14 @@ async fn synchronized_movement() -> Result<()> {
 
     let runtime = TokioRuntime::from_current()?;
     for addr in camera_addrs {
-        let camera: Arc<Camera<Async, PtzOpticsG2, TransportHandle<TokioRuntime>, TokioRuntime>> =
-            Arc::new(Camera::connect_tcp(format!("{addr}:5678"), runtime.clone()).await?);
+        let camera: Arc<
+            CameraSession<Async, PtzOpticsG2, TransportHandle<TokioRuntime>, TokioRuntime>,
+        > = Arc::new(
+            Camera::open_tcp_async::<PtzOpticsG2, _>(format!("{addr}:5678"), runtime.clone())
+                .await?,
+        );
 
-        let state = camera.get_pan_tilt_position().await.ok();
+        let state = camera.pan_tilt().position().await.ok();
         initial_states.push(state);
         cameras.push(camera);
     }
@@ -358,8 +364,8 @@ async fn synchronized_movement() -> Result<()> {
 
             barrier.wait().await;
             println!("Camera {}: Recalling preset 1", i + 1);
-            if let Ok(preset) = PresetNumber::new(1) {
-                camera.preset_recall(preset).await?;
+            if let Ok(_preset) = PresetNumber::new(1) {
+                camera.presets().recall(1).await?;
                 camera.await_idle(Duration::from_secs(10)).await?;
                 println!("Camera {}: Preset 1 reached", i + 1);
             }

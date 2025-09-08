@@ -13,7 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use grafton_visca::{camera::profiles::PtzOpticsG2, mode::Blocking, Camera};
+use grafton_visca::{camera::profiles::PtzOpticsG2, Camera};
 
 /// A slow server that doesn't respond for testing timeouts
 fn start_slow_tcp_server() -> String {
@@ -51,12 +51,7 @@ fn test_tcp_camera_timeout_behavior() {
     let addr = start_slow_tcp_server();
 
     // Use camera-first API - the camera will handle connection but server is slow to respond
-    let camera_result = Camera::<
-        Blocking,
-        PtzOpticsG2,
-        Box<dyn grafton_visca::transport::SyncTransport>,
-        (),
-    >::open_tcp(&addr);
+    let camera_result = Camera::open_tcp_blocking::<PtzOpticsG2>(&addr);
 
     // Connection may succeed even if server is slow (depends on OS timeout)
     if camera_result.is_ok() {
@@ -81,12 +76,7 @@ fn test_udp_camera_timeout_behavior() {
     let addr = start_slow_udp_server();
 
     // Use camera-first API for UDP connection
-    let camera_result = Camera::<
-        Blocking,
-        PtzOpticsG2,
-        Box<dyn grafton_visca::transport::SyncTransport>,
-        (),
-    >::open_udp(&addr);
+    let camera_result = Camera::open_udp_blocking::<PtzOpticsG2>(&addr);
 
     assert!(camera_result.is_ok(), "UDP camera creation should succeed");
 
@@ -112,12 +102,7 @@ fn test_camera_efficient_timeout_behavior() {
     // cargo test -- --ignored
 
     let addr = start_slow_tcp_server();
-    let camera_result = Camera::<
-        Blocking,
-        PtzOpticsG2,
-        Box<dyn grafton_visca::transport::SyncTransport>,
-        (),
-    >::open_tcp(&addr);
+    let camera_result = Camera::open_tcp_blocking::<PtzOpticsG2>(&addr);
 
     if let Ok(_camera) = camera_result {
         let start = Instant::now();
@@ -144,31 +129,16 @@ fn test_camera_consistent_behavior_across_operations() {
     let addr = start_slow_tcp_server();
 
     // Test that multiple camera creation attempts behave consistently
-    let _camera_result1 = Camera::<
-        Blocking,
-        PtzOpticsG2,
-        Box<dyn grafton_visca::transport::SyncTransport>,
-        (),
-    >::open_tcp(&addr);
+    let _camera_result1 = Camera::open_tcp_blocking::<PtzOpticsG2>(&addr);
     thread::sleep(Duration::from_millis(100));
-    let _camera_result2 = Camera::<
-        Blocking,
-        PtzOpticsG2,
-        Box<dyn grafton_visca::transport::SyncTransport>,
-        (),
-    >::open_tcp(&addr);
+    let _camera_result2 = Camera::open_tcp_blocking::<PtzOpticsG2>(&addr);
 
     // Both should have consistent behavior (both succeed or both fail)
     // The exact outcome depends on server timing and OS timeout behavior
 
     // Test that at least the API calls complete in reasonable time
     let start = Instant::now();
-    let _result3 = Camera::<
-        Blocking,
-        PtzOpticsG2,
-        Box<dyn grafton_visca::transport::SyncTransport>,
-        (),
-    >::open_tcp(&addr);
+    let _result3 = Camera::open_tcp_blocking::<PtzOpticsG2>(&addr);
     let elapsed = start.elapsed();
 
     // Camera operations should complete within a reasonable time window

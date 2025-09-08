@@ -17,10 +17,8 @@
 use std::env;
 
 use grafton_visca::{
-    camera::{controls::inquiry::InquiryControl, profiles::GenericVisca, Camera},
-    mode::Async,
+    camera::{profiles::GenericVisca, Camera},
     runtime_trait::TokioRuntime,
-    transport::Transport,
     Error,
 };
 
@@ -44,85 +42,95 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create the runtime for type-safe pairing
     let runtime = TokioRuntime::from_current()?;
 
-    match Transport::auto_detect(&camera_addr, runtime.clone()).await {
-        Ok((transport, detected_protocol)) => {
-            println!("✅ Protocol Detection Successful!");
+    // Use the new session-centric API with auto-detection
+    let session =
+        match Camera::open_auto_async::<GenericVisca, _>(&camera_addr, runtime.clone()).await {
+            Ok(session) => {
+                println!("✅ Protocol Detection Successful!");
 
-            match detected_protocol {
-                grafton_visca::transport::DetectionResult::SonyEncapsulated => {
-                    println!("📡 Detected: Sony Encapsulated Protocol");
+                // The new API automatically detects protocol internally
+                // We can infer protocol based on port or additional info
+                if camera_addr.contains(":52381") {
+                    println!("📡 Likely: Sony Encapsulated Protocol");
                     println!("   Format: 8-byte header + VISCA payload");
                     println!("   Port: Usually 52381 (Sony default)");
                     println!("   Used by: Sony FR7, BRC-H900, BRC-300, etc.");
-                }
-                grafton_visca::transport::DetectionResult::RawVisca => {
-                    println!("📡 Detected: Raw VISCA Protocol");
+                } else if camera_addr.contains(":1259") {
+                    println!("📡 Likely: Raw VISCA Protocol (UDP)");
                     println!("   Format: Direct VISCA bytes (no header)");
-                    println!("   Port: Usually 5678/TCP or 1259/UDP");
+                    println!("   Port: Usually 1259 (UDP)");
+                    println!("   Used by: PTZOptics, generic cameras, etc.");
+                } else {
+                    println!("📡 Likely: Raw VISCA Protocol (TCP)");
+                    println!("   Format: Direct VISCA bytes (no header)");
+                    println!("   Port: Usually 5678 (TCP)");
                     println!("   Used by: PTZOptics, generic cameras, etc.");
                 }
-                grafton_visca::transport::DetectionResult::NoResponse => {
-                    unreachable!("Should have failed with error");
-                }
+
+                println!();
+                session
             }
-
-            println!();
-
-            // Create camera with detected transport and runtime
-            let camera = Camera::<Async, GenericVisca, _, _>::new_async(transport, runtime).await?;
-
-            println!("🔍 Testing basic camera operations...");
-
-            // Test version inquiry
-            match camera.get_version().await {
-                Ok(version) => {
-                    println!("✓ Version Inquiry: {:?}", version);
-                }
-                Err(e) => {
-                    println!("⚠ Version inquiry failed: {}", e);
-                }
+            Err(Error::ConnectionFailed { addr, source }) => {
+                println!("❌ Connection Failed to {}", addr);
+                println!("   Reason: {}", source);
+                println!("\nTroubleshooting:");
+                println!("• Verify camera is powered on and network accessible");
+                println!("• Check IP address and port are correct");
+                println!("• Ensure camera's VISCA over IP is enabled");
+                println!("• Try different ports (52381 for Sony, 5678 for PTZOptics)");
+                return Err(Error::ConnectionFailed { addr, source }.into());
             }
-
-            // Test power inquiry
-            match camera.get_power_state().await {
-                Ok(power_state) => {
-                    println!("✓ Power State: {}", power_state);
-                }
-                Err(e) => {
-                    println!("⚠ Power inquiry failed: {}", e);
-                }
+            Err(e) => {
+                println!("❌ Unexpected error: {}", e);
+                return Err(e.into());
             }
+        };
 
-            println!("\n✅ Protocol auto-detection and basic operations successful!");
-            println!("The library automatically adapted to your camera's protocol format.");
-        }
-        Err(Error::ConnectionFailed { addr, source }) => {
-            println!("❌ Connection Failed to {}", addr);
-            println!("   Reason: {}", source);
-            println!("\nTroubleshooting:");
-            println!("• Verify camera is powered on and network accessible");
-            println!("• Check IP address and port are correct");
-            println!("• Ensure camera's VISCA over IP is enabled");
-            println!("• Try different ports (52381 for Sony, 5678 for PTZOptics)");
+    let camera = session;
+
+    println!("🔍 Testing basic camera operations...");
+
+    // Test version inquiry using accessor pattern
+    match camera.system().version().await {
+        Ok(version) => {
+            println!("✓ Version Inquiry: {:?}", version);
         }
         Err(e) => {
-            println!("❌ Unexpected error: {}", e);
+            println!("⚠ Version inquiry failed: {}", e);
         }
     }
 
+    // Test power inquiry using accessor pattern
+    match camera.power().state().await {
+        Ok(power_state) => {
+            println!("✓ Power State: {:?}", power_state);
+        }
+        Err(e) => {
+            println!("⚠ Power inquiry failed: {}", e);
+        }
+    }
+
+    println!("\n✅ Protocol auto-detection and basic operations successful!");
+    println!("The library automatically adapted to your camera's protocol format.");
+
+    // Clean up
+    if let Err(e) = camera.close().await {
+        println!("Warning: Failed to close session cleanly: {}", e);
+    }
+
     println!("\n📚 About Protocol Auto-Detection:");
-    println!("This feature implements EPIC Task B3 from the Unified VISCA Control Stack.");
-    println!("It enables a single library to work with multiple camera vendors by:");
-    println!("• Probing Sony encapsulated format first (8-byte header + sequence)");
-    println!("• Falling back to raw VISCA format if no response");
-    println!("• Locking in the working protocol for subsequent commands");
-    println!("• Providing transparent operation regardless of camera brand");
+    println!("This library performs automatic protocol detection by:");
+    println!("1. Trying Sony encapsulated format (port 52381)");
+    println!("2. Falling back to raw VISCA (ports 1259/5678)");
+    println!("3. Sending test inquiries to validate the connection");
+    println!("\nThe detected protocol is then used transparently for all");
+    println!("subsequent operations, providing a unified API across camera brands.");
 
     Ok(())
 }
 
 #[cfg(not(feature = "rt-tokio"))]
 fn main() {
-    eprintln!("This example requires the 'rt-tokio' feature.");
-    eprintln!("Run with: cargo run --example protocol_auto_detection --features rt-tokio");
+    println!("This example requires the 'rt-tokio' feature.");
+    println!("Run with: cargo run --example protocol_auto_detection --features rt-tokio");
 }

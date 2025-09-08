@@ -27,7 +27,6 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
             profiles::PtzOpticsG2,
             Camera,
         },
-        mode::Async,
         runtime_trait::SmolRuntime,
     };
 
@@ -38,7 +37,7 @@ async fn async_main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Connecting to camera at {addr} with smol...");
     // Create the smol runtime and connect with type-safe pairing
     let runtime = SmolRuntime::new();
-    let camera = Camera::<Async, PtzOpticsG2, _, _>::connect_tcp(addr, runtime).await?;
+    let camera = Camera::open_tcp_async::<PtzOpticsG2, _>(addr, runtime).await?;
 
     println!("Powering on...\n");
     camera.power_on().await?;

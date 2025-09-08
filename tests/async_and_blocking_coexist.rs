@@ -82,7 +82,7 @@ fn test_preludes_per_mode() {
         use grafton_visca::runtime_adapters::tokio::TcpTransport as AsyncTcp;
         // The async prelude doesn't export type aliases like PtzOpticsG2Cam
         // Instead, we use runtime-specific aliases or construct the type directly
-        use grafton_visca::TokioCamera;
+        use grafton_visca::camera::builder::async_cameras::TokioCamera;
         type _AsyncG2 = TokioCamera<async_prelude::PtzOpticsG2, AsyncTcp>;
         let _ = core::any::type_name::<_AsyncG2>();
     }

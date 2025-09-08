@@ -79,12 +79,12 @@ fn test_compile_time_capability_checking() {
 #[test]
 fn test_generic_functions_with_trait_bounds() {
     fn basic_control<P, T>(
-        camera: &mut grafton_visca::camera::Camera<grafton_visca::mode::Blocking, P, T, ()>,
+        camera: &mut grafton_visca::camera::UnifiedCamera<grafton_visca::mode::Blocking, P, T, ()>,
     ) -> Result<(), Error>
     where
         P: Profile + Default,
         T: grafton_visca::transport::SyncTransport,
-        grafton_visca::camera::Camera<grafton_visca::mode::Blocking, P, T, ()>: PowerControl<Mode = grafton_visca::mode::Blocking>
+        grafton_visca::camera::UnifiedCamera<grafton_visca::mode::Blocking, P, T, ()>: PowerControl<Mode = grafton_visca::mode::Blocking>
             + ZoomControl<Mode = grafton_visca::mode::Blocking>,
     {
         use grafton_visca::mode::BlockingFutureExt;

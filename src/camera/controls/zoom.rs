@@ -50,7 +50,7 @@ pub trait ZoomControl {
 }
 
 // Single unified implementation for all Camera types!
-impl<M, P, Tr, Exec> ZoomControl for crate::camera::Camera<M, P, Tr, Exec>
+impl<M, P, Tr, Exec> ZoomControl for crate::camera::UnifiedCamera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + Default + crate::capabilities::zoom::Zoom,
