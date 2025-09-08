@@ -268,11 +268,12 @@ where
     /// # Example
     ///
     /// ```rust,ignore
-    /// use grafton_visca::{Camera, mode::Blocking};
-    /// use grafton_visca::profiles::PtzOpticsG2;
+    /// use grafton_visca::camera::Camera;
+    /// use grafton_visca::camera::profiles::PtzOpticsG2;
+    /// use grafton_visca::mode::BlockingFutureExt;
     ///
-    /// let camera = Camera::<Blocking, PtzOpticsG2>::open_tcp("192.168.0.110:5678")?;
-    /// camera.power_on()?;
+    /// let camera = Camera::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?;
+    /// camera.power().on().block()?;
     /// camera.close()?;
     /// ```
     pub fn open_tcp(addr: impl Into<String>) -> Result<Self, Error> {
@@ -289,11 +290,12 @@ where
     /// # Example
     ///
     /// ```rust,ignore
-    /// use grafton_visca::{Camera, mode::Blocking};
-    /// use grafton_visca::profiles::GenericVisca;
+    /// use grafton_visca::camera::Camera;
+    /// use grafton_visca::camera::profiles::GenericVisca;
+    /// use grafton_visca::mode::BlockingFutureExt;
     ///
-    /// let camera = Camera::<Blocking, GenericVisca>::open_udp("192.168.0.110:1259")?;
-    /// camera.power_on()?;
+    /// let camera = Camera::open_udp_blocking::<GenericVisca>("192.168.0.110:1259")?;
+    /// camera.power().on().block()?;
     /// camera.close()?;
     /// ```
     pub fn open_udp(addr: impl Into<String>) -> Result<Self, Error> {
@@ -314,14 +316,13 @@ where
     /// # Example
     ///
     /// ```no_run
-    /// use grafton_visca::{Camera, mode::Blocking};
-    /// use grafton_visca::prelude::blocking::*;
+    /// use grafton_visca::camera::Camera;
     /// use grafton_visca::camera::profiles::PtzOpticsG2;
-    /// use grafton_visca::{PowerControl, mode::BlockingFutureExt};
+    /// use grafton_visca::mode::BlockingFutureExt;
     ///
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let camera = Camera::<Blocking, PtzOpticsG2, _>::open_auto("192.168.0.110")?;
-    /// camera.power_on().block()?;
+    /// let camera = Camera::open_auto_blocking::<PtzOpticsG2>("192.168.0.110")?;
+    /// camera.power().on().block()?;
     /// camera.close()?;
     /// # Ok(())
     /// # }

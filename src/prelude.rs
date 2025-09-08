@@ -43,7 +43,7 @@
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! // Simple connection
-//! let camera = Camera::<Blocking, PtzOpticsG2>::open_tcp("192.168.0.110:5678")?;
+//! let camera = Camera::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?;
 //!
 //! // Use camera with type-safe controls
 //! camera.power_on()?;

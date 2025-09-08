@@ -21,8 +21,8 @@
 //! # #[cfg(not(feature = "async"))]
 //! # fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! # #[cfg(not(feature = "async"))]
-//! let camera = Camera::<Blocking, PtzOpticsG2, _>::open_tcp("192.168.0.110:5678")?;
-//! // camera is ready to use with PowerControl, ZoomControl, etc.
+//! let camera = Camera::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?;
+//! // camera is ready to use with accessor pattern: camera.power().on(), camera.zoom().tele(), etc.
 //! # Ok(())
 //! # }
 //! ```
