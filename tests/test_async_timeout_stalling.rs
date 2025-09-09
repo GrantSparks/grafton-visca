@@ -123,8 +123,12 @@ fn test_multiple_timeouts_no_starvation() {
             .expect("Failed to create camera");
 
         // Send multiple commands that will timeout
+        // Create both futures - they will both be submitted when awaited
         let result1_future = camera.zoom_stop();
         let result2_future = camera.zoom_tele_std();
+
+        // Use join to run them concurrently
+        let both_results = futures_lite::future::zip(result1_future, result2_future);
 
         // Process initial setup
         exec.drive_until_idle();
@@ -134,8 +138,7 @@ fn test_multiple_timeouts_no_starvation() {
         exec.drive_until_idle();
 
         // Both commands should timeout
-        let result1 = result1_future.await;
-        let result2 = result2_future.await;
+        let (result1, result2) = both_results.await;
 
         assert!(
             matches!(result1, Err(Error::Timeout)),

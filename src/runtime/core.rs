@@ -192,6 +192,25 @@ pub enum SchedulerAction {
         /// Delay before retrying.
         delay: Duration,
     },
+    /// A command exceeded one of the scheduler's timeouts.
+    Timeout {
+        /// Command ID that timed out.
+        id: u32,
+        /// Kind of timeout that occurred.
+        kind: TimeoutKind,
+        /// 1-based attempt number that timed out.
+        attempt: u32,
+        /// True if a retry was enqueued.
+        will_retry: bool,
+    },
+}
+
+/// Kind of timeout that can occur.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimeoutKind {
+    /// Timeout waiting for ACK.
+    Ack,
+    // Response, // Can be added later for post-ACK response timeouts
 }
 
 /// Events that can be fed to the scheduler core.
@@ -1067,7 +1086,18 @@ impl SchedulerCore {
                     .copied()
                     .unwrap_or(3);
 
-                if attempts < max_retries {
+                // Determine if we will retry
+                let will_retry = attempts < max_retries;
+
+                // Always emit a timeout action to notify the adapter
+                actions.push(SchedulerAction::Timeout {
+                    id: cmd_id,
+                    kind: TimeoutKind::Ack,
+                    attempt: attempts + 1, // 1-based attempt number
+                    will_retry,
+                });
+
+                if will_retry {
                     // Queue for retry
                     debug!(
                         "Queueing ACK-timed-out command {} for retry (attempt {})",
@@ -1457,6 +1487,8 @@ mod tests {
             now,
         );
         // Manually allocate socket 1 (simulating ACK received)
+        // When ACK is received, command is removed from pending_ack
+        core.pending_ack.remove(&1);
         core.sockets[0].free = false;
         core.sockets[0].command_id = Some(1);
         core.sockets[0].started_at = Some(now);
@@ -1472,6 +1504,8 @@ mod tests {
             now,
         );
         // Manually allocate socket 2 (simulating ACK received)
+        // When ACK is received, command is removed from pending_ack
+        core.pending_ack.remove(&2);
         core.sockets[1].free = false;
         core.sockets[1].command_id = Some(2);
         core.sockets[1].started_at = Some(now);

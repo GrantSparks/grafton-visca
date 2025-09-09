@@ -16,6 +16,7 @@ use crate::{
     protocol::response::{decode_basic, BasicKind},
     runtime::core::{
         PendingCommand, Priority, RetryCommand, SchedulerAction, SchedulerCore, SchedulerEvent,
+        TimeoutKind,
     },
     timeout::{CommandCategory, TimeoutConfig},
     transport::RetryConfig,
@@ -405,6 +406,14 @@ impl<E: Executor> AsyncAdapter<E> {
                     );
                 }
             }
+            SchedulerAction::Timeout {
+                id,
+                kind: TimeoutKind::Ack,
+                ..
+            } => {
+                // Notify the waiting future that the command timed out
+                self.notify_timeout(id);
+            }
             SchedulerAction::RetryCommand {
                 id,
                 bytes: _,
@@ -417,6 +426,30 @@ impl<E: Executor> AsyncAdapter<E> {
             }
         }
         Ok(())
+    }
+
+    /// Notify a waiting future that its command has timed out.
+    #[inline]
+    fn notify_timeout(&mut self, id: u32) {
+        // Remove first to avoid double-notify races
+        if let Some(tx) = self.response_channels.remove(&id) {
+            // Complete the user's future deterministically
+            let _ = tx.try_send(Err(Error::Timeout));
+            if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+                eprintln!(
+                    "[AsyncAdapter] Timeout: completed future with Error::Timeout (id={})",
+                    id
+                );
+            }
+        } else {
+            // No waiter: either already completed/cleaned up or late event
+            if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+                eprintln!(
+                    "[AsyncAdapter] Timeout for id={} but no waiter; ignoring",
+                    id
+                );
+            }
+        }
     }
 
     /// Check for timeouts and return commands that need action.
