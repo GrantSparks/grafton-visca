@@ -3,6 +3,15 @@
 use flume::{Receiver, Sender};
 use tracing::{debug, error, instrument, trace, warn};
 
+/// Runtime trace logging controlled by RUNTIME_TRACE environment variable
+macro_rules! runtime_trace {
+    ($($arg:tt)*) => {
+        if std::env::var("RUNTIME_TRACE").is_ok() {
+            eprintln!("[RUNTIME_TRACE] {}", format!($($arg)*));
+        }
+    };
+}
+
 use std::{collections::HashSet, sync::Arc};
 
 use crate::{
@@ -78,7 +87,7 @@ impl SendGuard {
 }
 
 /// Main runtime loop with configurable tick interval.
-#[instrument(level = "debug", name = "visca_runtime_loop", skip(transport, submit_rx, metrics_rx, executor, config), fields(tick_ms = config.tick_interval_ms))]
+#[instrument(level = "debug", name = "visca_runtime_loop", skip(transport, submit_rx, metrics_rx, shutdown_rx, executor, config), fields(tick_ms = config.tick_interval_ms))]
 pub async fn runtime_loop_with_config<
     T: AsyncTransport + Send + 'static,
     E: crate::executor::Executor + Send + Sync + 'static,
@@ -86,6 +95,7 @@ pub async fn runtime_loop_with_config<
     mut transport: T,
     submit_rx: Receiver<TxItem>,
     metrics_rx: Receiver<Sender<MetricsSummary>>,
+    shutdown_rx: Receiver<()>,
     executor: Arc<E>,
     config: RuntimeLoopConfig,
 ) -> Result<()> {
@@ -110,7 +120,16 @@ pub async fn runtime_loop_with_config<
             RecvOk(usize),
             RecvErr(Error),
             Tick,
+            Shutdown,
         }
+
+        // Add runtime trace at loop start
+        runtime_trace!(
+            "Loop iteration start - pending_ack: {}, can_send: {}, now: {:?}",
+            adapter.pending_ack_count(),
+            adapter.can_send_command(),
+            executor.now()
+        );
 
         // Check for submit items non-blockingly first
         if let Ok(item) = submit_rx.try_recv() {
@@ -231,13 +250,12 @@ pub async fn runtime_loop_with_config<
         // Dynamic tick scheduling: sleep until housekeeping tick
         let sleep_dur = tick_duration;
 
-        // Use select to handle both recv and tick operations
+        // Use select to handle recv, tick, and shutdown operations
         let operation = {
             use futures_lite::future;
 
-            // Simplified race: only between recv and tick
-            // If a transport chooses to emit Error::Timeout, we'll treat it as idle
-            future::race(
+            // First create the two-way race between recv and sleep
+            let recv_or_sleep = future::race(
                 async {
                     match transport.recv_into(&mut read_buf).await {
                         Ok(n) => Operation::RecvOk(n),
@@ -250,11 +268,37 @@ pub async fn runtime_loop_with_config<
                     executor.sleep(sleep_dur).await;
                     Operation::Tick
                 },
+            );
+
+            // Now race shutdown against (recv | sleep). This is the crucial bit.
+            future::race(
+                async {
+                    // This future *registers a waker* and will wake the loop as soon as a
+                    // shutdown signal is sent *or* the sender side is dropped.
+                    let _ = shutdown_rx.recv_async().await;
+                    Operation::Shutdown
+                },
+                recv_or_sleep,
             )
             .await
         };
 
+        runtime_trace!(
+            "Race winner: {:?}",
+            match &operation {
+                Operation::RecvOk(n) => format!("RecvOk({})", n),
+                Operation::RecvErr(_) => "RecvErr".to_string(),
+                Operation::Tick => "Tick".to_string(),
+                Operation::Shutdown => "Shutdown".to_string(),
+            }
+        );
+
         match operation {
+            Operation::Shutdown => {
+                debug!("Shutdown won race; exiting runtime loop");
+                runtime_trace!("Shutdown won race; exiting runtime loop cleanly");
+                return Ok(());
+            }
             Operation::RecvOk(n) => {
                 // Handle received data
                 if n == 0 {
@@ -347,7 +391,15 @@ pub async fn runtime_loop_with_config<
             }
             Operation::Tick => {
                 // Handle idle tick - check timeouts and send pending commands
+                runtime_trace!(
+                    "Before check_timeouts: pending_ack={}",
+                    adapter.pending_ack_count()
+                );
                 adapter.check_timeouts().await?;
+                runtime_trace!(
+                    "After check_timeouts: pending_ack={}",
+                    adapter.pending_ack_count()
+                );
 
                 // Try to send more commands if we have room
                 while adapter.can_send_command() {
@@ -357,11 +409,22 @@ pub async fn runtime_loop_with_config<
                         break;
                     }
                 }
+
+                // Fairness: ensure the deterministic clock can advance even when recv_into()
+                // resolves immediately with Error::Timeout (e.g., scripted tests).
+                // This sleep ensures there's always a pending deadline that the DeterministicExecutor
+                // can advance to, preventing virtual time starvation.
+                executor.sleep(tick_duration).await;
             }
             Operation::RecvErr(e) => {
                 error!("Error receiving from transport: {e}");
                 // Handle network error - all pending commands will be retried or failed
-                adapter.handle_network_error().await?;
+                adapter.on_network_error().await?;
+
+                // Avoid hot-looping on immediate errors; give timers a chance to fire.
+                // This sleep prevents the loop from immediately re-entering the race and
+                // canceling any pending sleep futures, ensuring virtual time can advance.
+                executor.sleep(tick_duration).await;
             }
         }
     }

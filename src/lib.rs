@@ -535,6 +535,13 @@
 // Multiple async runtimes can now coexist - users choose which executor to use at construction time
 // This flexibility allows libraries to support multiple runtime ecosystems simultaneously
 
+// Module declarations
+mod error;
+pub(crate) mod macros;
+
+#[cfg(feature = "async")]
+pub(crate) mod executor;
+
 /// Camera profile system for type-safe, model-specific control
 pub mod camera;
 
@@ -556,19 +563,12 @@ pub mod capabilities;
 #[doc(hidden)]
 pub mod command;
 
-/// Error types
-mod error;
+/// Constants for VISCA protocol including default ports
+pub mod constants;
 
-/// Transport layer for implementing custom transports
-pub mod transport;
+pub mod mode;
 
-/// Runtime-specific transport adapters
-#[cfg(feature = "async")]
-pub mod runtime_adapters;
-
-/// Runtime trait for binding executor and transport connectors
-#[cfg(feature = "async")]
-pub mod runtime_trait;
+pub mod prelude;
 
 /// Protocol encoding and decoding utilities (internal use)
 ///
@@ -580,10 +580,23 @@ pub mod protocol;
 /// VISCA runtime with flume-based scheduling
 pub mod runtime;
 
-/// Constants for VISCA protocol including default ports
-pub mod constants;
+/// Runtime-specific transport adapters
+#[cfg(feature = "async")]
+pub mod runtime_adapters;
 
-pub(crate) mod macros;
+/// Runtime trait for binding executor and transport connectors
+#[cfg(feature = "async")]
+pub mod runtime_trait;
+
+/// Testing utilities (available with test-utils feature for deterministic testing)
+#[cfg(any(feature = "rt-tokio", feature = "test-utils"))]
+#[doc(hidden)]
+pub mod testing;
+
+pub mod timeout;
+
+/// Transport layer for implementing custom transports
+pub mod transport;
 
 /// Type definitions and abstractions
 pub mod types;
@@ -594,36 +607,26 @@ pub mod units;
 /// Unified VISCA socket type
 pub mod visca_socket;
 
-pub mod timeout;
+// External crates
+pub use grafton_visca_macros::{InquiryCommand, ViscaEnum, ViscaValue};
 
-pub mod mode;
-
-#[cfg(feature = "async")]
-pub(crate) mod executor;
-
-pub mod prelude;
-
-// Testing utilities (available with test-utils feature for deterministic testing)
-#[cfg(any(feature = "rt-tokio", feature = "test-utils"))]
-#[doc(hidden)]
-pub mod testing;
-
-pub use grafton_visca_macros::{InquiryCommand, ViscaEncode, ViscaEnum, ViscaValue};
-
-// Core types always exported
-pub use crate::command::{
-    exposure::ExposureMode,
-    focus::{AutoFocusSensitivity, FocusMode},
-    nd_filter::NdFilterMode,
-    pan_tilt::{PanTiltDirection, PanTiltLimitCorner},
-    preset::PresetNumber,
-    resolution::{PictureEffectMode, ResolutionMode},
-    system::{MotionSyncMode, MotionSyncSpeed},
-    white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode},
+// Local modules
+pub use crate::{
+    camera::{Camera, CameraBuilder},
+    camera_id::CameraId,
+    command::{
+        exposure::ExposureMode,
+        focus::{AutoFocusSensitivity, FocusMode},
+        nd_filter::NdFilterMode,
+        pan_tilt::{PanTiltDirection, PanTiltLimitCorner},
+        preset::PresetNumber,
+        resolution::{PictureEffectMode, ResolutionMode},
+        system::{MotionSyncMode, MotionSyncSpeed},
+        white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode},
+    },
+    error::{Error, Result},
+    visca_socket::ViscaSocket,
 };
-pub use crate::error::{Error, Result};
-pub use crate::visca_socket::ViscaSocket;
-pub use crate::{camera::Camera, camera::CameraBuilder, camera_id::CameraId};
 
 // Re-export the new concrete camera types
 #[cfg(not(feature = "async"))]

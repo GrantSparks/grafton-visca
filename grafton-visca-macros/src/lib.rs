@@ -12,12 +12,12 @@
 #![doc(html_root_url = "https://docs.rs/grafton-visca/0.5.0")]
 
 use proc_macro::TokenStream;
+
 use syn::{parse_macro_input, DeriveInput};
 
 mod inquiry_command;
 mod parser_templates;
 mod value_macros;
-mod visca_encode;
 mod visca_enum;
 
 /// Derive macro for implementing ViscaValue trait for command value types
@@ -108,58 +108,6 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
 pub fn derive_inquiry_command(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     TokenStream::from(inquiry_command::derive_inquiry_command_impl(input))
-}
-
-/// Derive macro for automatic VISCA command encoding
-///
-/// This macro automatically generates the `ViscaEncode` trait implementation
-/// for commands, eliminating boilerplate code for byte sequence encoding.
-///
-/// # Basic Usage
-///
-/// ```rust,ignore
-/// use grafton_visca_macros::ViscaEncode;
-///
-/// #[derive(ViscaEncode, Debug, Copy, Clone)]
-/// #[visca_encode(response = "Power", max_size = 6, timeout = "Quick")]
-/// struct PowerOnCommand;
-/// ```
-///
-/// # For Enums
-///
-/// ```rust,ignore
-/// #[derive(ViscaEncode, Debug, Copy, Clone)]
-/// #[visca_encode(max_size = 6, timeout = "Quick")]
-/// enum PowerCommand {
-///     #[visca_bytes(0x81, 0x01, 0x04, 0x00, 0x02)]
-///     On,
-///     #[visca_bytes(0x81, 0x01, 0x04, 0x00, 0x03)]
-///     Standby,
-/// }
-/// ```
-///
-/// # Attributes
-///
-/// ## Type-level attributes (`#[visca_encode(...)]`):
-/// - `response` - The ResponseType variant name (for inquiries)
-/// - `max_size` - Maximum command size in bytes (default: 32)
-/// - `timeout` - CommandCategory variant name (default: "Custom")
-/// - `prefix` - Common prefix bytes for all variants
-///
-/// ## Variant-level attributes (`#[visca_bytes(...)]`):
-/// - List of byte values for the command
-///
-/// # Generated Implementation
-///
-/// The macro generates a complete `ViscaEncode` trait implementation with:
-/// - Proper type-state pattern using CommandBuilder
-/// - Automatic terminator handling
-/// - Camera ID injection
-/// - Buffer size validation
-#[proc_macro_derive(ViscaEncode, attributes(visca_encode, visca_bytes))]
-pub fn derive_visca_encode(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as DeriveInput);
-    TokenStream::from(visca_encode::derive_visca_encode_impl(input))
 }
 
 /// Derive macro for automatic enum/u8 conversions in VISCA protocol

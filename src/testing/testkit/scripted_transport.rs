@@ -123,6 +123,7 @@ pub struct ScriptedTransport<E = ()> {
     response_tx: flume::Sender<Result<Vec<u8>>>,
     response_rx: flume::Receiver<Result<Vec<u8>>>,
     executor: Option<Arc<E>>,
+    shutdown_rx: Option<flume::Receiver<()>>,
 }
 
 #[cfg(feature = "async")]
@@ -134,6 +135,7 @@ impl<E> Clone for ScriptedTransport<E> {
             response_tx: self.response_tx.clone(),
             response_rx: self.response_rx.clone(),
             executor: self.executor.clone(),
+            shutdown_rx: self.shutdown_rx.clone(),
         }
     }
 }
@@ -149,6 +151,7 @@ impl<E> ScriptedTransport<E> {
             response_tx,
             response_rx,
             executor: None,
+            shutdown_rx: None,
         }
     }
 
@@ -158,6 +161,12 @@ impl<E> ScriptedTransport<E> {
         E: Executor + ExecutorExt + 'static,
     {
         self.executor = Some(executor);
+        self
+    }
+
+    /// Add a shutdown receiver to cleanly exit on shutdown signal.
+    pub fn with_shutdown(mut self, shutdown_rx: flume::Receiver<()>) -> Self {
+        self.shutdown_rx = Some(shutdown_rx);
         self
     }
 
@@ -341,39 +350,37 @@ where
             }
         }
 
-        // Use non-blocking recv for compatibility with DeterministicExecutor
-        // This approach polls the channel and yields if no data is available,
-        // allowing the executor to advance time and run other tasks
+        // Wait for response using recv_async, with optional shutdown handling
+        use futures_lite::future;
 
-        // Receive response from channel with yielding for DeterministicExecutor
-        let mut attempts = 0;
-        loop {
-            attempts += 1;
-            if attempts > 1000 {
-                return Err(Error::Timeout);
+        let next = async {
+            match response_rx.recv_async().await {
+                Ok(Ok(bytes)) => Ok(bytes),
+                Ok(Err(_)) => Err(Error::Timeout),
+                Err(_) => Err(Error::Timeout),
             }
+        };
 
-            match response_rx.try_recv() {
-                Ok(Ok(response)) => {
-                    // Copy response data into the provided buffer
-                    let len = response.len().min(dst.len());
-                    dst[..len].copy_from_slice(&response[..len]);
-                    return Ok(len);
-                }
-                Ok(Err(_)) => {
-                    return Err(Error::Timeout);
-                }
-                Err(flume::TryRecvError::Empty) => {
-                    // Channel is empty, yield to allow other tasks to run
-                    // This allows DeterministicExecutor to advance virtual time
-                    futures_lite::future::yield_now().await;
-                    continue;
-                }
-                Err(flume::TryRecvError::Disconnected) => {
-                    return Err(Error::Timeout);
-                }
-            }
-        }
+        let outcome = if let Some(shutdown_rx) = &self.shutdown_rx {
+            // Race between data reception and shutdown signal
+            future::race(
+                async {
+                    let _ = shutdown_rx.recv_async().await;
+                    Err(Error::ConnectionClosed {
+                        reason: Some("Shutdown signal received".into()),
+                    })
+                },
+                next,
+            )
+            .await
+        } else {
+            next.await
+        }?;
+
+        // Copy response data into the provided buffer
+        let len = outcome.len().min(dst.len());
+        dst[..len].copy_from_slice(&outcome[..len]);
+        Ok(len)
     }
 }
 

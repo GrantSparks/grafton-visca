@@ -7,9 +7,6 @@
 // Panics and expects in test utilities are intentional for detecting test failures
 #![allow(clippy::panic, clippy::expect_used)]
 
-#[cfg(feature = "rt-tokio")]
-use crate::executor::TokioExecutor;
-
 use async_executor::Executor as AsyncExec;
 use futures_lite::future;
 
@@ -22,6 +19,9 @@ use std::{
 };
 
 use crate::{executor::Executor, Error};
+
+#[cfg(feature = "rt-tokio")]
+use crate::executor::TokioExecutor;
 
 /// Extension trait for executor background task semantics in test utilities.
 ///
@@ -81,10 +81,12 @@ pub struct VirtualClock {
 struct VirtualClockInner {
     now: Instant,
     sleepers: Vec<SleepEntry>,
+    next_id: u64,
 }
 
 #[derive(Debug)]
 struct SleepEntry {
+    id: u64,
     at: Instant,
     waker: Option<Waker>,
 }
@@ -95,6 +97,7 @@ impl VirtualClock {
             inner: Arc::new(Mutex::new(VirtualClockInner {
                 now: start_time,
                 sleepers: Vec::new(),
+                next_id: 0,
             })),
         }
     }
@@ -126,6 +129,7 @@ impl VirtualClock {
         SleepFuture {
             clock: Arc::clone(&self.inner),
             deadline,
+            id: None,
             registered: false,
         }
     }
@@ -135,6 +139,7 @@ impl VirtualClock {
 struct SleepFuture {
     clock: Arc<Mutex<VirtualClockInner>>,
     deadline: Instant,
+    id: Option<u64>,
     registered: bool,
 }
 
@@ -144,35 +149,60 @@ impl Future for SleepFuture {
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let me = self.get_mut();
 
-        // Check if we've reached the deadline
+        // Fast path: already expired => remove our entry (if registered) and complete
         {
-            let inner = me.clock.lock().expect("VirtualClock mutex poisoned");
-            let now = inner.now;
-
-            if now >= me.deadline {
+            let mut inner = me.clock.lock().expect("VirtualClock mutex poisoned");
+            if inner.now >= me.deadline {
+                if let Some(id) = me.id.take() {
+                    if let Some(pos) = inner.sleepers.iter().position(|s| s.id == id) {
+                        inner.sleepers.remove(pos);
+                    }
+                }
                 return Poll::Ready(());
             }
         }
 
-        // Update or register the waker
         let mut inner = me.clock.lock().expect("VirtualClock mutex poisoned");
         if !me.registered {
             me.registered = true;
+            let id = inner.next_id;
+            inner.next_id += 1;
             inner.sleepers.push(SleepEntry {
+                id,
                 at: me.deadline,
                 waker: Some(cx.waker().clone()),
             });
-        } else {
-            // Update the waker for this deadline if it already exists
-            for entry in &mut inner.sleepers {
-                if entry.at == me.deadline {
-                    entry.waker = Some(cx.waker().clone());
-                    break;
-                }
+            me.id = Some(id);
+        } else if let Some(id) = me.id {
+            if let Some(entry) = inner.sleepers.iter_mut().find(|s| s.id == id) {
+                entry.waker = Some(cx.waker().clone());
+            } else {
+                // Our entry disappeared (e.g., fired); re-register to be safe.
+                let id = inner.next_id;
+                inner.next_id += 1;
+                inner.sleepers.push(SleepEntry {
+                    id,
+                    at: me.deadline,
+                    waker: Some(cx.waker().clone()),
+                });
+                me.id = Some(id);
             }
         }
 
         Poll::Pending
+    }
+}
+
+// Cancel timer on drop so sleepers don't leak when futures lose races
+impl Drop for SleepFuture {
+    fn drop(&mut self) {
+        if let Some(id) = self.id.take() {
+            if let Ok(mut inner) = self.clock.lock() {
+                if let Some(pos) = inner.sleepers.iter().position(|s| s.id == id) {
+                    inner.sleepers.remove(pos);
+                }
+            }
+        }
     }
 }
 
@@ -241,6 +271,15 @@ impl DeterministicExecutor {
         let mut spins = 0usize;
 
         loop {
+            // Trace iteration start if RUNTIME_TRACE is set
+            if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+                eprintln!(
+                    "[DeterministicExecutor] Loop iteration - time: {:?}, has_deadlines: {}",
+                    self.now(),
+                    self.has_pending_deadlines()
+                );
+            }
+
             // Drain up to READY_BUDGET_PER_EPOCH ready tasks.
             let mut ran = 0usize;
             for _ in 0..READY_BUDGET_PER_EPOCH {
@@ -251,19 +290,39 @@ impl DeterministicExecutor {
                     break;
                 }
                 if let Ok(out) = rx.try_recv() {
+                    // User future completed - drain remaining tasks before returning
+                    if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+                        eprintln!("[DeterministicExecutor] User future completed, draining background tasks");
+                    }
+                    self.drain_until_quiescent();
                     return out;
                 }
             }
 
             // Completion check (in case fut finished while we were ticking)
             if let Ok(out) = rx.try_recv() {
+                // User future completed - drain remaining tasks before returning
+                if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+                    eprintln!(
+                        "[DeterministicExecutor] User future completed, draining background tasks"
+                    );
+                }
+                self.drain_until_quiescent();
                 return out;
             }
 
             if ran == 0 {
                 // No ready work -> advance time deterministically.
+                if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+                    eprintln!(
+                        "[DeterministicExecutor] No ready tasks, checking for time advancement"
+                    );
+                }
                 busy_epochs = 0;
                 if self.fire_due_timers() || self.advance_to_next_deadline() {
+                    if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+                        eprintln!("[DeterministicExecutor] Advanced time to {:?}", self.now());
+                    }
                     spins = 0;
                     continue;
                 }
@@ -300,6 +359,11 @@ impl DeterministicExecutor {
             if self.executor.try_tick() {
                 spins = 0; // Reset progress counter if we made progress
                 if let Ok(out) = rx.try_recv() {
+                    // User future completed - drain remaining tasks before returning
+                    if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+                        eprintln!("[DeterministicExecutor] User future completed, draining background tasks");
+                    }
+                    self.drain_until_quiescent();
                     return out;
                 }
             }
@@ -480,6 +544,79 @@ impl DeterministicExecutor {
     }
 }
 
+impl DeterministicExecutor {
+    /// Drain all pending tasks and timers until the executor is quiescent.
+    ///
+    /// This method is called after the user future completes to ensure all background
+    /// tasks are given a chance to observe shutdown and complete gracefully.
+    pub fn drain_until_quiescent(&self) {
+        const MAX_SPINS: usize = 1024;
+        let mut spins = 0;
+
+        if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+            eprintln!("[DeterministicExecutor] Starting drain_until_quiescent");
+        }
+
+        loop {
+            // 1) Drive any ready tasks
+            let has_tasks = self.executor.try_tick();
+
+            // 2) Drain timers that are already due (<= now)
+            let fired = self.fire_due_timers();
+
+            // 3) See if anything remains
+            let has_deadlines = self.has_pending_deadlines();
+
+            if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+                eprintln!(
+                    "[DeterministicExecutor] Drain iteration: has_tasks={}, fired={}, has_deadlines={}, spins={}",
+                    has_tasks, fired, has_deadlines, spins
+                );
+            }
+
+            // If no tasks, no fired timers, and no deadlines, we're done
+            if !has_tasks && !fired && !has_deadlines {
+                if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+                    eprintln!("[DeterministicExecutor] Quiescent - no tasks or deadlines");
+                }
+                break;
+            }
+
+            // 4) If there are future deadlines, jump to the next one
+            if has_deadlines && self.advance_to_next_deadline() {
+                if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+                    eprintln!(
+                        "[DeterministicExecutor] Advanced to next deadline: {:?}",
+                        self.now()
+                    );
+                }
+                spins = 0;
+                continue;
+            }
+
+            if has_tasks || fired {
+                spins = 0;
+                continue;
+            }
+
+            // Guard against infinite spin
+            spins += 1;
+            if spins > MAX_SPINS {
+                if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+                    eprintln!("[DeterministicExecutor] Breaking after {} spins", MAX_SPINS);
+                }
+                break;
+            }
+
+            std::thread::yield_now();
+        }
+
+        if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+            eprintln!("[DeterministicExecutor] drain_until_quiescent completed");
+        }
+    }
+}
+
 impl Clone for DeterministicExecutor {
     fn clone(&self) -> Self {
         Self {
@@ -616,7 +753,7 @@ impl Executor for DeterministicExecutor {
     }
 
     fn now(&self) -> Instant {
-        self.now()
+        self.clock.now()
     }
 
     // Override spawn_bg to properly detach the task.
@@ -1106,6 +1243,64 @@ mod tests {
         assert!(
             flag.load(Ordering::SeqCst),
             "spawn_bg task on Arc should have run"
+        );
+    }
+
+    #[test]
+    fn test_sleep_cleanup_in_race() {
+        use futures_lite::future;
+
+        let (executor, clock) = DeterministicExecutor::new();
+
+        // Test that when a sleep loses a race, it's cleaned up
+        let exec = executor.clone();
+        executor.block_on_bg(async move {
+            // Create a race between a sleep and an immediate value
+            let winner = future::race(
+                async {
+                    exec.sleep(Duration::from_millis(100)).await;
+                    "sleep"
+                },
+                async { "immediate" },
+            )
+            .await;
+
+            assert_eq!(winner, "immediate", "Immediate value should win");
+        });
+
+        // After the future completes, there should be no pending deadlines
+        // because the losing sleep should have been dropped and cleaned up
+        assert!(
+            !clock.has_pending_deadlines(),
+            "Sleep future should have been cleaned up when it lost the race"
+        );
+    }
+
+    #[test]
+    fn test_multiple_sleep_cleanup() {
+        use futures_lite::future;
+
+        let (executor, clock) = DeterministicExecutor::new();
+
+        let exec = executor.clone();
+        executor.block_on_bg(async move {
+            // Start multiple sleeps in a race
+            let _winner = future::race(
+                future::race(
+                    exec.sleep(Duration::from_millis(50)),
+                    exec.sleep(Duration::from_millis(100)),
+                ),
+                async {
+                    // Immediate completion
+                },
+            )
+            .await;
+        });
+
+        // All sleeps should be cleaned up
+        assert!(
+            !clock.has_pending_deadlines(),
+            "All sleep futures should have been cleaned up"
         );
     }
 }

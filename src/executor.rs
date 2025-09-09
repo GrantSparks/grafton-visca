@@ -4,10 +4,10 @@
 //! operations into one coherent interface, preventing runtime/spawner mismatches.
 
 #[cfg(feature = "async")]
-use std::{pin::Pin, time::Instant};
+use core::future::Future;
 
 #[cfg(feature = "async")]
-use core::future::Future;
+use std::{pin::Pin, time::Instant};
 
 use crate::Error;
 
@@ -251,6 +251,15 @@ mod tokio_impl {
                     Err(_) => Err(Error::Timeout),
                 }
             })
+        }
+
+        /// Return the current time based on Tokio's time source.
+        ///
+        /// Using Tokio's time here ensures tests annotated with
+        /// `#[tokio::test(start_paused = true)]` advance logically
+        /// when virtual time advances, preventing stalls.
+        fn now(&self) -> Instant {
+            tokio::time::Instant::now().into_std()
         }
     }
 

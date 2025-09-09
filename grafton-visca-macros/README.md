@@ -8,12 +8,11 @@ Procedural macros for the grafton-visca crate, providing derive macros to elimin
 
 ## Overview
 
-This crate provides four derive macros that work together to create type-safe, efficient VISCA command implementations:
+This crate provides three derive macros that work together to create type-safe, efficient VISCA protocol implementations:
 
 - **`InquiryCommand`** - Generate inquiry command implementations
 - **`ViscaEnum`** - Automatic enum/u8 conversions for protocol values
 - **`ViscaValue`** - Value wrapper types with VISCA encoding
-- **`ViscaEncode`** - Automatic VISCA command encoding
 
 ## InquiryCommand
 
@@ -120,50 +119,12 @@ The macro generates methods for:
 - Validation of value ranges
 - VISCA protocol encoding
 
-## ViscaEncode
-
-Generates `EncodeVisca` trait implementations with automatic terminator handling and type safety.
-
-### For Structs
-
-```rust
-use grafton_visca_macros::ViscaEncode;
-
-#[derive(ViscaEncode, Debug, Copy, Clone)]
-#[visca_encode(response = "Completion", max_size = 6, timeout = "Quick")]
-struct ZoomStop;
-```
-
-### For Enums
-
-```rust
-#[derive(ViscaEncode, Debug, Copy, Clone)]
-#[visca_encode(max_size = 6, timeout = "Quick")]
-enum PowerCommand {
-    #[visca_bytes(0x81, 0x01, 0x04, 0x00, 0x02)]
-    On,
-    #[visca_bytes(0x81, 0x01, 0x04, 0x00, 0x03)]
-    Standby,
-}
-```
-
-### Attributes
-
-**Type-level** (`#[visca_encode(...)]`):
-- `response` - ResponseType variant name
-- `max_size` - Maximum command size (default: 32)
-- `timeout` - CommandCategory for timeout (default: "Custom")
-- `prefix` - Common prefix bytes for all variants
-
-**Variant-level** (`#[visca_bytes(...)]`):
-- List of byte values for the command
-
 ## Integration with grafton-visca
 
 These macros are re-exported by the main grafton-visca crate:
 
 ```rust
-use grafton_visca::{InquiryCommand, ViscaEnum, ViscaValue, ViscaEncode};
+use grafton_visca::{InquiryCommand, ViscaEnum, ViscaValue};
 ```
 
 ## Benefits
@@ -177,12 +138,11 @@ use grafton_visca::{InquiryCommand, ViscaEnum, ViscaValue, ViscaEncode};
 
 ## Examples
 
-### Complete Command Implementation
+### Example Inquiry and Enum
 
 ```rust
-use grafton_visca_macros::{ViscaEncode, InquiryCommand, ViscaEnum};
+use grafton_visca_macros::{InquiryCommand, ViscaEnum};
 
-// Define exposure modes
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
 pub enum ExposureMode {
     Auto = 0x00,
@@ -191,14 +151,6 @@ pub enum ExposureMode {
     Iris = 0x0B,
 }
 
-// Command to set exposure mode
-#[derive(ViscaEncode, Debug, Copy, Clone)]
-#[visca_encode(response = "Completion", max_size = 6, timeout = "Quick")]
-pub struct SetExposureMode {
-    mode: ExposureMode,
-}
-
-// Inquiry to get current exposure mode
 #[derive(InquiryCommand, Debug, Copy, Clone)]
 #[visca(command = 0x39, response = "ExposureMode", parser = "mode")]
 pub struct ExposureModeInquiry;

@@ -448,12 +448,38 @@ impl SchedulerCore {
         let allocated_count = self.sockets.iter().filter(|s| !s.free).count();
         let total_in_flight = pending_count + allocated_count;
 
+        let can_send = total_in_flight < 2;
+
+        if !can_send && std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+            eprintln!(
+                "[SchedulerCore] can_send_command=false: {} pending ACK + {} allocated = {}/2 capacity",
+                pending_count, allocated_count, total_in_flight
+            );
+        }
+
         debug!(
             "Commands in flight: {} pending ACK + {} allocated = {}/2",
             pending_count, allocated_count, total_in_flight
         );
 
-        total_in_flight < 2
+        // Debug assertion to check invariants
+        #[cfg(debug_assertions)]
+        {
+            // Verify that no command appears in both pending_ack and sockets
+            for &cmd_id in self.pending_ack.keys() {
+                for socket in &self.sockets {
+                    if socket.command_id == Some(cmd_id) {
+                        eprintln!(
+                            "ERROR: Invariant violation: command {} is both pending ACK and allocated to socket",
+                            cmd_id
+                        );
+                        debug_assert!(false, "Invariant violation detected");
+                    }
+                }
+            }
+        }
+
+        can_send
     }
 
     /// Get the next command to send if any.
@@ -918,6 +944,12 @@ impl SchedulerCore {
                             "Command {} on socket {:?} timed out after {:?}",
                             cmd_id, socket, timeout
                         );
+                        if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+                            eprintln!(
+                                "[SchedulerCore] Socket timeout: cmd_id={}, socket={:?}, category={:?}, duration={:?}",
+                                cmd_id, socket, category, now.duration_since(started_at)
+                            );
+                        }
                         timed_out.push((socket, cmd_id));
                     }
                 }
@@ -982,6 +1014,117 @@ impl SchedulerCore {
                     id: cmd_id,
                     error: Error::Timeout,
                 });
+            }
+        }
+
+        // Check pending-ACK timeouts (commands sent but not yet acknowledged)
+        let ack_timeout = self.timeout_config.ack_timeout;
+        let mut ack_timed_out = Vec::new();
+
+        for (&cmd_id, &(_, _, _category, sent_at, _)) in &self.pending_ack {
+            if now.duration_since(sent_at) > ack_timeout {
+                warn!(
+                    "Command {} timed out waiting for ACK after {:?}",
+                    cmd_id, ack_timeout
+                );
+                ack_timed_out.push(cmd_id);
+            }
+        }
+
+        // Process all timed-out ACK commands
+        for cmd_id in ack_timed_out {
+            // Remove from pending_ack FIRST to free capacity
+            if let Some((bytes, priority, category, _, camera_id)) =
+                self.pending_ack.remove(&cmd_id)
+            {
+                if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+                    eprintln!(
+                        "[SchedulerCore] ACK timeout: cmd_id={}, removed from pending_ack (count={})",
+                        cmd_id,
+                        self.pending_ack.len()
+                    );
+                }
+
+                // Debug assertion: command should not be in both pending_ack and have a socket
+                #[cfg(debug_assertions)]
+                {
+                    for socket in &self.sockets {
+                        if socket.command_id == Some(cmd_id) {
+                            eprintln!(
+                                "ERROR: Invariant violation: ACK-timed-out command {} still has socket allocated",
+                                cmd_id
+                            );
+                            debug_assert!(false, "ACK timeout invariant violation");
+                        }
+                    }
+                }
+
+                // Get retry count for this command
+                let attempts = self.retry_attempts.get(&cmd_id).copied().unwrap_or(0);
+                let max_retries = self
+                    .max_retries_per_category
+                    .get(&category)
+                    .copied()
+                    .unwrap_or(3);
+
+                if attempts < max_retries {
+                    // Queue for retry
+                    debug!(
+                        "Queueing ACK-timed-out command {} for retry (attempt {})",
+                        cmd_id,
+                        attempts + 1
+                    );
+
+                    if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+                        eprintln!(
+                            "[SchedulerCore] Queueing retry for cmd_id={} (attempt {}/{})",
+                            cmd_id,
+                            attempts + 1,
+                            max_retries
+                        );
+                    }
+
+                    // Update retry count
+                    self.retry_attempts.insert(cmd_id, attempts + 1);
+
+                    // Ensure command metadata is preserved for retry
+                    self.command_metadata
+                        .insert(cmd_id, (bytes.clone(), priority, category, camera_id));
+
+                    // Calculate retry delay with exponential backoff
+                    let base_delay = Duration::from_millis(100);
+                    let backoff_factor = 2_u32.pow(attempts.min(5));
+                    let retry_delay = base_delay * backoff_factor;
+
+                    actions.push(SchedulerAction::RetryCommand {
+                        id: cmd_id,
+                        bytes,
+                        delay: retry_delay,
+                    });
+                } else {
+                    // Max retries exceeded - fail the command
+                    debug!(
+                        "Command {} exceeded max ACK retries, failing with Timeout",
+                        cmd_id
+                    );
+
+                    if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+                        eprintln!(
+                            "[SchedulerCore] Command {} exceeded max ACK retries ({}), failing",
+                            cmd_id, max_retries
+                        );
+                    }
+
+                    // Clean up all state for this command
+                    self.finish_sequence(cmd_id);
+                    self.command_metadata.remove(&cmd_id);
+                    self.retry_attempts.remove(&cmd_id);
+
+                    actions.push(SchedulerAction::CommandFailed {
+                        id: cmd_id,
+                        error: Error::Timeout,
+                    });
+                }
             }
         }
 
@@ -1126,6 +1269,11 @@ impl SchedulerCore {
     pub fn is_command_pending(&self, cmd_id: u32) -> bool {
         self.pending_ack.contains_key(&cmd_id)
             || self.sockets.iter().any(|s| s.command_id == Some(cmd_id))
+    }
+
+    /// Get the count of commands waiting for ACK.
+    pub fn pending_ack_count(&self) -> usize {
+        self.pending_ack.len()
     }
 
     /// Free a previously reserved socket (used for rollback on inquiry send failure).

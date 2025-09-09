@@ -37,6 +37,8 @@ pub struct RuntimeHandle {
     submit: Sender<TxItem>,
     /// Flag to track if runtime is shutdown.
     shutdown: Arc<AtomicBool>,
+    /// Shutdown signal sender using flume for runtime-agnostic signaling.
+    shutdown_tx: Sender<()>,
     /// Channel for requesting metrics from the runtime.
     metrics_tx: Sender<Sender<MetricsSummary>>,
     /// Counter for generating unique command IDs.
@@ -269,6 +271,7 @@ impl RuntimeHandle {
     {
         let (submit_tx, submit_rx) = flume::unbounded();
         let (metrics_tx, metrics_rx) = flume::unbounded();
+        let (shutdown_tx, shutdown_rx) = flume::unbounded();
 
         // Extract config before creating the runtime config
         // This is done before spawn to avoid lifetime issues
@@ -300,6 +303,7 @@ impl RuntimeHandle {
             transport,
             submit_rx,
             metrics_rx,
+            shutdown_rx,
             task_executor,
             config,
         );
@@ -307,6 +311,7 @@ impl RuntimeHandle {
         Ok(Self {
             submit: submit_tx,
             shutdown: Arc::new(AtomicBool::new(false)),
+            shutdown_tx,
             metrics_tx,
             next_command_id: Arc::new(AtomicU32::new(1)),
         })
@@ -418,6 +423,10 @@ impl RuntimeHandle {
     pub async fn shutdown(&self) {
         // Set the shutdown flag
         self.shutdown.store(true, Ordering::Relaxed);
+        eprintln!("[RuntimeHandle] Sending shutdown signal");
+        // Send shutdown signal to runtime loop
+        let _ = self.shutdown_tx.send_async(()).await;
+        eprintln!("[RuntimeHandle] Shutdown signal sent");
     }
 
     /// Get current metrics from the runtime scheduler.
@@ -605,6 +614,7 @@ fn spawn_runtime_loop<T, E>(
     transport: T,
     submit_rx: flume::Receiver<TxItem>,
     metrics_rx: flume::Receiver<Sender<MetricsSummary>>,
+    shutdown_rx: flume::Receiver<()>,
     task_executor: Arc<E>,
     config: RuntimeLoopConfig,
 ) where
@@ -620,6 +630,7 @@ fn spawn_runtime_loop<T, E>(
             transport,     // moved
             submit_rx,     // moved
             metrics_rx,    // moved
+            shutdown_rx,   // moved
             task_executor, // moved Arc<E>
             config,        // plain data
         ));
@@ -627,4 +638,23 @@ fn spawn_runtime_loop<T, E>(
     executor.spawn_bg(async move {
         let _ = fut.await;
     });
+}
+
+impl Drop for RuntimeHandle {
+    fn drop(&mut self) {
+        // Send shutdown signal on drop
+        tracing::trace!("RuntimeHandle::drop -> sending shutdown");
+        if std::env::var("RUNTIME_TRACE").is_ok() {
+            eprintln!("[RuntimeHandle] Drop called, sending shutdown signal");
+        }
+        let _ = self.shutdown_tx.send(());
+        self.shutdown.store(true, Ordering::Relaxed);
+        if std::env::var("RUNTIME_TRACE").is_ok() {
+            eprintln!("[RuntimeHandle] Shutdown signal sent via Drop");
+        }
+
+        // Note: flume channels don't have a disconnect() method
+        // The channels will be closed when all senders are dropped
+        // The shutdown signal above is the primary mechanism for clean termination
+    }
 }

@@ -141,6 +141,13 @@ impl<E: Executor> AsyncAdapter<E> {
                 // Store response channel
                 self.response_channels.insert(id, response_tx);
 
+                if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+                    eprintln!(
+                        "[AsyncAdapter] Submitted command id={}, stored response channel",
+                        id
+                    );
+                }
+
                 // Queue command in core
                 let now = self.executor.now();
                 let pending_cmd = PendingCommand {
@@ -374,8 +381,28 @@ impl<E: Executor> AsyncAdapter<E> {
 
                 // Core handles all inquiry cleanup now
 
+                if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+                    eprintln!(
+                        "[AsyncAdapter] CommandFailed action for id={}, error={:?}, has_channel={}",
+                        id,
+                        error,
+                        self.response_channels.contains_key(&id)
+                    );
+                }
+
                 if let Some(tx) = self.response_channels.remove(&id) {
+                    if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+                        eprintln!(
+                            "[AsyncAdapter] Sending error to response channel for id={}",
+                            id
+                        );
+                    }
                     let _ = tx.send_async(Err(error)).await;
+                } else if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+                    eprintln!(
+                        "[AsyncAdapter] No response channel found for failed command id={}",
+                        id
+                    );
                 }
             }
             SchedulerAction::RetryCommand {
@@ -415,21 +442,14 @@ impl<E: Executor> AsyncAdapter<E> {
         self.core.get_ready_retries(now)
     }
 
-    /// Handle a network error by failing all pending commands.
-    pub async fn handle_network_error(&mut self) -> Result<()> {
-        self.metrics.network_errors += 1;
-
-        let now = self.executor.now();
-        let actions = self.core.process_event(SchedulerEvent::NetworkError, now);
-        for action in actions {
-            self.handle_action(action).await?;
-        }
-        Ok(())
-    }
-
     /// Check if we can send another command.
     pub fn can_send_command(&self) -> bool {
         self.core.can_send_command()
+    }
+
+    /// Get the count of commands waiting for ACK.
+    pub fn pending_ack_count(&self) -> usize {
+        self.core.pending_ack_count()
     }
 
     /// Get metrics summary.
@@ -451,5 +471,20 @@ impl<E: Executor> AsyncAdapter<E> {
     /// Find the socket for a given command ID.
     pub fn socket_for_command(&self, id: u32) -> Option<ViscaSocket> {
         self.core.find_socket_for_command(id)
+    }
+
+    /// Handle a network error event.
+    ///
+    /// This mirrors the blocking runner's network error handling,
+    /// causing all inflight commands to be queued for retry.
+    pub async fn on_network_error(&mut self) -> Result<()> {
+        let now = self.executor.now();
+        self.metrics.network_errors += 1;
+
+        let actions = self.core.process_event(SchedulerEvent::NetworkError, now);
+        for action in actions {
+            self.handle_action(action).await?;
+        }
+        Ok(())
     }
 }
