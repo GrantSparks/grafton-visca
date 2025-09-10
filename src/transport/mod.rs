@@ -73,8 +73,8 @@ pub mod envelope;
 // Core detection types are needed by both async and blocking modes
 pub mod protocol_detection;
 pub mod retry;
-// Unified serial configuration module (available with serialport feature)
-#[cfg(feature = "serialport")]
+// Unified serial configuration module (available with either blocking or async serial)
+#[cfg(any(feature = "serialport", feature = "tokio-serial"))]
 pub mod serial;
 // Old blocking serial transport (being phased out in favor of unified approach)
 #[cfg(all(not(feature = "async"), feature = "serialport"))]

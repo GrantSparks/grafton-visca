@@ -79,7 +79,7 @@ pub trait Runtime: Executor + Clone + Send + Sync + 'static {
 /// when the serialport feature is enabled.
 ///
 /// Currently only implemented for Tokio runtime as it has tokio-serial integration.
-#[cfg(all(feature = "async", feature = "serialport"))]
+#[cfg(all(feature = "async", feature = "tokio-serial"))]
 pub trait RuntimeSerial: Runtime {
     /// Serial transport type for this runtime.
     type SerialTransport: AsyncTransport + HasTransportConfig + Send + 'static;
@@ -282,8 +282,8 @@ mod tokio_impl {
         }
     }
 
-    // Implement RuntimeSerial for TokioRuntime when serialport feature is enabled
-    #[cfg(feature = "serialport")]
+    // Implement RuntimeSerial for TokioRuntime when tokio-serial feature is enabled
+    #[cfg(feature = "tokio-serial")]
     impl RuntimeSerial for TokioRuntime {
         type SerialTransport = crate::transport::tokio::serial::Serial;
 

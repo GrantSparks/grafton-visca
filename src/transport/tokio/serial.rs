@@ -108,7 +108,7 @@ impl Serial {
             read_timeout: config.read_timeout,
             write_timeout: config.write_timeout,
             retry_config: config.retry_config,
-            buffer_config: BufferConfig::for_raw_ip(), // Serial uses raw VISCA
+            buffer_config: BufferConfig::for_serial(), // Serial uses dedicated buffer sizing
             tcp_nodelay: None,
             ttl: None,
         };
