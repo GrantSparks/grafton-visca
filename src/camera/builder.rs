@@ -435,115 +435,15 @@ where
 {
     /// Open the camera with auto-detected transport and protocol.
     ///
-    /// This method tries multiple transport/protocol combinations to find
-    /// the one that works with the camera.
+    /// This method delegates to the canonical detection helper that properly
+    /// frames/deframes protocol messages and validates VISCA responses.
     pub fn open(self) -> Result<crate::BlockingCamera<P, Box<dyn SyncTransport>>, Error> {
-        use crate::transport::blocking::{tcp::Tcp, udp::Udp};
-        use std::time::Duration;
-
-        // Extract host from address (remove port if present)
-        let host = if let Some(colon_pos) = self.address.rfind(':') {
-            // Check if this is actually a port (not IPv6)
-            if self.address[colon_pos + 1..].parse::<u16>().is_ok() {
-                &self.address[..colon_pos]
-            } else {
-                &self.address
-            }
-        } else {
-            &self.address
-        };
-
-        // Detection candidates in priority order
-        let candidates = vec![
-            // Sony cameras
-            (
-                format!("{}:52381", host),
-                TransportType::Udp,
-                ProtocolStyle::SonyEncapsulated,
-            ),
-            (
-                format!("{}:52381", host),
-                TransportType::Tcp,
-                ProtocolStyle::SonyEncapsulated,
-            ),
-            // PTZOptics cameras
-            (
-                format!("{}:1259", host),
-                TransportType::Udp,
-                ProtocolStyle::RawVisca,
-            ),
-            (
-                format!("{}:5678", host),
-                TransportType::Tcp,
-                ProtocolStyle::RawVisca,
-            ),
-        ];
-
-        // Try each candidate
-        for (address, transport_type, protocol_style) in candidates {
-            // Try to connect
-            let transport_result: Result<Box<dyn SyncTransport>, Error> = match transport_type {
-                TransportType::Tcp => {
-                    match Tcp::connect(&address) {
-                        Ok(t) => Ok(Box::new(t)),
-                        Err(_) => continue, // Try next candidate
-                    }
-                }
-                TransportType::Udp => {
-                    match Udp::connect(&address) {
-                        Ok(t) => Ok(Box::new(t)),
-                        Err(_) => continue, // Try next candidate
-                    }
-                }
-            };
-
-            if let Ok(mut transport) = transport_result {
-                // Test with a simple inquiry command
-                let test_command = &[0x81, 0x09, 0x00, 0x02, 0xFF]; // Version Inquiry
-
-                // Send command and check for response
-                if transport
-                    .send_with_kind(test_command, crate::command::CommandKind::Inquiry)
-                    .is_ok()
-                {
-                    // Try to receive with timeout
-                    if let Ok(response) = transport.recv_with_timeout(Duration::from_millis(100)) {
-                        // Check if response looks valid
-                        if !response.is_empty()
-                            && Self::is_valid_response(&response, protocol_style)
-                        {
-                            // Found working combination
-                            return crate::BlockingCamera::new_with_style(
-                                transport,
-                                protocol_style,
-                            );
-                        }
-                    }
-                }
-            }
-        }
-
-        Err(Error::ConnectionFailed {
-            addr: self.address.clone().into(),
-            source: std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                "No VISCA protocol response detected from camera - verify camera is powered on and address is correct"
-            ),
-        })
-    }
-
-    /// Check if a response is valid for the given protocol style.
-    fn is_valid_response(data: &[u8], protocol_style: ProtocolStyle) -> bool {
-        match protocol_style {
-            ProtocolStyle::SonyEncapsulated => {
-                // Sony response should have at least 8-byte header
-                data.len() >= 8 && data[0] == 0x01 && data[1] == 0x11
-            }
-            ProtocolStyle::RawVisca => {
-                // Raw VISCA response should start with 0x90
-                !data.is_empty() && (data[0] == 0x90 || data[0] == 0x50)
-            }
-        }
+        // Use the canonical auto-detection logic
+        let (transport, style) = crate::transport::builder::auto_connect_and_detect_blocking(
+            &self.address,
+            crate::transport::builder::TransportConfig::default(),
+        )?;
+        crate::BlockingCamera::new_with_style(transport, style)
     }
 }
 

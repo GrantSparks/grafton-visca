@@ -307,7 +307,6 @@ mod all_runtimes_test {
     use grafton_visca::{
         camera::CameraBuilder,
         testing::testkit::{ScriptedTransport, Step},
-        PowerControl,
     };
 
     /// Verify that all three runtimes produce identical results for the same operations
