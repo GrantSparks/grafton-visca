@@ -423,14 +423,18 @@ where
             format!("{}:{}", host, candidate.port)
         };
 
-        // Try to connect with this transport
+        // Create a per-candidate config with the correct buffer configuration
+        let mut candidate_cfg = cfg;
+        candidate_cfg.buffer_config = candidate.buffer_config;
+
+        // Try to connect with this transport using the candidate's buffer config
         let transport_result = match candidate.protocol {
-            TransportProtocol::Tcp => R::connect_tcp(&address, cfg)
+            TransportProtocol::Tcp => R::connect_tcp(&address, candidate_cfg)
                 .await
-                .map(|t| TransportHandle::Tcp(t, cfg)),
-            TransportProtocol::Udp => R::connect_udp(&address, cfg)
+                .map(|t| TransportHandle::Tcp(t, candidate_cfg)),
+            TransportProtocol::Udp => R::connect_udp(&address, candidate_cfg)
                 .await
-                .map(|t| TransportHandle::Udp(t, cfg)),
+                .map(|t| TransportHandle::Udp(t, candidate_cfg)),
         };
 
         match transport_result {
@@ -506,14 +510,18 @@ pub fn auto_connect_and_detect_blocking(
             format!("{}:{}", host, candidate.port)
         };
 
-        // Try to connect with this transport
+        // Create a per-candidate config with the correct buffer configuration
+        let mut candidate_cfg = cfg;
+        candidate_cfg.buffer_config = candidate.buffer_config;
+
+        // Try to connect with this transport using the candidate's buffer config
         let transport_result: Result<Box<dyn SyncTransport>, Error> = match candidate.protocol {
             TransportProtocol::Tcp => {
-                crate::transport::blocking::Tcp::connect_with_config(&address, cfg)
+                crate::transport::blocking::Tcp::connect_with_config(&address, candidate_cfg)
                     .map(|t| -> Box<dyn SyncTransport> { Box::new(t) })
             }
             TransportProtocol::Udp => {
-                crate::transport::blocking::Udp::connect_with_config(&address, cfg)
+                crate::transport::blocking::Udp::connect_with_config(&address, candidate_cfg)
                     .map(|t| -> Box<dyn SyncTransport> { Box::new(t) })
             }
         };
@@ -680,5 +688,72 @@ mod tests {
 
         let udp_builder = Transport::udp();
         assert_eq!(udp_builder.protocol, Protocol::Udp);
+    }
+
+    // Test that verifies buffer config propagation in auto-detect functions
+    #[test]
+    fn test_buffer_config_propagation_logic() {
+        use crate::transport::buffer::BufferConfig;
+        use crate::transport::protocol_detection::ProtocolDetector;
+
+        // Test that detection candidates have appropriate buffer configs
+        let candidates = ProtocolDetector::generate_candidates("192.168.0.110:52381");
+        for candidate in candidates {
+            // Sony port should have Sony buffer config
+            if candidate.port == 52381
+                && matches!(
+                    candidate.protocol_style,
+                    crate::capabilities::ProtocolStyle::SonyEncapsulated
+                )
+            {
+                assert_eq!(
+                    candidate.buffer_config.recv_buffer_size,
+                    BufferConfig::for_sony_ip().recv_buffer_size,
+                    "Sony candidate should have Sony buffer config"
+                );
+            }
+        }
+
+        // Test UDP port 1259
+        let candidates = ProtocolDetector::generate_candidates("192.168.0.110:1259");
+        for candidate in candidates {
+            if candidate.port == 1259
+                && matches!(
+                    candidate.protocol_style,
+                    crate::capabilities::ProtocolStyle::RawVisca
+                )
+                && matches!(
+                    candidate.protocol,
+                    crate::transport::protocol_detection::TransportProtocol::Udp
+                )
+            {
+                assert_eq!(
+                    candidate.buffer_config.recv_buffer_size,
+                    BufferConfig::for_udp().recv_buffer_size,
+                    "UDP candidate should have UDP buffer config"
+                );
+            }
+        }
+
+        // Test TCP port 5678
+        let candidates = ProtocolDetector::generate_candidates("192.168.0.110:5678");
+        for candidate in candidates {
+            if candidate.port == 5678
+                && matches!(
+                    candidate.protocol_style,
+                    crate::capabilities::ProtocolStyle::RawVisca
+                )
+                && matches!(
+                    candidate.protocol,
+                    crate::transport::protocol_detection::TransportProtocol::Tcp
+                )
+            {
+                assert_eq!(
+                    candidate.buffer_config.recv_buffer_size,
+                    BufferConfig::for_raw_ip().recv_buffer_size,
+                    "TCP raw VISCA candidate should have raw IP buffer config"
+                );
+            }
+        }
     }
 }
