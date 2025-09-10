@@ -451,7 +451,7 @@ where
     ///
     /// let session = config.open_serial_async(runtime).await?;
     /// ```
-    #[cfg(all(feature = "async", feature = "serialport"))]
+    #[cfg(all(feature = "async", feature = "tokio-serial"))]
     pub async fn open_serial_async<R>(
         &self,
         runtime: R,

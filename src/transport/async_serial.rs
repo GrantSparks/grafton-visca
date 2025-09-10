@@ -3,7 +3,7 @@
 //! This module provides a runtime-agnostic serial transport that works with any
 //! stream type implementing the AsyncReadExt and AsyncWriteExt traits.
 
-#![cfg_attr(not(feature = "serialport"), allow(dead_code))]
+#![cfg_attr(not(feature = "tokio-serial"), allow(dead_code))]
 
 use crate::{
     transport::{

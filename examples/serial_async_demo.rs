@@ -11,17 +11,17 @@
 //! 2. Send I/F Clear and optionally Address Set commands
 //! 3. Send some basic commands to verify operation
 
-#[cfg(all(feature = "async", feature = "rt-tokio", feature = "serialport"))]
+#[cfg(all(feature = "async", feature = "rt-tokio", feature = "tokio-serial"))]
 use grafton_visca::{
     camera::{profiles::GenericVisca, Camera},
     runtime_trait::TokioRuntime,
     Error,
 };
 
-#[cfg(all(feature = "async", feature = "rt-tokio", feature = "serialport"))]
+#[cfg(all(feature = "async", feature = "rt-tokio", feature = "tokio-serial"))]
 use std::env;
 
-#[cfg(all(feature = "async", feature = "rt-tokio", feature = "serialport"))]
+#[cfg(all(feature = "async", feature = "rt-tokio", feature = "tokio-serial"))]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
@@ -104,10 +104,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(not(all(feature = "async", feature = "rt-tokio", feature = "serialport")))]
+#[cfg(not(all(feature = "async", feature = "rt-tokio", feature = "tokio-serial")))]
 fn main() {
-    eprintln!("This example requires 'async', 'rt-tokio', and 'serialport' features.");
+    eprintln!("This example requires 'async', 'rt-tokio', and 'tokio-serial' features.");
     eprintln!(
-        "Run with: cargo run --example serial_async_demo --features 'async,rt-tokio,serialport'"
+        "Run with: cargo run --example serial_async_demo --features 'async,rt-tokio,tokio-serial'"
     );
 }

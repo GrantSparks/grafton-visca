@@ -137,7 +137,7 @@ impl Camera {
     /// cam.power().on().await?;
     /// cam.close().await?;
     /// ```
-    #[cfg(feature = "serialport")]
+    #[cfg(feature = "tokio-serial")]
     pub async fn open_serial_async<P, R>(
         port: impl Into<String>,
         baud_rate: u32,
