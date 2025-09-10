@@ -31,8 +31,14 @@ use crate::{
 ///
 /// Note: This type is only available when the "async" feature is enabled,
 /// as it requires async runtime support for communication.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct RuntimeHandle {
+    /// Inner shared state wrapped in Arc for safe cloning.
+    inner: Arc<RuntimeHandleInner>,
+}
+
+#[derive(Debug)]
+struct RuntimeHandleInner {
     /// Channel for submitting commands and inquiries.
     submit: Sender<TxItem>,
     /// Flag to track if runtime is shutdown.
@@ -43,6 +49,14 @@ pub struct RuntimeHandle {
     metrics_tx: Sender<Sender<MetricsSummary>>,
     /// Counter for generating unique command IDs.
     next_command_id: Arc<AtomicU32>,
+}
+
+impl Clone for RuntimeHandle {
+    fn clone(&self) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+        }
+    }
 }
 
 impl RuntimeHandle {
@@ -309,11 +323,13 @@ impl RuntimeHandle {
         );
 
         Ok(Self {
-            submit: submit_tx,
-            shutdown: Arc::new(AtomicBool::new(false)),
-            shutdown_tx,
-            metrics_tx,
-            next_command_id: Arc::new(AtomicU32::new(1)),
+            inner: Arc::new(RuntimeHandleInner {
+                submit: submit_tx,
+                shutdown: Arc::new(AtomicBool::new(false)),
+                shutdown_tx,
+                metrics_tx,
+                next_command_id: Arc::new(AtomicU32::new(1)),
+            }),
         })
     }
 
@@ -363,10 +379,11 @@ impl RuntimeHandle {
 
     /// Send a command item to the runtime.
     pub(crate) async fn command(&self, item: TxItem) -> Result<()> {
-        if self.shutdown.load(Ordering::Relaxed) {
+        if self.inner.shutdown.load(Ordering::Relaxed) {
             return Err(Error::RuntimeShutdown);
         }
-        self.submit
+        self.inner
+            .submit
             .send_async(item)
             .await
             .map_err(|_| Error::ChannelClosed)
@@ -391,7 +408,8 @@ impl RuntimeHandle {
         // Use the new CancelById variant for targeted cancellation
         let cancel_item = TxItem::CancelById { id: command_id };
 
-        self.submit
+        self.inner
+            .submit
             .send_async(cancel_item)
             .await
             .map_err(|_| Error::ChannelClosed)
@@ -413,7 +431,8 @@ impl RuntimeHandle {
     pub async fn cancel_socket(&self, socket: ViscaSocket) -> Result<()> {
         let cancel_item = TxItem::Cancel { socket };
 
-        self.submit
+        self.inner
+            .submit
             .send_async(cancel_item)
             .await
             .map_err(|_| Error::ChannelClosed)
@@ -422,10 +441,10 @@ impl RuntimeHandle {
     /// Shutdown the runtime.
     pub async fn shutdown(&self) {
         // Set the shutdown flag
-        self.shutdown.store(true, Ordering::Relaxed);
+        self.inner.shutdown.store(true, Ordering::Relaxed);
         eprintln!("[RuntimeHandle] Sending shutdown signal");
         // Send shutdown signal to runtime loop
-        let _ = self.shutdown_tx.send_async(()).await;
+        let _ = self.inner.shutdown_tx.send_async(()).await;
         eprintln!("[RuntimeHandle] Shutdown signal sent");
     }
 
@@ -435,7 +454,8 @@ impl RuntimeHandle {
     /// command counts, retry statistics, and more.
     pub async fn metrics(&self) -> Result<MetricsSummary> {
         let (response_tx, response_rx) = flume::bounded(1);
-        self.metrics_tx
+        self.inner
+            .metrics_tx
             .send_async(response_tx)
             .await
             .map_err(|_| Error::ChannelClosed)?;
@@ -530,7 +550,7 @@ impl RuntimeHandle {
         let bytes = cmd.try_into_bytes(camera_id)?;
 
         // Generate command ID
-        let command_id = self.next_command_id.fetch_add(1, Ordering::Relaxed);
+        let command_id = self.inner.next_command_id.fetch_add(1, Ordering::Relaxed);
 
         // Create response channel
         let (response_tx, response_rx) = flume::bounded(1);
@@ -581,7 +601,7 @@ impl RuntimeHandle {
         let bytes = inquiry.try_into_bytes(camera_id)?;
 
         // Generate inquiry ID
-        let inquiry_id = self.next_command_id.fetch_add(1, Ordering::Relaxed);
+        let inquiry_id = self.inner.next_command_id.fetch_add(1, Ordering::Relaxed);
 
         // Create response channel
         let (response_tx, response_rx) = flume::bounded(1);
@@ -642,15 +662,22 @@ fn spawn_runtime_loop<T, E>(
 
 impl Drop for RuntimeHandle {
     fn drop(&mut self) {
-        // Send shutdown signal on drop
-        tracing::trace!("RuntimeHandle::drop -> sending shutdown");
-        if std::env::var("RUNTIME_TRACE").is_ok() {
-            eprintln!("[RuntimeHandle] Drop called, sending shutdown signal");
-        }
-        let _ = self.shutdown_tx.send(());
-        self.shutdown.store(true, Ordering::Relaxed);
-        if std::env::var("RUNTIME_TRACE").is_ok() {
-            eprintln!("[RuntimeHandle] Shutdown signal sent via Drop");
+        // Only send shutdown signal if this is the last reference
+        if Arc::strong_count(&self.inner) == 1 {
+            tracing::trace!("RuntimeHandle::drop -> last reference, sending shutdown");
+            if std::env::var("RUNTIME_TRACE").is_ok() {
+                eprintln!("[RuntimeHandle] Drop called on last reference, sending shutdown signal");
+            }
+            let _ = self.inner.shutdown_tx.send(());
+            self.inner.shutdown.store(true, Ordering::Relaxed);
+            if std::env::var("RUNTIME_TRACE").is_ok() {
+                eprintln!("[RuntimeHandle] Shutdown signal sent via Drop");
+            }
+        } else if std::env::var("RUNTIME_TRACE").is_ok() {
+            eprintln!(
+                "[RuntimeHandle] Drop called but {} references remain, not shutting down",
+                Arc::strong_count(&self.inner)
+            );
         }
 
         // Note: flume channels don't have a disconnect() method
