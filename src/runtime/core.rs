@@ -249,7 +249,7 @@ pub enum SchedulerEvent {
         code: u8,
     },
     /// Network error (for broadcast recovery).
-    NetworkError,
+    NetworkError(Error),
 }
 
 /// Sequence list enum for efficient 1:Many command-to-sequences mapping.
@@ -389,6 +389,8 @@ pub struct SchedulerCore {
     >,
     /// Track retry attempts for commands (command_id -> attempt_count).
     retry_attempts: HashMap<u32, u32>,
+    /// Track whether the retry was triggered by a transport error (command_id -> is_transport_error).
+    retry_trigger_transport_error: HashMap<u32, bool>,
     /// Priority queue for pending commands.
     command_queue: BinaryHeap<PendingCommand>,
     /// Maximum retries per command category.
@@ -443,6 +445,7 @@ impl SchedulerCore {
             retry_queue: Vec::new(),
             command_metadata: HashMap::new(),
             retry_attempts: HashMap::new(),
+            retry_trigger_transport_error: HashMap::new(),
             command_queue: BinaryHeap::new(),
             max_retries_per_category: max_retries,
             seq_to_cmd: HashMap::new(),
@@ -840,6 +843,7 @@ impl SchedulerCore {
                     self.finish_sequence(cmd_id);
                     self.command_metadata.remove(&cmd_id);
                     self.retry_attempts.remove(&cmd_id);
+                    self.retry_trigger_transport_error.remove(&cmd_id);
                     actions.push(SchedulerAction::CommandComplete {
                         id: cmd_id,
                         response,
@@ -867,6 +871,7 @@ impl SchedulerCore {
                     // Remove metadata
                     self.command_metadata.remove(&cmd_id);
                     self.retry_attempts.remove(&cmd_id);
+                    self.retry_trigger_transport_error.remove(&cmd_id);
                     // Complete the inquiry
                     actions.push(SchedulerAction::CommandComplete {
                         id: cmd_id,
@@ -917,6 +922,7 @@ impl SchedulerCore {
                         self.finish_sequence(cmd_id);
                         self.command_metadata.remove(&cmd_id);
                         self.retry_attempts.remove(&cmd_id);
+                        self.retry_trigger_transport_error.remove(&cmd_id);
                         actions.push(SchedulerAction::CommandFailed {
                             id: cmd_id,
                             error: Error::from_code(code),
@@ -924,10 +930,15 @@ impl SchedulerCore {
                     }
                 }
             }
-            SchedulerEvent::NetworkError => {
+            SchedulerEvent::NetworkError(error) => {
                 // Network error - retry all pending commands
                 let pending_cmds: Vec<_> = self.pending_ack.keys().cloned().collect();
+                // Check if this is a transport error
+                let is_transport_error = matches!(error, Error::TransportError(_));
                 for cmd_id in pending_cmds {
+                    // Store whether this retry was triggered by a transport error
+                    self.retry_trigger_transport_error
+                        .insert(cmd_id, is_transport_error);
                     if let Some(retry_action) = self.queue_retry_for_command(cmd_id, now) {
                         actions.push(retry_action);
                     }
@@ -1028,6 +1039,7 @@ impl SchedulerCore {
                 self.finish_sequence(cmd_id);
                 self.command_metadata.remove(&cmd_id);
                 self.retry_attempts.remove(&cmd_id);
+                self.retry_trigger_transport_error.remove(&cmd_id);
                 self.inquiry_response_types.remove(&cmd_id);
                 actions.push(SchedulerAction::CommandFailed {
                     id: cmd_id,
@@ -1126,6 +1138,20 @@ impl SchedulerCore {
                     let backoff_factor = 2_u32.pow(attempts.min(5));
                     let retry_delay = base_delay * backoff_factor;
 
+                    // Create and queue the retry command
+                    let retry_cmd = RetryCommand {
+                        id: cmd_id,
+                        bytes: bytes.clone(),
+                        priority,
+                        category,
+                        camera_id,
+                        attempt: attempts + 1,
+                        max_retries,
+                        retry_at: now + retry_delay,
+                    };
+
+                    self.retry_queue.push(retry_cmd);
+
                     actions.push(SchedulerAction::RetryCommand {
                         id: cmd_id,
                         bytes,
@@ -1149,6 +1175,7 @@ impl SchedulerCore {
                     self.finish_sequence(cmd_id);
                     self.command_metadata.remove(&cmd_id);
                     self.retry_attempts.remove(&cmd_id);
+                    self.retry_trigger_transport_error.remove(&cmd_id);
 
                     actions.push(SchedulerAction::CommandFailed {
                         id: cmd_id,
@@ -1185,6 +1212,7 @@ impl SchedulerCore {
                 self.finish_sequence(cmd_id);
                 self.command_metadata.remove(&cmd_id);
                 self.retry_attempts.remove(&cmd_id);
+                self.retry_trigger_transport_error.remove(&cmd_id);
                 actions.push(SchedulerAction::CommandFailed {
                     id: cmd_id,
                     error: Error::Timeout,
@@ -1382,6 +1410,7 @@ impl SchedulerCore {
         self.finish_sequence(cmd_id);
         self.command_metadata.remove(&cmd_id);
         self.retry_attempts.remove(&cmd_id);
+        self.retry_trigger_transport_error.remove(&cmd_id);
         Some(SchedulerAction::CommandFailed {
             id: cmd_id,
             error: Error::TransportError("Send failed".into()),
@@ -1418,10 +1447,17 @@ impl SchedulerCore {
                 self.finish_sequence(cmd_id);
                 self.command_metadata.remove(&cmd_id);
                 self.retry_attempts.remove(&cmd_id);
-                return Some(SchedulerAction::CommandFailed {
-                    id: cmd_id,
-                    error: Error::Timeout,
-                });
+                // Use TransportError if the retry was triggered by a transport error, otherwise Timeout
+                let error = if self
+                    .retry_trigger_transport_error
+                    .remove(&cmd_id)
+                    .unwrap_or(false)
+                {
+                    Error::TransportError("Network error after max retries".into())
+                } else {
+                    Error::Timeout
+                };
+                return Some(SchedulerAction::CommandFailed { id: cmd_id, error });
             }
 
             // Calculate backoff delay using RetryConfig

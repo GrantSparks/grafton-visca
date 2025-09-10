@@ -265,10 +265,22 @@ where
             .expect("ScriptedSyncTransport mutex poisoned")
             .push(bytes_vec.clone());
 
-        // Process any applicable steps
+        // First, drain any leading After steps
+        ScriptedTransport::<E>::process_after_steps_static(
+            steps.clone(),
+            response_tx.clone(),
+            executor.clone(),
+        );
+
+        // Only act on the *front* of the queue. Never reorder past InjectError (leave for recv*())
         let step = {
-            let mut steps_guard = steps.lock().expect("ScriptedSyncTransport mutex poisoned");
-            steps_guard.pop_front()
+            let mut guard = steps.lock().expect("ScriptedSyncTransport mutex poisoned");
+            match guard.front() {
+                Some(Step::InjectError(_)) => None, // leave it for recv*()
+                Some(Step::After { .. }) => None,   // already handled by process_after_steps_static
+                Some(Step::OnSend { .. }) | Some(Step::DynamicResponse(_)) => guard.pop_front(),
+                None => None,
+            }
         };
 
         if let Some(step) = step {
@@ -284,7 +296,7 @@ where
                         for response in responses {
                             let _ = response_tx.send(Ok(response));
                         }
-                        // Process any Step::After that follows immediately
+                        // Process any After steps that may now be at the front
                         ScriptedTransport::<E>::process_after_steps_static(
                             steps.clone(),
                             response_tx.clone(),
@@ -297,29 +309,23 @@ where
                             .push_front(Step::OnSend { matches, responses });
                     }
                 }
-                Step::After { delay, responses } => {
-                    steps
-                        .lock()
-                        .expect("ScriptedSyncTransport mutex poisoned")
-                        .push_front(Step::After { delay, responses });
-                    // Process it now
-                    ScriptedTransport::<E>::process_after_steps_static(
-                        steps.clone(),
-                        response_tx.clone(),
-                        executor.clone(),
-                    );
+                Step::After { .. } => {
+                    unreachable!("After steps are handled by process_after_steps_static");
                 }
-                Step::InjectError(error) => {
-                    steps
-                        .lock()
-                        .expect("ScriptedSyncTransport mutex poisoned")
-                        .push_front(Step::InjectError(error));
+                Step::InjectError(_) => {
+                    unreachable!("InjectError is never popped in send()");
                 }
                 Step::DynamicResponse(func) => {
                     let responses = func(&bytes_vec);
                     for response in responses {
                         let _ = response_tx.send(Ok(response));
                     }
+                    // After a dynamic response, After steps may now lead.
+                    ScriptedTransport::<E>::process_after_steps_static(
+                        steps.clone(),
+                        response_tx.clone(),
+                        executor.clone(),
+                    );
                 }
             }
         }
@@ -342,10 +348,6 @@ where
                     Step::InjectError(e) => e,
                     _ => unreachable!(),
                 };
-                eprintln!(
-                    "[ScriptedTransport::recv_into] Returning injected error: {:?}",
-                    error
-                );
                 return Err(error);
             }
         }
@@ -433,13 +435,40 @@ impl SyncTransport for ScriptedSyncTransport {
             .expect("ScriptedSyncTransport mutex poisoned")
             .push(bytes.to_vec());
 
-        // Process any applicable steps
+        // Drain *leading* After steps first (sync flavor ignores delay)
+        loop {
+            let next = {
+                let mut steps = self
+                    .steps
+                    .lock()
+                    .expect("ScriptedSyncTransport mutex poisoned");
+                match steps.front() {
+                    Some(Step::After { .. }) => steps.pop_front(),
+                    _ => None,
+                }
+            };
+            match next {
+                Some(Step::After { responses, .. }) => {
+                    for response in responses {
+                        let _ = self.response_tx.send(Ok(response));
+                    }
+                }
+                _ => break,
+            }
+        }
+
+        // Only look at the front; never pop InjectError here
         let step = {
             let mut steps = self
                 .steps
                 .lock()
                 .expect("ScriptedSyncTransport mutex poisoned");
-            steps.pop_front()
+            match steps.front() {
+                Some(Step::InjectError(_)) => None,
+                Some(Step::After { .. }) => None,
+                Some(Step::OnSend { .. }) | Some(Step::DynamicResponse(_)) => steps.pop_front(),
+                None => None,
+            }
         };
 
         if let Some(step) = step {
@@ -455,6 +484,27 @@ impl SyncTransport for ScriptedSyncTransport {
                         for response in responses {
                             let _ = self.response_tx.send(Ok(response));
                         }
+                        // After consuming OnSend, drain any newly-leading After steps
+                        loop {
+                            let next = {
+                                let mut steps = self
+                                    .steps
+                                    .lock()
+                                    .expect("ScriptedSyncTransport mutex poisoned");
+                                match steps.front() {
+                                    Some(Step::After { .. }) => steps.pop_front(),
+                                    _ => None,
+                                }
+                            };
+                            match next {
+                                Some(Step::After { responses, .. }) => {
+                                    for response in responses {
+                                        let _ = self.response_tx.send(Ok(response));
+                                    }
+                                }
+                                _ => break,
+                            }
+                        }
                     } else {
                         self.steps
                             .lock()
@@ -467,16 +517,33 @@ impl SyncTransport for ScriptedSyncTransport {
                     for response in responses {
                         let _ = self.response_tx.send(Ok(response));
                     }
-                }
-                Step::After { responses, .. } => {
-                    // In blocking mode, we can't wait for delays, so just queue responses immediately
-                    // The delay behavior will be handled by the calling code's timeout logic
-                    for response in responses {
-                        let _ = self.response_tx.send(Ok(response));
+                    // Drain any leading After now visible
+                    loop {
+                        let next = {
+                            let mut steps = self
+                                .steps
+                                .lock()
+                                .expect("ScriptedSyncTransport mutex poisoned");
+                            match steps.front() {
+                                Some(Step::After { .. }) => steps.pop_front(),
+                                _ => None,
+                            }
+                        };
+                        match next {
+                            Some(Step::After { responses, .. }) => {
+                                for response in responses {
+                                    let _ = self.response_tx.send(Ok(response));
+                                }
+                            }
+                            _ => break,
+                        }
                     }
                 }
-                Step::InjectError(error) => {
-                    return Err(error);
+                Step::After { .. } => {
+                    unreachable!("After steps are handled before main match block");
+                }
+                Step::InjectError(_) => {
+                    unreachable!("InjectError is never popped in send_with_kind()");
                 }
             }
         }
@@ -485,6 +552,24 @@ impl SyncTransport for ScriptedSyncTransport {
     }
 
     fn recv(&mut self) -> Result<Bytes> {
+        // Check for injected errors first
+        {
+            let mut steps = self
+                .steps
+                .lock()
+                .expect("ScriptedSyncTransport mutex poisoned");
+            if let Some(Step::InjectError(_)) = steps.front() {
+                let error = match steps
+                    .pop_front()
+                    .expect("No error step available in scripted transport")
+                {
+                    Step::InjectError(e) => e,
+                    _ => unreachable!(),
+                };
+                return Err(error);
+            }
+        }
+
         // Try to get a response from the channel (blocking)
         match self.response_rx.recv_timeout(Duration::from_secs(10)) {
             Ok(Ok(response)) => Ok(Bytes::from(response)),

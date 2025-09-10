@@ -409,10 +409,18 @@ impl<E: Executor> AsyncAdapter<E> {
             SchedulerAction::Timeout {
                 id,
                 kind: TimeoutKind::Ack,
+                will_retry,
                 ..
             } => {
-                // Notify the waiting future that the command timed out
-                self.notify_timeout(id);
+                // Only notify the waiting future if no retries are left
+                if !will_retry {
+                    self.notify_timeout(id);
+                } else if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+                    eprintln!(
+                        "[AsyncAdapter] Timeout for id={} but will retry, keeping future pending",
+                        id
+                    );
+                }
             }
             SchedulerAction::RetryCommand {
                 id,
@@ -510,11 +518,13 @@ impl<E: Executor> AsyncAdapter<E> {
     ///
     /// This mirrors the blocking runner's network error handling,
     /// causing all inflight commands to be queued for retry.
-    pub async fn on_network_error(&mut self) -> Result<()> {
+    pub async fn on_network_error(&mut self, error: Error) -> Result<()> {
         let now = self.executor.now();
         self.metrics.network_errors += 1;
 
-        let actions = self.core.process_event(SchedulerEvent::NetworkError, now);
+        let actions = self
+            .core
+            .process_event(SchedulerEvent::NetworkError(error), now);
         for action in actions {
             self.handle_action(action).await?;
         }

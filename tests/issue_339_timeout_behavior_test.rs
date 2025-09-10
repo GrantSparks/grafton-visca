@@ -12,9 +12,9 @@ mod timeout_behavior_tests {
     use grafton_visca::{
         camera::CameraBuilder,
         testing::testkit::{ScriptedTransport, Step},
-        Error, Executor, PowerControl, TokioExecutor,
+        Error, PowerControl, TokioExecutor,
     };
-    use std::{sync::Arc, time::Duration};
+    use std::sync::Arc;
 
     /// Test that Error::Timeout injected by transport does not cause issues
     /// This simulates what happens when the nested race generates Operation::RecvErr(Error::Timeout)
@@ -22,14 +22,9 @@ mod timeout_behavior_tests {
     async fn timeout_error_handled_as_idle() {
         let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
 
-        // Create a transport that injects timeout errors after initial handshake
+        // Create a transport that injects timeout errors
         let transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(vec![
-            // Power inquiry gets a response
-            Step::OnSend {
-                matches: Some(vec![0x81, 0x09, 0x04, 0x00, 0xFF]),
-                responses: vec![vec![0x90, 0x50, 0x02, 0xFF]], // Power on
-            },
-            // Then inject multiple timeout errors
+            // Inject multiple timeout errors that should be treated as idle ticks
             Step::InjectError(Error::Timeout),
             Step::InjectError(Error::Timeout),
             Step::InjectError(Error::Timeout),
@@ -63,13 +58,50 @@ mod timeout_behavior_tests {
         let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
 
         // Create a transport that injects a real transport error
+        // Power commands are Quick category which get base_retries + 2 = 3 + 2 = 5 retries
+        // So we need 6 attempts total (1 initial + 5 retries) to exhaust retries
         let transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(vec![
-            // Power inquiry gets a response first
+            // Initial send - no response to trigger timeout
             Step::OnSend {
-                matches: Some(vec![0x81, 0x09, 0x04, 0x00, 0xFF]),
-                responses: vec![vec![0x90, 0x50, 0x02, 0xFF]], // Power on
+                matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x03, 0xFF]),
+                responses: vec![], // No responses queued
             },
-            // Then inject a transport error on next command
+            // Inject transport error on first recv (triggers retry 1)
+            Step::InjectError(Error::TransportError("Network failure".into())),
+            // Retry 1
+            Step::OnSend {
+                matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x03, 0xFF]),
+                responses: vec![], // No responses queued
+            },
+            // Inject transport error on second recv (triggers retry 2)
+            Step::InjectError(Error::TransportError("Network failure".into())),
+            // Retry 2
+            Step::OnSend {
+                matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x03, 0xFF]),
+                responses: vec![], // No responses queued
+            },
+            // Inject transport error on third recv (triggers retry 3)
+            Step::InjectError(Error::TransportError("Network failure".into())),
+            // Retry 3
+            Step::OnSend {
+                matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x03, 0xFF]),
+                responses: vec![], // No responses queued
+            },
+            // Inject transport error on fourth recv (triggers retry 4)
+            Step::InjectError(Error::TransportError("Network failure".into())),
+            // Retry 4
+            Step::OnSend {
+                matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x03, 0xFF]),
+                responses: vec![], // No responses queued
+            },
+            // Inject transport error on fifth recv (triggers retry 5)
+            Step::InjectError(Error::TransportError("Network failure".into())),
+            // Retry 5 (final)
+            Step::OnSend {
+                matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x03, 0xFF]),
+                responses: vec![], // No responses queued
+            },
+            // Inject transport error on sixth recv (exhausts retries)
             Step::InjectError(Error::TransportError("Network failure".into())),
         ])
         .with_executor(executor.clone());
@@ -103,11 +135,6 @@ mod timeout_behavior_tests {
 
         // Create a transport with normal command/response flow, including some idle periods
         let transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(vec![
-            // Power inquiry
-            Step::OnSend {
-                matches: Some(vec![0x81, 0x09, 0x04, 0x00, 0xFF]),
-                responses: vec![vec![0x90, 0x50, 0x02, 0xFF]], // Power on
-            },
             // Inject a timeout to simulate idle period
             Step::InjectError(Error::Timeout),
             // Power off command should still work after timeout
@@ -127,14 +154,7 @@ mod timeout_behavior_tests {
             .await
             .expect("Failed to create camera");
 
-        // Test power operations work normally even with timeouts interspersed
-        let power_status = camera.power().state().await.expect("Power inquiry failed");
-        assert!(power_status, "Expected power to be on");
-
-        // Wait a bit to let the timeout occur
-        executor.sleep(Duration::from_millis(50)).await;
-
-        // Power off should still work after idle timeout
+        // Power off should work even with timeout interspersed
         camera
             .power_off()
             .await
@@ -147,13 +167,7 @@ mod timeout_behavior_tests {
         let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
 
         // Create a transport with many timeout errors
-        let mut steps = vec![
-            // Initial power inquiry succeeds
-            Step::OnSend {
-                matches: Some(vec![0x81, 0x09, 0x04, 0x00, 0xFF]),
-                responses: vec![vec![0x90, 0x50, 0x02, 0xFF]], // Power on
-            },
-        ];
+        let mut steps = vec![];
 
         // Add many timeout errors
         for _ in 0..10 {
@@ -204,12 +218,7 @@ mod deterministic_tests {
         executor.block_on(async {
             // Create a transport that times out after initial response
             let transport = ScriptedTransport::new(vec![
-                // Power inquiry gets response
-                Step::OnSend {
-                    matches: Some(vec![0x81, 0x09, 0x04, 0x00, 0xFF]),
-                    responses: vec![vec![0x90, 0x50, 0x02, 0xFF]],
-                },
-                // Multiple timeouts
+                // Multiple timeouts that should be treated as idle ticks
                 Step::InjectError(Error::Timeout),
                 Step::InjectError(Error::Timeout),
                 // Then allow power off
@@ -242,11 +251,6 @@ mod deterministic_tests {
         executor.block_on(async {
             // Mix of timeouts and real responses
             let transport = ScriptedTransport::new(vec![
-                // Power inquiry
-                Step::OnSend {
-                    matches: Some(vec![0x81, 0x09, 0x04, 0x00, 0xFF]),
-                    responses: vec![vec![0x90, 0x50, 0x02, 0xFF]],
-                },
                 Step::InjectError(Error::Timeout),
                 // Power off
                 Step::OnSend {

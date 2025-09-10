@@ -544,7 +544,9 @@ impl BlockingRunner {
                 Err(e) => {
                     warn!("Transport receive error: {}", e);
                     // Generate network error event
-                    let actions = self.core.process_event(SchedulerEvent::NetworkError, now);
+                    let actions = self
+                        .core
+                        .process_event(SchedulerEvent::NetworkError(e), now);
                     for action in actions {
                         match action {
                             SchedulerAction::CommandFailed { id, error } if id == target_cmd_id => {

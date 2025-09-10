@@ -419,7 +419,7 @@ pub async fn runtime_loop_with_config<
             Operation::RecvErr(e) => {
                 error!("Error receiving from transport: {e}");
                 // Handle network error - all pending commands will be retried or failed
-                adapter.on_network_error().await?;
+                adapter.on_network_error(e).await?;
 
                 // Avoid hot-looping on immediate errors; give timers a chance to fire.
                 // This sleep prevents the loop from immediately re-entering the race and
