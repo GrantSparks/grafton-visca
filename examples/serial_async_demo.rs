@@ -40,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create camera using the new unified serial API
     let runtime = TokioRuntime::from_current()?;
 
-    match Camera::open_serial_async::<GenericVisca>(port, 9600, runtime).await {
+    match Camera::open_serial_async::<GenericVisca, _>(port, 9600, runtime).await {
         Ok(camera) => {
             println!("✅ Serial Transport Connected!");
             println!("✓ Camera session established");

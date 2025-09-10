@@ -118,13 +118,13 @@ impl Camera {
     /// Open a serial async camera connection.
     ///
     /// Connects to the camera using serial port with the profile's default protocol style.
-    /// This method is currently only available for Tokio runtime.
+    /// This method is generic over any runtime that implements `RuntimeSerial`.
     ///
     /// # Arguments
     ///
     /// * `port` - The serial port path (e.g., "/dev/ttyUSB0" on Unix, "COM1" on Windows)
     /// * `baud_rate` - The baud rate (typically 9600 or 38400 for VISCA)
-    /// * `runtime` - The Tokio runtime to use
+    /// * `runtime` - The async runtime (must implement RuntimeSerial trait)
     ///
     /// # Example
     ///
@@ -133,26 +133,27 @@ impl Camera {
     /// use grafton_visca::runtime_trait::TokioRuntime;
     ///
     /// let runtime = TokioRuntime::from_current()?;
-    /// let cam = Camera::open_serial_async::<PtzOpticsG2>("/dev/ttyUSB0", 9600, runtime).await?;
+    /// let cam = Camera::open_serial_async::<PtzOpticsG2, _>("/dev/ttyUSB0", 9600, runtime).await?;
     /// cam.power().on().await?;
     /// cam.close().await?;
     /// ```
-    #[cfg(all(feature = "rt-tokio", feature = "serialport"))]
-    pub async fn open_serial_async<P>(
+    #[cfg(feature = "serialport")]
+    pub async fn open_serial_async<P, R>(
         port: impl Into<String>,
         baud_rate: u32,
-        runtime: crate::runtime_trait::TokioRuntime,
+        runtime: R,
     ) -> Result<
         CameraSession<
             crate::mode::Async,
             P,
-            crate::runtime_trait::TransportHandle<crate::runtime_trait::TokioRuntime>,
-            crate::runtime_trait::TokioRuntime,
+            <R as crate::runtime_trait::RuntimeSerial>::SerialTransport,
+            R,
         >,
         Error,
     >
     where
         P: Profile + Default,
+        R: crate::runtime_trait::Runtime + crate::runtime_trait::RuntimeSerial,
     {
         CameraConfig::<P>::new()
             .serial(port, baud_rate)

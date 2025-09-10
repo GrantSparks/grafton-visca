@@ -437,7 +437,7 @@ where
 
     /// Open an async serial camera session using the configuration.
     ///
-    /// This method is only available for TokioRuntime which supports serial transport.
+    /// This method is generic over any runtime that implements `RuntimeSerial`.
     ///
     /// # Example
     ///
@@ -451,22 +451,22 @@ where
     ///
     /// let session = config.open_serial_async(runtime).await?;
     /// ```
-    #[cfg(all(feature = "async", feature = "rt-tokio", feature = "serialport"))]
-    pub async fn open_serial_async(
+    #[cfg(all(feature = "async", feature = "serialport"))]
+    pub async fn open_serial_async<R>(
         &self,
-        runtime: crate::runtime_trait::TokioRuntime,
+        runtime: R,
     ) -> Result<
         crate::camera::session::CameraSession<
             crate::mode::Async,
             P,
-            crate::runtime_trait::TransportHandle<crate::runtime_trait::TokioRuntime>,
-            crate::runtime_trait::TokioRuntime,
+            <R as crate::runtime_trait::RuntimeSerial>::SerialTransport,
+            R,
         >,
         Error,
-    > {
-        use crate::runtime_trait::{RuntimeSerial, TransportHandle};
-        use crate::transport::builder::TransportConfig;
-
+    >
+    where
+        R: crate::runtime_trait::Runtime + crate::runtime_trait::RuntimeSerial,
+    {
         match &self.transport {
             TransportOptions::Serial { port, baud_rate } => {
                 // Create serial config from transport options
@@ -475,9 +475,7 @@ where
                     .camera_address(self.camera_id.id());
 
                 // Connect using RuntimeSerial trait
-                let serial =
-                    crate::runtime_trait::TokioRuntime::connect_serial(serial_config).await?;
-                let transport = TransportHandle::Serial(serial, TransportConfig::default());
+                let serial = R::connect_serial(serial_config).await?;
 
                 // Determine protocol style (serial always uses profile's default)
                 let protocol_style = match self.protocol {
@@ -487,7 +485,7 @@ where
 
                 // Create camera with determined protocol style
                 let mut camera = crate::camera::UnifiedCamera::<crate::mode::Async, P, _, _>::new_async_with_style(
-                    transport,
+                    serial,
                     runtime,
                     protocol_style,
                 )

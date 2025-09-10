@@ -82,7 +82,7 @@ pub trait Runtime: Executor + Clone + Send + Sync + 'static {
 #[cfg(all(feature = "async", feature = "serialport"))]
 pub trait RuntimeSerial: Runtime {
     /// Serial transport type for this runtime.
-    type SerialTransport: AsyncTransport + Send + 'static;
+    type SerialTransport: AsyncTransport + HasTransportConfig + Send + 'static;
 
     /// Connect to a serial port.
     ///
@@ -99,6 +99,10 @@ pub trait RuntimeSerial: Runtime {
 /// ensuring type safety and reducing enum variants from "runtime × transport" to just
 /// "TCP | UDP". Each variant is monomorphized per runtime, eliminating cross-runtime
 /// bloat and dynamic dispatch.
+///
+/// Serial transports are handled separately using the RuntimeSerial trait and are
+/// passed directly as `R::SerialTransport` to avoid structural limitations in Rust's
+/// type system.
 ///
 /// # Example
 ///
@@ -122,13 +126,6 @@ pub enum TransportHandle<R: Runtime> {
     Tcp(R::TcpTransport, TransportConfig),
     /// UDP transport for this runtime with its configuration.
     Udp(R::UdpTransport, TransportConfig),
-    /// Serial transport for this runtime with its configuration.
-    ///
-    /// Note: This variant is only available for TokioRuntime currently.
-    /// Use the serial-specific methods like `open_serial_async` which have
-    /// the proper trait bounds.
-    #[cfg(all(feature = "serialport", feature = "rt-tokio"))]
-    Serial(crate::transport::tokio::serial::Serial, TransportConfig),
 }
 
 #[cfg(feature = "async")]
@@ -138,8 +135,6 @@ impl<R: Runtime> TransportHandle<R> {
         match self {
             TransportHandle::Tcp(_, config) => config,
             TransportHandle::Udp(_, config) => config,
-            #[cfg(all(feature = "serialport", feature = "rt-tokio"))]
-            TransportHandle::Serial(_, config) => config,
         }
     }
 }
@@ -150,8 +145,6 @@ impl<R: Runtime> AsyncTransport for TransportHandle<R> {
         match self {
             TransportHandle::Tcp(transport, _) => transport.send(bytes).await,
             TransportHandle::Udp(transport, _) => transport.send(bytes).await,
-            #[cfg(all(feature = "serialport", feature = "rt-tokio"))]
-            TransportHandle::Serial(transport, _) => transport.send(bytes).await,
         }
     }
 
@@ -159,8 +152,6 @@ impl<R: Runtime> AsyncTransport for TransportHandle<R> {
         match self {
             TransportHandle::Tcp(transport, _) => transport.recv_into(dst).await,
             TransportHandle::Udp(transport, _) => transport.recv_into(dst).await,
-            #[cfg(all(feature = "serialport", feature = "rt-tokio"))]
-            TransportHandle::Serial(transport, _) => transport.recv_into(dst).await,
         }
     }
 }
