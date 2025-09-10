@@ -17,7 +17,7 @@ use crate::{
         async_io::{AsyncReadExt as AsyncReadExtTrait, AsyncWriteExt as AsyncWriteExtTrait},
         buffer::BufferConfig,
         builder::TransportConfig,
-        RetryConfig,
+        serial::Config as SerialConfig,
     },
 };
 
@@ -67,41 +67,7 @@ impl AsyncWriteExtTrait for TokioSerialAdapter {
     }
 }
 
-/// Serial port configuration for VISCA communication.
-#[derive(Debug, Clone)]
-pub struct SerialConfig {
-    /// Serial port path (e.g., "/dev/ttyUSB0" on Unix, "COM1" on Windows).
-    pub port: String,
-    /// Baud rate (typically 9600 or 38400 for VISCA).
-    pub baud_rate: u32,
-    /// Camera address (1-7 for RS-232, 1-112 for RS-422).
-    pub camera_address: u8,
-    /// Whether to perform I/F Clear on connect.
-    pub if_clear_on_connect: bool,
-    /// Whether to perform Address Set on connect.
-    pub address_set_on_connect: bool,
-    /// Read timeout for serial operations.
-    pub read_timeout: Duration,
-    /// Write timeout for serial operations.
-    pub write_timeout: Duration,
-    /// Retry configuration for serial operations.
-    pub retry_config: RetryConfig,
-}
-
-impl Default for SerialConfig {
-    fn default() -> Self {
-        Self {
-            port: "/dev/ttyUSB0".to_string(),
-            baud_rate: 9600,
-            camera_address: 1,
-            if_clear_on_connect: true,
-            address_set_on_connect: false,
-            read_timeout: Duration::from_millis(100),
-            write_timeout: Duration::from_millis(100),
-            retry_config: RetryConfig::default(),
-        }
-    }
-}
+// SerialConfig is now imported from the unified serial::Config
 
 /// Helper methods for creating tokio serial transports.
 impl Serial {
@@ -160,10 +126,7 @@ impl Serial {
 
     /// Connect to a serial port with default configuration.
     pub async fn connect_default(port: &str) -> Result<Self> {
-        let config = SerialConfig {
-            port: port.to_string(),
-            ..Default::default()
-        };
+        let config = SerialConfig::new(port);
         Self::connect(config).await
     }
 }

@@ -73,9 +73,12 @@ pub mod envelope;
 // Core detection types are needed by both async and blocking modes
 pub mod protocol_detection;
 pub mod retry;
-// Serial transports: blocking for sync mode
-#[cfg(all(not(feature = "async"), feature = "serialport"))]
+// Unified serial configuration module (available with serialport feature)
+#[cfg(feature = "serialport")]
 pub mod serial;
+// Old blocking serial transport (being phased out in favor of unified approach)
+#[cfg(all(not(feature = "async"), feature = "serialport"))]
+pub(crate) mod serial_blocking;
 
 // Runtime-specific transport implementations are feature-gated extensions
 // They should be accessed through the runtime_adapters module

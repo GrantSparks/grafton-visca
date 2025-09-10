@@ -375,6 +375,9 @@ where
                         TransportHandle::Udp(udp, TransportConfig::default())
                     }
                     TransportOptions::Serial { .. } => {
+                        // Serial requires serialport feature and RuntimeSerial implementation
+                        // Since we can't add the constraint here, we return Unsupported
+                        // Users should use the serial-specific methods like open_serial_async()
                         return Err(Error::Unsupported);
                     }
                     TransportOptions::Custom => {
@@ -391,7 +394,9 @@ where
                 let protocol_style = match self.protocol {
                     ProtocolConfig::Explicit(style) => style,
                     ProtocolConfig::Auto => {
-                        // Use ProtocolDetector on the established transport
+                        // Serial transport is handled separately via open_serial_async
+                        // This path only handles TCP/UDP, so always use detection
+                        // Use ProtocolDetector on TCP/UDP transports
                         use crate::transport::protocol_detection::ProtocolDetector;
 
                         let detector = ProtocolDetector::new();
@@ -428,6 +433,79 @@ where
 
         // Wrap in session
         Ok(crate::camera::session::CameraSession::new(camera))
+    }
+
+    /// Open an async serial camera session using the configuration.
+    ///
+    /// This method is only available for TokioRuntime which supports serial transport.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use grafton_visca::camera::{CameraConfig, profiles::PtzOpticsG2};
+    /// use grafton_visca::runtime_trait::TokioRuntime;
+    ///
+    /// let runtime = TokioRuntime::from_current()?;
+    /// let config = CameraConfig::for::<PtzOpticsG2>()
+    ///     .serial("/dev/ttyUSB0", 9600);
+    ///
+    /// let session = config.open_serial_async(runtime).await?;
+    /// ```
+    #[cfg(all(feature = "async", feature = "rt-tokio", feature = "serialport"))]
+    pub async fn open_serial_async(
+        &self,
+        runtime: crate::runtime_trait::TokioRuntime,
+    ) -> Result<
+        crate::camera::session::CameraSession<
+            crate::mode::Async,
+            P,
+            crate::runtime_trait::TransportHandle<crate::runtime_trait::TokioRuntime>,
+            crate::runtime_trait::TokioRuntime,
+        >,
+        Error,
+    > {
+        use crate::runtime_trait::{RuntimeSerial, TransportHandle};
+        use crate::transport::builder::TransportConfig;
+
+        match &self.transport {
+            TransportOptions::Serial { port, baud_rate } => {
+                // Create serial config from transport options
+                let serial_config = crate::transport::serial::Config::new(port.clone())
+                    .baud_rate(*baud_rate)
+                    .camera_address(self.camera_id.id());
+
+                // Connect using RuntimeSerial trait
+                let serial =
+                    crate::runtime_trait::TokioRuntime::connect_serial(serial_config).await?;
+                let transport = TransportHandle::Serial(serial, TransportConfig::default());
+
+                // Determine protocol style (serial always uses profile's default)
+                let protocol_style = match self.protocol {
+                    ProtocolConfig::Explicit(style) => style,
+                    ProtocolConfig::Auto => P::PROTOCOL_STYLE,
+                };
+
+                // Create camera with determined protocol style
+                let mut camera = crate::camera::UnifiedCamera::<crate::mode::Async, P, _, _>::new_async_with_style(
+                    transport,
+                    runtime,
+                    protocol_style,
+                )
+                .await?;
+
+                // Apply configuration
+                camera.set_timeout_config(self.timeouts);
+                if self.camera_id.id() != P::DEFAULT_ADDRESS {
+                    camera.set_camera_id(self.camera_id);
+                }
+
+                // Wrap in session
+                Ok(crate::camera::session::CameraSession::new(camera))
+            }
+            _ => Err(Error::InvalidState(
+                "open_serial_async requires serial transport configuration".into(),
+            )),
+        }
     }
 }
 
@@ -480,6 +558,9 @@ where
                 (transport, detected_style)
             }
             _ => {
+                // Track if we're using serial transport for protocol detection
+                let is_serial = matches!(&self.transport, TransportOptions::Serial { .. });
+
                 // Create transport based on configuration
                 let mut transport: Box<dyn SyncTransport> = match &self.transport {
                     TransportOptions::Tcp { address } => {
@@ -492,8 +573,25 @@ where
                         let udp = Udp::connect(address)?;
                         Box::new(udp)
                     }
-                    TransportOptions::Serial { .. } => {
-                        return Err(Error::Unsupported);
+                    TransportOptions::Serial { port, baud_rate } => {
+                        #[cfg(feature = "serialport")]
+                        {
+                            // Create serial config from transport options
+                            let serial_config = crate::transport::serial::Config::new(port.clone())
+                                .baud_rate(*baud_rate)
+                                .camera_address(self.camera_id.id());
+
+                            // Create blocking serial transport
+                            let serial = crate::transport::serial_blocking::SerialTransport::new(
+                                serial_config,
+                            )?;
+                            Box::new(serial)
+                        }
+                        #[cfg(not(feature = "serialport"))]
+                        {
+                            let _ = (port, baud_rate); // Silence unused warnings
+                            return Err(Error::Unsupported);
+                        }
                     }
                     TransportOptions::Custom => {
                         return Err(Error::InvalidState(
@@ -509,39 +607,48 @@ where
                 let protocol_style = match self.protocol {
                     ProtocolConfig::Explicit(style) => style,
                     ProtocolConfig::Auto => {
-                        // Use simplified detection for blocking mode
-                        // Try Sony encapsulated first, then raw VISCA
-                        use crate::command::bytes::VISCA_TERMINATOR;
-                        use crate::transport::envelope::TransportEnvelope;
-                        use crate::transport::protocol_detection::ProtocolDetector;
-                        use std::time::Duration;
+                        // For serial, we can't do IP-style detection, so default to RawVisca
+                        if is_serial {
+                            // Serial uses Raw VISCA by default (or profile's default)
+                            P::PROTOCOL_STYLE
+                        } else {
+                            // Use simplified detection for blocking mode TCP/UDP
+                            // Try Sony encapsulated first, then raw VISCA
+                            use crate::command::bytes::VISCA_TERMINATOR;
+                            use crate::transport::envelope::TransportEnvelope;
+                            use crate::transport::protocol_detection::ProtocolDetector;
+                            use std::time::Duration;
 
-                        let detector = ProtocolDetector::new();
-                        let test_command = &[0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR];
+                            let detector = ProtocolDetector::new();
+                            let test_command = &[0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR];
 
-                        // Try Sony encapsulated first
-                        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated);
-                        let buffer_config = crate::transport::buffer::BufferConfig::for_sony_ip();
-                        let buffer_manager =
-                            crate::transport::buffer::BufferManager::new(buffer_config);
-                        let framed = envelope.frame_bytes_with_kind(
-                            test_command,
-                            crate::command::CommandKind::Inquiry,
-                            &buffer_manager,
-                        );
+                            // Try Sony encapsulated first
+                            let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated);
+                            let buffer_config =
+                                crate::transport::buffer::BufferConfig::for_sony_ip();
+                            let buffer_manager =
+                                crate::transport::buffer::BufferManager::new(buffer_config);
+                            let framed = envelope.frame_bytes_with_kind(
+                                test_command,
+                                crate::command::CommandKind::Inquiry,
+                                &buffer_manager,
+                            );
 
-                        if transport
-                            .send_with_kind(&framed, crate::command::CommandKind::Inquiry)
-                            .is_ok()
-                        {
-                            if let Ok(buffer) =
-                                transport.recv_with_timeout(Duration::from_millis(100))
+                            if transport
+                                .send_with_kind(&framed, crate::command::CommandKind::Inquiry)
+                                .is_ok()
                             {
-                                if let Ok(payload) = envelope.extract_response(&buffer) {
-                                    if detector.is_valid_visca_response(&payload) {
-                                        ProtocolStyle::SonyEncapsulated
+                                if let Ok(buffer) =
+                                    transport.recv_with_timeout(Duration::from_millis(100))
+                                {
+                                    if let Ok(payload) = envelope.extract_response(&buffer) {
+                                        if detector.is_valid_visca_response(&payload) {
+                                            ProtocolStyle::SonyEncapsulated
+                                        } else {
+                                            // Try raw VISCA
+                                            ProtocolStyle::RawVisca
+                                        }
                                     } else {
-                                        // Try raw VISCA
                                         ProtocolStyle::RawVisca
                                     }
                                 } else {
@@ -550,8 +657,6 @@ where
                             } else {
                                 ProtocolStyle::RawVisca
                             }
-                        } else {
-                            ProtocolStyle::RawVisca
                         }
                     }
                 };
@@ -575,5 +680,70 @@ where
 
         // Wrap in session
         Ok(crate::camera::session::CameraSession::new(camera))
+    }
+
+    /// Open a blocking serial camera session using the configuration.
+    ///
+    /// This method creates a blocking serial connection to the camera.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use grafton_visca::camera::{CameraConfig, profiles::PtzOpticsG2};
+    ///
+    /// let config = CameraConfig::for::<PtzOpticsG2>()
+    ///     .serial("/dev/ttyUSB0", 9600);
+    ///
+    /// let session = config.open_serial_blocking()?;
+    /// ```
+    #[cfg(feature = "serialport")]
+    pub fn open_serial_blocking(
+        &self,
+    ) -> Result<
+        crate::camera::session::CameraSession<
+            crate::mode::Blocking,
+            P,
+            Box<dyn crate::transport::SyncTransport>,
+            (),
+        >,
+        Error,
+    > {
+        match &self.transport {
+            TransportOptions::Serial { port, baud_rate } => {
+                // Create serial config from transport options
+                let serial_config = crate::transport::serial::Config::new(port.clone())
+                    .baud_rate(*baud_rate)
+                    .camera_address(self.camera_id.id());
+
+                // Create blocking serial transport
+                let transport: Box<dyn crate::transport::SyncTransport> = Box::new(
+                    crate::transport::serial_blocking::SerialTransport::new(serial_config)?,
+                );
+
+                // Determine protocol style (serial always uses profile's default)
+                let protocol_style = match self.protocol {
+                    ProtocolConfig::Explicit(style) => style,
+                    ProtocolConfig::Auto => P::PROTOCOL_STYLE,
+                };
+
+                // Create camera with determined protocol style
+                let mut camera = crate::camera::UnifiedCamera::<crate::mode::Blocking, P, _, _>::new_blocking_with_style(
+                    transport,
+                    protocol_style,
+                )?;
+
+                // Apply configuration
+                camera.set_timeout_config(self.timeouts);
+                if self.camera_id.id() != P::DEFAULT_ADDRESS {
+                    camera.set_camera_id(self.camera_id);
+                }
+
+                // Wrap in session
+                Ok(crate::camera::session::CameraSession::new(camera))
+            }
+            _ => Err(Error::InvalidState(
+                "open_serial_blocking requires serial transport configuration".into(),
+            )),
+        }
     }
 }

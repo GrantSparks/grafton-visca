@@ -13,10 +13,9 @@
 
 #[cfg(all(feature = "async", feature = "rt-tokio", feature = "serialport"))]
 use grafton_visca::{
-    camera::profiles::GenericVisca,
-    runtime_adapters::tokio::{SerialConfig, SerialTransport},
+    camera::{profiles::GenericVisca, Camera},
     runtime_trait::TokioRuntime,
-    CameraBuilder, Error,
+    Error,
 };
 
 #[cfg(all(feature = "async", feature = "rt-tokio", feature = "serialport"))]
@@ -38,26 +37,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Camera address: {camera_address}");
     println!("Connecting to camera...\n");
 
-    // Create async serial transport configuration
-    let config = SerialConfig {
-        port: port.to_string(),
-        baud_rate: 9600,
-        camera_address,
-        if_clear_on_connect: true,     // Perform I/F Clear on startup
-        address_set_on_connect: false, // Don't auto-run Address Set
-        ..Default::default()
-    };
+    // Create camera using the new unified serial API
+    let runtime = TokioRuntime::from_current()?;
 
-    match SerialTransport::connect(config).await {
-        Ok(transport) => {
+    match Camera::open_serial_async::<GenericVisca>(port, 9600, runtime).await {
+        Ok(camera) => {
             println!("✅ Serial Transport Connected!");
-            println!("✓ I/F Clear command sent during initialization");
-
-            // Create camera with async transport
-            let runtime = TokioRuntime::from_current()?;
-            let camera = CameraBuilder::with_executor(runtime)
-                .open_async::<GenericVisca, _>(transport)
-                .await?;
+            println!("✓ Camera session established");
 
             println!("\n🔍 Testing basic camera operations...");
 
@@ -80,7 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             println!("\n✅ Async serial communication successful!");
-            println!("The EPIC C1/C2 (RS-232/422 + Address Set/I/F Clear) tasks are now complete for async mode.");
+            println!("The camera is now connected and operational via async serial transport.");
         }
         Err(Error::TransportError(e)) if e.to_string().contains("No such file") => {
             println!("❌ Serial Port Not Found: {port}");
