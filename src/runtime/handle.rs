@@ -1,6 +1,6 @@
 //! RuntimeHandle implementation for VISCA communication.
 
-use flume::Sender;
+use flume::{Receiver, Sender};
 use tracing::instrument;
 
 use std::sync::{
@@ -13,7 +13,7 @@ use crate::{
     command::response::ViscaResponse,
     error::{Error, Result},
     runtime::{
-        async_adapter::{MetricsSummary, TxItem},
+        async_adapter::{CompletionEvent, MetricsSummary, TxItem},
         core::Priority,
         loop_task::{runtime_loop_with_config, RuntimeLoopConfig},
     },
@@ -47,6 +47,8 @@ struct RuntimeHandleInner {
     shutdown_tx: Sender<()>,
     /// Channel for requesting metrics from the runtime.
     metrics_tx: Sender<Sender<MetricsSummary>>,
+    /// Channel for requesting completion event subscriptions from the runtime.
+    completions_tx: Sender<Sender<Receiver<CompletionEvent>>>,
     /// Counter for generating unique command IDs.
     next_command_id: Arc<AtomicU32>,
 }
@@ -285,6 +287,7 @@ impl RuntimeHandle {
     {
         let (submit_tx, submit_rx) = flume::unbounded();
         let (metrics_tx, metrics_rx) = flume::unbounded();
+        let (completions_tx, completions_rx) = flume::unbounded();
         let (shutdown_tx, shutdown_rx) = flume::unbounded();
 
         // Extract config before creating the runtime config
@@ -317,6 +320,7 @@ impl RuntimeHandle {
             transport,
             submit_rx,
             metrics_rx,
+            completions_rx,
             shutdown_rx,
             task_executor,
             config,
@@ -328,6 +332,7 @@ impl RuntimeHandle {
                 shutdown: Arc::new(AtomicBool::new(false)),
                 shutdown_tx,
                 metrics_tx,
+                completions_tx,
                 next_command_id: Arc::new(AtomicU32::new(1)),
             }),
         })
@@ -438,6 +443,23 @@ impl RuntimeHandle {
         let (response_tx, response_rx) = flume::bounded(1);
         self.inner
             .metrics_tx
+            .send_async(response_tx)
+            .await
+            .map_err(|_| Error::ChannelClosed)?;
+        response_rx
+            .recv_async()
+            .await
+            .map_err(|_| Error::ChannelClosed)
+    }
+
+    /// Subscribe to completion events from the runtime.
+    ///
+    /// Returns a receiver that will receive CompletionEvent notifications whenever
+    /// a command completes. Used for event-driven movement detection.
+    pub async fn subscribe_completions(&self) -> Result<Receiver<CompletionEvent>> {
+        let (response_tx, response_rx) = flume::bounded(1);
+        self.inner
+            .completions_tx
             .send_async(response_tx)
             .await
             .map_err(|_| Error::ChannelClosed)?;
@@ -611,12 +633,14 @@ impl RuntimeHandle {
 
 // Helper function to spawn the runtime loop without trait bounds
 // This avoids lifetime issues with HRTB (Rust issue #100013)
+#[allow(clippy::too_many_arguments)] // This is an internal function with necessary parameters
 fn spawn_runtime_loop<T, E>(
     executor: Arc<E>,
     transport: T,
-    submit_rx: flume::Receiver<TxItem>,
-    metrics_rx: flume::Receiver<Sender<MetricsSummary>>,
-    shutdown_rx: flume::Receiver<()>,
+    submit_rx: Receiver<TxItem>,
+    metrics_rx: Receiver<Sender<MetricsSummary>>,
+    completions_rx: Receiver<Sender<Receiver<CompletionEvent>>>,
+    shutdown_rx: Receiver<()>,
     task_executor: Arc<E>,
     config: RuntimeLoopConfig,
 ) where
@@ -629,12 +653,13 @@ fn spawn_runtime_loop<T, E>(
     // Box the future with explicit 'static bound to work around Rust issue #100013
     let fut: Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>> =
         Box::pin(runtime_loop_with_config(
-            transport,     // moved
-            submit_rx,     // moved
-            metrics_rx,    // moved
-            shutdown_rx,   // moved
-            task_executor, // moved Arc<E>
-            config,        // plain data
+            transport,      // moved
+            submit_rx,      // moved
+            metrics_rx,     // moved
+            completions_rx, // moved
+            shutdown_rx,    // moved
+            task_executor,  // moved Arc<E>
+            config,         // plain data
         ));
 
     executor.spawn_bg(async move {

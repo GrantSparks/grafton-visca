@@ -5,8 +5,6 @@
 
 use std::time::{Duration, Instant};
 
-#[cfg(not(feature = "async"))]
-use crate::transport::SyncTransport;
 use crate::{
     capabilities::{Profile, ProfileMetadata},
     command::inquiry::{FocusPositionInquiry, PanTiltPositionInquiry, ZoomPositionInquiry},
@@ -14,6 +12,8 @@ use crate::{
 };
 #[cfg(feature = "async")]
 use crate::{executor::Executor, transport::AsyncTransport};
+#[cfg(not(feature = "async"))]
+use crate::{mode::BlockingFutureExt, transport::SyncTransport};
 
 use super::{MovementConfig, PanTiltPosition, UnifiedCamera as Camera};
 
@@ -118,7 +118,7 @@ where
             }
 
             // Check only pan/tilt movement
-            let pos1_response = pollster::block_on(self.send_command(&PanTiltPositionInquiry))?;
+            let pos1_response = self.send_command(&PanTiltPositionInquiry).block()?;
             let (pos1_pan, pos1_tilt) = match pos1_response {
                 crate::command::ViscaResponse::Inquiry(
                     crate::command::InquiryResponse::PanTiltPosition { pan, tilt },
@@ -132,7 +132,7 @@ where
 
             std::thread::sleep(Duration::from_millis(50));
 
-            let pos2_response = pollster::block_on(self.send_command(&PanTiltPositionInquiry))?;
+            let pos2_response = self.send_command(&PanTiltPositionInquiry).block()?;
             let (pos2_pan, pos2_tilt) = match pos2_response {
                 crate::command::ViscaResponse::Inquiry(
                     crate::command::InquiryResponse::PanTiltPosition { pan, tilt },
@@ -174,7 +174,7 @@ where
             }
 
             // Check only zoom movement
-            let pos1_response = pollster::block_on(self.send_command(&ZoomPositionInquiry))?;
+            let pos1_response = self.send_command(&ZoomPositionInquiry).block()?;
             let pos1_zoom = match pos1_response {
                 crate::command::ViscaResponse::Inquiry(
                     crate::command::InquiryResponse::ZoomPosition { position },
@@ -184,7 +184,7 @@ where
 
             std::thread::sleep(Duration::from_millis(50));
 
-            let pos2_response = pollster::block_on(self.send_command(&ZoomPositionInquiry))?;
+            let pos2_response = self.send_command(&ZoomPositionInquiry).block()?;
             let pos2_zoom = match pos2_response {
                 crate::command::ViscaResponse::Inquiry(
                     crate::command::InquiryResponse::ZoomPosition { position },
@@ -222,7 +222,7 @@ where
             }
 
             // Check only focus movement
-            let pos1_response = pollster::block_on(self.send_command(&FocusPositionInquiry))?;
+            let pos1_response = self.send_command(&FocusPositionInquiry).block()?;
             let pos1_focus = match pos1_response {
                 crate::command::ViscaResponse::Inquiry(
                     crate::command::InquiryResponse::FocusPosition { position },
@@ -232,7 +232,7 @@ where
 
             std::thread::sleep(Duration::from_millis(50));
 
-            let pos2_response = pollster::block_on(self.send_command(&FocusPositionInquiry))?;
+            let pos2_response = self.send_command(&FocusPositionInquiry).block()?;
             let pos2_focus = match pos2_response {
                 crate::command::ViscaResponse::Inquiry(
                     crate::command::InquiryResponse::FocusPosition { position },
@@ -263,7 +263,7 @@ where
     /// This checks pan/tilt, zoom, and focus positions to detect movement.
     pub fn is_moving(&mut self) -> Result<bool, Error> {
         // Get first reading using inquiry commands
-        let pos1_pt_response = pollster::block_on(self.send_command(&PanTiltPositionInquiry))?;
+        let pos1_pt_response = self.send_command(&PanTiltPositionInquiry).block()?;
         let (pos1_pan, pos1_tilt) = match pos1_pt_response {
             crate::command::ViscaResponse::Inquiry(
                 crate::command::InquiryResponse::PanTiltPosition { pan, tilt },
@@ -275,7 +275,7 @@ where
             }
         };
 
-        let pos1_zoom_response = pollster::block_on(self.send_command(&ZoomPositionInquiry))?;
+        let pos1_zoom_response = self.send_command(&ZoomPositionInquiry).block()?;
         let pos1_zoom = match pos1_zoom_response {
             crate::command::ViscaResponse::Inquiry(
                 crate::command::InquiryResponse::ZoomPosition { position },
@@ -283,7 +283,7 @@ where
             _ => return Err(Error::ParseError("Expected ZoomPosition response".into())),
         };
 
-        let pos1_focus_response = pollster::block_on(self.send_command(&FocusPositionInquiry))?;
+        let pos1_focus_response = self.send_command(&FocusPositionInquiry).block()?;
         let pos1_focus = match pos1_focus_response {
             crate::command::ViscaResponse::Inquiry(
                 crate::command::InquiryResponse::FocusPosition { position },
@@ -295,7 +295,7 @@ where
         std::thread::sleep(Duration::from_millis(1));
 
         // Get second reading
-        let pos2_pt_response = pollster::block_on(self.send_command(&PanTiltPositionInquiry))?;
+        let pos2_pt_response = self.send_command(&PanTiltPositionInquiry).block()?;
         let (pos2_pan, pos2_tilt) = match pos2_pt_response {
             crate::command::ViscaResponse::Inquiry(
                 crate::command::InquiryResponse::PanTiltPosition { pan, tilt },
@@ -307,7 +307,7 @@ where
             }
         };
 
-        let pos2_zoom_response = pollster::block_on(self.send_command(&ZoomPositionInquiry))?;
+        let pos2_zoom_response = self.send_command(&ZoomPositionInquiry).block()?;
         let pos2_zoom = match pos2_zoom_response {
             crate::command::ViscaResponse::Inquiry(
                 crate::command::InquiryResponse::ZoomPosition { position },
@@ -315,7 +315,7 @@ where
             _ => return Err(Error::ParseError("Expected ZoomPosition response".into())),
         };
 
-        let pos2_focus_response = pollster::block_on(self.send_command(&FocusPositionInquiry))?;
+        let pos2_focus_response = self.send_command(&FocusPositionInquiry).block()?;
         let pos2_focus = match pos2_focus_response {
             crate::command::ViscaResponse::Inquiry(
                 crate::command::InquiryResponse::FocusPosition { position },
@@ -601,12 +601,20 @@ where
                     "Using event-driven movement detection (camera supports completion messages)"
                 );
             }
-            // For cameras that support operation complete messages,
-            // we can use the runtime's completion listener
-            // This will be implemented when we have the runtime event system
-            return Err(Error::InvalidState(
-                "Event-driven movement detection not yet implemented".into(),
-            ));
+
+            // Try to use event-driven approach
+            match self.wait_for_movement_event_driven(config).await {
+                Ok(()) => return Ok(()),
+                Err(Error::Unsupported) => {
+                    // Fall through to polling approach
+                    if config.debug {
+                        tracing::debug!(
+                            "Event-driven approach unavailable, falling back to polling"
+                        );
+                    }
+                }
+                Err(e) => return Err(e),
+            }
         }
 
         // Fall back to state querying for all other cameras
@@ -628,6 +636,81 @@ where
             self.sleep(Duration::from_millis(100)).await;
         }
 
+        Err(Error::Timeout)
+    }
+
+    /// Event-driven movement detection using runtime completion events.
+    async fn wait_for_movement_event_driven(&self, config: &MovementConfig) -> Result<(), Error> {
+        use crate::timeout::CommandCategory;
+
+        // Subscribe to completion events from the runtime
+        let completion_rx = match self.runtime().subscribe_completions().await {
+            Ok(rx) => rx,
+            Err(_) => return Err(Error::Unsupported),
+        };
+
+        let start = Instant::now();
+        let mut seen_movement_completion = false;
+        let mut seen_preset_completion = false;
+
+        // Wait for completion events with timeout
+        while start.elapsed() < config.timeout {
+            // Try to receive a completion event (non-blocking first)
+            match completion_rx.try_recv() {
+                Ok(event) => {
+                    // Check if this is our camera
+                    if event.camera_id != self.camera_id() {
+                        continue;
+                    }
+
+                    // Track completions by category
+                    match event.category {
+                        CommandCategory::Movement => {
+                            seen_movement_completion = true;
+                            if config.debug {
+                                tracing::debug!("Received movement completion event");
+                            }
+                        }
+                        CommandCategory::Preset => {
+                            seen_preset_completion = true;
+                            if config.debug {
+                                tracing::debug!("Received preset completion event");
+                            }
+                        }
+                        _ => continue,
+                    }
+
+                    // After receiving at least one relevant completion, confirm idle state
+                    if seen_movement_completion || seen_preset_completion {
+                        // Give a small delay for any final settling
+                        self.sleep(Duration::from_millis(50)).await;
+
+                        // Confirm the camera is actually idle
+                        let is_moving = self.is_moving_async().await?;
+                        if !is_moving {
+                            if config.debug {
+                                tracing::debug!("Camera confirmed idle after completion event");
+                            }
+                            return Ok(());
+                        } else if config.debug {
+                            tracing::debug!(
+                                "Camera still moving after completion, waiting for more events"
+                            );
+                        }
+                    }
+                }
+                Err(flume::TryRecvError::Empty) => {
+                    // No events available right now, wait a bit
+                    self.sleep(Duration::from_millis(50)).await;
+                }
+                Err(flume::TryRecvError::Disconnected) => {
+                    // Channel closed
+                    return Err(Error::Unsupported);
+                }
+            }
+        }
+
+        // If we saw at least one completion but never confirmed idle, that's still a timeout
         Err(Error::Timeout)
     }
 

@@ -82,9 +82,7 @@ impl SyncTransport for Udp {
         let mut buffer = self.buffer_manager.alloc_vec_buffer();
 
         match self.socket.recv(&mut buffer) {
-            Ok(n) => Ok(self
-                .buffer_manager
-                .process_recv_data_borrowed(&mut buffer, n)),
+            Ok(n) => Ok(self.buffer_manager.finish_recv_vec(buffer, n)),
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Err(Error::Timeout),
             Err(e) => Err(e.into()),
         }
@@ -106,9 +104,7 @@ impl SyncTransport for Udp {
 
         // Handle the result
         match result {
-            Ok(n) => Ok(self
-                .buffer_manager
-                .process_recv_data_borrowed(&mut buffer, n)),
+            Ok(n) => Ok(self.buffer_manager.finish_recv_vec(buffer, n)),
             Err(e)
                 if e.kind() == std::io::ErrorKind::TimedOut
                     || e.kind() == std::io::ErrorKind::WouldBlock =>

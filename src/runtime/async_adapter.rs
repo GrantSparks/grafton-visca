@@ -6,7 +6,7 @@
 use flume::Sender;
 use tracing::{debug, warn};
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use crate::{
     camera_id::CameraId,
@@ -93,6 +93,20 @@ pub struct MetricsSummary {
     pub retry_queue_depth: usize,
 }
 
+/// Event emitted when a command completes.
+///
+/// Used for event-driven movement detection to observe when commands
+/// in specific categories (e.g., Movement, Preset) have completed.
+#[derive(Debug, Clone, Copy)]
+pub struct CompletionEvent {
+    /// The camera that completed the command.
+    pub camera_id: CameraId,
+    /// The category of the completed command.
+    pub category: CommandCategory,
+    /// When the completion occurred.
+    pub when: Instant,
+}
+
 /// Async adapter wrapping the scheduler core.
 pub(crate) struct AsyncAdapter<E: Executor> {
     /// The scheduler core for state management.
@@ -103,6 +117,8 @@ pub(crate) struct AsyncAdapter<E: Executor> {
     response_channels: HashMap<u32, Sender<Result<ViscaResponse>>>,
     /// Metrics tracking.
     metrics: Metrics,
+    /// Completion event subscribers.
+    completion_subscribers: Vec<Sender<CompletionEvent>>,
 }
 
 #[derive(Debug, Default)]
@@ -125,6 +141,7 @@ impl<E: Executor> AsyncAdapter<E> {
             executor,
             response_channels: HashMap::new(),
             metrics: Metrics::default(),
+            completion_subscribers: Vec::new(),
         }
     }
 
@@ -368,13 +385,32 @@ impl<E: Executor> AsyncAdapter<E> {
                 // This shouldn't happen from process_event
                 warn!("Unexpected SendCommand action from process_event");
             }
-            SchedulerAction::CommandComplete { id, response } => {
+            SchedulerAction::CommandComplete {
+                id,
+                category,
+                camera_id,
+                response,
+            } => {
                 self.metrics.commands_completed += 1;
 
                 // Core handles all inquiry cleanup now
 
+                // Send response to the waiting command
                 if let Some(tx) = self.response_channels.remove(&id) {
                     let _ = tx.send_async(Ok(response)).await;
+                }
+
+                // Broadcast completion event to all subscribers
+                if !self.completion_subscribers.is_empty() {
+                    let event = CompletionEvent {
+                        camera_id,
+                        category,
+                        when: Instant::now(),
+                    };
+
+                    // Remove any disconnected subscribers while broadcasting
+                    self.completion_subscribers
+                        .retain(|tx| tx.try_send(event).is_ok());
                 }
             }
             SchedulerAction::CommandFailed { id, error } => {
@@ -529,5 +565,14 @@ impl<E: Executor> AsyncAdapter<E> {
             self.handle_action(action).await?;
         }
         Ok(())
+    }
+
+    /// Add a completion event subscriber.
+    ///
+    /// Returns the receiver end of the channel for receiving completion events.
+    pub fn subscribe_completions(&mut self) -> flume::Receiver<CompletionEvent> {
+        let (tx, rx) = flume::unbounded();
+        self.completion_subscribers.push(tx);
+        rx
     }
 }

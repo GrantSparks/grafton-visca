@@ -170,9 +170,18 @@ impl BufferManager {
     /// Process received data from a mutable reference (fallback for when we can't take ownership).
     /// Used by blocking transports that need to reuse buffers.
     #[cfg(not(feature = "async"))]
+    #[allow(dead_code)] // Kept for compatibility but not used in current implementation
     pub fn process_recv_data_borrowed(&self, buffer: &mut Vec<u8>, received: usize) -> Bytes {
         buffer.truncate(received);
         Bytes::copy_from_slice(buffer) // Only when we can't take ownership
+    }
+
+    /// Convert a Vec<u8> buffer to Bytes after receiving data (zero-copy conversion).
+    /// Used by blocking transports that can take ownership of the buffer.
+    #[cfg(not(feature = "async"))]
+    pub fn finish_recv_vec(&self, mut buffer: Vec<u8>, received: usize) -> Bytes {
+        buffer.truncate(received);
+        Bytes::from(buffer) // Zero-copy conversion from Vec to Bytes
     }
 }
 

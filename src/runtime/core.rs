@@ -173,6 +173,10 @@ pub enum SchedulerAction {
     CommandComplete {
         /// Command ID.
         id: u32,
+        /// Command category.
+        category: CommandCategory,
+        /// Camera ID.
+        camera_id: crate::camera_id::CameraId,
         /// Response from the camera.
         response: ViscaResponse,
     },
@@ -841,11 +845,21 @@ impl SchedulerCore {
                         self.free_socket(socket);
                     }
                     self.finish_sequence(cmd_id);
+                    // Extract metadata before removing it
+                    let (category, camera_id) =
+                        if let Some((_, _, cat, cam_id)) = self.command_metadata.get(&cmd_id) {
+                            (*cat, *cam_id)
+                        } else {
+                            // Fallback for commands without metadata (shouldn't happen)
+                            (CommandCategory::Quick, crate::camera_id::CameraId::CAMERA_1)
+                        };
                     self.command_metadata.remove(&cmd_id);
                     self.retry_attempts.remove(&cmd_id);
                     self.retry_trigger_transport_error.remove(&cmd_id);
                     actions.push(SchedulerAction::CommandComplete {
                         id: cmd_id,
+                        category,
+                        camera_id,
                         response,
                     });
                 }
@@ -868,6 +882,14 @@ impl SchedulerCore {
                     self.inquiry_response_types.remove(&cmd_id);
                     // Clean up sequence mappings
                     self.finish_sequence(cmd_id);
+                    // Extract metadata before removing it
+                    let (category, camera_id) =
+                        if let Some((_, _, cat, cam_id)) = self.command_metadata.get(&cmd_id) {
+                            (*cat, *cam_id)
+                        } else {
+                            // Fallback for inquiries without metadata
+                            (CommandCategory::Quick, crate::camera_id::CameraId::CAMERA_1)
+                        };
                     // Remove metadata
                     self.command_metadata.remove(&cmd_id);
                     self.retry_attempts.remove(&cmd_id);
@@ -875,6 +897,8 @@ impl SchedulerCore {
                     // Complete the inquiry
                     actions.push(SchedulerAction::CommandComplete {
                         id: cmd_id,
+                        category,
+                        camera_id,
                         response,
                     });
                     debug!("Inquiry {} completed with response", cmd_id);
@@ -1598,7 +1622,9 @@ mod tests {
         // Should get CommandComplete action
         assert_eq!(actions.len(), 1);
         match &actions[0] {
-            SchedulerAction::CommandComplete { id, response: resp } => {
+            SchedulerAction::CommandComplete {
+                id, response: resp, ..
+            } => {
                 assert_eq!(*id, 1);
                 match resp {
                     ViscaResponse::Inquiry(crate::command::InquiryResponse::Power { on }) => {
@@ -2129,7 +2155,7 @@ mod tests {
         let actions = core.process_event(event2, now);
         assert_eq!(actions.len(), 1);
         match &actions[0] {
-            SchedulerAction::CommandComplete { id, response } => {
+            SchedulerAction::CommandComplete { id, response, .. } => {
                 assert_eq!(*id, 2); // Second inquiry completed
                                     // Verify it's a zoom response
                 match response {
@@ -2155,7 +2181,7 @@ mod tests {
         let actions = core.process_event(event1, now);
         assert_eq!(actions.len(), 1);
         match &actions[0] {
-            SchedulerAction::CommandComplete { id, response } => {
+            SchedulerAction::CommandComplete { id, response, .. } => {
                 assert_eq!(*id, 1); // First inquiry completed
                                     // Verify it's a power response
                 match response {

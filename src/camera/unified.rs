@@ -390,6 +390,11 @@ where
         })
     }
 
+    /// Get a reference to the runtime handle (internal use).
+    pub(crate) fn runtime(&self) -> &crate::runtime::RuntimeHandle {
+        &self.runtime
+    }
+
     /// Send a typed command and return the response.
     pub fn send_command_typed<'a, C>(
         &'a self,
@@ -583,20 +588,17 @@ where
             }
         } else {
             // Use existing implementation for Raw VISCA
-            // Encode command
-            let mut buf = [0u8; 64];
-            let len = match command.encode_into(self.camera_id, &mut buf) {
-                Ok(len) => len,
+            // Encode command using zero-copy path
+            let visca_bytes = match command.try_into_bytes(self.camera_id) {
+                Ok(bytes) => bytes,
                 Err(e) => return std::future::ready(Err(e)),
             };
-
-            debug_assert!(len > 0 && buf[len - 1] == crate::command::bytes::VISCA_TERMINATOR);
 
             let kind = command.command_kind();
             let is_inquiry = matches!(kind, crate::command::CommandKind::Inquiry);
 
-            let request = self.envelope.frame_bytes_with_kind(
-                &buf[..len],
+            let (request, _meta) = self.envelope.frame_bytes_with_kind_owned(
+                visca_bytes,
                 kind,
                 &self.envelope_buffer_manager,
             );
@@ -626,32 +628,34 @@ where
                 match SyncTransport::recv_with_timeout(&mut *transport, timeout_config.ack_timeout)
                 {
                     Ok(first_response_bytes) => {
-                        match envelope.extract_response(&first_response_bytes[..]) {
-                            Ok(first_visca) => match ViscaResponse::parse(&first_visca[..]) {
-                                Ok(ViscaResponse::Error(e)) => std::future::ready(Err(e)),
-                                Ok(ViscaResponse::CmdAck { .. }) => {
-                                    let completion_timeout =
-                                        timeout_config.get_timeout(C::TIMEOUT_CATEGORY);
-                                    match transport.recv_with_timeout(completion_timeout) {
-                                        Ok(second_response_bytes) => match envelope
-                                            .extract_response(&second_response_bytes[..])
-                                        {
-                                            Ok(second_visca) => {
-                                                match ViscaResponse::parse(&second_visca[..]) {
-                                                    Ok(response) => {
-                                                        std::future::ready(Ok(response))
+                        match envelope.extract_with_meta_owned(first_response_bytes) {
+                            Ok((first_visca, _meta)) => {
+                                match ViscaResponse::parse(&first_visca[..]) {
+                                    Ok(ViscaResponse::Error(e)) => std::future::ready(Err(e)),
+                                    Ok(ViscaResponse::CmdAck { .. }) => {
+                                        let completion_timeout =
+                                            timeout_config.get_timeout(C::TIMEOUT_CATEGORY);
+                                        match transport.recv_with_timeout(completion_timeout) {
+                                            Ok(second_response_bytes) => match envelope
+                                                .extract_with_meta_owned(second_response_bytes)
+                                            {
+                                                Ok((second_visca, _meta)) => {
+                                                    match ViscaResponse::parse(&second_visca[..]) {
+                                                        Ok(response) => {
+                                                            std::future::ready(Ok(response))
+                                                        }
+                                                        Err(e) => std::future::ready(Err(e)),
                                                     }
-                                                    Err(e) => std::future::ready(Err(e)),
                                                 }
-                                            }
+                                                Err(e) => std::future::ready(Err(e)),
+                                            },
                                             Err(e) => std::future::ready(Err(e)),
-                                        },
-                                        Err(e) => std::future::ready(Err(e)),
+                                        }
                                     }
+                                    Ok(response) => std::future::ready(Ok(response)),
+                                    Err(e) => std::future::ready(Err(e)),
                                 }
-                                Ok(response) => std::future::ready(Ok(response)),
-                                Err(e) => std::future::ready(Err(e)),
-                            },
+                            }
                             Err(e) => std::future::ready(Err(e)),
                         }
                     }
@@ -660,8 +664,8 @@ where
             } else {
                 let inquiry_timeout = timeout_config.get_timeout(C::TIMEOUT_CATEGORY);
                 match SyncTransport::recv_with_timeout(&mut *transport, inquiry_timeout) {
-                    Ok(response_bytes) => match envelope.extract_response(&response_bytes[..]) {
-                        Ok(visca) => {
+                    Ok(response_bytes) => match envelope.extract_with_meta_owned(response_bytes) {
+                        Ok((visca, _meta)) => {
                             let parse_result = if let Some(response_type) = command.response_type()
                             {
                                 ViscaResponse::parse_with_profile::<P>(&visca[..], &response_type)
@@ -693,21 +697,25 @@ where
     {
         use crate::command::response::ViscaResponse;
 
-        // Encode command
-        let mut buf = [0u8; 64];
-        let len = match command.encode_into(self.camera_id, &mut buf) {
-            Ok(len) => len,
+        // Encode command using zero-copy path
+        let visca_bytes = match command.try_into_bytes(self.camera_id) {
+            Ok(bytes) => bytes,
             Err(e) => return std::future::ready(Err(e)),
         };
 
-        debug_assert!(len > 0 && buf[len - 1] == crate::command::bytes::VISCA_TERMINATOR);
+        debug_assert!(
+            !visca_bytes.is_empty()
+                && visca_bytes[visca_bytes.len() - 1] == crate::command::bytes::VISCA_TERMINATOR
+        );
 
         let kind = command.command_kind();
         let is_inquiry = matches!(kind, crate::command::CommandKind::Inquiry);
 
-        let request =
-            self.envelope
-                .frame_bytes_with_kind(&buf[..len], kind, &self.envelope_buffer_manager);
+        let (request, _meta) = self.envelope.frame_bytes_with_kind_owned(
+            visca_bytes,
+            kind,
+            &self.envelope_buffer_manager,
+        );
 
         let kind = if is_inquiry {
             crate::command::CommandKind::Inquiry
@@ -733,17 +741,18 @@ where
         let visca_result = if !is_inquiry {
             match SyncTransport::recv_with_timeout(&mut *transport, timeout_config.ack_timeout) {
                 Ok(first_response_bytes) => {
-                    match envelope.extract_response(&first_response_bytes[..]) {
-                        Ok(first_visca) => match ViscaResponse::parse(&first_visca[..]) {
+                    match envelope.extract_with_meta_owned(first_response_bytes) {
+                        Ok((first_visca, _meta)) => match ViscaResponse::parse(&first_visca[..]) {
                             Ok(ViscaResponse::Error(e)) => Err(e),
                             Ok(ViscaResponse::CmdAck { .. }) => {
                                 let completion_timeout =
                                     timeout_config.get_timeout(C::TIMEOUT_CATEGORY);
                                 match transport.recv_with_timeout(completion_timeout) {
                                     Ok(second_response_bytes) => {
-                                        match envelope.extract_response(&second_response_bytes[..])
+                                        match envelope
+                                            .extract_with_meta_owned(second_response_bytes)
                                         {
-                                            Ok(second_visca) => {
+                                            Ok((second_visca, _meta)) => {
                                                 match ViscaResponse::parse(&second_visca[..]) {
                                                     Ok(response) => Ok(response),
                                                     Err(e) => Err(e),
@@ -766,8 +775,8 @@ where
         } else {
             let inquiry_timeout = timeout_config.get_timeout(C::TIMEOUT_CATEGORY);
             match SyncTransport::recv_with_timeout(&mut *transport, inquiry_timeout) {
-                Ok(response_bytes) => match envelope.extract_response(&response_bytes[..]) {
-                    Ok(visca) => {
+                Ok(response_bytes) => match envelope.extract_with_meta_owned(response_bytes) {
+                    Ok((visca, _meta)) => {
                         let parse_result = if let Some(response_type) = command.response_type() {
                             ViscaResponse::parse_with_profile::<P>(&visca[..], &response_type)
                         } else {

@@ -19,7 +19,7 @@ use crate::{
     error::{Error, Result},
     protocol::framer::ProtocolFramer,
     runtime::{
-        async_adapter::{AsyncAdapter, MetricsSummary, TxItem},
+        async_adapter::{AsyncAdapter, CompletionEvent, MetricsSummary, TxItem},
         core::PendingCommand,
     },
     timeout::TimeoutConfig,
@@ -87,7 +87,7 @@ impl SendGuard {
 }
 
 /// Main runtime loop with configurable tick interval.
-#[instrument(level = "debug", name = "visca_runtime_loop", skip(transport, submit_rx, metrics_rx, shutdown_rx, executor, config), fields(tick_ms = config.tick_interval_ms))]
+#[instrument(level = "debug", name = "visca_runtime_loop", skip(transport, submit_rx, metrics_rx, completions_rx, shutdown_rx, executor, config), fields(tick_ms = config.tick_interval_ms))]
 pub async fn runtime_loop_with_config<
     T: AsyncTransport + Send + 'static,
     E: crate::executor::Executor + Send + Sync + 'static,
@@ -95,6 +95,7 @@ pub async fn runtime_loop_with_config<
     mut transport: T,
     submit_rx: Receiver<TxItem>,
     metrics_rx: Receiver<Sender<MetricsSummary>>,
+    completions_rx: Receiver<Sender<Receiver<CompletionEvent>>>,
     shutdown_rx: Receiver<()>,
     executor: Arc<E>,
     config: RuntimeLoopConfig,
@@ -146,24 +147,26 @@ pub async fn runtime_loop_with_config<
                 TxItem::Cancel { socket } => {
                     // Send cancel command
                     use crate::camera_id::CameraId;
-                    use crate::command::{encode_visca::ViscaEncode, system::CommandCancelCommand};
+                    use crate::command::{
+                        bytes::VISCA_TERMINATOR, encode_visca::ViscaEncode,
+                        system::CommandCancelCommand,
+                    };
 
                     let cancel_cmd = CommandCancelCommand::new(socket);
-                    let mut cancel_bytes = [0u8; 16];
 
                     // Cancel commands are simple and should always encode successfully
-                    // Use unwrap_or to provide a fallback in the extremely unlikely case of failure
-                    let len = cancel_cmd
-                        .encode_into(CameraId::CAMERA_1, &mut cancel_bytes)
+                    // Use unwrap_or_else to provide a fallback in the extremely unlikely case of failure
+                    let cancel_bytes = cancel_cmd
+                        .try_into_bytes(CameraId::CAMERA_1)
                         .unwrap_or_else(|e| {
                             error!("Failed to encode cancel command: {e}");
-                            // Return a minimal valid length to avoid panic
-                            3 // Minimum VISCA command length
+                            // Return a minimal valid VISCA cancel command as fallback
+                            bytes::Bytes::from_static(&[0x81, 0x21, VISCA_TERMINATOR])
                         });
 
                     let kind = CommandKind::Command;
                     let (framed, _meta) = config.envelope.frame_bytes_with_kind_owned(
-                        bytes::Bytes::copy_from_slice(&cancel_bytes[..len]),
+                        cancel_bytes,
                         kind,
                         &config.buffer_manager,
                     );
@@ -175,22 +178,22 @@ pub async fn runtime_loop_with_config<
                     if let Some(socket) = adapter.socket_for_command(id) {
                         use crate::camera_id::CameraId;
                         use crate::command::{
-                            encode_visca::ViscaEncode, system::CommandCancelCommand,
+                            bytes::VISCA_TERMINATOR, encode_visca::ViscaEncode,
+                            system::CommandCancelCommand,
                         };
 
                         let cancel_cmd = CommandCancelCommand::new(socket);
-                        let mut cancel_bytes = [0u8; 16];
 
-                        let len = cancel_cmd
-                            .encode_into(CameraId::CAMERA_1, &mut cancel_bytes)
+                        let cancel_bytes = cancel_cmd
+                            .try_into_bytes(CameraId::CAMERA_1)
                             .unwrap_or_else(|e| {
                                 error!("Failed to encode cancel command: {e}");
-                                3 // Minimum VISCA command length
+                                bytes::Bytes::from_static(&[0x81, 0x21, VISCA_TERMINATOR])
                             });
 
                         let kind = CommandKind::Command;
                         let (framed, _meta) = config.envelope.frame_bytes_with_kind_owned(
-                            bytes::Bytes::copy_from_slice(&cancel_bytes[..len]),
+                            cancel_bytes,
                             kind,
                             &config.buffer_manager,
                         );
@@ -209,6 +212,13 @@ pub async fn runtime_loop_with_config<
         if let Ok(response_tx) = metrics_rx.try_recv() {
             let summary = adapter.metrics_summary();
             let _ = response_tx.send(summary);
+            continue;
+        }
+
+        // Check for completion subscription requests non-blockingly
+        if let Ok(response_tx) = completions_rx.try_recv() {
+            let completion_rx = adapter.subscribe_completions();
+            let _ = response_tx.send(completion_rx);
             continue;
         }
 
@@ -362,18 +372,19 @@ pub async fn runtime_loop_with_config<
                         if let Some(socket) = adapter.socket_for_command(id) {
                             use crate::camera_id::CameraId;
                             use crate::command::{
-                                encode_visca::ViscaEncode, system::CommandCancelCommand,
+                                bytes::VISCA_TERMINATOR, encode_visca::ViscaEncode,
+                                system::CommandCancelCommand,
                             };
 
                             let cancel_cmd = CommandCancelCommand::new(socket);
-                            let mut cancel_bytes = [0u8; 16];
-                            let len = cancel_cmd
-                                .encode_into(CameraId::CAMERA_1, &mut cancel_bytes)
-                                .unwrap_or(3);
+                            let cancel_bytes =
+                                cancel_cmd.try_into_bytes(CameraId::CAMERA_1).unwrap_or(
+                                    bytes::Bytes::from_static(&[0x81, 0x21, VISCA_TERMINATOR]),
+                                );
 
                             let kind = CommandKind::Command;
                             let (framed, _meta) = config.envelope.frame_bytes_with_kind_owned(
-                                bytes::Bytes::copy_from_slice(&cancel_bytes[..len]),
+                                cancel_bytes,
                                 kind,
                                 &config.buffer_manager,
                             );

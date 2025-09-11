@@ -4,7 +4,7 @@
 //! scheduler core to manage Sony sequence tracking, ACK/completion routing, and
 //! retry logic without any async dependencies.
 
-use bytes::{Bytes, BytesMut};
+use bytes::BytesMut;
 use tracing::{debug, trace, warn};
 
 use std::{
@@ -136,10 +136,8 @@ impl BlockingRunner {
     ) -> Result<ViscaResponse> {
         let cmd_id = self.next_id.fetch_add(1, Ordering::SeqCst);
 
-        // Encode command
-        let mut buf = [0u8; 64];
-        let len = command.encode_into(camera_id, &mut buf)?;
-        let visca_bytes = Bytes::copy_from_slice(&buf[..len]);
+        // Encode command using zero-copy path
+        let visca_bytes = command.try_into_bytes(camera_id)?;
 
         // Store response type in core for inquiries
         if let Some(rt) = command.response_type() {
@@ -524,7 +522,7 @@ impl BlockingRunner {
                     let actions = self.core.process_event(event, now);
                     for action in actions {
                         match action {
-                            SchedulerAction::CommandComplete { id, response }
+                            SchedulerAction::CommandComplete { id, response, .. }
                                 if id == target_cmd_id =>
                             {
                                 // Core handles all inquiry cleanup now
@@ -564,6 +562,7 @@ impl BlockingRunner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bytes::Bytes;
 
     #[test]
     fn test_scheduler_core_creation() {
