@@ -31,7 +31,7 @@ pub mod blocking_api;
 pub use unified::Camera as UnifiedCamera;
 
 // Re-export new API types
-pub use config::{CameraConfig, ProtocolConfig, RetryPolicy, TransportOptions};
+pub use config::{CameraConfig, ProtocolConfig, TransportOptions};
 pub use session::CameraSession;
 
 // Re-export convenience methods as the main Camera type

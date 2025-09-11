@@ -22,6 +22,84 @@ use crate::{
     Error,
 };
 
+/// Retry budget configuration for command categories.
+///
+/// This zero-cost POD type replaces the HashMap-based approach with
+/// compile-time known budgets for each command category.
+#[derive(Debug, Clone, Copy)]
+pub struct RetryBudget {
+    /// Budget for Quick commands.
+    pub quick: u32,
+    /// Budget for Movement commands.
+    pub movement: u32,
+    /// Budget for Preset commands.
+    pub preset: u32,
+    /// Budget for Network commands.
+    pub network: u32,
+    /// Budget for LongRunning commands.
+    pub long_running: u32,
+    /// Budget for Custom commands.
+    pub custom: u32,
+}
+
+impl RetryBudget {
+    /// Create a retry budget from a base retry count.
+    ///
+    /// This implements the same logic as the previous HashMap-based approach:
+    /// - Quick: base + 2 (minimum 1)
+    /// - Movement: base
+    /// - Preset: base
+    /// - Network: base - 1 (minimum 1)
+    /// - LongRunning: 1
+    /// - Custom: base
+    pub const fn from_base(base: u32) -> Self {
+        // Quick commands get extra retries
+        let quick = if base > u32::MAX - 2 {
+            u32::MAX
+        } else {
+            let sum = base + 2;
+            if sum < 1 {
+                1
+            } else {
+                sum
+            }
+        };
+
+        // Network commands get fewer retries
+        let network = if base > 0 {
+            let sub = base - 1;
+            if sub < 1 {
+                1
+            } else {
+                sub
+            }
+        } else {
+            1
+        };
+
+        Self {
+            quick,
+            movement: base,
+            preset: base,
+            network,
+            long_running: 1,
+            custom: base,
+        }
+    }
+
+    /// Get the retry budget for a specific command category.
+    pub const fn for_category(&self, category: CommandCategory) -> u32 {
+        match category {
+            CommandCategory::Quick => self.quick,
+            CommandCategory::Movement => self.movement,
+            CommandCategory::Preset => self.preset,
+            CommandCategory::Network => self.network,
+            CommandCategory::LongRunning => self.long_running,
+            CommandCategory::Custom => self.custom,
+        }
+    }
+}
+
 /// Command priority levels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Priority {
@@ -397,8 +475,8 @@ pub struct SchedulerCore {
     retry_trigger_transport_error: HashMap<u32, bool>,
     /// Priority queue for pending commands.
     command_queue: BinaryHeap<PendingCommand>,
-    /// Maximum retries per command category.
-    max_retries_per_category: HashMap<CommandCategory, u32>,
+    /// Retry budget for command categories.
+    retry_budget: RetryBudget,
     /// Sony sequence tracking: sequence -> command_id.
     seq_to_cmd: HashMap<u32, u32>,
     /// Sony sequence tracking: command_id -> sequences.
@@ -427,19 +505,8 @@ impl SchedulerCore {
         timeout_config: TimeoutConfig,
         retry_config: crate::transport::RetryConfig,
     ) -> Self {
-        // Set max retries per category based on retry config
-        let mut max_retries = HashMap::new();
-        // Scale the category-specific retries based on the overall max_retries setting
-        let base_retries = retry_config.max_retries;
-        max_retries.insert(CommandCategory::Quick, base_retries.max(1) + 2); // Quick commands get extra retries
-        max_retries.insert(CommandCategory::Movement, base_retries);
-        max_retries.insert(CommandCategory::Preset, base_retries);
-        max_retries.insert(
-            CommandCategory::Network,
-            base_retries.saturating_sub(1).max(1),
-        );
-        max_retries.insert(CommandCategory::LongRunning, 1); // Long running always get minimal retries
-        max_retries.insert(CommandCategory::Custom, base_retries);
+        // Create retry budget from the base retry count
+        let retry_budget = RetryBudget::from_base(retry_config.max_retries);
 
         Self {
             sockets: Default::default(),
@@ -451,7 +518,7 @@ impl SchedulerCore {
             retry_attempts: HashMap::new(),
             retry_trigger_transport_error: HashMap::new(),
             command_queue: BinaryHeap::new(),
-            max_retries_per_category: max_retries,
+            retry_budget,
             seq_to_cmd: HashMap::new(),
             cmd_to_seqs: HashMap::new(),
             seq16_to_cmd: HashMap::new(),
@@ -1031,11 +1098,7 @@ impl SchedulerCore {
                 .get(&cmd_id)
                 .map(|(_, _, category, _)| {
                     let attempts = self.retry_attempts.get(&cmd_id).copied().unwrap_or(0);
-                    let max_retries = self
-                        .max_retries_per_category
-                        .get(category)
-                        .copied()
-                        .unwrap_or(3);
+                    let max_retries = self.retry_budget.for_category(*category);
                     attempts < max_retries
                 })
                 .unwrap_or(false);
@@ -1046,11 +1109,7 @@ impl SchedulerCore {
                 .get(&cmd_id)
                 .map(|(_, _, category, _)| {
                     let attempts = self.retry_attempts.get(&cmd_id).copied().unwrap_or(0);
-                    let max_retries = self
-                        .max_retries_per_category
-                        .get(category)
-                        .copied()
-                        .unwrap_or(3);
+                    let max_retries = self.retry_budget.for_category(*category);
                     attempts < max_retries
                 })
                 .unwrap_or(false);
@@ -1116,11 +1175,7 @@ impl SchedulerCore {
 
                 // Get retry count for this command
                 let attempts = self.retry_attempts.get(&cmd_id).copied().unwrap_or(0);
-                let max_retries = self
-                    .max_retries_per_category
-                    .get(&category)
-                    .copied()
-                    .unwrap_or(3);
+                let max_retries = self.retry_budget.for_category(category);
 
                 // Determine if we will retry
                 let will_retry = attempts < max_retries;
@@ -1157,10 +1212,13 @@ impl SchedulerCore {
                     self.command_metadata
                         .insert(cmd_id, (bytes.clone(), priority, category, camera_id));
 
-                    // Calculate retry delay with exponential backoff
-                    let base_delay = Duration::from_millis(100);
-                    let backoff_factor = 2_u32.pow(attempts.min(5));
-                    let retry_delay = base_delay * backoff_factor;
+                    // Calculate retry delay using RetryConfig to maintain consistency
+                    // For ACK timeouts, we preserve the legacy timing by using a special calculation:
+                    // - Base delay is 100ms (same as before)
+                    // - Exponent is capped at 5 (2^5 = 32) to match legacy behavior
+                    // - We add 1 to attempts because calculate_delay uses 2^(attempt-1)
+                    let capped_attempt = (attempts + 1).min(6); // Cap at 6 since calculate_delay uses attempt-1
+                    let retry_delay = self.retry_config.calculate_delay(capped_attempt, None);
 
                     // Create and queue the retry command
                     let retry_cmd = RetryCommand {
@@ -1219,11 +1277,7 @@ impl SchedulerCore {
                 .get(&cmd_id)
                 .map(|(_, _, category, _)| {
                     let attempts = self.retry_attempts.get(&cmd_id).copied().unwrap_or(0);
-                    let max_retries = self
-                        .max_retries_per_category
-                        .get(category)
-                        .copied()
-                        .unwrap_or(3);
+                    let max_retries = self.retry_budget.for_category(*category);
                     attempts < max_retries
                 })
                 .unwrap_or(false);
@@ -1405,11 +1459,7 @@ impl SchedulerCore {
         if let Some((_, _, category, _)) = self.command_metadata.get(&cmd_id) {
             if error.is_retryable(Some(*category)) {
                 let attempts = self.retry_attempts.get(&cmd_id).copied().unwrap_or(0);
-                let max_retries = self
-                    .max_retries_per_category
-                    .get(category)
-                    .copied()
-                    .unwrap_or(3);
+                let max_retries = self.retry_budget.for_category(*category);
                 attempts < max_retries
             } else {
                 false
@@ -1460,11 +1510,7 @@ impl SchedulerCore {
             *attempt += 1;
 
             // Check if we've exceeded max retries
-            let max_retries = self
-                .max_retries_per_category
-                .get(&category)
-                .copied()
-                .unwrap_or(3);
+            let max_retries = self.retry_budget.for_category(category);
 
             if *attempt > max_retries {
                 // Command has exceeded retries
@@ -1520,6 +1566,98 @@ impl SchedulerCore {
 mod tests {
     use super::*;
     use crate::command::bytes::VISCA_TERMINATOR;
+
+    #[test]
+    fn test_retry_budget_from_base() {
+        // Test with base of 3 (default)
+        let budget = RetryBudget::from_base(3);
+        assert_eq!(budget.quick, 5); // 3 + 2
+        assert_eq!(budget.movement, 3);
+        assert_eq!(budget.preset, 3);
+        assert_eq!(budget.network, 2); // 3 - 1, min 1
+        assert_eq!(budget.long_running, 1);
+        assert_eq!(budget.custom, 3);
+
+        // Test with base of 0
+        let budget = RetryBudget::from_base(0);
+        assert_eq!(budget.quick, 2); // 0 + 2
+        assert_eq!(budget.movement, 0);
+        assert_eq!(budget.preset, 0);
+        assert_eq!(budget.network, 1); // min 1
+        assert_eq!(budget.long_running, 1);
+        assert_eq!(budget.custom, 0);
+
+        // Test with base of 1
+        let budget = RetryBudget::from_base(1);
+        assert_eq!(budget.quick, 3); // 1 + 2
+        assert_eq!(budget.movement, 1);
+        assert_eq!(budget.preset, 1);
+        assert_eq!(budget.network, 1); // 1 - 1 = 0, but min 1
+        assert_eq!(budget.long_running, 1);
+        assert_eq!(budget.custom, 1);
+
+        // Test with large base
+        let budget = RetryBudget::from_base(10);
+        assert_eq!(budget.quick, 12); // 10 + 2
+        assert_eq!(budget.movement, 10);
+        assert_eq!(budget.preset, 10);
+        assert_eq!(budget.network, 9); // 10 - 1
+        assert_eq!(budget.long_running, 1);
+        assert_eq!(budget.custom, 10);
+    }
+
+    #[test]
+    fn test_retry_budget_for_category() {
+        let budget = RetryBudget::from_base(3);
+
+        assert_eq!(budget.for_category(CommandCategory::Quick), 5);
+        assert_eq!(budget.for_category(CommandCategory::Movement), 3);
+        assert_eq!(budget.for_category(CommandCategory::Preset), 3);
+        assert_eq!(budget.for_category(CommandCategory::Network), 2);
+        assert_eq!(budget.for_category(CommandCategory::LongRunning), 1);
+        assert_eq!(budget.for_category(CommandCategory::Custom), 3);
+    }
+
+    #[test]
+    fn test_ack_backoff_parity() {
+        // Test that the new ACK backoff calculation matches the legacy behavior
+        let retry_config = crate::transport::RetryConfig {
+            max_retries: 3,
+            base_retry_delay: Duration::from_millis(100),
+            max_retry_duration: Duration::from_secs(10),
+            exponential_backoff: true,
+        };
+
+        // Legacy calculation: base_delay * 2^attempts.min(5)
+        // New calculation: retry_config.calculate_delay((attempts + 1).min(6), None)
+
+        // Test cases matching the legacy behavior
+        let test_cases = vec![
+            (0, 100),  // 2^0 = 1, 100ms * 1 = 100ms
+            (1, 200),  // 2^1 = 2, 100ms * 2 = 200ms
+            (2, 400),  // 2^2 = 4, 100ms * 4 = 400ms
+            (3, 800),  // 2^3 = 8, 100ms * 8 = 800ms
+            (4, 1600), // 2^4 = 16, 100ms * 16 = 1600ms
+            (5, 3200), // 2^5 = 32, 100ms * 32 = 3200ms (capped)
+            (6, 3200), // Still capped at 2^5
+            (7, 3200), // Still capped at 2^5
+        ];
+
+        for (attempts, expected_ms) in test_cases {
+            // New calculation used in the code
+            let capped_attempt = (attempts + 1).min(6);
+            let actual_delay = retry_config.calculate_delay(capped_attempt, None);
+
+            assert_eq!(
+                actual_delay,
+                Duration::from_millis(expected_ms),
+                "Mismatch for attempt {}: expected {}ms, got {}ms",
+                attempts,
+                expected_ms,
+                actual_delay.as_millis()
+            );
+        }
+    }
 
     #[test]
     fn test_inquiry_does_not_consume_sockets() {

@@ -4,8 +4,6 @@
 //! needed to establish a camera connection. The configuration is separate from the
 //! actual connection process, allowing for easy cloning, reuse, and modification.
 
-use std::time::Duration;
-
 use crate::{
     camera_id::CameraId, capabilities::ProtocolStyle, error::Error, timeout::TimeoutConfig,
 };
@@ -79,46 +77,6 @@ pub enum ProtocolConfig {
     Auto,
 }
 
-/// Retry policy for command transmission.
-#[derive(Debug, Clone, Copy)]
-pub struct RetryPolicy {
-    /// Maximum number of retry attempts.
-    pub max_attempts: u32,
-    /// Delay between retry attempts.
-    pub retry_delay: Duration,
-    /// Whether to use exponential backoff.
-    pub exponential_backoff: bool,
-}
-
-impl RetryPolicy {
-    /// No retries (suitable for TCP).
-    pub const fn none() -> Self {
-        Self {
-            max_attempts: 0,
-            retry_delay: Duration::from_millis(0),
-            exponential_backoff: false,
-        }
-    }
-
-    /// Recommended retry policy for UDP connections.
-    pub const fn recommended_udp() -> Self {
-        Self {
-            max_attempts: 3,
-            retry_delay: Duration::from_millis(500),
-            exponential_backoff: true,
-        }
-    }
-
-    /// Conservative retry policy with more attempts.
-    pub const fn conservative() -> Self {
-        Self {
-            max_attempts: 5,
-            retry_delay: Duration::from_secs(1),
-            exponential_backoff: true,
-        }
-    }
-}
-
 /// Pure configuration for camera connection.
 ///
 /// This struct holds all configuration needed to establish a camera connection
@@ -149,8 +107,8 @@ pub struct CameraConfig<P> {
     pub(crate) protocol: ProtocolConfig,
     /// Command timeout configuration.
     pub(crate) timeouts: TimeoutConfig,
-    /// Retry policy for failed commands.
-    pub(crate) retries: RetryPolicy,
+    /// Retry configuration for failed commands.
+    pub(crate) retries: crate::transport::RetryConfig,
     /// Camera VISCA address (usually 1).
     pub(crate) camera_id: CameraId,
     /// Profile marker.
@@ -171,7 +129,7 @@ where
             },
             protocol: ProtocolConfig::Explicit(P::PROTOCOL_STYLE),
             timeouts: TimeoutConfig::default(),
-            retries: RetryPolicy::none(),
+            retries: crate::transport::RetryConfig::default(),
             camera_id: CameraId::new(P::DEFAULT_ADDRESS).unwrap_or_default(),
             _phantom: std::marker::PhantomData,
         }
@@ -277,8 +235,8 @@ where
         self
     }
 
-    /// Set retry policy.
-    pub fn retries(mut self, retries: RetryPolicy) -> Self {
+    /// Set retry configuration.
+    pub fn retries(mut self, retries: crate::transport::RetryConfig) -> Self {
         self.retries = retries;
         self
     }
