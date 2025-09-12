@@ -1,7 +1,6 @@
 //! Pan/Tilt-related response decoders.
 
-use super::super::nibbles::{combine_nibbles_i16, combine_nibbles_u16};
-use super::super::payload::Payload;
+use super::super::payload::{Nibbles, Payload};
 use crate::{
     capabilities::{PanTilt, Profile},
     command::{
@@ -19,11 +18,16 @@ pub(crate) fn decode(
     match kind {
         ViscaResponseType::PanTiltPosition => {
             if payload.len() == 8 {
-                let pan = combine_nibbles_i16(&payload.as_slice()[0..4]);
-                let tilt = combine_nibbles_i16(&payload.as_slice()[4..8]);
-                Some(Ok(ViscaResponse::Inquiry(
-                    InquiryResponse::PanTiltPosition { pan, tilt },
-                )))
+                match Nibbles::<8>::try_from(payload) {
+                    Ok(nibbles) => {
+                        let pan = nibbles.i16_quad(0);
+                        let tilt = nibbles.i16_quad(4);
+                        Some(Ok(ViscaResponse::Inquiry(
+                            InquiryResponse::PanTiltPosition { pan, tilt },
+                        )))
+                    }
+                    Err(e) => Some(Err(e)),
+                }
             } else if payload.len() == 4 {
                 tracing::warn!(
                     "PanTiltPosition: Received compact format (4 bytes). Payload: {payload:02X?}. Treating as home position."
@@ -64,17 +68,22 @@ pub(crate) fn decode_for<P: Profile + PanTilt>(
     match kind {
         ViscaResponseType::PanTiltPosition => {
             if payload.len() == 8 {
-                // Extract as u16 values first (camera coordinates)
-                let pan_u16 = combine_nibbles_u16(&payload.as_slice()[0..4]);
-                let tilt_u16 = combine_nibbles_u16(&payload.as_slice()[4..8]);
+                match Nibbles::<8>::try_from(payload) {
+                    Ok(nibbles) => {
+                        // Extract as u16 values first (camera coordinates)
+                        let pan_u16 = nibbles.u16_quad(0);
+                        let tilt_u16 = nibbles.u16_quad(4);
 
-                // Convert from camera coordinates to logical coordinates using profile's coordinate system
-                let (pan, tilt) =
-                    P::COORDINATE_SYSTEM.convert_from_camera_coords(pan_u16, tilt_u16);
+                        // Convert from camera coordinates to logical coordinates using profile's coordinate system
+                        let (pan, tilt) =
+                            P::COORDINATE_SYSTEM.convert_from_camera_coords(pan_u16, tilt_u16);
 
-                Some(Ok(ViscaResponse::Inquiry(
-                    InquiryResponse::PanTiltPosition { pan, tilt },
-                )))
+                        Some(Ok(ViscaResponse::Inquiry(
+                            InquiryResponse::PanTiltPosition { pan, tilt },
+                        )))
+                    }
+                    Err(e) => Some(Err(e)),
+                }
             } else if payload.len() == 4 {
                 tracing::warn!(
                     "PanTiltPosition: Received compact format (4 bytes). Payload: {payload:02X?}. Treating as home position."

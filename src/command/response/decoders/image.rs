@@ -2,8 +2,7 @@
 
 use std::borrow::Cow;
 
-use super::super::nibbles::combine_nibbles_u8;
-use super::super::payload::Payload;
+use super::super::payload::{Nibbles, Payload};
 use crate::{
     command::{
         image::{BlackWhiteMode, NrMode, NrSpeed, SharpnessMode},
@@ -19,15 +18,15 @@ pub(crate) fn decode(
     payload: Payload<'_>,
 ) -> Option<Result<ViscaResponse, Error>> {
     match kind {
-        ViscaResponseType::Sharpness => {
-            if payload.len() != 4 {
-                return Some(Err(Error::InvalidResponseLength));
+        ViscaResponseType::Sharpness => match Nibbles::<4>::try_from(payload) {
+            Ok(nibbles) => {
+                let value = nibbles.u8_pair(2);
+                Some(Ok(ViscaResponse::Inquiry(InquiryResponse::Sharpness {
+                    value,
+                })))
             }
-            let value = combine_nibbles_u8(&payload.as_slice()[2..4]);
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::Sharpness {
-                value,
-            })))
-        }
+            Err(e) => Some(Err(e)),
+        },
         ViscaResponseType::SharpnessMode => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));

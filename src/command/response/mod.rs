@@ -5,13 +5,12 @@
 
 mod decoders;
 mod lift;
-mod nibbles;
 pub mod payload;
 pub mod types;
 
 use std::borrow::Cow;
 
-use self::nibbles::{combine_nibbles_u16, combine_nibbles_u8};
+use self::payload::{Nibbles, Payload};
 use crate::{
     command::{image::SharpnessMode, AutoWhiteBalanceSensitivity, InquiryResponse},
     error::Error,
@@ -63,39 +62,55 @@ pub fn parse_hue_last_nibble(data: &[u8]) -> Result<InquiryResponse, Error> {
 }
 
 /// Parse middle nibbles from payload (used for Sharpness)
+#[deprecated(note = "Use Nibbles type directly in decoders")]
 pub fn parse_middle_nibbles(data: &[u8]) -> Result<InquiryResponse, Error> {
-    if data.len() < 4 {
-        return Err(Error::InvalidResponseLength);
+    let payload = Payload::new(data);
+    match Nibbles::<4>::try_from(payload) {
+        Ok(nibbles) => {
+            let value = nibbles.u8_pair(2);
+            Ok(InquiryResponse::Sharpness { value })
+        }
+        Err(e) => Err(e),
     }
-    let value = combine_nibbles_u8(&data[2..4]);
-    Ok(InquiryResponse::Sharpness { value })
 }
 
 /// Parse exposure compensation value with offset
+#[deprecated(note = "Use Nibbles type directly in decoders")]
 pub fn parse_exposure_compensation(data: &[u8]) -> Result<InquiryResponse, Error> {
-    if data.len() < 4 {
-        return Err(Error::InvalidResponseLength);
+    let payload = Payload::new(data);
+    match Nibbles::<4>::try_from(payload) {
+        Ok(nibbles) => {
+            let value = nibbles.u8_pair(2) as i8 - 7;
+            Ok(InquiryResponse::ExposureCompensation { value })
+        }
+        Err(e) => Err(e),
     }
-    let value = combine_nibbles_u8(&data[2..4]) as i8 - 7;
-    Ok(InquiryResponse::ExposureCompensation { value })
 }
 
 /// Parse shutter value from middle nibbles
+#[deprecated(note = "Use Nibbles type directly in decoders")]
 pub fn parse_shutter(data: &[u8]) -> Result<InquiryResponse, Error> {
-    if data.len() < 4 {
-        return Err(Error::InvalidResponseLength);
+    let payload = Payload::new(data);
+    match Nibbles::<4>::try_from(payload) {
+        Ok(nibbles) => {
+            let position = nibbles.u8_pair(2) as u16;
+            Ok(InquiryResponse::Shutter { position })
+        }
+        Err(e) => Err(e),
     }
-    let position = combine_nibbles_u8(&data[2..4]) as u16;
-    Ok(InquiryResponse::Shutter { position })
 }
 
 /// Parse color temperature from middle nibbles
+#[deprecated(note = "Use Nibbles type directly in decoders")]
 pub fn parse_color_temperature(data: &[u8]) -> Result<InquiryResponse, Error> {
-    if data.len() < 4 {
-        return Err(Error::InvalidResponseLength);
+    let payload = Payload::new(data);
+    match Nibbles::<4>::try_from(payload) {
+        Ok(nibbles) => {
+            let temperature = nibbles.u8_pair(2) as u16;
+            Ok(InquiryResponse::ColorTemperature { temperature })
+        }
+        Err(e) => Err(e),
     }
-    let temperature = ((data[2] as u16) << 4) | (data[3] as u16);
-    Ok(InquiryResponse::ColorTemperature { temperature })
 }
 
 /// Parse sharpness mode (0x02 = Auto, 0x03 = Manual)
@@ -376,12 +391,16 @@ pub fn parse_auto_wb_sensitivity(data: &[u8]) -> Result<InquiryResponse, Error> 
 }
 
 /// Parse exposure compensation position
+#[deprecated(note = "Use Nibbles type directly in decoders")]
 pub fn parse_exposure_compensation_position(data: &[u8]) -> Result<InquiryResponse, Error> {
-    if data.len() < 4 {
-        return Err(Error::InvalidResponseLength);
+    let payload = Payload::new(data);
+    match Nibbles::<4>::try_from(payload) {
+        Ok(nibbles) => {
+            let position = nibbles.u16_quad(0);
+            Ok(InquiryResponse::ExposureCompensationPosition { position })
+        }
+        Err(e) => Err(e),
     }
-    let position = combine_nibbles_u16(&data[0..4]);
-    Ok(InquiryResponse::ExposureCompensationPosition { position })
 }
 
 /// Parse red tuning level
@@ -532,17 +551,6 @@ mod tests {
             ViscaResponse::Inquiry(InquiryResponse::Power { on }) => assert!(!on),
             _ => panic!("Expected Power inquiry response"),
         }
-    }
-
-    #[test]
-    fn test_combine_nibbles() {
-        // Test u16 combination
-        let nibbles = [0x01, 0x02, 0x03, 0x04];
-        assert_eq!(combine_nibbles_u16(&nibbles), 0x1234);
-
-        // Test u8 combination
-        let nibbles = [0x0A, 0x0B];
-        assert_eq!(combine_nibbles_u8(&nibbles), 0xAB);
     }
 
     #[test]

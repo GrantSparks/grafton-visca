@@ -84,23 +84,27 @@ impl<'a, const N: usize> Nibbles<'a, N> {
     ///
     /// Takes bytes at positions \[start\] and \[start+1\] and combines them as:
     /// (byte\[start\] << 4) | byte\[start+1\]
+    ///
+    /// Each nibble is masked with 0x0F to ensure only the lower 4 bits are used.
     #[inline]
     pub fn u8_pair(&self, start: usize) -> u8 {
         debug_assert!(start + 1 < N, "u8_pair index out of bounds");
-        (self.0[start] << 4) | self.0[start + 1]
+        ((self.0[start] & 0x0F) << 4) | (self.0[start + 1] & 0x0F)
     }
 
     /// Combine four nibbles into a u16 value.
     ///
     /// Takes bytes at positions \[start..start+4\] and combines them as:
     /// (byte\[0\] << 12) | (byte\[1\] << 8) | (byte\[2\] << 4) | byte\[3\]
+    ///
+    /// Each nibble is masked with 0x0F to ensure only the lower 4 bits are used.
     #[inline]
     pub fn u16_quad(&self, start: usize) -> u16 {
         debug_assert!(start + 3 < N, "u16_quad index out of bounds");
-        ((self.0[start] as u16) << 12)
-            | ((self.0[start + 1] as u16) << 8)
-            | ((self.0[start + 2] as u16) << 4)
-            | (self.0[start + 3] as u16)
+        (((self.0[start] & 0x0F) as u16) << 12)
+            | (((self.0[start + 1] & 0x0F) as u16) << 8)
+            | (((self.0[start + 2] & 0x0F) as u16) << 4)
+            | ((self.0[start + 3] & 0x0F) as u16)
     }
 
     /// Combine four nibbles into an i16 value.
@@ -125,6 +129,14 @@ impl<'a, const N: usize> TryFrom<Payload<'a>> for Nibbles<'a, N> {
             .0
             .try_into()
             .map_err(|_| Error::InvalidResponseLength)?;
+
+        // Validate that all bytes are valid nibbles (≤ 0x0F) in release builds too
+        for &byte in array_ref {
+            if byte > 0x0F {
+                return Err(Error::InvalidResponseFormat);
+            }
+        }
+
         Ok(Nibbles(array_ref))
     }
 }
@@ -261,5 +273,76 @@ mod tests {
         let data = vec![0x10, 0x02]; // 0x10 is not a valid nibble
         let payload = Payload::new(&data);
         payload.assert_nibbles();
+    }
+
+    #[test]
+    fn test_nibbles_validation_in_release() {
+        // Test that invalid nibbles are rejected in release builds
+        let data = vec![0x1F, 0x02, 0x03, 0x04]; // 0x1F is not a valid nibble
+        let payload = Payload::new(&data);
+        let result = Nibbles::<4>::try_from(payload);
+        assert!(matches!(result, Err(Error::InvalidResponseFormat)));
+
+        // Test with high bits in multiple positions
+        let data = vec![0x01, 0xFF, 0x03, 0x04]; // 0xFF is not a valid nibble
+        let payload = Payload::new(&data);
+        let result = Nibbles::<4>::try_from(payload);
+        assert!(matches!(result, Err(Error::InvalidResponseFormat)));
+    }
+
+    #[test]
+    fn test_nibbles_masking() {
+        // Even if we somehow construct Nibbles with invalid data,
+        // the u8_pair and u16_quad methods should mask the values
+        let data = [0x0F, 0x0F, 0x0F, 0x0F];
+        let nibbles = Nibbles::<4>::from_array(&data);
+
+        // Test u8_pair masking
+        assert_eq!(nibbles.u8_pair(0), 0xFF); // (0x0F << 4) | 0x0F = 0xFF
+        assert_eq!(nibbles.u8_pair(2), 0xFF);
+
+        // Test u16_quad masking
+        assert_eq!(nibbles.u16_quad(0), 0xFFFF); // All nibbles are 0x0F
+    }
+
+    #[test]
+    fn test_nibbles_with_valid_data() {
+        // Test all valid nibble values (0x00 to 0x0F)
+        for value in 0x00..=0x0F {
+            let data = vec![value; 4];
+            let payload = Payload::new(&data);
+            let result = Nibbles::<4>::try_from(payload);
+            assert!(
+                result.is_ok(),
+                "Failed for valid nibble value: 0x{:02X}",
+                value
+            );
+
+            if let Ok(nibbles) = result {
+                // Verify the values are correctly combined
+                let expected_u8 = (value << 4) | value;
+                let expected_u16 = ((value as u16) << 12)
+                    | ((value as u16) << 8)
+                    | ((value as u16) << 4)
+                    | (value as u16);
+                assert_eq!(nibbles.u8_pair(0), expected_u8);
+                assert_eq!(nibbles.u16_quad(0), expected_u16);
+            }
+        }
+    }
+
+    #[test]
+    fn test_nibbles_error_on_invalid_high_bits() {
+        // Test that any value > 0x0F is rejected
+        for value in 0x10..=0xFF {
+            let data = vec![0x01, 0x02, value, 0x04];
+            let payload = Payload::new(&data);
+            let result = Nibbles::<4>::try_from(payload);
+            assert!(
+                matches!(result, Err(Error::InvalidResponseFormat)),
+                "Should reject nibble value: 0x{:02X}",
+                value
+            );
+        }
     }
 }

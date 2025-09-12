@@ -10,7 +10,7 @@ use crate::{
     error::Error,
 };
 
-use super::super::payload::Payload;
+use super::super::payload::{Nibbles, Payload};
 
 /// Decode color-related inquiry responses.
 pub(crate) fn decode(
@@ -41,17 +41,16 @@ pub(crate) fn decode(
                 InquiryResponse::WhiteBalanceMode { mode },
             )))
         }
-        ViscaResponseType::ColorTemperature => {
-            if payload.len() != 4 {
-                return Some(Err(Error::InvalidResponseLength));
+        ViscaResponseType::ColorTemperature => match Nibbles::<4>::try_from(payload) {
+            Ok(nibbles) => {
+                // Extract the color temperature from nibbles 2 and 3
+                let temperature = nibbles.u8_pair(2) as u16;
+                Some(Ok(ViscaResponse::Inquiry(
+                    InquiryResponse::ColorTemperature { temperature },
+                )))
             }
-            // Extract the color temperature from nibbles 2 and 3
-            let temperature =
-                ((payload.as_slice()[2] as u16) << 4) | (payload.as_slice()[3] as u16);
-            Some(Ok(ViscaResponse::Inquiry(
-                InquiryResponse::ColorTemperature { temperature },
-            )))
-        }
+            Err(e) => Some(Err(e)),
+        },
         ViscaResponseType::RedChannel => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));

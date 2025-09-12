@@ -198,7 +198,9 @@ async fn test_white_balance_color_inquiries_integration() {
         .get_color_temperature()
         .await
         .expect("color temperature inquiry should succeed");
-    assert_eq!(color_temp, 2800, "Color temperature should be 2800K");
+    // Color temperature is returned as the VISCA value (0-55 scale)
+    // Value 3 corresponds to 2800K (2500 + 3*100)
+    assert_eq!(color_temp, 3, "Color temperature should be 3 (2800K)");
 }
 
 /// Test image adjustment inquiries

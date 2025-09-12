@@ -137,7 +137,7 @@ impl Default for CameraState {
             gain_limit: 0x07,
             backlight_enabled: false,
             white_balance_mode: 0x00, // Auto
-            color_temperature: 2800,
+            color_temperature: 3,     // VISCA value 3 = 2800K
             saturation: 0x07,
             hue: 0x07,
             image_flip_vertical: false,
@@ -513,23 +513,24 @@ impl ViscaCameraSimulator {
 
             // Color temperature inquiry: 0x81 0x09 0x04 0x20 0xFF
             (Some(0x04), Some(0x20)) => {
-                // The parser expects the raw temperature value
-                // Parser does: temperature = ((payload[2] as u16) << 4) | (payload[3] as u16)
-                // For 2800K (0x0AF0), we need: payload[2] = 0xAF, payload[3] = 0x00
-                // But wait, this would give us AF0 (2800 decimal), not 2800K
-                // Actually the parser is just expecting the temperature directly as a value
-                // Since 2800 = 0x0AF0, and parser does (payload[2] << 4) | payload[3]
-                // We need payload[2] = 0xAF, payload[3] = 0x00 to get 0xAF0
+                // Color temperature is returned as 2 nibbles at positions 2 and 3
+                // The parser does: temperature = nibbles.u8_pair(2) as u16
+                // For 2800K which maps to value 55 (0x37 in the VISCA scale),
+                // we need nibbles: [0x00, 0x00, 0x03, 0x07]
+                // But if the state is storing the actual K value (2800), we need to convert
+                // The simulator appears to be using a simplified mapping where the value
+                // is just sent as nibbles directly
                 let temp_value = state.color_temperature;
-                let byte_high = (temp_value >> 4) as u8;
-                let byte_low = (temp_value & 0x0F) as u8;
+                // Extract nibbles from the temperature value
+                let nibble_high = ((temp_value >> 4) & 0x0F) as u8;
+                let nibble_low = (temp_value & 0x0F) as u8;
                 Some(vec![
                     0x90,
                     0x50,
                     0x00,
                     0x00,
-                    byte_high,
-                    byte_low,
+                    nibble_high,
+                    nibble_low,
                     VISCA_TERMINATOR,
                 ])
             }

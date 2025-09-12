@@ -10,8 +10,7 @@ use crate::{
     error::Error,
 };
 
-use super::super::nibbles::{combine_nibbles_u16, combine_nibbles_u8};
-use super::super::payload::Payload;
+use super::super::payload::{Nibbles, Payload};
 
 /// Decode exposure-related inquiry responses.
 pub(crate) fn decode(
@@ -51,35 +50,35 @@ pub(crate) fn decode(
                 },
             )))
         }
-        ViscaResponseType::ExposureCompensation => {
-            if payload.len() != 4 {
-                return Some(Err(Error::InvalidResponseLength));
+        ViscaResponseType::ExposureCompensation => match Nibbles::<4>::try_from(payload) {
+            Ok(nibbles) => {
+                let raw_value = nibbles.u8_pair(2);
+                Some(Ok(ViscaResponse::Inquiry(
+                    InquiryResponse::ExposureCompensation {
+                        value: raw_value as i8 - 7,
+                    },
+                )))
             }
-            let raw_value = combine_nibbles_u8(&payload.as_slice()[2..4]);
-            Some(Ok(ViscaResponse::Inquiry(
-                InquiryResponse::ExposureCompensation {
-                    value: raw_value as i8 - 7,
-                },
-            )))
-        }
-        ViscaResponseType::ExposureCompensationPosition => {
-            if payload.len() != 4 {
-                return Some(Err(Error::InvalidResponseLength));
+            Err(e) => Some(Err(e)),
+        },
+        ViscaResponseType::ExposureCompensationPosition => match Nibbles::<4>::try_from(payload) {
+            Ok(nibbles) => {
+                let position = nibbles.u16_quad(0);
+                Some(Ok(ViscaResponse::Inquiry(
+                    InquiryResponse::ExposureCompensationPosition { position },
+                )))
             }
-            let position = combine_nibbles_u16(&payload.as_slice()[0..4]);
-            Some(Ok(ViscaResponse::Inquiry(
-                InquiryResponse::ExposureCompensationPosition { position },
-            )))
-        }
-        ViscaResponseType::Shutter => {
-            if payload.len() != 4 {
-                return Some(Err(Error::InvalidResponseLength));
+            Err(e) => Some(Err(e)),
+        },
+        ViscaResponseType::Shutter => match Nibbles::<4>::try_from(payload) {
+            Ok(nibbles) => {
+                let position = nibbles.u8_pair(2) as u16;
+                Some(Ok(ViscaResponse::Inquiry(InquiryResponse::Shutter {
+                    position,
+                })))
             }
-            let position = combine_nibbles_u8(&payload.as_slice()[2..4]) as u16;
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::Shutter {
-                position,
-            })))
-        }
+            Err(e) => Some(Err(e)),
+        },
         ViscaResponseType::Iris => {
             if payload.len() != 4 {
                 return Some(Err(Error::InvalidResponseLength));
@@ -90,15 +89,15 @@ pub(crate) fn decode(
                 position,
             })))
         }
-        ViscaResponseType::Bright => {
-            if payload.len() != 4 {
-                return Some(Err(Error::InvalidResponseLength));
+        ViscaResponseType::Bright => match Nibbles::<4>::try_from(payload) {
+            Ok(nibbles) => {
+                let position = nibbles.u16_quad(0);
+                Some(Ok(ViscaResponse::Inquiry(InquiryResponse::Bright {
+                    position,
+                })))
             }
-            let position = combine_nibbles_u16(&payload.as_slice()[0..4]);
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::Bright {
-                position,
-            })))
-        }
+            Err(e) => Some(Err(e)),
+        },
         ViscaResponseType::Gain => {
             if payload.len() != 4 {
                 return Some(Err(Error::InvalidResponseLength));
