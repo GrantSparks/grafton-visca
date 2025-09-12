@@ -21,7 +21,8 @@ use crate::{
         CommandKind,
     },
     error::{Error, Result},
-    transport::{serial::Config as SerialConfig, sync_io::read_visca_frame_sync, SyncTransport},
+    protocol::framer::ProtocolFramer,
+    transport::{serial::Config as SerialConfig, SyncTransport},
 };
 
 // SerialConfig is now imported from the unified serial::Config
@@ -31,6 +32,7 @@ use crate::{
 pub struct SerialTransport {
     port: Arc<Mutex<Box<dyn serialport::SerialPort>>>,
     config: SerialConfig,
+    framer: ProtocolFramer,
 }
 
 impl SerialTransport {
@@ -49,6 +51,7 @@ impl SerialTransport {
 
         let transport = Self {
             port: Arc::new(Mutex::new(port)),
+            framer: ProtocolFramer::new_with_config(config.buffer_config),
             config,
         };
 
@@ -214,27 +217,51 @@ impl SerialTransport {
     }
 
     /// Receive a complete VISCA frame from the serial port.
-    fn recv_frame(&self) -> Result<Bytes> {
-        let mut port = self
-            .port
-            .lock()
-            .map_err(|_| Error::LockPoisoned("serial port mutex"))?;
-
-        // Use a wrapper struct to implement Read for the locked port
-        struct PortReader<'a> {
-            port: &'a mut Box<dyn serialport::SerialPort>,
+    fn recv_frame(&mut self) -> Result<Bytes> {
+        // First check if we have a buffered frame from a previous read
+        if let Some(frame_result) = self.framer.drain_frames().next() {
+            return frame_result;
         }
 
-        impl<'a> Read for PortReader<'a> {
-            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-                self.port.read(buf)
+        let mut temp_buf = [0u8; 256];
+
+        // Read more data until we get a complete frame
+        loop {
+            let mut port = self
+                .port
+                .lock()
+                .map_err(|_| Error::LockPoisoned("serial port mutex"))?;
+
+            let n = port.read(&mut temp_buf).map_err(Error::Io)?;
+            drop(port); // Release lock immediately after reading
+
+            if n == 0 {
+                // Connection closed - try to extract any terminated frame
+                if let Some(result) = self.framer.drain_on_eof() {
+                    return result;
+                }
+
+                // No valid frame could be extracted
+                if self.framer.is_empty() {
+                    return Err(Error::ConnectionClosed {
+                        reason: Some("serial port closed".into()),
+                    });
+                } else {
+                    return Err(Error::ConnectionClosed {
+                        reason: Some("serial port closed with partial frame".into()),
+                    });
+                }
+            }
+
+            // Push data to framer
+            self.framer.push_slice(&temp_buf[..n])?;
+
+            // Try to extract a complete frame
+            if let Some(frame_result) = self.framer.drain_frames().next() {
+                trace!("Received frame: {:?}", frame_result);
+                return frame_result;
             }
         }
-
-        let mut reader = PortReader { port: &mut *port };
-        let frame = read_visca_frame_sync(&mut reader)?;
-        trace!("Received frame: {:02X?}", frame);
-        Ok(frame)
     }
 }
 
@@ -304,6 +331,11 @@ impl SyncTransport for SerialTransport {
     }
 
     fn recv_with_timeout(&mut self, timeout: Duration) -> Result<Bytes> {
+        // First check if we have a buffered frame from a previous read
+        if let Some(frame_result) = self.framer.drain_frames().next() {
+            return frame_result;
+        }
+
         // Temporarily set the timeout on the port
         let mut port = self
             .port
@@ -314,7 +346,64 @@ impl SyncTransport for SerialTransport {
             .map_err(|e| Error::TransportError(format!("Failed to set timeout: {e}").into()))?;
         drop(port);
 
-        let result = self.recv_frame();
+        let mut temp_buf = [0u8; 256];
+
+        // Read more data until we get a complete frame or timeout
+        let result = loop {
+            let mut port = self
+                .port
+                .lock()
+                .map_err(|_| Error::LockPoisoned("serial port mutex"))?;
+
+            match port.read(&mut temp_buf) {
+                Ok(0) => {
+                    drop(port);
+                    // Connection closed - try to extract any terminated frame
+                    if let Some(result) = self.framer.drain_on_eof() {
+                        break result;
+                    }
+
+                    // No valid frame could be extracted
+                    if self.framer.is_empty() {
+                        break Err(Error::ConnectionClosed {
+                            reason: Some("serial port closed".into()),
+                        });
+                    } else {
+                        break Err(Error::ConnectionClosed {
+                            reason: Some("serial port closed with partial frame".into()),
+                        });
+                    }
+                }
+                Ok(n) => {
+                    drop(port);
+                    // Push data to framer
+                    if let Err(e) = self.framer.push_slice(&temp_buf[..n]) {
+                        break Err(e);
+                    }
+
+                    // Try to extract a complete frame
+                    if let Some(frame_result) = self.framer.drain_frames().next() {
+                        break frame_result;
+                    }
+                    // Continue looping to read more data
+                }
+                Err(io_err)
+                    if io_err.kind() == std::io::ErrorKind::TimedOut
+                        || io_err.kind() == std::io::ErrorKind::WouldBlock =>
+                {
+                    drop(port);
+                    // Timeout occurred - check if we have a buffered frame
+                    if let Some(frame_result) = self.framer.drain_frames().next() {
+                        break frame_result;
+                    }
+                    break Err(Error::Timeout);
+                }
+                Err(io_err) => {
+                    drop(port);
+                    break Err(Error::Io(io_err));
+                }
+            }
+        };
 
         // Restore original timeout
         let mut port = self
@@ -339,145 +428,5 @@ mod tests {
         assert_eq!(config.camera_address, 1);
         assert!(config.if_clear_on_connect);
         assert!(!config.address_set_on_connect);
-    }
-
-    /// Mock serial port for testing.
-    struct MockSerialPort {
-        read_data: Vec<u8>,
-        write_data: Vec<u8>,
-    }
-
-    impl MockSerialPort {
-        fn new() -> Self {
-            Self {
-                read_data: vec![],
-                write_data: vec![],
-            }
-        }
-    }
-
-    impl serialport::SerialPort for MockSerialPort {
-        fn name(&self) -> Option<String> {
-            Some("mock".to_string())
-        }
-
-        fn baud_rate(&self) -> serialport::Result<u32> {
-            Ok(9600)
-        }
-
-        fn data_bits(&self) -> serialport::Result<serialport::DataBits> {
-            Ok(serialport::DataBits::Eight)
-        }
-
-        fn flow_control(&self) -> serialport::Result<serialport::FlowControl> {
-            Ok(serialport::FlowControl::None)
-        }
-
-        fn parity(&self) -> serialport::Result<serialport::Parity> {
-            Ok(serialport::Parity::None)
-        }
-
-        fn stop_bits(&self) -> serialport::Result<serialport::StopBits> {
-            Ok(serialport::StopBits::One)
-        }
-
-        fn timeout(&self) -> Duration {
-            Duration::from_millis(100)
-        }
-
-        fn set_baud_rate(&mut self, _baud_rate: u32) -> serialport::Result<()> {
-            Ok(())
-        }
-
-        fn set_data_bits(&mut self, _data_bits: serialport::DataBits) -> serialport::Result<()> {
-            Ok(())
-        }
-
-        fn set_flow_control(
-            &mut self,
-            _flow_control: serialport::FlowControl,
-        ) -> serialport::Result<()> {
-            Ok(())
-        }
-
-        fn set_parity(&mut self, _parity: serialport::Parity) -> serialport::Result<()> {
-            Ok(())
-        }
-
-        fn set_stop_bits(&mut self, _stop_bits: serialport::StopBits) -> serialport::Result<()> {
-            Ok(())
-        }
-
-        fn set_timeout(&mut self, _timeout: Duration) -> serialport::Result<()> {
-            Ok(())
-        }
-
-        fn write_request_to_send(&mut self, _level: bool) -> serialport::Result<()> {
-            Ok(())
-        }
-
-        fn write_data_terminal_ready(&mut self, _level: bool) -> serialport::Result<()> {
-            Ok(())
-        }
-
-        fn read_clear_to_send(&mut self) -> serialport::Result<bool> {
-            Ok(true)
-        }
-
-        fn read_data_set_ready(&mut self) -> serialport::Result<bool> {
-            Ok(true)
-        }
-
-        fn read_ring_indicator(&mut self) -> serialport::Result<bool> {
-            Ok(false)
-        }
-
-        fn read_carrier_detect(&mut self) -> serialport::Result<bool> {
-            Ok(true)
-        }
-
-        fn bytes_to_read(&self) -> serialport::Result<u32> {
-            Ok(self.read_data.len() as u32)
-        }
-
-        fn bytes_to_write(&self) -> serialport::Result<u32> {
-            Ok(self.write_data.len() as u32)
-        }
-
-        fn clear(&self, _buffer_to_clear: serialport::ClearBuffer) -> serialport::Result<()> {
-            Ok(())
-        }
-
-        fn try_clone(&self) -> serialport::Result<Box<dyn serialport::SerialPort>> {
-            Ok(Box::new(MockSerialPort::new()))
-        }
-
-        fn set_break(&self) -> serialport::Result<()> {
-            Ok(())
-        }
-
-        fn clear_break(&self) -> serialport::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl Read for MockSerialPort {
-        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-            let len = std::cmp::min(buf.len(), self.read_data.len());
-            buf[..len].copy_from_slice(&self.read_data[..len]);
-            self.read_data.drain(..len);
-            Ok(len)
-        }
-    }
-
-    impl Write for MockSerialPort {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            self.write_data.extend_from_slice(buf);
-            Ok(buf.len())
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
     }
 }

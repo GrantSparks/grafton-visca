@@ -6,7 +6,7 @@
 
 use std::time::Duration;
 
-use crate::transport::RetryConfig;
+use crate::transport::{buffer::BufferConfig, RetryConfig};
 
 /// Serial port configuration for VISCA communication.
 ///
@@ -30,6 +30,8 @@ pub struct Config {
     pub write_timeout: Duration,
     /// Retry configuration for serial operations.
     pub retry_config: RetryConfig,
+    /// Buffer configuration for managing buffers.
+    pub buffer_config: BufferConfig,
 }
 
 impl Default for Config {
@@ -43,6 +45,7 @@ impl Default for Config {
             read_timeout: Duration::from_millis(100),
             write_timeout: Duration::from_millis(100),
             retry_config: RetryConfig::default(),
+            buffer_config: BufferConfig::default(),
         }
     }
 }
@@ -95,6 +98,12 @@ impl Config {
     /// Set the retry configuration.
     pub fn retry_config(mut self, config: RetryConfig) -> Self {
         self.retry_config = config;
+        self
+    }
+
+    /// Set the buffer configuration.
+    pub fn buffer_config(mut self, config: BufferConfig) -> Self {
+        self.buffer_config = config;
         self
     }
 }

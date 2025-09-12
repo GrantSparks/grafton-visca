@@ -54,9 +54,6 @@ pub(crate) mod async_serial;
 pub(crate) mod async_tcp;
 #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
 pub(crate) mod async_udp;
-// Unified sync I/O helpers for reducing code duplication across blocking transports
-#[cfg(not(feature = "async"))]
-pub(crate) mod sync_io;
 // Async transport trait and runtime-specific transports are only public with `async`
 #[cfg(feature = "async")]
 pub mod async_transport;
