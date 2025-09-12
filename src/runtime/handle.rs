@@ -32,13 +32,13 @@ use crate::{
 /// Note: This type is only available when the "async" feature is enabled,
 /// as it requires async runtime support for communication.
 #[derive(Debug)]
-pub struct RuntimeHandle {
+pub struct RuntimeHandle<E: crate::executor::Executor> {
     /// Inner shared state wrapped in Arc for safe cloning.
-    inner: Arc<RuntimeHandleInner>,
+    inner: Arc<RuntimeHandleInner<E>>,
 }
 
 #[derive(Debug)]
-struct RuntimeHandleInner {
+struct RuntimeHandleInner<E: crate::executor::Executor> {
     /// Channel for submitting commands and inquiries.
     submit: Sender<TxItem>,
     /// Flag to track if runtime is shutdown.
@@ -51,9 +51,11 @@ struct RuntimeHandleInner {
     completions_tx: Sender<Sender<Receiver<CompletionEvent>>>,
     /// Counter for generating unique command IDs.
     next_command_id: Arc<AtomicU32>,
+    /// The executor used for sleep and timeout operations.
+    executor: Arc<E>,
 }
 
-impl Clone for RuntimeHandle {
+impl<E: crate::executor::Executor> Clone for RuntimeHandle<E> {
     fn clone(&self) -> Self {
         Self {
             inner: Arc::clone(&self.inner),
@@ -61,15 +63,12 @@ impl Clone for RuntimeHandle {
     }
 }
 
-impl RuntimeHandle {
+impl<E: crate::executor::Executor + Send + Sync + 'static> RuntimeHandle<E> {
     /// Create a new camera runtime with the given transport using raw VISCA protocol.
     ///
     /// This spawns a background task to handle communication with the camera.
     /// For compatibility, this defaults to raw VISCA protocol.
-    pub async fn new<
-        T: AsyncTransport + Send + 'static,
-        E: crate::executor::Executor + Send + Sync + 'static,
-    >(
+    pub async fn new<T: AsyncTransport + Send + 'static>(
         transport: T,
         executor: Arc<E>,
     ) -> Result<Self>
@@ -82,10 +81,7 @@ impl RuntimeHandle {
     /// Create a new runtime handle with a transport and executor.
     ///
     /// This is an alias for `new` to match the expected API used by AsyncCamera.
-    pub async fn spawn_with_transport<
-        T: AsyncTransport + Send + 'static,
-        E: crate::executor::Executor + Send + Sync + 'static,
-    >(
+    pub async fn spawn_with_transport<T: AsyncTransport + Send + 'static>(
         transport: T,
         executor: E,
     ) -> Result<Self>
@@ -98,10 +94,7 @@ impl RuntimeHandle {
     /// Create a new camera runtime with explicit protocol style.
     ///
     /// This allows specifying whether to use raw VISCA or Sony encapsulated protocol.
-    pub async fn new_with_style<
-        T: AsyncTransport + Send + 'static,
-        E: crate::executor::Executor + Send + Sync + 'static,
-    >(
+    pub async fn new_with_style<T: AsyncTransport + Send + 'static>(
         transport: T,
         executor: Arc<E>,
         protocol_style: ProtocolStyle,
@@ -115,10 +108,7 @@ impl RuntimeHandle {
     /// Create a new camera runtime with explicit protocol style and timeout config.
     ///
     /// This allows specifying both the protocol style and custom timeouts.
-    pub async fn new_with_style_and_timeout<
-        T: AsyncTransport + Send + 'static,
-        E: crate::executor::Executor + Send + Sync + 'static,
-    >(
+    pub async fn new_with_style_and_timeout<T: AsyncTransport + Send + 'static>(
         transport: T,
         executor: Arc<E>,
         protocol_style: ProtocolStyle,
@@ -140,10 +130,7 @@ impl RuntimeHandle {
     /// Create a new camera runtime with explicit protocol style, timeout config, and retry config.
     ///
     /// This allows specifying the protocol style, custom timeouts, and retry behavior.
-    pub async fn new_with_style_timeout_and_retry<
-        T: AsyncTransport + Send + 'static,
-        E: crate::executor::Executor + Send + Sync + 'static,
-    >(
+    pub async fn new_with_style_timeout_and_retry<T: AsyncTransport + Send + 'static>(
         transport: T,
         executor: Arc<E>,
         protocol_style: ProtocolStyle,
@@ -167,10 +154,7 @@ impl RuntimeHandle {
     /// Auto-detect the protocol style and create a new runtime.
     ///
     /// This probes the camera to determine whether it uses raw VISCA or Sony encapsulated protocol.
-    pub async fn auto_detect<
-        T: AsyncTransport + Send + 'static,
-        E: crate::executor::Executor + Send + Sync + 'static,
-    >(
+    pub async fn auto_detect<T: AsyncTransport + Send + 'static>(
         mut transport: T,
         executor: Arc<E>,
     ) -> Result<Self>
@@ -208,10 +192,7 @@ impl RuntimeHandle {
     /// * `executor` - The async executor to spawn tasks on
     /// * `tick_interval_ms` - Optional tick interval in milliseconds (default: 50ms)
     #[instrument(level = "debug", skip(transport, executor), fields(tick_ms = tick_interval_ms))]
-    pub async fn with_tick_interval<
-        T: AsyncTransport + HasTransportConfig + Send + 'static,
-        E: crate::executor::Executor + Send + Sync + 'static,
-    >(
+    pub async fn with_tick_interval<T: AsyncTransport + HasTransportConfig + Send + 'static>(
         transport: T,
         executor: Arc<E>,
         tick_interval_ms: Option<u64>,
@@ -235,10 +216,7 @@ impl RuntimeHandle {
     /// * `protocol_style` - The protocol style to use (Raw VISCA or Sony encapsulated)
     /// * `timeout_config` - Optional timeout configuration (defaults to TimeoutConfig::default())
     #[instrument(level = "debug", skip(transport, executor, timeout_config), fields(tick_ms = tick_interval_ms, protocol = ?protocol_style))]
-    pub async fn with_tick_interval_and_style<
-        T: AsyncTransport + Send + 'static,
-        E: crate::executor::Executor + Send + Sync + 'static,
-    >(
+    pub async fn with_tick_interval_and_style<T: AsyncTransport + Send + 'static>(
         transport: T,
         executor: Arc<E>,
         tick_interval_ms: Option<u64>,
@@ -271,10 +249,7 @@ impl RuntimeHandle {
     /// * `timeout_config` - Optional timeout configuration (defaults to TimeoutConfig::default())
     /// * `retry_config` - Retry configuration for the runtime
     #[instrument(level = "debug", skip(transport, executor, timeout_config, retry_config), fields(tick_ms = tick_interval_ms, protocol = ?protocol_style))]
-    pub async fn with_tick_interval_style_and_retry<
-        T: AsyncTransport + Send + 'static,
-        E: crate::executor::Executor + Send + Sync + 'static,
-    >(
+    pub async fn with_tick_interval_style_and_retry<T: AsyncTransport + Send + 'static>(
         transport: T,
         executor: Arc<E>,
         tick_interval_ms: Option<u64>,
@@ -316,7 +291,7 @@ impl RuntimeHandle {
 
         // Use a helper function to avoid lifetime issues with HRTB
         spawn_runtime_loop(
-            executor,
+            Arc::clone(&executor),
             transport,
             submit_rx,
             metrics_rx,
@@ -334,6 +309,7 @@ impl RuntimeHandle {
                 metrics_tx,
                 completions_tx,
                 next_command_id: Arc::new(AtomicU32::new(1)),
+                executor,
             }),
         })
     }
@@ -342,10 +318,7 @@ impl RuntimeHandle {
     ///
     /// Note: This method requires the "rt-tokio" feature as it uses tokio-specific async transports.
     #[cfg(feature = "rt-tokio")]
-    pub async fn new_tcp_raw<E: crate::executor::Executor + Send + Sync + 'static>(
-        address: impl AsRef<str>,
-        executor: Arc<E>,
-    ) -> Result<Self> {
+    pub async fn new_tcp_raw(address: impl AsRef<str>, executor: Arc<E>) -> Result<Self> {
         // Use native tokio TCP transport for raw VISCA
         let transport = crate::transport::tokio::tcp::Tcp::connect(address.as_ref()).await?;
         Self::new(transport, executor).await
@@ -355,10 +328,7 @@ impl RuntimeHandle {
     ///
     /// Note: This method requires the "rt-tokio" feature as it uses tokio-specific async transports.
     #[cfg(feature = "rt-tokio")]
-    pub async fn new_udp_raw<E: crate::executor::Executor + Send + Sync + 'static>(
-        address: impl AsRef<str>,
-        executor: Arc<E>,
-    ) -> Result<Self> {
+    pub async fn new_udp_raw(address: impl AsRef<str>, executor: Arc<E>) -> Result<Self> {
         // Use native tokio UDP transport for raw VISCA
         let transport = crate::transport::tokio::udp::Udp::connect(address.as_ref()).await?;
         Self::new(transport, executor).await
@@ -471,36 +441,21 @@ impl RuntimeHandle {
 
     /// Sleep for a specified duration.
     ///
-    /// This is a runtime-agnostic sleep that will work with any executor.
-    /// Note: Since we don't store the executor in RuntimeHandle, this uses
-    /// a simple runtime-specific fallback approach.
+    /// This is a runtime-agnostic sleep that delegates to the injected executor.
     pub async fn sleep(&self, duration: std::time::Duration) {
-        // Use a timer based on available runtime features
-        #[cfg(feature = "rt-tokio")]
-        {
-            tokio::time::sleep(duration).await;
-        }
-        #[cfg(all(not(feature = "rt-tokio"), feature = "rt-smol"))]
-        {
-            smol::Timer::after(duration).await;
-        }
-        #[cfg(all(
-            not(feature = "rt-tokio"),
-            not(feature = "rt-smol"),
-            feature = "rt-async-std"
-        ))]
-        {
-            async_std::task::sleep(duration).await;
-        }
-        // If no runtime feature is enabled, use a blocking sleep
-        #[cfg(all(
-            not(feature = "rt-tokio"),
-            not(feature = "rt-smol"),
-            not(feature = "rt-async-std")
-        ))]
-        {
-            std::thread::sleep(duration);
-        }
+        self.inner.executor.sleep(duration).await
+    }
+
+    /// Create a timeout future that will complete with an error if the given future
+    /// doesn't complete within the specified duration.
+    ///
+    /// This delegates to the injected executor for consistent timeout behavior.
+    pub async fn timeout<F, T>(&self, duration: std::time::Duration, fut: F) -> Result<T>
+    where
+        F: std::future::Future<Output = T> + Send,
+        T: Send,
+    {
+        self.inner.executor.timeout(duration, fut).await
     }
 
     /// Send a VISCA command to the camera using the ViscaEncode trait.
@@ -667,7 +622,7 @@ fn spawn_runtime_loop<T, E>(
     });
 }
 
-impl Drop for RuntimeHandle {
+impl<E: crate::executor::Executor> Drop for RuntimeHandle<E> {
     fn drop(&mut self) {
         // Only send shutdown signal if this is the last reference
         if Arc::strong_count(&self.inner) == 1 {

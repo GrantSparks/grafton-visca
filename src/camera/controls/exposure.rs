@@ -137,6 +137,7 @@ where
     M: Mode,
     P: crate::capabilities::Profile + Default + crate::capabilities::exposure::Exposure,
     Self: CameraSend<M>,
+    Exec: crate::executor::Executor,
 {
     type Mode = M;
 
@@ -343,6 +344,7 @@ where
     M: Mode,
     P: crate::capabilities::Profile + Default + crate::capabilities::HasExposureCompensation,
     Self: CameraSend<M>,
+    Exec: crate::executor::Executor,
 {
     type Mode = M;
 

@@ -11,24 +11,10 @@ use crate::{
     camera::UnifiedCamera as Camera,
     camera_id::CameraId,
     capabilities::Profile,
-    command::{response::ViscaResponseType, zoom::ZoomSpeed, CommandKind, FocusZone, ViscaEncode},
+    command::{response::ViscaResponseType, CommandKind, ViscaEncode},
     error::Error,
     mode::Mode,
     timeout::CommandCategory,
-    types::{
-        FocusPosition, PanPosition, PanSpeed, SpeedLevel, TiltPosition, TiltSpeed, ZoomPosition,
-    },
-    units::{Degrees, Normalized},
-    AutoFocusSensitivity, PanTiltDirection, PanTiltLimitCorner,
-};
-
-// Import inquiry-related types
-use crate::camera::controls::inquiry::{InquiryControl, PanTiltInquiryControl};
-use crate::camera::PanTiltPosition;
-use crate::command::{
-    system::MotionSyncMode,
-    typed::{FlipState, TallyStatusState, VersionInfo},
-    BlackWhiteMode, ExposureMode, FocusMode, NrMode, SharpnessMode, WhiteBalanceMode,
 };
 
 /// A wrapper for raw VISCA command bytes.
@@ -95,6 +81,27 @@ impl ViscaEncode for RawCommand {
 /// // Explicit close (optional - also happens on drop)
 /// session.close().await?;
 /// ```
+#[cfg(feature = "async")]
+pub struct CameraSession<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+    Exec: Executor,
+{
+    /// The underlying camera instance.
+    camera: Option<Camera<M, P, Tr, Exec>>,
+    /// Track if we've been explicitly closed.
+    closed: bool,
+    /// Phantom data to ensure type parameters are used.
+    _phantom: PhantomData<(M, P, Tr, Exec)>,
+}
+
+/// A camera session represents an active connection to a VISCA camera.
+///
+/// This type provides both RAII (automatic cleanup on drop) and explicit
+/// close() methods for controlled shutdown. All camera control operations
+/// can be performed directly through the session.
+#[cfg(not(feature = "async"))]
 pub struct CameraSession<M, P, Tr, Exec = ()>
 where
     M: Mode,
@@ -107,10 +114,12 @@ where
     _phantom: PhantomData<(M, P, Tr, Exec)>,
 }
 
+#[cfg(feature = "async")]
 impl<M, P, Tr, Exec> std::fmt::Debug for CameraSession<M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CameraSession")
@@ -120,10 +129,26 @@ where
     }
 }
 
+#[cfg(not(feature = "async"))]
+impl<M, P, Tr, Exec> std::fmt::Debug for CameraSession<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+    Exec: Executor,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CameraSession")
+            .field("closed", &self.closed)
+            .finish()
+    }
+}
+
+#[cfg(feature = "async")]
 impl<M, P, Tr, Exec> CameraSession<M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
     /// Create a new session from a camera instance.
     pub(crate) fn new(camera: Camera<M, P, Tr, Exec>) -> Self {
@@ -203,7 +228,7 @@ impl<P, T, E> CameraSession<crate::mode::Async, P, T, E>
 where
     P: Profile + crate::capabilities::ProfileMetadata + Default,
     T: crate::transport::AsyncTransport + Send + Sync + 'static,
-    E: crate::executor::Executor,
+    E: Executor,
 {
     /// Wait for all movements to complete.
     ///
@@ -302,6 +327,20 @@ where
     P: Profile,
     Tr: crate::transport::SyncTransport + Send + 'static,
 {
+    /// Create a new session from a camera instance.
+    pub(crate) fn new(camera: Camera<crate::mode::Blocking, P, Tr, ()>) -> Self {
+        Self {
+            camera: Some(camera),
+            closed: false,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Take ownership of the underlying camera, leaving None in its place.
+    fn take_camera(&mut self) -> Option<Camera<crate::mode::Blocking, P, Tr, ()>> {
+        self.camera.take()
+    }
+
     /// Explicitly close the camera session.
     ///
     /// This method is idempotent - calling it multiple times is safe.
@@ -423,13 +462,459 @@ where
             .ok_or_else(|| Error::InvalidState("Session is closed".into()))?
             .is_moving()
     }
+
+    // Accessor methods for blocking mode
+
+    /// Access power-related controls and inquiries.
+    #[allow(clippy::expect_used)]
+    pub fn power(
+        &self,
+    ) -> crate::camera::accessors::PowerAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
+        crate::camera::accessors::PowerAccessor::new(
+            self.camera
+                .as_ref()
+                .expect("Cannot access camera after session is closed"),
+        )
+    }
+
+    /// Access zoom-related controls and inquiries.
+    #[allow(clippy::expect_used)]
+    pub fn zoom(
+        &self,
+    ) -> crate::camera::accessors::ZoomAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
+        crate::camera::accessors::ZoomAccessor::new(
+            self.camera
+                .as_ref()
+                .expect("Cannot access camera after session is closed"),
+        )
+    }
+
+    /// Access pan/tilt-related controls and inquiries.
+    #[allow(clippy::expect_used)]
+    pub fn pan_tilt(
+        &self,
+    ) -> crate::camera::accessors::PanTiltAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
+        crate::camera::accessors::PanTiltAccessor::new(
+            self.camera
+                .as_ref()
+                .expect("Cannot access camera after session is closed"),
+        )
+    }
+
+    /// Access focus-related controls and inquiries.
+    #[allow(clippy::expect_used)]
+    pub fn focus(
+        &self,
+    ) -> crate::camera::accessors::FocusAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
+        crate::camera::accessors::FocusAccessor::new(
+            self.camera
+                .as_ref()
+                .expect("Cannot access camera after session is closed"),
+        )
+    }
+
+    /// Access exposure-related controls and inquiries.
+    #[allow(clippy::expect_used)]
+    pub fn exposure(
+        &self,
+    ) -> crate::camera::accessors::ExposureAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
+        crate::camera::accessors::ExposureAccessor::new(
+            self.camera
+                .as_ref()
+                .expect("Cannot access camera after session is closed"),
+        )
+    }
+
+    /// Access white balance controls.
+    #[allow(clippy::expect_used)]
+    pub fn white_balance(
+        &self,
+    ) -> crate::camera::accessors::WhiteBalanceAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
+        crate::camera::accessors::WhiteBalanceAccessor::new(
+            self.camera
+                .as_ref()
+                .expect("Cannot access camera after session is closed"),
+        )
+    }
+
+    /// Access menu navigation controls.
+    #[allow(clippy::expect_used)]
+    pub fn menu(
+        &self,
+    ) -> crate::camera::accessors::MenuAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
+        crate::camera::accessors::MenuAccessor::new(
+            self.camera
+                .as_ref()
+                .expect("Cannot access camera after session is closed"),
+        )
+    }
+
+    /// Access preset controls.
+    #[allow(clippy::expect_used)]
+    pub fn presets(
+        &self,
+    ) -> crate::camera::accessors::PresetsAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
+        crate::camera::accessors::PresetsAccessor::new(
+            self.camera
+                .as_ref()
+                .expect("Cannot access camera after session is closed"),
+        )
+    }
+
+    /// Access tally light controls.
+    #[allow(clippy::expect_used)]
+    pub fn tally(
+        &self,
+    ) -> crate::camera::accessors::TallyAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
+        crate::camera::accessors::TallyAccessor::new(
+            self.camera
+                .as_ref()
+                .expect("Cannot access camera after session is closed"),
+        )
+    }
+
+    /// Access system-related controls and inquiries.
+    #[allow(clippy::expect_used)]
+    pub fn system(
+        &self,
+    ) -> crate::camera::accessors::SystemAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
+        crate::camera::accessors::SystemAccessor::new(
+            self.camera
+                .as_ref()
+                .expect("Cannot access camera after session is closed"),
+        )
+    }
+
+    /// Access image-related controls and inquiries.
+    #[allow(clippy::expect_used)]
+    pub fn image(
+        &self,
+    ) -> crate::camera::accessors::ImageAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
+        crate::camera::accessors::ImageAccessor::new(
+            self.camera
+                .as_ref()
+                .expect("Cannot access camera after session is closed"),
+        )
+    }
+}
+
+// Implement control traits for blocking CameraSession by delegating to the camera
+#[cfg(not(feature = "async"))]
+use crate::camera::controls::{focus::FocusControl, pan_tilt::PanTiltControl, zoom::ZoomControl};
+
+#[cfg(not(feature = "async"))]
+#[allow(clippy::expect_used)]
+impl<P, Tr> PanTiltControl for CameraSession<crate::mode::Blocking, P, Tr, ()>
+where
+    P: Profile,
+    Tr: crate::transport::SyncTransport + Send + 'static,
+    Camera<crate::mode::Blocking, P, Tr, ()>: PanTiltControl<Mode = crate::mode::Blocking>,
+{
+    type Mode = crate::mode::Blocking;
+
+    fn pan_tilt_stop(&self) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .pan_tilt_stop()
+    }
+
+    fn pan_tilt_home(&self) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .pan_tilt_home()
+    }
+
+    fn pan_tilt_absolute(
+        &self,
+        pan: crate::units::Degrees,
+        tilt: crate::units::Degrees,
+        speed: crate::types::SpeedLevel,
+    ) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .pan_tilt_absolute(pan, tilt, speed)
+    }
+
+    fn pan_tilt_relative(
+        &self,
+        pan: crate::units::Degrees,
+        tilt: crate::units::Degrees,
+        speed: crate::types::SpeedLevel,
+    ) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .pan_tilt_relative(pan, tilt, speed)
+    }
+
+    fn pan_tilt_move(
+        &self,
+        direction: crate::command::pan_tilt::PanTiltDirection,
+        pan_speed: crate::types::PanSpeed,
+        tilt_speed: crate::types::TiltSpeed,
+    ) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .pan_tilt_move(direction, pan_speed, tilt_speed)
+    }
+
+    fn pan_tilt_reset(&self) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .pan_tilt_reset()
+    }
+
+    fn pan_tilt_limit_set(
+        &self,
+        corner: crate::command::pan_tilt::PanTiltLimitCorner,
+        pan: crate::types::PanPosition,
+        tilt: crate::types::TiltPosition,
+    ) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .pan_tilt_limit_set(corner, pan, tilt)
+    }
+
+    fn pan_tilt_limit_clear(
+        &self,
+        corner: crate::command::pan_tilt::PanTiltLimitCorner,
+    ) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .pan_tilt_limit_clear(corner)
+    }
+}
+
+#[cfg(not(feature = "async"))]
+#[allow(clippy::expect_used)]
+impl<P, Tr> ZoomControl for CameraSession<crate::mode::Blocking, P, Tr, ()>
+where
+    P: Profile,
+    Tr: crate::transport::SyncTransport + Send + 'static,
+    Camera<crate::mode::Blocking, P, Tr, ()>: ZoomControl<Mode = crate::mode::Blocking>,
+{
+    type Mode = crate::mode::Blocking;
+
+    fn zoom_stop(&self) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .zoom_stop()
+    }
+
+    fn zoom_tele_std(&self) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .zoom_tele_std()
+    }
+
+    fn zoom_wide_std(&self) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .zoom_wide_std()
+    }
+
+    fn zoom_tele_variable(
+        &self,
+        speed: crate::command::zoom::ZoomSpeed,
+    ) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .zoom_tele_variable(speed)
+    }
+
+    fn zoom_wide_variable(
+        &self,
+        speed: crate::command::zoom::ZoomSpeed,
+    ) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .zoom_wide_variable(speed)
+    }
+
+    fn zoom_absolute(
+        &self,
+        position: crate::units::Normalized,
+    ) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .zoom_absolute(position)
+    }
+
+    fn zoom_position(
+        &self,
+        position: crate::types::ZoomPosition,
+    ) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .zoom_position(position)
+    }
+
+    fn set_digital_zoom(
+        &self,
+        enabled: bool,
+    ) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .set_digital_zoom(enabled)
+    }
+}
+
+#[cfg(not(feature = "async"))]
+#[allow(clippy::expect_used)]
+impl<P, Tr> FocusControl for CameraSession<crate::mode::Blocking, P, Tr, ()>
+where
+    P: Profile,
+    Tr: crate::transport::SyncTransport + Send + 'static,
+    Camera<crate::mode::Blocking, P, Tr, ()>: FocusControl<Mode = crate::mode::Blocking>,
+{
+    type Mode = crate::mode::Blocking;
+
+    fn focus_auto(&self) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .focus_auto()
+    }
+
+    fn focus_manual(&self) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .focus_manual()
+    }
+
+    fn focus_near(
+        &self,
+        speed: crate::types::SpeedLevel,
+    ) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .focus_near(speed)
+    }
+
+    fn focus_far(
+        &self,
+        speed: crate::types::SpeedLevel,
+    ) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .focus_far(speed)
+    }
+
+    fn focus_stop(&self) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .focus_stop()
+    }
+
+    fn focus_one_push(&self) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .focus_one_push()
+    }
+
+    fn set_focus(
+        &self,
+        position: crate::types::FocusPosition,
+    ) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .set_focus(position)
+    }
+
+    fn focus_infinity(&self) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .focus_infinity()
+    }
+
+    fn enable_focus_lock(&self) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .enable_focus_lock()
+    }
+
+    fn disable_focus_lock(&self) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .disable_focus_lock()
+    }
+
+    fn push_af_press(&self) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .push_af_press()
+    }
+
+    fn push_af_release(&self) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .push_af_release()
+    }
+
+    fn set_focus_zone(
+        &self,
+        zone: crate::command::FocusZone,
+    ) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .set_focus_zone(zone)
+    }
+
+    fn set_auto_focus_sensitivity(
+        &self,
+        sensitivity: crate::command::focus::AutoFocusSensitivity,
+    ) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .set_auto_focus_sensitivity(sensitivity)
+    }
+
+    fn set_focus_near_limit(
+        &self,
+        position: crate::types::FocusPosition,
+    ) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<(), Error>> {
+        self.camera
+            .as_ref()
+            .expect("Cannot access camera after session is closed")
+            .set_focus_near_limit(position)
+    }
 }
 
 // Implement Drop for RAII cleanup
+#[cfg(feature = "async")]
 impl<M, P, Tr, Exec> Drop for CameraSession<M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
     fn drop(&mut self) {
         if !self.closed {
@@ -443,7 +928,23 @@ where
 ///
 /// Provides access to send raw VISCA commands through the session's
 /// command scheduler, ensuring proper sequencing and timing.
+#[cfg(feature = "async")]
 pub struct RawSender<'a, M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+    Exec: Executor,
+{
+    camera: &'a Camera<M, P, Tr, Exec>,
+    _phantom: PhantomData<(M, P, Tr, Exec)>,
+}
+
+/// A raw sender for sending VISCA commands through the session's scheduler.
+///
+/// This type provides access to send raw VISCA commands while ensuring
+/// proper sequencing and timing through the camera's command scheduler.
+#[cfg(not(feature = "async"))]
+pub struct RawSender<'a, M, P, Tr, Exec = ()>
 where
     M: Mode,
     P: Profile,
@@ -452,6 +953,19 @@ where
     _phantom: PhantomData<(M, P, Tr, Exec)>,
 }
 
+#[cfg(feature = "async")]
+impl<'a, M, P, Tr, Exec> std::fmt::Debug for RawSender<'a, M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+    Exec: Executor,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RawSender").finish()
+    }
+}
+
+#[cfg(not(feature = "async"))]
 impl<'a, M, P, Tr, Exec> std::fmt::Debug for RawSender<'a, M, P, Tr, Exec>
 where
     M: Mode,
@@ -467,7 +981,7 @@ impl<'a, P, Tr, Exec> RawSender<'a, crate::mode::Async, P, Tr, Exec>
 where
     P: Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
-    Exec: crate::executor::Executor + Send + Sync + Clone + 'static,
+    Exec: Executor + Send + Sync + Clone + 'static,
 {
     /// Send raw bytes as a VISCA command.
     pub async fn send_bytes(&self, bytes: &[u8]) -> Result<(), Error> {
@@ -536,16 +1050,16 @@ where
 // Delegate control trait implementations to the underlying camera
 // This allows using the session just like the camera for all control operations
 
-use crate::camera::CameraSend;
-
 // Delegate accessor methods to the underlying camera
 // These methods are documented to panic if the session is closed, which is intentional behavior
 // for the accessor pattern. Users should check is_closed() if they need to handle this case.
+#[cfg(feature = "async")]
 #[allow(clippy::expect_used)]
 impl<M, P, Tr, Exec> CameraSession<M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
     /// Access power-related controls and inquiries.
     ///
@@ -721,17 +1235,51 @@ where
 // Implement control traits by delegating to the underlying camera
 // This allows using the session directly for all control operations
 
+#[cfg(feature = "async")]
 use crate::camera::controls::{
-    focus::FocusControl, pan_tilt::PanTiltControl, power::PowerControl, zoom::ZoomControl,
+    focus::FocusControl,
+    inquiry::{InquiryControl, PanTiltInquiryControl},
+    pan_tilt::PanTiltControl,
+    power::PowerControl,
+    zoom::ZoomControl,
 };
+#[cfg(feature = "async")]
+use crate::camera::CameraSend;
+#[cfg(feature = "async")]
+use crate::camera::PanTiltPosition;
+#[cfg(feature = "async")]
+use crate::command::focus::AutoFocusSensitivity;
+#[cfg(feature = "async")]
+use crate::command::system::MotionSyncMode;
+#[cfg(feature = "async")]
+use crate::command::typed::{FlipState, TallyStatusState, VersionInfo};
+#[cfg(feature = "async")]
+use crate::command::zoom::ZoomSpeed;
+#[cfg(feature = "async")]
+use crate::command::{
+    BlackWhiteMode, ExposureMode, FocusMode, FocusZone, NrMode, SharpnessMode, WhiteBalanceMode,
+};
+#[cfg(feature = "async")]
+use crate::command::{PanTiltDirection, PanTiltLimitCorner};
+use crate::executor::Executor;
+#[cfg(feature = "async")]
+use crate::types::SpeedLevel;
+#[cfg(feature = "async")]
+use crate::types::{FocusPosition, PanPosition, PanSpeed, TiltPosition, TiltSpeed, ZoomPosition};
+#[cfg(feature = "async")]
+use crate::units::Degrees;
+#[cfg(feature = "async")]
+use crate::units::Normalized;
 
 // PowerControl delegation
+#[cfg(feature = "async")]
 #[allow(clippy::expect_used)]
 impl<M, P, Tr, Exec> PowerControl for CameraSession<M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
     Camera<M, P, Tr, Exec>: PowerControl<Mode = M>,
+    Exec: Executor,
 {
     type Mode = M;
 
@@ -751,12 +1299,14 @@ where
 }
 
 // ZoomControl delegation
+#[cfg(feature = "async")]
 #[allow(clippy::expect_used)]
 impl<M, P, Tr, Exec> ZoomControl for CameraSession<M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
     Camera<M, P, Tr, Exec>: ZoomControl<Mode = M>,
+    Exec: Executor,
 {
     type Mode = M;
 
@@ -818,12 +1368,14 @@ where
 }
 
 // PanTiltControl delegation
+#[cfg(feature = "async")]
 #[allow(clippy::expect_used)]
 impl<M, P, Tr, Exec> PanTiltControl for CameraSession<M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
     Camera<M, P, Tr, Exec>: PanTiltControl<Mode = M>,
+    Exec: Executor,
 {
     type Mode = M;
 
@@ -905,12 +1457,14 @@ where
 }
 
 // FocusControl delegation
+#[cfg(feature = "async")]
 #[allow(clippy::expect_used)]
 impl<M, P, Tr, Exec> FocusControl for CameraSession<M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
     Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
+    Exec: Executor,
 {
     type Mode = M;
 
@@ -1023,11 +1577,13 @@ where
     }
 }
 
+#[cfg(feature = "async")]
 impl<M, P, Tr, Exec> CameraSend<M> for CameraSession<M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
     Camera<M, P, Tr, Exec>: CameraSend<M>,
+    Exec: Executor,
 {
     fn send_and_complete<C>(&self, command: C) -> M::Ret<'_, Result<(), Error>>
     where
@@ -1066,12 +1622,14 @@ where
 }
 
 // Implement InquiryControl for CameraSession
+#[cfg(feature = "async")]
 impl<M, P, Tr, Exec> InquiryControl for CameraSession<M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile + Default,
     Camera<M, P, Tr, Exec>: InquiryControl<Mode = M> + CameraSend<M>,
     Self: CameraSend<M>,
+    Exec: Executor,
 {
     type Mode = M;
 
@@ -1517,12 +2075,14 @@ where
 }
 
 // Implement PanTiltInquiryControl for CameraSession
+#[cfg(feature = "async")]
 impl<M, P, Tr, Exec> PanTiltInquiryControl for CameraSession<M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile + Default,
     Camera<M, P, Tr, Exec>: PanTiltInquiryControl<Mode = M> + CameraSend<M>,
     Self: CameraSend<M>,
+    Exec: Executor,
 {
     type Mode = M;
 

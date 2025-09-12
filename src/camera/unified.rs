@@ -17,8 +17,10 @@ use crate::{
     error::Error,
     mode::Mode,
     timeout::TimeoutConfig,
-    transport::SyncTransport,
 };
+
+#[cfg(not(feature = "async"))]
+use crate::transport::SyncTransport;
 
 #[cfg(feature = "async")]
 use crate::{executor::Executor, transport::AsyncTransport};
@@ -61,6 +63,29 @@ use crate::{
 /// let mut camera = Camera::<Blocking, PtzOpticsG2, _, ()>::new_blocking(transport)?;
 /// camera.power_on().await?; // .await works for both modes via Mode trait
 /// ```
+#[cfg(feature = "async")]
+pub struct Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+    Exec: Executor,
+{
+    camera_id: CameraId,
+    timeout_config: TimeoutConfig,
+
+    // For async mode: stores runtime handle (transport and envelope managed by runtime)
+    runtime: crate::runtime::RuntimeHandle<Exec>,
+
+    _phantom_mode: PhantomData<M>,
+    _phantom_profile: PhantomData<P>,
+    _phantom_transport: PhantomData<Tr>,
+}
+
+/// Unified camera interface for VISCA protocol communication.
+///
+/// This type provides a uniform API for both blocking and async modes,
+/// with runtime-agnostic execution through the Executor trait.
+#[cfg(not(feature = "async"))]
 pub struct Camera<M, P, Tr, Exec = ()>
 where
     M: Mode,
@@ -69,25 +94,16 @@ where
     camera_id: CameraId,
     timeout_config: TimeoutConfig,
 
-    // NOTE: Mode-specific storage: either transport or runtime
     // For blocking mode: stores transport directly with BlockingRunner for state management
-    // For async mode: stores runtime handle (transport and envelope managed by runtime)
-    #[cfg(not(feature = "async"))]
     transport: M::Shared<Tr>,
-    #[cfg(not(feature = "async"))]
     envelope: TransportEnvelope,
-    #[cfg(not(feature = "async"))]
     envelope_buffer_manager: BufferManager,
-    #[cfg(not(feature = "async"))]
     blocking_runner: std::cell::RefCell<BlockingRunner>,
-
-    #[cfg(feature = "async")]
-    runtime: crate::runtime::RuntimeHandle,
 
     _phantom_mode: PhantomData<M>,
     _phantom_profile: PhantomData<P>,
-    _phantom_exec: PhantomData<Exec>,
     _phantom_transport: PhantomData<Tr>,
+    _phantom_exec: PhantomData<Exec>,
 }
 
 #[cfg(feature = "async")]
@@ -128,7 +144,6 @@ where
             runtime: runtime_handle,
             _phantom_mode: PhantomData,
             _phantom_profile: PhantomData,
-            _phantom_exec: PhantomData,
             _phantom_transport: PhantomData,
         })
     }
@@ -168,16 +183,18 @@ where
             blocking_runner: std::cell::RefCell::new(blocking_runner),
             _phantom_mode: PhantomData,
             _phantom_profile: PhantomData,
-            _phantom_exec: PhantomData,
             _phantom_transport: PhantomData,
+            _phantom_exec: PhantomData,
         })
     }
 }
 
+#[cfg(feature = "async")]
 impl<M, P, Tr, Exec> Camera<M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
     /// Get the camera ID.
     pub fn camera_id(&self) -> CameraId {
@@ -251,6 +268,93 @@ where
     /// Access tally light controls and inquiries.
     pub fn tally(&self) -> crate::camera::accessors::TallyAccessor<'_, M, P, Tr, Exec> {
         crate::camera::accessors::TallyAccessor::new(self)
+    }
+}
+
+#[cfg(not(feature = "async"))]
+impl<M, P, Tr, Exec> Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+    Exec: crate::executor::Executor,
+{
+    /// Get the camera ID.
+    pub fn camera_id(&self) -> CameraId {
+        self.camera_id
+    }
+
+    /// Set the camera ID.
+    pub fn set_camera_id(&mut self, camera_id: CameraId) {
+        self.camera_id = camera_id;
+    }
+
+    /// Get the current timeout configuration.
+    pub fn timeout_config(&self) -> &TimeoutConfig {
+        &self.timeout_config
+    }
+
+    /// Set the timeout configuration.
+    pub fn set_timeout_config(&mut self, timeout_config: TimeoutConfig) {
+        self.timeout_config = timeout_config;
+    }
+
+    // Accessor methods for noun-based control trait access
+
+    /// Access power-related controls and inquiries.
+    pub fn power(&self) -> crate::camera::accessors::PowerAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::accessors::PowerAccessor::new(self)
+    }
+
+    /// Access zoom-related controls and inquiries.
+    pub fn zoom(&self) -> crate::camera::accessors::ZoomAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::accessors::ZoomAccessor::new(self)
+    }
+
+    /// Access pan/tilt-related controls and inquiries.
+    pub fn pan_tilt(&self) -> crate::camera::accessors::PanTiltAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::accessors::PanTiltAccessor::new(self)
+    }
+
+    /// Access focus-related controls and inquiries.
+    pub fn focus(&self) -> crate::camera::accessors::FocusAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::accessors::FocusAccessor::new(self)
+    }
+
+    /// Access exposure-related controls and inquiries.
+    pub fn exposure(&self) -> crate::camera::accessors::ExposureAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::accessors::ExposureAccessor::new(self)
+    }
+
+    /// Access white balance controls.
+    pub fn white_balance(
+        &self,
+    ) -> crate::camera::accessors::WhiteBalanceAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::accessors::WhiteBalanceAccessor::new(self)
+    }
+
+    /// Access menu navigation controls.
+    pub fn menu(&self) -> crate::camera::accessors::MenuAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::accessors::MenuAccessor::new(self)
+    }
+
+    /// Access preset controls.
+    pub fn presets(&self) -> crate::camera::accessors::PresetsAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::accessors::PresetsAccessor::new(self)
+    }
+
+    /// Access tally light controls.
+    pub fn tally(&self) -> crate::camera::accessors::TallyAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::accessors::TallyAccessor::new(self)
+    }
+
+    /// Access system-related controls and inquiries.
+    pub fn system(&self) -> crate::camera::accessors::SystemAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::accessors::SystemAccessor::new(self)
+    }
+
+    /// Access image-related controls and inquiries.
+    pub fn image(&self) -> crate::camera::accessors::ImageAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::accessors::ImageAccessor::new(self)
     }
 }
 
@@ -341,7 +445,8 @@ where
 }
 
 // Methods specific to blocking cameras regardless of transport bounds
-impl<P, Tr, Exec> Camera<crate::mode::Blocking, P, Tr, Exec>
+#[cfg(not(feature = "async"))]
+impl<P, Tr> Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: Profile,
     Tr: SyncTransport,
@@ -359,6 +464,7 @@ impl<P, Tr, Exec> Camera<crate::mode::Async, P, Tr, Exec>
 where
     P: Profile + Default,
     Tr: Send + 'static,
+    Exec: Executor,
 {
     /// Send a command using the mode-specific return type.
     ///
@@ -391,7 +497,7 @@ where
     }
 
     /// Get a reference to the runtime handle (internal use).
-    pub(crate) fn runtime(&self) -> &crate::runtime::RuntimeHandle {
+    pub(crate) fn runtime(&self) -> &crate::runtime::RuntimeHandle<Exec> {
         &self.runtime
     }
 
@@ -534,6 +640,7 @@ where
     pub async fn sleep(&self, duration: std::time::Duration)
     where
         Tr: AsyncTransport + Send + Sync,
+        Exec: Executor + Send + Sync,
     {
         self.runtime.sleep(duration).await
     }
@@ -864,6 +971,22 @@ where
     }
 }
 
+#[cfg(feature = "async")]
+impl<M, P, Tr, Exec> core::fmt::Debug for Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: Profile,
+    Exec: Executor,
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Camera")
+            .field("camera_id", &self.camera_id)
+            .field("timeout_config", &self.timeout_config)
+            .finish()
+    }
+}
+
+#[cfg(not(feature = "async"))]
 impl<M, P, Tr, Exec> core::fmt::Debug for Camera<M, P, Tr, Exec>
 where
     M: Mode,
@@ -873,6 +996,8 @@ where
         f.debug_struct("Camera")
             .field("camera_id", &self.camera_id)
             .field("timeout_config", &self.timeout_config)
+            .field("mode", &std::any::type_name::<M>())
+            .field("profile", &std::any::type_name::<P>())
             .finish()
     }
 }

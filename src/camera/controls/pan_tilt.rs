@@ -71,6 +71,7 @@ where
     M: Mode,
     P: crate::capabilities::Profile + crate::capabilities::PanTilt + Default,
     Self: CameraSend<M>,
+    Exec: crate::executor::Executor,
 {
     type Mode = M;
 

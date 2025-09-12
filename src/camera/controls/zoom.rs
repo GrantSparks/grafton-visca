@@ -58,6 +58,7 @@ where
     M: Mode,
     P: crate::capabilities::Profile + Default + crate::capabilities::zoom::Zoom,
     Self: CameraSend<M>,
+    Exec: crate::executor::Executor,
 {
     type Mode = M;
 

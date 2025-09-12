@@ -542,6 +542,16 @@ pub(crate) mod macros;
 #[cfg(feature = "async")]
 pub(crate) mod executor;
 
+#[cfg(not(feature = "async"))]
+pub(crate) mod executor {
+    /// Dummy Executor trait for non-async mode.
+    /// This allows the code to remain uniform regardless of feature flags.
+    pub trait Executor {}
+
+    /// Unit type implements Executor for blocking mode
+    impl Executor for () {}
+}
+
 /// Camera profile system for type-safe, model-specific control
 pub mod camera;
 

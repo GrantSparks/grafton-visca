@@ -36,6 +36,7 @@ where
     M: Mode,
     P: crate::capabilities::Profile + Default + crate::capabilities::VariableSpeed,
     Self: CameraSend<M>,
+    Exec: crate::executor::Executor,
 {
     type Mode = M;
 

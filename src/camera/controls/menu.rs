@@ -72,6 +72,7 @@ where
     M: Mode,
     P: crate::capabilities::Profile + crate::capabilities::MenuControl + Default,
     Self: CameraSend<M>,
+    Exec: crate::executor::Executor,
 {
     type Mode = M;
 
@@ -97,6 +98,7 @@ where
     M: Mode,
     P: crate::capabilities::Profile + crate::capabilities::MenuControl + Default,
     Self: CameraSend<M>,
+    Exec: crate::executor::Executor,
 {
     fn direct_menu_control(&self, control1: u8, control2: u8) -> M::Ret<'_, Result<(), Error>> {
         use crate::command::menu::DirectMenuControl;

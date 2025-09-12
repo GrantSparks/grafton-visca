@@ -69,6 +69,7 @@ where
     M: Mode,
     P: crate::capabilities::Profile + Default + crate::capabilities::motion_sync::MotionSync,
     Self: CameraSend<M>,
+    Exec: crate::executor::Executor,
 {
     type Mode = M;
 

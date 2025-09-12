@@ -5,6 +5,8 @@
 //!
 //! Instead of using `camera.get_power_state()`, users can use `camera.power().state()`.
 
+use crate::executor::Executor;
+
 use crate::{
     camera::{
         controls::{
@@ -34,6 +36,7 @@ pub struct PowerAccessor<'a, M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
     camera: &'a Camera<M, P, Tr, Exec>,
 }
@@ -42,6 +45,7 @@ impl<'a, M, P, Tr, Exec> PowerAccessor<'a, M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
     pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
         Self { camera }
@@ -90,6 +94,7 @@ pub struct ZoomAccessor<'a, M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
     camera: &'a Camera<M, P, Tr, Exec>,
 }
@@ -98,6 +103,7 @@ impl<'a, M, P, Tr, Exec> ZoomAccessor<'a, M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
     pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
         Self { camera }
@@ -183,6 +189,7 @@ pub struct SystemAccessor<'a, M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
     camera: &'a Camera<M, P, Tr, Exec>,
 }
@@ -191,7 +198,9 @@ impl<'a, M, P, Tr, Exec> SystemAccessor<'a, M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
+    #[allow(dead_code)]
     pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
         Self { camera }
     }
@@ -227,6 +236,7 @@ pub struct PanTiltAccessor<'a, M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
     camera: &'a Camera<M, P, Tr, Exec>,
 }
@@ -235,6 +245,7 @@ impl<'a, M, P, Tr, Exec> PanTiltAccessor<'a, M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
     pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
         Self { camera }
@@ -340,6 +351,7 @@ pub struct FocusAccessor<'a, M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
     camera: &'a Camera<M, P, Tr, Exec>,
 }
@@ -348,6 +360,7 @@ impl<'a, M, P, Tr, Exec> FocusAccessor<'a, M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
     pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
         Self { camera }
@@ -505,6 +518,7 @@ pub struct ExposureAccessor<'a, M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
     camera: &'a Camera<M, P, Tr, Exec>,
 }
@@ -513,6 +527,7 @@ impl<'a, M, P, Tr, Exec> ExposureAccessor<'a, M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
     pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
         Self { camera }
@@ -621,6 +636,7 @@ pub struct WhiteBalanceAccessor<'a, M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
     camera: &'a Camera<M, P, Tr, Exec>,
 }
@@ -629,6 +645,7 @@ impl<'a, M, P, Tr, Exec> WhiteBalanceAccessor<'a, M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
     pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
         Self { camera }
@@ -729,6 +746,7 @@ pub struct ImageAccessor<'a, M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
     camera: &'a Camera<M, P, Tr, Exec>,
 }
@@ -737,7 +755,9 @@ impl<'a, M, P, Tr, Exec> ImageAccessor<'a, M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
+    #[allow(dead_code)]
     pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
         Self { camera }
     }
@@ -1098,6 +1118,7 @@ pub struct PresetsAccessor<'a, M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
     camera: &'a Camera<M, P, Tr, Exec>,
 }
@@ -1106,6 +1127,7 @@ impl<'a, M, P, Tr, Exec> PresetsAccessor<'a, M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
     pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
         Self { camera }
@@ -1166,6 +1188,7 @@ pub struct TallyAccessor<'a, M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
     camera: &'a Camera<M, P, Tr, Exec>,
 }
@@ -1174,6 +1197,7 @@ impl<'a, M, P, Tr, Exec> TallyAccessor<'a, M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
     pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
         Self { camera }
@@ -1234,6 +1258,7 @@ pub struct NdFilterAccessor<'a, M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
     camera: &'a Camera<M, P, Tr, Exec>,
 }
@@ -1242,7 +1267,9 @@ impl<'a, M, P, Tr, Exec> NdFilterAccessor<'a, M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
+    #[allow(dead_code)]
     pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
         Self { camera }
     }
@@ -1278,6 +1305,7 @@ pub struct MotionSyncAccessor<'a, M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
     camera: &'a Camera<M, P, Tr, Exec>,
 }
@@ -1286,7 +1314,9 @@ impl<'a, M, P, Tr, Exec> MotionSyncAccessor<'a, M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
+    #[allow(dead_code)]
     pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
         Self { camera }
     }
@@ -1306,6 +1336,7 @@ pub struct MenuAccessor<'a, M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
     camera: &'a Camera<M, P, Tr, Exec>,
 }
@@ -1314,6 +1345,7 @@ impl<'a, M, P, Tr, Exec> MenuAccessor<'a, M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
     pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
         Self { camera }
@@ -1404,6 +1436,7 @@ pub struct AdvancedAccessor<'a, M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
     camera: &'a Camera<M, P, Tr, Exec>,
 }
@@ -1412,7 +1445,9 @@ impl<'a, M, P, Tr, Exec> AdvancedAccessor<'a, M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
+    Exec: Executor,
 {
+    #[allow(dead_code)]
     pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
         Self { camera }
     }
