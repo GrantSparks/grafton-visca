@@ -604,6 +604,18 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
         self.core.find_socket_for_command(id)
     }
 
+    /// Get the camera ID for a command by its ID.
+    pub fn camera_id_for_command(&self, id: u32) -> Option<CameraId> {
+        self.core.camera_id_for_command(id)
+    }
+
+    /// Get the camera ID for the command currently on a socket.
+    pub fn camera_id_for_socket(&self, socket: ViscaSocket) -> Option<CameraId> {
+        self.core
+            .find_command_on_socket(socket)
+            .and_then(|id| self.core.camera_id_for_command(id))
+    }
+
     /// Handle a network error event.
     ///
     /// This mirrors the blocking runner's network error handling,

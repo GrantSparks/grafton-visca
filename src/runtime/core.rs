@@ -1432,6 +1432,13 @@ impl SchedulerCore {
         self.sockets[socket.as_index()].command_id
     }
 
+    /// Get the camera ID for a command by its ID.
+    pub fn camera_id_for_command(&self, id: u32) -> Option<crate::camera_id::CameraId> {
+        self.command_metadata
+            .get(&id)
+            .map(|(_, _, _, camera_id)| *camera_id)
+    }
+
     pub(crate) fn find_socket_for_command(&self, cmd_id: u32) -> Option<ViscaSocket> {
         for (idx, state) in self.sockets.iter().enumerate() {
             if state.command_id == Some(cmd_id) {
