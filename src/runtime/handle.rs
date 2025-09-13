@@ -9,7 +9,7 @@ use std::sync::{
 };
 
 use crate::{
-    capabilities::ProtocolStyle,
+    capabilities::{Profile, ProtocolStyle},
     command::response::ViscaResponse,
     error::{Error, Result},
     runtime::{
@@ -32,13 +32,13 @@ use crate::{
 /// Note: This type is only available when the "async" feature is enabled,
 /// as it requires async runtime support for communication.
 #[derive(Debug)]
-pub struct RuntimeHandle<E: crate::executor::Executor> {
+pub struct RuntimeHandle<P: Profile, E: crate::executor::Executor> {
     /// Inner shared state wrapped in Arc for safe cloning.
-    inner: Arc<RuntimeHandleInner<E>>,
+    inner: Arc<RuntimeHandleInner<P, E>>,
 }
 
 #[derive(Debug)]
-struct RuntimeHandleInner<E: crate::executor::Executor> {
+struct RuntimeHandleInner<P: Profile, E: crate::executor::Executor> {
     /// Channel for submitting commands and inquiries.
     submit: Sender<TxItem>,
     /// Flag to track if runtime is shutdown.
@@ -53,9 +53,11 @@ struct RuntimeHandleInner<E: crate::executor::Executor> {
     next_command_id: Arc<AtomicU32>,
     /// The executor used for sleep and timeout operations.
     executor: Arc<E>,
+    /// Profile marker (zero-sized type).
+    _profile: std::marker::PhantomData<P>,
 }
 
-impl<E: crate::executor::Executor> Clone for RuntimeHandle<E> {
+impl<P: Profile, E: crate::executor::Executor> Clone for RuntimeHandle<P, E> {
     fn clone(&self) -> Self {
         Self {
             inner: Arc::clone(&self.inner),
@@ -63,7 +65,9 @@ impl<E: crate::executor::Executor> Clone for RuntimeHandle<E> {
     }
 }
 
-impl<E: crate::executor::Executor + Send + Sync + 'static> RuntimeHandle<E> {
+impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
+    RuntimeHandle<P, E>
+{
     /// Create a new camera runtime with the given transport using raw VISCA protocol.
     ///
     /// This spawns a background task to handle communication with the camera.
@@ -290,7 +294,7 @@ impl<E: crate::executor::Executor + Send + Sync + 'static> RuntimeHandle<E> {
         let task_executor = Arc::clone(&executor);
 
         // Use a helper function to avoid lifetime issues with HRTB
-        spawn_runtime_loop(
+        spawn_runtime_loop::<P, T, E>(
             Arc::clone(&executor),
             transport,
             submit_rx,
@@ -310,6 +314,7 @@ impl<E: crate::executor::Executor + Send + Sync + 'static> RuntimeHandle<E> {
                 completions_tx,
                 next_command_id: Arc::new(AtomicU32::new(1)),
                 executor,
+                _profile: std::marker::PhantomData,
             }),
         })
     }
@@ -589,7 +594,7 @@ impl<E: crate::executor::Executor + Send + Sync + 'static> RuntimeHandle<E> {
 // Helper function to spawn the runtime loop without trait bounds
 // This avoids lifetime issues with HRTB (Rust issue #100013)
 #[allow(clippy::too_many_arguments)] // This is an internal function with necessary parameters
-fn spawn_runtime_loop<T, E>(
+fn spawn_runtime_loop<P, T, E>(
     executor: Arc<E>,
     transport: T,
     submit_rx: Receiver<TxItem>,
@@ -599,11 +604,12 @@ fn spawn_runtime_loop<T, E>(
     task_executor: Arc<E>,
     config: RuntimeLoopConfig,
 ) where
+    P: Profile + 'static,
     T: AsyncTransport + Send + 'static,
     E: crate::executor::Executor + Send + Sync + 'static,
 {
     executor.spawn_bg(async move {
-        let _ = runtime_loop_with_config(
+        let _ = runtime_loop_with_config::<P, T, E>(
             transport,      // moved
             submit_rx,      // moved
             metrics_rx,     // moved
@@ -616,7 +622,7 @@ fn spawn_runtime_loop<T, E>(
     });
 }
 
-impl<E: crate::executor::Executor> Drop for RuntimeHandle<E> {
+impl<P: Profile, E: crate::executor::Executor> Drop for RuntimeHandle<P, E> {
     fn drop(&mut self) {
         // Only send shutdown signal if this is the last reference
         if Arc::strong_count(&self.inner) == 1 {

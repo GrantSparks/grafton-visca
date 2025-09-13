@@ -74,7 +74,7 @@ where
     timeout_config: TimeoutConfig,
 
     // For async mode: stores runtime handle (transport and envelope managed by runtime)
-    runtime: crate::runtime::RuntimeHandle<Exec>,
+    runtime: crate::runtime::RuntimeHandle<P, Exec>,
 
     _phantom_mode: PhantomData<M>,
     _phantom_profile: PhantomData<P>,
@@ -497,7 +497,7 @@ where
     }
 
     /// Get a reference to the runtime handle (internal use).
-    pub(crate) fn runtime(&self) -> &crate::runtime::RuntimeHandle<Exec> {
+    pub(crate) fn runtime(&self) -> &crate::runtime::RuntimeHandle<P, Exec> {
         &self.runtime
     }
 

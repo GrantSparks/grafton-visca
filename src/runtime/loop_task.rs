@@ -15,6 +15,7 @@ macro_rules! runtime_trace {
 use std::{collections::HashSet, sync::Arc};
 
 use crate::{
+    capabilities::Profile,
     command::CommandKind,
     error::{Error, Result},
     protocol::framer::ProtocolFramer,
@@ -62,7 +63,7 @@ impl SendGuard {
         self.committed = true;
     }
 
-    fn rollback<E: crate::executor::Executor>(self, adapter: &mut AsyncAdapter<E>) {
+    fn rollback<P: Profile, E: crate::executor::Executor>(self, adapter: &mut AsyncAdapter<P, E>) {
         if !self.committed {
             // Rollback on failure
             if let Some(socket) = self.reserved_socket {
@@ -92,6 +93,7 @@ impl SendGuard {
 /// Main runtime loop with configurable tick interval.
 #[instrument(level = "debug", name = "visca_runtime_loop", skip(transport, submit_rx, metrics_rx, completions_rx, shutdown_rx, executor, config), fields(tick_ms = config.tick_interval_ms))]
 pub async fn runtime_loop_with_config<
+    P: Profile + 'static,
     T: AsyncTransport + Send + 'static,
     E: crate::executor::Executor + Send + Sync + 'static,
 >(
@@ -104,7 +106,7 @@ pub async fn runtime_loop_with_config<
     config: RuntimeLoopConfig,
 ) -> Result<()> {
     let mut adapter =
-        AsyncAdapter::new(config.timeout_config, config.retry_config, executor.clone());
+        AsyncAdapter::<P, E>::new(config.timeout_config, config.retry_config, executor.clone());
     let mut protocol_framer = ProtocolFramer::new_with_config(config.buffer_manager.config());
     // Track cancel requests that arrived before the command was bound to a socket
     let mut pending_cancel_ids: HashSet<u32> = HashSet::new();
@@ -144,7 +146,14 @@ pub async fn runtime_loop_with_config<
 
                     // Try to send immediately if possible
                     if let Some(cmd) = adapter.next_command_to_send() {
-                        send_command(&mut transport, &mut adapter, cmd, &config, &executor).await?;
+                        send_command::<P, T, E>(
+                            &mut transport,
+                            &mut adapter,
+                            cmd,
+                            &config,
+                            &executor,
+                        )
+                        .await?;
                     }
                 }
                 TxItem::Cancel { socket } => {
@@ -250,7 +259,7 @@ pub async fn runtime_loop_with_config<
                 kind,
             };
 
-            send_command(
+            send_command::<P, T, E>(
                 &mut transport,
                 &mut adapter,
                 pending_cmd,
@@ -355,7 +364,14 @@ pub async fn runtime_loop_with_config<
                 // Try to send more commands if we can
                 while adapter.can_send_command() {
                     if let Some(cmd) = adapter.next_command_to_send() {
-                        send_command(&mut transport, &mut adapter, cmd, &config, &executor).await?;
+                        send_command::<P, T, E>(
+                            &mut transport,
+                            &mut adapter,
+                            cmd,
+                            &config,
+                            &executor,
+                        )
+                        .await?;
                     } else {
                         break;
                     }
@@ -418,7 +434,14 @@ pub async fn runtime_loop_with_config<
                 // Try to send more commands if we have room
                 while adapter.can_send_command() {
                     if let Some(cmd) = adapter.next_command_to_send() {
-                        send_command(&mut transport, &mut adapter, cmd, &config, &executor).await?;
+                        send_command::<P, T, E>(
+                            &mut transport,
+                            &mut adapter,
+                            cmd,
+                            &config,
+                            &executor,
+                        )
+                        .await?;
                     } else {
                         break;
                     }
@@ -445,9 +468,9 @@ pub async fn runtime_loop_with_config<
 }
 
 /// Helper function to send a command.
-async fn send_command<T: AsyncTransport, E: crate::executor::Executor>(
+async fn send_command<P: Profile, T: AsyncTransport, E: crate::executor::Executor>(
     transport: &mut T,
-    adapter: &mut AsyncAdapter<E>,
+    adapter: &mut AsyncAdapter<P, E>,
     cmd: PendingCommand,
     config: &RuntimeLoopConfig,
     executor: &E,

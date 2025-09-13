@@ -17,7 +17,7 @@ use crate::{
 };
 
 pub use self::{
-    lift::{lift_inquiry, parse_inquiry_payload},
+    lift::{lift_inquiry, lift_inquiry_for, parse_inquiry_payload},
     types::{ViscaResponse, ViscaResponseType},
 };
 

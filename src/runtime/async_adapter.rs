@@ -10,7 +10,8 @@ use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use crate::{
     camera_id::CameraId,
-    command::response::{lift_inquiry, ViscaResponse, ViscaResponseType},
+    capabilities::Profile,
+    command::response::{lift_inquiry_for, ViscaResponse, ViscaResponseType},
     error::{Error, Result},
     executor::Executor,
     protocol::response::{decode_basic, BasicKind},
@@ -108,7 +109,7 @@ pub struct CompletionEvent {
 }
 
 /// Async adapter wrapping the scheduler core.
-pub(crate) struct AsyncAdapter<E: Executor> {
+pub(crate) struct AsyncAdapter<P: Profile, E: Executor> {
     /// The scheduler core for state management.
     core: SchedulerCore,
     /// Executor for time and async operations.
@@ -119,6 +120,8 @@ pub(crate) struct AsyncAdapter<E: Executor> {
     metrics: Metrics,
     /// Completion event subscribers.
     completion_subscribers: Vec<Sender<CompletionEvent>>,
+    /// Profile marker (zero-sized type).
+    _profile: std::marker::PhantomData<P>,
 }
 
 #[derive(Debug, Default)]
@@ -133,7 +136,7 @@ struct Metrics {
     timeouts: u64,
 }
 
-impl<E: Executor> AsyncAdapter<E> {
+impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
     /// Create a new async adapter.
     pub fn new(timeout_config: TimeoutConfig, retry_config: RetryConfig, executor: Arc<E>) -> Self {
         Self {
@@ -142,6 +145,7 @@ impl<E: Executor> AsyncAdapter<E> {
             response_channels: HashMap::new(),
             metrics: Metrics::default(),
             completion_subscribers: Vec::new(),
+            _profile: std::marker::PhantomData,
         }
     }
 
@@ -367,7 +371,7 @@ impl<E: Executor> AsyncAdapter<E> {
                 // Get the expected response type from core
                 let response_type = cmd_id.and_then(|id| self.core.get_inquiry_type(id));
 
-                let response = lift_inquiry(&basic, response_type)?;
+                let response = lift_inquiry_for::<P>(&basic, response_type)?;
                 SchedulerEvent::Completion {
                     socket: basic.socket,
                     cmd_id,
@@ -408,7 +412,7 @@ impl<E: Executor> AsyncAdapter<E> {
                 // Get the expected response type from core
                 let response_type = cmd_id.and_then(|id| self.core.get_inquiry_type(id));
 
-                let response = lift_inquiry(&basic, response_type)?;
+                let response = lift_inquiry_for::<P>(&basic, response_type)?;
 
                 // Use InquiryReply event for data replies
                 SchedulerEvent::InquiryReply { cmd_id, response }

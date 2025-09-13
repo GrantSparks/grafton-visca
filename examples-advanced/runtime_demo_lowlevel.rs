@@ -13,6 +13,7 @@ fn main() {
 
 #[cfg(all(feature = "async", feature = "rt-tokio"))]
 use grafton_visca::{
+    camera::profiles::GenericVisca,
     camera_id::CameraId,
     command::{power::Power, zoom::Zoom, InquiryResponse, ViscaResponse},
     runtime::{Priority, RuntimeHandle},
@@ -35,7 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create a runtime with raw TCP transport (PTZOptics style)
     let executor = Arc::new(TokioExecutor::from_current()?);
-    let runtime = RuntimeHandle::new_tcp_raw(&camera_address, executor).await?;
+    let runtime = RuntimeHandle::<GenericVisca, _>::new_tcp_raw(&camera_address, executor).await?;
 
     println!("Connected! Demonstrating low-level runtime API...");
 
