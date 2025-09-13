@@ -2,7 +2,6 @@
 
 use async_std::io::prelude::*;
 use async_std::net::{TcpStream, UdpSocket};
-use async_std::prelude::FutureExt;
 
 use crate::transport::address::AddressResolver;
 use crate::transport::async_io::{
@@ -48,12 +47,8 @@ pub async fn connect_tcp(
     address: &str,
     config: TcpConnectionConfig,
 ) -> Result<AsyncStdTcpStream, Error> {
-    // Connect with timeout
-    let stream = TcpStream::connect(address)
-        .timeout(config.connect_timeout)
-        .await
-        .map_err(|_| Error::Timeout)?
-        .map_err(Error::from)?;
+    // Connect without timeout - timeout is now handled at the Runtime trait level
+    let stream = TcpStream::connect(address).await?;
 
     // Apply socket configuration
     if let Some(nodelay) = config.nodelay {

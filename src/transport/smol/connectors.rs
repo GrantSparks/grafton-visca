@@ -47,16 +47,8 @@ pub async fn connect_tcp(
     address: &str,
     config: TcpConnectionConfig,
 ) -> Result<SmolTcpStream, Error> {
-    // Use smol's timeout functionality
-    let connect_future = TcpStream::connect(address);
-    let stream = smol::future::or(
-        async {
-            smol::Timer::after(config.connect_timeout).await;
-            Err(Error::Timeout)
-        },
-        async { connect_future.await.map_err(Error::from) },
-    )
-    .await?;
+    // Connect without timeout - timeout is now handled at the Runtime trait level
+    let stream = TcpStream::connect(address).await?;
 
     // Apply socket configuration
     if let Some(nodelay) = config.nodelay {

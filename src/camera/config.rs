@@ -324,12 +324,16 @@ where
                 let mut transport = match &self.transport {
                     TransportOptions::Tcp { address } => {
                         // Parse address and create TCP transport using Runtime trait
-                        let tcp = R::connect_tcp(address, TransportConfig::default()).await?;
+                        let tcp = runtime
+                            .connect_tcp(address, TransportConfig::default())
+                            .await?;
                         TransportHandle::Tcp(tcp, TransportConfig::default())
                     }
                     TransportOptions::Udp { address } => {
                         // Parse address and create UDP transport using Runtime trait
-                        let udp = R::connect_udp(address, TransportConfig::default()).await?;
+                        let udp = runtime
+                            .connect_udp(address, TransportConfig::default())
+                            .await?;
                         TransportHandle::Udp(udp, TransportConfig::default())
                     }
                     TransportOptions::Serial { .. } => {
@@ -433,7 +437,7 @@ where
                     .camera_address(self.camera_id.id());
 
                 // Connect using RuntimeSerial trait
-                let serial = R::connect_serial(serial_config).await?;
+                let serial = runtime.connect_serial(serial_config).await?;
 
                 // Determine protocol style (serial always uses profile's default)
                 let protocol_style = match self.protocol {

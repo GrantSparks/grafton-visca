@@ -65,6 +65,7 @@ pub async fn write_all_flush<W: AsyncWriteExt>(writer: &mut W, data: &[u8]) -> R
 #[derive(Debug, Clone)]
 pub struct TcpConnectionConfig {
     /// Connection timeout duration
+    #[allow(dead_code)] // Kept for API compatibility, timeout is now handled at Runtime level
     pub connect_timeout: Duration,
     /// Whether to enable TCP_NODELAY (Nagle's algorithm disable)
     pub nodelay: Option<bool>,

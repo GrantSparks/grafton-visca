@@ -80,10 +80,8 @@ pub async fn connect_tcp(
     address: &str,
     config: TcpConnectionConfig,
 ) -> Result<TokioTcpStream, Error> {
-    // Connect with timeout
-    let stream = tokio::time::timeout(config.connect_timeout, TcpStream::connect(address))
-        .await
-        .map_err(|_| Error::Timeout)??;
+    // Connect without timeout - timeout is now handled at the Runtime trait level
+    let stream = TcpStream::connect(address).await?;
 
     // Apply socket configuration
     if let Some(nodelay) = config.nodelay {

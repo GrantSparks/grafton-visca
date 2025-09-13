@@ -23,14 +23,15 @@ mod tokio_runtime_tests {
 
     #[tokio::test]
     async fn test_tokio_runtime_tcp_connection() {
-        let _runtime = TokioRuntime::from_current().unwrap();
+        let runtime = TokioRuntime::from_current().unwrap();
 
         // This will fail to connect but tests the type system works
-        let result = TokioRuntime::connect_tcp(
-            "192.0.2.1:5678", // TEST-NET-1 address that won't connect
-            Default::default(),
-        )
-        .await;
+        let result = runtime
+            .connect_tcp(
+                "192.0.2.1:5678", // TEST-NET-1 address that won't connect
+                Default::default(),
+            )
+            .await;
 
         // We expect connection to fail but the types should compile
         assert!(result.is_err());
@@ -42,15 +43,16 @@ mod tokio_runtime_tests {
 
     #[tokio::test]
     async fn test_tokio_runtime_udp_connection() {
-        let _runtime = TokioRuntime::from_current().unwrap();
+        let runtime = TokioRuntime::from_current().unwrap();
 
         // UDP might not fail immediately for non-existent addresses
         // This test is more about verifying the type system works
-        let _result = TokioRuntime::connect_udp(
-            "192.0.2.1:1259", // TEST-NET-1 address
-            Default::default(),
-        )
-        .await;
+        let _result = runtime
+            .connect_udp(
+                "192.0.2.1:1259", // TEST-NET-1 address
+                Default::default(),
+            )
+            .await;
 
         // The important part is that this compiles with the correct types
     }
@@ -101,14 +103,15 @@ mod async_std_runtime_tests {
 
     #[async_std::test]
     async fn test_async_std_runtime_tcp_connection() {
-        let _runtime = AsyncStdRuntime::new();
+        let runtime = AsyncStdRuntime::new();
 
         // This will fail to connect but tests the type system works
-        let result = AsyncStdRuntime::connect_tcp(
-            "192.0.2.1:5678", // TEST-NET-1 address that won't connect
-            Default::default(),
-        )
-        .await;
+        let result = runtime
+            .connect_tcp(
+                "192.0.2.1:5678", // TEST-NET-1 address that won't connect
+                Default::default(),
+            )
+            .await;
 
         // We expect connection to fail but the types should compile
         assert!(result.is_err());
@@ -156,14 +159,15 @@ mod smol_runtime_tests {
     #[test]
     fn test_smol_runtime_tcp_connection() {
         run_smol(async {
-            let _runtime = SmolRuntime::new();
+            let runtime = SmolRuntime::new();
 
             // This will fail to connect but tests the type system works
-            let result = SmolRuntime::connect_tcp(
-                "192.0.2.1:5678", // TEST-NET-1 address that won't connect
-                Default::default(),
-            )
-            .await;
+            let result = runtime
+                .connect_tcp(
+                    "192.0.2.1:5678", // TEST-NET-1 address that won't connect
+                    Default::default(),
+                )
+                .await;
 
             // We expect connection to fail but the types should compile
             assert!(result.is_err());

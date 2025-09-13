@@ -5,8 +5,6 @@
 //! cross-runtime mismatches at compile time.
 
 #[cfg(feature = "async")]
-use core::future::Future;
-#[cfg(feature = "async")]
 use std::time::Instant;
 
 #[cfg(feature = "async")]
@@ -49,19 +47,21 @@ pub trait Runtime: Executor + Clone + Send + Sync + 'static {
     ///
     /// This method creates a TCP transport using the runtime's specific
     /// implementation. The transport is configured with the provided settings.
-    fn connect_tcp(
+    async fn connect_tcp(
+        &self,
         addr: &str,
         cfg: TransportConfig,
-    ) -> impl Future<Output = Result<Self::TcpTransport, Error>> + Send;
+    ) -> Result<Self::TcpTransport, Error>;
 
     /// Connect to a UDP endpoint.
     ///
     /// This method creates a UDP transport using the runtime's specific
     /// implementation. The transport is configured with the provided settings.
-    fn connect_udp(
+    async fn connect_udp(
+        &self,
         addr: &str,
         cfg: TransportConfig,
-    ) -> impl Future<Output = Result<Self::UdpTransport, Error>> + Send;
+    ) -> Result<Self::UdpTransport, Error>;
 
     /// Get the current time according to this runtime.
     ///
@@ -88,9 +88,10 @@ pub trait RuntimeSerial: Runtime {
     ///
     /// This method creates a serial transport using the runtime's specific
     /// implementation. The transport is configured with the provided settings.
-    fn connect_serial(
+    async fn connect_serial(
+        &self,
         cfg: crate::transport::serial::Config,
-    ) -> impl Future<Output = Result<Self::SerialTransport, Error>> + Send;
+    ) -> Result<Self::SerialTransport, Error>;
 }
 
 /// Transport handle that wraps either TCP or UDP transport for a specific runtime.
@@ -169,6 +170,7 @@ mod tokio_impl {
     use super::*;
     use crate::executor::TokioExecutor;
     use crate::runtime_adapters::tokio::{TcpTransport, UdpTransport};
+    use std::future::Future;
 
     /// Tokio runtime implementation.
     ///
@@ -269,17 +271,35 @@ mod tokio_impl {
         type UdpTransport = UdpTransport;
 
         async fn connect_tcp(
+            &self,
             addr: &str,
             cfg: TransportConfig,
         ) -> Result<Self::TcpTransport, Error> {
-            TcpTransport::connect_with_config(addr, cfg).await
+            // Convert addr to owned String for 'static lifetime requirement
+            let addr = addr.to_string();
+            // Use executor-driven timeout instead of runtime-specific timeout
+            self.timeout_owned(cfg.connect_timeout, async move {
+                TcpTransport::connect_with_config(&addr, cfg).await
+            })
+            .await
+            // Flatten the nested Result: outer is timeout, inner is connect
+            .and_then(|inner| inner)
         }
 
         async fn connect_udp(
+            &self,
             addr: &str,
             cfg: TransportConfig,
         ) -> Result<Self::UdpTransport, Error> {
-            UdpTransport::connect_with_config(addr, cfg).await
+            // Convert addr to owned String for 'static lifetime requirement
+            let addr = addr.to_string();
+            // Use executor-driven timeout instead of runtime-specific timeout
+            self.timeout_owned(cfg.connect_timeout, async move {
+                UdpTransport::connect_with_config(&addr, cfg).await
+            })
+            .await
+            // Flatten the nested Result: outer is timeout, inner is connect
+            .and_then(|inner| inner)
         }
     }
 
@@ -289,6 +309,7 @@ mod tokio_impl {
         type SerialTransport = crate::transport::tokio::serial::Serial;
 
         async fn connect_serial(
+            &self,
             cfg: crate::transport::serial::Config,
         ) -> Result<Self::SerialTransport, Error> {
             // Use the unified Config directly (it's now the same type)
@@ -306,6 +327,7 @@ mod async_std_impl {
     use super::*;
     use crate::executor::AsyncStdExecutor;
     use crate::runtime_adapters::async_std::{TcpTransport, UdpTransport};
+    use std::future::Future;
 
     /// async-std runtime implementation.
     ///
@@ -401,17 +423,35 @@ mod async_std_impl {
         type UdpTransport = UdpTransport;
 
         async fn connect_tcp(
+            &self,
             addr: &str,
             cfg: TransportConfig,
         ) -> Result<Self::TcpTransport, Error> {
-            TcpTransport::connect_with_config(addr, cfg).await
+            // Convert addr to owned String for 'static lifetime requirement
+            let addr = addr.to_string();
+            // Use executor-driven timeout instead of runtime-specific timeout
+            self.timeout_owned(cfg.connect_timeout, async move {
+                TcpTransport::connect_with_config(&addr, cfg).await
+            })
+            .await
+            // Flatten the nested Result: outer is timeout, inner is connect
+            .and_then(|inner| inner)
         }
 
         async fn connect_udp(
+            &self,
             addr: &str,
             cfg: TransportConfig,
         ) -> Result<Self::UdpTransport, Error> {
-            UdpTransport::connect_with_config(addr, cfg).await
+            // Convert addr to owned String for 'static lifetime requirement
+            let addr = addr.to_string();
+            // Use executor-driven timeout instead of runtime-specific timeout
+            self.timeout_owned(cfg.connect_timeout, async move {
+                UdpTransport::connect_with_config(&addr, cfg).await
+            })
+            .await
+            // Flatten the nested Result: outer is timeout, inner is connect
+            .and_then(|inner| inner)
         }
     }
 }
@@ -425,6 +465,7 @@ mod smol_impl {
     use super::*;
     use crate::executor::SmolExecutor;
     use crate::runtime_adapters::smol::{TcpTransport, UdpTransport};
+    use std::future::Future;
 
     /// smol runtime implementation.
     ///
@@ -520,17 +561,35 @@ mod smol_impl {
         type UdpTransport = UdpTransport;
 
         async fn connect_tcp(
+            &self,
             addr: &str,
             cfg: TransportConfig,
         ) -> Result<Self::TcpTransport, Error> {
-            TcpTransport::connect_with_config(addr, cfg).await
+            // Convert addr to owned String for 'static lifetime requirement
+            let addr = addr.to_string();
+            // Use executor-driven timeout instead of runtime-specific timeout
+            self.timeout_owned(cfg.connect_timeout, async move {
+                TcpTransport::connect_with_config(&addr, cfg).await
+            })
+            .await
+            // Flatten the nested Result: outer is timeout, inner is connect
+            .and_then(|inner| inner)
         }
 
         async fn connect_udp(
+            &self,
             addr: &str,
             cfg: TransportConfig,
         ) -> Result<Self::UdpTransport, Error> {
-            UdpTransport::connect_with_config(addr, cfg).await
+            // Convert addr to owned String for 'static lifetime requirement
+            let addr = addr.to_string();
+            // Use executor-driven timeout instead of runtime-specific timeout
+            self.timeout_owned(cfg.connect_timeout, async move {
+                UdpTransport::connect_with_config(&addr, cfg).await
+            })
+            .await
+            // Flatten the nested Result: outer is timeout, inner is connect
+            .and_then(|inner| inner)
         }
     }
 }

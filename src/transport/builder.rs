@@ -429,10 +429,12 @@ where
 
         // Try to connect with this transport using the candidate's buffer config
         let transport_result = match candidate.protocol {
-            TransportProtocol::Tcp => R::connect_tcp(&address, candidate_cfg)
+            TransportProtocol::Tcp => runtime
+                .connect_tcp(&address, candidate_cfg)
                 .await
                 .map(|t| TransportHandle::Tcp(t, candidate_cfg)),
-            TransportProtocol::Udp => R::connect_udp(&address, candidate_cfg)
+            TransportProtocol::Udp => runtime
+                .connect_udp(&address, candidate_cfg)
                 .await
                 .map(|t| TransportHandle::Udp(t, candidate_cfg)),
         };
