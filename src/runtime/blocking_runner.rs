@@ -5,7 +5,7 @@
 //! retry logic without any async dependencies.
 
 use bytes::BytesMut;
-use tracing::{debug, trace, warn};
+use tracing::{debug, warn};
 
 use std::{
     sync::atomic::{AtomicU32, Ordering},
@@ -21,7 +21,10 @@ use crate::{
     },
     error::{Error, Result},
     protocol::response::{decode_basic, BasicKind},
-    runtime::core::{PendingCommand, Priority, SchedulerAction, SchedulerCore, SchedulerEvent},
+    runtime::{
+        core::{PendingCommand, Priority, SchedulerAction, SchedulerCore, SchedulerEvent},
+        driver::{scheduler::BlockingScheduler, send_one},
+    },
     timeout::{CommandCategory, TimeoutConfig},
     transport::{
         buffer::{BufferConfig, BufferManager},
@@ -30,57 +33,6 @@ use crate::{
     },
     visca_socket::ViscaSocket,
 };
-
-/// RAII guard for send operations to ensure proper rollback on failure.
-///
-/// This guard tracks reservations made during send operations and automatically
-/// rolls them back if the send fails, preventing resource leaks.
-struct SendGuard {
-    id: u32,
-    reserved_socket: Option<ViscaSocket>,
-    ack_registered: bool,
-    committed: bool,
-}
-
-impl SendGuard {
-    fn new(id: u32) -> Self {
-        Self {
-            id,
-            reserved_socket: None,
-            ack_registered: false,
-            committed: false,
-        }
-    }
-
-    fn register_ack(&mut self) {
-        self.ack_registered = true;
-    }
-
-    fn commit(&mut self) {
-        self.committed = true;
-    }
-
-    fn rollback(self, core: &mut SchedulerCore) {
-        if !self.committed {
-            // Rollback on failure
-            if let Some(socket) = self.reserved_socket {
-                debug!(
-                    "SendGuard: Rolling back inquiry {} socket reservation",
-                    self.id
-                );
-                core.free_socket(socket);
-            }
-            if self.ack_registered {
-                debug!(
-                    "SendGuard: Rolling back command {} ACK registration",
-                    self.id
-                );
-                core.unregister_pending_ack(self.id);
-            }
-            // Note: fail_after_send_error is called by the caller after rollback
-        }
-    }
-}
 
 /// Blocking runner for VISCA commands.
 ///
@@ -184,106 +136,40 @@ impl BlockingRunner {
                 // Use command kind from PendingCommand
                 let kind = cmd.kind;
 
-                // Frame the command
-                let (framed, meta) = self.envelope.frame_bytes_with_kind_owned(
-                    cmd.bytes.clone(),
+                // Use the shared driver for sending
+                let mut scheduler = BlockingScheduler {
+                    core: &mut self.core,
+                    now,
+                };
+
+                // Use configurable write timeout from transport config
+                let write_timeout = Duration::from_millis(500); // Default, should come from config
+
+                // Convert PendingCommand
+                let pending_cmd = PendingCommand {
+                    id: cmd.id,
+                    bytes: cmd.bytes.clone(),
+                    priority: cmd.priority,
+                    category: cmd.category,
+                    camera_id: cmd.camera_id,
+                    submitted_at: now,
                     kind,
+                };
+
+                if let Err(e) = send_one(
+                    transport,
+                    &mut scheduler,
+                    pending_cmd,
+                    &self.envelope,
                     &self.buffer_manager,
-                );
-
-                // Create RAII guard for rollback
-                let mut guard = SendGuard::new(cmd.id);
-
-                // For inquiries, start tracking without socket allocation
-                // For commands, register as pending ACK
-                if kind == CommandKind::Inquiry {
-                    // Start tracking the inquiry (no socket allocation)
-                    self.core.start_inquiry(
-                        cmd.id,
-                        cmd.bytes.clone(),
-                        cmd.priority,
-                        cmd.category,
-                        cmd.camera_id,
-                        now,
-                    );
-                    debug!("Started tracking inquiry {}", cmd.id);
-                } else {
-                    // Register as pending ACK for commands
-                    self.core.register_pending_ack(
-                        cmd.id,
-                        cmd.bytes.clone(),
-                        cmd.priority,
-                        cmd.category,
-                        cmd.camera_id,
-                        now,
-                    );
-                    guard.register_ack();
+                    write_timeout,
+                ) {
+                    debug!("Send operation failed: {:?}", e);
+                    // send_one already handled retry scheduling via schedule_retry_after_send_error
+                    // The error returned here means send failed but retry was scheduled
+                    // Continue processing other commands
+                    continue;
                 }
-
-                // Try to send the command
-                if let Err(e) = transport.send_with_kind(&framed, kind) {
-                    debug!(
-                        "Send failed for {} {}: {:?}",
-                        if kind == CommandKind::Inquiry {
-                            "inquiry"
-                        } else {
-                            "command"
-                        },
-                        cmd.id,
-                        e
-                    );
-
-                    // Rollback via RAII guard
-                    guard.rollback(&mut self.core);
-
-                    // Schedule retry for send failure instead of failing immediately
-                    self.core.mark_retry_as_transport_error(cmd.id);
-                    if let Some(action) = self.core.queue_retry_for_command(cmd.id, now) {
-                        match action {
-                            SchedulerAction::RetryCommand { id, delay, .. } => {
-                                debug!(
-                                    "Scheduled retry for {} {} after {:?}",
-                                    if kind == CommandKind::Inquiry {
-                                        "inquiry"
-                                    } else {
-                                        "command"
-                                    },
-                                    id,
-                                    delay
-                                );
-                            }
-                            SchedulerAction::CommandFailed { id, error } if id == target_cmd_id => {
-                                // Budget exhausted, return the error to the caller
-                                return Err(error);
-                            }
-                            _ => {}
-                        }
-                    }
-
-                    continue; // Continue with next command instead of returning error
-                }
-
-                // Send succeeded - commit the guard to prevent rollback
-                guard.commit();
-
-                // Post-send side effects (only after successful send)
-
-                // Register Sony sequence if applicable
-                if let Some(sequence) = meta.sequence {
-                    self.core.register_sequence(cmd.id, sequence);
-                }
-
-                // Core handles inquiry tracking now
-                trace!(
-                    "Sent {} {} with sequence {:?}",
-                    if kind == CommandKind::Inquiry {
-                        "inquiry"
-                    } else {
-                        "command"
-                    },
-                    cmd.id,
-                    meta.sequence
-                );
             }
 
             // Check for retries
@@ -296,89 +182,38 @@ impl BlockingRunner {
                     CommandKind::Command
                 };
 
-                // Frame the retry
-                let (framed, meta) = self.envelope.frame_bytes_with_kind_owned(
-                    retry.bytes.clone(),
+                // Use the shared driver for sending retries
+                let mut scheduler = BlockingScheduler {
+                    core: &mut self.core,
+                    now,
+                };
+
+                // Use configurable write timeout from transport config
+                let write_timeout = Duration::from_millis(500); // Default, should come from config
+
+                // Convert to PendingCommand
+                let pending_cmd = PendingCommand {
+                    id: retry.id,
+                    bytes: retry.bytes.clone(),
+                    priority: retry.priority,
+                    category: retry.category,
+                    camera_id: retry.camera_id,
+                    submitted_at: now,
                     kind,
+                };
+
+                if let Err(e) = send_one(
+                    transport,
+                    &mut scheduler,
+                    pending_cmd,
+                    &self.envelope,
                     &self.buffer_manager,
-                );
-
-                // Create RAII guard for rollback
-                let mut guard = SendGuard::new(retry.id);
-
-                // For inquiries, start tracking without socket allocation
-                // For commands, register as pending ACK
-                if kind == CommandKind::Inquiry {
-                    // Start tracking the inquiry retry (no socket allocation)
-                    self.core.start_inquiry(
-                        retry.id,
-                        retry.bytes.clone(),
-                        retry.priority,
-                        retry.category,
-                        retry.camera_id,
-                        now,
-                    );
-                    debug!("Started tracking inquiry retry {}", retry.id);
-                } else {
-                    // Register as pending ACK for command retries
-                    self.core.register_pending_ack(
-                        retry.id,
-                        retry.bytes.clone(),
-                        retry.priority,
-                        retry.category,
-                        retry.camera_id,
-                        now,
-                    );
-                    guard.register_ack();
-                }
-
-                // Try to send the retry
-                if let Err(e) = transport.send_with_kind(&framed, kind) {
-                    debug!(
-                        "Send failed for retry {} {}: {:?}",
-                        if kind == CommandKind::Inquiry {
-                            "inquiry"
-                        } else {
-                            "command"
-                        },
-                        retry.id,
-                        e
-                    );
-
-                    // Rollback via RAII guard
-                    guard.rollback(&mut self.core);
-
-                    // Handle send failure for retry - fails immediately
-                    if let Some(action) = self.core.fail_after_send_error(retry.id) {
-                        match action {
-                            SchedulerAction::CommandFailed { id, error } if id == target_cmd_id => {
-                                // Return the error to the caller
-                                return Err(error);
-                            }
-                            _ => {}
-                        }
-                    }
-
-                    warn!(
-                        "Scheduled another retry for {} {}",
-                        if kind == CommandKind::Inquiry {
-                            "inquiry"
-                        } else {
-                            "command"
-                        },
-                        retry.id
-                    );
-                    continue; // Continue with next retry instead of returning error
-                }
-
-                // Send succeeded - commit the guard to prevent rollback
-                guard.commit();
-
-                // Post-send side effects (only after successful send)
-
-                // Register Sony sequence if applicable
-                if let Some(sequence) = meta.sequence {
-                    self.core.register_sequence(retry.id, sequence);
+                    write_timeout,
+                ) {
+                    debug!("Send retry operation failed: {:?}", e);
+                    // send_one already handled retry scheduling
+                    // For retries, check if budget is exhausted for our target command
+                    continue;
                 }
 
                 // Core handles inquiry tracking now

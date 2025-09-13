@@ -22,6 +22,7 @@ use crate::{
     runtime::{
         async_adapter::{AsyncAdapter, CompletionEvent, MetricsSummary, TxItem},
         core::PendingCommand,
+        driver::send_one,
     },
     timeout::TimeoutConfig,
     transport::{buffer::BufferManager, envelope::TransportEnvelope, AsyncTransport, RetryConfig},
@@ -36,58 +37,6 @@ pub struct RuntimeLoopConfig {
     pub retry_config: RetryConfig,
     /// Write timeout from transport config
     pub write_timeout: std::time::Duration,
-}
-
-/// RAII guard for automatic rollback of send operations on failure.
-///
-/// This guard ensures that if a send operation fails, any reserved resources
-/// (sockets, pending ACK registrations) are automatically rolled back.
-struct SendGuard {
-    id: u32,
-    reserved_socket: Option<crate::visca_socket::ViscaSocket>,
-    ack_registered: bool,
-    committed: bool,
-}
-
-impl SendGuard {
-    fn new(id: u32) -> Self {
-        Self {
-            id,
-            reserved_socket: None,
-            ack_registered: false,
-            committed: false,
-        }
-    }
-
-    fn commit(&mut self) {
-        self.committed = true;
-    }
-
-    fn rollback<P: Profile, E: crate::executor::Executor>(self, adapter: &mut AsyncAdapter<P, E>) {
-        if !self.committed {
-            // Rollback on failure
-            if let Some(socket) = self.reserved_socket {
-                debug!(
-                    "SendGuard: Rolling back inquiry {} socket reservation",
-                    self.id
-                );
-                adapter.free_socket(socket);
-            }
-            if self.ack_registered {
-                debug!(
-                    "SendGuard: Rolling back command {} ACK registration",
-                    self.id
-                );
-                adapter.unregister_pending_ack(self.id);
-            }
-            // Schedule retry for send failure instead of failing immediately
-            debug!(
-                "SendGuard: Scheduling retry for send failure on {}",
-                self.id
-            );
-            adapter.schedule_retry_after_send_error(self.id);
-        }
-    }
 }
 
 /// Main runtime loop with configurable tick interval.
@@ -146,12 +95,15 @@ pub async fn runtime_loop_with_config<
 
                     // Try to send immediately if possible
                     if let Some(cmd) = adapter.next_command_to_send() {
-                        send_command::<P, T, E>(
+                        // Use the shared driver for sending
+                        send_one(
                             &mut transport,
+                            &executor,
                             &mut adapter,
                             cmd,
-                            &config,
-                            &executor,
+                            &config.envelope,
+                            &config.buffer_manager,
+                            config.write_timeout,
                         )
                         .await?;
                     }
@@ -259,12 +211,15 @@ pub async fn runtime_loop_with_config<
                 kind,
             };
 
-            send_command::<P, T, E>(
+            // Use the shared driver for sending retries
+            send_one(
                 &mut transport,
+                &executor,
                 &mut adapter,
                 pending_cmd,
-                &config,
-                &executor,
+                &config.envelope,
+                &config.buffer_manager,
+                config.write_timeout,
             )
             .await?;
         }
@@ -364,12 +319,15 @@ pub async fn runtime_loop_with_config<
                 // Try to send more commands if we can
                 while adapter.can_send_command() {
                     if let Some(cmd) = adapter.next_command_to_send() {
-                        send_command::<P, T, E>(
+                        // Use the shared driver for sending
+                        send_one(
                             &mut transport,
+                            &executor,
                             &mut adapter,
                             cmd,
-                            &config,
-                            &executor,
+                            &config.envelope,
+                            &config.buffer_manager,
+                            config.write_timeout,
                         )
                         .await?;
                     } else {
@@ -434,12 +392,15 @@ pub async fn runtime_loop_with_config<
                 // Try to send more commands if we have room
                 while adapter.can_send_command() {
                     if let Some(cmd) = adapter.next_command_to_send() {
-                        send_command::<P, T, E>(
+                        // Use the shared driver for sending
+                        send_one(
                             &mut transport,
+                            &executor,
                             &mut adapter,
                             cmd,
-                            &config,
-                            &executor,
+                            &config.envelope,
+                            &config.buffer_manager,
+                            config.write_timeout,
                         )
                         .await?;
                     } else {
@@ -462,108 +423,4 @@ pub async fn runtime_loop_with_config<
             }
         }
     }
-}
-
-/// Helper function to send a command.
-async fn send_command<P: Profile, T: AsyncTransport, E: crate::executor::Executor>(
-    transport: &mut T,
-    adapter: &mut AsyncAdapter<P, E>,
-    cmd: PendingCommand,
-    config: &RuntimeLoopConfig,
-    executor: &E,
-) -> Result<()> {
-    // Use command kind from PendingCommand
-    let kind = cmd.kind;
-
-    // Frame the command
-    let (framed, meta) = config.envelope.frame_bytes_with_kind_owned(
-        cmd.bytes.clone(),
-        kind,
-        &config.buffer_manager,
-    );
-
-    // Track reservation state for rollback
-    let reserved_socket = None;
-    let mut registered_ack = false;
-
-    // For inquiries, start tracking without socket allocation
-    // For commands, register as pending ACK
-    if kind == CommandKind::Inquiry {
-        // Start tracking the inquiry (no socket allocation)
-        adapter.start_inquiry(&cmd);
-        debug!("Started tracking inquiry {}", cmd.id);
-    } else {
-        // Register as pending ACK for commands
-        adapter.register_pending_ack(&cmd);
-        registered_ack = true;
-    }
-
-    // Create guard for tracking rollback state
-    let mut guard = SendGuard::new(cmd.id);
-    guard.reserved_socket = reserved_socket;
-    guard.ack_registered = registered_ack;
-
-    // Try to send the command with timeout using manual race
-    let write_timeout = config.write_timeout;
-    let send_result = {
-        use futures_lite::future;
-
-        future::race(async { transport.send(&framed).await.map(|_| ()) }, async {
-            executor.sleep(write_timeout).await;
-            Err(Error::Timeout)
-        })
-        .await
-    };
-
-    match send_result {
-        Ok(()) => {
-            // Send succeeded
-        }
-        Err(e) => {
-            // Send failed or timed out
-            let error_type = if matches!(e, Error::Timeout) {
-                "timeout"
-            } else {
-                "failed"
-            };
-            warn!(
-                "Send {} for {} {}: {:?}",
-                error_type,
-                if kind == CommandKind::Inquiry {
-                    "inquiry"
-                } else {
-                    "command"
-                },
-                cmd.id,
-                e
-            );
-            guard.rollback(adapter);
-            return Ok(());
-        }
-    }
-
-    // Send succeeded - commit post-send side effects
-
-    // Register Sony sequence if applicable
-    if let Some(sequence) = meta.sequence {
-        adapter.register_sequence(cmd.id, sequence);
-    }
-
-    // Core handles inquiry tracking now
-
-    // Mark as committed to prevent rollback
-    guard.commit();
-
-    trace!(
-        "Sent {} {} with sequence {:?}",
-        if kind == CommandKind::Inquiry {
-            "inquiry"
-        } else {
-            "command"
-        },
-        cmd.id,
-        meta.sequence
-    );
-
-    Ok(())
 }
