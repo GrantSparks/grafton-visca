@@ -447,11 +447,8 @@ pub async fn runtime_loop_with_config<
                     }
                 }
 
-                // Fairness: ensure the deterministic clock can advance even when recv_into()
-                // resolves immediately with Error::Timeout (e.g., scripted tests).
-                // This sleep ensures there's always a pending deadline that the DeterministicExecutor
-                // can advance to, preventing virtual time starvation.
-                executor.sleep(tick_duration).await;
+                // NOTE: No sleep here! The tick came from the timeout above, sleeping again
+                // would cause the observed 2× slowdown (double-sleep issue).
             }
             Operation::RecvErr(e) => {
                 error!("Error receiving from transport: {e}");
