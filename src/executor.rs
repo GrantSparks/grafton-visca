@@ -7,7 +7,7 @@
 use core::future::Future;
 
 #[cfg(feature = "async")]
-use std::{pin::Pin, time::Instant};
+use std::time::Instant;
 
 use crate::Error;
 
@@ -124,9 +124,91 @@ pub trait Executor: Clone + Send + Sync + 'static {
         &self,
         duration: std::time::Duration,
         fut: impl Future<Output = T> + Send + 'static,
-    ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'static>>
+    ) -> impl Future<Output = Result<T, Error>> + Send + 'static
     where
         T: Send + 'static;
+}
+
+// Generic implementation for Arc<E> where E: Executor
+#[cfg(feature = "async")]
+#[allow(refining_impl_trait_reachable)]
+impl<E> Executor for std::sync::Arc<E>
+where
+    E: Executor,
+{
+    type Join<T>
+        = <E as Executor>::Join<T>
+    where
+        T: Send + 'static;
+
+    type LocalJoin<T>
+        = <E as Executor>::LocalJoin<T>
+    where
+        T: 'static;
+
+    fn spawn<F>(&self, fut: F) -> Self::Join<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        (**self).spawn(fut)
+    }
+
+    fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        (**self).spawn_local(fut)
+    }
+
+    fn block_on<F: Future>(&self, fut: F) -> F::Output {
+        (**self).block_on(fut)
+    }
+
+    #[allow(clippy::manual_async_fn)]
+    fn sleep(&self, duration: std::time::Duration) -> impl Future<Output = ()> + Send + '_ {
+        async move { (**self).sleep(duration).await }
+    }
+
+    #[allow(clippy::manual_async_fn)]
+    fn timeout<'a, F, T>(
+        &'a self,
+        duration: std::time::Duration,
+        fut: F,
+    ) -> impl Future<Output = Result<T, Error>> + Send + 'a
+    where
+        F: Future<Output = T> + Send + 'a,
+        T: Send + 'a,
+    {
+        // Forward directly to avoid async block lifetime issues
+        (**self).timeout(duration, fut)
+    }
+
+    #[allow(clippy::manual_async_fn)]
+    fn timeout_owned<T>(
+        &self,
+        duration: std::time::Duration,
+        fut: impl Future<Output = T> + Send + 'static,
+    ) -> impl Future<Output = Result<T, Error>> + Send + 'static
+    where
+        T: Send + 'static,
+    {
+        // Forward directly to avoid async block lifetime issues
+        (**self).timeout_owned(duration, fut)
+    }
+
+    fn spawn_bg<F>(&self, fut: F)
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        (**self).spawn_bg(fut)
+    }
+
+    fn now(&self) -> Instant {
+        (**self).now()
+    }
 }
 
 // Tokio executor implementation
@@ -134,7 +216,7 @@ pub trait Executor: Clone + Send + Sync + 'static {
 mod tokio_impl {
     use super::*;
 
-    use std::{sync::Arc, time::Duration};
+    use std::{pin::Pin, time::Duration};
 
     /// Tokio-based executor implementation.
     #[derive(Debug, Clone)]
@@ -157,7 +239,8 @@ mod tokio_impl {
     }
 
     // Custom join handle wrapper for Tokio
-    struct TokioJoin<T>(tokio::task::JoinHandle<T>);
+    #[derive(Debug)]
+    pub struct TokioJoin<T>(tokio::task::JoinHandle<T>);
 
     impl<T> Future for TokioJoin<T>
     where
@@ -181,14 +264,40 @@ mod tokio_impl {
         }
     }
 
+    // Wrapper for local tasks (still requires Send in tokio)
+    #[derive(Debug)]
+    pub struct TokioLocalJoin<T>(tokio::task::JoinHandle<T>);
+
+    impl<T> Future for TokioLocalJoin<T>
+    where
+        T: 'static,
+    {
+        type Output = Result<T, ExecError>;
+
+        fn poll(
+            mut self: Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Self::Output> {
+            // SAFETY: tokio requires Send even for local tasks
+            let join_handle = Pin::new(&mut self.0);
+            match join_handle.poll(cx) {
+                std::task::Poll::Ready(Ok(value)) => std::task::Poll::Ready(Ok(value)),
+                std::task::Poll::Ready(Err(e)) => {
+                    std::task::Poll::Ready(Err(ExecError::JoinFailed(e.to_string())))
+                }
+                std::task::Poll::Pending => std::task::Poll::Pending,
+            }
+        }
+    }
+
     impl Executor for TokioExecutor {
         type Join<T>
-            = Pin<Box<dyn Future<Output = Result<T, ExecError>> + Send + 'static>>
+            = TokioJoin<T>
         where
             T: Send + 'static;
 
         type LocalJoin<T>
-            = Pin<Box<dyn Future<Output = Result<T, ExecError>> + 'static>>
+            = TokioLocalJoin<T>
         where
             T: 'static;
 
@@ -197,8 +306,7 @@ mod tokio_impl {
             F: Future + Send + 'static,
             F::Output: Send + 'static,
         {
-            let handle = self.handle.spawn(fut);
-            Box::pin(TokioJoin(handle))
+            TokioJoin(self.handle.spawn(fut))
         }
 
         fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
@@ -206,8 +314,7 @@ mod tokio_impl {
             F: Future + Send + 'static,
             F::Output: Send + 'static,
         {
-            let handle = self.handle.spawn(fut);
-            Box::pin(TokioJoin(handle))
+            TokioLocalJoin(self.handle.spawn(fut))
         }
 
         fn block_on<F: Future>(&self, fut: F) -> F::Output {
@@ -237,20 +344,21 @@ mod tokio_impl {
             }
         }
 
+        #[allow(clippy::manual_async_fn)]
         fn timeout_owned<T>(
             &self,
             duration: Duration,
             fut: impl Future<Output = T> + Send + 'static,
-        ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'static>>
+        ) -> impl Future<Output = Result<T, Error>> + Send + 'static
         where
             T: Send + 'static,
         {
-            Box::pin(async move {
+            async move {
                 match tokio::time::timeout(duration, fut).await {
                     Ok(value) => Ok(value),
                     Err(_) => Err(Error::Timeout),
                 }
-            })
+            }
         }
 
         /// Return the current time based on Tokio's time source.
@@ -260,68 +368,6 @@ mod tokio_impl {
         /// when virtual time advances, preventing stalls.
         fn now(&self) -> Instant {
             tokio::time::Instant::now().into_std()
-        }
-    }
-
-    // Implement Executor for Arc<TokioExecutor> to match the pattern used by other executors
-    impl Executor for Arc<TokioExecutor> {
-        type Join<T>
-            = Pin<Box<dyn Future<Output = Result<T, ExecError>> + Send + 'static>>
-        where
-            T: Send + 'static;
-
-        type LocalJoin<T>
-            = Pin<Box<dyn Future<Output = Result<T, ExecError>> + 'static>>
-        where
-            T: 'static;
-
-        fn spawn<F>(&self, fut: F) -> Self::Join<F::Output>
-        where
-            F: Future + Send + 'static,
-            F::Output: Send + 'static,
-        {
-            self.as_ref().spawn(fut)
-        }
-
-        fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
-        where
-            F: Future + Send + 'static,
-            F::Output: Send + 'static,
-        {
-            self.as_ref().spawn_local(fut)
-        }
-
-        fn block_on<F: Future>(&self, fut: F) -> F::Output {
-            self.as_ref().block_on(fut)
-        }
-
-        #[allow(clippy::manual_async_fn)]
-        fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
-            async move { self.as_ref().sleep(duration).await }
-        }
-
-        #[allow(clippy::manual_async_fn)]
-        fn timeout<'a, F, T>(
-            &'a self,
-            duration: Duration,
-            fut: F,
-        ) -> impl Future<Output = Result<T, Error>> + Send + 'a
-        where
-            F: Future<Output = T> + Send + 'a,
-            T: Send + 'a,
-        {
-            async move { self.as_ref().timeout(duration, fut).await }
-        }
-
-        fn timeout_owned<T>(
-            &self,
-            duration: Duration,
-            fut: impl Future<Output = T> + Send + 'static,
-        ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'static>>
-        where
-            T: Send + 'static,
-        {
-            self.as_ref().timeout_owned(duration, fut)
         }
     }
 }
@@ -334,7 +380,7 @@ pub use tokio_impl::TokioExecutor;
 mod async_std_impl {
     use super::*;
 
-    use std::{sync::Arc, time::Duration};
+    use std::{pin::Pin, time::Duration};
 
     /// async-std based executor implementation.
     #[derive(Debug, Clone, Copy)]
@@ -354,7 +400,8 @@ mod async_std_impl {
     }
 
     // Custom join handle wrapper for async-std
-    struct AsyncStdJoin<T>(async_std::task::JoinHandle<T>);
+    #[derive(Debug)]
+    pub struct AsyncStdJoin<T>(async_std::task::JoinHandle<T>);
 
     impl<T> Future for AsyncStdJoin<T>
     where
@@ -374,14 +421,37 @@ mod async_std_impl {
         }
     }
 
+    // Wrapper for local tasks (still requires Send in async-std)
+    #[derive(Debug)]
+    pub struct AsyncStdLocalJoin<T>(async_std::task::JoinHandle<T>);
+
+    impl<T> Future for AsyncStdLocalJoin<T>
+    where
+        T: 'static,
+    {
+        type Output = Result<T, ExecError>;
+
+        fn poll(
+            mut self: Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Self::Output> {
+            // SAFETY: async-std requires Send even for local tasks
+            let join_handle = Pin::new(&mut self.0);
+            match join_handle.poll(cx) {
+                std::task::Poll::Ready(value) => std::task::Poll::Ready(Ok(value)),
+                std::task::Poll::Pending => std::task::Poll::Pending,
+            }
+        }
+    }
+
     impl Executor for AsyncStdExecutor {
         type Join<T>
-            = Pin<Box<dyn Future<Output = Result<T, ExecError>> + Send + 'static>>
+            = AsyncStdJoin<T>
         where
             T: Send + 'static;
 
         type LocalJoin<T>
-            = Pin<Box<dyn Future<Output = Result<T, ExecError>> + 'static>>
+            = AsyncStdLocalJoin<T>
         where
             T: 'static;
 
@@ -390,8 +460,7 @@ mod async_std_impl {
             F: Future + Send + 'static,
             F::Output: Send + 'static,
         {
-            let handle = async_std::task::spawn(fut);
-            Box::pin(AsyncStdJoin(handle))
+            AsyncStdJoin(async_std::task::spawn(fut))
         }
 
         fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
@@ -400,8 +469,7 @@ mod async_std_impl {
             F::Output: Send + 'static,
         {
             // Fallback to global spawn; requires Send
-            let handle = async_std::task::spawn(fut);
-            Box::pin(AsyncStdJoin(handle))
+            AsyncStdLocalJoin(async_std::task::spawn(fut))
         }
 
         fn block_on<F: Future>(&self, fut: F) -> F::Output {
@@ -431,82 +499,21 @@ mod async_std_impl {
             }
         }
 
+        #[allow(clippy::manual_async_fn)]
         fn timeout_owned<T>(
             &self,
             duration: Duration,
             fut: impl Future<Output = T> + Send + 'static,
-        ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'static>>
+        ) -> impl Future<Output = Result<T, Error>> + Send + 'static
         where
             T: Send + 'static,
         {
-            Box::pin(async move {
+            async move {
                 match async_std::future::timeout(duration, fut).await {
                     Ok(value) => Ok(value),
                     Err(_) => Err(Error::Timeout),
                 }
-            })
-        }
-    }
-
-    // Implement Executor for Arc<AsyncStdExecutor>
-    impl Executor for Arc<AsyncStdExecutor> {
-        type Join<T>
-            = Pin<Box<dyn Future<Output = Result<T, ExecError>> + Send + 'static>>
-        where
-            T: Send + 'static;
-
-        type LocalJoin<T>
-            = Pin<Box<dyn Future<Output = Result<T, ExecError>> + 'static>>
-        where
-            T: 'static;
-
-        fn spawn<F>(&self, fut: F) -> Self::Join<F::Output>
-        where
-            F: Future + Send + 'static,
-            F::Output: Send + 'static,
-        {
-            self.as_ref().spawn(fut)
-        }
-
-        fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
-        where
-            F: Future + Send + 'static,
-            F::Output: Send + 'static,
-        {
-            self.as_ref().spawn_local(fut)
-        }
-
-        fn block_on<F: Future>(&self, fut: F) -> F::Output {
-            self.as_ref().block_on(fut)
-        }
-
-        #[allow(clippy::manual_async_fn)]
-        fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
-            async move { self.as_ref().sleep(duration).await }
-        }
-
-        #[allow(clippy::manual_async_fn)]
-        fn timeout<'a, F, T>(
-            &'a self,
-            duration: Duration,
-            fut: F,
-        ) -> impl Future<Output = Result<T, Error>> + Send + 'a
-        where
-            F: Future<Output = T> + Send + 'a,
-            T: Send + 'a,
-        {
-            async move { self.as_ref().timeout(duration, fut).await }
-        }
-
-        fn timeout_owned<T>(
-            &self,
-            duration: Duration,
-            fut: impl Future<Output = T> + Send + 'static,
-        ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'static>>
-        where
-            T: Send + 'static,
-        {
-            self.as_ref().timeout_owned(duration, fut)
+            }
         }
     }
 }
@@ -518,8 +525,9 @@ pub use async_std_impl::AsyncStdExecutor;
 #[cfg(feature = "rt-smol")]
 mod smol_impl {
     use super::*;
+    use std::pin::Pin;
 
-    use std::{sync::Arc, time::Duration};
+    use std::time::Duration;
 
     /// smol-based executor implementation.
     #[derive(Debug, Clone, Copy)]
@@ -539,15 +547,69 @@ mod smol_impl {
     }
 
     // Custom join handle wrapper for smol
+    #[derive(Debug)]
+    pub struct SmolJoin<T>(flume::Receiver<T>);
+
+    impl<T> Future for SmolJoin<T>
+    where
+        T: Send + 'static,
+    {
+        type Output = Result<T, ExecError>;
+
+        fn poll(
+            self: Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Self::Output> {
+            // Poll the receiver future directly
+            let this = self.get_mut();
+            let fut = this.0.recv_async();
+            futures_lite::pin!(fut);
+            match fut.poll(cx) {
+                std::task::Poll::Ready(Ok(v)) => std::task::Poll::Ready(Ok(v)),
+                std::task::Poll::Ready(Err(e)) => {
+                    std::task::Poll::Ready(Err(ExecError::JoinFailed(e.to_string())))
+                }
+                std::task::Poll::Pending => std::task::Poll::Pending,
+            }
+        }
+    }
+
+    // Wrapper for local tasks (still uses flume channel)
+    #[derive(Debug)]
+    pub struct SmolLocalJoin<T>(flume::Receiver<T>);
+
+    impl<T> Future for SmolLocalJoin<T>
+    where
+        T: 'static,
+    {
+        type Output = Result<T, ExecError>;
+
+        fn poll(
+            self: Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Self::Output> {
+            // SAFETY: smol requires Send even for local tasks
+            let this = self.get_mut();
+            let fut = this.0.recv_async();
+            futures_lite::pin!(fut);
+            match fut.poll(cx) {
+                std::task::Poll::Ready(Ok(v)) => std::task::Poll::Ready(Ok(v)),
+                std::task::Poll::Ready(Err(e)) => {
+                    std::task::Poll::Ready(Err(ExecError::JoinFailed(e.to_string())))
+                }
+                std::task::Poll::Pending => std::task::Poll::Pending,
+            }
+        }
+    }
 
     impl Executor for SmolExecutor {
         type Join<T>
-            = Pin<Box<dyn Future<Output = Result<T, ExecError>> + Send + 'static>>
+            = SmolJoin<T>
         where
             T: Send + 'static;
 
         type LocalJoin<T>
-            = Pin<Box<dyn Future<Output = Result<T, ExecError>> + 'static>>
+            = SmolLocalJoin<T>
         where
             T: 'static;
 
@@ -556,20 +618,12 @@ mod smol_impl {
             F: Future + Send + 'static,
             F::Output: Send + 'static,
         {
-            // Create a detached task that will run on the smol executor
-            let (sender, receiver) = flume::bounded(1);
+            let (tx, rx) = flume::bounded(1);
             smol::spawn(async move {
-                let result = fut.await;
-                let _ = sender.send_async(result).await;
+                let _ = tx.send_async(fut.await).await;
             })
             .detach();
-
-            Box::pin(async move {
-                receiver
-                    .recv_async()
-                    .await
-                    .map_err(|e| ExecError::JoinFailed(e.to_string()))
-            })
+            SmolJoin(rx)
         }
 
         fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
@@ -577,20 +631,12 @@ mod smol_impl {
             F: Future + Send + 'static,
             F::Output: Send + 'static,
         {
-            // Fallback to global spawn; requires Send internally
-            let (sender, receiver) = flume::bounded(1);
+            let (tx, rx) = flume::bounded(1);
             smol::spawn(async move {
-                let result = fut.await;
-                let _ = sender.send_async(result).await;
+                let _ = tx.send_async(fut.await).await;
             })
             .detach();
-
-            Box::pin(async move {
-                receiver
-                    .recv_async()
-                    .await
-                    .map_err(|e| ExecError::JoinFailed(e.to_string()))
-            })
+            SmolLocalJoin(rx)
         }
 
         fn block_on<F: Future>(&self, fut: F) -> F::Output {
@@ -638,15 +684,16 @@ mod smol_impl {
             }
         }
 
+        #[allow(clippy::manual_async_fn)]
         fn timeout_owned<T>(
             &self,
             duration: Duration,
             fut: impl Future<Output = T> + Send + 'static,
-        ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'static>>
+        ) -> impl Future<Output = Result<T, Error>> + Send + 'static
         where
             T: Send + 'static,
         {
-            Box::pin(async move {
+            async move {
                 // Create a timer future
                 let timer = smol::Timer::after(duration);
 
@@ -667,69 +714,7 @@ mod smol_impl {
                     // Yield to executor
                     futures_lite::future::yield_now().await;
                 }
-            })
-        }
-    }
-
-    // Implement Executor for Arc<SmolExecutor>
-    impl Executor for Arc<SmolExecutor> {
-        type Join<T>
-            = Pin<Box<dyn Future<Output = Result<T, ExecError>> + Send + 'static>>
-        where
-            T: Send + 'static;
-
-        type LocalJoin<T>
-            = Pin<Box<dyn Future<Output = Result<T, ExecError>> + 'static>>
-        where
-            T: 'static;
-
-        fn spawn<F>(&self, fut: F) -> Self::Join<F::Output>
-        where
-            F: Future + Send + 'static,
-            F::Output: Send + 'static,
-        {
-            self.as_ref().spawn(fut)
-        }
-
-        fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
-        where
-            F: Future + Send + 'static,
-            F::Output: Send + 'static,
-        {
-            self.as_ref().spawn_local(fut)
-        }
-
-        fn block_on<F: Future>(&self, fut: F) -> F::Output {
-            self.as_ref().block_on(fut)
-        }
-
-        #[allow(clippy::manual_async_fn)]
-        fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
-            async move { self.as_ref().sleep(duration).await }
-        }
-
-        #[allow(clippy::manual_async_fn)]
-        fn timeout<'a, F, T>(
-            &'a self,
-            duration: Duration,
-            fut: F,
-        ) -> impl Future<Output = Result<T, Error>> + Send + 'a
-        where
-            F: Future<Output = T> + Send + 'a,
-            T: Send + 'a,
-        {
-            async move { self.as_ref().timeout(duration, fut).await }
-        }
-
-        fn timeout_owned<T>(
-            &self,
-            duration: Duration,
-            fut: impl Future<Output = T> + Send + 'static,
-        ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'static>>
-        where
-            T: Send + 'static,
-        {
-            self.as_ref().timeout_owned(duration, fut)
+            }
         }
     }
 }

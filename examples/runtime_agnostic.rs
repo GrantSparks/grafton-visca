@@ -129,6 +129,7 @@ fn main() {
             }
         }
 
+        #[allow(refining_impl_trait_internal)]
         fn timeout_owned<T>(
             &self,
             duration: Duration,

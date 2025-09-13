@@ -627,6 +627,42 @@ impl Clone for DeterministicExecutor {
     }
 }
 
+/// Wrapper for deterministic executor join handles.
+#[derive(Debug)]
+pub struct DetJoin<T>(async_executor::Task<T>);
+
+impl<T> Future for DetJoin<T>
+where
+    T: Send + 'static,
+{
+    type Output = Result<T, crate::executor::ExecError>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match Pin::new(&mut self.0).poll(cx) {
+            Poll::Ready(v) => Poll::Ready(Ok(v)),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+/// Wrapper for local tasks (async_executor treats all tasks the same)
+#[derive(Debug)]
+pub struct DetLocalJoin<T>(async_executor::Task<T>);
+
+impl<T> Future for DetLocalJoin<T>
+where
+    T: 'static,
+{
+    type Output = Result<T, crate::executor::ExecError>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match Pin::new(&mut self.0).poll(cx) {
+            Poll::Ready(v) => Poll::Ready(Ok(v)),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
 /// Handle for controlling the virtual clock in tests.
 ///
 /// This allows tests to advance time deterministically and observe the effects
@@ -673,12 +709,12 @@ impl DeterministicClock {
 
 impl Executor for DeterministicExecutor {
     type Join<T>
-        = Pin<Box<dyn Future<Output = Result<T, crate::executor::ExecError>> + Send + 'static>>
+        = DetJoin<T>
     where
         T: Send + 'static;
 
     type LocalJoin<T>
-        = Pin<Box<dyn Future<Output = Result<T, crate::executor::ExecError>> + 'static>>
+        = DetLocalJoin<T>
     where
         T: 'static;
 
@@ -687,8 +723,7 @@ impl Executor for DeterministicExecutor {
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        let task = self.executor.spawn(fut);
-        Box::pin(async move { Ok(task.await) })
+        DetJoin(self.executor.spawn(fut))
     }
 
     fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
@@ -697,8 +732,7 @@ impl Executor for DeterministicExecutor {
         F::Output: Send + 'static,
     {
         // DeterministicExecutor runs tasks on a single-threaded executor in tests
-        let task = self.executor.spawn(fut);
-        Box::pin(async move { Ok(task.await) })
+        DetLocalJoin(self.executor.spawn(fut))
     }
 
     fn block_on<F: Future>(&self, fut: F) -> F::Output {
@@ -839,22 +873,23 @@ impl Executor for DeterministicExecutor {
         }
     }
 
+    #[allow(clippy::manual_async_fn)]
     fn timeout_owned<T>(
         &self,
         duration: Duration,
         fut: impl Future<Output = T> + Send + 'static,
-    ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'static>>
+    ) -> impl Future<Output = Result<T, Error>> + Send + 'static
     where
         T: Send + 'static,
     {
         let clock = self.clock.clone();
-        Box::pin(async move {
+        async move {
             let timeout_future = TimeoutFuture {
                 future: Box::pin(fut),
                 sleep: clock.sleep(duration),
             };
             timeout_future.await
-        })
+        }
     }
 
     fn now(&self) -> Instant {
@@ -972,83 +1007,6 @@ where
         E: std::fmt::Debug + Send + 'static,
     {
         (**self).spawn_detached_ignore_result_with_logging(fut);
-    }
-}
-
-// Implement Executor for Arc<DeterministicExecutor> to match the pattern used by other executors
-impl Executor for Arc<DeterministicExecutor> {
-    type Join<T>
-        = Pin<Box<dyn Future<Output = Result<T, crate::executor::ExecError>> + Send + 'static>>
-    where
-        T: Send + 'static;
-
-    type LocalJoin<T>
-        = Pin<Box<dyn Future<Output = Result<T, crate::executor::ExecError>> + 'static>>
-    where
-        T: 'static;
-
-    fn spawn<F>(&self, fut: F) -> Self::Join<F::Output>
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        self.as_ref().spawn(fut)
-    }
-
-    fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        self.as_ref().spawn_local(fut)
-    }
-
-    fn block_on<F: Future>(&self, fut: F) -> F::Output {
-        self.as_ref().block_on(fut)
-    }
-
-    #[allow(clippy::manual_async_fn)]
-    #[allow(refining_impl_trait)]
-    fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + 'static {
-        let clock = self.as_ref().clock.clone();
-        async move { clock.sleep(duration).await }
-    }
-
-    #[allow(clippy::manual_async_fn)]
-    fn timeout<'a, F, T>(
-        &'a self,
-        duration: Duration,
-        fut: F,
-    ) -> impl Future<Output = Result<T, Error>> + Send + 'a
-    where
-        F: Future<Output = T> + Send + 'a,
-        T: Send + 'a,
-    {
-        // Forward directly to avoid capturing &self in an async block
-        self.as_ref().timeout(duration, fut)
-    }
-
-    fn timeout_owned<T>(
-        &self,
-        duration: Duration,
-        fut: impl Future<Output = T> + Send + 'static,
-    ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'static>>
-    where
-        T: Send + 'static,
-    {
-        self.as_ref().timeout_owned(duration, fut)
-    }
-
-    fn now(&self) -> Instant {
-        self.as_ref().now()
-    }
-
-    fn spawn_bg<F>(&self, fut: F)
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        self.as_ref().spawn_bg(fut)
     }
 }
 

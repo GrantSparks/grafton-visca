@@ -247,6 +247,7 @@ mod tokio_impl {
             self.executor.timeout(duration, fut)
         }
 
+        #[allow(refining_impl_trait_reachable)]
         fn timeout_owned<T>(
             &self,
             duration: std::time::Duration,
@@ -255,7 +256,7 @@ mod tokio_impl {
         where
             T: Send + 'static,
         {
-            self.executor.timeout_owned(duration, fut)
+            Box::pin(self.executor.timeout_owned(duration, fut))
         }
 
         fn now(&self) -> Instant {
@@ -378,6 +379,7 @@ mod async_std_impl {
             self.executor.timeout(duration, fut)
         }
 
+        #[allow(refining_impl_trait_reachable)]
         fn timeout_owned<T>(
             &self,
             duration: std::time::Duration,
@@ -386,7 +388,7 @@ mod async_std_impl {
         where
             T: Send + 'static,
         {
-            self.executor.timeout_owned(duration, fut)
+            Box::pin(self.executor.timeout_owned(duration, fut))
         }
 
         fn now(&self) -> Instant {
@@ -496,6 +498,7 @@ mod smol_impl {
             self.executor.timeout(duration, fut)
         }
 
+        #[allow(refining_impl_trait_reachable)]
         fn timeout_owned<T>(
             &self,
             duration: std::time::Duration,
@@ -504,7 +507,7 @@ mod smol_impl {
         where
             T: Send + 'static,
         {
-            self.executor.timeout_owned(duration, fut)
+            Box::pin(self.executor.timeout_owned(duration, fut))
         }
 
         fn now(&self) -> Instant {

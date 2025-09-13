@@ -602,12 +602,8 @@ fn spawn_runtime_loop<T, E>(
     T: AsyncTransport + Send + 'static,
     E: crate::executor::Executor + Send + Sync + 'static,
 {
-    use std::future::Future;
-    use std::pin::Pin;
-
-    // Box the future with explicit 'static bound to work around Rust issue #100013
-    let fut: Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>> =
-        Box::pin(runtime_loop_with_config(
+    executor.spawn_bg(async move {
+        let _ = runtime_loop_with_config(
             transport,      // moved
             submit_rx,      // moved
             metrics_rx,     // moved
@@ -615,10 +611,8 @@ fn spawn_runtime_loop<T, E>(
             shutdown_rx,    // moved
             task_executor,  // moved Arc<E>
             config,         // plain data
-        ));
-
-    executor.spawn_bg(async move {
-        let _ = fut.await;
+        )
+        .await;
     });
 }
 
