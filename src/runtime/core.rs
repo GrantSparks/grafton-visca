@@ -1491,6 +1491,12 @@ impl SchedulerCore {
         })
     }
 
+    /// Mark a retry as being triggered by a transport error.
+    /// This affects the final error classification when retries are exhausted.
+    pub fn mark_retry_as_transport_error(&mut self, cmd_id: u32) {
+        self.retry_trigger_transport_error.insert(cmd_id, true);
+    }
+
     /// Queue a command for retry based on the retry configuration.
     pub fn queue_retry_for_command(
         &mut self,
@@ -1566,6 +1572,8 @@ impl SchedulerCore {
 mod tests {
     use super::*;
     use crate::command::bytes::VISCA_TERMINATOR;
+    use crate::transport::RetryConfig;
+    use crate::CameraId;
 
     #[test]
     fn test_retry_budget_from_base() {
@@ -1621,7 +1629,7 @@ mod tests {
     #[test]
     fn test_ack_backoff_parity() {
         // Test that the new ACK backoff calculation matches the legacy behavior
-        let retry_config = crate::transport::RetryConfig {
+        let retry_config = RetryConfig {
             max_retries: 3,
             base_retry_delay: Duration::from_millis(100),
             max_retry_duration: Duration::from_secs(10),
@@ -1662,14 +1670,14 @@ mod tests {
     #[test]
     fn test_inquiry_does_not_consume_sockets() {
         let timeout_config = TimeoutConfig::default();
-        let retry_config = crate::transport::RetryConfig::default();
+        let retry_config = RetryConfig::default();
         let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
 
         let now = Instant::now();
         let bytes = bytes::Bytes::from(vec![0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR]);
         let priority = Priority::Normal;
         let category = CommandCategory::Quick;
-        let camera_id = crate::camera_id::CameraId::CAMERA_1;
+        let camera_id = CameraId::CAMERA_1;
 
         // Start two commands to occupy both sockets
         let cmd1_bytes = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
@@ -1732,14 +1740,14 @@ mod tests {
     #[test]
     fn test_inquiry_reply_handling() {
         let timeout_config = TimeoutConfig::default();
-        let retry_config = crate::transport::RetryConfig::default();
+        let retry_config = RetryConfig::default();
         let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
 
         let now = Instant::now();
         let bytes = bytes::Bytes::from(vec![0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR]);
         let priority = Priority::Normal;
         let category = CommandCategory::Quick;
-        let camera_id = crate::camera_id::CameraId::CAMERA_1;
+        let camera_id = CameraId::CAMERA_1;
 
         // Start an inquiry
         core.start_inquiry(1, bytes.clone(), priority, category, camera_id, now);
@@ -1782,13 +1790,13 @@ mod tests {
     #[test]
     fn test_raw_visca_inquiry_ordering() {
         let timeout_config = TimeoutConfig::default();
-        let retry_config = crate::transport::RetryConfig::default();
+        let retry_config = RetryConfig::default();
         let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
 
         let now = Instant::now();
         let priority = Priority::Normal;
         let category = CommandCategory::Quick;
-        let camera_id = crate::camera_id::CameraId::CAMERA_1;
+        let camera_id = CameraId::CAMERA_1;
 
         // Start multiple inquiries in raw VISCA mode (no sequence)
         let bytes1 = bytes::Bytes::from(vec![0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR]);
@@ -1831,12 +1839,12 @@ mod tests {
     #[test]
     fn test_sony_sequence_attribution() {
         let timeout_config = TimeoutConfig::default();
-        let retry_config = crate::transport::RetryConfig::default();
+        let retry_config = RetryConfig::default();
         let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
 
         let now = Instant::now();
         let priority = Priority::Normal;
-        let camera_id = crate::camera_id::CameraId::CAMERA_1;
+        let camera_id = CameraId::CAMERA_1;
 
         // Register two commands with sequences (simulating Sony protocol)
         let bytes1 = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
@@ -1906,14 +1914,14 @@ mod tests {
             quick_timeout: Duration::from_millis(100),
             ..Default::default()
         };
-        let retry_config = crate::transport::RetryConfig::default();
+        let retry_config = RetryConfig::default();
         let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
 
         let now = Instant::now();
         let bytes = bytes::Bytes::from(vec![0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR]);
         let priority = Priority::Normal;
         let category = CommandCategory::Quick;
-        let camera_id = crate::camera_id::CameraId::CAMERA_1;
+        let camera_id = CameraId::CAMERA_1;
 
         // Start an inquiry
         core.start_inquiry(1, bytes.clone(), priority, category, camera_id, now);
@@ -1974,14 +1982,14 @@ mod tests {
     #[test]
     fn test_sequence_tracking_with_retries() {
         let timeout_config = TimeoutConfig::default();
-        let retry_config = crate::transport::RetryConfig::default();
+        let retry_config = RetryConfig::default();
         let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
 
         let now = Instant::now();
         let bytes = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
         let priority = Priority::Normal;
         let category = CommandCategory::Movement;
-        let camera_id = crate::camera_id::CameraId::CAMERA_1;
+        let camera_id = CameraId::CAMERA_1;
 
         // Register command with initial sequence
         core.register_pending_ack(1, bytes.clone(), priority, category, camera_id, now);
@@ -2025,14 +2033,14 @@ mod tests {
     #[test]
     fn test_late_reply_after_completion_ignored() {
         let timeout_config = TimeoutConfig::default();
-        let retry_config = crate::transport::RetryConfig::default();
+        let retry_config = RetryConfig::default();
         let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
 
         let now = Instant::now();
         let bytes = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
         let priority = Priority::Normal;
         let category = CommandCategory::Movement;
-        let camera_id = crate::camera_id::CameraId::CAMERA_1;
+        let camera_id = CameraId::CAMERA_1;
 
         // Register command with sequences from multiple retries
         core.register_pending_ack(1, bytes.clone(), priority, category, camera_id, now);
@@ -2078,14 +2086,14 @@ mod tests {
     #[test]
     fn test_sequence_cap_at_max() {
         let timeout_config = TimeoutConfig::default();
-        let retry_config = crate::transport::RetryConfig::default();
+        let retry_config = RetryConfig::default();
         let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
 
         let now = Instant::now();
         let bytes = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
         let priority = Priority::Normal;
         let category = CommandCategory::Movement;
-        let camera_id = crate::camera_id::CameraId::CAMERA_1;
+        let camera_id = CameraId::CAMERA_1;
 
         // Register command
         core.register_pending_ack(1, bytes.clone(), priority, category, camera_id, now);
@@ -2111,13 +2119,13 @@ mod tests {
     #[test]
     fn test_multiple_commands_with_sequences() {
         let timeout_config = TimeoutConfig::default();
-        let retry_config = crate::transport::RetryConfig::default();
+        let retry_config = RetryConfig::default();
         let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
 
         let now = Instant::now();
         let priority = Priority::Normal;
         let category = CommandCategory::Movement;
-        let camera_id = crate::camera_id::CameraId::CAMERA_1;
+        let camera_id = CameraId::CAMERA_1;
 
         // Register two different commands
         let bytes1 = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
@@ -2168,14 +2176,14 @@ mod tests {
     #[test]
     fn test_16_bit_sequence_fallback() {
         let timeout_config = TimeoutConfig::default();
-        let retry_config = crate::transport::RetryConfig::default();
+        let retry_config = RetryConfig::default();
         let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
 
         let now = Instant::now();
         let bytes = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
         let priority = Priority::Normal;
         let category = CommandCategory::Movement;
-        let camera_id = crate::camera_id::CameraId::CAMERA_1;
+        let camera_id = CameraId::CAMERA_1;
 
         // Register a command with a 32-bit sequence that has non-zero high 16 bits
         let full_sequence = 0x12345678u32; // High 16 bits: 0x1234, Low 16 bits: 0x5678
@@ -2193,13 +2201,13 @@ mod tests {
     #[test]
     fn test_16_bit_sequence_ambiguity() {
         let timeout_config = TimeoutConfig::default();
-        let retry_config = crate::transport::RetryConfig::default();
+        let retry_config = RetryConfig::default();
         let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
 
         let now = Instant::now();
         let priority = Priority::Normal;
         let category = CommandCategory::Movement;
-        let camera_id = crate::camera_id::CameraId::CAMERA_1;
+        let camera_id = CameraId::CAMERA_1;
 
         // Register two commands with different 32-bit sequences but same lower 16 bits
         let seq1 = 0x12345678u32;
@@ -2225,14 +2233,14 @@ mod tests {
     #[test]
     fn test_16_bit_sequence_cleanup() {
         let timeout_config = TimeoutConfig::default();
-        let retry_config = crate::transport::RetryConfig::default();
+        let retry_config = RetryConfig::default();
         let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
 
         let now = Instant::now();
         let bytes = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
         let priority = Priority::Normal;
         let category = CommandCategory::Movement;
-        let camera_id = crate::camera_id::CameraId::CAMERA_1;
+        let camera_id = CameraId::CAMERA_1;
 
         // Register a command with sequence
         let sequence = 0x12345678u32;
@@ -2260,12 +2268,12 @@ mod tests {
         // but the core should correctly process the events with proper cmd_id.
 
         let timeout_config = TimeoutConfig::default();
-        let retry_config = crate::transport::RetryConfig::default();
+        let retry_config = RetryConfig::default();
         let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
         let now = Instant::now();
         let priority = Priority::Normal;
         let category = CommandCategory::Quick;
-        let camera_id = crate::camera_id::CameraId::CAMERA_1;
+        let camera_id = CameraId::CAMERA_1;
 
         // Start two different inquiries in raw VISCA mode
         let power_bytes = bytes::Bytes::from(vec![0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR]);
@@ -2336,5 +2344,199 @@ mod tests {
         assert_eq!(core.inquiries_order.len(), 0);
         assert!(!core.inquiries_inflight.contains_key(&1));
         assert!(!core.inquiries_inflight.contains_key(&2));
+    }
+
+    // Tests for issue #362: send-failure retry behavior
+
+    #[test]
+    fn test_send_failure_retry_with_transport_error_flag() {
+        let mut core = SchedulerCore::with_retry_config(
+            TimeoutConfig::default(),
+            RetryConfig {
+                max_retries: 2,
+                base_retry_delay: Duration::from_millis(100),
+                max_retry_duration: Duration::from_secs(5),
+                exponential_backoff: false,
+            },
+        );
+
+        let cmd_id = 1;
+        let bytes = bytes::Bytes::from_static(&[0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]);
+        let now = Instant::now();
+
+        // Register command metadata (simulating a command that was sent but failed)
+        core.register_pending_ack(
+            cmd_id,
+            bytes.clone(),
+            Priority::Normal,
+            CommandCategory::Movement,
+            CameraId::CAMERA_1,
+            now,
+        );
+
+        // Mark as transport error (simulating send failure)
+        core.mark_retry_as_transport_error(cmd_id);
+
+        // Queue retry - should succeed
+        let action = core.queue_retry_for_command(cmd_id, now);
+
+        // Should get a retry action
+        match action {
+            Some(SchedulerAction::RetryCommand { id, delay, .. }) => {
+                assert_eq!(id, cmd_id);
+                assert!(delay > Duration::ZERO);
+            }
+            _ => panic!("Expected RetryCommand action, got: {:?}", action),
+        }
+
+        // Verify retry is queued
+        let retries = core.get_ready_retries(now + Duration::from_millis(200));
+        assert_eq!(retries.len(), 1);
+        assert_eq!(retries[0].id, cmd_id);
+        assert_eq!(retries[0].attempt, 1);
+    }
+
+    #[test]
+    fn test_transport_error_classification_after_exhausted_retries() {
+        let mut core = SchedulerCore::with_retry_config(
+            TimeoutConfig::default(),
+            RetryConfig {
+                max_retries: 1, // Only 1 retry allowed
+                base_retry_delay: Duration::from_millis(100),
+                max_retry_duration: Duration::from_secs(5),
+                exponential_backoff: false,
+            },
+        );
+
+        let cmd_id = 1;
+        let bytes = bytes::Bytes::from_static(&[0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]);
+        let now = Instant::now();
+
+        // Register command metadata
+        core.register_pending_ack(
+            cmd_id,
+            bytes.clone(),
+            Priority::Normal,
+            CommandCategory::Movement,
+            CameraId::CAMERA_1,
+            now,
+        );
+
+        // First retry - should succeed
+        core.mark_retry_as_transport_error(cmd_id);
+        let action = core.queue_retry_for_command(cmd_id, now);
+        assert!(matches!(action, Some(SchedulerAction::RetryCommand { .. })));
+
+        // Second retry - should fail with TransportError
+        core.mark_retry_as_transport_error(cmd_id);
+        let action = core.queue_retry_for_command(cmd_id, now);
+
+        match action {
+            Some(SchedulerAction::CommandFailed { id, error }) => {
+                assert_eq!(id, cmd_id);
+                match error {
+                    Error::TransportError(msg) => {
+                        assert!(
+                            msg.contains("Network error after max retries"),
+                            "Expected 'Network error after max retries', got: {}",
+                            msg
+                        );
+                    }
+                    _ => panic!("Expected TransportError, got: {:?}", error),
+                }
+            }
+            _ => panic!("Expected CommandFailed action, got: {:?}", action),
+        }
+    }
+
+    #[test]
+    fn test_timeout_classification_without_transport_error_flag() {
+        let mut core = SchedulerCore::with_retry_config(
+            TimeoutConfig::default(),
+            RetryConfig {
+                max_retries: 1,
+                base_retry_delay: Duration::from_millis(100),
+                max_retry_duration: Duration::from_secs(5),
+                exponential_backoff: false,
+            },
+        );
+
+        let cmd_id = 1;
+        let bytes = bytes::Bytes::from_static(&[0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]);
+        let now = Instant::now();
+
+        // Register command metadata
+        core.register_pending_ack(
+            cmd_id,
+            bytes.clone(),
+            Priority::Normal,
+            CommandCategory::Movement,
+            CameraId::CAMERA_1,
+            now,
+        );
+
+        // First retry WITHOUT marking as transport error
+        let action = core.queue_retry_for_command(cmd_id, now);
+        assert!(matches!(action, Some(SchedulerAction::RetryCommand { .. })));
+
+        // Second retry - should fail with Timeout (not TransportError)
+        let action = core.queue_retry_for_command(cmd_id, now);
+
+        match action {
+            Some(SchedulerAction::CommandFailed { id, error }) => {
+                assert_eq!(id, cmd_id);
+                match error {
+                    Error::Timeout => {
+                        // Expected - timeout when not marked as transport error
+                    }
+                    _ => panic!("Expected Timeout error, got: {:?}", error),
+                }
+            }
+            _ => panic!("Expected CommandFailed action, got: {:?}", action),
+        }
+    }
+
+    #[test]
+    fn test_multiple_commands_with_transport_errors() {
+        let mut core = SchedulerCore::with_retry_config(
+            TimeoutConfig::default(),
+            RetryConfig {
+                max_retries: 3,
+                base_retry_delay: Duration::from_millis(50),
+                max_retry_duration: Duration::from_secs(5),
+                exponential_backoff: true,
+            },
+        );
+
+        let now = Instant::now();
+
+        // Register multiple commands
+        for cmd_id in 1..=3 {
+            let bytes =
+                bytes::Bytes::from_static(&[0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]);
+            core.register_pending_ack(
+                cmd_id,
+                bytes,
+                Priority::Normal,
+                CommandCategory::Movement,
+                CameraId::CAMERA_1,
+                now,
+            );
+
+            // Mark as transport error and queue retry
+            core.mark_retry_as_transport_error(cmd_id);
+            let action = core.queue_retry_for_command(cmd_id, now);
+            assert!(matches!(action, Some(SchedulerAction::RetryCommand { .. })));
+        }
+
+        // Get all ready retries
+        let retries = core.get_ready_retries(now + Duration::from_secs(1));
+        assert_eq!(retries.len(), 3, "Should have 3 retries queued");
+
+        // Verify all have attempt = 1
+        for retry in retries {
+            assert_eq!(retry.attempt, 1);
+            assert!(retry.id >= 1 && retry.id <= 3);
+        }
     }
 }

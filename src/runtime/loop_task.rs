@@ -79,9 +79,12 @@ impl SendGuard {
                 );
                 adapter.unregister_pending_ack(self.id);
             }
-            // Handle send failure - fails immediately with transport error
-            debug!("SendGuard: Handling send failure for {}", self.id);
-            adapter.fail_after_send_error(self.id);
+            // Schedule retry for send failure instead of failing immediately
+            debug!(
+                "SendGuard: Scheduling retry for send failure on {}",
+                self.id
+            );
+            adapter.schedule_retry_after_send_error(self.id);
         }
     }
 }

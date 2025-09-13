@@ -236,26 +236,30 @@ impl BlockingRunner {
                     // Rollback via RAII guard
                     guard.rollback(&mut self.core);
 
-                    // Handle send failure - fails immediately
-                    if let Some(action) = self.core.fail_after_send_error(cmd.id) {
+                    // Schedule retry for send failure instead of failing immediately
+                    self.core.mark_retry_as_transport_error(cmd.id);
+                    if let Some(action) = self.core.queue_retry_for_command(cmd.id, now) {
                         match action {
+                            SchedulerAction::RetryCommand { id, delay, .. } => {
+                                debug!(
+                                    "Scheduled retry for {} {} after {:?}",
+                                    if kind == CommandKind::Inquiry {
+                                        "inquiry"
+                                    } else {
+                                        "command"
+                                    },
+                                    id,
+                                    delay
+                                );
+                            }
                             SchedulerAction::CommandFailed { id, error } if id == target_cmd_id => {
-                                // Return the error to the caller
+                                // Budget exhausted, return the error to the caller
                                 return Err(error);
                             }
                             _ => {}
                         }
                     }
 
-                    warn!(
-                        "Scheduled retry for {} {}",
-                        if kind == CommandKind::Inquiry {
-                            "inquiry"
-                        } else {
-                            "command"
-                        },
-                        cmd.id
-                    );
                     continue; // Continue with next command instead of returning error
                 }
 
