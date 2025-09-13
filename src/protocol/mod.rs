@@ -4,6 +4,7 @@
 //! including command encoding, response parsing, and transport encapsulation.
 
 pub mod decode;
+pub(crate) mod detect;
 pub mod framer;
 pub mod response;
 pub mod sony;

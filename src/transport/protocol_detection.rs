@@ -15,9 +15,7 @@ use crate::{
     transport::{buffer::BufferConfig, RetryConfig},
 };
 
-use crate::{command::bytes::VISCA_TERMINATOR, transport::envelope::TransportEnvelope, Error};
-
-use crate::{protocol::framer::ProtocolFramer, transport::buffer::BufferManager};
+use crate::{command::bytes::VISCA_TERMINATOR, Error};
 
 #[cfg(feature = "async")]
 use crate::{executor::Executor, transport::AsyncTransport};
@@ -302,7 +300,7 @@ impl ProtocolDetector {
         &self,
         transport: &mut T,
         executor: &E,
-        command: &[u8],
+        _command: &[u8],
         protocol_style: ProtocolStyle,
         buffer_config: BufferConfig,
     ) -> Result<bool, Error>
@@ -310,139 +308,28 @@ impl ProtocolDetector {
         T: AsyncTransport,
         E: Executor,
     {
-        let envelope = TransportEnvelope::new(protocol_style);
-        let buffer_manager = BufferManager::new(buffer_config);
+        use crate::protocol::detect::async_runner::detect_protocol_async;
 
-        // Send command with retries
-        for attempt in 0..=self.retry_config.max_retries {
-            // Frame the command inside the retry loop to ensure sequence number advances
-            // This is critical for Sony encapsulated protocol which requires unique sequence
-            // numbers for each retry attempt to avoid duplicate/abnormal sequence handling
-            let framed_command = envelope.frame_bytes_with_kind(
-                command,
-                crate::command::CommandKind::Inquiry,
-                &buffer_manager,
-            );
-
-            debug!(
-                "Sending {len} bytes for protocol detection (attempt {attempt}): {bytes:02X?}",
-                len = framed_command.len(),
-                attempt = attempt + 1,
-                bytes = &framed_command[..std::cmp::min(framed_command.len(), 16)]
-            );
-
-            // Send the test command
-            if let Err(e) = transport.send(&framed_command).await {
-                warn!(
-                    "Failed to send detection command (attempt {attempt}): {e}",
-                    attempt = attempt + 1
-                );
-                if attempt == self.retry_config.max_retries {
-                    return Err(e);
-                }
-                continue;
+        // Use the new async runner with the DetectorCore FSM
+        match detect_protocol_async(
+            transport,
+            executor,
+            protocol_style,
+            buffer_config,
+            self.retry_config,
+            DETECTION_TIMEOUT,
+        )
+        .await
+        {
+            Ok(DetectionResult::SonyEncapsulated)
+                if protocol_style == ProtocolStyle::SonyEncapsulated =>
+            {
+                Ok(true)
             }
-
-            // Create a local ProtocolFramer to handle chunked responses
-            let mut framer = ProtocolFramer::new_with_config(buffer_config);
-            let start_time = std::time::Instant::now();
-
-            // Loop to collect chunks until we get a frame or timeout
-            loop {
-                // Check if we've exceeded total detection timeout
-                if start_time.elapsed() > DETECTION_TIMEOUT {
-                    debug!(
-                        "Detection timeout exceeded (attempt {attempt})",
-                        attempt = attempt + 1
-                    );
-                    break;
-                }
-
-                // Calculate remaining timeout for this recv call
-                let remaining = DETECTION_TIMEOUT.saturating_sub(start_time.elapsed());
-                let recv_timeout = std::cmp::min(remaining, Duration::from_millis(20));
-
-                // Try to receive a chunk with timeout using futures_lite::or
-                use futures_lite::future;
-
-                let mut recv_buffer = vec![0u8; 1024];
-                let outcome = future::or(
-                    async { Ok::<_, ()>(transport.recv_into(&mut recv_buffer).await) },
-                    async {
-                        executor.sleep(recv_timeout).await;
-                        Err::<_, ()>(())
-                    },
-                )
-                .await;
-
-                match outcome {
-                    Ok(Ok(n)) => {
-                        debug!(
-                            "Received {n} bytes: {bytes:02X?}",
-                            bytes = &recv_buffer[..std::cmp::min(n, 16)]
-                        );
-
-                        // Push chunk to framer
-                        if let Err(e) = framer.push_slice(&recv_buffer[..n]) {
-                            debug!("Framer buffer exceeded limits: {e}");
-                            return Ok(false);
-                        }
-
-                        // Try to extract a complete frame
-                        if let Some(frame_result) = framer.drain_frames().next() {
-                            let frame = match frame_result {
-                                Ok(frame) => frame,
-                                Err(e) => {
-                                    debug!("Failed to extract frame: {e}");
-                                    return Ok(false);
-                                }
-                            };
-                            debug!(
-                                "Extracted complete frame: {bytes:02X?}",
-                                bytes = &frame[..std::cmp::min(frame.len(), 16)]
-                            );
-
-                            // Try to extract VISCA payload
-                            match envelope.extract_response(&frame) {
-                                Ok(ref visca_payload) => {
-                                    // Validate this looks like a VISCA response
-                                    if self.is_valid_visca_response(visca_payload) {
-                                        debug!(
-                                            "Valid VISCA response detected for protocol style: {:?}",
-                                            protocol_style
-                                        );
-                                        return Ok(true);
-                                    } else {
-                                        debug!("Received data but not a valid VISCA response");
-                                    }
-                                }
-                                Err(e) => {
-                                    debug!("Failed to extract VISCA payload: {e}");
-                                }
-                            }
-                            // Got a frame but it wasn't valid, break to retry
-                            break;
-                        }
-                    }
-                    Ok(Err(e)) => {
-                        debug!("Transport error during detection: {e}");
-                        break;
-                    }
-                    Err(()) => {
-                        // Short recv timeout, continue to check total timeout
-                        continue;
-                    }
-                }
-            }
-
-            // Wait before retry
-            if attempt < self.retry_config.max_retries {
-                let delay = self.retry_config.calculate_delay(attempt, None);
-                executor.sleep(delay).await;
-            }
+            Ok(DetectionResult::RawVisca) if protocol_style == ProtocolStyle::RawVisca => Ok(true),
+            Ok(_) => Ok(false),
+            Err(_) => Ok(false), // Treat errors as no response for compatibility
         }
-
-        Ok(false)
     }
 
     /// Detect the protocol used by the camera using blocking I/O.
@@ -515,134 +402,32 @@ impl ProtocolDetector {
     fn try_protocol_blocking<T>(
         &self,
         transport: &mut T,
-        command: &[u8],
+        _command: &[u8],
         protocol_style: ProtocolStyle,
         buffer_config: BufferConfig,
     ) -> Result<bool, Error>
     where
         T: crate::transport::SyncTransport + ?Sized,
     {
-        use tracing::debug;
+        use crate::protocol::detect::blocking_runner::detect_protocol_blocking;
 
-        let envelope = TransportEnvelope::new(protocol_style);
-        let buffer_manager = BufferManager::new(buffer_config);
-
-        // Send command with retries
-        for attempt in 0..=self.retry_config.max_retries {
-            // Frame the command inside the retry loop to ensure sequence number advances
-            // This is critical for Sony encapsulated protocol which requires unique sequence
-            // numbers for each retry attempt to avoid duplicate/abnormal sequence handling
-            let framed_command = envelope.frame_bytes_with_kind(
-                command,
-                crate::command::CommandKind::Inquiry,
-                &buffer_manager,
-            );
-
-            debug!(
-                "Sending {len} bytes for protocol detection (attempt {attempt}): {bytes:02X?}",
-                len = framed_command.len(),
-                attempt = attempt + 1,
-                bytes = &framed_command[..std::cmp::min(framed_command.len(), 16)]
-            );
-
-            // Send the test command
-            if let Err(e) =
-                transport.send_with_kind(&framed_command, crate::command::CommandKind::Inquiry)
+        // Use the new blocking runner with the DetectorCore FSM
+        match detect_protocol_blocking(
+            transport,
+            protocol_style,
+            buffer_config,
+            self.retry_config,
+            DETECTION_TIMEOUT,
+        ) {
+            Ok(DetectionResult::SonyEncapsulated)
+                if protocol_style == ProtocolStyle::SonyEncapsulated =>
             {
-                debug!(
-                    "Failed to send detection command (attempt {attempt}): {e}",
-                    attempt = attempt + 1
-                );
-                if attempt == self.retry_config.max_retries {
-                    return Err(e);
-                }
-                continue;
+                Ok(true)
             }
-
-            // Create a local ProtocolFramer to handle chunked responses
-            let mut framer = ProtocolFramer::new_with_config(buffer_config);
-            let start_time = std::time::Instant::now();
-
-            // Loop to collect chunks until we get a frame or timeout
-            loop {
-                // Check if we've exceeded total detection timeout
-                if start_time.elapsed() > DETECTION_TIMEOUT {
-                    debug!(
-                        "Detection timeout exceeded (attempt {attempt})",
-                        attempt = attempt + 1
-                    );
-                    break;
-                }
-
-                // Calculate remaining timeout for this recv call
-                let remaining = DETECTION_TIMEOUT.saturating_sub(start_time.elapsed());
-
-                // Try to receive with timeout
-                match transport.recv_with_timeout(remaining) {
-                    Ok(recv_buffer) => {
-                        debug!(
-                            "Received {n} bytes: {bytes:02X?}",
-                            n = recv_buffer.len(),
-                            bytes = &recv_buffer[..std::cmp::min(recv_buffer.len(), 16)]
-                        );
-
-                        // Push chunk to framer
-                        if let Err(e) = framer.push_slice(&recv_buffer) {
-                            debug!("Framer buffer exceeded limits: {e}");
-                            return Ok(false);
-                        }
-
-                        // Try to extract a complete frame
-                        if let Some(frame_result) = framer.drain_frames().next() {
-                            let frame = match frame_result {
-                                Ok(frame) => frame,
-                                Err(e) => {
-                                    debug!("Failed to extract frame: {e}");
-                                    return Ok(false);
-                                }
-                            };
-                            debug!(
-                                "Extracted complete frame: {bytes:02X?}",
-                                bytes = &frame[..std::cmp::min(frame.len(), 16)]
-                            );
-
-                            // Try to extract VISCA payload
-                            match envelope.extract_response(&frame) {
-                                Ok(ref visca_payload) => {
-                                    // Validate this looks like a VISCA response
-                                    if self.is_valid_visca_response(visca_payload) {
-                                        debug!(
-                                            "Valid VISCA response detected for protocol style: {:?}",
-                                            protocol_style
-                                        );
-                                        return Ok(true);
-                                    } else {
-                                        debug!("Received data but not a valid VISCA response");
-                                    }
-                                }
-                                Err(e) => {
-                                    debug!("Failed to extract VISCA payload: {e}");
-                                }
-                            }
-                            // Got a frame but it wasn't valid, break to retry
-                            break;
-                        }
-                    }
-                    Err(e) => {
-                        debug!("Transport error during detection: {e}");
-                        break;
-                    }
-                }
-            }
-
-            // Wait before retry
-            if attempt < self.retry_config.max_retries {
-                let delay = self.retry_config.calculate_delay(attempt, None);
-                std::thread::sleep(delay);
-            }
+            Ok(DetectionResult::RawVisca) if protocol_style == ProtocolStyle::RawVisca => Ok(true),
+            Ok(_) => Ok(false),
+            Err(_) => Ok(false), // Treat errors as no response for compatibility
         }
-
-        Ok(false)
     }
 
     /// Validate that received bytes look like a valid VISCA response
