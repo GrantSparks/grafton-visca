@@ -44,7 +44,9 @@ impl ProtocolFramer {
     pub fn new_with_config(config: BufferConfig) -> Self {
         Self {
             buf: BytesMut::with_capacity(config.recv_buffer_size),
-            max_frame_size: config.max_buffer_size,
+            // A single frame should not exceed what we provisioned for one recv.
+            // This aligns limits with the per-transport expectation.
+            max_frame_size: config.recv_buffer_size,
             max_buffer_size: config.max_buffer_size,
         }
     }
@@ -672,7 +674,7 @@ mod tests {
         let config = BufferConfig::for_sony_ip();
         let mut framer = ProtocolFramer::new_with_config(config);
 
-        // Should use the buffer config's max_buffer_size
+        // Should use the buffer config's recv_buffer_size for max_frame_size
         let frame = vec![0x81, 0x01, 0x04, 0x07, VISCA_TERMINATOR];
         framer.push(Bytes::from(frame.clone())).unwrap();
 
@@ -682,5 +684,89 @@ mod tests {
             .unwrap();
         assert_eq!(frames.len(), 1);
         assert_eq!(frames[0], Bytes::from(frame));
+    }
+
+    #[test]
+    fn test_framer_rejects_frame_gt_recv_size_for_sony() {
+        // Create framer with Sony IP config (recv_buffer_size = 512)
+        let config = BufferConfig::for_sony_ip();
+        let mut framer = ProtocolFramer::new_with_config(config);
+
+        // Build a Sony header with payload_length that exceeds recv_buffer_size
+        // recv_buffer_size is 512, so a payload of 505 + 8 byte header = 513 bytes total
+        let header = SonyHeader {
+            payload_type: PayloadType::ViscaReply,
+            payload_length: 505, // 505 + 8 = 513 > 512
+            sequence_number: 0x12345678,
+        };
+
+        let mut data = Vec::from(header.encode());
+        // We don't need to add all 505 bytes, just enough for the framer to detect the size
+        data.extend_from_slice(&[0x90; 10]); // Add some payload bytes
+
+        framer.push(Bytes::from(data)).unwrap();
+
+        // Should get an error when trying to extract
+        let results: Vec<_> = framer.drain_frames().collect();
+        assert_eq!(results.len(), 1);
+        match &results[0] {
+            Err(Error::ResponseTooLarge { max_size }) => {
+                assert_eq!(*max_size, config.recv_buffer_size);
+            }
+            _ => panic!("Expected ResponseTooLarge error with max_size = recv_buffer_size"),
+        }
+    }
+
+    #[test]
+    fn test_framer_accepts_frame_eq_recv_size() {
+        // Create framer with Sony IP config (recv_buffer_size = 512)
+        let config = BufferConfig::for_sony_ip();
+        let mut framer = ProtocolFramer::new_with_config(config);
+
+        // Build a Sony header with payload that exactly equals recv_buffer_size
+        // recv_buffer_size is 512, so payload of 504 + 8 byte header = 512 bytes exactly
+        let header = SonyHeader {
+            payload_type: PayloadType::ViscaReply,
+            payload_length: 504, // 504 + 8 = 512
+            sequence_number: 0x12345678,
+        };
+
+        let mut data = Vec::from(header.encode());
+        // Add exactly 504 bytes of payload
+        data.extend_from_slice(&[0x90; 504]);
+
+        framer.push(Bytes::from(data.clone())).unwrap();
+
+        // Should successfully extract the frame
+        let frames: Vec<_> = framer
+            .drain_frames()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0].len(), 512); // Exactly recv_buffer_size
+        assert!(framer.is_empty());
+    }
+
+    #[test]
+    fn test_raw_visca_respects_recv_buffer_size_limit() {
+        // Create framer with raw IP config (recv_buffer_size = 256)
+        let config = BufferConfig::for_raw_ip();
+        let mut framer = ProtocolFramer::new_with_config(config);
+
+        // Create a raw VISCA frame that exceeds recv_buffer_size
+        let mut large_frame = vec![0x81; 257]; // 257 > 256
+        large_frame[256] = VISCA_TERMINATOR; // Terminate at position 256
+
+        framer.push(Bytes::from(large_frame)).unwrap();
+
+        // Should get an error when trying to extract
+        let results: Vec<_> = framer.drain_frames().collect();
+        assert_eq!(results.len(), 1);
+        match &results[0] {
+            Err(Error::ResponseTooLarge { max_size }) => {
+                assert_eq!(*max_size, config.recv_buffer_size);
+            }
+            _ => panic!("Expected ResponseTooLarge error"),
+        }
     }
 }
