@@ -300,8 +300,8 @@ pub enum TimeoutKind {
 pub enum SchedulerEvent {
     /// ACK received for a socket.
     Ack {
-        /// Socket that was acknowledged.
-        socket: ViscaSocket,
+        /// Socket that was acknowledged (None if no socket nibble in frame).
+        socket: Option<ViscaSocket>,
         /// Command ID (from sequence mapping when available).
         cmd_id: Option<u32>,
     },
@@ -1322,7 +1322,7 @@ impl SchedulerCore {
 
     fn handle_ack_with_id(
         &mut self,
-        socket: ViscaSocket,
+        socket: Option<ViscaSocket>,
         cmd_id: Option<u32>,
         now: Instant,
     ) -> Option<u32> {
@@ -1346,17 +1346,55 @@ impl SchedulerCore {
         // Remove from pending and assign to socket
         if let Some((bytes, priority, category, _, camera_id)) = self.pending_ack.remove(&target_id)
         {
-            // Allocate the specific socket the camera assigned
-            let idx = socket.as_index();
-            let state = &mut self.sockets[idx];
+            // Determine which socket to use with fallback logic
+            let assigned_socket = if let Some(s) = socket {
+                // Camera specified a socket - try to use it
+                let idx = s.as_index();
+                if self.sockets[idx].free {
+                    // Requested socket is free, use it
+                    s
+                } else {
+                    // Requested socket is busy, try the other one
+                    let other = if s == ViscaSocket::S1 {
+                        ViscaSocket::S2
+                    } else {
+                        ViscaSocket::S1
+                    };
 
-            if !state.free {
-                warn!(
-                    "Camera assigned {:?} but it's already occupied by command {:?}",
-                    socket, state.command_id
-                );
-                return None;
-            }
+                    if self.sockets[other.as_index()].free {
+                        debug!(
+                            "Camera requested {:?} but it's occupied, using {:?} instead",
+                            s, other
+                        );
+                        other
+                    } else {
+                        // Both sockets are busy
+                        warn!("Camera assigned {:?} but both sockets are occupied", s);
+                        // Re-insert command into pending_ack since we couldn't assign it
+                        self.pending_ack
+                            .insert(target_id, (bytes, priority, category, now, camera_id));
+                        return None;
+                    }
+                }
+            } else {
+                // No socket specified - pick the first free one
+                if self.sockets[ViscaSocket::S1.as_index()].free {
+                    ViscaSocket::S1
+                } else if self.sockets[ViscaSocket::S2.as_index()].free {
+                    ViscaSocket::S2
+                } else {
+                    // Both sockets are busy
+                    warn!("ACK received without socket nibble but both sockets are occupied");
+                    // Re-insert command into pending_ack since we couldn't assign it
+                    self.pending_ack
+                        .insert(target_id, (bytes, priority, category, now, camera_id));
+                    return None;
+                }
+            };
+
+            // Allocate the chosen socket
+            let idx = assigned_socket.as_index();
+            let state = &mut self.sockets[idx];
 
             state.free = false;
             state.command_id = Some(target_id);
@@ -1369,7 +1407,7 @@ impl SchedulerCore {
 
             debug!(
                 "Assigned command {} to {:?} per camera ACK",
-                target_id, socket
+                target_id, assigned_socket
             );
             Some(target_id)
         } else {
@@ -1880,7 +1918,7 @@ mod tests {
         // Process ACK for command 2 first (out of order)
         let cmd_id_2 = core.get_command_by_sequence(101);
         let event = SchedulerEvent::Ack {
-            socket: ViscaSocket::S2,
+            socket: Some(ViscaSocket::S2),
             cmd_id: cmd_id_2, // Using sequence to identify
         };
 
@@ -1893,9 +1931,9 @@ mod tests {
         );
 
         // Verify command 2 got socket 2
-        let state = core.socket_state(ViscaSocket::S2);
-        assert!(!state.0); // Socket occupied
-        assert_eq!(state.1, Some(2)); // By command 2
+        let (free, cmd_id, _) = core.socket_state(ViscaSocket::S2);
+        assert!(!free); // Socket occupied
+        assert_eq!(cmd_id, Some(2)); // By command 2
 
         // Command 1 should still be pending
         assert!(core.pending_ack.contains_key(&1));
@@ -1903,16 +1941,16 @@ mod tests {
         // Now process ACK for command 1
         let cmd_id_1 = core.get_command_by_sequence(100);
         let event = SchedulerEvent::Ack {
-            socket: ViscaSocket::S1,
+            socket: Some(ViscaSocket::S1),
             cmd_id: cmd_id_1,
         };
 
         core.process_event(event, now);
 
         // Verify command 1 got socket 1
-        let state = core.socket_state(ViscaSocket::S1);
-        assert!(!state.0); // Socket occupied
-        assert_eq!(state.1, Some(1)); // By command 1
+        let (free, cmd_id, _) = core.socket_state(ViscaSocket::S1);
+        assert!(!free); // Socket occupied
+        assert_eq!(cmd_id, Some(1)); // By command 1
     }
 
     #[test]
@@ -2545,5 +2583,194 @@ mod tests {
             assert_eq!(retry.attempt, 1);
             assert!(retry.id >= 1 && retry.id <= 3);
         }
+    }
+
+    #[test]
+    fn test_ack_without_socket_nibble_s1_free() {
+        // Test: ACK with socket: None, S1 free => assign S1
+        let mut core = SchedulerCore::new(TimeoutConfig::default());
+        let now = Instant::now();
+
+        // Register a command
+        let bytes = bytes::Bytes::from_static(&[0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]);
+        core.register_pending_ack(
+            1,
+            bytes,
+            Priority::Normal,
+            CommandCategory::Movement,
+            CameraId::CAMERA_1,
+            now,
+        );
+
+        // Send ACK without socket nibble
+        let event = SchedulerEvent::Ack {
+            socket: None,
+            cmd_id: Some(1),
+        };
+        core.process_event(event, now);
+
+        // Verify S1 was assigned
+        let (free, cmd_id, _) = core.socket_state(ViscaSocket::S1);
+        assert!(!free, "S1 should be occupied");
+        assert_eq!(cmd_id, Some(1), "Command 1 should be on S1");
+
+        // Verify S2 is still free
+        let (free, _, _) = core.socket_state(ViscaSocket::S2);
+        assert!(free, "S2 should still be free");
+    }
+
+    #[test]
+    fn test_ack_without_socket_nibble_s1_busy_s2_free() {
+        // Test: ACK with socket: None, S1 busy, S2 free => assign S2
+        let mut core = SchedulerCore::new(TimeoutConfig::default());
+        let now = Instant::now();
+
+        // Register two commands
+        let bytes = bytes::Bytes::from_static(&[0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]);
+        core.register_pending_ack(
+            1,
+            bytes.clone(),
+            Priority::Normal,
+            CommandCategory::Movement,
+            CameraId::CAMERA_1,
+            now,
+        );
+        core.register_pending_ack(
+            2,
+            bytes,
+            Priority::Normal,
+            CommandCategory::Movement,
+            CameraId::CAMERA_1,
+            now,
+        );
+
+        // First ACK assigns S1
+        let event = SchedulerEvent::Ack {
+            socket: Some(ViscaSocket::S1),
+            cmd_id: Some(1),
+        };
+        core.process_event(event, now);
+
+        // Second ACK without socket nibble should get S2
+        let event = SchedulerEvent::Ack {
+            socket: None,
+            cmd_id: Some(2),
+        };
+        core.process_event(event, now);
+
+        // Verify S1 has command 1
+        let (free, cmd_id, _) = core.socket_state(ViscaSocket::S1);
+        assert!(!free, "S1 should be occupied");
+        assert_eq!(cmd_id, Some(1), "Command 1 should be on S1");
+
+        // Verify S2 has command 2
+        let (free, cmd_id, _) = core.socket_state(ViscaSocket::S2);
+        assert!(!free, "S2 should be occupied");
+        assert_eq!(cmd_id, Some(2), "Command 2 should be on S2");
+    }
+
+    #[test]
+    fn test_ack_without_socket_nibble_both_busy() {
+        // Test: ACK with socket: None, both busy => no assignment
+        let mut core = SchedulerCore::new(TimeoutConfig::default());
+        let now = Instant::now();
+
+        // Register three commands
+        let bytes = bytes::Bytes::from_static(&[0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]);
+        for cmd_id in 1..=3 {
+            core.register_pending_ack(
+                cmd_id,
+                bytes.clone(),
+                Priority::Normal,
+                CommandCategory::Movement,
+                CameraId::CAMERA_1,
+                now,
+            );
+        }
+
+        // First two ACKs occupy both sockets
+        let event = SchedulerEvent::Ack {
+            socket: Some(ViscaSocket::S1),
+            cmd_id: Some(1),
+        };
+        core.process_event(event, now);
+
+        let event = SchedulerEvent::Ack {
+            socket: Some(ViscaSocket::S2),
+            cmd_id: Some(2),
+        };
+        core.process_event(event, now);
+
+        // Third ACK without socket nibble should fail
+        let event = SchedulerEvent::Ack {
+            socket: None,
+            cmd_id: Some(3),
+        };
+        core.process_event(event, now);
+
+        // Verify command 3 is still pending
+        assert!(
+            core.pending_ack.contains_key(&3),
+            "Command 3 should still be pending"
+        );
+
+        // Verify sockets are still occupied by commands 1 and 2
+        let (free, cmd_id, _) = core.socket_state(ViscaSocket::S1);
+        assert!(!free, "S1 should be occupied");
+        assert_eq!(cmd_id, Some(1), "Command 1 should be on S1");
+
+        let (free, cmd_id, _) = core.socket_state(ViscaSocket::S2);
+        assert!(!free, "S2 should be occupied");
+        assert_eq!(cmd_id, Some(2), "Command 2 should be on S2");
+    }
+
+    #[test]
+    fn test_ack_with_busy_socket_fallback() {
+        // Test: ACK requests busy socket, fallback to free socket
+        let mut core = SchedulerCore::new(TimeoutConfig::default());
+        let now = Instant::now();
+
+        // Register two commands
+        let bytes = bytes::Bytes::from_static(&[0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]);
+        core.register_pending_ack(
+            1,
+            bytes.clone(),
+            Priority::Normal,
+            CommandCategory::Movement,
+            CameraId::CAMERA_1,
+            now,
+        );
+        core.register_pending_ack(
+            2,
+            bytes,
+            Priority::Normal,
+            CommandCategory::Movement,
+            CameraId::CAMERA_1,
+            now,
+        );
+
+        // First ACK assigns S1
+        let event = SchedulerEvent::Ack {
+            socket: Some(ViscaSocket::S1),
+            cmd_id: Some(1),
+        };
+        core.process_event(event, now);
+
+        // Second ACK requests S1 (busy), should fallback to S2
+        let event = SchedulerEvent::Ack {
+            socket: Some(ViscaSocket::S1), // Request S1 which is busy
+            cmd_id: Some(2),
+        };
+        core.process_event(event, now);
+
+        // Verify S1 still has command 1
+        let (free, cmd_id, _) = core.socket_state(ViscaSocket::S1);
+        assert!(!free, "S1 should be occupied");
+        assert_eq!(cmd_id, Some(1), "Command 1 should be on S1");
+
+        // Verify S2 has command 2 (fallback allocation)
+        let (free, cmd_id, _) = core.socket_state(ViscaSocket::S2);
+        assert!(!free, "S2 should be occupied");
+        assert_eq!(cmd_id, Some(2), "Command 2 should be on S2 (fallback)");
     }
 }

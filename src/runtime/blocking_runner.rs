@@ -31,7 +31,6 @@ use crate::{
         envelope::TransportEnvelope,
         RetryConfig, SyncTransport,
     },
-    visca_socket::ViscaSocket,
 };
 
 /// Blocking runner for VISCA commands.
@@ -266,10 +265,7 @@ impl BlockingRunner {
                                 .sequence
                                 .and_then(|seq| self.core.get_command_by_sequence(seq));
                             debug!("Received ACK for socket {:?}, cmd_id {:?}", socket, cmd_id);
-                            SchedulerEvent::Ack {
-                                socket: socket.unwrap_or(ViscaSocket::S1),
-                                cmd_id,
-                            }
+                            SchedulerEvent::Ack { socket, cmd_id }
                         }
                         BasicKind::Completion => {
                             let socket = basic.socket;

@@ -360,7 +360,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 // For Sony, try to use sequence to find command
                 let cmd_id = sequence.and_then(|seq| self.core.get_command_by_sequence(seq));
                 SchedulerEvent::Ack {
-                    socket: basic.socket.unwrap_or(ViscaSocket::S1),
+                    socket: basic.socket,
                     cmd_id,
                 }
             }
