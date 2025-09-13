@@ -32,6 +32,7 @@ rt-tokio = ["async", "dep:tokio"]
 rt-async-std = ["async", "dep:async-std"]
 rt-smol = ["async", "dep:smol", "dep:async-executor"]
 tokio-serial = ["dep:tokio-serial", "rt-tokio"]
+serialport = ["dep:serialport"]
 test-utils = ["dep:async-executor", "dep:futures-lite"]
 DISABLED = []
 

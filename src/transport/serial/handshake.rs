@@ -84,8 +84,8 @@ pub fn parse_address_set_bytes(buf: &[u8]) -> ParseOutcome {
     ParseOutcome::Partial { camera_count }
 }
 
-// Async handshake functions (feature-gated for async runtimes)
-#[cfg(feature = "async")]
+// Async handshake functions (feature-gated for tokio-serial)
+#[cfg(feature = "tokio-serial")]
 pub mod async_handshake {
     use super::*;
     use crate::{
