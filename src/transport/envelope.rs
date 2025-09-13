@@ -7,7 +7,10 @@ use bytes::Bytes;
 
 use std::{
     borrow::Cow,
-    sync::atomic::{AtomicU32, Ordering},
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc,
+    },
 };
 
 use crate::{
@@ -29,10 +32,10 @@ pub(crate) struct FrameMeta {
 /// Different camera manufacturers use different framing approaches:
 /// - Raw VISCA: Commands sent as-is (PtzOptics, generic cameras)
 /// - Sony Encapsulated: 8-byte header + VISCA payload (Sony cameras)
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct TransportEnvelope {
     style: ProtocolStyle,
-    sequence_counter: AtomicU32,
+    sequence_counter: Arc<AtomicU32>,
 }
 
 impl TransportEnvelope {
@@ -40,7 +43,7 @@ impl TransportEnvelope {
     pub fn new(style: ProtocolStyle) -> Self {
         Self {
             style,
-            sequence_counter: AtomicU32::new(0),
+            sequence_counter: Arc::new(AtomicU32::new(0)),
         }
     }
 
@@ -219,16 +222,6 @@ impl TransportEnvelope {
 
         // Extract VISCA payload - use slice to avoid allocation
         Ok(Bytes::copy_from_slice(&framed_bytes[SonyHeader::SIZE..]))
-    }
-}
-
-impl Clone for TransportEnvelope {
-    fn clone(&self) -> Self {
-        Self {
-            style: self.style,
-            // Clone the current sequence counter value, not the atomic itself
-            sequence_counter: AtomicU32::new(self.sequence_counter.load(Ordering::Relaxed)),
-        }
     }
 }
 
@@ -663,5 +656,117 @@ mod tests {
         let invalid_bytes = Bytes::from(invalid_response);
         let result = envelope.extract_with_meta_owned(invalid_bytes);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_clone_shares_sequence_counter() {
+        // Create an envelope and clone it
+        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated);
+        let cloned_envelope = envelope.clone();
+
+        let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
+
+        // Frame a command from original envelope - should get sequence 0
+        let framed1 = envelope.frame_bytes_with_kind(
+            &visca_cmd,
+            CommandKind::Command,
+            &test_buffer_manager(),
+        );
+        let seq1 = u32::from_be_bytes([framed1[4], framed1[5], framed1[6], framed1[7]]);
+        assert_eq!(seq1, 0, "First sequence should be 0");
+
+        // Frame a command from cloned envelope - should get sequence 1 (not 0!)
+        let framed2 = cloned_envelope.frame_bytes_with_kind(
+            &visca_cmd,
+            CommandKind::Command,
+            &test_buffer_manager(),
+        );
+        let seq2 = u32::from_be_bytes([framed2[4], framed2[5], framed2[6], framed2[7]]);
+        assert_eq!(
+            seq2, 1,
+            "Cloned envelope should continue from 1, not reset to 0"
+        );
+
+        // Frame another from original - should get sequence 2
+        let framed3 = envelope.frame_bytes_with_kind(
+            &visca_cmd,
+            CommandKind::Command,
+            &test_buffer_manager(),
+        );
+        let seq3 = u32::from_be_bytes([framed3[4], framed3[5], framed3[6], framed3[7]]);
+        assert_eq!(seq3, 2, "Third sequence should be 2");
+
+        // Frame another from clone - should get sequence 3
+        let framed4 = cloned_envelope.frame_bytes_with_kind(
+            &visca_cmd,
+            CommandKind::Command,
+            &test_buffer_manager(),
+        );
+        let seq4 = u32::from_be_bytes([framed4[4], framed4[5], framed4[6], framed4[7]]);
+        assert_eq!(seq4, 3, "Fourth sequence from clone should be 3");
+    }
+
+    #[test]
+    fn test_concurrent_clone_sequence_uniqueness() {
+        use std::collections::HashSet;
+        use std::sync::{Arc, Mutex};
+        use std::thread;
+
+        // Create an envelope and share it across threads
+        let envelope = Arc::new(TransportEnvelope::new(ProtocolStyle::SonyEncapsulated));
+        let sequences = Arc::new(Mutex::new(HashSet::new()));
+
+        // Number of threads and commands per thread
+        const NUM_THREADS: usize = 10;
+        const COMMANDS_PER_THREAD: usize = 100;
+
+        let mut handles = vec![];
+
+        for _ in 0..NUM_THREADS {
+            let envelope_clone = Arc::clone(&envelope);
+            let sequences_clone = Arc::clone(&sequences);
+
+            handles.push(thread::spawn(move || {
+                let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
+
+                for _ in 0..COMMANDS_PER_THREAD {
+                    let framed = envelope_clone.frame_bytes_with_kind(
+                        &visca_cmd,
+                        CommandKind::Command,
+                        &test_buffer_manager(),
+                    );
+
+                    // Extract sequence number
+                    let seq = u32::from_be_bytes([framed[4], framed[5], framed[6], framed[7]]);
+
+                    // Add to the set and verify uniqueness
+                    let mut seqs = sequences_clone.lock().expect("Lock poisoned");
+                    assert!(seqs.insert(seq), "Duplicate sequence detected: {}", seq);
+                }
+            }));
+        }
+
+        // Wait for all threads to complete
+        for handle in handles {
+            handle.join().expect("Thread panicked");
+        }
+
+        // Verify we got the expected number of unique sequences
+        let final_sequences = sequences.lock().expect("Lock poisoned");
+        assert_eq!(
+            final_sequences.len(),
+            NUM_THREADS * COMMANDS_PER_THREAD,
+            "Should have exactly {} unique sequences",
+            NUM_THREADS * COMMANDS_PER_THREAD
+        );
+
+        // Verify sequences are in the expected range [0, NUM_THREADS * COMMANDS_PER_THREAD)
+        for seq in final_sequences.iter() {
+            assert!(
+                *seq < (NUM_THREADS * COMMANDS_PER_THREAD) as u32,
+                "Sequence {} is out of expected range",
+                seq
+            );
+        }
     }
 }
