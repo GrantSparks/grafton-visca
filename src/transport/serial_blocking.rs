@@ -10,19 +10,19 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-use tracing::{debug, trace, warn};
+use tracing::{debug, trace};
 
 use crate::{
-    camera_id::CameraId,
-    command::{
-        bytes::VISCA_TERMINATOR,
-        encode_visca::ViscaEncode,
-        system::{AddressSetCommand, InterfaceClearCommand},
-        CommandKind,
-    },
+    command::CommandKind,
     error::{Error, Result},
     protocol::framer::ProtocolFramer,
-    transport::{serial::Config as SerialConfig, SyncTransport},
+    transport::{
+        serial::{
+            handshake::blocking_handshake::{address_set_blocking, if_clear_blocking},
+            Config as SerialConfig,
+        },
+        SyncTransport,
+    },
 };
 
 // SerialConfig is now imported from the unified serial::Config
@@ -57,145 +57,21 @@ impl SerialTransport {
 
         // Perform initialization if requested
         if if_clear {
-            transport.send_if_clear()?;
+            let mut port = transport
+                .port
+                .lock()
+                .map_err(|_| Error::LockPoisoned("serial port mutex"))?;
+            if_clear_blocking(&mut **port)?;
         }
         if address_set {
-            transport.send_address_set()?;
+            let mut port = transport
+                .port
+                .lock()
+                .map_err(|_| Error::LockPoisoned("serial port mutex"))?;
+            address_set_blocking(&mut **port, Duration::from_secs(2))?;
         }
 
         Ok(transport)
-    }
-
-    /// Send I/F Clear command to reset all devices on the bus.
-    pub fn send_if_clear(&self) -> Result<()> {
-        debug!("Sending I/F Clear command");
-        let cmd = InterfaceClearCommand::new();
-        let mut buffer = [0u8; 16];
-        // InterfaceClearCommand is const-constructed and guaranteed to encode
-        let len = cmd
-            .encode_into(CameraId::CAMERA_1, &mut buffer)
-            .map_err(|e| Error::TransportError(format!("Failed to encode IF Clear: {e}").into()))?;
-        self.send_raw(&buffer[..len])?;
-        // Wait for I/F Clear to complete
-        std::thread::sleep(Duration::from_millis(100));
-        Ok(())
-    }
-
-    /// Send Address Set command to assign addresses to devices.
-    /// Returns the number of cameras detected.
-    pub fn send_address_set(&self) -> Result<u8> {
-        let max_attempts = 3;
-
-        for attempt in 0..max_attempts {
-            debug!("Address Set attempt {attempt}", attempt = attempt + 1);
-            let cmd = AddressSetCommand::new();
-            let mut buffer = [0u8; 16];
-            // AddressSetCommand is const-constructed and guaranteed to encode
-            let len = cmd
-                .encode_into(CameraId::CAMERA_1, &mut buffer)
-                .map_err(|e| {
-                    Error::TransportError(format!("Failed to encode Address Set: {e}").into())
-                })?;
-            self.send_raw(&buffer[..len])?;
-
-            // Parse response properly
-            match self.recv_address_set_response(Duration::from_secs(2)) {
-                Ok(camera_count) => {
-                    debug!("Address Set successful, found {camera_count} cameras");
-                    return Ok(camera_count);
-                }
-                Err(Error::Timeout) if attempt < max_attempts - 1 => {
-                    warn!("Address Set timeout, retrying...");
-                    std::thread::sleep(Duration::from_millis(100));
-                    continue;
-                }
-                Err(e) => return Err(e),
-            }
-        }
-
-        Err(Error::MaxRetriesExceeded)
-    }
-
-    /// Receive and parse Address Set response.
-    fn recv_address_set_response(&self, timeout: Duration) -> Result<u8> {
-        let mut buffer = [0u8; 64];
-        let mut port = self
-            .port
-            .lock()
-            .map_err(|_| Error::LockPoisoned("serial port mutex"))?;
-
-        // Temporarily set timeout
-        let original_timeout = port.timeout();
-        port.set_timeout(timeout)
-            .map_err(|e| Error::TransportError(format!("Failed to set timeout: {e}").into()))?;
-
-        let mut camera_count = 0;
-        let start = Instant::now();
-
-        // Read all device responses
-        while start.elapsed() < timeout {
-            match port.read(&mut buffer) {
-                Ok(n) if n > 0 => {
-                    trace!("Address Set response: {:02X?}", &buffer[..n]);
-
-                    // Parse response bytes
-                    let mut i = 0;
-                    while i < n {
-                        // Device response format: 0x88 0x30 <device_num> 0xFF
-                        if i + 3 < n && buffer[i] == 0x88 && buffer[i + 1] == 0x30 {
-                            if buffer[i + 2] == 0x02 && buffer[i + 3] == VISCA_TERMINATOR {
-                                // End of address setting
-                                debug!("Address Set complete, {camera_count} cameras found");
-
-                                // Restore timeout
-                                port.set_timeout(original_timeout).ok();
-                                return Ok(camera_count);
-                            } else if buffer[i + 3] == VISCA_TERMINATOR {
-                                // Device response
-                                camera_count += 1;
-                                trace!("Camera {camera_count} responded");
-                            }
-                            i += 4;
-                        } else {
-                            i += 1;
-                        }
-                    }
-                }
-                Ok(_) => {
-                    // No data, continue waiting
-                    std::thread::sleep(Duration::from_millis(10));
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
-                    // Timeout - no more devices
-                    debug!("Address Set timeout - {camera_count} cameras found");
-
-                    // Restore timeout
-                    port.set_timeout(original_timeout).ok();
-
-                    if camera_count > 0 {
-                        return Ok(camera_count);
-                    } else {
-                        return Err(Error::Timeout);
-                    }
-                }
-                Err(e) => {
-                    // Restore timeout
-                    port.set_timeout(original_timeout).ok();
-                    return Err(Error::TransportError(
-                        format!("Error reading Address Set response: {e}").into(),
-                    ));
-                }
-            }
-        }
-
-        // Restore timeout
-        port.set_timeout(original_timeout).ok();
-
-        if camera_count > 0 {
-            Ok(camera_count)
-        } else {
-            Err(Error::Timeout)
-        }
     }
 
     /// Send raw bytes to the serial port.

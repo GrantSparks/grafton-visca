@@ -1,23 +1,19 @@
 //! Tokio serial transport implementation using the generic async_serial module.
 
 use std::time::Duration;
-use tokio::time::Instant;
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
-use tracing::{debug, trace, warn};
 
 use crate::{
-    camera_id::CameraId,
-    command::{
-        bytes::VISCA_TERMINATOR,
-        encode_visca::ViscaEncode,
-        system::{AddressSetCommand, InterfaceClearCommand},
-    },
     error::{Error, Result},
+    executor::TokioExecutor,
     transport::{
         async_io::{AsyncReadExt as AsyncReadExtTrait, AsyncWriteExt as AsyncWriteExtTrait},
         buffer::BufferConfig,
         builder::TransportConfig,
-        serial::Config as SerialConfig,
+        serial::{
+            handshake::async_handshake::{address_set_async, if_clear_async},
+            Config as SerialConfig,
+        },
     },
 };
 
@@ -113,12 +109,15 @@ impl Serial {
             ttl: None,
         };
 
+        // Create executor for handshake operations
+        let executor = TokioExecutor::from_current()?;
+
         // Perform initialization if requested
         if config.if_clear_on_connect {
-            send_if_clear(&mut adapter).await?;
+            if_clear_async(&executor, &mut adapter).await?;
         }
         if config.address_set_on_connect {
-            send_address_set(&mut adapter).await?;
+            address_set_async(&executor, &mut adapter, Duration::from_secs(2)).await?;
         }
 
         Ok(Self::new(adapter, transport_config))
@@ -128,148 +127,5 @@ impl Serial {
     pub async fn connect_default(port: &str) -> Result<Self> {
         let config = SerialConfig::new(port);
         Self::connect(config).await
-    }
-}
-
-/// Send I/F Clear command to reset all devices on the bus.
-async fn send_if_clear<S: AsyncWriteExtTrait>(stream: &mut S) -> Result<()> {
-    debug!("Sending I/F Clear command");
-    let cmd = InterfaceClearCommand::new();
-    let mut buffer = [0u8; 16];
-    // InterfaceClearCommand is const-constructed and guaranteed to encode
-    let len = cmd
-        .encode_into(CameraId::CAMERA_1, &mut buffer)
-        .map_err(|e| Error::TransportError(format!("Failed to encode IF Clear: {e}").into()))?;
-
-    stream.write_all(&buffer[..len]).await?;
-    stream.flush().await?;
-
-    // Wait for I/F Clear to complete
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    Ok(())
-}
-
-/// Send Address Set command to assign addresses to devices.
-/// Returns the number of cameras detected.
-async fn send_address_set<S: AsyncReadExtTrait + AsyncWriteExtTrait>(stream: &mut S) -> Result<u8> {
-    let max_attempts = 3;
-
-    for attempt in 0..max_attempts {
-        debug!("Address Set attempt {}", attempt + 1);
-        let cmd = AddressSetCommand::new();
-        let mut buffer = [0u8; 16];
-        // AddressSetCommand is const-constructed and guaranteed to encode
-        let len = cmd
-            .encode_into(CameraId::CAMERA_1, &mut buffer)
-            .map_err(|e| {
-                Error::TransportError(format!("Failed to encode Address Set: {e}").into())
-            })?;
-
-        stream.write_all(&buffer[..len]).await?;
-        stream.flush().await?;
-
-        // Parse response properly
-        match recv_address_set_response(stream, Duration::from_secs(2)).await {
-            Ok(camera_count) => {
-                debug!("Address Set successful, found {camera_count} cameras");
-                return Ok(camera_count);
-            }
-            Err(Error::Timeout) if attempt < max_attempts - 1 => {
-                warn!("Address Set timeout, retrying...");
-                tokio::time::sleep(Duration::from_millis(100)).await;
-                continue;
-            }
-            Err(e) => return Err(e),
-        }
-    }
-
-    Err(Error::MaxRetriesExceeded)
-}
-
-/// Receive and parse Address Set response.
-async fn recv_address_set_response<S: AsyncReadExtTrait>(
-    stream: &mut S,
-    timeout_duration: Duration,
-) -> Result<u8> {
-    use bytes::BytesMut;
-
-    let mut camera_count = 0;
-    let start = Instant::now();
-
-    // Temporarily increase buffer space for address set responses
-    let mut response_buffer = BytesMut::with_capacity(128);
-
-    while start.elapsed() < timeout_duration {
-        // Try to read some data with timeout
-        let mut temp_buf = vec![0u8; 64];
-        let read_result =
-            tokio::time::timeout(Duration::from_millis(50), stream.read(&mut temp_buf)).await;
-
-        match read_result {
-            Ok(Ok(n)) if n > 0 => {
-                response_buffer.extend_from_slice(&temp_buf[..n]);
-                trace!("Address Set response: {:02X?}", &temp_buf[..n]);
-
-                // Parse response bytes
-                let mut i = 0;
-                while i < response_buffer.len() {
-                    // Look for address setting response: 88 30 0p FF where p is camera number
-                    if i + 3 < response_buffer.len()
-                        && response_buffer[i] == 0x88
-                        && response_buffer[i + 1] == 0x30
-                    {
-                        if response_buffer[i + 2] >= 0x01
-                            && response_buffer[i + 2] <= 0x07
-                            && response_buffer[i + 3] == VISCA_TERMINATOR
-                        {
-                            // Camera address assignment
-                            camera_count = response_buffer[i + 2];
-                            debug!("Camera {camera_count} assigned address");
-                            i += 4;
-                        } else if response_buffer[i + 2] == 0x02
-                            && response_buffer[i + 3] == VISCA_TERMINATOR
-                        {
-                            // End of address setting
-                            debug!("Address Set complete, {camera_count} cameras found");
-                            return Ok(camera_count);
-                        } else {
-                            i += 1;
-                        }
-                    } else {
-                        i += 1;
-                    }
-                }
-            }
-            Ok(Ok(_)) => {
-                // No data read, continue waiting
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-            Ok(Err(e)) => {
-                // Check if it's an I/O error with TimedOut kind
-                if let Error::Io(io_err) = &e {
-                    if io_err.kind() == std::io::ErrorKind::TimedOut {
-                        // Timeout on this read, but total timeout not reached yet
-                        continue;
-                    }
-                }
-                return Err(e);
-            }
-            Err(_) => {
-                // Individual read timeout, continue if total timeout not reached
-                continue;
-            }
-        }
-    }
-
-    // Total timeout reached
-    if camera_count > 0 {
-        debug!(
-            "Address Set timeout reached, but {} cameras were found",
-            camera_count
-        );
-        Ok(camera_count)
-    } else {
-        debug!("Address Set timeout - no cameras found");
-        Err(Error::Timeout)
     }
 }
