@@ -568,51 +568,16 @@ where
                             // Serial uses Raw VISCA by default (or profile's default)
                             P::PROTOCOL_STYLE
                         } else {
-                            // Use simplified detection for blocking mode TCP/UDP
-                            // Try Sony encapsulated first, then raw VISCA
-                            use crate::command::bytes::VISCA_TERMINATOR;
-                            use crate::transport::envelope::TransportEnvelope;
+                            // Use ProtocolDetector for TCP/UDP transports
                             use crate::transport::protocol_detection::ProtocolDetector;
-                            use std::time::Duration;
 
                             let detector = ProtocolDetector::new();
-                            let test_command = &[0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR];
+                            let detection_result =
+                                detector.detect_protocol_blocking(&mut *transport)?;
 
-                            // Try Sony encapsulated first
-                            let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated);
-                            let buffer_config =
-                                crate::transport::buffer::BufferConfig::for_sony_ip();
-                            let buffer_manager =
-                                crate::transport::buffer::BufferManager::new(buffer_config);
-                            let framed = envelope.frame_bytes_with_kind(
-                                test_command,
-                                crate::command::CommandKind::Inquiry,
-                                &buffer_manager,
-                            );
-
-                            if transport
-                                .send_with_kind(&framed, crate::command::CommandKind::Inquiry)
-                                .is_ok()
-                            {
-                                if let Ok(buffer) =
-                                    transport.recv_with_timeout(Duration::from_millis(100))
-                                {
-                                    if let Ok(payload) = envelope.extract_response(&buffer) {
-                                        if detector.is_valid_visca_response(&payload) {
-                                            ProtocolStyle::SonyEncapsulated
-                                        } else {
-                                            // Try raw VISCA
-                                            ProtocolStyle::RawVisca
-                                        }
-                                    } else {
-                                        ProtocolStyle::RawVisca
-                                    }
-                                } else {
-                                    ProtocolStyle::RawVisca
-                                }
-                            } else {
-                                ProtocolStyle::RawVisca
-                            }
+                            detection_result
+                                .to_protocol_style()
+                                .unwrap_or(ProtocolStyle::RawVisca)
                         }
                     }
                 };

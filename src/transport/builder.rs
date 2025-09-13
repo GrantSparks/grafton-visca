@@ -482,31 +482,36 @@ where
 /// Auto-connect and detect protocol style using blocking approach.
 ///
 /// This function tries multiple transport/protocol combinations to find a working
-/// configuration for the camera. It uses a simplified detection approach for blocking mode.
+/// configuration for the camera. It uses the ProtocolDetector to properly detect
+/// the protocol style once connected.
 #[cfg(not(feature = "async"))]
 pub fn auto_connect_and_detect_blocking(
     host: &str,
     cfg: TransportConfig,
 ) -> Result<(Box<dyn SyncTransport>, crate::capabilities::ProtocolStyle), Error> {
-    use crate::command::bytes::VISCA_TERMINATOR;
-    use crate::transport::envelope::TransportEnvelope;
     use crate::transport::protocol_detection::{ProtocolDetector, TransportProtocol};
     use crate::transport::SyncTransport;
-    use std::time::Duration;
+    use tracing::{debug, info};
+
+    info!("Starting auto-connect and detect for host: {}", host);
 
     // Generate detection candidates
     let candidates = ProtocolDetector::generate_candidates(host);
     let detector = ProtocolDetector::new();
 
-    // Test command: Version Inquiry
-    let test_command = &[0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR];
-
     // Try each candidate
     for candidate in candidates {
+        debug!(
+            "Trying {:?} on port {} with style {:?}",
+            candidate.protocol, candidate.port, candidate.protocol_style
+        );
+
         // Build the full address
         let address = if host.contains(':') {
+            // Host already has port, use it as-is
             host.to_string()
         } else {
+            // Add port from candidate
             format!("{}:{}", host, candidate.port)
         };
 
@@ -528,33 +533,33 @@ pub fn auto_connect_and_detect_blocking(
 
         match transport_result {
             Ok(mut transport) => {
-                // Connected successfully, test if this protocol style works
-                let envelope = TransportEnvelope::new(candidate.protocol_style);
-                let framed = envelope.frame_bytes_with_kind(
-                    test_command,
-                    crate::command::CommandKind::Inquiry,
-                    &crate::transport::buffer::BufferManager::new(candidate.buffer_config),
+                // Connected successfully, now detect protocol
+                debug!(
+                    "Connected via {:?} to {}, detecting protocol...",
+                    candidate.protocol, address
                 );
 
-                // Send test command using send_with_kind
-                if transport
-                    .send_with_kind(&framed, crate::command::CommandKind::Inquiry)
-                    .is_ok()
-                {
-                    // Try to receive response with timeout
-                    if let Ok(buffer) = transport.recv_with_timeout(Duration::from_millis(100)) {
-                        // Try to extract and validate response
-                        if let Ok(payload) = envelope.extract_response(&buffer) {
-                            if detector.is_valid_visca_response(&payload) {
-                                return Ok((transport, candidate.protocol_style));
-                            }
+                // Use the detector to check if this protocol style works
+                match detector.detect_protocol_blocking(&mut *transport) {
+                    Ok(detection_result) => {
+                        if let Some(detected_style) = detection_result.to_protocol_style() {
+                            info!(
+                                "Successfully detected {:?} protocol on {:?} port {}",
+                                detected_style, candidate.protocol, candidate.port
+                            );
+                            return Ok((transport, detected_style));
                         }
+                    }
+                    Err(e) => {
+                        debug!("Detection failed on this transport: {}", e);
                     }
                 }
             }
-            Err(_) => {
-                // Failed to connect, try next candidate
-                continue;
+            Err(e) => {
+                debug!(
+                    "Failed to connect via {:?} to {}: {}",
+                    candidate.protocol, address, e
+                );
             }
         }
     }

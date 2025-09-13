@@ -15,21 +15,14 @@ use crate::{
     transport::{buffer::BufferConfig, RetryConfig},
 };
 
-#[cfg(any(
-    feature = "async",
-    all(test, feature = "rt-tokio", feature = "test-utils")
-))]
 use crate::{command::bytes::VISCA_TERMINATOR, transport::envelope::TransportEnvelope, Error};
 
+use crate::{protocol::framer::ProtocolFramer, transport::buffer::BufferManager};
+
 #[cfg(feature = "async")]
-use crate::{
-    executor::Executor,
-    protocol::framer::ProtocolFramer,
-    transport::{buffer::BufferManager, AsyncTransport},
-};
+use crate::{executor::Executor, transport::AsyncTransport};
 
 /// Protocol detection timeout - how long to wait for camera response
-#[cfg(feature = "async")]
 const DETECTION_TIMEOUT: Duration = Duration::from_millis(100);
 
 /// Maximum retry attempts during detection
@@ -411,9 +404,9 @@ impl ProtocolDetector {
 
                             // Try to extract VISCA payload
                             match envelope.extract_response(&frame) {
-                                Ok(visca_payload) => {
+                                Ok(ref visca_payload) => {
                                     // Validate this looks like a VISCA response
-                                    if self.is_valid_visca_response(&visca_payload) {
+                                    if self.is_valid_visca_response(visca_payload) {
                                         debug!(
                                             "Valid VISCA response detected for protocol style: {:?}",
                                             protocol_style
@@ -446,6 +439,206 @@ impl ProtocolDetector {
             if attempt < self.retry_config.max_retries {
                 let delay = self.retry_config.calculate_delay(attempt, None);
                 executor.sleep(delay).await;
+            }
+        }
+
+        Ok(false)
+    }
+
+    /// Detect the protocol used by the camera using blocking I/O.
+    ///
+    /// This implements the same EPIC B3 detection algorithm as the async version:
+    /// 1. Try Sony encapsulated format first (most cameras support this)
+    /// 2. If no response, fallback to raw VISCA format
+    /// 3. If neither works, return NoResponse
+    ///
+    /// The test command used is a simple Version Inquiry (81 09 00 02 FF)
+    /// which should be supported by all VISCA cameras.
+    #[cfg(not(feature = "async"))]
+    pub fn detect_protocol_blocking<T>(&self, transport: &mut T) -> Result<DetectionResult, Error>
+    where
+        T: crate::transport::SyncTransport + ?Sized,
+    {
+        use tracing::{debug, info, warn};
+
+        info!("Starting VISCA protocol detection (blocking)");
+
+        // Test command: Version Inquiry - should be supported by all VISCA cameras
+        let test_command = &[0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR];
+
+        // Try Sony encapsulated format first (priority order from EPIC)
+        debug!("Probing Sony encapsulated protocol (52381 style)");
+        match self.try_protocol_blocking(
+            transport,
+            test_command,
+            ProtocolStyle::SonyEncapsulated,
+            BufferConfig::for_sony_ip(),
+        ) {
+            Ok(true) => {
+                info!("✓ Sony encapsulated protocol detected");
+                return Ok(DetectionResult::SonyEncapsulated);
+            }
+            Ok(false) => {
+                debug!("✗ No response from Sony encapsulated format");
+            }
+            Err(e) => {
+                warn!("Error testing Sony format: {e}");
+            }
+        }
+
+        // Fallback to raw VISCA format
+        debug!("Probing raw VISCA protocol (1259/5678 style)");
+        match self.try_protocol_blocking(
+            transport,
+            test_command,
+            ProtocolStyle::RawVisca,
+            BufferConfig::for_raw_ip(),
+        ) {
+            Ok(true) => {
+                info!("✓ Raw VISCA protocol detected");
+                return Ok(DetectionResult::RawVisca);
+            }
+            Ok(false) => {
+                debug!("✗ No response from raw VISCA format");
+            }
+            Err(e) => {
+                warn!("Error testing raw format: {e}");
+            }
+        }
+
+        warn!("No VISCA protocol response detected from camera");
+        Ok(DetectionResult::NoResponse)
+    }
+
+    /// Test a specific protocol format by sending a command and waiting for response (blocking).
+    #[cfg(not(feature = "async"))]
+    fn try_protocol_blocking<T>(
+        &self,
+        transport: &mut T,
+        command: &[u8],
+        protocol_style: ProtocolStyle,
+        buffer_config: BufferConfig,
+    ) -> Result<bool, Error>
+    where
+        T: crate::transport::SyncTransport + ?Sized,
+    {
+        use tracing::debug;
+
+        let envelope = TransportEnvelope::new(protocol_style);
+        let buffer_manager = BufferManager::new(buffer_config);
+
+        // Send command with retries
+        for attempt in 0..=self.retry_config.max_retries {
+            // Frame the command inside the retry loop to ensure sequence number advances
+            // This is critical for Sony encapsulated protocol which requires unique sequence
+            // numbers for each retry attempt to avoid duplicate/abnormal sequence handling
+            let framed_command = envelope.frame_bytes_with_kind(
+                command,
+                crate::command::CommandKind::Inquiry,
+                &buffer_manager,
+            );
+
+            debug!(
+                "Sending {len} bytes for protocol detection (attempt {attempt}): {bytes:02X?}",
+                len = framed_command.len(),
+                attempt = attempt + 1,
+                bytes = &framed_command[..std::cmp::min(framed_command.len(), 16)]
+            );
+
+            // Send the test command
+            if let Err(e) =
+                transport.send_with_kind(&framed_command, crate::command::CommandKind::Inquiry)
+            {
+                debug!(
+                    "Failed to send detection command (attempt {attempt}): {e}",
+                    attempt = attempt + 1
+                );
+                if attempt == self.retry_config.max_retries {
+                    return Err(e);
+                }
+                continue;
+            }
+
+            // Create a local ProtocolFramer to handle chunked responses
+            let mut framer = ProtocolFramer::new_with_config(buffer_config);
+            let start_time = std::time::Instant::now();
+
+            // Loop to collect chunks until we get a frame or timeout
+            loop {
+                // Check if we've exceeded total detection timeout
+                if start_time.elapsed() > DETECTION_TIMEOUT {
+                    debug!(
+                        "Detection timeout exceeded (attempt {attempt})",
+                        attempt = attempt + 1
+                    );
+                    break;
+                }
+
+                // Calculate remaining timeout for this recv call
+                let remaining = DETECTION_TIMEOUT.saturating_sub(start_time.elapsed());
+
+                // Try to receive with timeout
+                match transport.recv_with_timeout(remaining) {
+                    Ok(recv_buffer) => {
+                        debug!(
+                            "Received {n} bytes: {bytes:02X?}",
+                            n = recv_buffer.len(),
+                            bytes = &recv_buffer[..std::cmp::min(recv_buffer.len(), 16)]
+                        );
+
+                        // Push chunk to framer
+                        if let Err(e) = framer.push_slice(&recv_buffer) {
+                            debug!("Framer buffer exceeded limits: {e}");
+                            return Ok(false);
+                        }
+
+                        // Try to extract a complete frame
+                        if let Some(frame_result) = framer.drain_frames().next() {
+                            let frame = match frame_result {
+                                Ok(frame) => frame,
+                                Err(e) => {
+                                    debug!("Failed to extract frame: {e}");
+                                    return Ok(false);
+                                }
+                            };
+                            debug!(
+                                "Extracted complete frame: {bytes:02X?}",
+                                bytes = &frame[..std::cmp::min(frame.len(), 16)]
+                            );
+
+                            // Try to extract VISCA payload
+                            match envelope.extract_response(&frame) {
+                                Ok(ref visca_payload) => {
+                                    // Validate this looks like a VISCA response
+                                    if self.is_valid_visca_response(visca_payload) {
+                                        debug!(
+                                            "Valid VISCA response detected for protocol style: {:?}",
+                                            protocol_style
+                                        );
+                                        return Ok(true);
+                                    } else {
+                                        debug!("Received data but not a valid VISCA response");
+                                    }
+                                }
+                                Err(e) => {
+                                    debug!("Failed to extract VISCA payload: {e}");
+                                }
+                            }
+                            // Got a frame but it wasn't valid, break to retry
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        debug!("Transport error during detection: {e}");
+                        break;
+                    }
+                }
+            }
+
+            // Wait before retry
+            if attempt < self.retry_config.max_retries {
+                let delay = self.retry_config.calculate_delay(attempt, None);
+                std::thread::sleep(delay);
             }
         }
 
@@ -744,5 +937,83 @@ mod tests {
             candidates[0].protocol_style,
             ProtocolStyle::RawVisca
         ));
+    }
+
+    // Blocking tests
+    #[cfg(all(test, not(feature = "async"), feature = "test-utils"))]
+    #[test]
+    fn test_detect_sony_blocking() {
+        use crate::testing::testkit::scripted_transport::{ScriptedSyncTransport, Step};
+
+        // Create a script that responds with a valid VISCA version response
+        // when receiving Sony encapsulated format
+        let steps = vec![Step::OnSend {
+            matches: Some(vec![0x01, 0x10]), // Sony inquiry payload type
+            responses: vec![
+                vec![
+                    0x01,
+                    0x11,
+                    0x00,
+                    0x06,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x01, // Sony header
+                    0x90,
+                    0x50,
+                    0x01,
+                    0x02,
+                    0x03,
+                    VISCA_TERMINATOR,
+                ], // Version response
+            ],
+        }];
+        let mut transport = ScriptedSyncTransport::new(steps);
+
+        let detector = ProtocolDetector::new();
+        let result = detector.detect_protocol_blocking(&mut transport);
+        match result {
+            Ok(detection) => assert_eq!(detection, DetectionResult::SonyEncapsulated),
+            Err(e) => panic!("Detection should succeed but failed: {e}"),
+        }
+    }
+
+    #[cfg(all(test, not(feature = "async"), feature = "test-utils"))]
+    #[test]
+    fn test_detect_raw_blocking() {
+        use crate::testing::testkit::scripted_transport::{ScriptedSyncTransport, Step};
+
+        // Create a script that responds with a valid VISCA version response
+        // when receiving raw VISCA format (but not Sony encapsulated)
+        let steps = vec![Step::OnSend {
+            matches: Some(vec![0x81, 0x09]), // Raw VISCA inquiry
+            responses: vec![
+                vec![0x90, 0x50, 0x01, 0x02, 0x03, VISCA_TERMINATOR], // Version response
+            ],
+        }];
+        let mut transport = ScriptedSyncTransport::new(steps);
+
+        let detector = ProtocolDetector::new();
+        let result = detector.detect_protocol_blocking(&mut transport);
+        match result {
+            Ok(detection) => assert_eq!(detection, DetectionResult::RawVisca),
+            Err(e) => panic!("Detection should succeed but failed: {e}"),
+        }
+    }
+
+    #[cfg(all(test, not(feature = "async"), feature = "test-utils"))]
+    #[test]
+    fn test_no_response_detected_blocking() {
+        use crate::testing::testkit::scripted_transport::ScriptedSyncTransport;
+
+        // Empty script - no responses configured
+        let mut transport = ScriptedSyncTransport::new(vec![]);
+
+        let detector = ProtocolDetector::new();
+        let result = detector.detect_protocol_blocking(&mut transport);
+        match result {
+            Ok(detection) => assert_eq!(detection, DetectionResult::NoResponse),
+            Err(e) => panic!("Detection should succeed but failed: {e}"),
+        }
     }
 }
