@@ -90,7 +90,7 @@ where
 
     // For blocking mode: stores transport directly with BlockingRunner for state management
     transport: M::Shared<Tr>,
-    blocking_runner: std::cell::RefCell<BlockingRunner>,
+    blocking_runner: std::cell::RefCell<BlockingRunner<P>>,
 
     _phantom_mode: PhantomData<M>,
     _phantom_profile: PhantomData<P>,
@@ -159,7 +159,7 @@ where
     ) -> Result<Self, Error> {
         let camera_id = CameraId::new(1)?;
         let timeout_config = TimeoutConfig::default();
-        let blocking_runner = BlockingRunner::new(protocol_style, timeout_config);
+        let blocking_runner = BlockingRunner::<P>::new(protocol_style, timeout_config);
 
         let shared_transport = crate::mode::Blocking::share(transport);
 

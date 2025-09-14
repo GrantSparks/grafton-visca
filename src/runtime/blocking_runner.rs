@@ -14,9 +14,9 @@ use std::{
 
 use crate::{
     camera_id::CameraId,
-    capabilities::ProtocolStyle,
+    capabilities::{Profile, ProtocolStyle},
     command::{
-        response::{lift_inquiry, ViscaResponse},
+        response::{lift_inquiry_for, ViscaResponse},
         CommandKind, ViscaEncode,
     },
     error::{Error, Result},
@@ -39,7 +39,7 @@ use crate::{
 /// providing the same protocol state machine as the async runtime but without channels
 /// or async executors.
 #[derive(Debug)]
-pub struct BlockingRunner {
+pub struct BlockingRunner<P: Profile> {
     /// The scheduler core for state management.
     core: SchedulerCore,
     /// Transport envelope for framing.
@@ -48,9 +48,11 @@ pub struct BlockingRunner {
     buffer_manager: BufferManager,
     /// Command ID generator.
     next_id: AtomicU32,
+    /// Profile type marker.
+    _profile: core::marker::PhantomData<P>,
 }
 
-impl BlockingRunner {
+impl<P: Profile> BlockingRunner<P> {
     /// Create a new blocking runner.
     pub fn new(style: ProtocolStyle, timeout_config: TimeoutConfig) -> Self {
         // Use default retry config for backward compatibility
@@ -74,6 +76,7 @@ impl BlockingRunner {
             envelope: TransportEnvelope::new(style),
             buffer_manager: BufferManager::new(buffer_config),
             next_id: AtomicU32::new(1),
+            _profile: core::marker::PhantomData,
         }
     }
 
@@ -287,8 +290,8 @@ impl BlockingRunner {
                                     debug!("Command {} completed successfully", cmd_id);
                                     // Get the expected response type from core
                                     let response_type = self.core.get_inquiry_type(cmd_id);
-                                    // Convert to ViscaResponse for return
-                                    let response = lift_inquiry(&basic, response_type)?;
+                                    // Convert to ViscaResponse for return with profile-aware lifting
+                                    let response = lift_inquiry_for::<P>(&basic, response_type)?;
                                     return Ok(response);
                                 }
                             }
@@ -297,7 +300,7 @@ impl BlockingRunner {
                             // Get the expected response type from core
                             let response_type =
                                 cmd_id.and_then(|id| self.core.get_inquiry_type(id));
-                            let response = lift_inquiry(&basic, response_type)?;
+                            let response = lift_inquiry_for::<P>(&basic, response_type)?;
                             SchedulerEvent::Completion {
                                 socket,
                                 cmd_id,
@@ -341,14 +344,15 @@ impl BlockingRunner {
                             if let Some(cmd_id) = cmd_id {
                                 if cmd_id == target_cmd_id {
                                     debug!("Inquiry {} completed successfully", cmd_id);
-                                    // Convert to ViscaResponse for return
-                                    let response = lift_inquiry(&basic, response_type.as_ref())?;
+                                    // Convert to ViscaResponse for return with profile-aware lifting
+                                    let response =
+                                        lift_inquiry_for::<P>(&basic, response_type.as_ref())?;
                                     return Ok(response);
                                 }
                             }
 
                             debug!("Received data reply (inquiry response)");
-                            let response = lift_inquiry(&basic, response_type.as_ref())?;
+                            let response = lift_inquiry_for::<P>(&basic, response_type.as_ref())?;
                             // Use InquiryReply event for data replies
                             SchedulerEvent::InquiryReply { cmd_id, response }
                         }
@@ -402,12 +406,14 @@ impl BlockingRunner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::camera::profiles::PtzOpticsG2;
     use bytes::Bytes;
 
     #[test]
     fn test_scheduler_core_creation() {
         let timeout_config = TimeoutConfig::default();
-        let runner = BlockingRunner::new(ProtocolStyle::SonyEncapsulated, timeout_config);
+        let runner =
+            BlockingRunner::<PtzOpticsG2>::new(ProtocolStyle::SonyEncapsulated, timeout_config);
 
         // Verify the runner was created successfully
         assert!(runner.core.can_send_command());
@@ -416,7 +422,7 @@ mod tests {
     #[test]
     fn test_scheduler_core_with_raw_visca() {
         let timeout_config = TimeoutConfig::default();
-        let runner = BlockingRunner::new(ProtocolStyle::RawVisca, timeout_config);
+        let runner = BlockingRunner::<PtzOpticsG2>::new(ProtocolStyle::RawVisca, timeout_config);
 
         // Verify the runner was created for raw VISCA
         assert!(runner.core.can_send_command());
@@ -427,7 +433,8 @@ mod tests {
         use crate::command::bytes::VISCA_TERMINATOR;
 
         let timeout_config = TimeoutConfig::default();
-        let mut runner = BlockingRunner::new(ProtocolStyle::SonyEncapsulated, timeout_config);
+        let mut runner =
+            BlockingRunner::<PtzOpticsG2>::new(ProtocolStyle::SonyEncapsulated, timeout_config);
 
         // Create a pending command
         // Use a valid camera ID - 1 is always valid
