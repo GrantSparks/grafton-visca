@@ -6,9 +6,22 @@
 //! The handshake process is protocol-aware and uses the existing ProtocolFramer
 //! for robust frame handling instead of manual buffer scanning.
 
+#[cfg(any(
+    feature = "tokio-serial",
+    all(not(feature = "async"), feature = "serialport")
+))]
 use std::time::Duration;
+
+#[cfg(any(
+    feature = "tokio-serial",
+    all(not(feature = "async"), feature = "serialport")
+))]
 use tracing::{debug, trace, warn};
 
+#[cfg(any(
+    feature = "tokio-serial",
+    all(not(feature = "async"), feature = "serialport")
+))]
 use crate::{
     camera_id::CameraId,
     command::{
@@ -22,6 +35,11 @@ use crate::{
 };
 
 /// Result of parsing address set response bytes.
+#[cfg(any(
+    feature = "tokio-serial",
+    all(not(feature = "async"), feature = "serialport"),
+    test
+))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParseOutcome {
     /// Partial response received, more data needed.
@@ -47,6 +65,11 @@ pub enum ParseOutcome {
 ///
 /// Note: In VISCA protocol, cameras respond with their assigned number (1-7),
 /// and 0x02 is specifically the "Network Change" completion marker, not camera 2.
+#[cfg(any(
+    feature = "tokio-serial",
+    all(not(feature = "async"), feature = "serialport"),
+    test
+))]
 pub fn parse_address_set_bytes(buf: &[u8]) -> ParseOutcome {
     let mut camera_count = 0u8;
     let mut i = 0;

@@ -36,8 +36,8 @@ where
     // Build the inquiry frame once
     let inquiry = core.build_inquiry_frame();
 
-    // Scratch buffer for receiving
-    let mut scratch = vec![0u8; 1024];
+    // Scratch buffer for receiving - honor the configured buffer size
+    let mut scratch = vec![0u8; buffer_config.recv_buffer_size];
 
     loop {
         let now = Instant::now();
@@ -75,18 +75,29 @@ where
                 // Race recv vs sleep using futures_lite
                 use futures_lite::future;
 
-                let outcome = future::or(
-                    async { Ok::<_, ()>(transport.recv_into(&mut scratch).await) },
+                // Define operation type for clarity
+                enum Op {
+                    Recv(usize),
+                    Timeout,
+                }
+
+                let op = future::race(
+                    async {
+                        match transport.recv_into(&mut scratch).await {
+                            Ok(n) => Op::Recv(n),
+                            Err(_) => Op::Timeout, // Treat any recv error as timeout
+                        }
+                    },
                     async {
                         executor.sleep(remaining).await;
-                        Err::<_, ()>(())
+                        Op::Timeout
                     },
                 )
                 .await;
 
-                match outcome {
-                    Ok(Ok(n)) if n > 0 => {
-                        // Received data
+                match op {
+                    Op::Recv(n) if n > 0 => {
+                        // Received data - fix the slice from [.n] to [..n]
                         if let Some(next) = core.on_recv(&scratch[..n], Instant::now()) {
                             match next {
                                 Action::Done(res) => return Ok(res),
@@ -100,8 +111,8 @@ where
                         }
                         // Continue receiving if no action returned
                     }
-                    Ok(Ok(_)) | Ok(Err(_)) | Err(()) => {
-                        // Timeout or error
+                    Op::Recv(_) | Op::Timeout => {
+                        // Timeout, error, or zero bytes received
                         match core.on_deadline(Instant::now()) {
                             Action::Pause(d) if !d.is_zero() => {
                                 executor.sleep(d).await;
