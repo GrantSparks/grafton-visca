@@ -119,6 +119,11 @@ impl BlockingRunner {
         self.run_until_complete(transport, cmd_id)
     }
 
+    /// Update the timeout configuration.
+    pub fn update_timeout_config(&mut self, timeout_config: TimeoutConfig) {
+        self.core.set_timeout_config(timeout_config);
+    }
+
     /// Run the scheduler until a specific command completes.
     fn run_until_complete<T: SyncTransport>(
         &mut self,

@@ -26,13 +26,7 @@ use crate::transport::SyncTransport;
 use crate::{executor::Executor, transport::AsyncTransport};
 
 #[cfg(not(feature = "async"))]
-use crate::{
-    runtime::blocking_runner::BlockingRunner,
-    transport::{
-        buffer::{BufferConfig, BufferManager},
-        envelope::TransportEnvelope,
-    },
-};
+use crate::runtime::blocking_runner::BlockingRunner;
 
 /// Unified camera client that works in both blocking and async modes.
 ///
@@ -96,8 +90,6 @@ where
 
     // For blocking mode: stores transport directly with BlockingRunner for state management
     transport: M::Shared<Tr>,
-    envelope: TransportEnvelope,
-    envelope_buffer_manager: BufferManager,
     blocking_runner: std::cell::RefCell<BlockingRunner>,
 
     _phantom_mode: PhantomData<M>,
@@ -166,9 +158,6 @@ where
         protocol_style: ProtocolStyle,
     ) -> Result<Self, Error> {
         let camera_id = CameraId::new(1)?;
-        let buffer_config = BufferConfig::default();
-        let envelope = TransportEnvelope::new(protocol_style);
-        let envelope_buffer_manager = BufferManager::new(buffer_config);
         let timeout_config = TimeoutConfig::default();
         let blocking_runner = BlockingRunner::new(protocol_style, timeout_config);
 
@@ -178,8 +167,6 @@ where
             camera_id,
             timeout_config,
             transport: shared_transport,
-            envelope,
-            envelope_buffer_manager,
             blocking_runner: std::cell::RefCell::new(blocking_runner),
             _phantom_mode: PhantomData,
             _phantom_profile: PhantomData,
@@ -296,6 +283,10 @@ where
     /// Set the timeout configuration.
     pub fn set_timeout_config(&mut self, timeout_config: TimeoutConfig) {
         self.timeout_config = timeout_config;
+        // Also update the BlockingRunner's timeout config
+        if let Ok(mut runner) = self.blocking_runner.try_borrow_mut() {
+            runner.update_timeout_config(timeout_config);
+        }
     }
 
     // Accessor methods for noun-based control trait access
@@ -663,133 +654,29 @@ where
     where
         C: ViscaEncode + Send + Sync + Clone + 'static,
     {
-        use crate::command::response::ViscaResponse;
-
-        // Check if we should use the BlockingRunner for Sony protocol
-        let use_blocking_runner = matches!(self.envelope.style(), ProtocolStyle::SonyEncapsulated);
-
-        if use_blocking_runner {
-            // Use BlockingRunner for Sony protocol to handle retry and sequencing
-            let transport_cell = self.transport();
-            let mut transport = match transport_cell.try_borrow_mut() {
-                Ok(transport) => transport,
-                Err(_) => {
-                    return std::future::ready(Err(Error::TransportBusy));
-                }
-            };
-
-            let mut runner = match self.blocking_runner.try_borrow_mut() {
-                Ok(runner) => runner,
-                Err(_) => {
-                    return std::future::ready(Err(Error::TransportBusy));
-                }
-            };
-
-            // Determine command category
-            let category = C::TIMEOUT_CATEGORY;
-
-            // Send command through BlockingRunner
-            match runner.send_command(&mut *transport, command, self.camera_id, category) {
-                Ok(response) => std::future::ready(Ok(response)),
-                Err(e) => std::future::ready(Err(e)),
+        // Always use BlockingRunner for both Sony and Raw VISCA protocols
+        let transport_cell = self.transport();
+        let mut transport = match transport_cell.try_borrow_mut() {
+            Ok(transport) => transport,
+            Err(_) => {
+                return std::future::ready(Err(Error::TransportBusy));
             }
-        } else {
-            // Use existing implementation for Raw VISCA
-            // Encode command using zero-copy path
-            let visca_bytes = match command.try_into_bytes(self.camera_id) {
-                Ok(bytes) => bytes,
-                Err(e) => return std::future::ready(Err(e)),
-            };
+        };
 
-            let kind = command.command_kind();
-            let is_inquiry = matches!(kind, crate::command::CommandKind::Inquiry);
-
-            let (request, _meta) = self.envelope.frame_bytes_with_kind_owned(
-                visca_bytes,
-                kind,
-                &self.envelope_buffer_manager,
-            );
-
-            let kind = if is_inquiry {
-                crate::command::CommandKind::Inquiry
-            } else {
-                crate::command::CommandKind::Command
-            };
-
-            let transport_cell = self.transport();
-            let mut transport = match transport_cell.try_borrow_mut() {
-                Ok(transport) => transport,
-                Err(_) => {
-                    return std::future::ready(Err(Error::TransportBusy));
-                }
-            };
-
-            if let Err(e) = SyncTransport::send_with_kind(&mut *transport, &request, kind) {
-                return std::future::ready(Err(e));
+        let mut runner = match self.blocking_runner.try_borrow_mut() {
+            Ok(runner) => runner,
+            Err(_) => {
+                return std::future::ready(Err(Error::TransportBusy));
             }
+        };
 
-            let timeout_config = self.timeout_config();
-            let envelope = &self.envelope;
+        // Determine command category
+        let category = C::TIMEOUT_CATEGORY;
 
-            if !is_inquiry {
-                match SyncTransport::recv_with_timeout(&mut *transport, timeout_config.ack_timeout)
-                {
-                    Ok(first_response_bytes) => {
-                        match envelope.extract_with_meta_owned(first_response_bytes) {
-                            Ok((first_visca, _meta)) => {
-                                match ViscaResponse::parse(&first_visca[..]) {
-                                    Ok(ViscaResponse::Error(e)) => std::future::ready(Err(e)),
-                                    Ok(ViscaResponse::CmdAck { .. }) => {
-                                        let completion_timeout =
-                                            timeout_config.get_timeout(C::TIMEOUT_CATEGORY);
-                                        match transport.recv_with_timeout(completion_timeout) {
-                                            Ok(second_response_bytes) => match envelope
-                                                .extract_with_meta_owned(second_response_bytes)
-                                            {
-                                                Ok((second_visca, _meta)) => {
-                                                    match ViscaResponse::parse(&second_visca[..]) {
-                                                        Ok(response) => {
-                                                            std::future::ready(Ok(response))
-                                                        }
-                                                        Err(e) => std::future::ready(Err(e)),
-                                                    }
-                                                }
-                                                Err(e) => std::future::ready(Err(e)),
-                                            },
-                                            Err(e) => std::future::ready(Err(e)),
-                                        }
-                                    }
-                                    Ok(response) => std::future::ready(Ok(response)),
-                                    Err(e) => std::future::ready(Err(e)),
-                                }
-                            }
-                            Err(e) => std::future::ready(Err(e)),
-                        }
-                    }
-                    Err(e) => std::future::ready(Err(e)),
-                }
-            } else {
-                let inquiry_timeout = timeout_config.get_timeout(C::TIMEOUT_CATEGORY);
-                match SyncTransport::recv_with_timeout(&mut *transport, inquiry_timeout) {
-                    Ok(response_bytes) => match envelope.extract_with_meta_owned(response_bytes) {
-                        Ok((visca, _meta)) => {
-                            let parse_result = if let Some(response_type) = command.response_type()
-                            {
-                                ViscaResponse::parse_with_profile::<P>(&visca[..], &response_type)
-                            } else {
-                                ViscaResponse::parse(&visca[..])
-                            };
-
-                            match parse_result {
-                                Ok(response) => std::future::ready(Ok(response)),
-                                Err(e) => std::future::ready(Err(e)),
-                            }
-                        }
-                        Err(e) => std::future::ready(Err(e)),
-                    },
-                    Err(e) => std::future::ready(Err(e)),
-                }
-            }
+        // Send command through BlockingRunner (works for both protocols)
+        match runner.send_command(&mut *transport, command, self.camera_id, category) {
+            Ok(response) => std::future::ready(Ok(response)),
+            Err(e) => std::future::ready(Err(e)),
         }
     }
 
@@ -802,34 +689,8 @@ where
         C: ViscaCommand + ViscaEncode + Send + Sync + Clone + 'static,
         C::Response: Send + 'static,
     {
-        use crate::command::response::ViscaResponse;
-
-        // Encode command using zero-copy path
-        let visca_bytes = match command.try_into_bytes(self.camera_id) {
-            Ok(bytes) => bytes,
-            Err(e) => return std::future::ready(Err(e)),
-        };
-
-        debug_assert!(
-            !visca_bytes.is_empty()
-                && visca_bytes[visca_bytes.len() - 1] == crate::command::bytes::VISCA_TERMINATOR
-        );
-
-        let kind = command.command_kind();
-        let is_inquiry = matches!(kind, crate::command::CommandKind::Inquiry);
-
-        let (request, _meta) = self.envelope.frame_bytes_with_kind_owned(
-            visca_bytes,
-            kind,
-            &self.envelope_buffer_manager,
-        );
-
-        let kind = if is_inquiry {
-            crate::command::CommandKind::Inquiry
-        } else {
-            crate::command::CommandKind::Command
-        };
-
+        // In blocking mode, send_command executes synchronously and returns a Ready future.
+        // We need to execute it, get the result, transform it, and wrap in a new Ready.
         let transport_cell = self.transport();
         let mut transport = match transport_cell.try_borrow_mut() {
             Ok(transport) => transport,
@@ -838,73 +699,21 @@ where
             }
         };
 
-        if let Err(e) = SyncTransport::send_with_kind(&mut *transport, &request, kind) {
-            return std::future::ready(Err(e));
-        }
-
-        let timeout_config = self.timeout_config();
-        let envelope = &self.envelope;
-
-        let visca_result = if !is_inquiry {
-            match SyncTransport::recv_with_timeout(&mut *transport, timeout_config.ack_timeout) {
-                Ok(first_response_bytes) => {
-                    match envelope.extract_with_meta_owned(first_response_bytes) {
-                        Ok((first_visca, _meta)) => match ViscaResponse::parse(&first_visca[..]) {
-                            Ok(ViscaResponse::Error(e)) => Err(e),
-                            Ok(ViscaResponse::CmdAck { .. }) => {
-                                let completion_timeout =
-                                    timeout_config.get_timeout(C::TIMEOUT_CATEGORY);
-                                match transport.recv_with_timeout(completion_timeout) {
-                                    Ok(second_response_bytes) => {
-                                        match envelope
-                                            .extract_with_meta_owned(second_response_bytes)
-                                        {
-                                            Ok((second_visca, _meta)) => {
-                                                match ViscaResponse::parse(&second_visca[..]) {
-                                                    Ok(response) => Ok(response),
-                                                    Err(e) => Err(e),
-                                                }
-                                            }
-                                            Err(e) => Err(e),
-                                        }
-                                    }
-                                    Err(e) => Err(e),
-                                }
-                            }
-                            Ok(response) => Ok(response),
-                            Err(e) => Err(e),
-                        },
-                        Err(e) => Err(e),
-                    }
-                }
-                Err(e) => Err(e),
-            }
-        } else {
-            let inquiry_timeout = timeout_config.get_timeout(C::TIMEOUT_CATEGORY);
-            match SyncTransport::recv_with_timeout(&mut *transport, inquiry_timeout) {
-                Ok(response_bytes) => match envelope.extract_with_meta_owned(response_bytes) {
-                    Ok((visca, _meta)) => {
-                        let parse_result = if let Some(response_type) = command.response_type() {
-                            ViscaResponse::parse_with_profile::<P>(&visca[..], &response_type)
-                        } else {
-                            ViscaResponse::parse(&visca[..])
-                        };
-
-                        match parse_result {
-                            Ok(response) => Ok(response),
-                            Err(e) => Err(e),
-                        }
-                    }
-                    Err(e) => Err(e),
-                },
-                Err(e) => Err(e),
+        let mut runner = match self.blocking_runner.try_borrow_mut() {
+            Ok(runner) => runner,
+            Err(_) => {
+                return std::future::ready(Err(Error::TransportBusy));
             }
         };
 
-        std::future::ready(match visca_result {
-            Ok(visca_response) => C::from_response(visca_response),
-            Err(e) => Err(e),
-        })
+        // Determine command category
+        let category = C::TIMEOUT_CATEGORY;
+
+        // Send command through BlockingRunner (works for both protocols)
+        match runner.send_command(&mut *transport, command, self.camera_id, category) {
+            Ok(response) => std::future::ready(C::from_response(response)),
+            Err(e) => std::future::ready(Err(e)),
+        }
     }
 }
 

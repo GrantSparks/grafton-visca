@@ -47,12 +47,6 @@ impl TransportEnvelope {
         }
     }
 
-    /// Get the protocol style.
-    #[cfg(not(feature = "async"))]
-    pub fn style(&self) -> &ProtocolStyle {
-        &self.style
-    }
-
     /// Frame VISCA bytes with an explicit command kind.
     ///
     /// This method replaces byte-heuristic detection with type-driven classification,

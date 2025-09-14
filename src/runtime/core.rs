@@ -529,6 +529,11 @@ impl SchedulerCore {
         }
     }
 
+    /// Set the timeout configuration.
+    pub fn set_timeout_config(&mut self, timeout_config: TimeoutConfig) {
+        self.timeout_config = timeout_config;
+    }
+
     /// Queue a command for execution.
     pub fn queue_command(&mut self, command: PendingCommand) {
         self.command_queue.push(command);
