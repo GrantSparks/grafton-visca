@@ -122,6 +122,7 @@ mod blocking_impl {
                 cmd.priority,
                 cmd.category,
                 cmd.camera_id,
+                cmd.kind,
                 self.now,
             );
         }
@@ -133,6 +134,7 @@ mod blocking_impl {
                 cmd.priority,
                 cmd.category,
                 cmd.camera_id,
+                cmd.kind,
                 self.now,
             );
         }

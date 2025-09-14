@@ -100,12 +100,8 @@ impl<P: Profile> BlockingRunner<P> {
 
         // Queue the command (both commands and inquiries use the unified path)
         let now = Instant::now();
-        // Determine kind from bytes
-        let kind = if visca_bytes.len() > 1 && visca_bytes[1] == 0x09 {
-            CommandKind::Inquiry
-        } else {
-            CommandKind::Command
-        };
+        // Get command kind from the command itself
+        let kind = command.command_kind();
         let pending_cmd = PendingCommand {
             id: cmd_id,
             bytes: visca_bytes.clone(),
@@ -182,12 +178,8 @@ impl<P: Profile> BlockingRunner<P> {
             // Check for retries
             let ready_retries = self.core.get_ready_retries(now);
             for retry in ready_retries {
-                // Determine command kind
-                let kind = if retry.bytes.len() > 1 && retry.bytes[1] == 0x09 {
-                    CommandKind::Inquiry
-                } else {
-                    CommandKind::Command
-                };
+                // Use the kind preserved from the original command
+                let kind = retry.kind;
 
                 // Use the shared driver for sending retries
                 let mut scheduler = BlockingScheduler {

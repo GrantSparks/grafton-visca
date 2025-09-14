@@ -202,12 +202,8 @@ pub async fn runtime_loop_with_config<
             );
 
             // Create pending command from retry
-            // Determine kind from bytes
-            let kind = if retry.bytes.len() > 1 && retry.bytes[1] == 0x09 {
-                CommandKind::Inquiry
-            } else {
-                CommandKind::Command
-            };
+            // Use the kind preserved from the original command
+            let kind = retry.kind;
             let pending_cmd = PendingCommand {
                 id: retry.id,
                 bytes: retry.bytes,

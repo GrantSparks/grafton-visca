@@ -158,6 +158,8 @@ pub struct RetryCommand {
     pub category: CommandCategory,
     /// Camera ID used to encode the command.
     pub camera_id: crate::camera_id::CameraId,
+    /// Command kind (Command vs Inquiry).
+    pub kind: CommandKind,
     /// Retry attempt number.
     pub attempt: u32,
     /// Maximum retries allowed.
@@ -467,6 +469,7 @@ pub struct SchedulerCore {
             Priority,
             CommandCategory,
             crate::camera_id::CameraId,
+            CommandKind,
         ),
     >,
     /// Track retry attempts for commands (command_id -> attempt_count).
@@ -590,6 +593,7 @@ impl SchedulerCore {
     }
 
     /// Register that a command was sent and is pending ACK.
+    #[allow(clippy::too_many_arguments)]
     pub fn register_pending_ack(
         &mut self,
         id: u32,
@@ -597,12 +601,13 @@ impl SchedulerCore {
         priority: Priority,
         category: CommandCategory,
         camera_id: crate::camera_id::CameraId,
+        kind: CommandKind,
         now: Instant,
     ) {
         self.pending_ack
             .insert(id, (bytes.clone(), priority, category, now, camera_id));
         self.command_metadata
-            .insert(id, (bytes, priority, category, camera_id));
+            .insert(id, (bytes, priority, category, camera_id, kind));
         debug!("Registered command {} as pending ACK", id);
     }
 
@@ -919,7 +924,7 @@ impl SchedulerCore {
                     self.finish_sequence(cmd_id);
                     // Extract metadata before removing it
                     let (category, camera_id) =
-                        if let Some((_, _, cat, cam_id)) = self.command_metadata.get(&cmd_id) {
+                        if let Some((_, _, cat, cam_id, _)) = self.command_metadata.get(&cmd_id) {
                             (*cat, *cam_id)
                         } else {
                             // Fallback for commands without metadata (shouldn't happen)
@@ -956,7 +961,7 @@ impl SchedulerCore {
                     self.finish_sequence(cmd_id);
                     // Extract metadata before removing it
                     let (category, camera_id) =
-                        if let Some((_, _, cat, cam_id)) = self.command_metadata.get(&cmd_id) {
+                        if let Some((_, _, cat, cam_id, _)) = self.command_metadata.get(&cmd_id) {
                             (*cat, *cam_id)
                         } else {
                             // Fallback for inquiries without metadata
@@ -1108,7 +1113,7 @@ impl SchedulerCore {
             let _should_remove_type = !self
                 .command_metadata
                 .get(&cmd_id)
-                .map(|(_, _, category, _)| {
+                .map(|(_, _, category, _, _)| {
                     let attempts = self.retry_attempts.get(&cmd_id).copied().unwrap_or(0);
                     let max_retries = self.retry_budget.for_category(*category);
                     attempts < max_retries
@@ -1119,7 +1124,7 @@ impl SchedulerCore {
             let should_retry = self
                 .command_metadata
                 .get(&cmd_id)
-                .map(|(_, _, category, _)| {
+                .map(|(_, _, category, _, _)| {
                     let attempts = self.retry_attempts.get(&cmd_id).copied().unwrap_or(0);
                     let max_retries = self.retry_budget.for_category(*category);
                     attempts < max_retries
@@ -1163,6 +1168,12 @@ impl SchedulerCore {
             if let Some((bytes, priority, category, _, camera_id)) =
                 self.pending_ack.remove(&cmd_id)
             {
+                // Get the kind from command_metadata
+                let kind = self
+                    .command_metadata
+                    .get(&cmd_id)
+                    .map(|(_, _, _, _, k)| *k)
+                    .unwrap_or(CommandKind::Command); // Default to Command if not found
                 if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
                     eprintln!(
                         "[SchedulerCore] ACK timeout: cmd_id={}, removed from pending_ack (count={})",
@@ -1222,7 +1233,7 @@ impl SchedulerCore {
 
                     // Ensure command metadata is preserved for retry
                     self.command_metadata
-                        .insert(cmd_id, (bytes.clone(), priority, category, camera_id));
+                        .insert(cmd_id, (bytes.clone(), priority, category, camera_id, kind));
 
                     // Calculate retry delay using RetryConfig to maintain consistency
                     // For ACK timeouts, we preserve the legacy timing by using a special calculation:
@@ -1239,6 +1250,7 @@ impl SchedulerCore {
                         priority,
                         category,
                         camera_id,
+                        kind,
                         attempt: attempts + 1,
                         max_retries,
                         retry_at: now + retry_delay,
@@ -1287,7 +1299,7 @@ impl SchedulerCore {
             let should_retry = self
                 .command_metadata
                 .get(&cmd_id)
-                .map(|(_, _, category, _)| {
+                .map(|(_, _, category, _, _)| {
                     let attempts = self.retry_attempts.get(&cmd_id).copied().unwrap_or(0);
                     let max_retries = self.retry_budget.for_category(*category);
                     attempts < max_retries
@@ -1414,8 +1426,10 @@ impl SchedulerCore {
             state.category = Some(category);
 
             // Store metadata for potential retry
-            self.command_metadata
-                .insert(target_id, (bytes, priority, category, camera_id));
+            self.command_metadata.insert(
+                target_id,
+                (bytes, priority, category, camera_id, CommandKind::Command),
+            );
 
             debug!(
                 "Assigned command {} to {:?} per camera ACK",
@@ -1429,6 +1443,7 @@ impl SchedulerCore {
     }
 
     /// Start tracking an inquiry (no socket allocation).
+    #[allow(clippy::too_many_arguments)]
     pub fn start_inquiry(
         &mut self,
         id: u32,
@@ -1436,11 +1451,12 @@ impl SchedulerCore {
         priority: Priority,
         category: CommandCategory,
         camera_id: crate::camera_id::CameraId,
+        kind: CommandKind,
         now: Instant,
     ) {
         // Store metadata for potential retry
         self.command_metadata
-            .insert(id, (bytes, priority, category, camera_id));
+            .insert(id, (bytes, priority, category, camera_id, kind));
 
         // Track the inquiry as in-flight
         self.inquiries_inflight.insert(id, (now, category));
@@ -1486,7 +1502,7 @@ impl SchedulerCore {
     pub fn camera_id_for_command(&self, id: u32) -> Option<crate::camera_id::CameraId> {
         self.command_metadata
             .get(&id)
-            .map(|(_, _, _, camera_id)| *camera_id)
+            .map(|(_, _, _, camera_id, _)| *camera_id)
     }
 
     pub(crate) fn find_socket_for_command(&self, cmd_id: u32) -> Option<ViscaSocket> {
@@ -1513,7 +1529,7 @@ impl SchedulerCore {
     }
 
     fn should_retry_command(&self, cmd_id: u32, error: &ViscaError) -> bool {
-        if let Some((_, _, category, _)) = self.command_metadata.get(&cmd_id) {
+        if let Some((_, _, category, _, _)) = self.command_metadata.get(&cmd_id) {
             if error.is_retryable(Some(*category)) {
                 let attempts = self.retry_attempts.get(&cmd_id).copied().unwrap_or(0);
                 let max_retries = self.retry_budget.for_category(*category);
@@ -1560,7 +1576,7 @@ impl SchedulerCore {
         cmd_id: u32,
         now: Instant,
     ) -> Option<SchedulerAction> {
-        if let Some((bytes, priority, category, camera_id)) =
+        if let Some((bytes, priority, category, camera_id, kind)) =
             self.command_metadata.get(&cmd_id).cloned()
         {
             // Free the socket if allocated
@@ -1602,6 +1618,7 @@ impl SchedulerCore {
                 priority,
                 category,
                 camera_id,
+                kind,
                 attempt: *attempt,
                 max_retries,
                 retry_at: now + delay,
@@ -1747,6 +1764,7 @@ mod tests {
             priority,
             CommandCategory::Movement,
             camera_id,
+            CommandKind::Command,
             now,
         );
         // Manually allocate socket 1 (simulating ACK received)
@@ -1764,6 +1782,7 @@ mod tests {
             priority,
             CommandCategory::Movement,
             camera_id,
+            CommandKind::Command,
             now,
         );
         // Manually allocate socket 2 (simulating ACK received)
@@ -1778,7 +1797,15 @@ mod tests {
         assert!(!core.can_send_command()); // Cannot send more commands
 
         // Start an inquiry - should not need a socket
-        core.start_inquiry(3, bytes.clone(), priority, category, camera_id, now);
+        core.start_inquiry(
+            3,
+            bytes.clone(),
+            priority,
+            category,
+            camera_id,
+            CommandKind::Inquiry,
+            now,
+        );
 
         // Verify inquiry is tracked
         assert!(core.inquiries_inflight.contains_key(&3));
@@ -1807,7 +1834,15 @@ mod tests {
         let camera_id = CameraId::CAMERA_1;
 
         // Start an inquiry
-        core.start_inquiry(1, bytes.clone(), priority, category, camera_id, now);
+        core.start_inquiry(
+            1,
+            bytes.clone(),
+            priority,
+            category,
+            camera_id,
+            CommandKind::Inquiry,
+            now,
+        );
 
         // Verify inquiry is tracked
         assert!(core.inquiries_inflight.contains_key(&1));
@@ -1860,9 +1895,33 @@ mod tests {
         let bytes2 = bytes::Bytes::from(vec![0x81, 0x09, 0x04, 0x00, VISCA_TERMINATOR]);
         let bytes3 = bytes::Bytes::from(vec![0x81, 0x09, 0x06, 0x12, VISCA_TERMINATOR]);
 
-        core.start_inquiry(1, bytes1, priority, category, camera_id, now);
-        core.start_inquiry(2, bytes2, priority, category, camera_id, now);
-        core.start_inquiry(3, bytes3, priority, category, camera_id, now);
+        core.start_inquiry(
+            1,
+            bytes1,
+            priority,
+            category,
+            camera_id,
+            CommandKind::Inquiry,
+            now,
+        );
+        core.start_inquiry(
+            2,
+            bytes2,
+            priority,
+            category,
+            camera_id,
+            CommandKind::Inquiry,
+            now,
+        );
+        core.start_inquiry(
+            3,
+            bytes3,
+            priority,
+            category,
+            camera_id,
+            CommandKind::Inquiry,
+            now,
+        );
 
         // Verify all inquiries are tracked in order
         assert_eq!(core.inquiries_order.len(), 3);
@@ -1913,6 +1972,7 @@ mod tests {
             priority,
             CommandCategory::Movement,
             camera_id,
+            CommandKind::Command,
             now,
         );
         core.register_sequence(1, 100); // Command 1 has sequence 100
@@ -1923,6 +1983,7 @@ mod tests {
             priority,
             CommandCategory::Movement,
             camera_id,
+            CommandKind::Command,
             now,
         );
         core.register_sequence(2, 101); // Command 2 has sequence 101
@@ -1981,7 +2042,15 @@ mod tests {
         let camera_id = CameraId::CAMERA_1;
 
         // Start an inquiry
-        core.start_inquiry(1, bytes.clone(), priority, category, camera_id, now);
+        core.start_inquiry(
+            1,
+            bytes.clone(),
+            priority,
+            category,
+            camera_id,
+            CommandKind::Inquiry,
+            now,
+        );
         assert!(core.inquiries_inflight.contains_key(&1));
 
         // Check timeout immediately - should not timeout
@@ -2016,7 +2085,15 @@ mod tests {
         core.retry_attempts.insert(1, 10); // Force max retries exceeded
 
         // Start inquiry again for the retry
-        core.start_inquiry(1, bytes.clone(), priority, category, camera_id, later);
+        core.start_inquiry(
+            1,
+            bytes.clone(),
+            priority,
+            category,
+            camera_id,
+            CommandKind::Inquiry,
+            later,
+        );
         assert!(core.inquiries_inflight.contains_key(&1));
 
         // Now timeout should fail
@@ -2049,7 +2126,15 @@ mod tests {
         let camera_id = CameraId::CAMERA_1;
 
         // Register command with initial sequence
-        core.register_pending_ack(1, bytes.clone(), priority, category, camera_id, now);
+        core.register_pending_ack(
+            1,
+            bytes.clone(),
+            priority,
+            category,
+            camera_id,
+            CommandKind::Command,
+            now,
+        );
         core.register_sequence(1, 100);
 
         // Verify initial sequence is tracked
@@ -2100,7 +2185,15 @@ mod tests {
         let camera_id = CameraId::CAMERA_1;
 
         // Register command with sequences from multiple retries
-        core.register_pending_ack(1, bytes.clone(), priority, category, camera_id, now);
+        core.register_pending_ack(
+            1,
+            bytes.clone(),
+            priority,
+            category,
+            camera_id,
+            CommandKind::Command,
+            now,
+        );
         core.register_sequence(1, 100);
         core.register_sequence(1, 101); // Retry 1
         core.register_sequence(1, 102); // Retry 2
@@ -2153,7 +2246,15 @@ mod tests {
         let camera_id = CameraId::CAMERA_1;
 
         // Register command
-        core.register_pending_ack(1, bytes.clone(), priority, category, camera_id, now);
+        core.register_pending_ack(
+            1,
+            bytes.clone(),
+            priority,
+            category,
+            camera_id,
+            CommandKind::Command,
+            now,
+        );
 
         // Register more than MAX_SEQUENCES_PER_CMD (8) sequences
         for seq in 100..110 {
@@ -2188,8 +2289,24 @@ mod tests {
         let bytes1 = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
         let bytes2 = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]);
 
-        core.register_pending_ack(1, bytes1.clone(), priority, category, camera_id, now);
-        core.register_pending_ack(2, bytes2.clone(), priority, category, camera_id, now);
+        core.register_pending_ack(
+            1,
+            bytes1.clone(),
+            priority,
+            category,
+            camera_id,
+            CommandKind::Command,
+            now,
+        );
+        core.register_pending_ack(
+            2,
+            bytes2.clone(),
+            priority,
+            category,
+            camera_id,
+            CommandKind::Command,
+            now,
+        );
 
         // Command 1 has sequences 100, 101 (retry)
         core.register_sequence(1, 100);
@@ -2244,7 +2361,15 @@ mod tests {
 
         // Register a command with a 32-bit sequence that has non-zero high 16 bits
         let full_sequence = 0x12345678u32; // High 16 bits: 0x1234, Low 16 bits: 0x5678
-        core.register_pending_ack(1, bytes.clone(), priority, category, camera_id, now);
+        core.register_pending_ack(
+            1,
+            bytes.clone(),
+            priority,
+            category,
+            camera_id,
+            CommandKind::Command,
+            now,
+        );
         core.register_sequence(1, full_sequence);
 
         // Verify that both 32-bit and 16-bit lookups work
@@ -2273,10 +2398,26 @@ mod tests {
         let bytes1 = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
         let bytes2 = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]);
 
-        core.register_pending_ack(1, bytes1, priority, category, camera_id, now);
+        core.register_pending_ack(
+            1,
+            bytes1,
+            priority,
+            category,
+            camera_id,
+            CommandKind::Command,
+            now,
+        );
         core.register_sequence(1, seq1);
 
-        core.register_pending_ack(2, bytes2, priority, category, camera_id, now);
+        core.register_pending_ack(
+            2,
+            bytes2,
+            priority,
+            category,
+            camera_id,
+            CommandKind::Command,
+            now,
+        );
         core.register_sequence(2, seq2);
 
         // Both 32-bit sequences should work
@@ -2301,7 +2442,15 @@ mod tests {
 
         // Register a command with sequence
         let sequence = 0x12345678u32;
-        core.register_pending_ack(1, bytes, priority, category, camera_id, now);
+        core.register_pending_ack(
+            1,
+            bytes,
+            priority,
+            category,
+            camera_id,
+            CommandKind::Command,
+            now,
+        );
         core.register_sequence(1, sequence);
 
         // Verify both mappings exist
@@ -2336,8 +2485,24 @@ mod tests {
         let power_bytes = bytes::Bytes::from(vec![0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR]);
         let zoom_bytes = bytes::Bytes::from(vec![0x81, 0x09, 0x04, 0x47, VISCA_TERMINATOR]);
 
-        core.start_inquiry(1, power_bytes, priority, category, camera_id, now);
-        core.start_inquiry(2, zoom_bytes, priority, category, camera_id, now);
+        core.start_inquiry(
+            1,
+            power_bytes,
+            priority,
+            category,
+            camera_id,
+            CommandKind::Inquiry,
+            now,
+        );
+        core.start_inquiry(
+            2,
+            zoom_bytes,
+            priority,
+            category,
+            camera_id,
+            CommandKind::Inquiry,
+            now,
+        );
 
         // Verify both are tracked
         assert_eq!(core.inquiries_order.len(), 2);
@@ -2428,6 +2593,7 @@ mod tests {
             Priority::Normal,
             CommandCategory::Movement,
             CameraId::CAMERA_1,
+            CommandKind::Command,
             now,
         );
 
@@ -2476,6 +2642,7 @@ mod tests {
             Priority::Normal,
             CommandCategory::Movement,
             CameraId::CAMERA_1,
+            CommandKind::Command,
             now,
         );
 
@@ -2529,6 +2696,7 @@ mod tests {
             Priority::Normal,
             CommandCategory::Movement,
             CameraId::CAMERA_1,
+            CommandKind::Command,
             now,
         );
 
@@ -2577,6 +2745,7 @@ mod tests {
                 Priority::Normal,
                 CommandCategory::Movement,
                 CameraId::CAMERA_1,
+                CommandKind::Command,
                 now,
             );
 
@@ -2611,6 +2780,7 @@ mod tests {
             Priority::Normal,
             CommandCategory::Movement,
             CameraId::CAMERA_1,
+            CommandKind::Command,
             now,
         );
 
@@ -2645,6 +2815,7 @@ mod tests {
             Priority::Normal,
             CommandCategory::Movement,
             CameraId::CAMERA_1,
+            CommandKind::Command,
             now,
         );
         core.register_pending_ack(
@@ -2653,6 +2824,7 @@ mod tests {
             Priority::Normal,
             CommandCategory::Movement,
             CameraId::CAMERA_1,
+            CommandKind::Command,
             now,
         );
 
@@ -2696,6 +2868,7 @@ mod tests {
                 Priority::Normal,
                 CommandCategory::Movement,
                 CameraId::CAMERA_1,
+                CommandKind::Command,
                 now,
             );
         }
@@ -2750,6 +2923,7 @@ mod tests {
             Priority::Normal,
             CommandCategory::Movement,
             CameraId::CAMERA_1,
+            CommandKind::Command,
             now,
         );
         core.register_pending_ack(
@@ -2758,6 +2932,7 @@ mod tests {
             Priority::Normal,
             CommandCategory::Movement,
             CameraId::CAMERA_1,
+            CommandKind::Command,
             now,
         );
 
@@ -2784,5 +2959,83 @@ mod tests {
         let (free, cmd_id, _) = core.socket_state(ViscaSocket::S2);
         assert!(!free, "S2 should be occupied");
         assert_eq!(cmd_id, Some(2), "Command 2 should be on S2 (fallback)");
+    }
+
+    #[test]
+    fn test_command_kind_preserved_through_retries() {
+        let mut core = SchedulerCore::new(TimeoutConfig::default());
+        let now = Instant::now();
+
+        // Test case: A Command with bytes[1] == 0x09 (synthetic vendor command)
+        // This would have been misclassified as Inquiry by the old heuristic
+        let vendor_command_bytes =
+            bytes::Bytes::from(vec![0x81, 0x09, 0x04, 0x00, 0x01, VISCA_TERMINATOR]);
+        let cmd_id = 1;
+
+        // Register as Command explicitly
+        core.register_pending_ack(
+            cmd_id,
+            vendor_command_bytes.clone(),
+            Priority::Normal,
+            CommandCategory::Movement,
+            CameraId::CAMERA_1,
+            CommandKind::Command, // Explicitly a Command despite bytes[1] == 0x09
+            now,
+        );
+
+        // Mark as transport error and queue retry
+        core.mark_retry_as_transport_error(cmd_id);
+        let action = core.queue_retry_for_command(cmd_id, now);
+
+        // Should get a retry action
+        assert!(matches!(action, Some(SchedulerAction::RetryCommand { .. })));
+
+        // Get the retry and verify the kind is preserved
+        let retries = core.get_ready_retries(now + Duration::from_millis(200));
+        assert_eq!(retries.len(), 1);
+        let retry = &retries[0];
+
+        // The key assertion: kind should be Command, not Inquiry
+        // This verifies that we no longer use the bytes[1] == 0x09 heuristic
+        assert_eq!(retry.kind, CommandKind::Command);
+        assert_eq!(retry.id, cmd_id);
+        assert_eq!(retry.bytes, vendor_command_bytes);
+
+        // Test case 2: A normal Inquiry to ensure it also preserves correctly
+        let mut core2 = SchedulerCore::new(TimeoutConfig::default());
+        let inquiry_bytes =
+            bytes::Bytes::from(vec![0x81, 0x09, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
+        let inquiry_id = 2;
+
+        // Start as inquiry
+        core2.start_inquiry(
+            inquiry_id,
+            inquiry_bytes.clone(),
+            Priority::Normal,
+            CommandCategory::Quick,
+            CameraId::CAMERA_1,
+            CommandKind::Inquiry,
+            now,
+        );
+
+        // Mark as transport error and queue retry
+        core2.mark_retry_as_transport_error(inquiry_id);
+        let inquiry_action = core2.queue_retry_for_command(inquiry_id, now);
+
+        // Should get a retry action
+        assert!(matches!(
+            inquiry_action,
+            Some(SchedulerAction::RetryCommand { .. })
+        ));
+
+        // Get the retry and verify inquiry kind is preserved
+        let inquiry_retries = core2.get_ready_retries(now + Duration::from_millis(200));
+        assert_eq!(inquiry_retries.len(), 1);
+        let inquiry_retry = &inquiry_retries[0];
+
+        // Verify Inquiry kind is preserved
+        assert_eq!(inquiry_retry.kind, CommandKind::Inquiry);
+        assert_eq!(inquiry_retry.id, inquiry_id);
+        assert_eq!(inquiry_retry.bytes, inquiry_bytes);
     }
 }

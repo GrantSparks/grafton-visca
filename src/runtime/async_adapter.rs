@@ -241,6 +241,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
             cmd.priority,
             cmd.category,
             cmd.camera_id,
+            cmd.kind,
             now,
         );
     }
@@ -254,6 +255,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
             cmd.priority,
             cmd.category,
             cmd.camera_id,
+            cmd.kind,
             now,
         );
     }
