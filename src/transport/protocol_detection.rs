@@ -73,7 +73,6 @@ pub enum TransportProtocol {
 /// Protocol detector for automatic VISCA protocol detection
 #[derive(Debug, Clone, Copy)]
 pub struct ProtocolDetector {
-    #[cfg_attr(not(feature = "async"), allow(dead_code))]
     retry_config: RetryConfig,
 }
 

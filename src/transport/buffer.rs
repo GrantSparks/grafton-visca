@@ -109,22 +109,6 @@ impl BufferManager {
         self.config
     }
 
-    /// Create a new buffer manager with default configuration.
-    /// Only available in tests to simplify test setup.
-    #[cfg(all(
-        test,
-        any(
-            not(feature = "async"),
-            feature = "rt-tokio",
-            feature = "rt-async-std",
-            feature = "rt-smol"
-        )
-    ))]
-    #[allow(dead_code)]
-    pub fn with_defaults() -> Self {
-        Self::new(BufferConfig::default())
-    }
-
     /// Allocate a new receive buffer.
     /// Only used by blocking transports that need BytesMut for receive operations.
     #[cfg(all(not(feature = "async"), test))]
@@ -167,15 +151,6 @@ impl BufferManager {
         }
     }
 
-    /// Process received data from a mutable reference (fallback for when we can't take ownership).
-    /// Used by blocking transports that need to reuse buffers.
-    #[cfg(not(feature = "async"))]
-    #[allow(dead_code)] // Kept for compatibility but not used in current implementation
-    pub fn process_recv_data_borrowed(&self, buffer: &mut Vec<u8>, received: usize) -> Bytes {
-        buffer.truncate(received);
-        Bytes::copy_from_slice(buffer) // Only when we can't take ownership
-    }
-
     /// Convert a Vec<u8> buffer to Bytes after receiving data (zero-copy conversion).
     /// Used by blocking transports that can take ownership of the buffer.
     #[cfg(not(feature = "async"))]
@@ -215,7 +190,7 @@ mod tests {
     #[cfg(not(feature = "async"))]
     #[test]
     fn test_buffer_manager_allocation() {
-        let manager = BufferManager::with_defaults();
+        let manager = BufferManager::new(BufferConfig::default());
 
         let recv_buf = manager.alloc_recv_buffer();
         assert_eq!(recv_buf.capacity(), DEFAULT_BUFFER_SIZE);
@@ -227,7 +202,7 @@ mod tests {
     #[cfg(not(feature = "async"))]
     #[test]
     fn test_buffer_resize() {
-        let manager = BufferManager::with_defaults();
+        let manager = BufferManager::new(BufferConfig::default());
         let mut buffer = manager.alloc_recv_buffer();
 
         // Initial capacity should be DEFAULT_BUFFER_SIZE (128)
@@ -251,7 +226,7 @@ mod tests {
     #[cfg(not(feature = "async"))]
     #[test]
     fn test_buffer_reset() {
-        let manager = BufferManager::with_defaults();
+        let manager = BufferManager::new(BufferConfig::default());
         let mut buffer = manager.alloc_recv_buffer();
 
         // Add some data
@@ -261,21 +236,5 @@ mod tests {
         // Reset should clear the buffer
         manager.reset_buffer(&mut buffer);
         assert!(buffer.is_empty());
-    }
-
-    #[cfg(not(feature = "async"))]
-    #[test]
-    fn test_process_recv_data_borrowed() {
-        let manager = BufferManager::with_defaults();
-        let mut buffer = vec![0u8; 10];
-        buffer[0] = 0x81;
-        buffer[1] = 0x01;
-        buffer[2] = 0xFF;
-
-        let result = manager.process_recv_data_borrowed(&mut buffer, 3);
-        assert_eq!(result.len(), 3);
-        assert_eq!(result[0], 0x81);
-        assert_eq!(result[1], 0x01);
-        assert_eq!(result[2], 0xFF);
     }
 }

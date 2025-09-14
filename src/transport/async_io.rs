@@ -4,7 +4,6 @@
 //! to reduce code duplication while maintaining zero-cost abstractions.
 
 use std::future::Future;
-use std::time::Duration;
 
 use crate::{transport::builder::TransportConfig, Error};
 
@@ -64,9 +63,6 @@ pub async fn write_all_flush<W: AsyncWriteExt>(writer: &mut W, data: &[u8]) -> R
 /// Configuration for TCP connection behavior.
 #[derive(Debug, Clone)]
 pub struct TcpConnectionConfig {
-    /// Connection timeout duration
-    #[allow(dead_code)] // Kept for API compatibility, timeout is now handled at Runtime level
-    pub connect_timeout: Duration,
     /// Whether to enable TCP_NODELAY (Nagle's algorithm disable)
     pub nodelay: Option<bool>,
     /// Time-to-live for packets
@@ -76,7 +72,6 @@ pub struct TcpConnectionConfig {
 impl Default for TcpConnectionConfig {
     fn default() -> Self {
         Self {
-            connect_timeout: Duration::from_secs(5),
             nodelay: Some(true), // Default to low latency
             ttl: None,
         }
@@ -86,7 +81,6 @@ impl Default for TcpConnectionConfig {
 impl From<TransportConfig> for TcpConnectionConfig {
     fn from(config: TransportConfig) -> Self {
         Self {
-            connect_timeout: config.connect_timeout,
             nodelay: config.tcp_nodelay,
             ttl: config.ttl,
         }

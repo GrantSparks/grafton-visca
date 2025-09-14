@@ -251,8 +251,7 @@ pub mod async_handshake {
 }
 
 // Blocking handshake functions
-#[cfg(feature = "serialport")]
-#[allow(dead_code)] // Functions are used but clippy reports false positives with feature combinations
+#[cfg(all(not(feature = "async"), feature = "serialport"))]
 pub mod blocking_handshake {
     use super::*;
     use std::{

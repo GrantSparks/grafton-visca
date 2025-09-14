@@ -200,7 +200,6 @@ where
     P: Profile,
     Exec: Executor,
 {
-    #[allow(dead_code)]
     pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
         Self { camera }
     }
@@ -757,7 +756,6 @@ where
     P: Profile,
     Exec: Executor,
 {
-    #[allow(dead_code)]
     pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
         Self { camera }
     }
@@ -1269,7 +1267,7 @@ where
     P: Profile,
     Exec: Executor,
 {
-    #[allow(dead_code)]
+    #[cfg(feature = "async")]
     pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
         Self { camera }
     }
@@ -1316,7 +1314,7 @@ where
     P: Profile,
     Exec: Executor,
 {
-    #[allow(dead_code)]
+    #[cfg(feature = "async")]
     pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
         Self { camera }
     }
@@ -1447,7 +1445,7 @@ where
     P: Profile,
     Exec: Executor,
 {
-    #[allow(dead_code)]
+    #[cfg(feature = "async")]
     pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
         Self { camera }
     }

@@ -48,7 +48,7 @@ pub mod address;
 #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
 pub(crate) mod async_io;
 // Generic async transport implementations (require runtime for BufferManager methods)
-#[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
+#[cfg(feature = "tokio-serial")]
 pub(crate) mod async_serial;
 #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
 pub(crate) mod async_tcp;
