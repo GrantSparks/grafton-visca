@@ -8,6 +8,20 @@
 
 #[cfg(any(
     feature = "tokio-serial",
+    all(not(feature = "async"), feature = "serialport"),
+    test
+))]
+use tracing::{debug, trace};
+
+#[cfg(any(
+    feature = "tokio-serial",
+    all(not(feature = "async"), feature = "serialport"),
+    test
+))]
+use crate::command::bytes::VISCA_TERMINATOR;
+
+#[cfg(any(
+    feature = "tokio-serial",
     all(not(feature = "async"), feature = "serialport")
 ))]
 use std::time::Duration;
@@ -16,7 +30,7 @@ use std::time::Duration;
     feature = "tokio-serial",
     all(not(feature = "async"), feature = "serialport")
 ))]
-use tracing::{debug, trace, warn};
+use tracing::warn;
 
 #[cfg(any(
     feature = "tokio-serial",
@@ -25,7 +39,6 @@ use tracing::{debug, trace, warn};
 use crate::{
     camera_id::CameraId,
     command::{
-        bytes::VISCA_TERMINATOR,
         encode_visca::ViscaEncode,
         system::{AddressSetCommand, InterfaceClearCommand},
     },
