@@ -989,10 +989,17 @@ impl SchedulerCore {
                 } else if let Some(socket) = socket {
                     self.find_command_on_socket(socket)
                 } else {
-                    None
+                    // For error responses without socket assignment (e.g., immediate syntax errors),
+                    // check the pending_ack queue for the most recent command
+                    self.pending_ack
+                        .iter()
+                        .min_by_key(|(_, (_, _, _, sent_time, _))| *sent_time)
+                        .map(|(id, _)| *id)
                 };
 
                 if let Some(cmd_id) = resolved_cmd_id {
+                    // Remove from pending_ack if it's there (for immediate errors without ACK)
+                    self.pending_ack.remove(&cmd_id);
                     // Check if this is an inquiry
                     let is_inquiry = self.inquiries_inflight.contains_key(&cmd_id);
 

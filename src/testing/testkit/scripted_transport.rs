@@ -812,10 +812,12 @@ pub mod helpers {
         use super::{Step, VISCA_TERMINATOR};
         use crate::Error;
 
-        pub fn syntax_error(socket: u8) -> Step {
+        pub fn syntax_error(_socket: u8) -> Step {
+            // Syntax errors come without ACK, so they don't have socket assignment
+            // Per VISCA spec, immediate errors use 0x60 without socket bits
             Step::OnSend {
                 matches: None,
-                responses: vec![vec![0x90, 0x60 | socket, 0x02, VISCA_TERMINATOR]],
+                responses: vec![vec![0x90, 0x60, 0x02, VISCA_TERMINATOR]],
             }
         }
 
