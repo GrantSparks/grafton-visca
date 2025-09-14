@@ -1,6 +1,6 @@
 //! Async runner for the protocol detection state machine.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::{
     capabilities::ProtocolStyle,
@@ -40,7 +40,7 @@ where
     let mut scratch = vec![0u8; buffer_config.recv_buffer_size];
 
     loop {
-        let now = Instant::now();
+        let now = executor.now();
         match core.next_action(now) {
             Action::SendInquiry => {
                 debug!(
@@ -53,14 +53,14 @@ where
                 if let Err(e) = transport.send(&inquiry).await {
                     debug!("Failed to send detection command: {}", e);
                     // Move to next try
-                    core.on_deadline(now);
+                    core.on_deadline(executor.now());
                 }
             }
             Action::RecvUntil(deadline) => {
-                let remaining = deadline.saturating_duration_since(Instant::now());
+                let remaining = deadline.saturating_duration_since(executor.now());
                 if remaining.is_zero() {
                     // Already past deadline
-                    match core.on_deadline(Instant::now()) {
+                    match core.on_deadline(executor.now()) {
                         Action::Pause(d) if !d.is_zero() => {
                             executor.sleep(d).await;
                             core.resume_after_pause();
@@ -72,33 +72,14 @@ where
                     continue;
                 }
 
-                // Race recv vs sleep using futures_lite
-                use futures_lite::future;
-
-                // Define operation type for clarity
-                enum Op {
-                    Recv(usize),
-                    Timeout,
-                }
-
-                let op = future::race(
-                    async {
-                        match transport.recv_into(&mut scratch).await {
-                            Ok(n) => Op::Recv(n),
-                            Err(_) => Op::Timeout, // Treat any recv error as timeout
-                        }
-                    },
-                    async {
-                        executor.sleep(remaining).await;
-                        Op::Timeout
-                    },
-                )
-                .await;
-
-                match op {
-                    Op::Recv(n) if n > 0 => {
-                        // Received data - fix the slice from [.n] to [..n]
-                        if let Some(next) = core.on_recv(&scratch[..n], Instant::now()) {
+                // Use executor's timeout abstraction
+                match executor
+                    .timeout(remaining, transport.recv_into(&mut scratch))
+                    .await
+                {
+                    Ok(Ok(n)) if n > 0 => {
+                        // Received data successfully
+                        if let Some(next) = core.on_recv(&scratch[..n], executor.now()) {
                             match next {
                                 Action::Done(res) => return Ok(res),
                                 Action::NoResponse => return Ok(DetectionResult::NoResponse),
@@ -111,9 +92,9 @@ where
                         }
                         // Continue receiving if no action returned
                     }
-                    Op::Recv(_) | Op::Timeout => {
-                        // Timeout, error, or zero bytes received
-                        match core.on_deadline(Instant::now()) {
+                    Ok(Ok(_)) | Err(Error::Timeout) => {
+                        // Zero bytes received or timeout
+                        match core.on_deadline(executor.now()) {
                             Action::Pause(d) if !d.is_zero() => {
                                 executor.sleep(d).await;
                                 core.resume_after_pause();
@@ -123,6 +104,33 @@ where
                             _ => {}
                         }
                     }
+                    Ok(Err(e)) => {
+                        // Transport error (non-timeout)
+                        debug!("Transport error during detection: {}", e);
+                        match core.on_deadline(executor.now()) {
+                            Action::Pause(d) if !d.is_zero() => {
+                                executor.sleep(d).await;
+                                core.resume_after_pause();
+                            }
+                            Action::Done(res) => return Ok(res),
+                            Action::NoResponse => return Ok(DetectionResult::NoResponse),
+                            _ => {}
+                        }
+                    }
+                    Err(e) if !matches!(e, Error::Timeout) => {
+                        // Unexpected error from executor.timeout itself
+                        debug!("Executor timeout error: {}", e);
+                        match core.on_deadline(executor.now()) {
+                            Action::Pause(d) if !d.is_zero() => {
+                                executor.sleep(d).await;
+                                core.resume_after_pause();
+                            }
+                            Action::Done(res) => return Ok(res),
+                            Action::NoResponse => return Ok(DetectionResult::NoResponse),
+                            _ => {}
+                        }
+                    }
+                    _ => unreachable!("Handled all timeout error cases"),
                 }
             }
             Action::Pause(d) => {

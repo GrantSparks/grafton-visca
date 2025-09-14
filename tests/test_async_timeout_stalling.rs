@@ -12,7 +12,7 @@ use grafton_visca::{
     prelude::advanced::ProtocolStyle,
     testing::testkit::{deterministic_executor::DeterministicExecutor, ScriptedTransport, Step},
     timeout::TimeoutConfig,
-    Error, ZoomControl,
+    Error, Executor, ZoomControl,
 };
 
 /// Minimal standalone repro test for timeout stalling.
@@ -42,7 +42,7 @@ fn test_command_timeout_completes_deterministically() {
     let exec = executor.clone();
     let clock_clone = clock.clone();
 
-    executor.block_on_bg(async move {
+    executor.block_on(async move {
         // Create camera with timeout configuration
         let camera =
             grafton_visca::camera::builder::CameraBuilder::<DeterministicExecutor>::with_executor(
@@ -111,7 +111,7 @@ fn test_multiple_timeouts_no_starvation() {
     let exec = executor.clone();
     let clock_clone = clock.clone();
 
-    executor.block_on_bg(async move {
+    executor.block_on(async move {
         let camera =
             grafton_visca::camera::builder::CameraBuilder::<DeterministicExecutor>::with_executor(
                 exec.clone(),
@@ -174,7 +174,7 @@ fn test_shutdown_with_pending_timeouts() {
 
     let exec = executor.clone();
 
-    executor.block_on_bg(async move {
+    executor.block_on(async move {
         let camera =
             grafton_visca::camera::builder::CameraBuilder::<DeterministicExecutor>::with_executor(
                 exec.clone(),

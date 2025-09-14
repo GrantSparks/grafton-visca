@@ -10,7 +10,7 @@ use grafton_visca::{
         scripted_transport::{ScriptedTransport, Step},
         DeterministicExecutor,
     },
-    ViscaSocket,
+    Executor, ViscaSocket,
 };
 
 // Standard library
@@ -47,7 +47,7 @@ fn test_cancel_command_by_id() {
     let executor_clone = executor.clone();
 
     // Use block_on_bg to run the test with background tasks
-    executor.clone().block_on_bg(async move {
+    executor.clone().block_on(async move {
         use grafton_visca::camera::profiles::PtzOpticsG2;
 
         // Create camera
@@ -129,7 +129,7 @@ fn test_cancel_socket_directly() {
     let clock_clone = clock.clone();
 
     // Use block_on_bg to handle background tasks
-    executor.clone().block_on_bg(async move {
+    executor.clone().block_on(async move {
         use grafton_visca::camera::profiles::PtzOpticsG2;
 
         // Create camera
@@ -193,7 +193,7 @@ fn test_cancel_nonexistent_command() {
     let clock_clone = clock.clone();
 
     // Use block_on_bg to handle background tasks
-    executor.clone().block_on_bg(async move {
+    executor.clone().block_on(async move {
         use grafton_visca::camera::profiles::PtzOpticsG2;
 
         // Create camera
@@ -242,7 +242,7 @@ fn test_cancel_during_movement() {
     let clock_clone = clock.clone();
 
     // Use block_on_bg to handle background tasks
-    executor.clone().block_on_bg(async move {
+    executor.clone().block_on(async move {
         use grafton_visca::camera::profiles::PtzOpticsG2;
 
         // Create camera

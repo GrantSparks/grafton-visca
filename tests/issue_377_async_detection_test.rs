@@ -9,11 +9,12 @@
 #![cfg(all(feature = "async", feature = "test-utils"))]
 
 use grafton_visca::{
-    testing::testkit::{DeterministicExecutor, DeterministicExecutorExt, ScriptedTransport, Step},
+    testing::testkit::{DeterministicExecutor, ScriptedTransport, Step},
     transport::{
         protocol_detection::{DetectionResult, ProtocolDetector},
         RetryConfig,
     },
+    Executor,
 };
 use std::time::Duration;
 
@@ -24,7 +25,7 @@ fn test_async_detect_sony_encapsulated_with_deterministic_executor() {
     let (executor, clock) = DeterministicExecutor::new();
     let exec_clone = executor.clone();
 
-    executor.block_on_bg(async move {
+    executor.block_on(async move {
         let mut transport: ScriptedTransport<DeterministicExecutor> =
             ScriptedTransport::new(vec![Step::OnSend {
                 // Sony-wrapped version inquiry
@@ -68,7 +69,7 @@ fn test_async_detect_raw_visca_with_deterministic_executor() {
     let exec_clone = executor.clone();
     let clock_clone = clock.clone();
 
-    executor.block_on_bg(async move {
+    executor.block_on(async move {
         let mut transport: ScriptedTransport<DeterministicExecutor> = ScriptedTransport::new(vec![
             Step::OnSend {
                 // Sony encapsulated attempt (fails)
@@ -124,7 +125,7 @@ fn test_async_detect_no_response_with_backoff() {
     let exec_clone = executor.clone();
     let clock_clone = clock.clone();
 
-    executor.block_on_bg(async move {
+    executor.block_on(async move {
         let mut transport: ScriptedTransport<DeterministicExecutor> =
             ScriptedTransport::new(vec![Step::OnSend {
                 matches: None,     // Match any send
@@ -168,7 +169,7 @@ fn test_async_detect_race_semantics() {
     let clock_clone = clock.clone();
 
     // Test case 1: recv wins the race
-    exec_clone.block_on_bg(async move {
+    exec_clone.block_on(async move {
         let mut transport: ScriptedTransport<DeterministicExecutor> =
             ScriptedTransport::new(vec![Step::OnSend {
                 matches: None,
@@ -206,7 +207,7 @@ fn test_async_detect_race_semantics() {
     let exec_clone3 = executor.clone();
     let clock_clone2 = clock.clone();
 
-    executor.block_on_bg(async move {
+    executor.block_on(async move {
         let mut transport: ScriptedTransport<DeterministicExecutor> =
             ScriptedTransport::new(vec![Step::OnSend {
                 matches: None,

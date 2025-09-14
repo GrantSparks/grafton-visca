@@ -43,7 +43,7 @@ fn test_cancel_uses_correct_camera_id() {
     let transport = ScriptedTransport::new(steps).with_executor(executor.clone());
     let executor_clone = executor.clone();
 
-    executor.clone().block_on_bg(async move {
+    executor.clone().block_on(async move {
         use grafton_visca::camera::profiles::PtzOpticsG2;
 
         // Build camera with custom camera ID 4
@@ -113,7 +113,7 @@ fn test_multiple_cameras_cancel_with_own_ids() {
     let transport = ScriptedTransport::new(steps).with_executor(executor.clone());
     let executor_clone = executor.clone();
 
-    executor.clone().block_on_bg(async move {
+    executor.clone().block_on(async move {
         use grafton_visca::camera::profiles::PtzOpticsG2;
 
         // Create first camera with ID 2
@@ -200,7 +200,7 @@ fn test_cancel_socket_uses_correct_camera_id() {
     let transport = ScriptedTransport::new(steps).with_executor(executor.clone());
     let executor_clone = executor.clone();
 
-    executor.clone().block_on_bg(async move {
+    executor.clone().block_on(async move {
         use grafton_visca::camera::profiles::PtzOpticsG2;
 
         // Build camera with camera ID 5
