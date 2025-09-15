@@ -5,13 +5,9 @@ use std::time::{Duration, Instant};
 use crate::{
     capabilities::ProtocolStyle,
     command::CommandKind,
-    protocol::{
-        detect::core::{Action, DetectorCore},
-        framer::ProtocolFramer,
-    },
+    protocol::detect::core::{Action, DetectorCore},
     transport::{
-        buffer::BufferConfig, envelope::TransportEnvelope, protocol_detection::DetectionResult,
-        RetryConfig, SyncTransport,
+        buffer::BufferConfig, protocol_detection::DetectionResult, RetryConfig, SyncTransport,
     },
     Error,
 };
@@ -38,9 +34,7 @@ where
     // Build the inquiry frame once
     let inquiry = core.build_inquiry_frame();
 
-    // Create a framer and envelope for processing responses
-    let mut framer = ProtocolFramer::new_with_config(buffer_config);
-    let envelope = TransportEnvelope::new(protocol_style);
+    // Buffer for receiving raw bytes from transport
     let mut read_buf = vec![0u8; buffer_config.recv_buffer_size];
 
     loop {
@@ -92,46 +86,19 @@ where
                         }
                     }
                     Ok(n) => {
-                        // Received some data
-                        // Push received bytes into framer
-                        if let Err(e) = framer.push_slice(&read_buf[..n]) {
-                            debug!("Framer error: {}", e);
-                            continue;
-                        }
-
-                        // Try to extract frames
-                        for frame_result in framer.drain_frames() {
-                            let frame = match frame_result {
-                                Ok(frame) => frame,
-                                Err(e) => {
-                                    debug!("Failed to extract frame: {}", e);
-                                    continue;
+                        // Received some data - pass raw bytes directly to core
+                        if let Some(next) = core.on_recv(&read_buf[..n], Instant::now()) {
+                            match next {
+                                Action::Done(res) => return Ok(res),
+                                Action::NoResponse => return Ok(DetectionResult::NoResponse),
+                                Action::Pause(d) if !d.is_zero() => {
+                                    std::thread::sleep(d);
+                                    core.resume_after_pause();
                                 }
-                            };
-
-                            // Extract payload from envelope
-                            let (payload, _meta) = match envelope.extract_with_meta_owned(frame) {
-                                Ok(result) => result,
-                                Err(e) => {
-                                    debug!("Failed to extract payload: {}", e);
-                                    continue;
-                                }
-                            };
-
-                            // Process received payload
-                            if let Some(next) = core.on_recv(&payload, Instant::now()) {
-                                match next {
-                                    Action::Done(res) => return Ok(res),
-                                    Action::NoResponse => return Ok(DetectionResult::NoResponse),
-                                    Action::Pause(d) if !d.is_zero() => {
-                                        std::thread::sleep(d);
-                                        core.resume_after_pause();
-                                    }
-                                    _ => {}
-                                }
+                                _ => {}
                             }
                         }
-                        // Continue receiving if no complete frame yet
+                        // Continue receiving if no action returned
                     }
                     Err(Error::Timeout) => {
                         // Timeout expired
