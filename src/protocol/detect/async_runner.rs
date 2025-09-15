@@ -33,9 +33,6 @@ where
     // Create the detector core
     let mut core = DetectorCore::new(protocol_style, buffer_config, retry_config, timeout);
 
-    // Build the inquiry frame once
-    let inquiry = core.build_inquiry_frame();
-
     // Scratch buffer for receiving - honor the configured buffer size
     let mut scratch = vec![0u8; buffer_config.recv_buffer_size];
 
@@ -43,13 +40,15 @@ where
         let now = executor.now();
         match core.next_action(now) {
             Action::SendInquiry => {
+                // Build with a fresh Sony sequence each try
+                let inquiry = core.build_inquiry_frame();
                 debug!(
                     "Sending {} bytes for {:?} detection",
                     inquiry.len(),
                     protocol_style
                 );
 
-                // Send the pre-built inquiry
+                // Send the inquiry
                 if let Err(e) = transport.send(&inquiry).await {
                     debug!("Failed to send detection command: {}", e);
                     // Move to next try
