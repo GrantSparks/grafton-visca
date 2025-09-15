@@ -15,7 +15,7 @@ use crate::{
     transport::{buffer::BufferConfig, RetryConfig},
 };
 
-use crate::{command::bytes::VISCA_TERMINATOR, Error};
+use crate::Error;
 
 #[cfg(feature = "async")]
 use crate::{executor::Executor, transport::AsyncTransport};
@@ -96,8 +96,13 @@ impl ProtocolDetector {
 
     /// Generate detection candidates based on the provided address
     ///
-    /// If a port is specified in the address, it will be used to filter candidates.
-    /// Otherwise, all default ports will be tried.
+    /// This follows the canonical port-to-protocol mapping:
+    /// - Port 52381: UDP only, Sony encapsulated (8-byte header)
+    /// - Port 1259: UDP only, Raw VISCA (no header)
+    /// - Port 5678: TCP only, Raw VISCA (no header)
+    ///
+    /// When a port is specified, only the valid candidate for that port is generated.
+    /// When no port is specified, all three canonical combinations are tried.
     pub fn generate_candidates(address: &str) -> Vec<DetectionCandidate> {
         // Parse address to see if a port is specified
         let port_specified = if let Some(colon_pos) = address.rfind(':') {
@@ -108,110 +113,80 @@ impl ProtocolDetector {
 
         let mut candidates = Vec::new();
 
-        if let Some(port) = port_specified {
-            // User specified a port - try both protocol styles on that port
-            if port == 52381 {
-                // Sony default port - prioritize Sony encapsulated
+        match port_specified {
+            Some(52381) => {
+                // Sony port: UDP only with Sony encapsulated protocol
                 candidates.push(DetectionCandidate {
                     protocol: TransportProtocol::Udp,
-                    port,
+                    port: 52381,
                     protocol_style: ProtocolStyle::SonyEncapsulated,
                     buffer_config: BufferConfig::for_sony_ip(),
                 });
+            }
+            Some(1259) => {
+                // PTZOptics UDP port: UDP only with raw VISCA
+                candidates.push(DetectionCandidate {
+                    protocol: TransportProtocol::Udp,
+                    port: 1259,
+                    protocol_style: ProtocolStyle::RawVisca,
+                    buffer_config: BufferConfig::for_udp(),
+                });
+            }
+            Some(5678) => {
+                // PTZOptics TCP port: TCP only with raw VISCA
                 candidates.push(DetectionCandidate {
                     protocol: TransportProtocol::Tcp,
-                    port,
+                    port: 5678,
+                    protocol_style: ProtocolStyle::RawVisca,
+                    buffer_config: BufferConfig::for_raw_ip(),
+                });
+            }
+            Some(_unknown_port) => {
+                // Unknown port: try the three canonical endpoints only
+                // No cross-product generation, no impossible combinations
+                candidates.push(DetectionCandidate {
+                    protocol: TransportProtocol::Udp,
+                    port: 52381,
                     protocol_style: ProtocolStyle::SonyEncapsulated,
                     buffer_config: BufferConfig::for_sony_ip(),
                 });
-                // Also try raw VISCA as fallback
                 candidates.push(DetectionCandidate {
                     protocol: TransportProtocol::Udp,
-                    port,
+                    port: 1259,
                     protocol_style: ProtocolStyle::RawVisca,
                     buffer_config: BufferConfig::for_udp(),
                 });
                 candidates.push(DetectionCandidate {
                     protocol: TransportProtocol::Tcp,
-                    port,
+                    port: 5678,
                     protocol_style: ProtocolStyle::RawVisca,
                     buffer_config: BufferConfig::for_raw_ip(),
                 });
-            } else if port == 1259 || port == 5678 {
-                // PTZOptics default ports - prioritize raw VISCA
-                let primary_protocol = if port == 1259 {
-                    TransportProtocol::Udp
-                } else {
-                    TransportProtocol::Tcp
-                };
+            }
+            None => {
+                // No port specified: try the three canonical combinations
+                // 1. Sony UDP on 52381 (Sony default)
                 candidates.push(DetectionCandidate {
-                    protocol: primary_protocol,
-                    port,
-                    protocol_style: ProtocolStyle::RawVisca,
-                    buffer_config: if primary_protocol == TransportProtocol::Udp {
-                        BufferConfig::for_udp()
-                    } else {
-                        BufferConfig::for_raw_ip()
-                    },
-                });
-                // Also try Sony encapsulated as fallback
-                candidates.push(DetectionCandidate {
-                    protocol: primary_protocol,
-                    port,
+                    protocol: TransportProtocol::Udp,
+                    port: 52381,
                     protocol_style: ProtocolStyle::SonyEncapsulated,
                     buffer_config: BufferConfig::for_sony_ip(),
                 });
-            } else {
-                // Unknown port - try all combinations
-                for &protocol in &[TransportProtocol::Udp, TransportProtocol::Tcp] {
-                    candidates.push(DetectionCandidate {
-                        protocol,
-                        port,
-                        protocol_style: ProtocolStyle::SonyEncapsulated,
-                        buffer_config: BufferConfig::for_sony_ip(),
-                    });
-                    candidates.push(DetectionCandidate {
-                        protocol,
-                        port,
-                        protocol_style: ProtocolStyle::RawVisca,
-                        buffer_config: if protocol == TransportProtocol::Udp {
-                            BufferConfig::for_udp()
-                        } else {
-                            BufferConfig::for_raw_ip()
-                        },
-                    });
-                }
+                // 2. Raw UDP on 1259 (PTZOptics UDP default)
+                candidates.push(DetectionCandidate {
+                    protocol: TransportProtocol::Udp,
+                    port: 1259,
+                    protocol_style: ProtocolStyle::RawVisca,
+                    buffer_config: BufferConfig::for_udp(),
+                });
+                // 3. Raw TCP on 5678 (PTZOptics TCP)
+                candidates.push(DetectionCandidate {
+                    protocol: TransportProtocol::Tcp,
+                    port: 5678,
+                    protocol_style: ProtocolStyle::RawVisca,
+                    buffer_config: BufferConfig::for_raw_ip(),
+                });
             }
-        } else {
-            // No port specified - try all known combinations in priority order
-            // 1. Sony UDP on 52381 (primary Sony path)
-            candidates.push(DetectionCandidate {
-                protocol: TransportProtocol::Udp,
-                port: 52381,
-                protocol_style: ProtocolStyle::SonyEncapsulated,
-                buffer_config: BufferConfig::for_sony_ip(),
-            });
-            // 2. Sony TCP on 52381 (some stacks support TCP)
-            candidates.push(DetectionCandidate {
-                protocol: TransportProtocol::Tcp,
-                port: 52381,
-                protocol_style: ProtocolStyle::SonyEncapsulated,
-                buffer_config: BufferConfig::for_sony_ip(),
-            });
-            // 3. Raw UDP on 1259 (PTZOptics default)
-            candidates.push(DetectionCandidate {
-                protocol: TransportProtocol::Udp,
-                port: 1259,
-                protocol_style: ProtocolStyle::RawVisca,
-                buffer_config: BufferConfig::for_udp(),
-            });
-            // 4. Raw TCP on 5678 (PTZOptics TCP)
-            candidates.push(DetectionCandidate {
-                protocol: TransportProtocol::Tcp,
-                port: 5678,
-                protocol_style: ProtocolStyle::RawVisca,
-                buffer_config: BufferConfig::for_raw_ip(),
-            });
         }
 
         candidates
@@ -238,16 +213,12 @@ impl ProtocolDetector {
     {
         info!("Starting VISCA protocol detection");
 
-        // Test command: Version Inquiry - should be supported by all VISCA cameras
-        let test_command = &[0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR];
-
         // Try Sony encapsulated format first (priority order from EPIC)
         debug!("Probing Sony encapsulated protocol (52381 style)");
         match self
             .try_protocol(
                 transport,
                 executor,
-                test_command,
                 ProtocolStyle::SonyEncapsulated,
                 BufferConfig::for_sony_ip(),
             )
@@ -271,7 +242,6 @@ impl ProtocolDetector {
             .try_protocol(
                 transport,
                 executor,
-                test_command,
                 ProtocolStyle::RawVisca,
                 BufferConfig::for_raw_ip(),
             )
@@ -299,7 +269,6 @@ impl ProtocolDetector {
         &self,
         transport: &mut T,
         executor: &E,
-        _command: &[u8],
         protocol_style: ProtocolStyle,
         buffer_config: BufferConfig,
     ) -> Result<bool, Error>
@@ -349,14 +318,10 @@ impl ProtocolDetector {
 
         info!("Starting VISCA protocol detection (blocking)");
 
-        // Test command: Version Inquiry - should be supported by all VISCA cameras
-        let test_command = &[0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR];
-
         // Try Sony encapsulated format first (priority order from EPIC)
         debug!("Probing Sony encapsulated protocol (52381 style)");
         match self.try_protocol_blocking(
             transport,
-            test_command,
             ProtocolStyle::SonyEncapsulated,
             BufferConfig::for_sony_ip(),
         ) {
@@ -376,7 +341,6 @@ impl ProtocolDetector {
         debug!("Probing raw VISCA protocol (1259/5678 style)");
         match self.try_protocol_blocking(
             transport,
-            test_command,
             ProtocolStyle::RawVisca,
             BufferConfig::for_raw_ip(),
         ) {
@@ -401,7 +365,6 @@ impl ProtocolDetector {
     fn try_protocol_blocking<T>(
         &self,
         transport: &mut T,
-        _command: &[u8],
         protocol_style: ProtocolStyle,
         buffer_config: BufferConfig,
     ) -> Result<bool, Error>
@@ -446,6 +409,7 @@ impl Default for ProtocolDetector {
 #[allow(clippy::panic, clippy::assertions_on_constants, clippy::expect_used)]
 mod tests {
     use super::*;
+    use crate::command::bytes::VISCA_TERMINATOR;
     use crate::executor::TokioExecutor;
     use crate::testing::testkit::scripted_transport::{ScriptedTransport, Step};
 
@@ -671,8 +635,8 @@ mod tests {
     fn test_generate_candidates_no_port() {
         let candidates = ProtocolDetector::generate_candidates("192.168.0.110");
 
-        // Should have 4 candidates when no port specified
-        assert_eq!(candidates.len(), 4);
+        // Should have exactly 3 candidates when no port specified (canonical mappings only)
+        assert_eq!(candidates.len(), 3);
 
         // Check priority order
         assert_eq!(candidates[0].protocol, TransportProtocol::Udp);
@@ -682,43 +646,104 @@ mod tests {
             ProtocolStyle::SonyEncapsulated
         ));
 
-        assert_eq!(candidates[1].protocol, TransportProtocol::Tcp);
-        assert_eq!(candidates[1].port, 52381);
+        assert_eq!(candidates[1].protocol, TransportProtocol::Udp);
+        assert_eq!(candidates[1].port, 1259);
+        assert!(matches!(
+            candidates[1].protocol_style,
+            ProtocolStyle::RawVisca
+        ));
 
-        assert_eq!(candidates[2].protocol, TransportProtocol::Udp);
-        assert_eq!(candidates[2].port, 1259);
+        assert_eq!(candidates[2].protocol, TransportProtocol::Tcp);
+        assert_eq!(candidates[2].port, 5678);
         assert!(matches!(
             candidates[2].protocol_style,
             ProtocolStyle::RawVisca
         ));
-
-        assert_eq!(candidates[3].protocol, TransportProtocol::Tcp);
-        assert_eq!(candidates[3].port, 5678);
     }
 
     #[test]
     fn test_generate_candidates_with_sony_port() {
         let candidates = ProtocolDetector::generate_candidates("192.168.0.110:52381");
 
-        // Should prioritize Sony encapsulated for port 52381
-        assert!(candidates.len() >= 2);
+        // Should have exactly 1 candidate for port 52381: UDP + SonyEncapsulated
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].protocol, TransportProtocol::Udp);
         assert_eq!(candidates[0].port, 52381);
         assert!(matches!(
             candidates[0].protocol_style,
             ProtocolStyle::SonyEncapsulated
         ));
+        // Verify buffer config is correct
+        assert_eq!(
+            candidates[0].buffer_config.recv_buffer_size,
+            BufferConfig::for_sony_ip().recv_buffer_size
+        );
     }
 
     #[test]
-    fn test_generate_candidates_with_ptz_port() {
+    fn test_generate_candidates_with_ptz_udp_port() {
         let candidates = ProtocolDetector::generate_candidates("192.168.0.110:1259");
 
-        // Should prioritize raw VISCA for PTZOptics port
-        assert!(candidates.len() >= 2);
-        assert_eq!(candidates[0].port, 1259);
+        // Should have exactly 1 candidate for port 1259: UDP + RawVisca
+        assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].protocol, TransportProtocol::Udp);
+        assert_eq!(candidates[0].port, 1259);
         assert!(matches!(
             candidates[0].protocol_style,
+            ProtocolStyle::RawVisca
+        ));
+        // Verify buffer config is correct
+        assert_eq!(
+            candidates[0].buffer_config.recv_buffer_size,
+            BufferConfig::for_udp().recv_buffer_size
+        );
+    }
+
+    #[test]
+    fn test_generate_candidates_with_ptz_tcp_port() {
+        let candidates = ProtocolDetector::generate_candidates("192.168.0.110:5678");
+
+        // Should have exactly 1 candidate for port 5678: TCP + RawVisca
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].protocol, TransportProtocol::Tcp);
+        assert_eq!(candidates[0].port, 5678);
+        assert!(matches!(
+            candidates[0].protocol_style,
+            ProtocolStyle::RawVisca
+        ));
+        // Verify buffer config is correct
+        assert_eq!(
+            candidates[0].buffer_config.recv_buffer_size,
+            BufferConfig::for_raw_ip().recv_buffer_size
+        );
+    }
+
+    #[test]
+    fn test_generate_candidates_with_unknown_port() {
+        let candidates = ProtocolDetector::generate_candidates("192.168.0.110:9999");
+
+        // Should have exactly 3 candidates for unknown port (canonical endpoints only)
+        assert_eq!(candidates.len(), 3);
+
+        // Should return the three canonical combinations
+        assert_eq!(candidates[0].protocol, TransportProtocol::Udp);
+        assert_eq!(candidates[0].port, 52381);
+        assert!(matches!(
+            candidates[0].protocol_style,
+            ProtocolStyle::SonyEncapsulated
+        ));
+
+        assert_eq!(candidates[1].protocol, TransportProtocol::Udp);
+        assert_eq!(candidates[1].port, 1259);
+        assert!(matches!(
+            candidates[1].protocol_style,
+            ProtocolStyle::RawVisca
+        ));
+
+        assert_eq!(candidates[2].protocol, TransportProtocol::Tcp);
+        assert_eq!(candidates[2].port, 5678);
+        assert!(matches!(
+            candidates[2].protocol_style,
             ProtocolStyle::RawVisca
         ));
     }
