@@ -96,7 +96,7 @@ pub async fn runtime_loop_with_config<
                     // Try to send immediately if possible
                     if let Some(cmd) = adapter.next_command_to_send() {
                         // Use the shared driver for sending
-                        send_one(
+                        if let Err(e) = send_one(
                             &mut transport,
                             &executor,
                             &mut adapter,
@@ -105,7 +105,12 @@ pub async fn runtime_loop_with_config<
                             &config.buffer_manager,
                             config.write_timeout,
                         )
-                        .await?;
+                        .await
+                        {
+                            // send_one already rolled back and failed the command via scheduler
+                            debug!("Send failed during submit: {e}");
+                            // Continue loop; do not stop runtime
+                        }
                     }
                 }
                 TxItem::Cancel { socket } => {
@@ -132,11 +137,15 @@ pub async fn runtime_loop_with_config<
                         kind,
                         &config.buffer_manager,
                     );
-                    transport.send(&framed).await?;
-                    debug!(
-                        "Sent cancel for socket {:?} with camera_id {:?}",
-                        socket, camera_id
-                    );
+                    // Best effort for cancel - don't abort runtime on failure
+                    if let Err(e) = transport.send(&framed).await {
+                        debug!("Failed to send cancel for socket {:?}: {e}", socket);
+                    } else {
+                        debug!(
+                            "Sent cancel for socket {:?} with camera_id {:?}",
+                            socket, camera_id
+                        );
+                    }
                 }
                 TxItem::CancelById { id } => {
                     // Find the socket for this command and send cancel
@@ -165,11 +174,15 @@ pub async fn runtime_loop_with_config<
                             kind,
                             &config.buffer_manager,
                         );
-                        transport.send(&framed).await?;
-                        debug!(
-                            "Sent cancel for command {} on socket {:?} with camera_id {:?}",
-                            id, socket, camera_id
-                        );
+                        // Best effort for cancel - don't abort runtime on failure
+                        if let Err(e) = transport.send(&framed).await {
+                            debug!("Failed to send cancel for command {}: {e}", id);
+                        } else {
+                            debug!(
+                                "Sent cancel for command {} on socket {:?} with camera_id {:?}",
+                                id, socket, camera_id
+                            );
+                        }
                     } else {
                         debug!("No socket for command {} yet; queuing cancel", id);
                         pending_cancel_ids.insert(id);
@@ -215,7 +228,7 @@ pub async fn runtime_loop_with_config<
             };
 
             // Use the shared driver for sending retries
-            send_one(
+            if let Err(e) = send_one(
                 &mut transport,
                 &executor,
                 &mut adapter,
@@ -224,7 +237,12 @@ pub async fn runtime_loop_with_config<
                 &config.buffer_manager,
                 config.write_timeout,
             )
-            .await?;
+            .await
+            {
+                // send_one already rolled back and failed the command via scheduler
+                debug!("Send failed during retry: {e}");
+                // Continue loop; do not stop runtime
+            }
         }
 
         // Dynamic tick scheduling: sleep until housekeeping tick
@@ -323,7 +341,7 @@ pub async fn runtime_loop_with_config<
                 while adapter.can_send_command() {
                     if let Some(cmd) = adapter.next_command_to_send() {
                         // Use the shared driver for sending
-                        send_one(
+                        if let Err(e) = send_one(
                             &mut transport,
                             &executor,
                             &mut adapter,
@@ -332,7 +350,12 @@ pub async fn runtime_loop_with_config<
                             &config.buffer_manager,
                             config.write_timeout,
                         )
-                        .await?;
+                        .await
+                        {
+                            // send_one already rolled back and failed the command via scheduler
+                            debug!("Send failed while draining pending: {e}");
+                            // Continue loop; do not stop runtime
+                        }
                     } else {
                         break;
                     }
@@ -376,11 +399,15 @@ pub async fn runtime_loop_with_config<
                                 kind,
                                 &config.buffer_manager,
                             );
-                            transport.send(&framed).await?;
-                            debug!(
-                                "Sent queued cancel for command {} on socket {:?} with camera_id {:?}",
-                                id, socket, camera_id
-                            );
+                            // Best effort for cancel - don't abort runtime on failure
+                            if let Err(e) = transport.send(&framed).await {
+                                debug!("Failed to send queued cancel for command {}: {e}", id);
+                            } else {
+                                debug!(
+                                    "Sent queued cancel for command {} on socket {:?} with camera_id {:?}",
+                                    id, socket, camera_id
+                                );
+                            }
 
                             // Remove from pending set
                             pending_cancel_ids.remove(&id);
@@ -404,7 +431,7 @@ pub async fn runtime_loop_with_config<
                 while adapter.can_send_command() {
                     if let Some(cmd) = adapter.next_command_to_send() {
                         // Use the shared driver for sending
-                        send_one(
+                        if let Err(e) = send_one(
                             &mut transport,
                             &executor,
                             &mut adapter,
@@ -413,7 +440,12 @@ pub async fn runtime_loop_with_config<
                             &config.buffer_manager,
                             config.write_timeout,
                         )
-                        .await?;
+                        .await
+                        {
+                            // send_one already rolled back and failed the command via scheduler
+                            debug!("Send failed during tick: {e}");
+                            // Continue loop; do not stop runtime
+                        }
                     } else {
                         break;
                     }

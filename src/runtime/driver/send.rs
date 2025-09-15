@@ -65,12 +65,12 @@ impl SendGuard {
                 );
                 scheduler.unregister_pending_ack(self.id);
             }
-            // Schedule retry for send failure
+            // Fail immediately for send failure (no retry per documented semantics)
             debug!(
-                "SendGuard: Scheduling retry for send failure on {}",
+                "SendGuard: Failing command {} after send failure (no retry)",
                 self.id
             );
-            scheduler.schedule_retry_after_send_error(self.id);
+            scheduler.fail_after_send_error(self.id);
         }
     }
 }

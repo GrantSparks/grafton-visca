@@ -296,56 +296,6 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
         }
     }
 
-    /// Schedule a retry after a send error instead of failing immediately.
-    /// This routes send failures through the existing scheduler retry pipeline.
-    pub fn schedule_retry_after_send_error(&mut self, id: u32) {
-        let now = self.executor.now();
-
-        // Mark this retry as triggered by transport error so the final error
-        // (after budget exhaustion) is classified correctly
-        self.core.mark_retry_as_transport_error(id);
-
-        // Queue retry for the command using existing metadata
-        if let Some(action) = self.core.queue_retry_for_command(id, now) {
-            // Handle the retry action (which could be RetryCommand or CommandFailed)
-            match action {
-                SchedulerAction::RetryCommand { id, delay, .. } => {
-                    self.metrics.commands_retried += 1;
-                    debug!(
-                        "Scheduled retry for command {} after send error, delay: {:?}",
-                        id, delay
-                    );
-                    // The retry will be picked up by get_ready_retries()
-                    // Keep the response channel open so the future remains pending
-                }
-                SchedulerAction::CommandFailed {
-                    id: failed_id,
-                    error,
-                } => {
-                    // Budget exhausted, fail the command
-                    self.metrics.commands_failed += 1;
-                    if let Some(tx) = self.response_channels.remove(&failed_id) {
-                        let _ = tx.send(Err(error));
-                    }
-                }
-                _ => {
-                    // Unexpected action type
-                    warn!(
-                        "Unexpected action from queue_retry_for_command: {:?}",
-                        action
-                    );
-                }
-            }
-        } else {
-            // No metadata found for command, fall back to immediate failure
-            warn!(
-                "No metadata found for command {} during send retry, failing immediately",
-                id
-            );
-            self.fail_after_send_error(id);
-        }
-    }
-
     /// Process a received VISCA response.
     pub async fn process_response(&mut self, payload: &[u8], sequence: Option<u32>) -> Result<()> {
         // Parse VISCA response type using decode_basic

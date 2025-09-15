@@ -31,16 +31,16 @@ pub trait SchedulerLike {
     /// typically called during rollback on send failure.
     fn unregister_pending_ack(&mut self, id: u32);
 
-    /// Schedule a retry after send error.
+    /// Fail a command immediately after send error.
     ///
-    /// This method handles send failures by scheduling the command for
-    /// retry according to the configured retry policy.
+    /// This method handles send failures by immediately failing the command
+    /// with a TransportError, without any retry attempts.
     ///
     /// # Implementation Notes
     ///
-    /// - Async: calls adapter's schedule_retry_after_send_error
-    /// - Blocking: maps to mark_retry_as_transport_error + queue_retry_for_command
-    fn schedule_retry_after_send_error(&mut self, id: u32);
+    /// - Async: calls adapter's fail_after_send_error
+    /// - Blocking: calls core's fail_after_send_error
+    fn fail_after_send_error(&mut self, id: u32);
 
     /// Register Sony sequence number for a command.
     ///
@@ -78,8 +78,8 @@ mod async_impl {
             self.unregister_pending_ack(id);
         }
 
-        fn schedule_retry_after_send_error(&mut self, id: u32) {
-            self.schedule_retry_after_send_error(id);
+        fn fail_after_send_error(&mut self, id: u32) {
+            self.fail_after_send_error(id);
         }
 
         fn register_sequence(&mut self, id: u32, seq: u32) {
@@ -143,10 +143,9 @@ mod blocking_impl {
             self.core.unregister_pending_ack(id);
         }
 
-        fn schedule_retry_after_send_error(&mut self, id: u32) {
-            // Map to core methods: mark as transport error and queue retry
-            self.core.mark_retry_as_transport_error(id);
-            self.core.queue_retry_for_command(id, self.now);
+        fn fail_after_send_error(&mut self, id: u32) {
+            // Map to core method: fail immediately with transport error
+            self.core.fail_after_send_error(id);
         }
 
         fn register_sequence(&mut self, id: u32, seq: u32) {

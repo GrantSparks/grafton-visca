@@ -175,8 +175,8 @@ impl<P: Profile> BlockingRunner<P> {
                     write_timeout,
                 ) {
                     debug!("Send operation failed: {:?}", e);
-                    // send_one already handled retry scheduling via schedule_retry_after_send_error
-                    // The error returned here means send failed but retry was scheduled
+                    // send_one already handled command failure via fail_after_send_error
+                    // The error returned here means send failed and command was marked as failed
                     // Continue processing other commands
                     continue;
                 }
@@ -217,8 +217,8 @@ impl<P: Profile> BlockingRunner<P> {
                     write_timeout,
                 ) {
                     debug!("Send retry operation failed: {:?}", e);
-                    // send_one already handled retry scheduling
-                    // For retries, check if budget is exhausted for our target command
+                    // send_one already handled command failure via fail_after_send_error
+                    // Send failures immediately fail the command, no further retry
                     continue;
                 }
 
