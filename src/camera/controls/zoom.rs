@@ -6,6 +6,7 @@ use crate::{camera::CameraSend, command::zoom::ZoomSpeed, mode::Mode, units::Nor
 ///
 /// This trait provides zoom control methods that work seamlessly for both
 /// blocking and async cameras through the Mode trait system.
+#[grafton_visca_macros::forward_control_to_session]
 pub trait ZoomControl {
     /// The mode type for this camera (Async or Blocking).
     type Mode: Mode;

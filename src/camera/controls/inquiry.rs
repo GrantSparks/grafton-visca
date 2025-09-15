@@ -13,6 +13,7 @@ use crate::{
 ///
 /// This trait provides inquiry methods that work seamlessly for both
 /// blocking and async cameras through the Mode trait system.
+#[grafton_visca_macros::forward_control_to_session]
 pub trait InquiryControl {
     /// The mode type for this camera (Async or Blocking).
     type Mode: Mode;
@@ -205,6 +206,7 @@ pub trait InquiryControl {
 ///
 /// This trait provides pan/tilt inquiry methods that work seamlessly for both
 /// blocking and async cameras through the Mode trait system.
+#[grafton_visca_macros::forward_control_to_session]
 pub trait PanTiltInquiryControl {
     /// The mode type for this camera (Async or Blocking).
     type Mode: Mode;

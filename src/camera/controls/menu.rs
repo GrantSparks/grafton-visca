@@ -8,6 +8,7 @@ use crate::{
 };
 
 /// Unified menu control methods for cameras that support menu navigation.
+#[grafton_visca_macros::forward_control_to_session]
 pub trait MenuControl {
     /// The mode type for this camera (Async or Blocking).
     type Mode: Mode;

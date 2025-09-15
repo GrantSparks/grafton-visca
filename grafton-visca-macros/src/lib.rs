@@ -15,6 +15,7 @@ use proc_macro::TokenStream;
 
 use syn::{parse_macro_input, DeriveInput};
 
+mod forward_control;
 mod inquiry_command;
 mod parser_templates;
 mod value_macros;
@@ -185,4 +186,63 @@ pub fn derive_inquiry_command(input: TokenStream) -> TokenStream {
 pub fn derive_visca_enum(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     TokenStream::from(visca_enum::derive_visca_enum_impl(input))
+}
+
+/// Attribute macro for auto-generating CameraSession forwarding implementations
+///
+/// This macro eliminates boilerplate by automatically generating forwarding
+/// implementations of control traits for `CameraSession`, which simply delegate
+/// to the inner `Camera` instance with proper error handling.
+///
+/// # Usage
+///
+/// Apply this attribute to control trait definitions:
+///
+/// ```rust,ignore
+/// use grafton_visca_macros::forward_control_to_session;
+///
+/// #[forward_control_to_session]
+/// pub trait ZoomControl {
+///     type Mode: Mode;
+///
+///     fn zoom_stop(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+///     fn zoom_tele_std(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+///     // ... more methods
+/// }
+/// ```
+///
+/// # Generated Code
+///
+/// The macro generates two implementations:
+///
+/// 1. **Async variant** (when `feature = "async"`):
+///    - Forwards calls from `CameraSession<M, P, Tr, Exec>` to the inner camera
+///    - Preserves the generic Mode type `M`
+///
+/// 2. **Blocking variant** (when `feature != "async"`):
+///    - Forwards calls from `CameraSession<Blocking, P, Tr, ()>` to the inner camera
+///    - Uses the concrete `Blocking` mode type
+///
+/// Each forwarding method:
+/// - Guards access with `.as_ref().expect("Cannot access camera after session is closed")`
+/// - Adds `#[inline]` for optimization
+/// - Adds `#[allow(clippy::expect_used)]` to suppress lints
+/// - Preserves all original method attributes and documentation
+///
+/// # Requirements
+///
+/// - The trait must have a `type Mode: Mode` associated type
+/// - Methods should use `<Self::Mode as Mode>::Ret<'_, T>` for return types
+/// - The trait should be implemented for `UnifiedCamera` (the actual logic)
+///
+/// # Benefits
+///
+/// - **Eliminates duplication**: No need to manually write forwarding impls
+/// - **Prevents drift**: Changes to trait methods automatically propagate
+/// - **Feature-gate aware**: Handles both async and blocking configurations
+/// - **Zero runtime cost**: Generated code is identical to hand-written forwarding
+#[proc_macro_attribute]
+pub fn forward_control_to_session(_attr: TokenStream, input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::ItemTrait);
+    TokenStream::from(forward_control::forward_control_to_session_impl(input))
 }

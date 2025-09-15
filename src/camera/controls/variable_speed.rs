@@ -11,6 +11,7 @@ use crate::{
 ///
 /// This trait provides variable speed control methods that work seamlessly for both
 /// blocking and async cameras through the Mode trait system.
+#[grafton_visca_macros::forward_control_to_session]
 pub trait VariableSpeedControl {
     /// The mode type for this camera (Async or Blocking).
     type Mode: Mode;

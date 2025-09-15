@@ -6,6 +6,7 @@ use crate::{camera::CameraSend, command::preset::PresetNumber, mode::Mode, Error
 ///
 /// This trait provides preset control methods that work seamlessly for both
 /// blocking and async cameras through the Mode trait system.
+#[grafton_visca_macros::forward_control_to_session]
 pub trait PresetsControl {
     /// The mode type for this camera (Async or Blocking).
     type Mode: Mode;
