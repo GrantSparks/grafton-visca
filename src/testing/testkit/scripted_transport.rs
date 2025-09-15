@@ -18,7 +18,10 @@ use super::deterministic_executor::ExecutorExt;
 #[cfg(feature = "async")]
 use crate::transport::{builder::TransportConfig, HasTransportConfig};
 #[cfg(not(feature = "async"))]
-use crate::{command::CommandKind, transport::SyncTransport};
+use crate::{
+    command::CommandKind,
+    transport::{builder::TransportConfig, HasTransportConfig, SyncTransport},
+};
 #[cfg(feature = "async")]
 use crate::{executor::Executor, transport::AsyncTransport};
 use crate::{Error, Result};
@@ -394,6 +397,7 @@ pub struct ScriptedSyncTransport {
     steps: Arc<Mutex<VecDeque<Step>>>,
     response_tx: flume::Sender<Result<Vec<u8>>>,
     response_rx: flume::Receiver<Result<Vec<u8>>>,
+    transport_config: TransportConfig,
 }
 
 #[cfg(not(feature = "async"))]
@@ -406,6 +410,7 @@ impl ScriptedSyncTransport {
             steps: Arc::new(Mutex::new(steps.into().into())),
             response_tx,
             response_rx,
+            transport_config: TransportConfig::default(),
         }
     }
 
@@ -583,6 +588,13 @@ impl SyncTransport for ScriptedSyncTransport {
         // For the scripted transport, we just use the same logic as recv_into
         // The timeout is handled by the script itself
         self.recv_into(dst)
+    }
+}
+
+#[cfg(not(feature = "async"))]
+impl HasTransportConfig for ScriptedSyncTransport {
+    fn transport_config(&self) -> &TransportConfig {
+        &self.transport_config
     }
 }
 

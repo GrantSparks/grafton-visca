@@ -5,7 +5,7 @@
 
 use core::time::Duration;
 
-use crate::{command::CommandKind, Error};
+use crate::{command::CommandKind, transport::builder::TransportConfig, Error};
 
 /// Synchronous transport for VISCA communication.
 ///
@@ -89,8 +89,72 @@ pub trait SyncTransport: Send {
         -> Result<usize, Error>;
 }
 
+/// Trait for types that carry transport configuration.
+///
+/// This trait provides a unified interface for accessing the transport configuration
+/// from various transport types, enabling the runtime to apply consistent settings
+/// (buffers, timeouts) across all transport implementations.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use grafton_visca::transport::{HasTransportConfig, TransportConfig};
+///
+/// // Access configuration from any transport
+/// let config = transport.transport_config();
+/// let read_timeout = config.read_timeout;
+/// let buffer_config = &config.buffer_config;
+/// ```
+pub trait HasTransportConfig {
+    /// Get the transport configuration.
+    fn transport_config(&self) -> &TransportConfig;
+}
+
+// Blanket implementation for references, enabling HRTB bounds like `for<'a> &'a T: HasTransportConfig`
+impl<T: HasTransportConfig + ?Sized> HasTransportConfig for &T {
+    #[inline]
+    fn transport_config(&self) -> &TransportConfig {
+        (*self).transport_config()
+    }
+}
+
+/// Trait that combines SyncTransport with HasTransportConfig for unified use.
+///
+/// This trait exists to enable trait objects that require both SyncTransport
+/// and HasTransportConfig functionality.
+pub trait ConfiguredSyncTransport: SyncTransport + HasTransportConfig {}
+
+// Blanket implementation: any type that implements both traits automatically implements the combined trait
+impl<T> ConfiguredSyncTransport for T where T: SyncTransport + HasTransportConfig {}
+
+// Implement HasTransportConfig for Box<dyn ConfiguredSyncTransport>
+impl HasTransportConfig for Box<dyn ConfiguredSyncTransport> {
+    fn transport_config(&self) -> &TransportConfig {
+        (**self).transport_config()
+    }
+}
+
 // Implement SyncTransport for Box<dyn SyncTransport> to enable nested boxing
 impl SyncTransport for Box<dyn SyncTransport> {
+    fn send_with_kind(&mut self, bytes: &[u8], kind: CommandKind) -> Result<(), Error> {
+        (**self).send_with_kind(bytes, kind)
+    }
+
+    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+        (**self).recv_into(dst)
+    }
+
+    fn recv_into_with_timeout(
+        &mut self,
+        dst: &mut [u8],
+        timeout: Duration,
+    ) -> Result<usize, Error> {
+        (**self).recv_into_with_timeout(dst, timeout)
+    }
+}
+
+// Implement SyncTransport for Box<dyn ConfiguredSyncTransport>
+impl SyncTransport for Box<dyn ConfiguredSyncTransport> {
     fn send_with_kind(&mut self, bytes: &[u8], kind: CommandKind) -> Result<(), Error> {
         (**self).send_with_kind(bytes, kind)
     }

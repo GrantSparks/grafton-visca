@@ -16,7 +16,7 @@ use std::{
 
 use crate::{
     command::bytes::VISCA_TERMINATOR,
-    transport::{async_transport::HasTransportConfig, builder::TransportConfig, AsyncTransport},
+    transport::{builder::TransportConfig, AsyncTransport, HasTransportConfig},
     Error,
 };
 

@@ -325,7 +325,7 @@ where
 impl<P, Tr> CameraSession<crate::mode::Blocking, P, Tr, ()>
 where
     P: Profile,
-    Tr: crate::transport::SyncTransport + Send + 'static,
+    Tr: crate::transport::SyncTransport + crate::transport::HasTransportConfig + Send + 'static,
 {
     /// Create a new session from a camera instance.
     pub(crate) fn new(camera: Camera<crate::mode::Blocking, P, Tr, ()>) -> Self {
@@ -377,7 +377,7 @@ where
 impl<P, Tr> CameraSession<crate::mode::Blocking, P, Tr, ()>
 where
     P: Profile + crate::capabilities::ProfileMetadata + Default,
-    Tr: crate::transport::SyncTransport + Send + 'static,
+    Tr: crate::transport::SyncTransport + crate::transport::HasTransportConfig + Send + 'static,
 {
     /// Wait for all movements to complete.
     ///
@@ -607,7 +607,7 @@ use crate::camera::controls::{focus::FocusControl, pan_tilt::PanTiltControl, zoo
 impl<P, Tr> PanTiltControl for CameraSession<crate::mode::Blocking, P, Tr, ()>
 where
     P: Profile,
-    Tr: crate::transport::SyncTransport + Send + 'static,
+    Tr: crate::transport::SyncTransport + crate::transport::HasTransportConfig + Send + 'static,
     Camera<crate::mode::Blocking, P, Tr, ()>: PanTiltControl<Mode = crate::mode::Blocking>,
 {
     type Mode = crate::mode::Blocking;
@@ -697,7 +697,7 @@ where
 impl<P, Tr> ZoomControl for CameraSession<crate::mode::Blocking, P, Tr, ()>
 where
     P: Profile,
-    Tr: crate::transport::SyncTransport + Send + 'static,
+    Tr: crate::transport::SyncTransport + crate::transport::HasTransportConfig + Send + 'static,
     Camera<crate::mode::Blocking, P, Tr, ()>: ZoomControl<Mode = crate::mode::Blocking>,
 {
     type Mode = crate::mode::Blocking;
@@ -779,7 +779,7 @@ where
 impl<P, Tr> FocusControl for CameraSession<crate::mode::Blocking, P, Tr, ()>
 where
     P: Profile,
-    Tr: crate::transport::SyncTransport + Send + 'static,
+    Tr: crate::transport::SyncTransport + crate::transport::HasTransportConfig + Send + 'static,
     Camera<crate::mode::Blocking, P, Tr, ()>: FocusControl<Mode = crate::mode::Blocking>,
 {
     type Mode = crate::mode::Blocking;
@@ -1020,7 +1020,7 @@ where
 impl<'a, P, Tr> RawSender<'a, crate::mode::Blocking, P, Tr, ()>
 where
     P: Profile + Default,
-    Tr: crate::transport::SyncTransport + Send + 'static,
+    Tr: crate::transport::SyncTransport + crate::transport::HasTransportConfig + Send + 'static,
 {
     /// Send raw bytes as a VISCA command.
     pub fn send_bytes(&self, bytes: &[u8]) -> Result<(), Error> {

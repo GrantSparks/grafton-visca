@@ -152,7 +152,7 @@ where
 impl<P, Tr> CameraSend<crate::mode::Blocking> for UnifiedCamera<crate::mode::Blocking, P, Tr, ()>
 where
     P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::SyncTransport + Send + 'static,
+    Tr: crate::transport::SyncTransport + crate::transport::HasTransportConfig + Send + 'static,
 {
     fn send_and_complete<C>(
         &self,

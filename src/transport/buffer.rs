@@ -102,7 +102,6 @@ impl BufferManager {
 
     /// Get the buffer configuration (crate-visible for runtime loop).
     #[inline]
-    #[cfg(feature = "async")]
     pub(crate) fn config(&self) -> BufferConfig {
         self.config
     }

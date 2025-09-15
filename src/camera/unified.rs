@@ -145,10 +145,13 @@ where
 impl<P, Tr> Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: Profile + Default,
-    Tr: SyncTransport + Send + 'static,
+    Tr: SyncTransport + crate::transport::HasTransportConfig + Send + 'static,
 {
     /// Create a new blocking camera instance using the profile's protocol style.
-    pub fn new_blocking(transport: Tr) -> Result<Self, Error> {
+    pub fn new_blocking(transport: Tr) -> Result<Self, Error>
+    where
+        Tr: crate::transport::HasTransportConfig,
+    {
         Self::new_blocking_with_style(transport, P::PROTOCOL_STYLE)
     }
 
@@ -156,10 +159,25 @@ where
     pub fn new_blocking_with_style(
         transport: Tr,
         protocol_style: ProtocolStyle,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, Error>
+    where
+        Tr: crate::transport::HasTransportConfig,
+    {
         let camera_id = CameraId::new(1)?;
         let timeout_config = TimeoutConfig::default();
-        let blocking_runner = BlockingRunner::<P>::new(protocol_style, timeout_config);
+
+        // Get the transport's buffer configuration
+        let transport_config = transport.transport_config();
+        let buffer_config = transport_config.buffer_config;
+        let retry_config = transport_config.retry_config;
+
+        // Create BlockingRunner with transport's buffer configuration
+        let blocking_runner = BlockingRunner::<P>::new_with_buffer(
+            protocol_style,
+            timeout_config,
+            retry_config,
+            buffer_config,
+        );
 
         let shared_transport = crate::mode::Blocking::share(transport);
 
@@ -351,7 +369,7 @@ where
 
 // Unified constructor methods for blocking mode
 #[cfg(not(feature = "async"))]
-impl<P> Camera<crate::mode::Blocking, P, Box<dyn SyncTransport>, ()>
+impl<P> Camera<crate::mode::Blocking, P, Box<dyn crate::transport::ConfiguredSyncTransport>, ()>
 where
     P: Profile + Default,
 {
@@ -372,7 +390,7 @@ where
     /// camera.close()?;
     /// ```
     pub fn open_tcp(addr: impl Into<String>) -> Result<Self, Error> {
-        let transport: Box<dyn SyncTransport> =
+        let transport: Box<dyn crate::transport::ConfiguredSyncTransport> =
             Box::new(crate::transport::blocking::tcp::Tcp::connect(&addr.into())?);
         Self::new_blocking(transport)
     }
@@ -394,7 +412,7 @@ where
     /// camera.close()?;
     /// ```
     pub fn open_udp(addr: impl Into<String>) -> Result<Self, Error> {
-        let transport: Box<dyn SyncTransport> =
+        let transport: Box<dyn crate::transport::ConfiguredSyncTransport> =
             Box::new(crate::transport::blocking::udp::Udp::connect(&addr.into())?);
         Self::new_blocking(transport)
     }
@@ -641,7 +659,7 @@ where
 impl<P, Tr> Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: Profile + Default,
-    Tr: SyncTransport + Send + 'static,
+    Tr: SyncTransport + crate::transport::HasTransportConfig + Send + 'static,
 {
     /// Send a command using the mode-specific return type.
     pub fn send_command<C>(

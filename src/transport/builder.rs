@@ -490,9 +490,15 @@ where
 pub fn auto_connect_and_detect_blocking(
     host: &str,
     cfg: TransportConfig,
-) -> Result<(Box<dyn SyncTransport>, crate::capabilities::ProtocolStyle), Error> {
+) -> Result<
+    (
+        Box<dyn crate::transport::ConfiguredSyncTransport>,
+        crate::capabilities::ProtocolStyle,
+    ),
+    Error,
+> {
     use crate::transport::protocol_detection::{ProtocolDetector, TransportProtocol};
-    use crate::transport::SyncTransport;
+    use crate::transport::ConfiguredSyncTransport;
     use tracing::{debug, info};
 
     info!("Starting auto-connect and detect for host: {}", host);
@@ -522,16 +528,17 @@ pub fn auto_connect_and_detect_blocking(
         candidate_cfg.buffer_config = candidate.buffer_config;
 
         // Try to connect with this transport using the candidate's buffer config
-        let transport_result: Result<Box<dyn SyncTransport>, Error> = match candidate.protocol {
-            TransportProtocol::Tcp => {
-                crate::transport::blocking::Tcp::connect_with_config(&address, candidate_cfg)
-                    .map(|t| -> Box<dyn SyncTransport> { Box::new(t) })
-            }
-            TransportProtocol::Udp => {
-                crate::transport::blocking::Udp::connect_with_config(&address, candidate_cfg)
-                    .map(|t| -> Box<dyn SyncTransport> { Box::new(t) })
-            }
-        };
+        let transport_result: Result<Box<dyn ConfiguredSyncTransport>, Error> =
+            match candidate.protocol {
+                TransportProtocol::Tcp => {
+                    crate::transport::blocking::Tcp::connect_with_config(&address, candidate_cfg)
+                        .map(|t| -> Box<dyn ConfiguredSyncTransport> { Box::new(t) })
+                }
+                TransportProtocol::Udp => {
+                    crate::transport::blocking::Udp::connect_with_config(&address, candidate_cfg)
+                        .map(|t| -> Box<dyn ConfiguredSyncTransport> { Box::new(t) })
+                }
+            };
 
         match transport_result {
             Ok(mut transport) => {

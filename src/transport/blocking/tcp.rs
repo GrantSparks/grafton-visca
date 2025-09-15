@@ -8,7 +8,9 @@ use std::{
 
 use crate::{
     command::CommandKind,
-    transport::{address::AddressResolver, builder::TransportConfig, SyncTransport},
+    transport::{
+        address::AddressResolver, builder::TransportConfig, HasTransportConfig, SyncTransport,
+    },
     Error,
 };
 
@@ -20,6 +22,7 @@ use crate::{
 pub struct Tcp {
     reader: BufReader<TcpStream>,
     writer: TcpStream,
+    config: TransportConfig,
 }
 
 impl std::fmt::Debug for Tcp {
@@ -95,6 +98,7 @@ impl Tcp {
                     return Ok(Self {
                         reader: BufReader::new(reader_stream),
                         writer: stream,
+                        config,
                     });
                 }
                 Err(e) => {
@@ -108,6 +112,12 @@ impl Tcp {
     }
 
     // Retry configuration is now handled at the runtime/scheduler level
+}
+
+impl HasTransportConfig for Tcp {
+    fn transport_config(&self) -> &TransportConfig {
+        &self.config
+    }
 }
 
 impl SyncTransport for Tcp {

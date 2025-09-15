@@ -187,7 +187,12 @@ impl Camera {
     pub fn open_auto_blocking<P>(
         addr: impl Into<String>,
     ) -> Result<
-        CameraSession<crate::mode::Blocking, P, Box<dyn crate::transport::SyncTransport>, ()>,
+        CameraSession<
+            crate::mode::Blocking,
+            P,
+            Box<dyn crate::transport::ConfiguredSyncTransport>,
+            (),
+        >,
         Error,
     >
     where
@@ -216,7 +221,12 @@ impl Camera {
     pub fn open_tcp_blocking<P>(
         addr: impl Into<String>,
     ) -> Result<
-        CameraSession<crate::mode::Blocking, P, Box<dyn crate::transport::SyncTransport>, ()>,
+        CameraSession<
+            crate::mode::Blocking,
+            P,
+            Box<dyn crate::transport::ConfiguredSyncTransport>,
+            (),
+        >,
         Error,
     >
     where
@@ -239,7 +249,12 @@ impl Camera {
     pub fn open_udp_blocking<P>(
         addr: impl Into<String>,
     ) -> Result<
-        CameraSession<crate::mode::Blocking, P, Box<dyn crate::transport::SyncTransport>, ()>,
+        CameraSession<
+            crate::mode::Blocking,
+            P,
+            Box<dyn crate::transport::ConfiguredSyncTransport>,
+            (),
+        >,
         Error,
     >
     where
@@ -271,7 +286,12 @@ impl Camera {
         port: impl Into<String>,
         baud_rate: u32,
     ) -> Result<
-        CameraSession<crate::mode::Blocking, P, Box<dyn crate::transport::SyncTransport>, ()>,
+        CameraSession<
+            crate::mode::Blocking,
+            P,
+            Box<dyn crate::transport::ConfiguredSyncTransport>,
+            (),
+        >,
         Error,
     >
     where

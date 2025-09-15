@@ -5,7 +5,6 @@
 
 use std::future::Future;
 
-use crate::transport::builder::TransportConfig;
 use crate::Error;
 
 /// Async transport for VISCA communication.
@@ -50,33 +49,4 @@ pub trait AsyncTransport: Send {
         &'a mut self,
         dst: &'a mut [u8],
     ) -> impl Future<Output = Result<usize, Error>> + Send;
-}
-
-/// Trait for types that carry transport configuration.
-///
-/// This trait provides a unified interface for accessing the transport configuration
-/// from various transport types, enabling the runtime to apply consistent settings
-/// (buffers, timeouts) across all transport implementations.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// use grafton_visca::transport::{HasTransportConfig, TransportConfig};
-///
-/// // Access configuration from any transport
-/// let config = transport.transport_config();
-/// let read_timeout = config.read_timeout;
-/// let buffer_config = &config.buffer_config;
-/// ```
-pub trait HasTransportConfig {
-    /// Get the transport configuration.
-    fn transport_config(&self) -> &TransportConfig;
-}
-
-// Blanket implementation for references, enabling HRTB bounds like `for<'a> &'a T: HasTransportConfig`
-impl<T: HasTransportConfig + ?Sized> HasTransportConfig for &T {
-    #[inline]
-    fn transport_config(&self) -> &TransportConfig {
-        (*self).transport_config()
-    }
 }

@@ -15,11 +15,12 @@ use crate::{
     command::CommandKind,
     error::{Error, Result},
     transport::{
+        builder::TransportConfig,
         serial::{
             handshake::blocking_handshake::{address_set_blocking, if_clear_blocking},
             Config as SerialConfig,
         },
-        SyncTransport,
+        HasTransportConfig, SyncTransport,
     },
 };
 
@@ -33,6 +34,7 @@ use crate::{
 pub struct SerialTransport {
     port: Arc<Mutex<Box<dyn serialport::SerialPort>>>,
     config: SerialConfig,
+    transport_config: TransportConfig,
 }
 
 impl SerialTransport {
@@ -49,9 +51,19 @@ impl SerialTransport {
         let if_clear = config.if_clear_on_connect;
         let address_set = config.address_set_on_connect;
 
+        // Create TransportConfig from SerialConfig
+        let transport_config = TransportConfig {
+            read_timeout: config.read_timeout,
+            write_timeout: config.write_timeout,
+            buffer_config: config.buffer_config,
+            retry_config: config.retry_config,
+            ..Default::default()
+        };
+
         let transport = Self {
             port: Arc::new(Mutex::new(port)),
             config,
+            transport_config,
         };
 
         // Perform initialization if requested
@@ -89,6 +101,12 @@ impl SerialTransport {
             bytes = bytes
         );
         Ok(())
+    }
+}
+
+impl HasTransportConfig for SerialTransport {
+    fn transport_config(&self) -> &TransportConfig {
+        &self.transport_config
     }
 }
 

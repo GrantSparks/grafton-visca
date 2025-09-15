@@ -4,13 +4,17 @@
 #[test]
 fn test_blocking_wrapper_api() {
     // External crates
-    use grafton_visca::{capabilities::Profile, transport::SyncTransport, BlockingCamera};
+    use grafton_visca::{
+        capabilities::Profile,
+        transport::{HasTransportConfig, SyncTransport},
+        BlockingCamera,
+    };
 
     fn _example<P: Profile + Default, T>(
         camera: &mut BlockingCamera<P, T>,
     ) -> Result<(), grafton_visca::Error>
     where
-        T: SyncTransport + Send + Sync + 'static,
+        T: SyncTransport + HasTransportConfig + Send + Sync + 'static,
     {
         camera.zoom_stop()?;
         camera.zoom_tele_std()?;

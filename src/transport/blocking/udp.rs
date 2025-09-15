@@ -5,7 +5,8 @@ use std::{net::UdpSocket, time::Duration};
 use crate::{
     command::CommandKind,
     transport::{
-        address::AddressResolver, buffer::BufferConfig, builder::TransportConfig, SyncTransport,
+        address::AddressResolver, buffer::BufferConfig, builder::TransportConfig,
+        HasTransportConfig, SyncTransport,
     },
     Error,
 };
@@ -17,6 +18,7 @@ use crate::{
 #[derive(Debug)]
 pub struct Udp {
     socket: UdpSocket,
+    config: TransportConfig,
 }
 
 impl Udp {
@@ -56,7 +58,13 @@ impl Udp {
             socket.set_ttl(ttl)?;
         }
 
-        Ok(Self { socket })
+        Ok(Self { socket, config })
+    }
+}
+
+impl HasTransportConfig for Udp {
+    fn transport_config(&self) -> &TransportConfig {
+        &self.config
     }
 }
 

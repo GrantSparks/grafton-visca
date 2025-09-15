@@ -496,15 +496,12 @@ where
         crate::camera::session::CameraSession<
             crate::mode::Blocking,
             P,
-            Box<dyn crate::transport::SyncTransport>,
+            Box<dyn crate::transport::ConfiguredSyncTransport>,
             (),
         >,
         Error,
     > {
-        use crate::transport::{
-            blocking::{Tcp, Udp},
-            SyncTransport,
-        };
+        use crate::transport::blocking::{Tcp, Udp};
 
         // Handle Auto transport option separately
         let (transport, protocol_style) = match &self.transport {
@@ -522,7 +519,9 @@ where
                 let is_serial = matches!(&self.transport, TransportOptions::Serial { .. });
 
                 // Create transport based on configuration
-                let mut transport: Box<dyn SyncTransport> = match &self.transport {
+                let mut transport: Box<dyn crate::transport::ConfiguredSyncTransport> = match &self
+                    .transport
+                {
                     TransportOptions::Tcp { address } => {
                         // Parse address and create TCP transport
                         let tcp = Tcp::connect(address)?;
@@ -628,7 +627,7 @@ where
         crate::camera::session::CameraSession<
             crate::mode::Blocking,
             P,
-            Box<dyn crate::transport::SyncTransport>,
+            Box<dyn crate::transport::ConfiguredSyncTransport>,
             (),
         >,
         Error,
@@ -641,7 +640,7 @@ where
                     .camera_address(self.camera_id.id());
 
                 // Create blocking serial transport
-                let transport: Box<dyn crate::transport::SyncTransport> = Box::new(
+                let transport: Box<dyn crate::transport::ConfiguredSyncTransport> = Box::new(
                     crate::transport::serial_blocking::SerialTransport::new(serial_config)?,
                 );
 

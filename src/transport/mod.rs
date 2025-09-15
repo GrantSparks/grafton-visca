@@ -89,7 +89,7 @@ pub(crate) mod async_std;
 pub(crate) mod smol;
 
 #[cfg(feature = "async")]
-pub use async_transport::{AsyncTransport, HasTransportConfig};
+pub use async_transport::AsyncTransport;
 // Direct transport types are no longer exported - use camera-first API instead:
 // - BlockingCamera::connect_tcp/udp()
 // - CameraBuilder::tcp/udp()
@@ -99,7 +99,7 @@ pub use builder::{NetTransportBuilder, Transport, TransportBuilderExt};
 pub use protocol_detection::{DetectionResult, ProtocolDetector};
 use std::time::{Duration, Instant};
 
-pub use sync_transport::SyncTransport;
+pub use sync_transport::{ConfiguredSyncTransport, HasTransportConfig, SyncTransport};
 
 /// Retry configuration for transport layer operations.
 ///

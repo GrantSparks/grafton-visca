@@ -22,7 +22,7 @@ use super::{MovementConfig, PanTiltPosition, UnifiedCamera as Camera};
 impl<P, T> Camera<crate::mode::Blocking, P, T, ()>
 where
     P: Profile + ProfileMetadata + Default,
-    T: SyncTransport + 'static,
+    T: SyncTransport + crate::transport::HasTransportConfig + 'static,
 {
     /// Wait for a command completion message or idle state using the default timeout.
     ///

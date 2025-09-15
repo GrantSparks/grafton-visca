@@ -5,8 +5,7 @@
 
 use crate::{
     transport::{
-        async_io::AsyncDatagram, async_transport::HasTransportConfig, builder::TransportConfig,
-        AsyncTransport,
+        async_io::AsyncDatagram, builder::TransportConfig, AsyncTransport, HasTransportConfig,
     },
     Error,
 };

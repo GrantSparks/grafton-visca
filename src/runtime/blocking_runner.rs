@@ -31,7 +31,7 @@ use crate::{
     transport::{
         buffer::{BufferConfig, BufferManager},
         envelope::TransportEnvelope,
-        RetryConfig, SyncTransport,
+        HasTransportConfig, RetryConfig, SyncTransport,
     },
 };
 
@@ -75,6 +75,16 @@ impl<P: Profile> BlockingRunner<P> {
             BufferConfig::default()
         };
 
+        Self::new_with_buffer(style, timeout_config, retry_config, buffer_config)
+    }
+
+    /// Create a new blocking runner with full configuration including buffer config.
+    pub fn new_with_buffer(
+        style: ProtocolStyle,
+        timeout_config: TimeoutConfig,
+        retry_config: RetryConfig,
+        buffer_config: BufferConfig,
+    ) -> Self {
         Self {
             core: SchedulerCore::with_retry_config(timeout_config, retry_config),
             envelope: TransportEnvelope::new(style),
@@ -86,7 +96,7 @@ impl<P: Profile> BlockingRunner<P> {
     }
 
     /// Send a command and wait for the response.
-    pub fn send_command<T: SyncTransport>(
+    pub fn send_command<T: SyncTransport + HasTransportConfig>(
         &mut self,
         transport: &mut T,
         command: &(impl ViscaEncode + std::fmt::Debug + Clone + 'static),
@@ -131,14 +141,13 @@ impl<P: Profile> BlockingRunner<P> {
     }
 
     /// Run the scheduler until a specific command completes.
-    fn run_until_complete<T: SyncTransport>(
+    fn run_until_complete<T: SyncTransport + HasTransportConfig>(
         &mut self,
         transport: &mut T,
         target_cmd_id: u32,
     ) -> Result<ViscaResponse> {
-        // Allocate a single reusable buffer for receiving data
-        // Use a reasonable default buffer size (256 bytes should be enough for VISCA frames)
-        let mut read_buf = vec![0u8; 256];
+        // Allocate a single reusable buffer for receiving data using the configured size
+        let mut read_buf = vec![0u8; self.buffer_manager.config().recv_buffer_size];
 
         loop {
             let now = Instant::now();
@@ -155,7 +164,7 @@ impl<P: Profile> BlockingRunner<P> {
                 };
 
                 // Use configurable write timeout from transport config
-                let write_timeout = Duration::from_millis(500); // Default, should come from config
+                let write_timeout = transport.transport_config().write_timeout;
 
                 // Convert PendingCommand
                 let pending_cmd = PendingCommand {
@@ -197,7 +206,7 @@ impl<P: Profile> BlockingRunner<P> {
                 };
 
                 // Use configurable write timeout from transport config
-                let write_timeout = Duration::from_millis(500); // Default, should come from config
+                let write_timeout = transport.transport_config().write_timeout;
 
                 // Convert to PendingCommand
                 let pending_cmd = PendingCommand {

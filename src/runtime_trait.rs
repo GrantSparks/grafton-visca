@@ -10,7 +10,7 @@ use std::time::Instant;
 #[cfg(feature = "async")]
 use crate::{
     executor::Executor,
-    transport::{async_transport::HasTransportConfig, builder::TransportConfig, AsyncTransport},
+    transport::{builder::TransportConfig, AsyncTransport, HasTransportConfig},
     Error,
 };
 

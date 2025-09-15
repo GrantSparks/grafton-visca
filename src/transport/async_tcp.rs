@@ -6,9 +6,8 @@
 use crate::{
     transport::{
         async_io::{write_all_flush, AsyncReadExt, AsyncWriteExt},
-        async_transport::HasTransportConfig,
         builder::TransportConfig,
-        AsyncTransport,
+        AsyncTransport, HasTransportConfig,
     },
     Error,
 };

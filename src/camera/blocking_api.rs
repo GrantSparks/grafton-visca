@@ -61,7 +61,7 @@ where
     pub fn new(transport: Tr) -> Result<Self, Error>
     where
         P: Default,
-        Tr: crate::transport::SyncTransport + Send + 'static,
+        Tr: crate::transport::SyncTransport + crate::transport::HasTransportConfig + Send + 'static,
     {
         Ok(Self {
             inner: UnifiedCamera::<Blocking, P, Tr, ()>::new_blocking(transport)?,
@@ -75,7 +75,7 @@ where
     ) -> Result<Self, Error>
     where
         P: Default,
-        Tr: crate::transport::SyncTransport + Send + 'static,
+        Tr: crate::transport::SyncTransport + crate::transport::HasTransportConfig + Send + 'static,
     {
         Ok(Self {
             inner: UnifiedCamera::<Blocking, P, Tr, ()>::new_blocking_with_style(
@@ -111,7 +111,7 @@ where
     pub fn await_pan_tilt_idle(&mut self, timeout: std::time::Duration) -> Result<(), Error>
     where
         P: crate::capabilities::ProfileMetadata + Default,
-        Tr: crate::transport::SyncTransport + 'static,
+        Tr: crate::transport::SyncTransport + crate::transport::HasTransportConfig + 'static,
     {
         self.inner.await_pan_tilt_idle(timeout)
     }
@@ -122,7 +122,7 @@ where
     pub fn await_zoom_idle(&mut self, timeout: std::time::Duration) -> Result<(), Error>
     where
         P: crate::capabilities::ProfileMetadata + Default,
-        Tr: crate::transport::SyncTransport + 'static,
+        Tr: crate::transport::SyncTransport + crate::transport::HasTransportConfig + 'static,
     {
         self.inner.await_zoom_idle(timeout)
     }
@@ -146,7 +146,7 @@ where
     pub fn await_idle(&mut self, timeout: std::time::Duration) -> Result<(), Error>
     where
         P: crate::capabilities::ProfileMetadata + Default,
-        Tr: crate::transport::SyncTransport + 'static,
+        Tr: crate::transport::SyncTransport + crate::transport::HasTransportConfig + 'static,
     {
         self.inner.await_idle(timeout)
     }
@@ -184,7 +184,7 @@ where
     }
 }
 
-impl<P> BlockingCamera<P, Box<dyn crate::transport::SyncTransport>> where
+impl<P> BlockingCamera<P, Box<dyn crate::transport::ConfiguredSyncTransport>> where
     P: crate::capabilities::Profile + Default
 {
 }
