@@ -13,9 +13,6 @@ use std::{
     time::Duration,
 };
 
-#[cfg(not(feature = "async"))]
-use bytes::Bytes;
-
 #[cfg(feature = "async")]
 use super::deterministic_executor::ExecutorExt;
 #[cfg(feature = "async")]
@@ -551,7 +548,7 @@ impl SyncTransport for ScriptedSyncTransport {
         Ok(())
     }
 
-    fn recv(&mut self) -> Result<Bytes> {
+    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize> {
         // Check for injected errors first
         {
             let mut steps = self
@@ -572,16 +569,20 @@ impl SyncTransport for ScriptedSyncTransport {
 
         // Try to get a response from the channel (blocking)
         match self.response_rx.recv_timeout(Duration::from_secs(10)) {
-            Ok(Ok(response)) => Ok(Bytes::from(response)),
+            Ok(Ok(response)) => {
+                let len = response.len().min(dst.len());
+                dst[..len].copy_from_slice(&response[..len]);
+                Ok(len)
+            }
             Ok(Err(e)) => Err(e),
             Err(_) => Err(Error::Timeout),
         }
     }
 
-    fn recv_with_timeout(&mut self, _timeout: Duration) -> Result<Bytes> {
-        // For the scripted transport, we just use the same logic as recv
+    fn recv_into_with_timeout(&mut self, dst: &mut [u8], _timeout: Duration) -> Result<usize> {
+        // For the scripted transport, we just use the same logic as recv_into
         // The timeout is handled by the script itself
-        self.recv()
+        self.recv_into(dst)
     }
 }
 
@@ -890,8 +891,9 @@ mod tests {
             .unwrap();
 
         // Should receive the scripted response
-        let response = transport.recv().unwrap();
-        assert_eq!(response.as_ref(), &[0x90, 0x41, VISCA_TERMINATOR]);
+        let mut buffer = vec![0u8; 256];
+        let n = transport.recv_into(&mut buffer).unwrap();
+        assert_eq!(&buffer[..n], &[0x90, 0x41, VISCA_TERMINATOR]);
 
         // Verify the command was recorded
         let sent = transport.sent();
@@ -914,7 +916,8 @@ mod tests {
             .unwrap();
 
         // Should timeout since no response is scripted
-        let result = transport.recv();
+        let mut buffer = vec![0u8; 256];
+        let result = transport.recv_into(&mut buffer);
         assert!(matches!(result, Err(Error::Timeout)));
     }
 

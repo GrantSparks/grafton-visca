@@ -1,15 +1,11 @@
 //! Blocking UDP transport implementation with IPv6 support.
 
-use bytes::Bytes;
 use std::{net::UdpSocket, time::Duration};
 
 use crate::{
     command::CommandKind,
     transport::{
-        address::AddressResolver,
-        buffer::{BufferConfig, BufferManager},
-        builder::TransportConfig,
-        SyncTransport,
+        address::AddressResolver, buffer::BufferConfig, builder::TransportConfig, SyncTransport,
     },
     Error,
 };
@@ -17,10 +13,10 @@ use crate::{
 /// UDP transport for blocking VISCA communication.
 ///
 /// This transport supports DNS resolution and both IPv4 and IPv6 addresses.
+/// It operates at the datagram level, treating each datagram as a frame.
 #[derive(Debug)]
 pub struct Udp {
     socket: UdpSocket,
-    buffer_manager: BufferManager,
 }
 
 impl Udp {
@@ -60,13 +56,7 @@ impl Udp {
             socket.set_ttl(ttl)?;
         }
 
-        // Create buffer manager with config
-        let buffer_manager = BufferManager::new(config.buffer_config);
-
-        Ok(Self {
-            socket,
-            buffer_manager,
-        })
+        Ok(Self { socket })
     }
 }
 
@@ -78,17 +68,19 @@ impl SyncTransport for Udp {
         Ok(())
     }
 
-    fn recv(&mut self) -> Result<Bytes, Error> {
-        let mut buffer = self.buffer_manager.alloc_vec_buffer();
-
-        match self.socket.recv(&mut buffer) {
-            Ok(n) => Ok(self.buffer_manager.finish_recv_vec(buffer, n)),
+    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+        match self.socket.recv(dst) {
+            Ok(n) => Ok(n),
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Err(Error::Timeout),
             Err(e) => Err(e.into()),
         }
     }
 
-    fn recv_with_timeout(&mut self, duration: Duration) -> Result<Bytes, Error> {
+    fn recv_into_with_timeout(
+        &mut self,
+        dst: &mut [u8],
+        duration: Duration,
+    ) -> Result<usize, Error> {
         // Save the current timeout
         let original_timeout = self.socket.read_timeout()?;
 
@@ -96,15 +88,14 @@ impl SyncTransport for Udp {
         self.socket.set_read_timeout(Some(duration))?;
 
         // Perform the receive operation
-        let mut buffer = self.buffer_manager.alloc_vec_buffer();
-        let result = self.socket.recv(&mut buffer);
+        let result = self.socket.recv(dst);
 
         // Restore the original timeout
         self.socket.set_read_timeout(original_timeout)?;
 
         // Handle the result
         match result {
-            Ok(n) => Ok(self.buffer_manager.finish_recv_vec(buffer, n)),
+            Ok(n) => Ok(n),
             Err(e)
                 if e.kind() == std::io::ErrorKind::TimedOut
                     || e.kind() == std::io::ErrorKind::WouldBlock =>

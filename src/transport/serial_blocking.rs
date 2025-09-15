@@ -4,18 +4,16 @@
 //! supporting both RS-232 and RS-422 connections with proper
 //! Address Set and I/F Clear initialization.
 
-use bytes::Bytes;
 use std::{
     io::{Read, Write},
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::Duration,
 };
-use tracing::{debug, trace};
+use tracing::trace;
 
 use crate::{
     command::CommandKind,
     error::{Error, Result},
-    protocol::framer::ProtocolFramer,
     transport::{
         serial::{
             handshake::blocking_handshake::{address_set_blocking, if_clear_blocking},
@@ -28,11 +26,13 @@ use crate::{
 // SerialConfig is now imported from the unified serial::Config
 
 /// Serial transport implementation for blocking I/O.
+///
+/// This transport operates at the stream level, reading/writing raw bytes.
+/// Framing and retry logic are handled by the runtime layer.
 #[derive(Debug)]
 pub struct SerialTransport {
     port: Arc<Mutex<Box<dyn serialport::SerialPort>>>,
     config: SerialConfig,
-    framer: ProtocolFramer,
 }
 
 impl SerialTransport {
@@ -51,7 +51,6 @@ impl SerialTransport {
 
         let transport = Self {
             port: Arc::new(Mutex::new(port)),
-            framer: ProtocolFramer::new_with_config(config.buffer_config),
             config,
         };
 
@@ -91,127 +90,54 @@ impl SerialTransport {
         );
         Ok(())
     }
-
-    /// Receive a complete VISCA frame from the serial port.
-    fn recv_frame(&mut self) -> Result<Bytes> {
-        // First check if we have a buffered frame from a previous read
-        if let Some(frame_result) = self.framer.drain_frames().next() {
-            return frame_result;
-        }
-
-        let mut temp_buf = [0u8; 256];
-
-        // Read more data until we get a complete frame
-        loop {
-            let mut port = self
-                .port
-                .lock()
-                .map_err(|_| Error::LockPoisoned("serial port mutex"))?;
-
-            let n = port.read(&mut temp_buf).map_err(Error::Io)?;
-            drop(port); // Release lock immediately after reading
-
-            if n == 0 {
-                // Connection closed - try to extract any terminated frame
-                if let Some(result) = self.framer.drain_on_eof() {
-                    return result;
-                }
-
-                // No valid frame could be extracted
-                if self.framer.is_empty() {
-                    return Err(Error::ConnectionClosed {
-                        reason: Some("serial port closed".into()),
-                    });
-                } else {
-                    return Err(Error::ConnectionClosed {
-                        reason: Some("serial port closed with partial frame".into()),
-                    });
-                }
-            }
-
-            // Push data to framer
-            self.framer.push_slice(&temp_buf[..n])?;
-
-            // Try to extract a complete frame
-            if let Some(frame_result) = self.framer.drain_frames().next() {
-                trace!("Received frame: {:?}", frame_result);
-                return frame_result;
-            }
-        }
-    }
 }
 
 // SerialTransport keeps using &self because it has interior mutability
 // This is necessary for hardware constraints
 impl SyncTransport for SerialTransport {
     fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<()> {
-        // Pass through the bytes as-is (no address rewrite or building)
-        let cmd = bytes.to_vec();
+        // Apply write timeout if configured
+        if let Some(write_timeout) = self.config.write_timeout {
+            let mut port = self
+                .port
+                .lock()
+                .map_err(|_| Error::LockPoisoned("serial port mutex"))?;
+            let original_timeout = port.timeout();
+            port.set_timeout(write_timeout).map_err(|e| {
+                Error::TransportError(format!("Failed to set write timeout: {e}").into())
+            })?;
 
-        // Send with retry logic
-        let mut attempts = 0;
-        let start_time = Instant::now();
+            // Send the data
+            let result = self.send_raw(bytes);
 
-        loop {
-            match self.send_raw(&cmd) {
-                Ok(()) => return Ok(()),
-                Err(e)
-                    if e.is_retryable()
-                        && self.config.retry_config.should_retry(attempts, start_time) =>
-                {
-                    attempts += 1;
-                    let delay = self
-                        .config
-                        .retry_config
-                        .calculate_delay(attempts, e.suggested_retry_delay());
+            // Restore original timeout
+            port.set_timeout(original_timeout).map_err(|e| {
+                Error::TransportError(format!("Failed to restore timeout: {e}").into())
+            })?;
 
-                    if start_time.elapsed() + delay > self.config.retry_config.max_retry_duration {
-                        return Err(Error::MaxRetriesExceeded);
-                    }
-
-                    debug!("Retrying serial send (attempt {attempts}): {e:?}");
-                    std::thread::sleep(delay);
-                }
-                Err(e) => return Err(e),
-            }
+            result
+        } else {
+            // Send without modifying timeout
+            self.send_raw(bytes)
         }
     }
 
-    fn recv(&mut self) -> Result<Bytes> {
-        let mut attempts = 0;
-        let start_time = Instant::now();
+    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize> {
+        let mut port = self
+            .port
+            .lock()
+            .map_err(|_| Error::LockPoisoned("serial port mutex"))?;
 
-        loop {
-            match self.recv_frame() {
-                Ok(frame) => return Ok(frame),
-                Err(e)
-                    if e.is_retryable()
-                        && self.config.retry_config.should_retry(attempts, start_time) =>
-                {
-                    attempts += 1;
-                    let delay = self
-                        .config
-                        .retry_config
-                        .calculate_delay(attempts, e.suggested_retry_delay());
-
-                    if start_time.elapsed() + delay > self.config.retry_config.max_retry_duration {
-                        return Err(Error::MaxRetriesExceeded);
-                    }
-
-                    debug!("Retrying serial receive (attempt {attempts}): {e:?}");
-                    std::thread::sleep(delay);
-                }
-                Err(e) => return Err(e),
+        match port.read(dst) {
+            Ok(n) => {
+                trace!("Read {} bytes from serial port", n);
+                Ok(n)
             }
+            Err(e) => Err(Error::Io(e)),
         }
     }
 
-    fn recv_with_timeout(&mut self, timeout: Duration) -> Result<Bytes> {
-        // First check if we have a buffered frame from a previous read
-        if let Some(frame_result) = self.framer.drain_frames().next() {
-            return frame_result;
-        }
-
+    fn recv_into_with_timeout(&mut self, dst: &mut [u8], timeout: Duration) -> Result<usize> {
         // Temporarily set the timeout on the port
         let mut port = self
             .port
@@ -220,72 +146,23 @@ impl SyncTransport for SerialTransport {
         let original_timeout = port.timeout();
         port.set_timeout(timeout)
             .map_err(|e| Error::TransportError(format!("Failed to set timeout: {e}").into()))?;
-        drop(port);
 
-        let mut temp_buf = [0u8; 256];
-
-        // Read more data until we get a complete frame or timeout
-        let result = loop {
-            let mut port = self
-                .port
-                .lock()
-                .map_err(|_| Error::LockPoisoned("serial port mutex"))?;
-
-            match port.read(&mut temp_buf) {
-                Ok(0) => {
-                    drop(port);
-                    // Connection closed - try to extract any terminated frame
-                    if let Some(result) = self.framer.drain_on_eof() {
-                        break result;
-                    }
-
-                    // No valid frame could be extracted
-                    if self.framer.is_empty() {
-                        break Err(Error::ConnectionClosed {
-                            reason: Some("serial port closed".into()),
-                        });
-                    } else {
-                        break Err(Error::ConnectionClosed {
-                            reason: Some("serial port closed with partial frame".into()),
-                        });
-                    }
-                }
-                Ok(n) => {
-                    drop(port);
-                    // Push data to framer
-                    if let Err(e) = self.framer.push_slice(&temp_buf[..n]) {
-                        break Err(e);
-                    }
-
-                    // Try to extract a complete frame
-                    if let Some(frame_result) = self.framer.drain_frames().next() {
-                        break frame_result;
-                    }
-                    // Continue looping to read more data
-                }
-                Err(io_err)
-                    if io_err.kind() == std::io::ErrorKind::TimedOut
-                        || io_err.kind() == std::io::ErrorKind::WouldBlock =>
-                {
-                    drop(port);
-                    // Timeout occurred - check if we have a buffered frame
-                    if let Some(frame_result) = self.framer.drain_frames().next() {
-                        break frame_result;
-                    }
-                    break Err(Error::Timeout);
-                }
-                Err(io_err) => {
-                    drop(port);
-                    break Err(Error::Io(io_err));
-                }
+        // Read into the provided buffer
+        let result = match port.read(dst) {
+            Ok(n) => {
+                trace!("Read {} bytes from serial port", n);
+                Ok(n)
             }
+            Err(io_err)
+                if io_err.kind() == std::io::ErrorKind::TimedOut
+                    || io_err.kind() == std::io::ErrorKind::WouldBlock =>
+            {
+                Err(Error::Timeout)
+            }
+            Err(io_err) => Err(Error::Io(io_err)),
         };
 
         // Restore original timeout
-        let mut port = self
-            .port
-            .lock()
-            .map_err(|_| Error::LockPoisoned("serial port mutex"))?;
         port.set_timeout(original_timeout)
             .map_err(|e| Error::TransportError(format!("Failed to restore timeout: {e}").into()))?;
 

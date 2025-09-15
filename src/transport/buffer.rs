@@ -3,8 +3,6 @@
 //! This module provides unified buffer management across all transport implementations,
 //! ensuring consistent buffer sizes and allocation strategies.
 
-#[cfg(not(feature = "async"))]
-use bytes::Bytes;
 use bytes::BytesMut;
 
 /// Default buffer size for most VISCA operations.
@@ -123,13 +121,6 @@ impl BufferManager {
         BytesMut::with_capacity(self.config.send_buffer_size)
     }
 
-    /// Allocate a Vec buffer for receiving data.
-    /// Used by blocking UDP transport.
-    #[cfg(not(feature = "async"))]
-    pub fn alloc_vec_buffer(&self) -> Vec<u8> {
-        vec![0u8; self.config.recv_buffer_size]
-    }
-
     /// Resize a buffer if needed, respecting max size limits.
     #[cfg(all(test, not(feature = "async")))]
     pub fn resize_buffer(&self, buffer: &mut BytesMut, required_size: usize) {
@@ -149,14 +140,6 @@ impl BufferManager {
             buffer.resize(self.config.recv_buffer_size, 0);
             buffer.clear();
         }
-    }
-
-    /// Convert a Vec<u8> buffer to Bytes after receiving data (zero-copy conversion).
-    /// Used by blocking transports that can take ownership of the buffer.
-    #[cfg(not(feature = "async"))]
-    pub fn finish_recv_vec(&self, mut buffer: Vec<u8>, received: usize) -> Bytes {
-        buffer.truncate(received);
-        Bytes::from(buffer) // Zero-copy conversion from Vec to Bytes
     }
 }
 

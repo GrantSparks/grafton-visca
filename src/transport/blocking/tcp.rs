@@ -1,6 +1,5 @@
 //! Blocking TCP transport implementation with DNS resolution and IPv6 support.
 
-use bytes::Bytes;
 use std::{
     io::{BufReader, Read, Write},
     net::TcpStream,
@@ -9,7 +8,6 @@ use std::{
 
 use crate::{
     command::CommandKind,
-    protocol::framer::ProtocolFramer,
     transport::{address::AddressResolver, builder::TransportConfig, SyncTransport},
     Error,
 };
@@ -17,11 +15,11 @@ use crate::{
 /// TCP transport for blocking VISCA communication.
 ///
 /// This transport supports DNS resolution and both IPv4 and IPv6 addresses.
+/// It operates at the stream level, reading/writing raw bytes.
+/// Framing is handled by the runtime layer.
 pub struct Tcp {
     reader: BufReader<TcpStream>,
     writer: TcpStream,
-    framer: ProtocolFramer,
-    temp_buf: [u8; 256],
 }
 
 impl std::fmt::Debug for Tcp {
@@ -29,8 +27,6 @@ impl std::fmt::Debug for Tcp {
         f.debug_struct("Tcp")
             .field("reader", &self.reader)
             .field("writer", &self.writer)
-            .field("framer", &self.framer)
-            .field("temp_buf", &format_args!("[u8; 256]"))
             .finish()
     }
 }
@@ -99,8 +95,6 @@ impl Tcp {
                     return Ok(Self {
                         reader: BufReader::new(reader_stream),
                         writer: stream,
-                        framer: ProtocolFramer::new_with_config(config.buffer_config),
-                        temp_buf: [0u8; 256],
                     });
                 }
                 Err(e) => {
@@ -124,102 +118,47 @@ impl SyncTransport for Tcp {
         Ok(())
     }
 
-    fn recv(&mut self) -> Result<Bytes, Error> {
-        // First check if we have a buffered frame from a previous read
-        if let Some(frame_result) = self.framer.drain_frames().next() {
-            return frame_result;
-        }
-
-        // Read more data until we get a complete frame
-        loop {
-            let n = self.reader.read(&mut self.temp_buf).map_err(Error::Io)?;
-
-            if n == 0 {
-                // Connection closed - try to extract any terminated frame
-                if let Some(result) = self.framer.drain_on_eof() {
-                    return result;
-                }
-
-                // No valid frame could be extracted
-                if self.framer.is_empty() {
-                    return Err(Error::ConnectionClosed {
-                        reason: Some("peer closed connection".into()),
-                    });
-                } else {
-                    return Err(Error::ConnectionClosed {
-                        reason: Some("connection closed with partial frame".into()),
-                    });
-                }
+    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+        // Read directly into the provided buffer
+        match self.reader.read(dst) {
+            Ok(0) => {
+                // Connection closed
+                Err(Error::ConnectionClosed {
+                    reason: Some("peer closed connection".into()),
+                })
             }
-
-            // Push data to framer
-            self.framer.push_slice(&self.temp_buf[..n])?;
-
-            // Try to extract a complete frame
-            if let Some(frame_result) = self.framer.drain_frames().next() {
-                return frame_result;
-            }
+            Ok(n) => Ok(n),
+            Err(e) => Err(Error::Io(e)),
         }
     }
 
-    fn recv_with_timeout(&mut self, duration: Duration) -> Result<Bytes, Error> {
-        // First check if we have a buffered frame from a previous read
-        if let Some(frame_result) = self.framer.drain_frames().next() {
-            return frame_result;
-        }
-
+    fn recv_into_with_timeout(
+        &mut self,
+        dst: &mut [u8],
+        duration: Duration,
+    ) -> Result<usize, Error> {
         // Save the current timeout
         let original_timeout = self.reader.get_ref().read_timeout()?;
 
         // Set the new timeout for this operation
         self.reader.get_mut().set_read_timeout(Some(duration))?;
 
-        // Read more data until we get a complete frame or timeout
-        let result = loop {
-            match self.reader.read(&mut self.temp_buf) {
-                Ok(0) => {
-                    // Connection closed - try to extract any terminated frame
-                    if let Some(result) = self.framer.drain_on_eof() {
-                        break result;
-                    }
-
-                    // No valid frame could be extracted
-                    if self.framer.is_empty() {
-                        break Err(Error::ConnectionClosed {
-                            reason: Some("peer closed connection".into()),
-                        });
-                    } else {
-                        break Err(Error::ConnectionClosed {
-                            reason: Some("connection closed with partial frame".into()),
-                        });
-                    }
-                }
-                Ok(n) => {
-                    // Push data to framer
-                    if let Err(e) = self.framer.push_slice(&self.temp_buf[..n]) {
-                        break Err(e);
-                    }
-
-                    // Try to extract a complete frame
-                    if let Some(frame_result) = self.framer.drain_frames().next() {
-                        break frame_result;
-                    }
-                    // Continue looping to read more data
-                }
-                Err(io_err)
-                    if io_err.kind() == std::io::ErrorKind::TimedOut
-                        || io_err.kind() == std::io::ErrorKind::WouldBlock =>
-                {
-                    // Timeout occurred - check if we have a buffered frame
-                    if let Some(frame_result) = self.framer.drain_frames().next() {
-                        break frame_result;
-                    }
-                    break Err(Error::Timeout);
-                }
-                Err(io_err) => {
-                    break Err(Error::Io(io_err));
-                }
+        // Read into the provided buffer
+        let result = match self.reader.read(dst) {
+            Ok(0) => {
+                // Connection closed
+                Err(Error::ConnectionClosed {
+                    reason: Some("peer closed connection".into()),
+                })
             }
+            Ok(n) => Ok(n),
+            Err(io_err)
+                if io_err.kind() == std::io::ErrorKind::TimedOut
+                    || io_err.kind() == std::io::ErrorKind::WouldBlock =>
+            {
+                Err(Error::Timeout)
+            }
+            Err(io_err) => Err(Error::Io(io_err)),
         };
 
         // Restore the original timeout

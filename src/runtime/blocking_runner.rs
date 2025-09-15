@@ -4,8 +4,7 @@
 //! scheduler core to manage Sony sequence tracking, ACK/completion routing, and
 //! retry logic without any async dependencies.
 
-use bytes::BytesMut;
-use tracing::{debug, warn};
+use tracing::{debug, trace, warn};
 
 use std::{
     sync::atomic::{AtomicU32, Ordering},
@@ -20,7 +19,10 @@ use crate::{
         CommandKind, ViscaEncode,
     },
     error::{Error, Result},
-    protocol::response::{decode_basic, BasicKind},
+    protocol::{
+        framer::ProtocolFramer,
+        response::{decode_basic, BasicKind},
+    },
     runtime::{
         core::{PendingCommand, Priority, SchedulerAction, SchedulerCore, SchedulerEvent},
         driver::{scheduler::BlockingScheduler, send_one},
@@ -46,6 +48,8 @@ pub struct BlockingRunner<P: Profile> {
     envelope: TransportEnvelope,
     /// Buffer manager for efficient memory usage.
     buffer_manager: BufferManager,
+    /// Protocol framer for extracting frames from stream data.
+    framer: ProtocolFramer,
     /// Command ID generator.
     next_id: AtomicU32,
     /// Profile type marker.
@@ -75,6 +79,7 @@ impl<P: Profile> BlockingRunner<P> {
             core: SchedulerCore::with_retry_config(timeout_config, retry_config),
             envelope: TransportEnvelope::new(style),
             buffer_manager: BufferManager::new(buffer_config),
+            framer: ProtocolFramer::new_with_config(buffer_config),
             next_id: AtomicU32::new(1),
             _profile: core::marker::PhantomData,
         }
@@ -129,7 +134,9 @@ impl<P: Profile> BlockingRunner<P> {
         transport: &mut T,
         target_cmd_id: u32,
     ) -> Result<ViscaResponse> {
-        let _recv_buffer = BytesMut::with_capacity(256);
+        // Allocate a single reusable buffer for receiving data
+        // Use a reasonable default buffer size (256 bytes should be enough for VISCA frames)
+        let mut read_buf = vec![0u8; 256];
 
         loop {
             let now = Instant::now();
@@ -243,132 +250,167 @@ impl<P: Profile> BlockingRunner<P> {
             }
 
             // Try to receive a response with short timeout
-            match transport.recv_with_timeout(Duration::from_millis(10)) {
-                Ok(response_bytes) => {
-                    // Extract payload and metadata
-                    let (payload, meta) = self.envelope.extract_with_meta_owned(response_bytes)?;
+            match transport.recv_into_with_timeout(&mut read_buf, Duration::from_millis(10)) {
+                Ok(0) => {
+                    // Connection closed
+                    warn!("Connection closed by peer");
+                    return Err(Error::ConnectionClosed {
+                        reason: Some("peer closed connection".into()),
+                    });
+                }
+                Ok(n) => {
+                    trace!("Received {} bytes from transport", n);
+                    // Push received bytes into the protocol-aware framer
+                    if let Err(e) = self.framer.push_slice(&read_buf[..n]) {
+                        warn!("Framer buffer exceeded limits: {e}");
+                        continue;
+                    }
 
-                    // Parse VISCA response type using decode_basic
-                    let basic = match decode_basic(&payload) {
-                        Some(b) => b,
-                        None => {
-                            warn!("Failed to decode VISCA frame: {:02X?}", payload);
-                            continue;
-                        }
-                    };
+                    // Drain complete frames
+                    for frame_result in self.framer.drain_frames() {
+                        let frame = match frame_result {
+                            Ok(frame) => frame,
+                            Err(e) => {
+                                warn!("Failed to extract frame: {e}");
+                                continue;
+                            }
+                        };
 
-                    let event = match basic.kind {
-                        BasicKind::Ack => {
-                            let socket = basic.socket;
-                            // For Sony, try to use sequence to find command
-                            let cmd_id = meta
-                                .sequence
-                                .and_then(|seq| self.core.get_command_by_sequence(seq));
-                            debug!("Received ACK for socket {:?}, cmd_id {:?}", socket, cmd_id);
-                            SchedulerEvent::Ack { socket, cmd_id }
-                        }
-                        BasicKind::Completion => {
-                            let socket = basic.socket;
+                        // Extract payload and metadata
+                        let (payload, meta) = match self.envelope.extract_with_meta_owned(frame) {
+                            Ok(result) => result,
+                            Err(e) => {
+                                warn!("Failed to extract response from frame: {e}");
+                                continue;
+                            }
+                        };
 
-                            // For Sony, try to use sequence to find command
-                            let cmd_id = if let Some(sequence) = meta.sequence {
-                                self.core.get_command_by_sequence(sequence)
-                            } else {
-                                None
-                            };
+                        // Parse VISCA response type using decode_basic
+                        let basic = match decode_basic(&payload) {
+                            Some(b) => b,
+                            None => {
+                                warn!("Failed to decode VISCA frame: {:02X?}", payload);
+                                continue;
+                            }
+                        };
 
-                            if let Some(cmd_id) = cmd_id {
-                                if cmd_id == target_cmd_id {
-                                    debug!("Command {} completed successfully", cmd_id);
-                                    // Get the expected response type from core
-                                    let response_type = self.core.get_inquiry_type(cmd_id);
-                                    // Convert to ViscaResponse for return with profile-aware lifting
-                                    let response = lift_inquiry_for::<P>(&basic, response_type)?;
-                                    return Ok(response);
+                        let event = match basic.kind {
+                            BasicKind::Ack => {
+                                let socket = basic.socket;
+                                // For Sony, try to use sequence to find command
+                                let cmd_id = meta
+                                    .sequence
+                                    .and_then(|seq| self.core.get_command_by_sequence(seq));
+                                debug!("Received ACK for socket {:?}, cmd_id {:?}", socket, cmd_id);
+                                SchedulerEvent::Ack { socket, cmd_id }
+                            }
+                            BasicKind::Completion => {
+                                let socket = basic.socket;
+
+                                // For Sony, try to use sequence to find command
+                                let cmd_id = if let Some(sequence) = meta.sequence {
+                                    self.core.get_command_by_sequence(sequence)
+                                } else {
+                                    None
+                                };
+
+                                if let Some(cmd_id) = cmd_id {
+                                    if cmd_id == target_cmd_id {
+                                        debug!("Command {} completed successfully", cmd_id);
+                                        // Get the expected response type from core
+                                        let response_type = self.core.get_inquiry_type(cmd_id);
+                                        // Convert to ViscaResponse for return with profile-aware lifting
+                                        let response =
+                                            lift_inquiry_for::<P>(&basic, response_type)?;
+                                        return Ok(response);
+                                    }
+                                }
+
+                                debug!("Received completion for socket {:?}", socket);
+                                // Get the expected response type from core
+                                let response_type =
+                                    cmd_id.and_then(|id| self.core.get_inquiry_type(id));
+                                let response = lift_inquiry_for::<P>(&basic, response_type)?;
+                                SchedulerEvent::Completion {
+                                    socket,
+                                    cmd_id,
+                                    response,
                                 }
                             }
+                            BasicKind::Error(code) => {
+                                let socket = basic.socket;
+                                // For Sony, try to use sequence to find command
+                                let mut cmd_id = meta
+                                    .sequence
+                                    .and_then(|seq| self.core.get_command_by_sequence(seq));
 
-                            debug!("Received completion for socket {:?}", socket);
-                            // Get the expected response type from core
-                            let response_type =
-                                cmd_id.and_then(|id| self.core.get_inquiry_type(id));
-                            let response = lift_inquiry_for::<P>(&basic, response_type)?;
-                            SchedulerEvent::Completion {
-                                socket,
-                                cmd_id,
-                                response,
-                            }
-                        }
-                        BasicKind::Error(code) => {
-                            let socket = basic.socket;
-                            // For Sony, try to use sequence to find command
-                            let mut cmd_id = meta
-                                .sequence
-                                .and_then(|seq| self.core.get_command_by_sequence(seq));
+                                // If no cmd_id and no socket, this could be an inquiry error
+                                // Use resolve_inquiry_id to try to match it
+                                if cmd_id.is_none() && socket.is_none() {
+                                    // For error responses, we can't use content-based matching on the error code,
+                                    // but we can use FIFO from the inquiry queue
+                                    cmd_id = self.core.resolve_inquiry_id(&[], meta.sequence);
+                                }
 
-                            // If no cmd_id and no socket, this could be an inquiry error
-                            // Use resolve_inquiry_id to try to match it
-                            if cmd_id.is_none() && socket.is_none() {
-                                // For error responses, we can't use content-based matching on the error code,
-                                // but we can use FIFO from the inquiry queue
-                                cmd_id = self.core.resolve_inquiry_id(&[], meta.sequence);
-                            }
-
-                            debug!(
-                                "Received error 0x{:02X} for socket {:?}, cmd_id {:?}",
-                                code, socket, cmd_id
-                            );
-                            SchedulerEvent::Error {
-                                socket,
-                                cmd_id,
-                                code,
-                            }
-                        }
-                        BasicKind::DataReply => {
-                            // Data replies are completions for inquiries
-                            // Use the core's centralized resolution
-                            let cmd_id = self.core.resolve_inquiry_id(&payload, meta.sequence);
-
-                            // Get the expected response type from core
-                            let response_type =
-                                cmd_id.and_then(|id| self.core.get_inquiry_type(id).cloned());
-
-                            if let Some(cmd_id) = cmd_id {
-                                if cmd_id == target_cmd_id {
-                                    debug!("Inquiry {} completed successfully", cmd_id);
-                                    // Convert to ViscaResponse for return with profile-aware lifting
-                                    let response =
-                                        lift_inquiry_for::<P>(&basic, response_type.as_ref())?;
-                                    return Ok(response);
+                                debug!(
+                                    "Received error 0x{:02X} for socket {:?}, cmd_id {:?}",
+                                    code, socket, cmd_id
+                                );
+                                SchedulerEvent::Error {
+                                    socket,
+                                    cmd_id,
+                                    code,
                                 }
                             }
+                            BasicKind::DataReply => {
+                                // Data replies are completions for inquiries
+                                // Use the core's centralized resolution
+                                let cmd_id = self.core.resolve_inquiry_id(&payload, meta.sequence);
 
-                            debug!("Received data reply (inquiry response)");
-                            let response = lift_inquiry_for::<P>(&basic, response_type.as_ref())?;
-                            // Use InquiryReply event for data replies
-                            SchedulerEvent::InquiryReply { cmd_id, response }
-                        }
-                        BasicKind::NetworkChange | BasicKind::Unknown => {
-                            // Other response types are ignored for now
-                            continue;
-                        }
-                    };
+                                // Get the expected response type from core
+                                let response_type =
+                                    cmd_id.and_then(|id| self.core.get_inquiry_type(id).cloned());
 
-                    // Process the event
-                    let actions = self.core.process_event(event, now);
-                    for action in actions {
-                        match action {
-                            SchedulerAction::CommandComplete { id, response, .. }
-                                if id == target_cmd_id =>
-                            {
-                                // Core handles all inquiry cleanup now
-                                return Ok(response);
+                                if let Some(cmd_id) = cmd_id {
+                                    if cmd_id == target_cmd_id {
+                                        debug!("Inquiry {} completed successfully", cmd_id);
+                                        // Convert to ViscaResponse for return with profile-aware lifting
+                                        let response =
+                                            lift_inquiry_for::<P>(&basic, response_type.as_ref())?;
+                                        return Ok(response);
+                                    }
+                                }
+
+                                debug!("Received data reply (inquiry response)");
+                                let response =
+                                    lift_inquiry_for::<P>(&basic, response_type.as_ref())?;
+                                // Use InquiryReply event for data replies
+                                SchedulerEvent::InquiryReply { cmd_id, response }
                             }
-                            SchedulerAction::CommandFailed { id, error } if id == target_cmd_id => {
-                                // Core handles all inquiry cleanup now
-                                return Err(error);
+                            BasicKind::NetworkChange | BasicKind::Unknown => {
+                                // Other response types are ignored for now
+                                continue;
                             }
-                            _ => {}
+                        };
+
+                        // Process the event
+                        let actions = self.core.process_event(event, now);
+                        for action in actions {
+                            match action {
+                                SchedulerAction::CommandComplete { id, response, .. }
+                                    if id == target_cmd_id =>
+                                {
+                                    // Core handles all inquiry cleanup now
+                                    return Ok(response);
+                                }
+                                SchedulerAction::CommandFailed { id, error }
+                                    if id == target_cmd_id =>
+                                {
+                                    // Core handles all inquiry cleanup now
+                                    return Err(error);
+                                }
+                                _ => {}
+                            }
                         }
                     }
                 }
