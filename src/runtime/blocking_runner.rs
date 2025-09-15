@@ -89,27 +89,29 @@ impl<P: Profile> BlockingRunner<P> {
     pub fn send_command<T: SyncTransport>(
         &mut self,
         transport: &mut T,
-        command: &impl ViscaEncode,
+        command: &(impl ViscaEncode + std::fmt::Debug + Clone + 'static),
         camera_id: CameraId,
         category: CommandCategory,
     ) -> Result<ViscaResponse> {
         let cmd_id = self.next_id.fetch_add(1, Ordering::SeqCst);
 
-        // Encode command using zero-copy path
-        let visca_bytes = command.try_into_bytes(camera_id)?;
+        // Create EncodableCommand for zero-copy path
+        let encodable_cmd = std::sync::Arc::new(
+            crate::command::encode_visca::EncodableCommand::new(command.clone()),
+        );
 
         // Store response type in core for inquiries
-        if let Some(rt) = command.response_type() {
+        if let Some(rt) = encodable_cmd.response_type() {
             self.core.register_inquiry_type(cmd_id, rt);
         }
 
         // Queue the command (both commands and inquiries use the unified path)
         let now = Instant::now();
         // Get command kind from the command itself
-        let kind = command.command_kind();
+        let kind = encodable_cmd.kind;
         let pending_cmd = PendingCommand {
             id: cmd_id,
-            bytes: visca_bytes.clone(),
+            command: encodable_cmd,
             priority: Priority::Normal,
             category,
             camera_id,
@@ -158,7 +160,7 @@ impl<P: Profile> BlockingRunner<P> {
                 // Convert PendingCommand
                 let pending_cmd = PendingCommand {
                     id: cmd.id,
-                    bytes: cmd.bytes.clone(),
+                    command: cmd.command.clone(),
                     priority: cmd.priority,
                     category: cmd.category,
                     camera_id: cmd.camera_id,
@@ -200,7 +202,7 @@ impl<P: Profile> BlockingRunner<P> {
                 // Convert to PendingCommand
                 let pending_cmd = PendingCommand {
                     id: retry.id,
-                    bytes: retry.bytes.clone(),
+                    command: retry.command.clone(),
                     priority: retry.priority,
                     category: retry.category,
                     camera_id: retry.camera_id,
@@ -441,7 +443,7 @@ impl<P: Profile> BlockingRunner<P> {
 mod tests {
     use super::*;
     use crate::camera::profiles::PtzOpticsG2;
-    use bytes::Bytes;
+    use crate::command::encode_visca::ViscaEncode;
 
     #[test]
     fn test_scheduler_core_creation() {
@@ -470,12 +472,41 @@ mod tests {
         let mut runner =
             BlockingRunner::<PtzOpticsG2>::new(ProtocolStyle::SonyEncapsulated, timeout_config);
 
+        // Create a test command helper struct
+        #[derive(Debug)]
+        struct TestCmd {
+            bytes: Vec<u8>,
+        }
+
+        impl ViscaEncode for TestCmd {
+            type ViscaResponse = ();
+            const MAX_SIZE: usize = 6;
+            const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+
+            fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+                let len = self.bytes.len();
+                buffer[..len].copy_from_slice(&self.bytes);
+                Ok(len)
+            }
+
+            fn response_type(&self) -> Option<crate::command::response::ViscaResponseType> {
+                None
+            }
+        }
+
         // Create a pending command
         // Use a valid camera ID - 1 is always valid
         let camera_id = CameraId::CAMERA_1;
+        let test_cmd = TestCmd {
+            bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
+        };
+        let encodable_cmd = std::sync::Arc::new(
+            crate::command::encode_visca::EncodableCommand::new(test_cmd),
+        );
+
         let cmd = PendingCommand {
             id: 1,
-            bytes: Bytes::from_static(&[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]),
+            command: encodable_cmd,
             priority: Priority::Normal,
             category: CommandCategory::Quick,
             camera_id,

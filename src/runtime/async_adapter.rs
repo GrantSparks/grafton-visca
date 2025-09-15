@@ -25,14 +25,14 @@ use crate::{
 };
 
 /// Represents an item to be transmitted (command, inquiry, or cancel).
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) enum TxItem {
     /// A command that requires a socket and expects ACK/Completion.
     Command {
         /// Unique identifier for this command.
         id: u32,
-        /// Raw VISCA bytes to send.
-        bytes: bytes::Bytes,
+        /// The type-erased command to send.
+        command: Arc<crate::command::encode_visca::EncodableCommand>,
         /// Priority level for scheduling.
         priority: Priority,
         /// Category for timeout calculation.
@@ -46,8 +46,8 @@ pub(crate) enum TxItem {
     Inquiry {
         /// Unique identifier for this inquiry.
         id: u32,
-        /// Raw VISCA bytes to send.
-        bytes: bytes::Bytes,
+        /// The type-erased command to send.
+        command: Arc<crate::command::encode_visca::EncodableCommand>,
         /// Category for timeout calculation.
         category: CommandCategory,
         /// Camera ID used to encode the inquiry.
@@ -67,6 +67,47 @@ pub(crate) enum TxItem {
         /// Command ID to cancel.
         id: u32,
     },
+}
+
+impl std::fmt::Debug for TxItem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TxItem::Command {
+                id,
+                priority,
+                category,
+                camera_id,
+                ..
+            } => f
+                .debug_struct("TxItem::Command")
+                .field("id", id)
+                .field("priority", priority)
+                .field("category", category)
+                .field("camera_id", camera_id)
+                .finish(),
+            TxItem::Inquiry {
+                id,
+                category,
+                camera_id,
+                response_type,
+                ..
+            } => f
+                .debug_struct("TxItem::Inquiry")
+                .field("id", id)
+                .field("category", category)
+                .field("camera_id", camera_id)
+                .field("response_type", response_type)
+                .finish(),
+            TxItem::Cancel { socket } => f
+                .debug_struct("TxItem::Cancel")
+                .field("socket", socket)
+                .finish(),
+            TxItem::CancelById { id } => f
+                .debug_struct("TxItem::CancelById")
+                .field("id", id)
+                .finish(),
+        }
+    }
 }
 
 /// Metrics summary for async runtime.
@@ -154,7 +195,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
         match item {
             TxItem::Command {
                 id,
-                bytes,
+                command,
                 priority,
                 category,
                 camera_id,
@@ -174,7 +215,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 let now = self.executor.now();
                 let pending_cmd = PendingCommand {
                     id,
-                    bytes,
+                    command,
                     priority,
                     category,
                     camera_id,
@@ -189,7 +230,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
             }
             TxItem::Inquiry {
                 id,
-                bytes,
+                command,
                 category,
                 camera_id,
                 response_type,
@@ -207,7 +248,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 let now = self.executor.now();
                 let pending_cmd = PendingCommand {
                     id,
-                    bytes,
+                    command,
                     priority: Priority::Normal, // Inquiries use normal priority
                     category,
                     camera_id,
@@ -237,7 +278,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
         let now = self.executor.now();
         self.core.register_pending_ack(
             cmd.id,
-            cmd.bytes.clone(),
+            cmd.command.clone(),
             cmd.priority,
             cmd.category,
             cmd.camera_id,
@@ -251,7 +292,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
         let now = self.executor.now();
         self.core.start_inquiry(
             cmd.id,
-            cmd.bytes.clone(),
+            cmd.command.clone(),
             cmd.priority,
             cmd.category,
             cmd.camera_id,
@@ -464,11 +505,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                     );
                 }
             }
-            SchedulerAction::RetryCommand {
-                id,
-                bytes: _,
-                delay,
-            } => {
+            SchedulerAction::RetryCommand { id, delay } => {
                 self.metrics.commands_retried += 1;
 
                 debug!("Scheduling retry for command {} after {:?}", id, delay);

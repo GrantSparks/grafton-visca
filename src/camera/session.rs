@@ -18,7 +18,7 @@ use crate::{
 };
 
 /// A wrapper for raw VISCA command bytes.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct RawCommand {
     bytes: Vec<u8>,
     kind: CommandKind,
@@ -1002,7 +1002,13 @@ where
     /// Send a typed VISCA command.
     pub async fn send_command<C>(&self, command: C) -> Result<C::Response, Error>
     where
-        C: crate::command::typed::ViscaCommand + ViscaEncode + Send + Sync + Clone + 'static,
+        C: crate::command::typed::ViscaCommand
+            + ViscaEncode
+            + Send
+            + Sync
+            + Clone
+            + std::fmt::Debug
+            + 'static,
         C::Response: Send + 'static,
     {
         // Use the camera's typed command method
@@ -1037,7 +1043,13 @@ where
     /// Send a typed VISCA command.
     pub fn send_command<C>(&self, command: C) -> Result<C::Response, Error>
     where
-        C: crate::command::typed::ViscaCommand + ViscaEncode + Send + Sync + Clone + 'static,
+        C: crate::command::typed::ViscaCommand
+            + ViscaEncode
+            + Send
+            + Sync
+            + Clone
+            + std::fmt::Debug
+            + 'static,
         C::Response: Send + 'static,
     {
         use crate::mode::BlockingFutureExt;
@@ -1587,7 +1599,7 @@ where
 {
     fn send_and_complete<C>(&self, command: C) -> M::Ret<'_, Result<(), Error>>
     where
-        C: ViscaEncode + Send + Sync + Clone + 'static,
+        C: ViscaEncode + Send + Sync + Clone + std::fmt::Debug + 'static,
     {
         if let Some(camera) = &self.camera {
             camera.send_and_complete(command)
@@ -1598,7 +1610,13 @@ where
 
     fn send_and_parse<C>(&self, command: C) -> M::Ret<'_, Result<C::Response, Error>>
     where
-        C: crate::command::typed::ViscaCommand + ViscaEncode + Send + Sync + Clone + 'static,
+        C: crate::command::typed::ViscaCommand
+            + ViscaEncode
+            + Send
+            + Sync
+            + Clone
+            + std::fmt::Debug
+            + 'static,
         C::Response: Send + 'static,
     {
         if let Some(camera) = &self.camera {

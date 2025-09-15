@@ -91,18 +91,20 @@ where
     E: crate::executor::Executor,
     S: SchedulerLike,
 {
-    let kind = cmd.kind;
-
-    // Frame the command
-    let (framed, meta) =
-        envelope.frame_bytes_with_kind_owned(cmd.bytes.clone(), kind, buffer_manager);
+    // Frame the command using single-allocation path with direct encoding
+    let (framed, meta) = envelope
+        .frame_encodable_command(&cmd.command, cmd.camera_id, buffer_manager)
+        .map_err(|e| {
+            error!("Failed to frame command {}: {:?}", cmd.id, e);
+            e
+        })?;
 
     // Create guard for tracking rollback state
     let mut guard = SendGuard::new(cmd.id);
 
     // For inquiries, start tracking without socket allocation
     // For commands, register as pending ACK
-    if kind == CommandKind::Inquiry {
+    if cmd.kind == CommandKind::Inquiry {
         scheduler.start_inquiry(&cmd);
         debug!("Started tracking inquiry {}", cmd.id);
     } else {
@@ -126,7 +128,7 @@ where
         Ok(()) => {
             debug!(
                 "Successfully sent {} {}",
-                if kind == CommandKind::Inquiry {
+                if cmd.kind == CommandKind::Inquiry {
                     "inquiry"
                 } else {
                     "command"
@@ -154,7 +156,7 @@ where
             error!(
                 "Send {} for {} {}: {:?}",
                 error_type,
-                if kind == CommandKind::Inquiry {
+                if cmd.kind == CommandKind::Inquiry {
                     "inquiry"
                 } else {
                     "command"
@@ -186,18 +188,20 @@ where
     T: crate::transport::SyncTransport,
     S: SchedulerLike,
 {
-    let kind = cmd.kind;
-
-    // Frame the command
-    let (framed, meta) =
-        envelope.frame_bytes_with_kind_owned(cmd.bytes.clone(), kind, buffer_manager);
+    // Frame the command using single-allocation path with direct encoding
+    let (framed, meta) = envelope
+        .frame_encodable_command(&cmd.command, cmd.camera_id, buffer_manager)
+        .map_err(|e| {
+            error!("Failed to frame command {}: {:?}", cmd.id, e);
+            e
+        })?;
 
     // Create guard for tracking rollback state
     let mut guard = SendGuard::new(cmd.id);
 
     // For inquiries, start tracking without socket allocation
     // For commands, register as pending ACK
-    if kind == CommandKind::Inquiry {
+    if cmd.kind == CommandKind::Inquiry {
         scheduler.start_inquiry(&cmd);
         debug!("Started tracking inquiry {}", cmd.id);
     } else {
@@ -208,13 +212,13 @@ where
 
     // Try to send the command with timeout
     // In blocking mode, we use the transport directly
-    let send_result = transport.send_with_kind(&framed, kind);
+    let send_result = transport.send_with_kind(&framed, cmd.kind);
 
     match send_result {
         Ok(()) => {
             debug!(
                 "Successfully sent {} {}",
-                if kind == CommandKind::Inquiry {
+                if cmd.kind == CommandKind::Inquiry {
                     "inquiry"
                 } else {
                     "command"
@@ -242,7 +246,7 @@ where
             error!(
                 "Send {} for {} {}: {:?}",
                 error_type,
-                if kind == CommandKind::Inquiry {
+                if cmd.kind == CommandKind::Inquiry {
                     "inquiry"
                 } else {
                     "command"

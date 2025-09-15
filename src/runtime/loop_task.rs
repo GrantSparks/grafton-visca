@@ -115,7 +115,7 @@ pub async fn runtime_loop_with_config<
                 }
                 TxItem::Cancel { socket } => {
                     // Send cancel command
-                    use crate::command::{encode_visca::ViscaEncode, system::CommandCancelCommand};
+                    use crate::command::system::CommandCancelCommand;
 
                     // Get the camera ID for the command on this socket
                     let camera_id = adapter.camera_id_for_socket(socket).unwrap_or_else(|| {
@@ -124,19 +124,17 @@ pub async fn runtime_loop_with_config<
                     });
 
                     let cancel_cmd = CommandCancelCommand::new(socket);
+                    let encodable_cmd =
+                        crate::command::encode_visca::EncodableCommand::new(cancel_cmd);
 
-                    // Encode with the actual camera ID
-                    let cancel_bytes = cancel_cmd.try_into_bytes(camera_id).map_err(|e| {
-                        error!("Failed to encode cancel command: {e}");
-                        e
-                    })?;
-
-                    let kind = CommandKind::Command;
-                    let (framed, _meta) = config.envelope.frame_bytes_with_kind_owned(
-                        cancel_bytes,
-                        kind,
-                        &config.buffer_manager,
-                    );
+                    // Frame with single-allocation encoding
+                    let (framed, _meta) = config
+                        .envelope
+                        .frame_encodable_command(&encodable_cmd, camera_id, &config.buffer_manager)
+                        .map_err(|e| {
+                            error!("Failed to frame cancel command: {e}");
+                            e
+                        })?;
                     // Best effort for cancel - don't abort runtime on failure
                     if let Err(e) = transport.send(&framed).await {
                         debug!("Failed to send cancel for socket {:?}: {e}", socket);
@@ -150,9 +148,7 @@ pub async fn runtime_loop_with_config<
                 TxItem::CancelById { id } => {
                     // Find the socket for this command and send cancel
                     if let Some(socket) = adapter.socket_for_command(id) {
-                        use crate::command::{
-                            encode_visca::ViscaEncode, system::CommandCancelCommand,
-                        };
+                        use crate::command::system::CommandCancelCommand;
 
                         // Get the camera ID for this specific command
                         let camera_id = adapter.camera_id_for_command(id).unwrap_or_else(|| {
@@ -161,19 +157,21 @@ pub async fn runtime_loop_with_config<
                         });
 
                         let cancel_cmd = CommandCancelCommand::new(socket);
+                        let encodable_cmd =
+                            crate::command::encode_visca::EncodableCommand::new(cancel_cmd);
 
-                        // Encode with the actual camera ID
-                        let cancel_bytes = cancel_cmd.try_into_bytes(camera_id).map_err(|e| {
-                            error!("Failed to encode cancel command: {e}");
-                            e
-                        })?;
-
-                        let kind = CommandKind::Command;
-                        let (framed, _meta) = config.envelope.frame_bytes_with_kind_owned(
-                            cancel_bytes,
-                            kind,
-                            &config.buffer_manager,
-                        );
+                        // Frame with single-allocation encoding
+                        let (framed, _meta) = config
+                            .envelope
+                            .frame_encodable_command(
+                                &encodable_cmd,
+                                camera_id,
+                                &config.buffer_manager,
+                            )
+                            .map_err(|e| {
+                                error!("Failed to frame cancel command: {e}");
+                                e
+                            })?;
                         // Best effort for cancel - don't abort runtime on failure
                         if let Err(e) = transport.send(&framed).await {
                             debug!("Failed to send cancel for command {}: {e}", id);
@@ -219,7 +217,7 @@ pub async fn runtime_loop_with_config<
             let kind = retry.kind;
             let pending_cmd = PendingCommand {
                 id: retry.id,
-                bytes: retry.bytes,
+                command: retry.command,
                 priority: retry.priority,
                 category: retry.category,
                 camera_id: retry.camera_id,
@@ -394,8 +392,8 @@ pub async fn runtime_loop_with_config<
                                 })?;
 
                             let kind = CommandKind::Command;
-                            let (framed, _meta) = config.envelope.frame_bytes_with_kind_owned(
-                                cancel_bytes,
+                            let (framed, _meta) = config.envelope.frame_bytes_into(
+                                &cancel_bytes,
                                 kind,
                                 &config.buffer_manager,
                             );

@@ -481,7 +481,7 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
         priority: Option<Priority>,
     ) -> Result<ViscaResponse>
     where
-        C: crate::command::encode_visca::ViscaEncode,
+        C: crate::command::encode_visca::ViscaEncode + Clone + std::fmt::Debug + 'static,
     {
         let (_, response) = self.send_command_with_id(cmd, camera_id, priority).await?;
         response.await
@@ -508,10 +508,12 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
         impl std::future::Future<Output = Result<ViscaResponse>>,
     )>
     where
-        C: crate::command::encode_visca::ViscaEncode,
+        C: crate::command::encode_visca::ViscaEncode + Clone + std::fmt::Debug + 'static,
     {
-        // Encode and validate the command using the checked path
-        let bytes = cmd.try_into_bytes(camera_id)?;
+        // Create type-erased command wrapper
+        let encodable_command = Arc::new(crate::command::encode_visca::EncodableCommand::new(
+            cmd.clone(),
+        ));
 
         // Generate command ID
         let command_id = self.inner.next_command_id.fetch_add(1, Ordering::Relaxed);
@@ -522,7 +524,7 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
         // Create the TxItem
         let item = TxItem::Command {
             id: command_id,
-            bytes,
+            command: encodable_command,
             priority: priority.unwrap_or(Priority::Normal),
             category: C::TIMEOUT_CATEGORY,
             camera_id,
@@ -559,10 +561,12 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
         camera_id: crate::camera_id::CameraId,
     ) -> Result<ViscaResponse>
     where
-        I: crate::command::encode_visca::ViscaEncode,
+        I: crate::command::encode_visca::ViscaEncode + Clone + std::fmt::Debug + 'static,
     {
-        // Encode and validate the inquiry using the checked path
-        let bytes = inquiry.try_into_bytes(camera_id)?;
+        // Create type-erased command wrapper
+        let encodable_command = Arc::new(crate::command::encode_visca::EncodableCommand::new(
+            inquiry.clone(),
+        ));
 
         // Generate inquiry ID
         let inquiry_id = self.inner.next_command_id.fetch_add(1, Ordering::Relaxed);
@@ -573,7 +577,7 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
         // Create the TxItem
         let item = TxItem::Inquiry {
             id: inquiry_id,
-            bytes,
+            command: encodable_command,
             category: inquiry.timeout_kind(),
             camera_id,
             response_type: inquiry.response_type(),

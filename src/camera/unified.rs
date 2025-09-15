@@ -469,7 +469,7 @@ where
         Result<crate::command::response::ViscaResponse, Error>,
     >
     where
-        C: ViscaEncode + Send + Sync + Clone + 'static,
+        C: ViscaEncode + Send + Sync + Clone + std::fmt::Debug + 'static,
         Tr: AsyncTransport + Send + Sync,
         Exec: Executor + Send + Sync + Clone,
     {
@@ -498,7 +498,7 @@ where
         command: &'a C,
     ) -> <crate::mode::Async as Mode>::Ret<'static, Result<C::Response, Error>>
     where
-        C: ViscaCommand + ViscaEncode + Send + Sync + Clone + 'static,
+        C: ViscaCommand + ViscaEncode + Send + Sync + Clone + std::fmt::Debug + 'static,
         C::Response: Send + 'static,
         Tr: AsyncTransport + Send + Sync,
         Exec: Executor + Send + Sync + Clone,
@@ -522,7 +522,7 @@ where
         Result<(u32, crate::command::response::ViscaResponse), Error>,
     >
     where
-        C: ViscaEncode + Send + Sync + Clone + 'static,
+        C: ViscaEncode + Send + Sync + Clone + std::fmt::Debug + 'static,
         Tr: AsyncTransport + Send + Sync,
         Exec: Executor + Send + Sync + Clone,
     {
@@ -578,7 +578,7 @@ where
         Error,
     >
     where
-        C: ViscaEncode + Send + Sync + Clone + 'static,
+        C: ViscaEncode + Send + Sync + Clone + std::fmt::Debug + 'static,
         Tr: AsyncTransport + Send + Sync,
         Exec: Executor + Send + Sync + Clone,
     {
@@ -652,7 +652,7 @@ where
         Result<crate::command::response::ViscaResponse, Error>,
     >
     where
-        C: ViscaEncode + Send + Sync + Clone + 'static,
+        C: ViscaEncode + Send + Sync + Clone + std::fmt::Debug + 'static,
     {
         // Always use BlockingRunner for both Sony and Raw VISCA protocols
         let transport_cell = self.transport();
@@ -686,7 +686,7 @@ where
         command: &C,
     ) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<C::Response, Error>>
     where
-        C: ViscaCommand + ViscaEncode + Send + Sync + Clone + 'static,
+        C: ViscaCommand + ViscaEncode + Send + Sync + Clone + std::fmt::Debug + 'static,
         C::Response: Send + 'static,
     {
         // In blocking mode, send_command executes synchronously and returns a Ready future.

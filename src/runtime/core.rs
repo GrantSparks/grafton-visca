@@ -146,12 +146,12 @@ impl ViscaError {
 }
 
 /// Command waiting to be retried.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RetryCommand {
     /// Command ID.
     pub id: u32,
-    /// Command bytes.
-    pub bytes: bytes::Bytes,
+    /// The type-erased command to retry.
+    pub command: std::sync::Arc<crate::command::encode_visca::EncodableCommand>,
     /// Command priority.
     pub priority: Priority,
     /// Command category.
@@ -166,6 +166,21 @@ pub struct RetryCommand {
     pub max_retries: u32,
     /// When to retry this command (for exponential backoff).
     pub retry_at: Instant,
+}
+
+impl std::fmt::Debug for RetryCommand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RetryCommand")
+            .field("id", &self.id)
+            .field("priority", &self.priority)
+            .field("category", &self.category)
+            .field("camera_id", &self.camera_id)
+            .field("kind", &self.kind)
+            .field("attempt", &self.attempt)
+            .field("max_retries", &self.max_retries)
+            .field("retry_at", &self.retry_at)
+            .finish()
+    }
 }
 
 /// Socket state tracking.
@@ -193,12 +208,12 @@ impl Default for SocketState {
 }
 
 /// Priority queue item wrapper for commands.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct PendingCommand {
     /// Unique identifier for this command.
     pub id: u32,
-    /// Raw VISCA bytes to send.
-    pub bytes: bytes::Bytes,
+    /// The type-erased command to send.
+    pub command: std::sync::Arc<crate::command::encode_visca::EncodableCommand>,
     /// Priority level for scheduling.
     pub priority: Priority,
     /// Category for timeout calculation.
@@ -209,6 +224,19 @@ pub struct PendingCommand {
     pub submitted_at: Instant,
     /// Command kind (Command or Inquiry).
     pub kind: CommandKind,
+}
+
+impl std::fmt::Debug for PendingCommand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PendingCommand")
+            .field("id", &self.id)
+            .field("priority", &self.priority)
+            .field("category", &self.category)
+            .field("camera_id", &self.camera_id)
+            .field("submitted_at", &self.submitted_at)
+            .field("kind", &self.kind)
+            .finish()
+    }
 }
 
 impl PartialEq for PendingCommand {
@@ -243,11 +271,10 @@ impl Ord for PendingCommand {
 #[derive(Debug)]
 pub enum SchedulerAction {
     /// Send a command.
+    /// Note: This variant is currently unused but kept for potential future use.
     SendCommand {
         /// Command ID.
         id: u32,
-        /// Command bytes to send.
-        bytes: bytes::Bytes,
     },
     /// Command completed successfully.
     CommandComplete {
@@ -271,8 +298,6 @@ pub enum SchedulerAction {
     RetryCommand {
         /// Command ID.
         id: u32,
-        /// Command bytes to send.
-        bytes: bytes::Bytes,
         /// Delay before retrying.
         delay: Duration,
     },
@@ -448,11 +473,11 @@ pub struct SchedulerCore {
     /// Retry configuration.
     retry_config: crate::transport::RetryConfig,
     /// Commands that have been sent but not yet acknowledged.
-    /// Maps command ID to (bytes, priority, category, sent_time, camera_id).
+    /// Maps command ID to (command, priority, category, sent_time, camera_id).
     pending_ack: HashMap<
         u32,
         (
-            bytes::Bytes,
+            std::sync::Arc<crate::command::encode_visca::EncodableCommand>,
             Priority,
             CommandCategory,
             Instant,
@@ -465,7 +490,7 @@ pub struct SchedulerCore {
     command_metadata: HashMap<
         u32,
         (
-            bytes::Bytes,
+            std::sync::Arc<crate::command::encode_visca::EncodableCommand>,
             Priority,
             CommandCategory,
             crate::camera_id::CameraId,
@@ -597,7 +622,7 @@ impl SchedulerCore {
     pub fn register_pending_ack(
         &mut self,
         id: u32,
-        bytes: bytes::Bytes,
+        command: std::sync::Arc<crate::command::encode_visca::EncodableCommand>,
         priority: Priority,
         category: CommandCategory,
         camera_id: crate::camera_id::CameraId,
@@ -605,9 +630,9 @@ impl SchedulerCore {
         now: Instant,
     ) {
         self.pending_ack
-            .insert(id, (bytes.clone(), priority, category, now, camera_id));
+            .insert(id, (command.clone(), priority, category, now, camera_id));
         self.command_metadata
-            .insert(id, (bytes, priority, category, camera_id, kind));
+            .insert(id, (command, priority, category, camera_id, kind));
         debug!("Registered command {} as pending ACK", id);
     }
 
@@ -1165,7 +1190,7 @@ impl SchedulerCore {
         // Process all timed-out ACK commands
         for cmd_id in ack_timed_out {
             // Remove from pending_ack FIRST to free capacity
-            if let Some((bytes, priority, category, _, camera_id)) =
+            if let Some((command, priority, category, _, camera_id)) =
                 self.pending_ack.remove(&cmd_id)
             {
                 // Get the kind from command_metadata
@@ -1232,8 +1257,10 @@ impl SchedulerCore {
                     self.retry_attempts.insert(cmd_id, attempts + 1);
 
                     // Ensure command metadata is preserved for retry
-                    self.command_metadata
-                        .insert(cmd_id, (bytes.clone(), priority, category, camera_id, kind));
+                    self.command_metadata.insert(
+                        cmd_id,
+                        (command.clone(), priority, category, camera_id, kind),
+                    );
 
                     // Calculate retry delay using RetryConfig to maintain consistency
                     // For ACK timeouts, we preserve the legacy timing by using a special calculation:
@@ -1246,7 +1273,7 @@ impl SchedulerCore {
                     // Create and queue the retry command
                     let retry_cmd = RetryCommand {
                         id: cmd_id,
-                        bytes: bytes.clone(),
+                        command: command.clone(),
                         priority,
                         category,
                         camera_id,
@@ -1260,7 +1287,6 @@ impl SchedulerCore {
 
                     actions.push(SchedulerAction::RetryCommand {
                         id: cmd_id,
-                        bytes,
                         delay: retry_delay,
                     });
                 } else {
@@ -1447,7 +1473,7 @@ impl SchedulerCore {
     pub fn start_inquiry(
         &mut self,
         id: u32,
-        bytes: bytes::Bytes,
+        command: std::sync::Arc<crate::command::encode_visca::EncodableCommand>,
         priority: Priority,
         category: CommandCategory,
         camera_id: crate::camera_id::CameraId,
@@ -1456,7 +1482,7 @@ impl SchedulerCore {
     ) {
         // Store metadata for potential retry
         self.command_metadata
-            .insert(id, (bytes, priority, category, camera_id, kind));
+            .insert(id, (command, priority, category, camera_id, kind));
 
         // Track the inquiry as in-flight
         self.inquiries_inflight.insert(id, (now, category));
@@ -1576,7 +1602,7 @@ impl SchedulerCore {
         cmd_id: u32,
         now: Instant,
     ) -> Option<SchedulerAction> {
-        if let Some((bytes, priority, category, camera_id, kind)) =
+        if let Some((command, priority, category, camera_id, kind)) =
             self.command_metadata.get(&cmd_id).cloned()
         {
             // Free the socket if allocated
@@ -1614,7 +1640,7 @@ impl SchedulerCore {
 
             let retry_cmd = RetryCommand {
                 id: cmd_id,
-                bytes: bytes.clone(),
+                command: command.clone(),
                 priority,
                 category,
                 camera_id,
@@ -1630,11 +1656,7 @@ impl SchedulerCore {
             );
             self.retry_queue.push(retry_cmd);
 
-            Some(SchedulerAction::RetryCommand {
-                id: cmd_id,
-                bytes,
-                delay,
-            })
+            Some(SchedulerAction::RetryCommand { id: cmd_id, delay })
         } else {
             None
         }
@@ -1648,6 +1670,82 @@ mod tests {
     use crate::command::bytes::VISCA_TERMINATOR;
     use crate::transport::RetryConfig;
     use crate::CameraId;
+
+    // Helper structs for different test command categories
+    #[derive(Debug)]
+    struct TestCommandQuick {
+        bytes: Vec<u8>,
+        response_type: Option<ViscaResponseType>,
+    }
+
+    impl crate::command::encode_visca::ViscaEncode for TestCommandQuick {
+        type ViscaResponse = ();
+        const MAX_SIZE: usize = 16;
+        const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+
+        fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+            let len = self.bytes.len();
+            buffer[..len].copy_from_slice(&self.bytes);
+            Ok(len)
+        }
+
+        fn response_type(&self) -> Option<ViscaResponseType> {
+            self.response_type
+        }
+    }
+
+    #[derive(Debug)]
+    struct TestCommandMovement {
+        bytes: Vec<u8>,
+        response_type: Option<ViscaResponseType>,
+    }
+
+    impl crate::command::encode_visca::ViscaEncode for TestCommandMovement {
+        type ViscaResponse = ();
+        const MAX_SIZE: usize = 16;
+        const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
+
+        fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+            let len = self.bytes.len();
+            buffer[..len].copy_from_slice(&self.bytes);
+            Ok(len)
+        }
+
+        fn response_type(&self) -> Option<ViscaResponseType> {
+            self.response_type
+        }
+    }
+
+    // Helper function to create test commands from byte patterns
+    fn create_test_command(
+        bytes: Vec<u8>,
+        response_type: Option<ViscaResponseType>,
+        category: CommandCategory,
+    ) -> std::sync::Arc<crate::command::encode_visca::EncodableCommand> {
+        match category {
+            CommandCategory::Quick => std::sync::Arc::new(
+                crate::command::encode_visca::EncodableCommand::new(TestCommandQuick {
+                    bytes,
+                    response_type,
+                }),
+            ),
+            CommandCategory::Movement => std::sync::Arc::new(
+                crate::command::encode_visca::EncodableCommand::new(TestCommandMovement {
+                    bytes,
+                    response_type,
+                }),
+            ),
+            _ => {
+                // Default to Quick for other categories in tests
+                std::sync::Arc::new(crate::command::encode_visca::EncodableCommand::new(
+                    TestCommandQuick {
+                        bytes,
+                        response_type,
+                    },
+                ))
+            }
+        }
+    }
 
     #[test]
     fn test_retry_budget_from_base() {
@@ -1748,19 +1846,99 @@ mod tests {
         let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
 
         let now = Instant::now();
-        let bytes = bytes::Bytes::from(vec![0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR]);
         let priority = Priority::Normal;
         let category = CommandCategory::Quick;
         let camera_id = CameraId::CAMERA_1;
 
+        // Create a test inquiry
+        struct TestInquiry;
+        impl crate::command::encode_visca::ViscaEncode for TestInquiry {
+            type ViscaResponse = ();
+            const MAX_SIZE: usize = 5;
+            const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+            fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+                buffer[0] = 0x81;
+                buffer[1] = 0x09;
+                buffer[2] = 0x00;
+                buffer[3] = 0x02;
+                buffer[4] = VISCA_TERMINATOR;
+                Ok(5)
+            }
+            fn response_type(&self) -> Option<ViscaResponseType> {
+                Some(ViscaResponseType::Power)
+            }
+        }
+        impl std::fmt::Debug for TestInquiry {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.debug_struct("TestInquiry").finish()
+            }
+        }
+
+        let inquiry_cmd = std::sync::Arc::new(crate::command::encode_visca::EncodableCommand::new(
+            TestInquiry,
+        ));
+
+        // Helper to create test commands
+        struct TestCmd1;
+        impl crate::command::encode_visca::ViscaEncode for TestCmd1 {
+            type ViscaResponse = ();
+            const MAX_SIZE: usize = 6;
+            const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
+            fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x00;
+                buffer[4] = 0x02;
+                buffer[5] = VISCA_TERMINATOR;
+                Ok(6)
+            }
+            fn response_type(&self) -> Option<ViscaResponseType> {
+                None
+            }
+        }
+        impl std::fmt::Debug for TestCmd1 {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.debug_struct("TestCmd1").finish()
+            }
+        }
+
+        struct TestCmd2;
+        impl crate::command::encode_visca::ViscaEncode for TestCmd2 {
+            type ViscaResponse = ();
+            const MAX_SIZE: usize = 6;
+            const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
+            fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x00;
+                buffer[4] = 0x03;
+                buffer[5] = VISCA_TERMINATOR;
+                Ok(6)
+            }
+            fn response_type(&self) -> Option<ViscaResponseType> {
+                None
+            }
+        }
+        impl std::fmt::Debug for TestCmd2 {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.debug_struct("TestCmd2").finish()
+            }
+        }
+
         // Start two commands to occupy both sockets
-        let cmd1_bytes = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
-        let cmd2_bytes = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]);
+        let cmd1 = std::sync::Arc::new(crate::command::encode_visca::EncodableCommand::new(
+            TestCmd1,
+        ));
+        let cmd2 = std::sync::Arc::new(crate::command::encode_visca::EncodableCommand::new(
+            TestCmd2,
+        ));
 
         // Register first command on socket 1
         core.register_pending_ack(
             1,
-            cmd1_bytes.clone(),
+            cmd1.clone(),
             priority,
             CommandCategory::Movement,
             camera_id,
@@ -1778,7 +1956,7 @@ mod tests {
         // Register second command on socket 2
         core.register_pending_ack(
             2,
-            cmd2_bytes.clone(),
+            cmd2.clone(),
             priority,
             CommandCategory::Movement,
             camera_id,
@@ -1799,7 +1977,7 @@ mod tests {
         // Start an inquiry - should not need a socket
         core.start_inquiry(
             3,
-            bytes.clone(),
+            inquiry_cmd.clone(),
             priority,
             category,
             camera_id,
@@ -1828,7 +2006,30 @@ mod tests {
         let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
 
         let now = Instant::now();
-        let bytes = bytes::Bytes::from(vec![0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR]);
+
+        // Create a test inquiry command
+        #[derive(Debug)]
+        struct TestInquiryCmd;
+        impl crate::command::encode_visca::ViscaEncode for TestInquiryCmd {
+            type ViscaResponse = ();
+            const MAX_SIZE: usize = 5;
+            const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+            fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+                buffer[0] = 0x81;
+                buffer[1] = 0x09;
+                buffer[2] = 0x00;
+                buffer[3] = 0x02;
+                buffer[4] = VISCA_TERMINATOR;
+                Ok(5)
+            }
+            fn response_type(&self) -> Option<ViscaResponseType> {
+                Some(ViscaResponseType::Power)
+            }
+        }
+
+        let command = std::sync::Arc::new(crate::command::encode_visca::EncodableCommand::new(
+            TestInquiryCmd,
+        ));
         let priority = Priority::Normal;
         let category = CommandCategory::Quick;
         let camera_id = CameraId::CAMERA_1;
@@ -1836,7 +2037,7 @@ mod tests {
         // Start an inquiry
         core.start_inquiry(
             1,
-            bytes.clone(),
+            command.clone(),
             priority,
             category,
             camera_id,
@@ -1890,14 +2091,77 @@ mod tests {
         let category = CommandCategory::Quick;
         let camera_id = CameraId::CAMERA_1;
 
-        // Start multiple inquiries in raw VISCA mode (no sequence)
-        let bytes1 = bytes::Bytes::from(vec![0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR]);
-        let bytes2 = bytes::Bytes::from(vec![0x81, 0x09, 0x04, 0x00, VISCA_TERMINATOR]);
-        let bytes3 = bytes::Bytes::from(vec![0x81, 0x09, 0x06, 0x12, VISCA_TERMINATOR]);
+        // Create test inquiry commands
+        #[derive(Debug)]
+        struct TestInquiry1;
+        impl crate::command::encode_visca::ViscaEncode for TestInquiry1 {
+            type ViscaResponse = ();
+            const MAX_SIZE: usize = 5;
+            const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+            fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+                buffer[0] = 0x81;
+                buffer[1] = 0x09;
+                buffer[2] = 0x00;
+                buffer[3] = 0x02;
+                buffer[4] = VISCA_TERMINATOR;
+                Ok(5)
+            }
+            fn response_type(&self) -> Option<ViscaResponseType> {
+                Some(ViscaResponseType::Power)
+            }
+        }
+
+        #[derive(Debug)]
+        struct TestInquiry2;
+        impl crate::command::encode_visca::ViscaEncode for TestInquiry2 {
+            type ViscaResponse = ();
+            const MAX_SIZE: usize = 5;
+            const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+            fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+                buffer[0] = 0x81;
+                buffer[1] = 0x09;
+                buffer[2] = 0x04;
+                buffer[3] = 0x00;
+                buffer[4] = VISCA_TERMINATOR;
+                Ok(5)
+            }
+            fn response_type(&self) -> Option<ViscaResponseType> {
+                Some(ViscaResponseType::ZoomPosition)
+            }
+        }
+
+        #[derive(Debug)]
+        struct TestInquiry3;
+        impl crate::command::encode_visca::ViscaEncode for TestInquiry3 {
+            type ViscaResponse = ();
+            const MAX_SIZE: usize = 5;
+            const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+            fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+                buffer[0] = 0x81;
+                buffer[1] = 0x09;
+                buffer[2] = 0x06;
+                buffer[3] = 0x12;
+                buffer[4] = VISCA_TERMINATOR;
+                Ok(5)
+            }
+            fn response_type(&self) -> Option<ViscaResponseType> {
+                Some(ViscaResponseType::Power)
+            }
+        }
+
+        let cmd1 = std::sync::Arc::new(crate::command::encode_visca::EncodableCommand::new(
+            TestInquiry1,
+        ));
+        let cmd2 = std::sync::Arc::new(crate::command::encode_visca::EncodableCommand::new(
+            TestInquiry2,
+        ));
+        let cmd3 = std::sync::Arc::new(crate::command::encode_visca::EncodableCommand::new(
+            TestInquiry3,
+        ));
 
         core.start_inquiry(
             1,
-            bytes1,
+            cmd1,
             priority,
             category,
             camera_id,
@@ -1906,7 +2170,7 @@ mod tests {
         );
         core.start_inquiry(
             2,
-            bytes2,
+            cmd2,
             priority,
             category,
             camera_id,
@@ -1915,7 +2179,7 @@ mod tests {
         );
         core.start_inquiry(
             3,
-            bytes3,
+            cmd3,
             priority,
             category,
             camera_id,
@@ -1962,13 +2226,57 @@ mod tests {
         let priority = Priority::Normal;
         let camera_id = CameraId::CAMERA_1;
 
-        // Register two commands with sequences (simulating Sony protocol)
-        let bytes1 = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
-        let bytes2 = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]);
+        // Create test commands
+        #[derive(Debug)]
+        struct TestCmd1;
+        impl crate::command::encode_visca::ViscaEncode for TestCmd1 {
+            type ViscaResponse = ();
+            const MAX_SIZE: usize = 6;
+            const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
+            fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x00;
+                buffer[4] = 0x02;
+                buffer[5] = VISCA_TERMINATOR;
+                Ok(6)
+            }
+            fn response_type(&self) -> Option<ViscaResponseType> {
+                None
+            }
+        }
+
+        #[derive(Debug)]
+        struct TestCmd2;
+        impl crate::command::encode_visca::ViscaEncode for TestCmd2 {
+            type ViscaResponse = ();
+            const MAX_SIZE: usize = 6;
+            const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
+            fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+                buffer[0] = 0x81;
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x00;
+                buffer[4] = 0x03;
+                buffer[5] = VISCA_TERMINATOR;
+                Ok(6)
+            }
+            fn response_type(&self) -> Option<ViscaResponseType> {
+                None
+            }
+        }
+
+        let cmd1 = std::sync::Arc::new(crate::command::encode_visca::EncodableCommand::new(
+            TestCmd1,
+        ));
+        let cmd2 = std::sync::Arc::new(crate::command::encode_visca::EncodableCommand::new(
+            TestCmd2,
+        ));
 
         core.register_pending_ack(
             1,
-            bytes1,
+            cmd1,
             priority,
             CommandCategory::Movement,
             camera_id,
@@ -1979,7 +2287,7 @@ mod tests {
 
         core.register_pending_ack(
             2,
-            bytes2,
+            cmd2,
             priority,
             CommandCategory::Movement,
             camera_id,
@@ -2036,7 +2344,11 @@ mod tests {
         let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
 
         let now = Instant::now();
-        let bytes = bytes::Bytes::from(vec![0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR]);
+        let command = create_test_command(
+            vec![0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR],
+            Some(ViscaResponseType::Power),
+            CommandCategory::Quick,
+        );
         let priority = Priority::Normal;
         let category = CommandCategory::Quick;
         let camera_id = CameraId::CAMERA_1;
@@ -2044,7 +2356,7 @@ mod tests {
         // Start an inquiry
         core.start_inquiry(
             1,
-            bytes.clone(),
+            command.clone(),
             priority,
             category,
             camera_id,
@@ -2087,7 +2399,7 @@ mod tests {
         // Start inquiry again for the retry
         core.start_inquiry(
             1,
-            bytes.clone(),
+            command.clone(),
             priority,
             category,
             camera_id,
@@ -2120,7 +2432,11 @@ mod tests {
         let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
 
         let now = Instant::now();
-        let bytes = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
+        let command = create_test_command(
+            vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
+            None,
+            CommandCategory::Movement,
+        );
         let priority = Priority::Normal;
         let category = CommandCategory::Movement;
         let camera_id = CameraId::CAMERA_1;
@@ -2128,7 +2444,7 @@ mod tests {
         // Register command with initial sequence
         core.register_pending_ack(
             1,
-            bytes.clone(),
+            command.clone(),
             priority,
             category,
             camera_id,
@@ -2179,7 +2495,11 @@ mod tests {
         let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
 
         let now = Instant::now();
-        let bytes = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
+        let command = create_test_command(
+            vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
+            None,
+            CommandCategory::Movement,
+        );
         let priority = Priority::Normal;
         let category = CommandCategory::Movement;
         let camera_id = CameraId::CAMERA_1;
@@ -2187,7 +2507,7 @@ mod tests {
         // Register command with sequences from multiple retries
         core.register_pending_ack(
             1,
-            bytes.clone(),
+            command.clone(),
             priority,
             category,
             camera_id,
@@ -2240,7 +2560,11 @@ mod tests {
         let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
 
         let now = Instant::now();
-        let bytes = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
+        let command = create_test_command(
+            vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
+            None,
+            CommandCategory::Movement,
+        );
         let priority = Priority::Normal;
         let category = CommandCategory::Movement;
         let camera_id = CameraId::CAMERA_1;
@@ -2248,7 +2572,7 @@ mod tests {
         // Register command
         core.register_pending_ack(
             1,
-            bytes.clone(),
+            command.clone(),
             priority,
             category,
             camera_id,
@@ -2286,12 +2610,20 @@ mod tests {
         let camera_id = CameraId::CAMERA_1;
 
         // Register two different commands
-        let bytes1 = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
-        let bytes2 = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]);
+        let cmd1 = create_test_command(
+            vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
+            None,
+            CommandCategory::Movement,
+        );
+        let cmd2 = create_test_command(
+            vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR],
+            None,
+            CommandCategory::Movement,
+        );
 
         core.register_pending_ack(
             1,
-            bytes1.clone(),
+            cmd1.clone(),
             priority,
             category,
             camera_id,
@@ -2300,7 +2632,7 @@ mod tests {
         );
         core.register_pending_ack(
             2,
-            bytes2.clone(),
+            cmd2.clone(),
             priority,
             category,
             camera_id,
@@ -2354,7 +2686,11 @@ mod tests {
         let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
 
         let now = Instant::now();
-        let bytes = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
+        let command = create_test_command(
+            vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
+            None,
+            CommandCategory::Movement,
+        );
         let priority = Priority::Normal;
         let category = CommandCategory::Movement;
         let camera_id = CameraId::CAMERA_1;
@@ -2363,7 +2699,7 @@ mod tests {
         let full_sequence = 0x12345678u32; // High 16 bits: 0x1234, Low 16 bits: 0x5678
         core.register_pending_ack(
             1,
-            bytes.clone(),
+            command.clone(),
             priority,
             category,
             camera_id,
@@ -2395,12 +2731,20 @@ mod tests {
         let seq1 = 0x12345678u32;
         let seq2 = 0xABCD5678u32; // Same lower 16 bits (0x5678) but different high bits
 
-        let bytes1 = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
-        let bytes2 = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]);
+        let cmd1 = create_test_command(
+            vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
+            None,
+            CommandCategory::Movement,
+        );
+        let cmd2 = create_test_command(
+            vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR],
+            None,
+            CommandCategory::Movement,
+        );
 
         core.register_pending_ack(
             1,
-            bytes1,
+            cmd1,
             priority,
             category,
             camera_id,
@@ -2411,7 +2755,7 @@ mod tests {
 
         core.register_pending_ack(
             2,
-            bytes2,
+            cmd2,
             priority,
             category,
             camera_id,
@@ -2435,7 +2779,11 @@ mod tests {
         let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
 
         let now = Instant::now();
-        let bytes = bytes::Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
+        let command = create_test_command(
+            vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
+            None,
+            CommandCategory::Movement,
+        );
         let priority = Priority::Normal;
         let category = CommandCategory::Movement;
         let camera_id = CameraId::CAMERA_1;
@@ -2444,7 +2792,7 @@ mod tests {
         let sequence = 0x12345678u32;
         core.register_pending_ack(
             1,
-            bytes,
+            command,
             priority,
             category,
             camera_id,
@@ -2482,12 +2830,20 @@ mod tests {
         let camera_id = CameraId::CAMERA_1;
 
         // Start two different inquiries in raw VISCA mode
-        let power_bytes = bytes::Bytes::from(vec![0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR]);
-        let zoom_bytes = bytes::Bytes::from(vec![0x81, 0x09, 0x04, 0x47, VISCA_TERMINATOR]);
+        let power_cmd = create_test_command(
+            vec![0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR],
+            Some(ViscaResponseType::Power),
+            CommandCategory::Quick,
+        );
+        let zoom_cmd = create_test_command(
+            vec![0x81, 0x09, 0x04, 0x47, VISCA_TERMINATOR],
+            Some(ViscaResponseType::ZoomPosition),
+            CommandCategory::Quick,
+        );
 
         core.start_inquiry(
             1,
-            power_bytes,
+            power_cmd,
             priority,
             category,
             camera_id,
@@ -2496,7 +2852,7 @@ mod tests {
         );
         core.start_inquiry(
             2,
-            zoom_bytes,
+            zoom_cmd,
             priority,
             category,
             camera_id,
@@ -2583,13 +2939,17 @@ mod tests {
         );
 
         let cmd_id = 1;
-        let bytes = bytes::Bytes::from_static(&[0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]);
+        let command = create_test_command(
+            vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR],
+            None,
+            CommandCategory::Movement,
+        );
         let now = Instant::now();
 
         // Register command metadata (simulating a command that was sent but failed)
         core.register_pending_ack(
             cmd_id,
-            bytes.clone(),
+            command.clone(),
             Priority::Normal,
             CommandCategory::Movement,
             CameraId::CAMERA_1,
@@ -2632,13 +2992,17 @@ mod tests {
         );
 
         let cmd_id = 1;
-        let bytes = bytes::Bytes::from_static(&[0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]);
+        let command = create_test_command(
+            vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR],
+            None,
+            CommandCategory::Movement,
+        );
         let now = Instant::now();
 
         // Register command metadata
         core.register_pending_ack(
             cmd_id,
-            bytes.clone(),
+            command.clone(),
             Priority::Normal,
             CommandCategory::Movement,
             CameraId::CAMERA_1,
@@ -2686,13 +3050,17 @@ mod tests {
         );
 
         let cmd_id = 1;
-        let bytes = bytes::Bytes::from_static(&[0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]);
+        let command = create_test_command(
+            vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR],
+            None,
+            CommandCategory::Movement,
+        );
         let now = Instant::now();
 
         // Register command metadata
         core.register_pending_ack(
             cmd_id,
-            bytes.clone(),
+            command.clone(),
             Priority::Normal,
             CommandCategory::Movement,
             CameraId::CAMERA_1,
@@ -2737,11 +3105,14 @@ mod tests {
 
         // Register multiple commands
         for cmd_id in 1..=3 {
-            let bytes =
-                bytes::Bytes::from_static(&[0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]);
+            let command = create_test_command(
+                vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR],
+                None,
+                CommandCategory::Movement,
+            );
             core.register_pending_ack(
                 cmd_id,
-                bytes,
+                command,
                 Priority::Normal,
                 CommandCategory::Movement,
                 CameraId::CAMERA_1,
@@ -2773,10 +3144,14 @@ mod tests {
         let now = Instant::now();
 
         // Register a command
-        let bytes = bytes::Bytes::from_static(&[0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]);
+        let command = create_test_command(
+            vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR],
+            None,
+            CommandCategory::Movement,
+        );
         core.register_pending_ack(
             1,
-            bytes,
+            command,
             Priority::Normal,
             CommandCategory::Movement,
             CameraId::CAMERA_1,
@@ -2808,10 +3183,14 @@ mod tests {
         let now = Instant::now();
 
         // Register two commands
-        let bytes = bytes::Bytes::from_static(&[0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]);
+        let command = create_test_command(
+            vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR],
+            None,
+            CommandCategory::Movement,
+        );
         core.register_pending_ack(
             1,
-            bytes.clone(),
+            command.clone(),
             Priority::Normal,
             CommandCategory::Movement,
             CameraId::CAMERA_1,
@@ -2820,7 +3199,7 @@ mod tests {
         );
         core.register_pending_ack(
             2,
-            bytes,
+            command,
             Priority::Normal,
             CommandCategory::Movement,
             CameraId::CAMERA_1,
@@ -2860,11 +3239,15 @@ mod tests {
         let now = Instant::now();
 
         // Register three commands
-        let bytes = bytes::Bytes::from_static(&[0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]);
+        let command = create_test_command(
+            vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR],
+            None,
+            CommandCategory::Movement,
+        );
         for cmd_id in 1..=3 {
             core.register_pending_ack(
                 cmd_id,
-                bytes.clone(),
+                command.clone(),
                 Priority::Normal,
                 CommandCategory::Movement,
                 CameraId::CAMERA_1,
@@ -2916,10 +3299,14 @@ mod tests {
         let now = Instant::now();
 
         // Register two commands
-        let bytes = bytes::Bytes::from_static(&[0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]);
+        let command = create_test_command(
+            vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR],
+            None,
+            CommandCategory::Movement,
+        );
         core.register_pending_ack(
             1,
-            bytes.clone(),
+            command.clone(),
             Priority::Normal,
             CommandCategory::Movement,
             CameraId::CAMERA_1,
@@ -2928,7 +3315,7 @@ mod tests {
         );
         core.register_pending_ack(
             2,
-            bytes,
+            command,
             Priority::Normal,
             CommandCategory::Movement,
             CameraId::CAMERA_1,
@@ -2968,14 +3355,40 @@ mod tests {
 
         // Test case: A Command with bytes[1] == 0x09 (synthetic vendor command)
         // This would have been misclassified as Inquiry by the old heuristic
-        let vendor_command_bytes =
-            bytes::Bytes::from(vec![0x81, 0x09, 0x04, 0x00, 0x01, VISCA_TERMINATOR]);
+
+        // Create a dummy command for testing
+        #[derive(Debug)]
+        struct TestCommand;
+        impl crate::command::encode_visca::ViscaEncode for TestCommand {
+            type ViscaResponse = ();
+            const MAX_SIZE: usize = 6;
+            const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
+
+            fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+                // Encode a command with bytes[1] == 0x09 that would be misclassified
+                buffer[0] = 0x81;
+                buffer[1] = 0x09;
+                buffer[2] = 0x04;
+                buffer[3] = 0x00;
+                buffer[4] = 0x01;
+                buffer[5] = VISCA_TERMINATOR;
+                Ok(6)
+            }
+
+            fn response_type(&self) -> Option<ViscaResponseType> {
+                None // This is a command, not an inquiry
+            }
+        }
+
+        let test_command = std::sync::Arc::new(
+            crate::command::encode_visca::EncodableCommand::new(TestCommand),
+        );
         let cmd_id = 1;
 
         // Register as Command explicitly
         core.register_pending_ack(
             cmd_id,
-            vendor_command_bytes.clone(),
+            test_command.clone(),
             Priority::Normal,
             CommandCategory::Movement,
             CameraId::CAMERA_1,
@@ -2999,18 +3412,44 @@ mod tests {
         // This verifies that we no longer use the bytes[1] == 0x09 heuristic
         assert_eq!(retry.kind, CommandKind::Command);
         assert_eq!(retry.id, cmd_id);
-        assert_eq!(retry.bytes, vendor_command_bytes);
+        // Verify the command is preserved (same Arc)
+        assert!(std::sync::Arc::ptr_eq(&retry.command, &test_command));
 
         // Test case 2: A normal Inquiry to ensure it also preserves correctly
         let mut core2 = SchedulerCore::new(TimeoutConfig::default());
-        let inquiry_bytes =
-            bytes::Bytes::from(vec![0x81, 0x09, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
+
+        // Create a dummy inquiry for testing
+        #[derive(Debug)]
+        struct TestInquiry;
+        impl crate::command::encode_visca::ViscaEncode for TestInquiry {
+            type ViscaResponse = ();
+            const MAX_SIZE: usize = 6;
+            const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+
+            fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+                buffer[0] = 0x81;
+                buffer[1] = 0x09;
+                buffer[2] = 0x04;
+                buffer[3] = 0x00;
+                buffer[4] = 0x02;
+                buffer[5] = VISCA_TERMINATOR;
+                Ok(6)
+            }
+
+            fn response_type(&self) -> Option<ViscaResponseType> {
+                Some(ViscaResponseType::Power) // This is an inquiry
+            }
+        }
+
+        let test_inquiry = std::sync::Arc::new(
+            crate::command::encode_visca::EncodableCommand::new(TestInquiry),
+        );
         let inquiry_id = 2;
 
         // Start as inquiry
         core2.start_inquiry(
             inquiry_id,
-            inquiry_bytes.clone(),
+            test_inquiry.clone(),
             Priority::Normal,
             CommandCategory::Quick,
             CameraId::CAMERA_1,
@@ -3036,6 +3475,10 @@ mod tests {
         // Verify Inquiry kind is preserved
         assert_eq!(inquiry_retry.kind, CommandKind::Inquiry);
         assert_eq!(inquiry_retry.id, inquiry_id);
-        assert_eq!(inquiry_retry.bytes, inquiry_bytes);
+        // Verify the inquiry is preserved (same Arc)
+        assert!(std::sync::Arc::ptr_eq(
+            &inquiry_retry.command,
+            &test_inquiry
+        ));
     }
 }

@@ -258,6 +258,91 @@ pub trait ViscaEncode: Send + Sync {
     }
 }
 
+/// Type-erased wrapper for commands that can be stored in runtime structures.
+///
+/// This wrapper allows the runtime to store and work with commands without
+/// knowing their specific types, enabling single-allocation framing via
+/// `frame_encode` while maintaining type safety.
+#[derive(Debug)]
+pub struct EncodableCommand {
+    // Use a trait object to store the command
+    inner: Box<dyn EncodableCommandTrait>,
+    /// The maximum size this command can encode to
+    pub max_size: usize,
+    /// The timeout category for this command
+    pub timeout_category: CommandCategory,
+    /// The command kind (Command or Inquiry)
+    pub kind: CommandKind,
+}
+
+/// Internal trait for type-erased command encoding.
+///
+/// This trait provides the encoding functionality without associated types
+/// or const generics, allowing it to be used as a trait object.
+trait EncodableCommandTrait: Send + Sync + std::fmt::Debug {
+    /// Encode the command into a buffer
+    fn encode_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error>;
+
+    /// Get the response type for this command
+    fn response_type(&self) -> Option<ViscaResponseType>;
+
+    /// Validate the command for a specific camera model
+    fn validate_for_model(&self, model: CameraVariant) -> Result<(), Error>;
+}
+
+/// Concrete implementation that wraps a ViscaEncode type.
+#[derive(Debug)]
+struct EncodableCommandImpl<T: ViscaEncode> {
+    command: T,
+}
+
+impl<T: ViscaEncode + std::fmt::Debug> EncodableCommandTrait for EncodableCommandImpl<T> {
+    fn encode_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+        self.command.encode_into(camera_id, buffer)
+    }
+
+    fn response_type(&self) -> Option<ViscaResponseType> {
+        self.command.response_type()
+    }
+
+    fn validate_for_model(&self, model: CameraVariant) -> Result<(), Error> {
+        self.command.validate_for_model(model)
+    }
+}
+
+impl EncodableCommand {
+    /// Create a new EncodableCommand from a ViscaEncode implementation.
+    pub fn new<T: ViscaEncode + std::fmt::Debug + 'static>(command: T) -> Self {
+        let kind = if command.response_type().is_some() {
+            CommandKind::Inquiry
+        } else {
+            CommandKind::Command
+        };
+
+        Self {
+            inner: Box::new(EncodableCommandImpl { command }),
+            max_size: T::MAX_SIZE,
+            timeout_category: T::TIMEOUT_CATEGORY,
+            kind,
+        }
+    }
+
+    /// Encode the command into a buffer.
+    pub fn encode_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+        self.inner.encode_into(camera_id, buffer)
+    }
+
+    /// Get the response type for this command.
+    pub fn response_type(&self) -> Option<ViscaResponseType> {
+        self.inner.response_type()
+    }
+
+    /// Validate the command for a specific camera model.
+    pub fn validate_for_model(&self, model: CameraVariant) -> Result<(), Error> {
+        self.inner.validate_for_model(model)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

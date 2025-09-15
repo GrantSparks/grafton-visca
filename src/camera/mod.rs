@@ -71,7 +71,7 @@ where
     /// Send a command and expect completion.
     fn send_and_complete<C>(&self, command: C) -> M::Ret<'_, Result<(), crate::Error>>
     where
-        C: crate::command::ViscaEncode + Send + Sync + Clone + 'static;
+        C: crate::command::ViscaEncode + Send + Sync + Clone + std::fmt::Debug + 'static;
 
     /// Send a typed command and parse the response.
     fn send_and_parse<C>(&self, command: C) -> M::Ret<'_, Result<C::Response, crate::Error>>
@@ -81,6 +81,7 @@ where
             + Send
             + Sync
             + Clone
+            + std::fmt::Debug
             + 'static,
         C::Response: Send + 'static;
 
@@ -103,7 +104,7 @@ where
         command: C,
     ) -> <crate::mode::Async as crate::mode::Mode>::Ret<'_, Result<(), crate::Error>>
     where
-        C: crate::command::ViscaEncode + Send + Sync + Clone + 'static,
+        C: crate::command::ViscaEncode + Send + Sync + Clone + std::fmt::Debug + 'static,
     {
         use crate::mode::Mode;
         let future = self.send_command(&command);
@@ -127,6 +128,7 @@ where
             + Send
             + Sync
             + Clone
+            + std::fmt::Debug
             + 'static,
         C::Response: Send + 'static,
     {
@@ -157,7 +159,7 @@ where
         command: C,
     ) -> <crate::mode::Blocking as crate::mode::Mode>::Ret<'_, Result<(), crate::Error>>
     where
-        C: crate::command::ViscaEncode + Send + Sync + Clone + 'static,
+        C: crate::command::ViscaEncode + Send + Sync + Clone + std::fmt::Debug + 'static,
     {
         // In blocking mode, send_command already returns a Ready<Result<...>>
         // so we need to extract the value from it using pollster
@@ -183,6 +185,7 @@ where
             + Send
             + Sync
             + Clone
+            + std::fmt::Debug
             + 'static,
         C::Response: Send + 'static,
     {

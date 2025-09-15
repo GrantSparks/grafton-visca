@@ -118,7 +118,7 @@ mod blocking_impl {
         fn start_inquiry(&mut self, cmd: &PendingCommand) {
             self.core.start_inquiry(
                 cmd.id,
-                cmd.bytes.clone(),
+                cmd.command.clone(),
                 cmd.priority,
                 cmd.category,
                 cmd.camera_id,
@@ -130,7 +130,7 @@ mod blocking_impl {
         fn register_pending_ack(&mut self, cmd: &PendingCommand) {
             self.core.register_pending_ack(
                 cmd.id,
-                cmd.bytes.clone(),
+                cmd.command.clone(),
                 cmd.priority,
                 cmd.category,
                 cmd.camera_id,
