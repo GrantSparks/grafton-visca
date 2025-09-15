@@ -187,12 +187,7 @@ impl Camera {
     pub fn open_auto_blocking<P>(
         addr: impl Into<String>,
     ) -> Result<
-        CameraSession<
-            crate::mode::Blocking,
-            P,
-            Box<dyn crate::transport::ConfiguredSyncTransport>,
-            (),
-        >,
+        CameraSession<crate::mode::Blocking, P, crate::transport::BlockingTransportHandle, ()>,
         Error,
     >
     where
@@ -210,6 +205,7 @@ impl Camera {
     /// Open a TCP blocking camera connection.
     ///
     /// Connects to the camera using TCP with the profile's default protocol style.
+    /// Returns a camera using BlockingTransportHandle for zero-cost operation.
     ///
     /// # Example
     ///
@@ -221,23 +217,23 @@ impl Camera {
     pub fn open_tcp_blocking<P>(
         addr: impl Into<String>,
     ) -> Result<
-        CameraSession<
-            crate::mode::Blocking,
-            P,
-            Box<dyn crate::transport::ConfiguredSyncTransport>,
-            (),
-        >,
+        CameraSession<crate::mode::Blocking, P, crate::transport::BlockingTransportHandle, ()>,
         Error,
     >
     where
         P: Profile + Default,
     {
-        CameraConfig::<P>::new().tcp().address(addr).open_blocking()
+        let tcp = crate::transport::blocking::tcp::Tcp::connect(&addr.into())?;
+        let transport = crate::transport::BlockingTransportHandle::Tcp(tcp);
+        let camera =
+            crate::camera::UnifiedCamera::new_blocking_with_style(transport, P::PROTOCOL_STYLE)?;
+        Ok(CameraSession::new(camera))
     }
 
     /// Open a UDP blocking camera connection.
     ///
     /// Connects to the camera using UDP with the profile's default protocol style.
+    /// Returns a camera using BlockingTransportHandle for zero-cost operation.
     ///
     /// # Example
     ///
@@ -249,18 +245,17 @@ impl Camera {
     pub fn open_udp_blocking<P>(
         addr: impl Into<String>,
     ) -> Result<
-        CameraSession<
-            crate::mode::Blocking,
-            P,
-            Box<dyn crate::transport::ConfiguredSyncTransport>,
-            (),
-        >,
+        CameraSession<crate::mode::Blocking, P, crate::transport::BlockingTransportHandle, ()>,
         Error,
     >
     where
         P: Profile + Default,
     {
-        CameraConfig::<P>::new().udp().address(addr).open_blocking()
+        let udp = crate::transport::blocking::udp::Udp::connect(&addr.into())?;
+        let transport = crate::transport::BlockingTransportHandle::Udp(udp);
+        let camera =
+            crate::camera::UnifiedCamera::new_blocking_with_style(transport, P::PROTOCOL_STYLE)?;
+        Ok(CameraSession::new(camera))
     }
 
     /// Open a serial blocking camera connection.
@@ -286,12 +281,7 @@ impl Camera {
         port: impl Into<String>,
         baud_rate: u32,
     ) -> Result<
-        CameraSession<
-            crate::mode::Blocking,
-            P,
-            Box<dyn crate::transport::ConfiguredSyncTransport>,
-            (),
-        >,
+        CameraSession<crate::mode::Blocking, P, crate::transport::BlockingTransportHandle, ()>,
         Error,
     >
     where

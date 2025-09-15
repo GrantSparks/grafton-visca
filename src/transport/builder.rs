@@ -28,8 +28,6 @@
 
 use std::time::Duration;
 
-#[cfg(not(feature = "async"))]
-use crate::transport::SyncTransport;
 use crate::{
     transport::{buffer::BufferConfig, RetryConfig},
     Error,
@@ -336,7 +334,7 @@ impl NetTransportBuilder {
     /// - Socket configuration fails
     /// - Async features are enabled without blocking support
     #[cfg(not(feature = "async"))]
-    pub fn build_blocking(self) -> Result<Box<dyn SyncTransport>, Error> {
+    pub fn build_blocking(self) -> Result<crate::transport::BlockingTransportHandle, Error> {
         let address = self.address.ok_or_else(|| Error::InvalidParameter {
             parameter: "address",
             value: "None".into(),
@@ -347,12 +345,12 @@ impl NetTransportBuilder {
             Protocol::Tcp => {
                 let transport =
                     crate::transport::blocking::Tcp::connect_with_config(&address, self.config)?;
-                Ok(Box::new(transport))
+                Ok(crate::transport::BlockingTransportHandle::Tcp(transport))
             }
             Protocol::Udp => {
                 let transport =
                     crate::transport::blocking::Udp::connect_with_config(&address, self.config)?;
-                Ok(Box::new(transport))
+                Ok(crate::transport::BlockingTransportHandle::Udp(transport))
             }
         }
     }
@@ -492,13 +490,13 @@ pub fn auto_connect_and_detect_blocking(
     cfg: TransportConfig,
 ) -> Result<
     (
-        Box<dyn crate::transport::ConfiguredSyncTransport>,
+        crate::transport::BlockingTransportHandle,
         crate::capabilities::ProtocolStyle,
     ),
     Error,
 > {
     use crate::transport::protocol_detection::{ProtocolDetector, TransportProtocol};
-    use crate::transport::ConfiguredSyncTransport;
+    use crate::transport::BlockingTransportHandle;
     use tracing::{debug, info};
 
     info!("Starting auto-connect and detect for host: {}", host);
@@ -528,17 +526,16 @@ pub fn auto_connect_and_detect_blocking(
         candidate_cfg.buffer_config = candidate.buffer_config;
 
         // Try to connect with this transport using the candidate's buffer config
-        let transport_result: Result<Box<dyn ConfiguredSyncTransport>, Error> =
-            match candidate.protocol {
-                TransportProtocol::Tcp => {
-                    crate::transport::blocking::Tcp::connect_with_config(&address, candidate_cfg)
-                        .map(|t| -> Box<dyn ConfiguredSyncTransport> { Box::new(t) })
-                }
-                TransportProtocol::Udp => {
-                    crate::transport::blocking::Udp::connect_with_config(&address, candidate_cfg)
-                        .map(|t| -> Box<dyn ConfiguredSyncTransport> { Box::new(t) })
-                }
-            };
+        let transport_result = match candidate.protocol {
+            TransportProtocol::Tcp => {
+                crate::transport::blocking::Tcp::connect_with_config(&address, candidate_cfg)
+                    .map(BlockingTransportHandle::Tcp)
+            }
+            TransportProtocol::Udp => {
+                crate::transport::blocking::Udp::connect_with_config(&address, candidate_cfg)
+                    .map(BlockingTransportHandle::Udp)
+            }
+        };
 
         match transport_result {
             Ok(mut transport) => {
@@ -549,7 +546,7 @@ pub fn auto_connect_and_detect_blocking(
                 );
 
                 // Use the detector to check if this protocol style works
-                match detector.detect_protocol_blocking(&mut *transport) {
+                match detector.detect_protocol_blocking(&mut transport) {
                     Ok(detection_result) => {
                         if let Some(detected_style) = detection_result.to_protocol_style() {
                             info!(

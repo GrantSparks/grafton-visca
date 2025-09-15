@@ -496,7 +496,7 @@ where
         crate::camera::session::CameraSession<
             crate::mode::Blocking,
             P,
-            Box<dyn crate::transport::ConfiguredSyncTransport>,
+            crate::transport::BlockingTransportHandle,
             (),
         >,
         Error,
@@ -507,50 +507,32 @@ where
         let (transport, protocol_style) = match &self.transport {
             TransportOptions::Auto { address } => {
                 // Use the new unified auto_connect_and_detect_blocking function
-                let (transport, detected_style) =
+                let (handle, detected_style) =
                     crate::transport::builder::auto_connect_and_detect_blocking(
                         address,
                         crate::transport::builder::TransportConfig::default(),
                     )?;
-                (transport, detected_style)
+                (handle, detected_style)
             }
             _ => {
-                // Track if we're using serial transport for protocol detection
-                let is_serial = matches!(&self.transport, TransportOptions::Serial { .. });
-
                 // Create transport based on configuration
-                let mut transport: Box<dyn crate::transport::ConfiguredSyncTransport> = match &self
-                    .transport
-                {
+                let mut transport = match &self.transport {
                     TransportOptions::Tcp { address } => {
                         // Parse address and create TCP transport
                         let tcp = Tcp::connect(address)?;
-                        Box::new(tcp)
+                        crate::transport::BlockingTransportHandle::Tcp(tcp)
                     }
                     TransportOptions::Udp { address } => {
                         // Parse address and create UDP transport
                         let udp = Udp::connect(address)?;
-                        Box::new(udp)
+                        crate::transport::BlockingTransportHandle::Udp(udp)
                     }
-                    TransportOptions::Serial { port, baud_rate } => {
-                        #[cfg(feature = "serialport")]
-                        {
-                            // Create serial config from transport options
-                            let serial_config = crate::transport::serial::Config::new(port.clone())
-                                .baud_rate(*baud_rate)
-                                .camera_address(self.camera_id.id());
-
-                            // Create blocking serial transport
-                            let serial = crate::transport::serial_blocking::SerialTransport::new(
-                                serial_config,
-                            )?;
-                            Box::new(serial)
-                        }
-                        #[cfg(not(feature = "serialport"))]
-                        {
-                            let _ = (port, baud_rate); // Silence unused warnings
-                            return Err(Error::Unsupported);
-                        }
+                    TransportOptions::Serial { .. } => {
+                        // Serial transport requires special handling due to it not being part of BlockingTransportHandle
+                        // This case should not be reached as serial should use open_serial_blocking() instead
+                        return Err(Error::InvalidState(
+                            "Serial transport requires open_serial_blocking() method".into(),
+                        ));
                     }
                     TransportOptions::Custom => {
                         return Err(Error::InvalidState(
@@ -566,22 +548,15 @@ where
                 let protocol_style = match self.protocol {
                     ProtocolConfig::Explicit(style) => style,
                     ProtocolConfig::Auto => {
-                        // For serial, we can't do IP-style detection, so default to RawVisca
-                        if is_serial {
-                            // Serial uses Raw VISCA by default (or profile's default)
-                            P::PROTOCOL_STYLE
-                        } else {
-                            // Use ProtocolDetector for TCP/UDP transports
-                            use crate::transport::protocol_detection::ProtocolDetector;
+                        // Use ProtocolDetector for TCP/UDP transports
+                        use crate::transport::protocol_detection::ProtocolDetector;
 
-                            let detector = ProtocolDetector::new();
-                            let detection_result =
-                                detector.detect_protocol_blocking(&mut *transport)?;
+                        let detector = ProtocolDetector::new();
+                        let detection_result = detector.detect_protocol_blocking(&mut transport)?;
 
-                            detection_result
-                                .to_protocol_style()
-                                .unwrap_or(ProtocolStyle::RawVisca)
-                        }
+                        detection_result
+                            .to_protocol_style()
+                            .unwrap_or(ProtocolStyle::RawVisca)
                     }
                 };
 
@@ -627,7 +602,7 @@ where
         crate::camera::session::CameraSession<
             crate::mode::Blocking,
             P,
-            Box<dyn crate::transport::ConfiguredSyncTransport>,
+            crate::transport::BlockingTransportHandle,
             (),
         >,
         Error,
@@ -640,9 +615,9 @@ where
                     .camera_address(self.camera_id.id());
 
                 // Create blocking serial transport
-                let transport: Box<dyn crate::transport::ConfiguredSyncTransport> = Box::new(
-                    crate::transport::serial_blocking::SerialTransport::new(serial_config)?,
-                );
+                let serial_transport =
+                    crate::transport::serial_blocking::SerialTransport::new(serial_config)?;
+                let transport = crate::transport::BlockingTransportHandle::Serial(serial_transport);
 
                 // Determine protocol style (serial always uses profile's default)
                 let protocol_style = match self.protocol {

@@ -367,9 +367,9 @@ where
     }
 }
 
-// Unified constructor methods for blocking mode
+// Unified constructor methods for blocking mode with BlockingTransportHandle (zero-cost)
 #[cfg(not(feature = "async"))]
-impl<P> Camera<crate::mode::Blocking, P, Box<dyn crate::transport::ConfiguredSyncTransport>, ()>
+impl<P> Camera<crate::mode::Blocking, P, crate::transport::BlockingTransportHandle, ()>
 where
     P: Profile + Default,
 {
@@ -385,13 +385,13 @@ where
     /// use grafton_visca::camera::profiles::PtzOpticsG2;
     /// use grafton_visca::mode::BlockingFutureExt;
     ///
-    /// let camera = Camera::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?;
+    /// let camera = Camera::open_tcp::<PtzOpticsG2>("192.168.0.110:5678")?;
     /// camera.power().on().block()?;
     /// camera.close()?;
     /// ```
     pub fn open_tcp(addr: impl Into<String>) -> Result<Self, Error> {
-        let transport: Box<dyn crate::transport::ConfiguredSyncTransport> =
-            Box::new(crate::transport::blocking::tcp::Tcp::connect(&addr.into())?);
+        let tcp = crate::transport::blocking::tcp::Tcp::connect(&addr.into())?;
+        let transport = crate::transport::BlockingTransportHandle::Tcp(tcp);
         Self::new_blocking(transport)
     }
 
@@ -407,13 +407,13 @@ where
     /// use grafton_visca::camera::profiles::GenericVisca;
     /// use grafton_visca::mode::BlockingFutureExt;
     ///
-    /// let camera = Camera::open_udp_blocking::<GenericVisca>("192.168.0.110:1259")?;
+    /// let camera = Camera::open_udp::<GenericVisca>("192.168.0.110:1259")?;
     /// camera.power().on().block()?;
     /// camera.close()?;
     /// ```
     pub fn open_udp(addr: impl Into<String>) -> Result<Self, Error> {
-        let transport: Box<dyn crate::transport::ConfiguredSyncTransport> =
-            Box::new(crate::transport::blocking::udp::Udp::connect(&addr.into())?);
+        let udp = crate::transport::blocking::udp::Udp::connect(&addr.into())?;
+        let transport = crate::transport::BlockingTransportHandle::Udp(udp);
         Self::new_blocking(transport)
     }
 
@@ -428,28 +428,21 @@ where
     ///
     /// # Example
     ///
-    /// ```no_run
+    /// ```rust,ignore
     /// use grafton_visca::camera::Camera;
     /// use grafton_visca::camera::profiles::PtzOpticsG2;
     /// use grafton_visca::mode::BlockingFutureExt;
     ///
-    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let camera = Camera::open_auto_blocking::<PtzOpticsG2>("192.168.0.110")?;
+    /// let camera = Camera::connect_auto::<PtzOpticsG2>("192.168.0.110")?;
     /// camera.power().on().block()?;
-    /// camera.close()?;
-    /// # Ok(())
-    /// # }
     /// ```
-    pub fn open_auto(addr: impl Into<String>) -> Result<Self, Error> {
-        use crate::camera::builder::CameraBuilder;
-
-        CameraBuilder::connect_auto(addr)
-            .profile::<P>()
-            .open()
-            .map(|blocking_camera| {
-                // Convert BlockingCamera to Camera
-                blocking_camera.into_inner()
-            })
+    pub fn connect_auto(host: impl Into<String>) -> Result<Self, Error> {
+        let (transport, detected_style) =
+            crate::transport::builder::auto_connect_and_detect_blocking(
+                &host.into(),
+                crate::transport::builder::TransportConfig::default(),
+            )?;
+        Self::new_blocking_with_style(transport, detected_style)
     }
 }
 

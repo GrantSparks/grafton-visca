@@ -7,6 +7,87 @@ use core::time::Duration;
 
 use crate::{command::CommandKind, transport::builder::TransportConfig, Error};
 
+/// Transport handle for blocking VISCA communication.
+///
+/// This enum provides a typed alternative to `Box<dyn SyncTransport>` that avoids heap
+/// allocation and dynamic dispatch. It mirrors the design of the async `TransportHandle<R>`
+/// but for blocking transports.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use grafton_visca::transport::BlockingTransportHandle;
+/// use grafton_visca::transport::blocking::{Tcp, Udp};
+///
+/// // Create a handle from either TCP or UDP transport
+/// let handle = BlockingTransportHandle::Tcp(
+///     Tcp::connect_with_config("192.168.0.110:5678", Default::default())?
+/// );
+/// ```
+#[cfg(not(feature = "async"))]
+#[derive(Debug)]
+pub enum BlockingTransportHandle {
+    /// TCP transport for blocking mode.
+    Tcp(crate::transport::blocking::Tcp),
+    /// UDP transport for blocking mode.
+    Udp(crate::transport::blocking::Udp),
+    /// Serial transport for blocking mode.
+    #[cfg(feature = "serialport")]
+    Serial(crate::transport::serial_blocking::SerialTransport),
+}
+
+#[cfg(not(feature = "async"))]
+impl SyncTransport for BlockingTransportHandle {
+    fn send_with_kind(&mut self, bytes: &[u8], kind: CommandKind) -> Result<(), Error> {
+        match self {
+            BlockingTransportHandle::Tcp(transport) => transport.send_with_kind(bytes, kind),
+            BlockingTransportHandle::Udp(transport) => transport.send_with_kind(bytes, kind),
+            #[cfg(feature = "serialport")]
+            BlockingTransportHandle::Serial(transport) => transport.send_with_kind(bytes, kind),
+        }
+    }
+
+    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+        match self {
+            BlockingTransportHandle::Tcp(transport) => transport.recv_into(dst),
+            BlockingTransportHandle::Udp(transport) => transport.recv_into(dst),
+            #[cfg(feature = "serialport")]
+            BlockingTransportHandle::Serial(transport) => transport.recv_into(dst),
+        }
+    }
+
+    fn recv_into_with_timeout(
+        &mut self,
+        dst: &mut [u8],
+        timeout: Duration,
+    ) -> Result<usize, Error> {
+        match self {
+            BlockingTransportHandle::Tcp(transport) => {
+                transport.recv_into_with_timeout(dst, timeout)
+            }
+            BlockingTransportHandle::Udp(transport) => {
+                transport.recv_into_with_timeout(dst, timeout)
+            }
+            #[cfg(feature = "serialport")]
+            BlockingTransportHandle::Serial(transport) => {
+                transport.recv_into_with_timeout(dst, timeout)
+            }
+        }
+    }
+}
+
+#[cfg(not(feature = "async"))]
+impl HasTransportConfig for BlockingTransportHandle {
+    fn transport_config(&self) -> &TransportConfig {
+        match self {
+            BlockingTransportHandle::Tcp(transport) => transport.transport_config(),
+            BlockingTransportHandle::Udp(transport) => transport.transport_config(),
+            #[cfg(feature = "serialport")]
+            BlockingTransportHandle::Serial(transport) => transport.transport_config(),
+        }
+    }
+}
+
 /// Synchronous transport for VISCA communication.
 ///
 /// This trait provides synchronous methods for transports that block
@@ -115,59 +196,5 @@ impl<T: HasTransportConfig + ?Sized> HasTransportConfig for &T {
     #[inline]
     fn transport_config(&self) -> &TransportConfig {
         (*self).transport_config()
-    }
-}
-
-/// Trait that combines SyncTransport with HasTransportConfig for unified use.
-///
-/// This trait exists to enable trait objects that require both SyncTransport
-/// and HasTransportConfig functionality.
-pub trait ConfiguredSyncTransport: SyncTransport + HasTransportConfig {}
-
-// Blanket implementation: any type that implements both traits automatically implements the combined trait
-impl<T> ConfiguredSyncTransport for T where T: SyncTransport + HasTransportConfig {}
-
-// Implement HasTransportConfig for Box<dyn ConfiguredSyncTransport>
-impl HasTransportConfig for Box<dyn ConfiguredSyncTransport> {
-    fn transport_config(&self) -> &TransportConfig {
-        (**self).transport_config()
-    }
-}
-
-// Implement SyncTransport for Box<dyn SyncTransport> to enable nested boxing
-impl SyncTransport for Box<dyn SyncTransport> {
-    fn send_with_kind(&mut self, bytes: &[u8], kind: CommandKind) -> Result<(), Error> {
-        (**self).send_with_kind(bytes, kind)
-    }
-
-    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        (**self).recv_into(dst)
-    }
-
-    fn recv_into_with_timeout(
-        &mut self,
-        dst: &mut [u8],
-        timeout: Duration,
-    ) -> Result<usize, Error> {
-        (**self).recv_into_with_timeout(dst, timeout)
-    }
-}
-
-// Implement SyncTransport for Box<dyn ConfiguredSyncTransport>
-impl SyncTransport for Box<dyn ConfiguredSyncTransport> {
-    fn send_with_kind(&mut self, bytes: &[u8], kind: CommandKind) -> Result<(), Error> {
-        (**self).send_with_kind(bytes, kind)
-    }
-
-    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        (**self).recv_into(dst)
-    }
-
-    fn recv_into_with_timeout(
-        &mut self,
-        dst: &mut [u8],
-        timeout: Duration,
-    ) -> Result<usize, Error> {
-        (**self).recv_into_with_timeout(dst, timeout)
     }
 }

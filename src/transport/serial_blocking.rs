@@ -114,30 +114,25 @@ impl HasTransportConfig for SerialTransport {
 // This is necessary for hardware constraints
 impl SyncTransport for SerialTransport {
     fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<()> {
-        // Apply write timeout if configured
-        if let Some(write_timeout) = self.config.write_timeout {
-            let mut port = self
-                .port
-                .lock()
-                .map_err(|_| Error::LockPoisoned("serial port mutex"))?;
-            let original_timeout = port.timeout();
-            port.set_timeout(write_timeout).map_err(|e| {
-                Error::TransportError(format!("Failed to set write timeout: {e}").into())
-            })?;
+        // Apply write timeout
+        let write_timeout = self.config.write_timeout;
+        let mut port = self
+            .port
+            .lock()
+            .map_err(|_| Error::LockPoisoned("serial port mutex"))?;
+        let original_timeout = port.timeout();
+        port.set_timeout(write_timeout).map_err(|e| {
+            Error::TransportError(format!("Failed to set write timeout: {e}").into())
+        })?;
 
-            // Send the data
-            let result = self.send_raw(bytes);
+        // Send the data
+        let result = self.send_raw(bytes);
 
-            // Restore original timeout
-            port.set_timeout(original_timeout).map_err(|e| {
-                Error::TransportError(format!("Failed to restore timeout: {e}").into())
-            })?;
+        // Restore original timeout
+        port.set_timeout(original_timeout)
+            .map_err(|e| Error::TransportError(format!("Failed to restore timeout: {e}").into()))?;
 
-            result
-        } else {
-            // Send without modifying timeout
-            self.send_raw(bytes)
-        }
+        result
     }
 
     fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize> {

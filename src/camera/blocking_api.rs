@@ -184,11 +184,6 @@ where
     }
 }
 
-impl<P> BlockingCamera<P, Box<dyn crate::transport::ConfiguredSyncTransport>> where
-    P: crate::capabilities::Profile + Default
-{
-}
-
 impl<P, Tr> Deref for BlockingCamera<P, Tr>
 where
     P: crate::capabilities::Profile,

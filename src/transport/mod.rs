@@ -99,7 +99,9 @@ pub use builder::{NetTransportBuilder, Transport, TransportBuilderExt};
 pub use protocol_detection::{DetectionResult, ProtocolDetector};
 use std::time::{Duration, Instant};
 
-pub use sync_transport::{ConfiguredSyncTransport, HasTransportConfig, SyncTransport};
+#[cfg(not(feature = "async"))]
+pub use sync_transport::BlockingTransportHandle;
+pub use sync_transport::{HasTransportConfig, SyncTransport};
 
 /// Retry configuration for transport layer operations.
 ///

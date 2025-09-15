@@ -38,7 +38,7 @@
 #[cfg(feature = "async")]
 use crate::transport::protocol_detection::ProtocolDetector;
 #[cfg(not(feature = "async"))]
-use crate::transport::{ConfiguredSyncTransport, SyncTransport};
+use crate::transport::SyncTransport;
 #[cfg(feature = "async")]
 use crate::{camera::UnifiedCamera as Camera, executor::Executor, mode, transport::AsyncTransport};
 use crate::{
@@ -382,18 +382,18 @@ pub struct CameraBuilderWithTransport {
     protocol_style: Option<ProtocolStyle>,
 }
 
-/// Builder with BYO (Bring Your Own) transport.
+/// Builder with BlockingTransportHandle (zero-cost variant).
 #[cfg(not(feature = "async"))]
-pub struct CameraBuilderWithBYOTransport {
-    transport: Box<dyn ConfiguredSyncTransport>,
+pub struct CameraBuilderWithHandleTransport {
+    transport: crate::transport::BlockingTransportHandle,
     protocol_style: Option<ProtocolStyle>,
 }
 
 #[cfg(not(feature = "async"))]
-impl std::fmt::Debug for CameraBuilderWithBYOTransport {
+impl std::fmt::Debug for CameraBuilderWithHandleTransport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CameraBuilderWithBYOTransport")
-            .field("transport", &"Box<dyn SyncTransport>")
+        f.debug_struct("CameraBuilderWithHandleTransport")
+            .field("transport", &self.transport)
             .field("protocol_style", &self.protocol_style)
             .finish()
     }
@@ -437,24 +437,27 @@ where
     ///
     /// This method delegates to the canonical detection helper that properly
     /// frames/deframes protocol messages and validates VISCA responses.
-    pub fn open(self) -> Result<crate::BlockingCamera<P, Box<dyn ConfiguredSyncTransport>>, Error> {
+    pub fn open(
+        self,
+    ) -> Result<crate::BlockingCamera<P, crate::transport::BlockingTransportHandle>, Error> {
         // Use the canonical auto-detection logic
         let (transport, style) = crate::transport::builder::auto_connect_and_detect_blocking(
             &self.address,
             crate::transport::builder::TransportConfig::default(),
         )?;
+        // Use BlockingTransportHandle directly without boxing
         crate::BlockingCamera::new_with_style(transport, style)
     }
 }
 
 #[cfg(not(feature = "async"))]
-impl CameraBuilderWithBYOTransport {
+impl CameraBuilderWithHandleTransport {
     /// Set the camera profile.
-    pub fn profile<P>(self) -> CameraBuilderWithBYOTransportAndProfile<P>
+    pub fn profile<P>(self) -> CameraBuilderWithHandleTransportAndProfile<P>
     where
         P: Profile + Default,
     {
-        CameraBuilderWithBYOTransportAndProfile {
+        CameraBuilderWithHandleTransportAndProfile {
             transport: self.transport,
             protocol_style: self.protocol_style,
             _phantom: std::marker::PhantomData,
@@ -471,19 +474,19 @@ impl CameraBuilderWithBYOTransport {
     }
 }
 
-/// Builder with BYO transport and profile configured.
+/// Builder with handle transport and profile configured.
 #[cfg(not(feature = "async"))]
-pub struct CameraBuilderWithBYOTransportAndProfile<P> {
-    transport: Box<dyn ConfiguredSyncTransport>,
+pub struct CameraBuilderWithHandleTransportAndProfile<P> {
+    transport: crate::transport::BlockingTransportHandle,
     protocol_style: Option<ProtocolStyle>,
     _phantom: std::marker::PhantomData<P>,
 }
 
 #[cfg(not(feature = "async"))]
-impl<P> std::fmt::Debug for CameraBuilderWithBYOTransportAndProfile<P> {
+impl<P> std::fmt::Debug for CameraBuilderWithHandleTransportAndProfile<P> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CameraBuilderWithBYOTransportAndProfile")
-            .field("transport", &"Box<dyn SyncTransport>")
+        f.debug_struct("CameraBuilderWithHandleTransportAndProfile")
+            .field("transport", &self.transport)
             .field("protocol_style", &self.protocol_style)
             .field("_phantom", &self._phantom)
             .finish()
@@ -491,7 +494,7 @@ impl<P> std::fmt::Debug for CameraBuilderWithBYOTransportAndProfile<P> {
 }
 
 #[cfg(not(feature = "async"))]
-impl<P> CameraBuilderWithBYOTransportAndProfile<P>
+impl<P> CameraBuilderWithHandleTransportAndProfile<P>
 where
     P: Profile + Default,
 {
@@ -507,7 +510,9 @@ where
     /// Open the camera with the configured transport.
     ///
     /// This method attaches the provided transport to create a camera instance.
-    pub fn open(self) -> Result<crate::BlockingCamera<P, Box<dyn ConfiguredSyncTransport>>, Error> {
+    pub fn open(
+        self,
+    ) -> Result<crate::BlockingCamera<P, crate::transport::BlockingTransportHandle>, Error> {
         // Use protocol style override if provided, otherwise use profile default
         let protocol_style = self.protocol_style.unwrap_or(P::PROTOCOL_STYLE);
         crate::BlockingCamera::new_with_style(self.transport, protocol_style)
@@ -567,14 +572,18 @@ where
     ///
     /// This method explicitly connects to the camera, making it clear that
     /// network operations occur at this point.
-    pub fn open(self) -> Result<crate::BlockingCamera<P, Box<dyn ConfiguredSyncTransport>>, Error> {
-        let transport: Box<dyn ConfiguredSyncTransport> = match self.transport_type {
-            TransportType::Tcp => Box::new(crate::transport::blocking::tcp::Tcp::connect(
-                &self.address,
-            )?),
-            TransportType::Udp => Box::new(crate::transport::blocking::udp::Udp::connect(
-                &self.address,
-            )?),
+    pub fn open(
+        self,
+    ) -> Result<crate::BlockingCamera<P, crate::transport::BlockingTransportHandle>, Error> {
+        let transport = match self.transport_type {
+            TransportType::Tcp => {
+                let tcp = crate::transport::blocking::tcp::Tcp::connect(&self.address)?;
+                crate::transport::BlockingTransportHandle::Tcp(tcp)
+            }
+            TransportType::Udp => {
+                let udp = crate::transport::blocking::udp::Udp::connect(&self.address)?;
+                crate::transport::BlockingTransportHandle::Udp(udp)
+            }
         };
 
         // Use protocol style override if provided, otherwise use profile default
@@ -640,10 +649,10 @@ impl CameraBuilder<()> {
         }
     }
 
-    /// Create a builder from an existing transport (BYO transport pattern).
+    /// Create a builder from a BlockingTransportHandle.
     ///
-    /// This is the advanced path for users who want full control over transport
-    /// configuration using the Transport builder API or custom transports.
+    /// This is the standard method for TCP/UDP transports, providing zero-cost
+    /// operation without boxing or dynamic dispatch.
     ///
     /// # Example
     /// ```ignore
@@ -655,15 +664,15 @@ impl CameraBuilder<()> {
     ///     .tcp_nodelay(true)
     ///     .build_blocking()?;
     ///
-    /// let camera = CameraBuilder::from_transport(transport)
+    /// let camera = CameraBuilder::from_transport_handle(transport)
     ///     .profile::<PtzOpticsG2>()
     ///     .open()?;
     /// ```
     #[cfg(not(feature = "async"))]
-    pub fn from_transport(
-        transport: Box<dyn ConfiguredSyncTransport>,
-    ) -> CameraBuilderWithBYOTransport {
-        CameraBuilderWithBYOTransport {
+    pub fn from_transport_handle(
+        transport: crate::transport::BlockingTransportHandle,
+    ) -> CameraBuilderWithHandleTransport {
+        CameraBuilderWithHandleTransport {
             transport,
             protocol_style: None,
         }
