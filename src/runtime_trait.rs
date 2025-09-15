@@ -38,10 +38,10 @@ use crate::{
 #[cfg(feature = "async")]
 pub trait Runtime: Executor + Clone + Send + Sync + 'static {
     /// TCP transport type for this runtime.
-    type TcpTransport: AsyncTransport + Send + 'static;
+    type TcpTransport: AsyncTransport + HasTransportConfig + Send + 'static;
 
     /// UDP transport type for this runtime.
-    type UdpTransport: AsyncTransport + Send + 'static;
+    type UdpTransport: AsyncTransport + HasTransportConfig + Send + 'static;
 
     /// Connect to a TCP endpoint.
     ///
@@ -123,36 +123,25 @@ pub trait RuntimeSerial: Runtime {
 #[cfg(feature = "async")]
 #[derive(Debug)]
 pub enum TransportHandle<R: Runtime> {
-    /// TCP transport for this runtime with its configuration.
-    Tcp(R::TcpTransport, TransportConfig),
-    /// UDP transport for this runtime with its configuration.
-    Udp(R::UdpTransport, TransportConfig),
-}
-
-#[cfg(feature = "async")]
-impl<R: Runtime> TransportHandle<R> {
-    /// Get the transport configuration.
-    pub fn config(&self) -> &TransportConfig {
-        match self {
-            TransportHandle::Tcp(_, config) => config,
-            TransportHandle::Udp(_, config) => config,
-        }
-    }
+    /// TCP transport for this runtime.
+    Tcp(R::TcpTransport),
+    /// UDP transport for this runtime.
+    Udp(R::UdpTransport),
 }
 
 #[cfg(feature = "async")]
 impl<R: Runtime> AsyncTransport for TransportHandle<R> {
     async fn send(&mut self, bytes: &[u8]) -> Result<(), Error> {
         match self {
-            TransportHandle::Tcp(transport, _) => transport.send(bytes).await,
-            TransportHandle::Udp(transport, _) => transport.send(bytes).await,
+            TransportHandle::Tcp(transport) => transport.send(bytes).await,
+            TransportHandle::Udp(transport) => transport.send(bytes).await,
         }
     }
 
     async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
         match self {
-            TransportHandle::Tcp(transport, _) => transport.recv_into(dst).await,
-            TransportHandle::Udp(transport, _) => transport.recv_into(dst).await,
+            TransportHandle::Tcp(transport) => transport.recv_into(dst).await,
+            TransportHandle::Udp(transport) => transport.recv_into(dst).await,
         }
     }
 }
@@ -160,7 +149,10 @@ impl<R: Runtime> AsyncTransport for TransportHandle<R> {
 #[cfg(feature = "async")]
 impl<R: Runtime> HasTransportConfig for TransportHandle<R> {
     fn transport_config(&self) -> &TransportConfig {
-        self.config()
+        match self {
+            TransportHandle::Tcp(transport) => transport.transport_config(),
+            TransportHandle::Udp(transport) => transport.transport_config(),
+        }
     }
 }
 

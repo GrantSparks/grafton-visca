@@ -432,11 +432,11 @@ where
             TransportProtocol::Tcp => runtime
                 .connect_tcp(&address, candidate_cfg)
                 .await
-                .map(|t| TransportHandle::Tcp(t, candidate_cfg)),
+                .map(|t| TransportHandle::Tcp(t)),
             TransportProtocol::Udp => runtime
                 .connect_udp(&address, candidate_cfg)
                 .await
-                .map(|t| TransportHandle::Udp(t, candidate_cfg)),
+                .map(|t| TransportHandle::Udp(t)),
         };
 
         match transport_result {

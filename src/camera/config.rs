@@ -327,14 +327,14 @@ where
                         let tcp = runtime
                             .connect_tcp(address, TransportConfig::default())
                             .await?;
-                        TransportHandle::Tcp(tcp, TransportConfig::default())
+                        TransportHandle::Tcp(tcp)
                     }
                     TransportOptions::Udp { address } => {
                         // Parse address and create UDP transport using Runtime trait
                         let udp = runtime
                             .connect_udp(address, TransportConfig::default())
                             .await?;
-                        TransportHandle::Udp(udp, TransportConfig::default())
+                        TransportHandle::Udp(udp)
                     }
                     TransportOptions::Serial { .. } => {
                         // Serial requires serialport feature and RuntimeSerial implementation
