@@ -2,7 +2,11 @@
 
 use crate::{
     camera::CameraSend,
-    command::{NdFilterMode as CommandNdFilterMode, NdFilterStep},
+    command::{
+        inquiry_structs::NdFilterInquiry,
+        nd_filter::{AutoNdCommand, NdFilterModeCommand, NdFilterStepCommand, NdFilterValue},
+        NdFilterMode as CommandNdFilterMode, NdFilterStep,
+    },
     mode::Mode,
     Error,
 };
@@ -52,13 +56,11 @@ where
     type Mode = M;
 
     fn set_nd_filter_mode(&self, mode: CommandNdFilterMode) -> M::Ret<'_, Result<(), Error>> {
-        use crate::command::nd_filter::NdFilterModeCommand;
         let cmd = NdFilterModeCommand::new(mode);
         self.send_and_complete(cmd)
     }
 
     fn set_nd_filter_value(&self, value: u16) -> M::Ret<'_, Result<(), Error>> {
-        use crate::command::nd_filter::NdFilterValue;
         match NdFilterValue::new(value) {
             Ok(cmd) => self.send_and_complete(cmd),
             Err(_) => self.error(Error::InvalidParameter {
@@ -70,7 +72,6 @@ where
     }
 
     fn set_nd_filter_stops(&self, stops: f32) -> M::Ret<'_, Result<(), Error>> {
-        use crate::command::nd_filter::NdFilterValue;
         match NdFilterValue::from_stops(stops) {
             Ok(cmd) => self.send_and_complete(cmd),
             Err(_) => self.error(Error::InvalidParameter {
@@ -82,19 +83,16 @@ where
     }
 
     fn step_nd_filter(&self, direction: NdFilterStep) -> M::Ret<'_, Result<(), Error>> {
-        use crate::command::nd_filter::NdFilterStepCommand;
         let cmd = NdFilterStepCommand::new(direction);
         self.send_and_complete(cmd)
     }
 
     fn set_auto_nd(&self, enabled: bool) -> M::Ret<'_, Result<(), Error>> {
-        use crate::command::nd_filter::AutoNdCommand;
         let cmd = AutoNdCommand::new(enabled);
         self.send_and_complete(cmd)
     }
 
     fn get_nd_filter(&self) -> M::Ret<'_, Result<u8, Error>> {
-        use crate::command::inquiry_structs::NdFilterInquiry;
         self.send_and_parse(NdFilterInquiry)
     }
 }

@@ -5,6 +5,7 @@
 
 use std::time::{Duration, Instant};
 
+use super::{MovementConfig, PanTiltPosition, UnifiedCamera as Camera};
 use crate::{
     capabilities::{Profile, ProfileMetadata},
     command::inquiry::{FocusPositionInquiry, PanTiltPositionInquiry, ZoomPositionInquiry},
@@ -14,8 +15,6 @@ use crate::{
 use crate::{executor::Executor, transport::AsyncTransport};
 #[cfg(not(feature = "async"))]
 use crate::{mode::BlockingFutureExt, transport::SyncTransport};
-
-use super::{MovementConfig, PanTiltPosition, UnifiedCamera as Camera};
 
 // Blocking mode implementation is only available without async feature
 #[cfg(not(feature = "async"))]

@@ -85,7 +85,7 @@ impl fmt::Display for CameraId {
         if self.is_broadcast() {
             write!(f, "Broadcast")
         } else {
-            write!(f, "Camera {}", self.0)
+            write!(f, "Camera {id}", id = self.0)
         }
     }
 }

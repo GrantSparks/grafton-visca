@@ -36,19 +36,23 @@
 //! ```
 
 #[cfg(feature = "async")]
-use crate::transport::protocol_detection::ProtocolDetector;
+use std::sync::Arc;
+
 #[cfg(not(feature = "async"))]
 use crate::transport::SyncTransport;
 #[cfg(feature = "async")]
-use crate::{camera::UnifiedCamera as Camera, executor::Executor, mode, transport::AsyncTransport};
+use crate::{
+    camera::UnifiedCamera as Camera,
+    executor::Executor,
+    mode,
+    transport::{protocol_detection::ProtocolDetector, AsyncTransport},
+};
 use crate::{
     camera_id::CameraId,
     capabilities::{Profile, ProtocolStyle},
     error::Error,
     timeout::TimeoutConfig,
 };
-#[cfg(feature = "async")]
-use std::sync::Arc;
 
 /// Builder for creating cameras with explicit executor configuration.
 ///

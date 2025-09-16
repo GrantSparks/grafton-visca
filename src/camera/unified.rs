@@ -4,12 +4,14 @@
 //! operations through the Mode trait system, eliminating the need for separate
 //! AsyncCamera and BlockingCamera types.
 
-// Standard library
 use core::marker::PhantomData;
 #[cfg(feature = "async")]
 use std::{future::Future, pin::Pin, sync::Arc};
 
-// Local modules
+#[cfg(not(feature = "async"))]
+use crate::runtime::blocking_runner::BlockingRunner;
+#[cfg(not(feature = "async"))]
+use crate::transport::SyncTransport;
 use crate::{
     camera_id::CameraId,
     capabilities::{Profile, ProtocolStyle},
@@ -18,15 +20,8 @@ use crate::{
     mode::Mode,
     timeout::TimeoutConfig,
 };
-
-#[cfg(not(feature = "async"))]
-use crate::transport::SyncTransport;
-
 #[cfg(feature = "async")]
 use crate::{executor::Executor, transport::AsyncTransport};
-
-#[cfg(not(feature = "async"))]
-use crate::runtime::blocking_runner::BlockingRunner;
 
 /// Unified camera client that works in both blocking and async modes.
 ///

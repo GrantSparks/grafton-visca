@@ -20,32 +20,10 @@ pub mod zoom;
 // Core profile metadata trait
 mod profile_metadata;
 pub use profile_metadata::{
-    HasAutoExposure,
-    HasAutoFocus,
-    HasBacklightCompensation,
-    HasColorTemperature,
-    HasExposure,
-    // Specific feature marker traits
-    HasExposureCompensation,
-    HasFocus,
-    HasHue,
-    HasImageProcessing,
-    HasLuminance,
-    HasMenuControl,
-    HasMotionSync,
-    HasNdFilter,
-    HasOnePushFocus,
-    HasOnePushWhiteBalance,
-    // Marker traits for compile-time capability detection
-    HasPanTilt,
-    HasPower,
-    HasPresets,
-    HasRGBGain,
-    HasVariableSpeed,
-    HasWDR,
-    HasWhiteBalance,
-    HasZoom,
-    ProfileMetadata,
+    HasAutoExposure, HasAutoFocus, HasBacklightCompensation, HasColorTemperature, HasExposure,
+    HasExposureCompensation, HasFocus, HasHue, HasImageProcessing, HasLuminance, HasMenuControl,
+    HasMotionSync, HasNdFilter, HasOnePushFocus, HasOnePushWhiteBalance, HasPanTilt, HasPower,
+    HasPresets, HasRGBGain, HasVariableSpeed, HasWDR, HasWhiteBalance, HasZoom, ProfileMetadata,
     ProtocolStyle,
 };
 

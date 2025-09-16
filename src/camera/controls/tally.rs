@@ -1,6 +1,14 @@
 //! Unified tally light control implementation using Mode trait.
 
-use crate::{camera::CameraSend, mode::Mode, Error};
+use crate::{
+    camera::CameraSend,
+    command::{
+        inquiry_structs::{TallyAutoAdjustInquiry, TallyGreenInquiry, TallyStatusInquiry},
+        tally::Tally,
+    },
+    mode::Mode,
+    Error,
+};
 
 /// Unified tally light control operations for cameras.
 ///
@@ -69,64 +77,52 @@ where
     type Mode = M;
 
     fn tally_red_on(&self) -> M::Ret<'_, Result<(), Error>> {
-        use crate::command::tally::Tally;
         self.send_and_complete(Tally::RedOn)
     }
 
     fn tally_red_off(&self) -> M::Ret<'_, Result<(), Error>> {
-        use crate::command::tally::Tally;
         self.send_and_complete(Tally::RedOff)
     }
 
     fn tally_bright_lo(&self) -> M::Ret<'_, Result<(), Error>> {
-        use crate::command::tally::Tally;
         self.send_and_complete(Tally::BrightLo)
     }
 
     fn tally_bright_hi(&self) -> M::Ret<'_, Result<(), Error>> {
-        use crate::command::tally::Tally;
         self.send_and_complete(Tally::BrightHi)
     }
 
     fn tally_green_on(&self) -> M::Ret<'_, Result<(), Error>> {
-        use crate::command::tally::Tally;
         self.send_and_complete(Tally::GreenOn)
     }
 
     fn tally_green_off(&self) -> M::Ret<'_, Result<(), Error>> {
-        use crate::command::tally::Tally;
         self.send_and_complete(Tally::GreenOff)
     }
 
     fn tally_flash(&self) -> M::Ret<'_, Result<(), Error>> {
-        use crate::command::tally::Tally;
         self.send_and_complete(Tally::Flash)
     }
 
     fn tally_on(&self) -> M::Ret<'_, Result<(), Error>> {
-        use crate::command::tally::Tally;
         self.send_and_complete(Tally::On)
     }
 
     fn tally_off(&self) -> M::Ret<'_, Result<(), Error>> {
-        use crate::command::tally::Tally;
         self.send_and_complete(Tally::Off)
     }
 
     fn get_tally_status(
         &self,
     ) -> M::Ret<'_, Result<crate::command::typed::TallyStatusState, Error>> {
-        use crate::command::inquiry_structs::TallyStatusInquiry;
         self.send_and_parse(TallyStatusInquiry)
     }
 
     fn get_green_tally_status(&self) -> M::Ret<'_, Result<bool, Error>> {
-        use crate::command::inquiry_structs::TallyGreenInquiry;
         self.send_and_parse(TallyGreenInquiry)
     }
 
     fn get_tally_auto_adjust_enabled(&self) -> M::Ret<'_, Result<bool, Error>> {
-        use crate::command::inquiry_structs::TallyAutoAdjustInquiry;
         self.send_and_parse(TallyAutoAdjustInquiry)
     }
 }
