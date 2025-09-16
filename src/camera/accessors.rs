@@ -153,25 +153,25 @@ where
     }
 
     /// Zoom to telephoto (zoom in) with variable speed.
-    pub fn tele_variable(
-        &self,
-        speed: crate::command::zoom::ZoomSpeed,
-    ) -> M::Ret<'_, Result<(), Error>>
+    ///
+    /// Accepts either `SpeedLevel` or `ZoomVelocity` for speed control.
+    pub fn tele_variable<S>(&self, speed: S) -> M::Ret<'_, Result<(), Error>>
     where
         Camera<M, P, Tr, Exec>: ZoomControl<Mode = M>,
+        S: Into<crate::command::zoom::ZoomSpeed>,
     {
-        self.camera.zoom_tele_variable(speed)
+        self.camera.zoom_tele_variable(speed.into())
     }
 
     /// Zoom to wide (zoom out) with variable speed.
-    pub fn wide_variable(
-        &self,
-        speed: crate::command::zoom::ZoomSpeed,
-    ) -> M::Ret<'_, Result<(), Error>>
+    ///
+    /// Accepts either `SpeedLevel` or `ZoomVelocity` for speed control.
+    pub fn wide_variable<S>(&self, speed: S) -> M::Ret<'_, Result<(), Error>>
     where
         Camera<M, P, Tr, Exec>: ZoomControl<Mode = M>,
+        S: Into<crate::command::zoom::ZoomSpeed>,
     {
-        self.camera.zoom_wide_variable(speed)
+        self.camera.zoom_wide_variable(speed.into())
     }
 
     /// Set zoom to absolute position (0.0 = wide, 1.0 = full tele).
@@ -258,6 +258,22 @@ where
         self.camera.get_pan_tilt_position()
     }
 
+    /// Move in a specific direction.
+    ///
+    /// Accepts high-level `types::PanTiltDirection` for direction.
+    pub fn move_direction(
+        &self,
+        direction: crate::types::PanTiltDirection,
+        pan_speed: crate::types::PanSpeed,
+        tilt_speed: crate::types::TiltSpeed,
+    ) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: PanTiltControl<Mode = M>,
+    {
+        self.camera
+            .pan_tilt_move(direction.into(), pan_speed, tilt_speed)
+    }
+
     /// Move up.
     pub fn up(
         &self,
@@ -267,9 +283,7 @@ where
     where
         Camera<M, P, Tr, Exec>: PanTiltControl<Mode = M>,
     {
-        use crate::command::pan_tilt::PanTiltDirection;
-        self.camera
-            .pan_tilt_move(PanTiltDirection::Up, pan_speed, tilt_speed)
+        self.move_direction(crate::types::PanTiltDirection::Up, pan_speed, tilt_speed)
     }
 
     /// Move down.
@@ -281,9 +295,7 @@ where
     where
         Camera<M, P, Tr, Exec>: PanTiltControl<Mode = M>,
     {
-        use crate::command::pan_tilt::PanTiltDirection;
-        self.camera
-            .pan_tilt_move(PanTiltDirection::Down, pan_speed, tilt_speed)
+        self.move_direction(crate::types::PanTiltDirection::Down, pan_speed, tilt_speed)
     }
 
     /// Move left.
@@ -295,9 +307,7 @@ where
     where
         Camera<M, P, Tr, Exec>: PanTiltControl<Mode = M>,
     {
-        use crate::command::pan_tilt::PanTiltDirection;
-        self.camera
-            .pan_tilt_move(PanTiltDirection::Left, pan_speed, tilt_speed)
+        self.move_direction(crate::types::PanTiltDirection::Left, pan_speed, tilt_speed)
     }
 
     /// Move right.
@@ -309,9 +319,7 @@ where
     where
         Camera<M, P, Tr, Exec>: PanTiltControl<Mode = M>,
     {
-        use crate::command::pan_tilt::PanTiltDirection;
-        self.camera
-            .pan_tilt_move(PanTiltDirection::Right, pan_speed, tilt_speed)
+        self.move_direction(crate::types::PanTiltDirection::Right, pan_speed, tilt_speed)
     }
 
     /// Stop pan/tilt movement.
@@ -341,6 +349,19 @@ where
         Camera<M, P, Tr, Exec>: PanTiltControl<Mode = M>,
     {
         self.camera.pan_tilt_absolute(pan, tilt, speed)
+    }
+
+    /// Move relative to current position.
+    pub fn relative(
+        &self,
+        pan: crate::units::Degrees,
+        tilt: crate::units::Degrees,
+        speed: crate::types::SpeedLevel,
+    ) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: PanTiltControl<Mode = M>,
+    {
+        self.camera.pan_tilt_relative(pan, tilt, speed)
     }
 }
 
@@ -508,6 +529,16 @@ where
         Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
     {
         self.camera.set_focus_near_limit(position)
+    }
+
+    /// Trigger one-push auto focus.
+    ///
+    /// Performs a single auto-focus operation then returns to the previous focus mode.
+    pub fn one_push(&self) -> M::Ret<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
+    {
+        self.camera.focus_one_push()
     }
 }
 

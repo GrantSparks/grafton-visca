@@ -969,6 +969,73 @@ impl From<SpeedLevel> for TiltSpeed {
     }
 }
 
+/// Variable zoom speed for camera zoom operations.
+///
+/// High-level type for specifying zoom speed. Valid range is 0-7 where
+/// 0 is the slowest and 7 is the fastest. This type is part of the public
+/// API and avoids exposing the low-level command module types to users.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[visca_value(min = "0", max = "7", display_prefix = "Zoom Velocity")]
+pub struct ZoomVelocity(u8);
+
+impl From<SpeedLevel> for ZoomVelocity {
+    fn from(level: SpeedLevel) -> Self {
+        Self(level.to_zoom_speed())
+    }
+}
+
+impl From<ZoomVelocity> for crate::command::zoom::ZoomSpeed {
+    fn from(velocity: ZoomVelocity) -> Self {
+        // SAFETY: ZoomVelocity is guaranteed to be in range 0-7 by its constructor,
+        // which matches ZoomSpeed's valid range exactly. Both types use the
+        // visca_bounded_param! macro with identical bounds.
+        crate::command::zoom::ZoomSpeed::new_unchecked(velocity.0)
+    }
+}
+
+/// Direction for pan/tilt movement.
+///
+/// High-level type for specifying camera movement direction.
+/// This type is part of the public API and avoids exposing the low-level
+/// command module types to users.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum PanTiltDirection {
+    /// Move camera upward (tilt up).
+    Up,
+    /// Move camera downward (tilt down).
+    Down,
+    /// Move camera leftward (pan left).
+    Left,
+    /// Move camera rightward (pan right).
+    Right,
+    /// Move camera diagonally up and to the left.
+    UpLeft,
+    /// Move camera diagonally up and to the right.
+    UpRight,
+    /// Move camera diagonally down and to the left.
+    DownLeft,
+    /// Move camera diagonally down and to the right.
+    DownRight,
+    /// Stop all pan/tilt movement.
+    Stop,
+}
+
+impl From<PanTiltDirection> for crate::command::pan_tilt::PanTiltDirection {
+    fn from(dir: PanTiltDirection) -> Self {
+        match dir {
+            PanTiltDirection::Up => crate::command::pan_tilt::PanTiltDirection::Up,
+            PanTiltDirection::Down => crate::command::pan_tilt::PanTiltDirection::Down,
+            PanTiltDirection::Left => crate::command::pan_tilt::PanTiltDirection::Left,
+            PanTiltDirection::Right => crate::command::pan_tilt::PanTiltDirection::Right,
+            PanTiltDirection::UpLeft => crate::command::pan_tilt::PanTiltDirection::UpLeft,
+            PanTiltDirection::UpRight => crate::command::pan_tilt::PanTiltDirection::UpRight,
+            PanTiltDirection::DownLeft => crate::command::pan_tilt::PanTiltDirection::DownLeft,
+            PanTiltDirection::DownRight => crate::command::pan_tilt::PanTiltDirection::DownRight,
+            PanTiltDirection::Stop => crate::command::pan_tilt::PanTiltDirection::Stop,
+        }
+    }
+}
+
 /// Motion sync speed value for synchronized camera movements.
 ///
 /// Valid range: 1 to 24 (0x01 to 0x18)

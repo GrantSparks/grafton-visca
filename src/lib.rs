@@ -680,18 +680,24 @@ pub use grafton_visca_macros::{InquiryCommand, ViscaEnum, ViscaValue};
 pub use crate::{
     camera::{Camera, CameraBuilder},
     camera_id::CameraId,
-    command::{
-        exposure::ExposureMode,
-        focus::{AutoFocusSensitivity, FocusMode},
-        nd_filter::NdFilterMode,
-        pan_tilt::{PanTiltDirection, PanTiltLimitCorner},
-        preset::PresetNumber,
-        resolution::{PictureEffectMode, ResolutionMode},
-        system::{MotionSyncMode, MotionSyncSpeed},
-        white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode},
-    },
     error::{Error, Result},
+    // High-level types for public API
+    types::{PanTiltDirection, SpeedLevel, ZoomVelocity},
     visca_socket::ViscaSocket,
+};
+
+// Command module types - marked as unstable/advanced
+// Users should prefer the high-level types from the types module
+#[doc(hidden)]
+pub use crate::command::{
+    exposure::ExposureMode,
+    focus::{AutoFocusSensitivity, FocusMode},
+    nd_filter::NdFilterMode,
+    pan_tilt::PanTiltLimitCorner,
+    preset::PresetNumber,
+    resolution::{PictureEffectMode, ResolutionMode},
+    system::{MotionSyncMode, MotionSyncSpeed},
+    white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode},
 };
 
 // Re-export the new concrete camera types

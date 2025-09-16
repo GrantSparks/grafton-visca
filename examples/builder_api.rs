@@ -10,21 +10,15 @@
 //! - Blocking: cargo run --example builder_api
 //! - Async: cargo run --example builder_api --features rt-tokio
 
+use grafton_visca::Result;
+
 #[cfg(not(all(
     feature = "async",
     not(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))
 )))]
 use grafton_visca::CameraBuilder;
 
-use grafton_visca::Result;
-
 #[cfg(not(feature = "async"))]
-use grafton_visca::camera::profiles::{PtzOpticsG2, SonyBRC300, SonyFR7};
-
-#[cfg(all(
-    feature = "rt-tokio",
-    not(any(feature = "rt-async-std", feature = "rt-smol"))
-))]
 use grafton_visca::camera::profiles::{PtzOpticsG2, SonyBRC300, SonyFR7};
 
 #[cfg(all(feature = "rt-async-std", not(feature = "rt-smol")))]
@@ -32,6 +26,12 @@ use grafton_visca::camera::profiles::PtzOpticsG2;
 
 #[cfg(feature = "rt-smol")]
 use grafton_visca::camera::profiles::PtzOpticsG2;
+
+#[cfg(all(
+    feature = "rt-tokio",
+    not(any(feature = "rt-async-std", feature = "rt-smol"))
+))]
+use grafton_visca::camera::profiles::{PtzOpticsG2, SonyBRC300, SonyFR7};
 
 #[cfg(not(feature = "async"))]
 fn main() -> Result<()> {
@@ -44,36 +44,36 @@ fn main() -> Result<()> {
     println!("--- Example 1: Simple TCP with Default Port ---");
     let _camera = CameraBuilder::tcp("192.168.0.110:5678")
         .profile::<PtzOpticsG2>()
-        .open()?; // Changed from build() to open()
+        .open()?;
     println!("✓ Created PTZOptics G2 camera on TCP port 5678");
 
     println!("\n--- Example 2: TCP with Custom Port ---");
     let _camera = CameraBuilder::tcp("192.168.0.110:52381")
         .profile::<PtzOpticsG2>()
-        .open()?; // Changed from build() to open()
+        .open()?;
     println!("✓ Created camera with custom port 52381");
 
     println!("\n--- Example 3: UDP Transport ---");
     let _camera = CameraBuilder::udp("192.168.0.110:1259")
         .profile::<PtzOpticsG2>()
-        .open()?; // Changed from build() to open()
+        .open()?;
     println!("✓ Created camera on UDP port 1259");
 
     println!("\n--- Example 4: Camera Profiles ---");
 
     let _generic = CameraBuilder::tcp("192.168.0.110:5678")
         .profile::<PtzOpticsG2>()
-        .open()?; // Changed from build() to open()
+        .open()?;
     println!("✓ PTZOptics G2 camera (used as generic example)");
 
     let _sony_brc = CameraBuilder::tcp("192.168.0.109:52381")
         .profile::<SonyBRC300>()
-        .open()?; // Changed from build() to open()
+        .open()?;
     println!("✓ Sony BRC-300 camera (encapsulated protocol)");
 
     let _sony_fr7 = CameraBuilder::tcp("192.168.0.108:5678")
         .profile::<SonyFR7>()
-        .open()?; // Changed from build() to open()
+        .open()?;
     println!("✓ Sony FR7 camera (ND filter support)");
 
     println!("\n--- Example 5: Type Safety ---");

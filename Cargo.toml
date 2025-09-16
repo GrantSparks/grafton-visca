@@ -79,14 +79,10 @@ name = "quickstart"
 
 [[example]]
 name = "quickstart_async"
-required-features = ["rt-tokio"]
-
-[[example]]
-name = "quickstart_async_asyncstd"
-required-features = ["rt-async-std"]
 
 [[example]]
 name = "transports"
+path = "examples-advanced/transports.rs"
 
 [[example]]
 name = "builder_api"

@@ -14,27 +14,23 @@
 //! ```
 
 #[cfg(not(feature = "async"))]
+use grafton_visca::{
+    mode::BlockingFutureExt,
+    profiles::PtzOpticsG2,
+    types::SpeedLevel,
+    units::{Degrees, Normalized},
+    Camera, Error, PanTiltControl, ZoomControl,
+};
+
+#[cfg(not(feature = "async"))]
 use std::{
     env, thread,
     time::{Duration, Instant},
 };
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::{
-    mode::BlockingFutureExt,
-    profiles::PtzOpticsG2,
-    types::SpeedLevel,
-    units::{Degrees, Normalized},
-    Camera,
-    Error,
-    // Import control traits
-    PanTiltControl,
-    ZoomControl,
-};
-
-#[cfg(not(feature = "async"))]
 fn main() -> Result<(), Error> {
-    tracing_subscriber::fmt::init();
+    let _ = tracing_subscriber::fmt::try_init();
 
     // Get camera address from command line or use default
     let camera_addr = env::args()

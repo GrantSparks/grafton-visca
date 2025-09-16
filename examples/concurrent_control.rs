@@ -19,24 +19,24 @@ fn main() {
 }
 
 #[cfg(feature = "rt-tokio")]
+use tokio::time::{sleep, Duration};
+
+#[cfg(feature = "rt-tokio")]
+use std::sync::Arc;
+
+#[cfg(feature = "rt-tokio")]
 use grafton_visca::{
     camera::{
-        controls::{pan_tilt::PanTiltControl, zoom::ZoomControl},
         profiles::{PtzOpticsG2, PtzOpticsG3, SonyBRC300},
         session::CameraSession,
         Camera,
     },
     mode::Async,
     runtime_trait::TransportHandle,
-    types::SpeedLevel,
+    types::{PanTiltDirection, SpeedLevel},
     units::Normalized,
-    PanTiltDirection, PresetNumber, Result, TokioRuntime,
+    PresetNumber, Result, TokioRuntime,
 };
-#[cfg(feature = "rt-tokio")]
-use tokio::time::{sleep, Duration};
-
-#[cfg(feature = "rt-tokio")]
-use std::sync::Arc;
 
 #[cfg(feature = "rt-tokio")]
 #[tokio::main]
@@ -119,16 +119,17 @@ async fn multi_camera_control() -> Result<()> {
         let cam = cam2.clone();
         tokio::spawn(async move {
             println!("Camera 2: Performing pan sweep");
-            cam.pan_tilt_home().await?;
+            cam.pan_tilt().home().await?;
             cam.await_pan_tilt_idle(Duration::from_secs(5)).await?;
-            cam.pan_tilt_move(
-                PanTiltDirection::Right,
-                SpeedLevel::Medium.into(),
-                SpeedLevel::Slowest.into(),
-            )
-            .await?;
+            cam.pan_tilt()
+                .move_direction(
+                    PanTiltDirection::Right,
+                    SpeedLevel::Medium.into(),
+                    SpeedLevel::Slowest.into(),
+                )
+                .await?;
             sleep(Duration::from_millis(100)).await;
-            cam.pan_tilt_stop().await?;
+            cam.pan_tilt().stop().await?;
             cam.await_pan_tilt_idle(Duration::from_secs(5)).await?;
             Ok::<(), grafton_visca::Error>(())
         })
@@ -138,11 +139,11 @@ async fn multi_camera_control() -> Result<()> {
         let cam = cam3.clone();
         tokio::spawn(async move {
             println!("Camera 3: Zoom demonstration");
-            cam.zoom_absolute(Normalized::new(0.0)).await?;
+            cam.zoom().absolute(Normalized::new(0.0)).await?;
             cam.await_zoom_idle(Duration::from_secs(3)).await?;
-            cam.zoom_absolute(Normalized::new(0.5)).await?;
+            cam.zoom().absolute(Normalized::new(0.5)).await?;
             cam.await_zoom_idle(Duration::from_secs(3)).await?;
-            cam.zoom_absolute(Normalized::new(1.0)).await?;
+            cam.zoom().absolute(Normalized::new(1.0)).await?;
             Ok::<(), grafton_visca::Error>(())
         })
     };
@@ -156,11 +157,19 @@ async fn multi_camera_control() -> Result<()> {
 
     // Return cameras to home position
     println!("Returning cameras to home position...");
-    let _ = tokio::join!(
-        cam1.pan_tilt_home(),
-        cam2.pan_tilt_home(),
-        cam3.pan_tilt_home(),
-    );
+    let handle1 = {
+        let cam = cam1.clone();
+        tokio::spawn(async move { cam.pan_tilt().home().await })
+    };
+    let handle2 = {
+        let cam = cam2.clone();
+        tokio::spawn(async move { cam.pan_tilt().home().await })
+    };
+    let handle3 = {
+        let cam = cam3.clone();
+        tokio::spawn(async move { cam.pan_tilt().home().await })
+    };
+    let _ = tokio::join!(handle1, handle2, handle3);
     println!("✓ All cameras returned to home\n");
 
     Ok(())
@@ -204,25 +213,26 @@ async fn parallel_single_camera() -> Result<()> {
 
     let zoom_task = {
         let cam = camera.clone();
-        tokio::spawn(async move { cam.zoom_tele_std().await })
+        tokio::spawn(async move { cam.zoom().tele().await })
     };
 
     let pan_task = {
         let cam = camera.clone();
         tokio::spawn(async move {
-            cam.pan_tilt_move(
-                PanTiltDirection::UpRight,
-                SpeedLevel::Slow.into(),
-                SpeedLevel::Slow.into(),
-            )
-            .await
+            cam.pan_tilt()
+                .move_direction(
+                    PanTiltDirection::UpRight,
+                    SpeedLevel::Slow.into(),
+                    SpeedLevel::Slow.into(),
+                )
+                .await
         })
     };
 
     sleep(Duration::from_millis(100)).await;
 
-    camera.zoom_stop().await?;
-    camera.pan_tilt_stop().await?;
+    camera.zoom().stop().await?;
+    camera.pan_tilt().stop().await?;
     let _ = tokio::join!(
         camera.await_zoom_idle(Duration::from_secs(5)),
         camera.await_pan_tilt_idle(Duration::from_secs(5))
@@ -234,7 +244,7 @@ async fn parallel_single_camera() -> Result<()> {
 
     // Return to home
     println!("Returning to home position...");
-    camera.pan_tilt_home().await?;
+    camera.pan_tilt().home().await?;
     camera.await_idle(Duration::from_secs(5)).await?;
     println!("✓ Camera returned to home\n");
 
@@ -262,7 +272,7 @@ async fn producer_consumer_pattern() -> Result<()> {
                 match cmd {
                     Command::Home => {
                         println!("Executing: Home");
-                        let _ = cam.pan_tilt_home().await;
+                        let _ = cam.pan_tilt().home().await;
                         let _ = cam.await_pan_tilt_idle(Duration::from_secs(5)).await;
                     }
                     Command::Preset(n) => {
@@ -274,7 +284,7 @@ async fn producer_consumer_pattern() -> Result<()> {
                     }
                     Command::Zoom(level) => {
                         println!("Executing: Zoom to {level}");
-                        let _ = cam.zoom_absolute(Normalized::new(level)).await;
+                        let _ = cam.zoom().absolute(Normalized::new(level)).await;
                         let _ = cam.await_zoom_idle(Duration::from_secs(5)).await;
                     }
                 }
@@ -357,7 +367,7 @@ async fn synchronized_movement() -> Result<()> {
 
             barrier.wait().await;
             println!("Camera {}: Moving to home", i + 1);
-            camera.pan_tilt_home().await?;
+            camera.pan_tilt().home().await?;
 
             camera.await_pan_tilt_idle(Duration::from_secs(10)).await?;
             println!("Camera {}: Home position reached", i + 1);
@@ -393,7 +403,7 @@ async fn synchronized_movement() -> Result<()> {
         let state = *state;
         let handle = tokio::spawn(async move {
             if let Some(_position) = state {
-                cam.pan_tilt_home().await?;
+                cam.pan_tilt().home().await?;
             }
             Ok::<(), grafton_visca::Error>(())
         });

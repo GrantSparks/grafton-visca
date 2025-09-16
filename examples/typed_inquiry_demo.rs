@@ -9,7 +9,7 @@
 //! ```
 
 #[cfg(not(feature = "async"))]
-use grafton_visca::{mode::BlockingFutureExt, profiles::GenericVisca, Camera, Error, ZoomControl};
+use grafton_visca::{mode::BlockingFutureExt, profiles::GenericVisca, Camera, Error};
 #[cfg(not(feature = "async"))]
 use std::time::Duration;
 
@@ -58,12 +58,12 @@ fn main() -> Result<(), Error> {
 
     // Try to zoom in slightly
     println!("Zooming in...");
-    if let Err(e) = camera.zoom_tele_std().block() {
+    if let Err(e) = camera.zoom().tele().block() {
         println!("  Zoom command failed: {e}");
     } else {
         // Wait a moment and stop
         std::thread::sleep(Duration::from_millis(500));
-        let _ = camera.zoom_stop().block();
+        let _ = camera.zoom().stop().block();
         println!("  Zoom completed");
     }
 

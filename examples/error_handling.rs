@@ -3,6 +3,10 @@
 //! This example demonstrates error handling patterns with the Camera API,
 //! including retry logic and error classification.
 
+#[cfg(any(not(feature = "async"), feature = "rt-tokio"))]
+use std::time::Instant;
+use std::{borrow::Cow, time::Duration};
+
 use grafton_visca::Error;
 #[cfg(feature = "rt-tokio")]
 use grafton_visca::{
@@ -11,8 +15,7 @@ use grafton_visca::{
         profiles::{G2PresetId, PtzOpticsG2},
     },
     runtime_trait::TokioRuntime,
-    types::{PanSpeed, TiltSpeed},
-    PanTiltControl, PanTiltDirection, PowerControl, PresetNumber, PresetsControl, ZoomControl,
+    types::{PanSpeed, PanTiltDirection, TiltSpeed},
 };
 #[cfg(not(feature = "async"))]
 use grafton_visca::{
@@ -22,13 +25,8 @@ use grafton_visca::{
     },
     mode::Blocking,
     transport::{NetTransportBuilder, Transport},
-    types::{PanSpeed, TiltSpeed},
-    PanTiltControl, PanTiltDirection, PowerControl, PresetNumber, PresetsControl, ZoomControl,
+    types::{PanSpeed, PanTiltDirection, TiltSpeed},
 };
-
-#[cfg(any(not(feature = "async"), feature = "rt-tokio"))]
-use std::time::Instant;
-use std::{borrow::Cow, time::Duration};
 
 #[cfg(all(feature = "async", not(feature = "rt-tokio")))]
 fn main() {
@@ -195,7 +193,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         println!("   Attempt {attempt}/{max_attempts}: Power on");
 
         let start = Instant::now();
-        match camera.power_on() {
+        match camera.power().on() {
             Ok(_) => {
                 let elapsed = start.elapsed();
                 println!("   ✓ Power on succeeded in {elapsed:?}");
@@ -246,7 +244,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("\n   a) Handling CameraBusy during movement:");
 
     // Start a movement
-    match camera.pan_tilt_move(
+    match camera.pan_tilt().move_direction(
         PanTiltDirection::Right,
         PanSpeed::new(10)?,
         TiltSpeed::new(0)?,
@@ -255,19 +253,19 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
             println!("   ✓ Started movement");
 
             // Try another command immediately (might get CameraBusy)
-            match camera.zoom_tele_std() {
+            match camera.zoom().tele() {
                 Ok(_) => println!("   ✓ Zoom command accepted"),
                 Err(Error::CameraBusy) => {
                     println!("   ⚠️  Camera busy (expected during movement)");
                     println!("   💡 Wait for movement to complete or stop it first");
 
                     // Stop movement and wait for it to complete
-                    camera.pan_tilt_stop()?;
+                    camera.pan_tilt().stop()?;
                     camera.await_pan_tilt_idle(Duration::from_secs(5))?;
                     println!("   ✓ Movement stopped");
 
                     // Retry zoom
-                    match camera.zoom_tele_std() {
+                    match camera.zoom().tele() {
                         Ok(_) => println!("   ✓ Zoom succeeded after stopping movement"),
                         Err(e) => println!("   ✗ Zoom still failed: {e}"),
                     }
@@ -283,7 +281,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
 
     // Try to recall a preset that might not exist
     match G2PresetId::new(99) {
-        Ok(preset_id) => match camera.preset_recall(PresetNumber::new(u8::from(preset_id))?) {
+        Ok(preset_id) => match camera.presets().recall(u8::from(preset_id)) {
             Ok(_) => println!("   ✓ Preset 99 recalled successfully"),
             Err(Error::PresetNotFound { id }) => {
                 println!("   ⚠️  Preset {id} not found (expected)");
@@ -356,7 +354,7 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         println!("   Attempt {attempt}/{max_attempts}: Power on");
 
         let start = Instant::now();
-        match camera.power_on().await {
+        match camera.power().on().await {
             Ok(_) => {
                 let elapsed = start.elapsed();
                 println!("   ✓ Power on succeeded in {elapsed:?}");
@@ -397,7 +395,8 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
 
     // Start a movement
     match camera
-        .pan_tilt_move(
+        .pan_tilt()
+        .move_direction(
             PanTiltDirection::Right,
             PanSpeed::new(10)?,
             TiltSpeed::new(0)?,
@@ -408,18 +407,18 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
             println!("   ✓ Started continuous movement");
 
             // Immediately try another command
-            match camera.zoom_tele_std().await {
+            match camera.zoom().tele().await {
                 Ok(_) => println!("   ✓ Zoom command accepted"),
                 Err(Error::CameraBusy) => {
                     println!("   ⚠️  Camera busy (expected)");
                     println!("   💡 Solution: Stop movement first or wait");
 
                     // Stop movement and retry
-                    camera.pan_tilt_stop().await?;
+                    camera.pan_tilt().stop().await?;
                     println!("   ✓ Movement stopped");
 
                     // Retry zoom
-                    match camera.zoom_tele_std().await {
+                    match camera.zoom().tele().await {
                         Ok(_) => println!("   ✓ Zoom succeeded after stopping movement"),
                         Err(e) => println!("   ✗ Zoom still failed: {e}"),
                     }
@@ -435,10 +434,7 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
 
     // Try to recall a preset that might not exist
     match G2PresetId::new(99) {
-        Ok(preset_id) => match camera
-            .preset_recall(PresetNumber::new(u8::from(preset_id))?)
-            .await
-        {
+        Ok(preset_id) => match camera.presets().recall(u8::from(preset_id)).await {
             Ok(_) => println!("   ✓ Preset 99 recalled successfully"),
             Err(Error::PresetNotFound { id }) => {
                 println!("   ⚠️  Preset {id} not found (expected)");

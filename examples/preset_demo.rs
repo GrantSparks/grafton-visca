@@ -13,16 +13,16 @@
 //! ```
 
 #[cfg(not(feature = "async"))]
+use std::{env, thread::sleep, time::Duration};
+
+#[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::profiles::PtzOpticsG2,
     mode::BlockingFutureExt,
     types::SpeedLevel,
     units::{Degrees, Normalized},
-    Camera, Error, PanTiltControl, ZoomControl,
+    Camera, Error,
 };
-
-#[cfg(not(feature = "async"))]
-use std::{env, thread::sleep, time::Duration};
 
 #[cfg(not(feature = "async"))]
 fn main() -> Result<(), Error> {
@@ -46,8 +46,8 @@ fn main() -> Result<(), Error> {
     println!("✅ Connected successfully!\n");
 
     println!("Moving to home position...");
-    camera.pan_tilt_home().block()?;
-    camera.zoom_absolute(Normalized(0.0)).block()?;
+    camera.pan_tilt().home().block()?;
+    camera.zoom().absolute(Normalized(0.0)).block()?;
     camera.await_idle(Duration::from_secs(10))?;
     println!("✓ At home position\n");
 
@@ -94,9 +94,10 @@ fn main() -> Result<(), Error> {
         );
 
         camera
-            .pan_tilt_absolute(preset.pan, preset.tilt, SpeedLevel::Medium)
+            .pan_tilt()
+            .absolute(preset.pan, preset.tilt, SpeedLevel::Medium)
             .block()?;
-        camera.zoom_absolute(preset.zoom).block()?;
+        camera.zoom().absolute(preset.zoom).block()?;
 
         camera.await_idle(Duration::from_secs(10))?;
         // Note: Position inquiry not implemented in this demo
@@ -111,9 +112,10 @@ fn main() -> Result<(), Error> {
     println!("═══ Testing Preset Recall ═══");
     println!("Moving to test position (60°, -15°)...");
     camera
-        .pan_tilt_absolute(Degrees(60.0), Degrees(-15.0), SpeedLevel::Fast)
+        .pan_tilt()
+        .absolute(Degrees(60.0), Degrees(-15.0), SpeedLevel::Fast)
         .block()?;
-    camera.zoom_absolute(Normalized(0.7)).block()?;
+    camera.zoom().absolute(Normalized(0.7)).block()?;
     camera.await_idle(Duration::from_secs(10))?;
 
     // Note: Position inquiry not implemented in this demo

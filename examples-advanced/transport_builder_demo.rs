@@ -5,10 +5,8 @@
 //!
 //! Run with: cargo run --example transport_builder_demo --features rt-tokio
 
-#[cfg(any(not(feature = "async"), feature = "rt-tokio"))]
 use std::time::Duration;
 
-#[cfg(not(feature = "async"))]
 use grafton_visca::transport::{NetTransportBuilder, RetryConfig, Transport};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -113,7 +111,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 7: Runtime-based async transport API (requires rt-tokio feature)
     #[cfg(feature = "rt-tokio")]
     {
-        use grafton_visca::transport::Transport;
         println!("Example 7: Runtime-based async transport API (rt-tokio feature)");
 
         // Example 7a: TCP transport with Runtime

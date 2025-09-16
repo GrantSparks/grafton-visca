@@ -12,6 +12,9 @@ fn main() {
 }
 
 #[cfg(all(feature = "async", feature = "rt-tokio"))]
+use std::sync::Arc;
+
+#[cfg(all(feature = "async", feature = "rt-tokio"))]
 use grafton_visca::{
     camera::profiles::GenericVisca,
     camera_id::CameraId,
@@ -19,9 +22,6 @@ use grafton_visca::{
     runtime::{Priority, RuntimeHandle},
     TokioExecutor,
 };
-
-#[cfg(all(feature = "async", feature = "rt-tokio"))]
-use std::sync::Arc;
 
 #[cfg(all(feature = "async", feature = "rt-tokio"))]
 #[tokio::main]

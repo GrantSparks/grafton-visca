@@ -543,8 +543,8 @@ mod tests {
         assert_command_has_terminator(PanTilt::Home, "PanTilt::Home");
         assert_command_has_terminator(PanTilt::Reset, "PanTilt::Reset");
         // Test Move variant with Stop direction
+        use crate::command::pan_tilt::PanTiltDirection;
         use crate::types::{PanSpeed, TiltSpeed};
-        use crate::PanTiltDirection;
         assert_command_has_terminator(
             PanTilt::Move {
                 direction: PanTiltDirection::Stop,

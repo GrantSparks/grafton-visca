@@ -56,6 +56,17 @@ impl ZoomSpeed {
         crate::constants::validate_zoom_speed(value)?;
         Self::new(value)
     }
+
+    /// Creates a zoom speed without validation.
+    ///
+    /// # Safety
+    /// The caller must ensure that the value is within the valid range (0-7).
+    /// This is intended for internal use where the value is already validated.
+    #[doc(hidden)]
+    pub const fn new_unchecked(value: u8) -> Self {
+        debug_assert!(value <= 7, "ZoomSpeed value must be <= 7");
+        Self(value)
+    }
 }
 
 impl From<SpeedLevel> for ZoomSpeed {

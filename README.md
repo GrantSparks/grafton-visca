@@ -266,30 +266,52 @@ This design provides:
 
 ## Examples
 
-The library includes comprehensive examples demonstrating various use cases:
+The library includes comprehensive examples organized by complexity:
+
+### Basic Examples
+These examples demonstrate the recommended high-level accessor API:
 
 | Example | Description | Features Required |
 |---------|-------------|-------------------|
-| [`quickstart`](examples/quickstart.rs) | Basic blocking usage | None |
-| [`quickstart_async`](examples/quickstart_async.rs) | Async with Tokio | `rt-tokio` |
-| [`runtime_agnostic`](examples/runtime_agnostic.rs) | Any async runtime | `async` |
-| [`builder_api`](examples/builder_api.rs) | Builder configuration | `rt-tokio` |
-| [`camera_inquiry`](examples/camera_inquiry.rs) | Query camera state | `rt-tokio` |
-| [`concurrent_control`](examples/concurrent_control.rs) | Multi-threaded control | `rt-tokio` |
-| [`error_handling`](examples/error_handling.rs) | Error recovery | `rt-tokio` |
-| [`preset_demo`](examples/preset_demo.rs) | Preset management | None |
-| [`transports`](examples/transports.rs) | TCP vs UDP | None |
-| [`type_safe_commands`](examples/type_safe_commands.rs) | Profile type safety | None |
-| [`sony_encapsulation`](examples/sony_encapsulation.rs) | Sony protocol mode | `rt-tokio` |
-| [`inquiry_demo`](examples/inquiry_demo.rs) | Advanced queries | `rt-tokio` |
+| [`quickstart`](examples/quickstart.rs) | Basic blocking usage with accessor API | None |
+| [`quickstart_async`](examples/quickstart_async.rs) | Async control with any runtime (tokio/async-std/smol) | `rt-tokio` or `rt-async-std` or `rt-smol` |
+| [`preset_demo`](examples/preset_demo.rs) | Preset management using accessors | None |
+| [`typed_inquiry_demo`](examples/typed_inquiry_demo.rs) | Type-safe inquiries with accessor API | None |
+| [`inquiry_quickstart`](examples/inquiry_quickstart.rs) | Query camera state | `rt-tokio` |
+| [`concurrent_control`](examples/concurrent_control.rs) | Multi-camera control with accessors | `rt-tokio` |
+| [`error_handling`](examples/error_handling.rs) | Error recovery patterns | None or `rt-tokio` |
 
-Run examples:
+### Advanced Examples
+These examples demonstrate low-level features, transport configuration, and advanced patterns:
+
+| Example | Description | Features Required |
+|---------|-------------|-------------------|
+| [`transports`](examples-advanced/transports.rs) | TCP vs UDP transport details | None |
+| [`transport_builder_demo`](examples-advanced/transport_builder_demo.rs) | Advanced transport configuration | None |
+| [`runtime_demo_lowlevel`](examples-advanced/runtime_demo_lowlevel.rs) | Low-level runtime interactions | `async` |
+| [`type_safe_commands`](examples-advanced/type_safe_commands.rs) | Direct command module usage | None |
+| [`builder_api`](examples/builder_api.rs) | Builder configuration patterns | Multiple runtime features |
+| [`runtime_agnostic`](examples/runtime_agnostic.rs) | Implementing custom runtime support | `async` |
+| [`runtime_demo`](examples/runtime_demo.rs) | Runtime adapter patterns | None |
+| [`protocol_auto_detection`](examples/protocol_auto_detection.rs) | Auto-detect camera protocol | None |
+| [`sony_encapsulation`](examples/sony_encapsulation.rs) | Sony protocol mode | None |
+| [`serial_async_demo`](examples/serial_async_demo.rs) | Serial port control | `serial`, `rt-tokio` |
+
+### Choosing Your Runtime
+For async examples, you can choose between three runtimes:
+
 ```bash
-# Blocking examples
-cargo run --example quickstart
-
-# Async examples
+# With tokio (recommended for most applications)
 cargo run --example quickstart_async --features rt-tokio
+
+# With async-std
+cargo run --example quickstart_async --features rt-async-std
+
+# With smol (lightweight runtime)
+cargo run --example quickstart_async --features rt-smol
+
+# Blocking mode (no async runtime needed)
+cargo run --example quickstart --no-default-features
 ```
 
 ## Timeout Configuration

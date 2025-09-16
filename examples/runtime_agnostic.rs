@@ -233,8 +233,8 @@ fn main() {
     println!("    .await?;");
     println!();
     println!("// Use the camera - all async operations use YOUR runtime!");
-    println!("camera.power_on().await?;");
-    println!("camera.zoom_in().await?;");
+    println!("camera.power().on().await?;");
+    println!("camera.zoom().tele().await?;");
     println!("```");
 
     println!("\n📚 Key Benefits:");
