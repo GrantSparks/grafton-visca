@@ -12,14 +12,14 @@
 //! 3. Send some basic commands to verify operation
 
 #[cfg(all(feature = "async", feature = "rt-tokio", feature = "tokio-serial"))]
+use std::env;
+
+#[cfg(all(feature = "async", feature = "rt-tokio", feature = "tokio-serial"))]
 use grafton_visca::{
     camera::{profiles::GenericVisca, Camera},
     runtime_trait::TokioRuntime,
     Error,
 };
-
-#[cfg(all(feature = "async", feature = "rt-tokio", feature = "tokio-serial"))]
-use std::env;
 
 #[cfg(all(feature = "async", feature = "rt-tokio", feature = "tokio-serial"))]
 #[tokio::main]
@@ -49,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             match camera.system().version().await {
                 Ok(version) => {
-                    println!("✓ Version Inquiry: {:?}", version);
+                    println!("✓ Version Inquiry: {version:?}");
                 }
                 Err(e) => {
                     println!("⚠ Version inquiry failed: {e}");

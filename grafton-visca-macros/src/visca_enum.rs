@@ -289,8 +289,8 @@ fn check_discriminant_collisions_with_attrs(
             return Err(Error::new_spanned(
                 variant,
                 format!(
-                    "Discriminant value {:#X} is already used by variant {}",
-                    value, prev_variant.ident
+                    "Discriminant value {value:#X} is already used by variant {prev_variant_ident}",
+                    prev_variant_ident = prev_variant.ident
                 ),
             ));
         }
@@ -316,10 +316,10 @@ fn generate_error_message_with_attrs(variants: &[(Variant, u8, VariantAttributes
     if parts.len() == 1 {
         parts[0].clone()
     } else if parts.len() == 2 {
-        format!("{} or {}", parts[0], parts[1])
+        format!("{first} or {second}", first = parts[0], second = parts[1])
     } else {
         let (last, rest) = parts.split_last().unwrap();
-        format!("{}, or {}", rest.join(", "), last)
+        format!("{rest_joined}, or {last}", rest_joined = rest.join(", "))
     }
 }
 
@@ -379,9 +379,8 @@ fn generate_try_from_impl_with_attrs(
             // For other error types, try to use From trait
             quote! {
                 return Err(Self::Error::from(format!(
-                    "Invalid value {:#04X}, expected: {}",
-                    value,
-                    #error_message
+                    "Invalid value {value:#04X}, expected: {error_message}",
+                    error_message = #error_message
                 )))
             }
         }

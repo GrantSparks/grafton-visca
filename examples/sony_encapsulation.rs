@@ -10,9 +10,6 @@
 //! ```
 
 #[cfg(not(feature = "async"))]
-use std::{env, thread::sleep, time::Duration};
-
-#[cfg(not(feature = "async"))]
 use grafton_visca::{
     camera::profiles::SonyFR7,
     prelude::blocking::*,
@@ -20,6 +17,9 @@ use grafton_visca::{
     units::Degrees,
     CameraBuilder, Error,
 };
+
+#[cfg(not(feature = "async"))]
+use std::{env, thread::sleep, time::Duration};
 
 #[cfg(not(feature = "async"))]
 fn main() -> Result<(), Error> {
@@ -131,16 +131,16 @@ fn main() -> Result<(), Error> {
 }
 
 #[cfg(feature = "rt-tokio")]
-use grafton_visca::{
-    camera::profiles::SonyFR7, runtime_adapters::tokio::TcpTransport as Tcp,
-    runtime_trait::TokioRuntime, types::SpeedLevel, units::Degrees, CameraBuilder, Error,
-};
-
-#[cfg(feature = "rt-tokio")]
 use tokio::time::{sleep, Duration};
 
 #[cfg(feature = "rt-tokio")]
 use std::env;
+
+#[cfg(feature = "rt-tokio")]
+use grafton_visca::{
+    camera::profiles::SonyFR7, runtime_adapters::tokio::TcpTransport as Tcp,
+    runtime_trait::TokioRuntime, types::SpeedLevel, units::Degrees, CameraBuilder, Error,
+};
 
 #[cfg(feature = "rt-tokio")]
 #[tokio::main]

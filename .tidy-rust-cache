@@ -13,3 +13,13 @@
 ./examples/typed_inquiry_demo.rs
 ./grafton-visca-macros/src/forward_control.rs
 ./grafton-visca-macros/src/inquiry_command.rs
+./examples/runtime_agnostic.rs
+./examples/runtime_demo.rs
+./examples/serial_async_demo.rs
+./examples/sony_encapsulation.rs
+./grafton-visca-macros/src/lib.rs
+./grafton-visca-macros/src/parser_templates.rs
+./grafton-visca-macros/src/value_macros.rs
+./grafton-visca-macros/src/visca_enum.rs
+./src/camera/accessors.rs
+./src/camera/blocking_api.rs
