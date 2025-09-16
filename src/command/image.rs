@@ -4,9 +4,9 @@
 //! including backlight compensation, noise reduction, image flip, picture effects,
 //! brightness (luminance), contrast, and sharpness adjustments.
 
-use std::borrow::Cow;
-
 use grafton_visca_macros::ViscaEnum;
+
+use std::borrow::Cow;
 
 use crate::{
     command::{
@@ -322,7 +322,6 @@ mod tests {
     use crate::macros::test_utils::visca_test;
     use crate::timeout::CommandCategory;
 
-    // Test backlight on
     visca_test!(
         BacklightCommand,
         test_backlight_on,
@@ -330,7 +329,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x33, 0x02, VISCA_TERMINATOR]
     );
 
-    // Test backlight off
     visca_test!(
         BacklightCommand,
         test_backlight_off,
@@ -345,7 +343,6 @@ mod tests {
         assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
     }
 
-    // Test off
     visca_test!(
         NoiseReduction2D,
         test_noise_reduction_2d_off,
@@ -353,7 +350,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x53, 0x00, VISCA_TERMINATOR]
     );
 
-    // Test level 1
     visca_test!(
         NoiseReduction2D,
         test_noise_reduction_2d_level_1,
@@ -361,7 +357,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x53, 0x01, VISCA_TERMINATOR]
     );
 
-    // Test level 3
     visca_test!(
         NoiseReduction2D,
         test_noise_reduction_2d_level_3,
@@ -369,7 +364,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x53, 0x03, VISCA_TERMINATOR]
     );
 
-    // Test level 5
     visca_test!(
         NoiseReduction2D,
         test_noise_reduction_2d_level_5,
@@ -384,7 +378,6 @@ mod tests {
         assert!(matches!(cmd.timeout_kind(), CommandCategory::Custom));
     }
 
-    // Test off
     visca_test!(
         NoiseReduction3D,
         test_noise_reduction_3d_off,
@@ -392,7 +385,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x54, 0x00, VISCA_TERMINATOR]
     );
 
-    // Test level 1
     visca_test!(
         NoiseReduction3D,
         test_noise_reduction_3d_level_1,
@@ -400,7 +392,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x54, 0x01, VISCA_TERMINATOR]
     );
 
-    // Test level 4
     visca_test!(
         NoiseReduction3D,
         test_noise_reduction_3d_level_4,
@@ -408,7 +399,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x54, 0x04, VISCA_TERMINATOR]
     );
 
-    // Test level 8
     visca_test!(
         NoiseReduction3D,
         test_noise_reduction_3d_level_8,
@@ -423,7 +413,6 @@ mod tests {
         assert!(matches!(cmd.timeout_kind(), CommandCategory::Custom));
     }
 
-    // Test Off
     visca_test!(
         ImageFlipCombinedCommand,
         test_image_flip_off,
@@ -431,7 +420,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0xA4, 0x00, VISCA_TERMINATOR]
     );
 
-    // Test Horizontal
     visca_test!(
         ImageFlipCombinedCommand,
         test_image_flip_horizontal,
@@ -439,7 +427,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0xA4, 0x01, VISCA_TERMINATOR]
     );
 
-    // Test Vertical
     visca_test!(
         ImageFlipCombinedCommand,
         test_image_flip_vertical,
@@ -447,7 +434,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0xA4, 0x02, VISCA_TERMINATOR]
     );
 
-    // Test Both
     visca_test!(
         ImageFlipCombinedCommand,
         test_image_flip_both,
@@ -625,7 +611,6 @@ mod tests {
         assert!(debug_str.contains("BacklightCommand"));
     }
 
-    // Test Off (normal) mode
     visca_test!(
         PictureEffectCommand,
         test_picture_effect_off,
@@ -635,7 +620,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x63, 0x00, VISCA_TERMINATOR]
     );
 
-    // Test Negative effect
     visca_test!(
         PictureEffectCommand,
         test_picture_effect_negative,
@@ -645,7 +629,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x63, 0x01, VISCA_TERMINATOR]
     );
 
-    // Test Black and White effect
     visca_test!(
         PictureEffectCommand,
         test_picture_effect_black_white,
@@ -655,7 +638,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x63, 0x02, VISCA_TERMINATOR]
     );
 
-    // Test Sepia effect
     visca_test!(
         PictureEffectCommand,
         test_picture_effect_sepia,
@@ -665,7 +647,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x63, 0x03, VISCA_TERMINATOR]
     );
 
-    // Test Sketch effect
     visca_test!(
         PictureEffectCommand,
         test_picture_effect_sketch,
@@ -675,7 +656,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x63, 0x04, VISCA_TERMINATOR]
     );
 
-    // Test Emboss effect
     visca_test!(
         PictureEffectCommand,
         test_picture_effect_emboss,

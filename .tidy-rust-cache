@@ -74,3 +74,11 @@
 ./src/command/bytes/mod.rs
 ./src/command/encode_visca.rs
 ./src/command/exposure.rs
+./src/command/color.rs
+./src/command/flip.rs
+./src/command/focus.rs
+./src/command/gain.rs
+./src/command/inquiry.rs
+./src/command/inquiry_structs.rs
+./src/command/inquiry_types.rs
+./src/command/menu.rs
