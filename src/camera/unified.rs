@@ -161,17 +161,19 @@ where
         let camera_id = CameraId::new(1)?;
         let timeout_config = TimeoutConfig::default();
 
-        // Get the transport's buffer configuration
+        // Get the transport's configuration
         let transport_config = transport.transport_config();
         let buffer_config = transport_config.buffer_config;
         let retry_config = transport_config.retry_config;
+        let addressing = transport_config.addressing;
 
-        // Create BlockingRunner with transport's buffer configuration
-        let blocking_runner = BlockingRunner::<P>::new_with_buffer(
+        // Create BlockingRunner with transport's configuration including addressing mode
+        let blocking_runner = BlockingRunner::<P>::new_with_addressing(
             protocol_style,
             timeout_config,
             retry_config,
             buffer_config,
+            addressing,
         );
 
         let shared_transport = crate::mode::Blocking::share(transport);

@@ -9,7 +9,9 @@ use std::{
 use crate::{
     command::CommandKind,
     transport::{
-        address::AddressResolver, builder::TransportConfig, HasTransportConfig, SyncTransport,
+        address::AddressResolver,
+        builder::{AddressingMode, TransportConfig},
+        HasTransportConfig, SyncTransport,
     },
     Error,
 };
@@ -52,6 +54,7 @@ impl Tcp {
             connect_timeout: timeout,
             read_timeout: Duration::from_secs(5),
             write_timeout: Duration::from_secs(5),
+            addressing: AddressingMode::Ip, // TCP is always IP mode
             tcp_nodelay: Some(true),
             ..Default::default()
         };

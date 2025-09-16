@@ -15,7 +15,7 @@ use crate::{
     command::CommandKind,
     error::{Error, Result},
     transport::{
-        builder::TransportConfig,
+        builder::{AddressingMode, TransportConfig},
         serial::{
             handshake::blocking_handshake::{address_set_blocking, if_clear_blocking},
             Config as SerialConfig,
@@ -57,6 +57,7 @@ impl SerialTransport {
             write_timeout: config.write_timeout,
             buffer_config: config.buffer_config,
             retry_config: config.retry_config,
+            addressing: AddressingMode::Serial, // Serial transport uses Serial addressing
             ..Default::default()
         };
 

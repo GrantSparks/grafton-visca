@@ -5,7 +5,9 @@ use std::{net::UdpSocket, time::Duration};
 use crate::{
     command::CommandKind,
     transport::{
-        address::AddressResolver, buffer::BufferConfig, builder::TransportConfig,
+        address::AddressResolver,
+        buffer::BufferConfig,
+        builder::{AddressingMode, TransportConfig},
         HasTransportConfig, SyncTransport,
     },
     Error,
@@ -32,6 +34,7 @@ impl Udp {
             read_timeout: Duration::from_secs(5),
             write_timeout: Duration::from_secs(5),
             buffer_config: BufferConfig::for_udp(),
+            addressing: AddressingMode::Ip, // UDP is always IP mode
             ..Default::default()
         };
         Self::connect_with_config(address, config)

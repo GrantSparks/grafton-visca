@@ -227,7 +227,7 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
         let tcfg = *(&transport).transport_config();
 
         // Create envelope and buffer manager for the runtime using transport's config
-        let envelope = TransportEnvelope::new(protocol_style);
+        let envelope = TransportEnvelope::new_with_addressing(protocol_style, tcfg.addressing);
         let buffer_manager = BufferManager::new(tcfg.buffer_config);
 
         // Use provided timeout config or default

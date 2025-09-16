@@ -33,6 +33,20 @@ use crate::{
     Error,
 };
 
+/// Addressing mode for VISCA communication.
+///
+/// Determines how device addresses are handled in VISCA frames.
+/// - Serial: Device addresses (0x81-0x88) are preserved as-is
+/// - IP: Device address is always normalized to 0x81 (per VISCA-over-IP spec)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AddressingMode {
+    /// Serial addressing - device IDs are meaningful (0x81-0x88)
+    Serial,
+    /// IP addressing - always uses ID 1 (0x81) per spec
+    #[default]
+    Ip,
+}
+
 /// Common configuration options for all transport types.
 #[derive(Debug, Clone, Copy)]
 pub struct TransportConfig {
@@ -46,6 +60,8 @@ pub struct TransportConfig {
     pub retry_config: RetryConfig,
     /// Buffer configuration for managing buffers.
     pub buffer_config: BufferConfig,
+    /// Addressing mode (Serial vs IP) for VISCA frames.
+    pub addressing: AddressingMode,
     /// Whether to enable TCP nodelay (disable Nagle's algorithm).
     pub tcp_nodelay: Option<bool>,
     /// TTL (Time To Live) for packets.
@@ -60,6 +76,7 @@ impl Default for TransportConfig {
             write_timeout: Duration::from_secs(5),
             retry_config: RetryConfig::default(),
             buffer_config: BufferConfig::default(),
+            addressing: AddressingMode::default(),
             tcp_nodelay: None,
             ttl: None,
         }

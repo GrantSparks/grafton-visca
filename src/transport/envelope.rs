@@ -17,7 +17,7 @@ use crate::{
     capabilities::ProtocolStyle,
     command::CommandKind,
     protocol::sony::{PayloadType, SonyHeader},
-    transport::buffer::BufferManager,
+    transport::{buffer::BufferManager, builder::AddressingMode},
     Error,
 };
 
@@ -33,18 +33,55 @@ pub(crate) struct FrameMeta {
 /// Different camera manufacturers use different framing approaches:
 /// - Raw VISCA: Commands sent as-is (PtzOptics, generic cameras)
 /// - Sony Encapsulated: 8-byte header + VISCA payload (Sony cameras)
+///
+/// The envelope also handles address normalization for VISCA-over-IP,
+/// ensuring the device address is always 0x81 as per spec.
 #[derive(Debug, Clone)]
 pub(crate) struct TransportEnvelope {
     style: ProtocolStyle,
+    addressing: AddressingMode,
     sequence_counter: Arc<AtomicU32>,
 }
 
 impl TransportEnvelope {
     /// Create a new transport envelope for the given protocol style.
     pub fn new(style: ProtocolStyle) -> Self {
+        // Default to IP addressing mode for backward compatibility
+        Self::new_with_addressing(style, AddressingMode::Ip)
+    }
+
+    /// Create a new transport envelope with explicit addressing mode.
+    pub fn new_with_addressing(style: ProtocolStyle, addressing: AddressingMode) -> Self {
         Self {
             style,
+            addressing,
             sequence_counter: Arc::new(AtomicU32::new(0)),
+        }
+    }
+
+    /// Normalize the device address byte for IP mode.
+    ///
+    /// Per VISCA-over-IP spec, the device address is always 0x81.
+    /// Exception: broadcast inquiries (0x88) are preserved for compatibility.
+    fn normalize_address(&self, original_addr: u8, kind: CommandKind) -> u8 {
+        match self.addressing {
+            AddressingMode::Serial => {
+                // Serial mode: preserve the original address
+                original_addr
+            }
+            AddressingMode::Ip => {
+                // IP mode: normalize to 0x81, except for broadcast inquiries
+                const BROADCAST_ADDR: u8 = 0x88;
+                const NORMALIZED_ADDR: u8 = 0x81;
+
+                if original_addr == BROADCAST_ADDR && kind == CommandKind::Inquiry {
+                    // Allow broadcast inquiries in IP mode
+                    BROADCAST_ADDR
+                } else {
+                    // All other cases: normalize to 0x81
+                    NORMALIZED_ADDR
+                }
+            }
         }
     }
 
@@ -54,7 +91,7 @@ impl TransportEnvelope {
     /// allowing the caller to specify whether the command is an inquiry or command
     /// based on the type's knowledge rather than re-parsing bytes.
     ///
-    /// For raw VISCA, returns the command bytes unchanged.
+    /// For raw VISCA, returns the command bytes with normalized address if needed.
     /// For Sony encapsulated, wraps with 8-byte header using the specified kind.
     pub fn frame_bytes_with_kind(
         &self,
@@ -62,8 +99,26 @@ impl TransportEnvelope {
         kind: CommandKind,
         buffer_manager: &BufferManager,
     ) -> Bytes {
+        if visca_bytes.is_empty() {
+            return Bytes::new();
+        }
+
+        // Normalize the address byte if needed
+        let normalized_addr = self.normalize_address(visca_bytes[0], kind);
+
         match self.style {
-            ProtocolStyle::RawVisca => Bytes::copy_from_slice(visca_bytes),
+            ProtocolStyle::RawVisca => {
+                if normalized_addr == visca_bytes[0] {
+                    // No normalization needed, return as-is
+                    Bytes::copy_from_slice(visca_bytes)
+                } else {
+                    // Need to normalize the address
+                    let mut normalized = Vec::with_capacity(visca_bytes.len());
+                    normalized.push(normalized_addr);
+                    normalized.extend_from_slice(&visca_bytes[1..]);
+                    Bytes::from(normalized)
+                }
+            }
             ProtocolStyle::SonyEncapsulated => {
                 let sequence = self.next_sequence();
                 let header = match kind {
@@ -73,7 +128,10 @@ impl TransportEnvelope {
                 let mut envelope = buffer_manager.alloc_send_buffer();
                 envelope.reserve(SonyHeader::SIZE + visca_bytes.len());
                 envelope.extend_from_slice(&header.encode());
-                envelope.extend_from_slice(visca_bytes);
+                // Write normalized address
+                envelope.extend_from_slice(&[normalized_addr]);
+                // Write rest of the VISCA command
+                envelope.extend_from_slice(&visca_bytes[1..]);
                 envelope.freeze()
             }
         }
@@ -148,19 +206,27 @@ impl TransportEnvelope {
     /// bytes directly into the final frame buffer with the appropriate protocol
     /// header, avoiding intermediate copies.
     ///
-    /// For raw VISCA, performs a single copy of the bytes.
-    /// For Sony encapsulated, writes header and payload in one allocation.
+    /// For raw VISCA, performs a single copy of the bytes with address normalization.
+    /// For Sony encapsulated, writes header and payload in one allocation with address normalization.
     pub fn frame_bytes_into(
         &self,
         visca_bytes: &[u8],
         kind: CommandKind,
         buffer_manager: &BufferManager,
     ) -> (Bytes, FrameMeta) {
+        if visca_bytes.is_empty() {
+            return (Bytes::new(), FrameMeta { sequence: None });
+        }
+
+        // Normalize the address byte if needed
+        let normalized_addr = self.normalize_address(visca_bytes[0], kind);
+
         match self.style {
             ProtocolStyle::RawVisca => {
-                // For raw VISCA, copy bytes once into new buffer
+                // For raw VISCA, copy bytes once into new buffer with normalized address
                 let mut buffer = buffer_manager.alloc_send_buffer();
-                buffer.extend_from_slice(visca_bytes);
+                buffer.extend_from_slice(&[normalized_addr]);
+                buffer.extend_from_slice(&visca_bytes[1..]);
                 (buffer.freeze(), FrameMeta { sequence: None })
             }
             ProtocolStyle::SonyEncapsulated => {
@@ -176,8 +242,10 @@ impl TransportEnvelope {
                 buffer.reserve(SonyHeader::SIZE + visca_bytes.len());
                 // Write header
                 buffer.extend_from_slice(&header.encode());
-                // Write payload
-                buffer.extend_from_slice(visca_bytes);
+                // Write normalized address
+                buffer.extend_from_slice(&[normalized_addr]);
+                // Write rest of payload
+                buffer.extend_from_slice(&visca_bytes[1..]);
 
                 (
                     buffer.freeze(),
@@ -769,6 +837,168 @@ mod tests {
 
         // Check metadata
         assert_eq!(meta.sequence, Some(0));
+    }
+
+    #[test]
+    fn test_address_normalization_ip_mode_command() {
+        // In IP mode, command addresses should always be normalized to 0x81
+        let envelope =
+            TransportEnvelope::new_with_addressing(ProtocolStyle::RawVisca, AddressingMode::Ip);
+        let visca_cmd = vec![0x82, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]; // Using camera ID 2 (0x82)
+
+        let framed = envelope.frame_bytes_with_kind(
+            &visca_cmd,
+            CommandKind::Command,
+            &test_buffer_manager(),
+        );
+
+        // First byte should be normalized to 0x81
+        assert_eq!(
+            framed[0], 0x81,
+            "IP mode should normalize command address to 0x81"
+        );
+        // Rest of command should be unchanged
+        assert_eq!(&framed[1..], &visca_cmd[1..]);
+    }
+
+    #[test]
+    fn test_address_normalization_ip_mode_inquiry_broadcast() {
+        // In IP mode, broadcast inquiries should preserve 0x88
+        let envelope =
+            TransportEnvelope::new_with_addressing(ProtocolStyle::RawVisca, AddressingMode::Ip);
+        let visca_inquiry = vec![0x88, 0x09, 0x04, 0x00, VISCA_TERMINATOR]; // Broadcast inquiry
+
+        let framed = envelope.frame_bytes_with_kind(
+            &visca_inquiry,
+            CommandKind::Inquiry,
+            &test_buffer_manager(),
+        );
+
+        // Broadcast address should be preserved for inquiries
+        assert_eq!(
+            framed[0], 0x88,
+            "IP mode should preserve broadcast address for inquiries"
+        );
+        // Rest should be unchanged
+        assert_eq!(&framed[1..], &visca_inquiry[1..]);
+    }
+
+    #[test]
+    fn test_address_normalization_ip_mode_inquiry_non_broadcast() {
+        // In IP mode, non-broadcast inquiries should be normalized to 0x81
+        let envelope =
+            TransportEnvelope::new_with_addressing(ProtocolStyle::RawVisca, AddressingMode::Ip);
+        let visca_inquiry = vec![0x83, 0x09, 0x04, 0x00, VISCA_TERMINATOR]; // Camera ID 3 inquiry
+
+        let framed = envelope.frame_bytes_with_kind(
+            &visca_inquiry,
+            CommandKind::Inquiry,
+            &test_buffer_manager(),
+        );
+
+        // Non-broadcast inquiry should be normalized to 0x81
+        assert_eq!(
+            framed[0], 0x81,
+            "IP mode should normalize non-broadcast inquiry to 0x81"
+        );
+        assert_eq!(&framed[1..], &visca_inquiry[1..]);
+    }
+
+    #[test]
+    fn test_address_normalization_serial_mode() {
+        // In Serial mode, addresses should be preserved as-is
+        let envelope =
+            TransportEnvelope::new_with_addressing(ProtocolStyle::RawVisca, AddressingMode::Serial);
+
+        // Test various camera IDs
+        for camera_id in [0x81, 0x82, 0x83, 0x84, 0x88] {
+            let visca_cmd = vec![camera_id, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
+
+            let framed = envelope.frame_bytes_with_kind(
+                &visca_cmd,
+                CommandKind::Command,
+                &test_buffer_manager(),
+            );
+
+            // Serial mode should preserve the original address
+            assert_eq!(
+                framed[0], camera_id,
+                "Serial mode should preserve original address 0x{:02X}",
+                camera_id
+            );
+            assert_eq!(&framed[1..], &visca_cmd[1..]);
+        }
+    }
+
+    #[test]
+    fn test_address_normalization_sony_ip_mode() {
+        // Test Sony encapsulated protocol with IP addressing
+        let envelope = TransportEnvelope::new_with_addressing(
+            ProtocolStyle::SonyEncapsulated,
+            AddressingMode::Ip,
+        );
+        let visca_cmd = vec![0x83, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]; // Camera ID 3
+
+        let framed = envelope.frame_bytes_with_kind(
+            &visca_cmd,
+            CommandKind::Command,
+            &test_buffer_manager(),
+        );
+
+        // Should be 8-byte header + 6-byte VISCA command = 14 bytes
+        assert_eq!(framed.len(), 14);
+
+        // Check that the VISCA payload (after header) has normalized address
+        assert_eq!(
+            framed[8], 0x81,
+            "Sony/IP mode should normalize address to 0x81"
+        );
+        assert_eq!(&framed[9..], &visca_cmd[1..]);
+    }
+
+    #[test]
+    fn test_address_normalization_sony_serial_mode() {
+        // Test Sony encapsulated protocol with Serial addressing
+        let envelope = TransportEnvelope::new_with_addressing(
+            ProtocolStyle::SonyEncapsulated,
+            AddressingMode::Serial,
+        );
+        let visca_cmd = vec![0x83, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]; // Camera ID 3
+
+        let framed = envelope.frame_bytes_with_kind(
+            &visca_cmd,
+            CommandKind::Command,
+            &test_buffer_manager(),
+        );
+
+        // Should be 8-byte header + 6-byte VISCA command = 14 bytes
+        assert_eq!(framed.len(), 14);
+
+        // Check that the VISCA payload (after header) preserves original address
+        assert_eq!(
+            framed[8], 0x83,
+            "Sony/Serial mode should preserve original address"
+        );
+        assert_eq!(&framed[9..], &visca_cmd[1..]);
+    }
+
+    #[test]
+    fn test_frame_bytes_into_address_normalization() {
+        // Test the optimized frame_bytes_into method
+        let envelope =
+            TransportEnvelope::new_with_addressing(ProtocolStyle::RawVisca, AddressingMode::Ip);
+        let visca_cmd = vec![0x84, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]; // Camera ID 4
+
+        let (framed, meta) =
+            envelope.frame_bytes_into(&visca_cmd, CommandKind::Command, &test_buffer_manager());
+
+        // Address should be normalized to 0x81
+        assert_eq!(
+            framed[0], 0x81,
+            "frame_bytes_into should normalize address in IP mode"
+        );
+        assert_eq!(&framed[1..], &visca_cmd[1..]);
+        assert_eq!(meta.sequence, None);
     }
 
     #[test]

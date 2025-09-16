@@ -30,6 +30,7 @@ use crate::{
     timeout::{CommandCategory, TimeoutConfig},
     transport::{
         buffer::{BufferConfig, BufferManager},
+        builder::AddressingMode,
         envelope::TransportEnvelope,
         HasTransportConfig, RetryConfig, SyncTransport,
     },
@@ -85,9 +86,27 @@ impl<P: Profile> BlockingRunner<P> {
         retry_config: RetryConfig,
         buffer_config: BufferConfig,
     ) -> Self {
+        // Default to IP addressing for backward compatibility
+        Self::new_with_addressing(
+            style,
+            timeout_config,
+            retry_config,
+            buffer_config,
+            AddressingMode::Ip,
+        )
+    }
+
+    /// Create a new blocking runner with full configuration including addressing mode.
+    pub fn new_with_addressing(
+        style: ProtocolStyle,
+        timeout_config: TimeoutConfig,
+        retry_config: RetryConfig,
+        buffer_config: BufferConfig,
+        addressing: AddressingMode,
+    ) -> Self {
         Self {
             core: SchedulerCore::with_retry_config(timeout_config, retry_config),
-            envelope: TransportEnvelope::new(style),
+            envelope: TransportEnvelope::new_with_addressing(style, addressing),
             buffer_manager: BufferManager::new(buffer_config),
             framer: ProtocolFramer::new_with_config(buffer_config),
             next_id: AtomicU32::new(1),

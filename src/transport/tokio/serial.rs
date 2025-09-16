@@ -105,6 +105,7 @@ impl Serial {
             write_timeout: config.write_timeout,
             retry_config: config.retry_config,
             buffer_config: BufferConfig::for_serial(), // Serial uses dedicated buffer sizing
+            addressing: crate::transport::builder::AddressingMode::Serial, // Serial uses Serial addressing
             tcp_nodelay: None,
             ttl: None,
         };
