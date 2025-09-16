@@ -7,6 +7,15 @@
 // Panics and expects in test utilities are intentional for detecting test failures
 #![allow(clippy::panic, clippy::expect_used)]
 
+//! Test Strategy Note:
+//! Due to fundamental limitations with virtual time and timeout handling,
+//! this executor should be used for:
+//! - Logic and sequencing tests
+//! - Tests that don't rely on actual timeout behavior
+//!
+//! For tests that need real timeout behavior, use real runtime executors
+//! (TokioExecutor, AsyncStdExecutor, SmolExecutor) instead.
+
 use async_executor::Executor as AsyncExec;
 
 use std::{
@@ -736,19 +745,11 @@ impl Executor for DeterministicExecutor {
     }
 
     fn block_on<F: Future>(&self, fut: F) -> F::Output {
-        // The tests are using futures that spawn background runtime loops.
-        // The issue is that the runtime loop runs forever, and a simple block_on
-        // will wait for it to finish. The solution is to spawn our main future
-        // and then run both it and background tasks, returning when the main
-        // future completes.
-        //
-        // Since we can't require Send bounds in block_on, we use the simpler
-        // approach of just running the future directly with the executor,
-        // which handles background tasks appropriately.
-
+        // For DeterministicExecutor, we use the simpler approach of just running
+        // the future on the executor. This works well for tests that don't rely
+        // on timeout behavior. For tests that need actual timeout behavior,
+        // use real runtime executors instead (see issue #394).
         use futures_lite::future;
-
-        // Run the future with the executor, which will handle background tasks
         future::block_on(self.executor.run(fut))
     }
 

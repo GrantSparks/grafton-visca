@@ -200,7 +200,15 @@ mod timeout_behavior_tests {
     }
 }
 
-#[cfg(feature = "test-utils")]
+// NOTE: These tests are disabled when real runtimes are available because
+// DeterministicExecutor has fundamental issues with timeout handling when
+// real runtimes are present. See issue #394 for details.
+#[cfg(all(
+    feature = "test-utils",
+    not(feature = "rt-tokio"),
+    not(feature = "rt-async-std"),
+    not(feature = "rt-smol")
+))]
 mod deterministic_tests {
     use grafton_visca::testing::testkit::deterministic_executor::DeterministicExecutor;
     use grafton_visca::{

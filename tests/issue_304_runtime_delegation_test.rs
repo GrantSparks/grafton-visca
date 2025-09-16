@@ -4,6 +4,11 @@
 //! 1. Uses RuntimeHandle for all command sending
 //! 2. Properly tracks sequences through the runtime
 //! 3. Handles timeout configuration correctly
+//!
+//! NOTE: Tests that don't rely on actual timeout behavior use DeterministicExecutor.
+//! The timeout configuration test uses DeterministicExecutor because it only verifies
+//! that the configuration is accepted, not that timeouts actually work.
+//! See issue #394 for details on test executor selection strategy.
 
 #![cfg(all(feature = "async", feature = "test-utils"))]
 

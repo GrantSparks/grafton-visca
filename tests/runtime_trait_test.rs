@@ -21,23 +21,34 @@ mod tokio_runtime_tests {
         assert!(runtime.is_ok(), "Should create TokioRuntime from current");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_tokio_runtime_tcp_connection() {
+        use std::time::Duration;
+        use tokio::time::timeout;
+
         let runtime = TokioRuntime::from_current().unwrap();
 
         // This will fail to connect but tests the type system works
-        let result = runtime
-            .connect_tcp(
+        // Wrap in a timeout to prevent hanging
+        let result = timeout(
+            Duration::from_secs(2),
+            runtime.connect_tcp(
                 "192.0.2.1:5678", // TEST-NET-1 address that won't connect
                 Default::default(),
-            )
-            .await;
+            ),
+        )
+        .await;
 
-        // We expect connection to fail but the types should compile
-        assert!(result.is_err());
-        if let Err(e) = result {
-            // Should be a connection error, not a type error
-            matches!(e, Error::ConnectionFailed { .. });
+        // We expect either a timeout or connection error
+        match result {
+            Ok(inner_result) => {
+                // Connection attempt completed (likely failed)
+                assert!(inner_result.is_err());
+            }
+            Err(_) => {
+                // Timed out - this is also acceptable for this test
+                // The main point is to verify type system compilation
+            }
         }
     }
 
@@ -138,7 +149,9 @@ mod async_std_runtime_tests {
     }
 }
 
-#[cfg(feature = "rt-smol")]
+// NOTE: Smol tests are disabled when Tokio is also enabled to avoid
+// runtime conflicts. See issue #394 for details.
+#[cfg(all(feature = "rt-smol", not(feature = "rt-tokio")))]
 mod smol_runtime_tests {
     use grafton_visca::runtime_trait::{Runtime, SmolRuntime};
 

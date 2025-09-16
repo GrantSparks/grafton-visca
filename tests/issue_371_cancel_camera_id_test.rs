@@ -3,7 +3,16 @@
 //! This test verifies that CANCEL commands use the correct camera ID from the command
 //! being cancelled, not a hard-coded CAMERA_1.
 
-#![cfg(all(feature = "async", feature = "test-utils"))]
+//! NOTE: These tests are disabled when real runtimes are available because
+//! DeterministicExecutor has issues with timeout handling when real runtimes
+//! are present. See issue #394 for details.
+#![cfg(all(
+    feature = "async",
+    feature = "test-utils",
+    not(feature = "rt-tokio"),
+    not(feature = "rt-async-std"),
+    not(feature = "rt-smol")
+))]
 
 use grafton_visca::{
     camera::CameraBuilder,

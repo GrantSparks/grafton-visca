@@ -18,7 +18,7 @@ use grafton_visca::{TokioExecutor, ZoomControl};
 /// 2. ACK arrives immediately (before send() returns)
 /// 3. Previously: ACK would be dropped because command wasn't registered yet
 /// 4. Now: Command is pre-registered, so ACK is properly matched
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn test_ack_race_with_immediate_response() {
     // Create transport that sends ACK immediately from within send()
     // The ACK and completion are sent together immediately upon send
@@ -52,7 +52,7 @@ async fn test_ack_race_with_immediate_response() {
 /// Note: ScriptedTransport's InjectError only works on recv(), not send().
 /// Recv failures are treated as transient network events that trigger retries
 /// until the command eventually times out.
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn test_rollback_on_send_failure() {
     // Create transport that fails on recv by injecting an error
     let transport: ScriptedTransport<TokioExecutor> =
@@ -83,7 +83,7 @@ async fn test_rollback_on_send_failure() {
 }
 
 /// Test that the fix maintains correct behavior for normal operation.
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn test_normal_operation_still_works() {
     // Create transport with normal ACK/completion sequence
     let transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(vec![
@@ -107,7 +107,7 @@ async fn test_normal_operation_still_works() {
 }
 
 /// Test multiple commands with immediate ACKs to ensure ordering is preserved.
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn test_multiple_immediate_acks_preserve_order() {
     use grafton_visca::PanTiltControl;
 
