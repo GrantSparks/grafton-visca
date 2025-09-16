@@ -1,7 +1,7 @@
-//! Unified pan/tilt control implementation using Mode trait.
+//! pan/tilt control implementation using Mode trait.
 
 use crate::{
-    camera::CameraSend,
+    camera::CommandClient,
     command::pan_tilt::{PanTiltDirection, PanTiltLimitCorner},
     mode::Mode,
     types::{PanPosition, PanSpeed, SpeedLevel, TiltPosition, TiltSpeed},
@@ -9,11 +9,11 @@ use crate::{
     Error,
 };
 
-/// Unified pan/tilt operations for cameras.
+/// pan/tilt operations for cameras.
 ///
 /// This trait provides pan/tilt control methods that work seamlessly for both
 /// blocking and async cameras through the Mode trait system.
-#[grafton_visca_macros::forward_control_to_session]
+#[grafton_visca_macros::delegate_to_session]
 pub trait PanTiltControl {
     /// The mode type for this camera (Async or Blocking).
     type Mode: Mode;
@@ -67,11 +67,11 @@ pub trait PanTiltControl {
 }
 
 // Single unified implementation for all Camera types!
-impl<M, P, Tr, Exec> PanTiltControl for crate::camera::UnifiedCamera<M, P, Tr, Exec>
+impl<M, P, Tr, Exec> PanTiltControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + crate::capabilities::PanTilt + Default,
-    Self: CameraSend<M>,
+    Self: CommandClient<M>,
     Exec: crate::executor::Executor,
 {
     type Mode = M;

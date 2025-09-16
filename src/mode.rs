@@ -4,7 +4,7 @@
 //! to work in both blocking and async modes through type-state parameters.
 
 // External crates
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 use async_lock;
 
 // Standard library
@@ -79,17 +79,17 @@ impl Mode for Async {
     where
         T: Send + 'a;
 
-    #[cfg(feature = "async")]
+    #[cfg(feature = "mode-async")]
     type Shared<T> = std::sync::Arc<async_lock::Mutex<T>>;
-    #[cfg(not(feature = "async"))]
+    #[cfg(not(feature = "mode-async"))]
     type Shared<T> = T; // Fallback for when async is not available
 
-    #[cfg(feature = "async")]
+    #[cfg(feature = "mode-async")]
     fn share<T>(value: T) -> Self::Shared<T> {
         std::sync::Arc::new(async_lock::Mutex::new(value))
     }
 
-    #[cfg(not(feature = "async"))]
+    #[cfg(not(feature = "mode-async"))]
     fn share<T>(value: T) -> Self::Shared<T> {
         value
     }
@@ -144,7 +144,7 @@ impl Mode for Blocking {
 /// This trait allows blocking mode futures (which are `Ready<T>`) to be
 /// easily converted to their inner values without needing explicit
 /// `pollster::block_on()` calls everywhere.
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 pub trait BlockingFutureExt: Future {
     /// Block on this future and return its output.
     ///
@@ -168,7 +168,7 @@ pub trait BlockingFutureExt: Future {
     }
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 impl<T> BlockingFutureExt for Ready<T> {
     #[inline]
     fn block(self) -> T {

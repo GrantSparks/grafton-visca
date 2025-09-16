@@ -28,7 +28,7 @@ use std::{
 
 use crate::{executor::Executor, Error};
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 use crate::executor::TokioExecutor;
 
 /// Extension trait for executor background task semantics in test utilities.
@@ -873,7 +873,7 @@ impl ExecutorExt for DeterministicExecutor {
 }
 
 // Implement ExecutorExt for TokioExecutor
-#[cfg(all(feature = "rt-tokio", any(test, feature = "test-utils")))]
+#[cfg(all(feature = "runtime-tokio", any(test, feature = "test-utils")))]
 impl ExecutorExt for TokioExecutor {
     fn spawn_detached<F>(&self, fut: F)
     where
@@ -1277,7 +1277,7 @@ mod tests {
 }
 
 // Add ExecutorExt implementations for AsyncStdExecutor and SmolExecutor
-#[cfg(all(feature = "async", feature = "rt-async-std"))]
+#[cfg(all(feature = "mode-async", feature = "runtime-async-std"))]
 impl ExecutorExt for crate::executor::AsyncStdExecutor {
     fn spawn_detached<F>(&self, fut: F)
     where
@@ -1300,7 +1300,7 @@ impl ExecutorExt for crate::executor::AsyncStdExecutor {
     }
 }
 
-#[cfg(all(feature = "async", feature = "rt-smol"))]
+#[cfg(all(feature = "mode-async", feature = "runtime-smol"))]
 impl ExecutorExt for crate::executor::SmolExecutor {
     fn spawn_detached<F>(&self, fut: F)
     where

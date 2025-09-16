@@ -20,7 +20,7 @@
 //! CAMERA_IP=192.168.1.100 cargo run --example inquiry_quickstart
 
 // Blocking implementation
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 fn main() -> grafton_visca::Result<()> {
     use grafton_visca::{camera::profiles::GenericVisca, mode::BlockingFutureExt, CameraBuilder};
 
@@ -319,7 +319,7 @@ async fn main() -> grafton_visca::Result<()> {
 }
 
 // Handle unsupported configurations
-#[cfg(all(feature = "async", not(feature = "rt-tokio")))]
+#[cfg(all(feature = "mode-async", not(feature = "rt-tokio")))]
 fn main() {
     println!("This example requires either blocking mode or tokio runtime:");
     println!("  cargo run --example inquiry_quickstart");

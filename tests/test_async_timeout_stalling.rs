@@ -8,7 +8,7 @@
 //! limitations with virtual time that make it unsuitable for timeout testing.
 //! See issue #394 for details.
 
-#![cfg(all(feature = "async", feature = "test-utils"))]
+#![cfg(all(feature = "mode-async", feature = "test-utils"))]
 
 #[cfg(feature = "rt-tokio")]
 use std::time::Duration;

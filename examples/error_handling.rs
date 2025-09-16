@@ -17,7 +17,7 @@ use grafton_visca::{
     runtime_trait::TokioRuntime,
     types::{PanSpeed, PanTiltDirection, TiltSpeed},
 };
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PtzOpticsG2},
@@ -28,7 +28,7 @@ use grafton_visca::{
     types::{PanSpeed, PanTiltDirection, TiltSpeed},
 };
 
-#[cfg(all(feature = "async", not(feature = "rt-tokio")))]
+#[cfg(all(feature = "mode-async", not(feature = "rt-tokio")))]
 fn main() {
     println!("=== VISCA Error Handling Demo ===\n");
     println!("This example demonstrates error handling patterns.\n");
@@ -39,7 +39,7 @@ fn main() {
     println!("Run with: cargo run --example error_handling_demo --features tokio");
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
@@ -155,7 +155,7 @@ fn demonstrate_error_classification() {
     }
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("   Attempting to connect to camera at {camera_addr}...");
 

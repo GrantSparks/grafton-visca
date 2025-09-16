@@ -76,7 +76,7 @@ impl SendGuard {
 }
 
 /// Async version of send_one.
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 pub(crate) async fn send_one<T, E, S>(
     transport: &mut T,
     executor: &E,
@@ -170,7 +170,7 @@ where
 }
 
 /// Blocking version of send_one for non-async builds.
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 pub(crate) fn send_one<T, S>(
     transport: &mut T,
     scheduler: &mut S,

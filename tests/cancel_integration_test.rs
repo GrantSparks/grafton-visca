@@ -4,7 +4,7 @@
 //! through the Camera API. Full testing would require a mock transport
 //! that can simulate VISCA responses.
 
-#![cfg(feature = "async")]
+#![cfg(feature = "mode-async")]
 
 #[allow(unused_imports)]
 use grafton_visca::ViscaSocket;

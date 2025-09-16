@@ -1,6 +1,6 @@
 //! Tests for command cancellation functionality.
 
-#![cfg(all(feature = "async", feature = "test-utils"))]
+#![cfg(all(feature = "mode-async", feature = "test-utils"))]
 
 // External crates
 use grafton_visca::{

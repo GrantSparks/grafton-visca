@@ -4,7 +4,7 @@
 //! frames when multiple VISCA frames arrived in a single TCP read.
 //! Now tests that the blocking runner's framing logic correctly handles this.
 
-#![cfg(not(feature = "async"))]
+#![cfg(not(feature = "mode-async"))]
 
 use grafton_visca::{command::CommandKind, transport::SyncTransport, Error};
 use std::io::{BufReader, Read, Write};

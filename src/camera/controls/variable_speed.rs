@@ -1,17 +1,17 @@
-//! Unified variable speed mode control implementation using Mode trait.
+//! variable speed mode control implementation using Mode trait.
 
 use crate::{
-    camera::CameraSend,
+    camera::CommandClient,
     command::{VariableSpeedMode, VariableSpeedModeCommand},
     mode::Mode,
     Error,
 };
 
-/// Unified variable speed mode control for cameras.
+/// variable speed mode control for cameras.
 ///
 /// This trait provides variable speed control methods that work seamlessly for both
 /// blocking and async cameras through the Mode trait system.
-#[grafton_visca_macros::forward_control_to_session]
+#[grafton_visca_macros::delegate_to_session]
 pub trait VariableSpeedControl {
     /// The mode type for this camera (Async or Blocking).
     type Mode: Mode;
@@ -32,11 +32,11 @@ pub trait VariableSpeedControl {
 }
 
 // Single unified implementation for all Camera types!
-impl<M, P, Tr, Exec> VariableSpeedControl for crate::camera::UnifiedCamera<M, P, Tr, Exec>
+impl<M, P, Tr, Exec> VariableSpeedControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + Default + crate::capabilities::VariableSpeed,
-    Self: CameraSend<M>,
+    Self: CommandClient<M>,
     Exec: crate::executor::Executor,
 {
     type Mode = M;

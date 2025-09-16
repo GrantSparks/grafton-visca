@@ -42,13 +42,13 @@ pub enum TestExecutorType {
     /// DeterministicExecutor - for logic and sequencing tests
     Deterministic,
     /// TokioExecutor - for timeout and timing tests with Tokio
-    #[cfg(feature = "rt-tokio")]
+    #[cfg(feature = "runtime-tokio")]
     Tokio,
     /// AsyncStdExecutor - for timeout and timing tests with async-std
-    #[cfg(feature = "rt-async-std")]
+    #[cfg(feature = "runtime-async-std")]
     AsyncStd,
     /// SmolExecutor - for timeout and timing tests with smol
-    #[cfg(feature = "rt-smol")]
+    #[cfg(feature = "runtime-smol")]
     Smol,
 }
 
@@ -62,23 +62,23 @@ pub trait TestExecutorSelector {
     /// Get the executor type suitable for timeout and timing tests.
     fn for_timeout_tests() -> TestExecutorType {
         // Use the first available real runtime
-        #[cfg(feature = "rt-tokio")]
+        #[cfg(feature = "runtime-tokio")]
         return TestExecutorType::Tokio;
 
-        #[cfg(all(not(feature = "rt-tokio"), feature = "rt-async-std"))]
+        #[cfg(all(not(feature = "runtime-tokio"), feature = "runtime-async-std"))]
         return TestExecutorType::AsyncStd;
 
         #[cfg(all(
-            not(feature = "rt-tokio"),
-            not(feature = "rt-async-std"),
-            feature = "rt-smol"
+            not(feature = "runtime-tokio"),
+            not(feature = "runtime-async-std"),
+            feature = "runtime-smol"
         ))]
         return TestExecutorType::Smol;
 
         #[cfg(all(
-            not(feature = "rt-tokio"),
-            not(feature = "rt-async-std"),
-            not(feature = "rt-smol")
+            not(feature = "runtime-tokio"),
+            not(feature = "runtime-async-std"),
+            not(feature = "runtime-smol")
         ))]
         panic!("No real runtime available for timeout tests. Enable at least one of: rt-tokio, rt-async-std, rt-smol");
     }
@@ -116,7 +116,7 @@ macro_rules! logic_test {
 #[macro_export]
 macro_rules! timeout_test {
     ($name:ident, $body:expr) => {
-        #[cfg(feature = "rt-tokio")]
+        #[cfg(feature = "runtime-tokio")]
         #[tokio::test]
         async fn $name() {
             use $crate::executor::TokioExecutor;
@@ -124,7 +124,7 @@ macro_rules! timeout_test {
             $body(executor).await
         }
 
-        #[cfg(all(not(feature = "rt-tokio"), feature = "rt-async-std"))]
+        #[cfg(all(not(feature = "runtime-tokio"), feature = "runtime-async-std"))]
         #[async_std::test]
         async fn $name() {
             use $crate::executor::AsyncStdExecutor;
@@ -133,9 +133,9 @@ macro_rules! timeout_test {
         }
 
         #[cfg(all(
-            not(feature = "rt-tokio"),
-            not(feature = "rt-async-std"),
-            feature = "rt-smol"
+            not(feature = "runtime-tokio"),
+            not(feature = "runtime-async-std"),
+            feature = "runtime-smol"
         ))]
         #[test]
         fn $name() {

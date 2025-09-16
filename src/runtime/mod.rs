@@ -41,29 +41,29 @@ pub mod core;
 pub mod driver;
 pub mod inquiry_matcher;
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 pub mod blocking_runner;
 
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 mod async_adapter;
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 mod handle;
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 mod loop_task;
 
 pub use core::Priority;
 
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 pub use async_adapter::MetricsSummary;
 
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 #[doc(hidden)]
 pub use handle::RuntimeHandle;
 
 #[cfg(test)]
 mod tests {
 
-    #[cfg(feature = "async")]
+    #[cfg(feature = "mode-async")]
     #[test]
     fn test_socket_id() {
         use crate::ViscaSocket;

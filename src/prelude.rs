@@ -10,13 +10,13 @@
 //! ## Async Usage
 //!
 //! ```ignore
-//! # #[cfg(feature = "async")]
+//! # #[cfg(feature = "mode-async")]
 //! use grafton_visca::prelude::r#async::*;
 //! use grafton_visca::{Camera, mode::Async};
 //!
 //! # #[tokio::main]
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! # #[cfg(feature = "rt-tokio")]
+//! # #[cfg(feature = "runtime-tokio")]
 //! # {
 //! // Simple connection
 //! let runtime = TokioRuntime::new();
@@ -88,7 +88,7 @@
 /// ```no_run
 /// use grafton_visca::prelude::r#async::*;
 /// ```
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 pub mod r#async {
     // Camera profiles - these are the primary way to configure camera behavior
     pub use crate::camera::profiles::{
@@ -110,11 +110,11 @@ pub mod r#async {
     };
 
     // Runtime support for async operations
-    #[cfg(feature = "rt-async-std")]
+    #[cfg(feature = "runtime-async-std")]
     pub use crate::runtime_trait::AsyncStdRuntime;
-    #[cfg(feature = "rt-smol")]
+    #[cfg(feature = "runtime-smol")]
     pub use crate::runtime_trait::SmolRuntime;
-    #[cfg(feature = "rt-tokio")]
+    #[cfg(feature = "runtime-tokio")]
     pub use crate::runtime_trait::TokioRuntime;
 }
 
@@ -130,7 +130,7 @@ pub mod r#async {
 /// ```no_run
 /// use grafton_visca::prelude::blocking::*;
 /// ```
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 pub mod blocking {
     // Camera profiles - these are the primary way to configure camera behavior
     pub use crate::camera::profiles::{
@@ -139,7 +139,7 @@ pub mod blocking {
     };
 
     // High-level camera types and configuration
-    pub use crate::camera::{MovementConfig, UnifiedBlockingCamera as Camera};
+    pub use crate::camera::{BlockingCamera as Camera, MovementConfig};
 
     // Type-safe parameter types for camera control
     pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
@@ -236,15 +236,15 @@ pub mod advanced {
     pub use crate::camera_id::CameraId;
 
     // Transport traits for custom implementations
-    #[cfg(not(feature = "async"))]
+    #[cfg(not(feature = "mode-async"))]
     pub use crate::transport::sync_transport::SyncTransport;
-    #[cfg(feature = "async")]
+    #[cfg(feature = "mode-async")]
     pub use crate::transport::AsyncTransport;
 
     // Runtime and executor types for async operations
-    #[cfg(feature = "async")]
+    #[cfg(feature = "mode-async")]
     pub use crate::executor::Executor;
-    #[cfg(feature = "async")]
+    #[cfg(feature = "mode-async")]
     pub use crate::runtime_trait::{Runtime, TransportHandle};
 
     // Error types with retry logic

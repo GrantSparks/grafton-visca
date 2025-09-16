@@ -3,7 +3,7 @@
 //! This test verifies that when commands receive BUSY responses,
 //! the runtime correctly handles retries across different priority levels.
 
-#![cfg(all(feature = "async", feature = "test-utils"))]
+#![cfg(all(feature = "mode-async", feature = "test-utils"))]
 
 use grafton_visca::{runtime::Priority, testing::testkit::DeterministicExecutor, Executor};
 

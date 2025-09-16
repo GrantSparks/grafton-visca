@@ -29,7 +29,7 @@ use grafton_visca::{
     camera::{
         profiles::{PtzOpticsG2, PtzOpticsG3, SonyBRC300},
         session::CameraSession,
-        Camera,
+        Camera, Connect,
     },
     mode::Async,
     runtime_trait::TransportHandle,
@@ -71,7 +71,7 @@ async fn multi_camera_control() -> Result<()> {
     // This returns a CameraSession with a cleaner lifecycle
     let cam1: Arc<CameraSession<Async, SonyBRC300, TransportHandle<TokioRuntime>, TokioRuntime>> =
         Arc::new(
-            Camera::open_tcp_async::<SonyBRC300, _>("192.168.0.109:5678", runtime.clone())
+            Connect::open_tcp_async::<SonyBRC300, _>("192.168.0.109:5678", runtime.clone())
                 .await
                 .map_err(|e| {
                     eprintln!("Failed to connect to camera 1: {e}");
@@ -81,7 +81,7 @@ async fn multi_camera_control() -> Result<()> {
 
     let cam2: Arc<CameraSession<Async, PtzOpticsG2, TransportHandle<TokioRuntime>, TokioRuntime>> =
         Arc::new(
-            Camera::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110:5678", runtime.clone())
+            Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110:5678", runtime.clone())
                 .await
                 .map_err(|e| {
                     eprintln!("Failed to connect to camera 2: {e}");
@@ -91,7 +91,7 @@ async fn multi_camera_control() -> Result<()> {
 
     let cam3: Arc<CameraSession<Async, PtzOpticsG3, TransportHandle<TokioRuntime>, TokioRuntime>> =
         Arc::new(
-            Camera::open_tcp_async::<PtzOpticsG3, _>("192.168.0.111:5678", runtime.clone())
+            Connect::open_tcp_async::<PtzOpticsG3, _>("192.168.0.111:5678", runtime.clone())
                 .await
                 .map_err(|e| {
                     eprintln!("Failed to connect to camera 3: {e}");
@@ -184,7 +184,7 @@ async fn parallel_single_camera() -> Result<()> {
     let camera: Arc<
         CameraSession<Async, PtzOpticsG2, TransportHandle<TokioRuntime>, TokioRuntime>,
     > = Arc::new(
-        Camera::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110:5678", runtime)
+        Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110:5678", runtime)
             .await
             .map_err(|e| {
                 eprintln!("Failed to connect to camera: {e}");
@@ -260,7 +260,7 @@ async fn producer_consumer_pattern() -> Result<()> {
     let runtime = TokioRuntime::from_current()?;
     let camera: Arc<
         CameraSession<Async, PtzOpticsG2, TransportHandle<TokioRuntime>, TokioRuntime>,
-    > = Arc::new(Camera::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110:5678", runtime).await?);
+    > = Arc::new(Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110:5678", runtime).await?);
 
     let (tx, mut rx) = mpsc::channel(10);
 
@@ -344,7 +344,7 @@ async fn synchronized_movement() -> Result<()> {
         let camera: Arc<
             CameraSession<Async, PtzOpticsG2, TransportHandle<TokioRuntime>, TokioRuntime>,
         > = Arc::new(
-            Camera::open_tcp_async::<PtzOpticsG2, _>(format!("{addr}:5678"), runtime.clone())
+            Connect::open_tcp_async::<PtzOpticsG2, _>(format!("{addr}:5678"), runtime.clone())
                 .await?,
         );
 

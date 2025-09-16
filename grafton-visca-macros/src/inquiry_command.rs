@@ -542,15 +542,15 @@ fn generate_typed_impl(
                 }
             }
         }
-        ("MotionSyncSpeed", Some("speed"), Some("MotionSyncSpeed")) => {
+        ("MotionSyncPreset", Some("speed"), Some("MotionSyncPreset")) => {
             quote! {
                 impl #crate_path::command::typed::ViscaCommand for #struct_name {
-                    type Response = #crate_path::command::MotionSyncSpeed;
+                    type Response = #crate_path::command::MotionSyncPreset;
 
                     fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
                             #crate_path::command::ViscaResponse::Inquiry(
-                                #crate_path::command::InquiryResponse::MotionSyncSpeed { speed }
+                                #crate_path::command::InquiryResponse::MotionSyncPreset { speed }
                             ) => Ok(speed),
                             #crate_path::command::ViscaResponse::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),

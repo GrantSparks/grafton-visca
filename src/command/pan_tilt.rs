@@ -12,7 +12,7 @@
 //! supported by all VISCA-compliant cameras.
 //! # Example
 //! ```ignore
-//! # #[cfg(not(feature = "async"))]
+//! # #[cfg(not(feature = "mode-async"))]
 //! # {
 //! # use grafton_visca::command::pan_tilt::{PanTilt, PanTiltDirection, PanSpeed, TiltSpeed};
 //! # use grafton_visca::Client;

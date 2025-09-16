@@ -3,7 +3,7 @@
 //! When rt-tokio feature is enabled, the camera requires explicit executor configuration
 //! to ensure predictable behavior and avoid hidden runtime initialization.
 
-#![cfg(feature = "async")]
+#![cfg(feature = "mode-async")]
 
 #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
 use grafton_visca::{camera::CameraBuilder, PowerControl};

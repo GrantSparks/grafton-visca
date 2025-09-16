@@ -1,12 +1,12 @@
-//! Unified exposure control implementation using Mode trait.
+//! exposure control implementation using Mode trait.
 
-use crate::{camera::CameraSend, mode::Mode, Error};
+use crate::{camera::CommandClient, mode::Mode, Error};
 
-/// Unified exposure operations for cameras.
+/// exposure operations for cameras.
 ///
 /// This trait provides exposure control methods that work seamlessly for both
 /// blocking and async cameras through the Mode trait system.
-#[grafton_visca_macros::forward_control_to_session]
+#[grafton_visca_macros::delegate_to_session]
 pub trait ExposureControl {
     /// The mode type for this camera (Async or Blocking).
     type Mode: Mode;
@@ -133,11 +133,11 @@ pub trait ExposureControl {
 }
 
 // Single unified implementation for all Camera types!
-impl<M, P, Tr, Exec> ExposureControl for crate::camera::UnifiedCamera<M, P, Tr, Exec>
+impl<M, P, Tr, Exec> ExposureControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + Default + crate::capabilities::exposure::Exposure,
-    Self: CameraSend<M>,
+    Self: CommandClient<M>,
     Exec: crate::executor::Executor,
 {
     type Mode = M;
@@ -340,11 +340,11 @@ pub trait ExposureCompensationControl {
 }
 
 // Single unified implementation for ExposureCompensationControl
-impl<M, P, Tr, Exec> ExposureCompensationControl for crate::camera::UnifiedCamera<M, P, Tr, Exec>
+impl<M, P, Tr, Exec> ExposureCompensationControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + Default + crate::capabilities::HasExposureCompensation,
-    Self: CameraSend<M>,
+    Self: CommandClient<M>,
     Exec: crate::executor::Executor,
 {
     type Mode = M;

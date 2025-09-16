@@ -9,16 +9,16 @@
 //! selects the appropriate runtime implementation based on enabled features:
 //!
 //! ```rust,no_run
-//! # #[cfg(feature = "rt-tokio")]
-//! use grafton_visca::camera::{Camera, CameraConfig, profiles::GenericVisca};
-//! # #[cfg(feature = "rt-tokio")]
+//! # #[cfg(feature = "runtime-tokio")]
+//! use grafton_visca::camera::{Camera, Connect, CameraConfig, profiles::GenericVisca};
+//! # #[cfg(feature = "runtime-tokio")]
 //! use grafton_visca::runtime_trait::TokioRuntime;
 //!
-//! # #[cfg(feature = "rt-tokio")]
+//! # #[cfg(feature = "runtime-tokio")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // New session-centric API with convenience methods
 //! let runtime = TokioRuntime::from_current()?;
-//! let session = Camera::open_tcp_async::<GenericVisca, _>(
+//! let session = Connect::open_tcp_async::<GenericVisca, _>(
 //!     "192.168.0.110:5678",
 //!     runtime
 //! ).await?;
@@ -99,7 +99,7 @@ impl Transport {
     /// use grafton_visca::transport::Transport;
     /// # use std::time::Duration;
     ///
-    /// # #[cfg(not(feature = "async"))]
+    /// # #[cfg(not(feature = "mode-async"))]
     /// # fn blocking_example() -> Result<(), Box<dyn std::error::Error>> {
     /// // Building blocking transports
     /// let transport = Transport::tcp()
@@ -109,14 +109,14 @@ impl Transport {
     /// # Ok(())
     /// # }
     ///
-    /// # #[cfg(feature = "rt-tokio")]
+    /// # #[cfg(feature = "runtime-tokio")]
     /// # async fn async_example() -> Result<(), Box<dyn std::error::Error>> {
     /// // Building cameras with transport configuration
-    /// use grafton_visca::{camera::{CameraConfig, Camera}, runtime_trait::TokioRuntime};
+    /// use grafton_visca::{camera::{CameraConfig, Camera, Connect}, runtime_trait::TokioRuntime};
     /// use grafton_visca::camera::profiles::GenericVisca;
     /// let runtime = TokioRuntime::from_current()?;
     /// // Use convenience method for quick setup
-    /// let session = Camera::open_tcp_async::<GenericVisca, _>("192.168.0.110:5678", runtime).await?;
+    /// let session = Connect::open_tcp_async::<GenericVisca, _>("192.168.0.110:5678", runtime).await?;
     /// # Ok(())
     /// # }
     /// ```
@@ -132,7 +132,7 @@ impl Transport {
     /// use grafton_visca::transport::Transport;
     /// # use std::time::Duration;
     ///
-    /// # #[cfg(not(feature = "async"))]
+    /// # #[cfg(not(feature = "mode-async"))]
     /// # fn blocking_example() -> Result<(), Box<dyn std::error::Error>> {
     /// // Building blocking transports
     /// let transport = Transport::udp()
@@ -142,14 +142,14 @@ impl Transport {
     /// # Ok(())
     /// # }
     ///
-    /// # #[cfg(feature = "rt-tokio")]
+    /// # #[cfg(feature = "runtime-tokio")]
     /// # async fn async_example() -> Result<(), Box<dyn std::error::Error>> {
     /// // Building cameras with transport configuration
-    /// use grafton_visca::{camera::{CameraConfig, Camera}, runtime_trait::TokioRuntime};
+    /// use grafton_visca::{camera::{CameraConfig, Camera, Connect}, runtime_trait::TokioRuntime};
     /// use grafton_visca::camera::profiles::GenericVisca;
     /// let runtime = TokioRuntime::from_current()?;
     /// // Use convenience method for quick setup
-    /// let session = Camera::open_udp_async::<GenericVisca, _>("192.168.0.110:1259", runtime).await?;
+    /// let session = Connect::open_udp_async::<GenericVisca, _>("192.168.0.110:1259", runtime).await?;
     /// # Ok(())
     /// # }
     /// ```
@@ -165,11 +165,11 @@ impl Transport {
 /// # Example
 ///
 /// ```rust,no_run
-/// # #[cfg(any(feature = "async", not(feature = "async")))]
+/// # #[cfg(any(feature = "mode-async", not(feature = "mode-async")))]
 /// use grafton_visca::transport::NetTransportBuilder;
 /// # use std::time::Duration;
 ///
-/// # #[cfg(not(feature = "async"))]
+/// # #[cfg(not(feature = "mode-async"))]
 /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// // Building blocking transports
 /// let blocking_transport = NetTransportBuilder::tcp()
@@ -179,7 +179,7 @@ impl Transport {
 /// # Ok(())
 /// # }
 ///
-/// # #[cfg(feature = "rt-tokio")]
+/// # #[cfg(feature = "runtime-tokio")]
 /// # async fn async_example() -> Result<(), Box<dyn std::error::Error>> {
 /// // Building cameras with custom transport configuration
 /// use grafton_visca::{camera::{CameraConfig, profiles::GenericVisca}, runtime_trait::TokioRuntime};
@@ -350,7 +350,7 @@ impl NetTransportBuilder {
     /// - Connection fails
     /// - Socket configuration fails
     /// - Async features are enabled without blocking support
-    #[cfg(not(feature = "async"))]
+    #[cfg(not(feature = "mode-async"))]
     pub fn build_blocking(self) -> Result<crate::transport::BlockingTransportHandle, Error> {
         let address = self.address.ok_or_else(|| Error::InvalidParameter {
             parameter: "address",
@@ -380,7 +380,7 @@ impl NetTransportBuilder {
     /// # Errors
     ///
     /// Returns an error indicating that blocking transport creation is not available in async mode.
-    #[cfg(feature = "async")]
+    #[cfg(feature = "mode-async")]
     pub fn build_blocking(self) -> Result<(), Error> {
         // Consume self to avoid dead code warning
         let _ = self.protocol;
@@ -397,7 +397,7 @@ impl NetTransportBuilder {
 /// This function tries multiple transport/protocol combinations to find a working
 /// configuration for the camera. It uses the ProtocolDetector to properly detect
 /// the protocol style once connected.
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 pub async fn auto_connect_and_detect<R>(
     host: &str,
     cfg: TransportConfig,
@@ -412,8 +412,8 @@ pub async fn auto_connect_and_detect<R>(
 where
     R: crate::runtime_trait::Runtime,
 {
+    use crate::protocol::detect::{ProtocolDetector, TransportProtocol};
     use crate::runtime_trait::TransportHandle;
-    use crate::transport::protocol_detection::{ProtocolDetector, TransportProtocol};
     use tracing::{debug, info};
 
     info!("Starting auto-connect and detect for host: {}", host);
@@ -501,7 +501,7 @@ where
 /// This function tries multiple transport/protocol combinations to find a working
 /// configuration for the camera. It uses the ProtocolDetector to properly detect
 /// the protocol style once connected.
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 pub fn auto_connect_and_detect_blocking(
     host: &str,
     cfg: TransportConfig,
@@ -512,7 +512,7 @@ pub fn auto_connect_and_detect_blocking(
     ),
     Error,
 > {
-    use crate::transport::protocol_detection::{ProtocolDetector, TransportProtocol};
+    use crate::protocol::detect::{ProtocolDetector, TransportProtocol};
     use crate::transport::BlockingTransportHandle;
     use tracing::{debug, info};
 
@@ -602,14 +602,14 @@ pub trait TransportBuilderExt: Sized {
     fn builder() -> NetTransportBuilder;
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 impl TransportBuilderExt for crate::transport::blocking::Tcp {
     fn builder() -> NetTransportBuilder {
         NetTransportBuilder::tcp()
     }
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 impl TransportBuilderExt for crate::transport::blocking::Udp {
     fn builder() -> NetTransportBuilder {
         NetTransportBuilder::udp()
@@ -653,7 +653,7 @@ mod tests {
         assert_eq!(builder.config.write_timeout, Duration::from_secs(3));
     }
 
-    #[cfg(not(feature = "async"))]
+    #[cfg(not(feature = "mode-async"))]
     #[test]
     fn test_net_builder_blocking_requires_address() {
         let builder = NetTransportBuilder::tcp();
@@ -675,7 +675,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "async")]
+    #[cfg(feature = "mode-async")]
     #[test]
     fn test_net_builder_blocking_not_available_in_async_mode() {
         let builder = NetTransportBuilder::tcp().address("192.168.0.110:5678");
@@ -721,8 +721,8 @@ mod tests {
     // Test that verifies buffer config propagation in auto-detect functions
     #[test]
     fn test_buffer_config_propagation_logic() {
+        use crate::protocol::detect::ProtocolDetector;
         use crate::transport::buffer::BufferConfig;
-        use crate::transport::protocol_detection::ProtocolDetector;
 
         // Test that detection candidates have appropriate buffer configs
         let candidates = ProtocolDetector::generate_candidates("192.168.0.110:52381");
@@ -752,7 +752,7 @@ mod tests {
                 )
                 && matches!(
                     candidate.protocol,
-                    crate::transport::protocol_detection::TransportProtocol::Udp
+                    crate::protocol::detect::TransportProtocol::Udp
                 )
             {
                 assert_eq!(
@@ -773,7 +773,7 @@ mod tests {
                 )
                 && matches!(
                     candidate.protocol,
-                    crate::transport::protocol_detection::TransportProtocol::Tcp
+                    crate::protocol::detect::TransportProtocol::Tcp
                 )
             {
                 assert_eq!(

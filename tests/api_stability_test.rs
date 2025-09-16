@@ -4,7 +4,7 @@
 //! consistent across all phases of the async transport unification. These tests
 //! serve as regression guards against unintended API changes.
 
-#![cfg(feature = "async")]
+#![cfg(feature = "mode-async")]
 
 // External crates
 #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
@@ -115,7 +115,7 @@ fn test_runtime_feature_detection_stability() {
         active_runtimes += 1;
     }
 
-    #[cfg(feature = "async")]
+    #[cfg(feature = "mode-async")]
     {
         // When async feature is enabled, we should have either:
         // 0 runtimes (runtime-agnostic async) OR 1 or more runtimes (multi-runtime coexistence)
@@ -127,7 +127,7 @@ fn test_runtime_feature_detection_stability() {
         );
     }
 
-    #[cfg(not(feature = "async"))]
+    #[cfg(not(feature = "mode-async"))]
     {
         // In blocking mode, there should be no runtime features
         assert_eq!(
@@ -140,7 +140,7 @@ fn test_runtime_feature_detection_stability() {
 
 /// Test that blocking API remains unchanged and stable.
 #[test]
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 fn test_blocking_api_stability() {
     use grafton_visca::transport::{NetTransportBuilder, Transport};
 
@@ -155,13 +155,13 @@ fn test_blocking_api_stability() {
 /// Test that prelude exports remain stable.
 #[test]
 fn test_prelude_stability() {
-    #[cfg(feature = "async")]
+    #[cfg(feature = "mode-async")]
     {
         // Prelude types are not yet implemented for async mode
         // This is a placeholder for when async prelude is available
     }
 
-    #[cfg(not(feature = "async"))]
+    #[cfg(not(feature = "mode-async"))]
     {
         use grafton_visca::prelude::blocking::{GenericViscaCam, PtzOpticsG2Cam, SonyFR7Cam};
 
@@ -230,7 +230,7 @@ fn test_capability_traits_stability() {
 }
 
 /// Test that async trait method signatures remain stable.
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 #[test]
 fn test_async_trait_method_signatures() {
     use grafton_visca::camera::controls::power::PowerControl;
@@ -277,10 +277,10 @@ fn test_transport_module_structure() {
     use grafton_visca::transport::builder::TransportConfig;
     use grafton_visca::transport::RetryConfig;
 
-    #[cfg(all(feature = "async", feature = "rt-tokio", feature = "test-utils"))]
+    #[cfg(all(feature = "mode-async", feature = "rt-tokio", feature = "test-utils"))]
     use grafton_visca::transport::AsyncTransport;
 
-    #[cfg(not(feature = "async"))]
+    #[cfg(not(feature = "mode-async"))]
     use grafton_visca::transport::SyncTransport;
 
     // Test that configuration types can be constructed
@@ -289,7 +289,7 @@ fn test_transport_module_structure() {
     let _transport_config = TransportConfig::default();
 
     // Test that transport traits can be used as bounds - call it to verify it compiles
-    #[cfg(all(feature = "async", feature = "rt-tokio", feature = "test-utils"))]
+    #[cfg(all(feature = "mode-async", feature = "rt-tokio", feature = "test-utils"))]
     {
         fn accepts_async_transport<T>(_transport: T)
         where
@@ -301,7 +301,7 @@ fn test_transport_module_structure() {
         accepts_async_transport(mock_transport);
     }
 
-    #[cfg(not(feature = "async"))]
+    #[cfg(not(feature = "mode-async"))]
     fn accepts_blocking_transport<T>(_transport: T)
     where
         T: SyncTransport,

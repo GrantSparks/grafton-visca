@@ -24,7 +24,7 @@ use crate::{command::CommandKind, transport::builder::TransportConfig, Error};
 ///     Tcp::connect_with_config("192.168.0.110:5678", Default::default())?
 /// );
 /// ```
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 #[derive(Debug)]
 pub enum BlockingTransportHandle {
     /// TCP transport for blocking mode.
@@ -32,17 +32,17 @@ pub enum BlockingTransportHandle {
     /// UDP transport for blocking mode.
     Udp(crate::transport::blocking::Udp),
     /// Serial transport for blocking mode.
-    #[cfg(feature = "serialport")]
+    #[cfg(feature = "transport-serial")]
     Serial(crate::transport::serial_blocking::SerialTransport),
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 impl SyncTransport for BlockingTransportHandle {
     fn send_with_kind(&mut self, bytes: &[u8], kind: CommandKind) -> Result<(), Error> {
         match self {
             BlockingTransportHandle::Tcp(transport) => transport.send_with_kind(bytes, kind),
             BlockingTransportHandle::Udp(transport) => transport.send_with_kind(bytes, kind),
-            #[cfg(feature = "serialport")]
+            #[cfg(feature = "transport-serial")]
             BlockingTransportHandle::Serial(transport) => transport.send_with_kind(bytes, kind),
         }
     }
@@ -51,7 +51,7 @@ impl SyncTransport for BlockingTransportHandle {
         match self {
             BlockingTransportHandle::Tcp(transport) => transport.recv_into(dst),
             BlockingTransportHandle::Udp(transport) => transport.recv_into(dst),
-            #[cfg(feature = "serialport")]
+            #[cfg(feature = "transport-serial")]
             BlockingTransportHandle::Serial(transport) => transport.recv_into(dst),
         }
     }
@@ -68,7 +68,7 @@ impl SyncTransport for BlockingTransportHandle {
             BlockingTransportHandle::Udp(transport) => {
                 transport.recv_into_with_timeout(dst, timeout)
             }
-            #[cfg(feature = "serialport")]
+            #[cfg(feature = "transport-serial")]
             BlockingTransportHandle::Serial(transport) => {
                 transport.recv_into_with_timeout(dst, timeout)
             }
@@ -76,13 +76,13 @@ impl SyncTransport for BlockingTransportHandle {
     }
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 impl HasTransportConfig for BlockingTransportHandle {
     fn transport_config(&self) -> &TransportConfig {
         match self {
             BlockingTransportHandle::Tcp(transport) => transport.transport_config(),
             BlockingTransportHandle::Udp(transport) => transport.transport_config(),
-            #[cfg(feature = "serialport")]
+            #[cfg(feature = "transport-serial")]
             BlockingTransportHandle::Serial(transport) => transport.transport_config(),
         }
     }

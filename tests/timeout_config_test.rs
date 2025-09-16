@@ -1,6 +1,6 @@
 //! Tests for timeout configuration functionality.
 
-#[cfg(all(feature = "async", feature = "test-utils"))]
+#[cfg(all(feature = "mode-async", feature = "test-utils"))]
 mod timeout_config_tests {
     // External crates
     use grafton_visca::{
@@ -73,7 +73,7 @@ mod timeout_config_tests {
         );
     }
 
-    #[cfg(feature = "async")]
+    #[cfg(feature = "mode-async")]
     #[test]
     fn test_async_camera_with_custom_timeouts() {
         // Create a custom timeout configuration with short timeouts for testing
@@ -95,7 +95,7 @@ mod timeout_config_tests {
         // This test verifies that the API allows setting custom timeouts
     }
 
-    #[cfg(feature = "async")]
+    #[cfg(feature = "mode-async")]
     #[test]
     fn test_timeout_config_with_different_executors() {
         // Create timeout config with different timeouts per category

@@ -105,11 +105,11 @@ jobs:
               echo "Running minimal test suite..."
               # Test key configurations for feature branches
               cargo test --no-default-features --verbose
-              cargo test --no-default-features --features async --verbose
-              cargo test --no-default-features --features rt-tokio --verbose
+              cargo test --no-default-features --features mode-async --verbose
+              cargo test --no-default-features --features runtime-tokio --verbose
               cargo test --no-default-features --features test-utils --verbose
-              cargo test --no-default-features --features rt-tokio,test-utils --verbose
-              cargo test --no-default-features --features rt-tokio,serialport --verbose
+              cargo test --no-default-features --features runtime-tokio,test-utils --verbose
+              cargo test --no-default-features --features runtime-tokio,transport-serial --verbose
               ;;
 
             "full")
@@ -117,13 +117,13 @@ jobs:
               # Test all feature combinations
               cargo test --verbose
               cargo test --no-default-features --verbose
-              cargo test --no-default-features --features async --verbose
-              cargo test --no-default-features --features rt-tokio --verbose
-              cargo test --no-default-features --features rt-async-std --verbose
-              cargo test --no-default-features --features rt-smol --verbose
+              cargo test --no-default-features --features mode-async --verbose
+              cargo test --no-default-features --features runtime-tokio --verbose
+              cargo test --no-default-features --features runtime-async-std --verbose
+              cargo test --no-default-features --features runtime-smol --verbose
               cargo test --no-default-features --features test-utils --verbose
-              cargo test --no-default-features --features rt-tokio,test-utils --verbose
-              cargo test --no-default-features --features rt-async-std,test-utils --verbose
+              cargo test --no-default-features --features runtime-tokio,test-utils --verbose
+              cargo test --no-default-features --features runtime-async-std,test-utils --verbose
               cargo test -p grafton-visca-macros --verbose
               ;;
 
@@ -163,13 +163,13 @@ jobs:
         run: |
           case "${{ inputs.features }}" in
             "minimal")
-              cargo build --examples --no-default-features --features rt-tokio
+              cargo build --examples --no-default-features --features runtime-tokio
               ;;
 
             "full")
               cargo build --examples --no-default-features
-              cargo build --examples --no-default-features --features async
-              cargo build --examples --no-default-features --features rt-tokio
+              cargo build --examples --no-default-features --features mode-async
+              cargo build --examples --no-default-features --features runtime-tokio
               ;;
 
             *)

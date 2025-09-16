@@ -11,17 +11,17 @@
 //! 2. Send I/F Clear and optionally Address Set commands
 //! 3. Send some basic commands to verify operation
 
-#[cfg(all(feature = "async", feature = "rt-tokio", feature = "tokio-serial"))]
+#[cfg(all(feature = "mode-async", feature = "rt-tokio", feature = "tokio-serial"))]
 use std::env;
 
-#[cfg(all(feature = "async", feature = "rt-tokio", feature = "tokio-serial"))]
+#[cfg(all(feature = "mode-async", feature = "rt-tokio", feature = "tokio-serial"))]
 use grafton_visca::{
-    camera::{profiles::GenericVisca, Camera},
+    camera::{profiles::GenericVisca, Camera, Connect},
     runtime_trait::TokioRuntime,
     Error,
 };
 
-#[cfg(all(feature = "async", feature = "rt-tokio", feature = "tokio-serial"))]
+#[cfg(all(feature = "mode-async", feature = "rt-tokio", feature = "tokio-serial"))]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
@@ -40,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create camera using the new unified serial API
     let runtime = TokioRuntime::from_current()?;
 
-    match Camera::open_serial_async::<GenericVisca, _>(port, 9600, runtime).await {
+    match Connect::open_serial_async::<GenericVisca, _>(port, 9600, runtime).await {
         Ok(camera) => {
             println!("✅ Serial Transport Connected!");
             println!("✓ Camera session established");

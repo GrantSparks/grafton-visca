@@ -33,7 +33,7 @@ mod async_tests {
     }
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 mod blocking_tests {
     use super::*;
 

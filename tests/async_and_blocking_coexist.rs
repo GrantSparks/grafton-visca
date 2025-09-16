@@ -2,7 +2,7 @@
 //!
 //! These features are mutually exclusive by design.
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 #[test]
 fn test_blocking_mode_compile() {
     use grafton_visca::{camera::profiles::PtzOpticsG2, BlockingCamera};
@@ -24,7 +24,7 @@ fn test_async_mode_compile() {
     fn _accepts_async(_camera: &_AsyncCamera) {}
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 #[test]
 fn test_blocking_traits_available() {
     use grafton_visca::{
@@ -43,7 +43,7 @@ fn test_blocking_traits_available() {
     }
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 #[test]
 fn test_async_traits_with_feature() {
     use grafton_visca::{
@@ -64,7 +64,7 @@ fn test_async_traits_with_feature() {
 
 #[test]
 fn test_preludes_per_mode() {
-    #[cfg(not(feature = "async"))]
+    #[cfg(not(feature = "mode-async"))]
     {
         use grafton_visca::prelude::blocking as blocking_prelude;
         use grafton_visca::BlockingCamera;
@@ -76,7 +76,7 @@ fn test_preludes_per_mode() {
         let _ = core::any::type_name::<_BlockingG2>();
     }
 
-    #[cfg(all(feature = "async", feature = "rt-tokio"))]
+    #[cfg(all(feature = "mode-async", feature = "rt-tokio"))]
     {
         use grafton_visca::prelude::r#async as async_prelude;
         use grafton_visca::runtime_adapters::tokio::TcpTransport as AsyncTcp;

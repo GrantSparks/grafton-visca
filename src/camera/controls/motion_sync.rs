@@ -1,15 +1,15 @@
-//! Unified Motion Sync control implementation using Mode trait.
+//! Motion Sync control implementation using Mode trait.
 
 use crate::{
-    camera::CameraSend, mode::Mode, types::MotionSyncSpeedValue, Error, MotionSyncMode,
-    MotionSyncSpeed,
+    camera::CommandClient, mode::Mode, types::MotionSyncSpeed, Error, MotionSyncMode,
+    MotionSyncPreset,
 };
 
-/// Unified Motion Sync control methods for cameras that support this feature.
+/// Motion Sync control methods for cameras that support this feature.
 ///
 /// This trait provides motion sync control methods that work seamlessly for both
 /// blocking and async cameras through the Mode trait system.
-#[grafton_visca_macros::forward_control_to_session]
+#[grafton_visca_macros::delegate_to_session]
 pub trait MotionSyncControl {
     /// The mode type for this camera (Async or Blocking).
     type Mode: Mode;
@@ -40,7 +40,7 @@ pub trait MotionSyncControl {
     /// - The speed is outside the valid range (1-24)
     fn set_motion_sync_speed(
         &self,
-        speed: MotionSyncSpeedValue,
+        speed: MotionSyncSpeed,
     ) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
 
     /// Sets the motion sync speed using a preset value.
@@ -52,7 +52,7 @@ pub trait MotionSyncControl {
     /// Returns an error if the camera doesn't support motion sync.
     fn set_motion_sync_preset_speed(
         &self,
-        speed: MotionSyncSpeed,
+        speed: MotionSyncPreset,
     ) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
 
     /// Gets the current motion sync mode.
@@ -67,15 +67,15 @@ pub trait MotionSyncControl {
     /// Returns an error if the camera doesn't support motion sync.
     fn get_motion_sync_speed(
         &self,
-    ) -> <Self::Mode as Mode>::Ret<'_, Result<MotionSyncSpeed, Error>>;
+    ) -> <Self::Mode as Mode>::Ret<'_, Result<MotionSyncPreset, Error>>;
 }
 
 // Single unified implementation for all Camera types!
-impl<M, P, Tr, Exec> MotionSyncControl for crate::camera::UnifiedCamera<M, P, Tr, Exec>
+impl<M, P, Tr, Exec> MotionSyncControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + Default + crate::capabilities::motion_sync::MotionSync,
-    Self: CameraSend<M>,
+    Self: CommandClient<M>,
     Exec: crate::executor::Executor,
 {
     type Mode = M;
@@ -86,12 +86,12 @@ where
         self.send_and_complete(cmd)
     }
 
-    fn set_motion_sync_speed(&self, speed: MotionSyncSpeedValue) -> M::Ret<'_, Result<(), Error>> {
-        use crate::command::motion_sync::MotionSyncSpeedCommand;
-        // MotionSyncSpeedValue is already validated to be in range 1-24
-        // MotionSyncSpeedCommand::new() validates the same range, so this should never fail
+    fn set_motion_sync_speed(&self, speed: MotionSyncSpeed) -> M::Ret<'_, Result<(), Error>> {
+        use crate::command::motion_sync::MotionSyncPresetCommand;
+        // MotionSyncSpeed is already validated to be in range 1-24
+        // MotionSyncPresetCommand::new() validates the same range, so this should never fail
         // But we handle the error properly to satisfy clippy
-        match MotionSyncSpeedCommand::new(speed.value()) {
+        match MotionSyncPresetCommand::new(speed.value()) {
             Ok(cmd) => self.send_and_complete(cmd),
             Err(e) => self.error(e),
         }
@@ -99,10 +99,10 @@ where
 
     fn set_motion_sync_preset_speed(
         &self,
-        speed: MotionSyncSpeed,
+        speed: MotionSyncPreset,
     ) -> M::Ret<'_, Result<(), Error>> {
-        use crate::command::motion_sync::MotionSyncSpeedCommand;
-        let cmd = MotionSyncSpeedCommand::from_preset(speed);
+        use crate::command::motion_sync::MotionSyncPresetCommand;
+        let cmd = MotionSyncPresetCommand::from_preset(speed);
         self.send_and_complete(cmd)
     }
 
@@ -111,8 +111,8 @@ where
         self.send_and_parse(MotionSyncModeInquiry)
     }
 
-    fn get_motion_sync_speed(&self) -> M::Ret<'_, Result<MotionSyncSpeed, Error>> {
-        use crate::command::inquiry_structs::MotionSyncSpeedInquiry;
-        self.send_and_parse(MotionSyncSpeedInquiry)
+    fn get_motion_sync_speed(&self) -> M::Ret<'_, Result<MotionSyncPreset, Error>> {
+        use crate::command::inquiry_structs::MotionSyncPresetInquiry;
+        self.send_and_parse(MotionSyncPresetInquiry)
     }
 }

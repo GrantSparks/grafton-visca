@@ -25,7 +25,10 @@
 use std::env;
 
 #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
-use grafton_visca::{camera::profiles::PtzOpticsG2, Camera, Error};
+use grafton_visca::{
+    camera::{profiles::PtzOpticsG2, Connect},
+    Camera, Error,
+};
 
 // Main function for when no runtime is selected
 #[cfg(not(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")))]
@@ -60,7 +63,7 @@ async fn main() -> Result<(), Error> {
 
     // Connect to camera using the high-level API
     let runtime = TokioRuntime::from_current()?;
-    let camera = Camera::open_tcp_async::<PtzOpticsG2, _>(&camera_addr, runtime).await?;
+    let camera = Connect::open_tcp_async::<PtzOpticsG2, _>(&camera_addr, runtime).await?;
     println!("✓ Connected successfully");
 
     // Power on the camera
@@ -151,7 +154,7 @@ async fn main() -> Result<(), Error> {
 
     // Connect to camera using the high-level API
     let runtime = AsyncStdRuntime::new();
-    let camera = Camera::open_tcp_async::<PtzOpticsG2, _>(&camera_addr, runtime).await?;
+    let camera = Connect::open_tcp_async::<PtzOpticsG2, _>(&camera_addr, runtime).await?;
     println!("✓ Connected successfully");
 
     // Power on the camera
@@ -238,7 +241,7 @@ fn main() -> Result<(), Error> {
 
         // Connect to camera using the high-level API
         let runtime = SmolRuntime::new();
-        let camera = Camera::open_tcp_async::<PtzOpticsG2, _>(&camera_addr, runtime).await?;
+        let camera = Connect::open_tcp_async::<PtzOpticsG2, _>(&camera_addr, runtime).await?;
         println!("✓ Connected successfully");
 
         // Power on the camera

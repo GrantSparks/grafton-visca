@@ -18,7 +18,7 @@
 //! cargo run --example runtime_agnostic --features rt-tokio
 //! ```
 
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 fn main() {
     use std::{future::Future, pin::Pin, time::Duration};
 
@@ -255,7 +255,7 @@ fn main() {
     println!("\n✅ Example completed successfully!");
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 fn main() {
     eprintln!("This example requires the 'async' feature to be enabled.");
     eprintln!("Run with: cargo run --example runtime_agnostic --features async");

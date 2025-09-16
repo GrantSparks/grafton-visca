@@ -35,17 +35,15 @@
 //!     .await?;
 //! ```
 
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 use std::sync::Arc;
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 use crate::transport::SyncTransport;
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 use crate::{
-    camera::UnifiedCamera as Camera,
-    executor::Executor,
-    mode,
-    transport::{protocol_detection::ProtocolDetector, AsyncTransport},
+    camera::Camera, executor::Executor, mode, protocol::detect::ProtocolDetector,
+    transport::AsyncTransport,
 };
 use crate::{
     camera_id::CameraId,
@@ -62,16 +60,16 @@ pub struct CameraBuilder<E = ()> {
     camera_id: CameraId,
     timeout_config: TimeoutConfig,
     protocol_style: Option<ProtocolStyle>,
-    #[cfg(feature = "async")]
+    #[cfg(feature = "mode-async")]
     auto_detect_protocol: bool,
-    #[cfg(feature = "async")]
+    #[cfg(feature = "mode-async")]
     executor: Option<Arc<E>>,
-    #[cfg(not(feature = "async"))]
+    #[cfg(not(feature = "mode-async"))]
     _phantom: std::marker::PhantomData<E>,
 }
 
 /// Builder with async transport attached (BYO transport pattern).
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 #[derive(Debug)]
 pub struct CameraBuilderWithAsyncTransport<E, T> {
     transport: T,
@@ -82,7 +80,7 @@ pub struct CameraBuilderWithAsyncTransport<E, T> {
     auto_detect_protocol: bool,
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 impl<E, T> CameraBuilderWithAsyncTransport<E, T>
 where
     E: Executor + Send + Sync + 'static,
@@ -126,7 +124,7 @@ where
 }
 
 /// Builder with async transport and profile configured.
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 #[derive(Debug)]
 pub struct CameraBuilderWithAsyncTransportAndProfile<E, T, P> {
     transport: T,
@@ -138,7 +136,7 @@ pub struct CameraBuilderWithAsyncTransportAndProfile<E, T, P> {
     _phantom: std::marker::PhantomData<P>,
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 impl<E, T, P> CameraBuilderWithAsyncTransportAndProfile<E, T, P>
 where
     E: Executor + Send + Sync + 'static,
@@ -195,9 +193,9 @@ impl<E> std::fmt::Debug for CameraBuilder<E> {
         builder.field("camera_id", &self.camera_id);
         builder.field("timeout_config", &self.timeout_config);
         builder.field("protocol_style", &self.protocol_style);
-        #[cfg(feature = "async")]
+        #[cfg(feature = "mode-async")]
         builder.field("auto_detect_protocol", &self.auto_detect_protocol);
-        #[cfg(feature = "async")]
+        #[cfg(feature = "mode-async")]
         builder.field("executor", &self.executor.is_some());
         builder.finish()
     }
@@ -210,11 +208,11 @@ impl CameraBuilder<()> {
             camera_id: CameraId::default(),
             timeout_config: TimeoutConfig::default(),
             protocol_style: None,
-            #[cfg(feature = "async")]
+            #[cfg(feature = "mode-async")]
             auto_detect_protocol: false,
-            #[cfg(feature = "async")]
+            #[cfg(feature = "mode-async")]
             executor: None,
-            #[cfg(not(feature = "async"))]
+            #[cfg(not(feature = "mode-async"))]
             _phantom: std::marker::PhantomData,
         }
     }
@@ -226,7 +224,7 @@ impl Default for CameraBuilder<()> {
     }
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 impl<E> CameraBuilder<E>
 where
     E: Executor + Send + Sync + 'static,
@@ -338,13 +336,11 @@ where
                 .detect_protocol(&mut transport, executor.as_ref())
                 .await?
             {
-                crate::transport::protocol_detection::DetectionResult::SonyEncapsulated => {
+                crate::protocol::detect::DetectionResult::SonyEncapsulated => {
                     ProtocolStyle::SonyEncapsulated
                 }
-                crate::transport::protocol_detection::DetectionResult::RawVisca => {
-                    ProtocolStyle::RawVisca
-                }
-                crate::transport::protocol_detection::DetectionResult::NoResponse => {
+                crate::protocol::detect::DetectionResult::RawVisca => ProtocolStyle::RawVisca,
+                crate::protocol::detect::DetectionResult::NoResponse => {
                     // Fall back to explicit override or profile default
                     self.protocol_style.unwrap_or(P::PROTOCOL_STYLE)
                 }
@@ -368,7 +364,7 @@ where
 }
 
 /// Transport type for builder.
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 #[derive(Debug, Clone, Copy)]
 pub enum TransportType {
     /// TCP transport
@@ -379,7 +375,7 @@ pub enum TransportType {
 
 /// Builder with transport configuration.
 #[derive(Debug)]
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 pub struct CameraBuilderWithTransport {
     transport_type: TransportType,
     address: String,
@@ -387,13 +383,13 @@ pub struct CameraBuilderWithTransport {
 }
 
 /// Builder with BlockingTransportHandle (zero-cost variant).
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 pub struct CameraBuilderWithHandleTransport {
     transport: crate::transport::BlockingTransportHandle,
     protocol_style: Option<ProtocolStyle>,
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 impl std::fmt::Debug for CameraBuilderWithHandleTransport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CameraBuilderWithHandleTransport")
@@ -405,12 +401,12 @@ impl std::fmt::Debug for CameraBuilderWithHandleTransport {
 
 /// Builder for auto-detecting transport and protocol.
 #[derive(Debug)]
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 pub struct CameraBuilderWithAutoDetect {
     address: String,
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 impl CameraBuilderWithAutoDetect {
     /// Set the camera profile.
     pub fn profile<P>(self) -> CameraBuilderWithAutoDetectAndProfile<P>
@@ -426,13 +422,13 @@ impl CameraBuilderWithAutoDetect {
 
 /// Builder with auto-detect and profile configured.
 #[derive(Debug)]
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 pub struct CameraBuilderWithAutoDetectAndProfile<P> {
     address: String,
     _phantom: std::marker::PhantomData<P>,
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 impl<P> CameraBuilderWithAutoDetectAndProfile<P>
 where
     P: Profile + Default,
@@ -450,11 +446,11 @@ where
             crate::transport::builder::TransportConfig::default(),
         )?;
         // Use BlockingTransportHandle directly without boxing
-        crate::BlockingCamera::new_with_style(transport, style)
+        crate::BlockingCamera::new_blocking_with_style(transport, style)
     }
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 impl CameraBuilderWithHandleTransport {
     /// Set the camera profile.
     pub fn profile<P>(self) -> CameraBuilderWithHandleTransportAndProfile<P>
@@ -479,14 +475,14 @@ impl CameraBuilderWithHandleTransport {
 }
 
 /// Builder with handle transport and profile configured.
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 pub struct CameraBuilderWithHandleTransportAndProfile<P> {
     transport: crate::transport::BlockingTransportHandle,
     protocol_style: Option<ProtocolStyle>,
     _phantom: std::marker::PhantomData<P>,
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 impl<P> std::fmt::Debug for CameraBuilderWithHandleTransportAndProfile<P> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CameraBuilderWithHandleTransportAndProfile")
@@ -497,7 +493,7 @@ impl<P> std::fmt::Debug for CameraBuilderWithHandleTransportAndProfile<P> {
     }
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 impl<P> CameraBuilderWithHandleTransportAndProfile<P>
 where
     P: Profile + Default,
@@ -519,11 +515,11 @@ where
     ) -> Result<crate::BlockingCamera<P, crate::transport::BlockingTransportHandle>, Error> {
         // Use protocol style override if provided, otherwise use profile default
         let protocol_style = self.protocol_style.unwrap_or(P::PROTOCOL_STYLE);
-        crate::BlockingCamera::new_with_style(self.transport, protocol_style)
+        crate::BlockingCamera::new_blocking_with_style(self.transport, protocol_style)
     }
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 impl CameraBuilderWithTransport {
     /// Set the camera profile.
     pub fn profile<P>(self) -> CameraBuilderWithProfile<P>
@@ -550,7 +546,7 @@ impl CameraBuilderWithTransport {
 
 /// Builder with both transport and profile configured.
 #[derive(Debug)]
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 pub struct CameraBuilderWithProfile<P> {
     transport_type: TransportType,
     address: String,
@@ -558,7 +554,7 @@ pub struct CameraBuilderWithProfile<P> {
     _phantom: std::marker::PhantomData<P>,
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 impl<P> CameraBuilderWithProfile<P>
 where
     P: Profile + Default,
@@ -592,7 +588,7 @@ where
 
         // Use protocol style override if provided, otherwise use profile default
         let protocol_style = self.protocol_style.unwrap_or(P::PROTOCOL_STYLE);
-        crate::BlockingCamera::new_with_style(transport, protocol_style)
+        crate::BlockingCamera::new_blocking_with_style(transport, protocol_style)
     }
 }
 
@@ -605,7 +601,7 @@ impl CameraBuilder<()> {
     ///     .profile::<PtzOpticsG2>()
     ///     .open()?;
     /// ```
-    #[cfg(not(feature = "async"))]
+    #[cfg(not(feature = "mode-async"))]
     pub fn tcp(address: impl Into<String>) -> CameraBuilderWithTransport {
         CameraBuilderWithTransport {
             transport_type: TransportType::Tcp,
@@ -622,7 +618,7 @@ impl CameraBuilder<()> {
     ///     .profile::<PtzOpticsG2>()
     ///     .open()?;
     /// ```
-    #[cfg(not(feature = "async"))]
+    #[cfg(not(feature = "mode-async"))]
     pub fn udp(address: impl Into<String>) -> CameraBuilderWithTransport {
         CameraBuilderWithTransport {
             transport_type: TransportType::Udp,
@@ -646,7 +642,7 @@ impl CameraBuilder<()> {
     ///     .profile::<PtzOpticsG2>()
     ///     .open()?;
     /// ```
-    #[cfg(not(feature = "async"))]
+    #[cfg(not(feature = "mode-async"))]
     pub fn connect_auto(address: impl Into<String>) -> CameraBuilderWithAutoDetect {
         CameraBuilderWithAutoDetect {
             address: address.into(),
@@ -672,7 +668,7 @@ impl CameraBuilder<()> {
     ///     .profile::<PtzOpticsG2>()
     ///     .open()?;
     /// ```
-    #[cfg(not(feature = "async"))]
+    #[cfg(not(feature = "mode-async"))]
     pub fn from_transport_handle(
         transport: crate::transport::BlockingTransportHandle,
     ) -> CameraBuilderWithHandleTransport {
@@ -683,11 +679,11 @@ impl CameraBuilder<()> {
     }
 
     /// Build a blocking camera with the specified profile and transport.
-    #[cfg(not(feature = "async"))]
+    #[cfg(not(feature = "mode-async"))]
     pub fn build_blocking<P, T>(
         self,
         transport: T,
-    ) -> Result<crate::camera::UnifiedCamera<crate::mode::Blocking, P, T, ()>, Error>
+    ) -> Result<crate::camera::Camera<crate::mode::Blocking, P, T, ()>, Error>
     where
         P: Profile + Default,
         T: SyncTransport + crate::transport::HasTransportConfig + Send + 'static,
@@ -695,8 +691,7 @@ impl CameraBuilder<()> {
         // Use explicit override if provided, otherwise use profile default
         let protocol_style = self.protocol_style.unwrap_or(P::PROTOCOL_STYLE);
 
-        let mut camera =
-            crate::camera::UnifiedCamera::new_blocking_with_style(transport, protocol_style)?;
+        let mut camera = crate::camera::Camera::new_blocking_with_style(transport, protocol_style)?;
         camera.set_camera_id(self.camera_id);
         camera.set_timeout_config(self.timeout_config);
 
@@ -705,9 +700,9 @@ impl CameraBuilder<()> {
 }
 
 /// Type aliases for common camera configurations with executors.
-#[cfg(all(feature = "async", feature = "rt-tokio"))]
+#[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]
 pub mod async_cameras {
-    use crate::camera::UnifiedCamera as Camera;
+    use crate::camera::Camera;
     use crate::mode;
 
     /// A camera using the Tokio executor.
@@ -715,9 +710,9 @@ pub mod async_cameras {
 }
 
 /// Type aliases for async-std camera configurations.
-#[cfg(all(feature = "async", feature = "rt-async-std"))]
+#[cfg(all(feature = "mode-async", feature = "runtime-async-std"))]
 pub mod async_std_cameras {
-    use crate::camera::UnifiedCamera as Camera;
+    use crate::camera::Camera;
     use crate::mode;
 
     /// A camera using the async-std executor.
@@ -725,9 +720,9 @@ pub mod async_std_cameras {
 }
 
 /// Type aliases for smol camera configurations.
-#[cfg(all(feature = "async", feature = "rt-smol"))]
+#[cfg(all(feature = "mode-async", feature = "runtime-smol"))]
 pub mod smol_cameras {
-    use crate::camera::UnifiedCamera as Camera;
+    use crate::camera::Camera;
     use crate::mode;
 
     /// A camera using the smol executor.
@@ -735,9 +730,9 @@ pub mod smol_cameras {
 }
 
 /// Type aliases for blocking cameras.
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 pub mod blocking_cameras {
-    use crate::camera::UnifiedCamera as Camera;
+    use crate::camera::Camera;
     use crate::mode;
 
     /// A blocking camera (no executor needed).
@@ -748,21 +743,21 @@ pub mod blocking_cameras {
 mod tests {
     // Only import what's needed based on which tests are enabled
     #[cfg(any(
-        all(feature = "async", feature = "rt-tokio"),
-        all(not(feature = "async"), feature = "rt-tokio")
+        all(feature = "mode-async", feature = "runtime-tokio"),
+        all(not(feature = "mode-async"), feature = "runtime-tokio")
     ))]
     use super::CameraBuilder;
 
     #[cfg(any(
-        all(feature = "async", feature = "rt-tokio"),
-        all(not(feature = "async"), feature = "rt-tokio")
+        all(feature = "mode-async", feature = "runtime-tokio"),
+        all(not(feature = "mode-async"), feature = "runtime-tokio")
     ))]
     use crate::capabilities::ProtocolStyle;
 
-    #[cfg(all(feature = "async", feature = "rt-tokio"))]
+    #[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]
     use crate::error::Error;
 
-    #[cfg(all(feature = "async", feature = "rt-tokio"))]
+    #[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]
     #[tokio::test]
     async fn test_camera_builder_uses_profile_default() -> Result<(), Error> {
         use crate::camera::profiles::{PtzOpticsG2, SonyFR7};
@@ -787,7 +782,7 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(all(feature = "async", feature = "rt-tokio"))]
+    #[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]
     #[tokio::test]
     async fn test_camera_builder_with_protocol_override() -> Result<(), Error> {
         use crate::camera::profiles::SonyFR7;
@@ -806,7 +801,7 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(all(not(feature = "async"), feature = "rt-tokio"))]
+    #[cfg(all(not(feature = "mode-async"), feature = "runtime-tokio"))]
     #[test]
     fn test_blocking_camera_builder_uses_profile_default() {
         use crate::camera::profiles::{PtzOpticsG2, SonyFR7};
@@ -827,7 +822,7 @@ mod tests {
         // Camera should be configured with RawVisca protocol
     }
 
-    #[cfg(all(not(feature = "async"), feature = "rt-tokio"))]
+    #[cfg(all(not(feature = "mode-async"), feature = "runtime-tokio"))]
     #[test]
     fn test_blocking_camera_builder_with_protocol_override() {
         use crate::camera::profiles::SonyFR7;

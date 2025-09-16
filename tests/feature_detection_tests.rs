@@ -4,10 +4,10 @@
 //! through trait bounds and mode markers rather than runtime checks.
 
 // External crates
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 use grafton_visca::{camera::AsyncCamera, transport::AsyncTransport, Executor};
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 use grafton_visca::{transport::SyncTransport, BlockingCamera};
 
 use grafton_visca::{
@@ -20,7 +20,7 @@ use grafton_visca::{
 #[test]
 fn test_nd_filter_compile_time_safety() {
     // Async version - functions that require ND filter support
-    #[cfg(feature = "async")]
+    #[cfg(feature = "mode-async")]
     fn _set_nd_filter_async<P, T, E>(_camera: &AsyncCamera<P, T, E>, _position: NdFilterPosition)
     where
         P: Profile + NdFilter,
@@ -32,7 +32,7 @@ fn test_nd_filter_compile_time_safety() {
     }
 
     // Blocking version - functions that require ND filter support
-    #[cfg(not(feature = "async"))]
+    #[cfg(not(feature = "mode-async"))]
     fn _set_nd_filter_blocking<P, T>(_camera: &BlockingCamera<P, T>, _position: NdFilterPosition)
     where
         P: Profile + NdFilter,
@@ -48,7 +48,7 @@ fn test_nd_filter_compile_time_safety() {
 #[test]
 fn test_motion_sync_compile_time_safety() {
     // Async version - functions that require motion sync support
-    #[cfg(feature = "async")]
+    #[cfg(feature = "mode-async")]
     fn _enable_motion_sync_async<P, T, E>(
         _camera: &AsyncCamera<P, T, E>,
         _mode: grafton_visca::command::MotionSyncMode,
@@ -61,7 +61,7 @@ fn test_motion_sync_compile_time_safety() {
     }
 
     // Blocking version - functions that require motion sync support
-    #[cfg(not(feature = "async"))]
+    #[cfg(not(feature = "mode-async"))]
     fn _enable_motion_sync_blocking<P, T>(
         _camera: &BlockingCamera<P, T>,
         _mode: grafton_visca::command::MotionSyncMode,
@@ -78,7 +78,7 @@ fn test_motion_sync_compile_time_safety() {
 #[test]
 fn test_variable_speed_compile_time_safety() {
     // Async version - functions that require variable speed support
-    #[cfg(feature = "async")]
+    #[cfg(feature = "mode-async")]
     fn _set_variable_speed_mode_async<P, T, E>(
         _camera: &AsyncCamera<P, T, E>,
         _mode: grafton_visca::command::VariableSpeedMode,
@@ -91,7 +91,7 @@ fn test_variable_speed_compile_time_safety() {
     }
 
     // Blocking version - functions that require variable speed support
-    #[cfg(not(feature = "async"))]
+    #[cfg(not(feature = "mode-async"))]
     fn _set_variable_speed_mode_blocking<P, T>(
         _camera: &BlockingCamera<P, T>,
         _mode: grafton_visca::command::VariableSpeedMode,
@@ -109,7 +109,7 @@ fn test_variable_speed_compile_time_safety() {
 fn test_basic_features_available_to_all() {
     // All cameras have basic features through the Profile trait
 
-    #[cfg(feature = "async")]
+    #[cfg(feature = "mode-async")]
     {
         fn _basic_operations_async<P, T, E>(_camera: &AsyncCamera<P, T, E>)
         where
@@ -128,7 +128,7 @@ fn test_basic_features_available_to_all() {
         }
     }
 
-    #[cfg(not(feature = "async"))]
+    #[cfg(not(feature = "mode-async"))]
     {
         fn _basic_operations_blocking<P, T>(_camera: &BlockingCamera<P, T>)
         where
@@ -146,7 +146,7 @@ fn test_profile_specific_compile_time_checks() {
 
     // Functions that demonstrate profile-specific capabilities
 
-    #[cfg(feature = "async")]
+    #[cfg(feature = "mode-async")]
     {
         // SonyFR7 has NdFilter and VariableSpeed
         fn _sony_fr7_features_async<T, E>(_camera: &AsyncCamera<SonyFR7, T, E>)
@@ -188,7 +188,7 @@ fn test_profile_specific_compile_time_checks() {
         }
     }
 
-    #[cfg(not(feature = "async"))]
+    #[cfg(not(feature = "mode-async"))]
     {
         // Same checks for blocking mode
         fn _sony_fr7_features_blocking<T>(_camera: &BlockingCamera<SonyFR7, T>)
@@ -226,7 +226,7 @@ fn test_profile_specific_compile_time_checks() {
 fn test_mode_transport_consistency() {
     // Ensure that async mode requires async transport and blocking mode requires blocking transport
 
-    #[cfg(feature = "async")]
+    #[cfg(feature = "mode-async")]
     {
         // This compiles: AsyncMode with AsyncTransport
         fn _correct_async<P, T, E>(_camera: &AsyncCamera<P, T, E>)
@@ -247,7 +247,7 @@ fn test_mode_transport_consistency() {
         // }
     }
 
-    #[cfg(not(feature = "async"))]
+    #[cfg(not(feature = "mode-async"))]
     {
         // This compiles: BlockingMode with SyncTransport
         fn _correct_blocking<P, T>(_camera: &BlockingCamera<P, T>)

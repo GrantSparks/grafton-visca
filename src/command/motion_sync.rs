@@ -7,7 +7,7 @@
 use crate::{
     command::{
         bytes::builder::ConstCommandBuilder, encode_visca::ViscaEncode, MotionSyncMode,
-        MotionSyncSpeed, ViscaResponseType,
+        MotionSyncPreset, ViscaResponseType,
     },
     error::Error,
     timeout::CommandCategory,
@@ -77,12 +77,12 @@ impl ViscaEncode for MotionSyncModeCommand {
 /// PtzOptics-specific command that sets the maximum speed for synchronized movements.
 /// Speed values range from 1 to 24.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MotionSyncSpeedCommand {
+pub struct MotionSyncPresetCommand {
     /// The speed value (1-24).
     speed: u8,
 }
 
-impl MotionSyncSpeedCommand {
+impl MotionSyncPresetCommand {
     /// Creates a new motion sync speed command.
     ///
     /// # Arguments
@@ -103,17 +103,17 @@ impl MotionSyncSpeedCommand {
     }
 
     /// Creates a motion sync speed command from a preset speed enum.
-    pub fn from_preset(speed: MotionSyncSpeed) -> Self {
+    pub fn from_preset(speed: MotionSyncPreset) -> Self {
         let speed_value = match speed {
-            MotionSyncSpeed::Slow => 8,
-            MotionSyncSpeed::Normal => 16,
-            MotionSyncSpeed::Fast => 24,
+            MotionSyncPreset::Slow => 8,
+            MotionSyncPreset::Normal => 16,
+            MotionSyncPreset::Fast => 24,
         };
         Self { speed: speed_value }
     }
 }
 
-impl ViscaEncode for MotionSyncSpeedCommand {
+impl ViscaEncode for MotionSyncPresetCommand {
     type ViscaResponse = ();
     const MAX_SIZE: usize = 6;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
@@ -146,7 +146,7 @@ impl ViscaEncode for MotionSyncSpeedCommand {
             CameraVariant::PtzOpticsG2 | CameraVariant::PtzOpticsG3 => Ok(()),
             _ => Err(Error::ModelValidation {
                 model,
-                command: Cow::Borrowed("MotionSyncSpeed"),
+                command: Cow::Borrowed("MotionSyncPreset"),
                 reason: Cow::Borrowed(
                     "Motion Sync is only supported on PTZOptics cameras with firmware 1.1.6+",
                 ),
@@ -177,43 +177,43 @@ mod tests {
     );
 
     visca_test!(
-        MotionSyncSpeed,
+        MotionSyncPreset,
         test_motion_sync_speed_min,
-        MotionSyncSpeedCommand::new(1).unwrap(),
+        MotionSyncPresetCommand::new(1).unwrap(),
         &[0x81, 0x0A, 0x11, 0x14, 0x01, VISCA_TERMINATOR]
     );
 
     visca_test!(
-        MotionSyncSpeed,
+        MotionSyncPreset,
         test_motion_sync_speed_max,
-        MotionSyncSpeedCommand::new(24).unwrap(),
+        MotionSyncPresetCommand::new(24).unwrap(),
         &[0x81, 0x0A, 0x11, 0x14, 0x18, VISCA_TERMINATOR]
     );
 
     #[test]
     fn test_motion_sync_speed_out_of_range() {
-        assert!(MotionSyncSpeedCommand::new(0).is_err());
-        assert!(MotionSyncSpeedCommand::new(25).is_err());
+        assert!(MotionSyncPresetCommand::new(0).is_err());
+        assert!(MotionSyncPresetCommand::new(25).is_err());
     }
 
     visca_test!(
-        MotionSyncSpeed,
+        MotionSyncPreset,
         test_motion_sync_speed_slow,
-        MotionSyncSpeedCommand::from_preset(MotionSyncSpeed::Slow),
+        MotionSyncPresetCommand::from_preset(MotionSyncPreset::Slow),
         &[0x81, 0x0A, 0x11, 0x14, 0x08, VISCA_TERMINATOR]
     );
 
     visca_test!(
-        MotionSyncSpeed,
+        MotionSyncPreset,
         test_motion_sync_speed_normal,
-        MotionSyncSpeedCommand::from_preset(MotionSyncSpeed::Normal),
+        MotionSyncPresetCommand::from_preset(MotionSyncPreset::Normal),
         &[0x81, 0x0A, 0x11, 0x14, 0x10, VISCA_TERMINATOR]
     );
 
     visca_test!(
-        MotionSyncSpeed,
+        MotionSyncPreset,
         test_motion_sync_speed_fast,
-        MotionSyncSpeedCommand::from_preset(MotionSyncSpeed::Fast),
+        MotionSyncPresetCommand::from_preset(MotionSyncPreset::Fast),
         &[0x81, 0x0A, 0x11, 0x14, 0x18, VISCA_TERMINATOR]
     );
 }

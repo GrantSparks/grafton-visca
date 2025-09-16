@@ -3,7 +3,7 @@
 //! These tests verify that async operations work correctly with the default
 //! runtime provided by the rt-tokio feature.
 
-#![cfg(feature = "async")]
+#![cfg(feature = "mode-async")]
 
 #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
 use grafton_visca::testing::testkit::{helpers, ScriptedTransport};

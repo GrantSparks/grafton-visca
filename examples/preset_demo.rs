@@ -12,19 +12,19 @@
 //! cargo run --example preset_demo [camera_ip[:port]]
 //! ```
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 use std::{env, thread::sleep, time::Duration};
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 use grafton_visca::{
-    camera::profiles::PtzOpticsG2,
+    camera::{profiles::PtzOpticsG2, Connect},
     mode::BlockingFutureExt,
     types::SpeedLevel,
     units::{Degrees, Normalized},
-    Camera, Error,
+    Error,
 };
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 fn main() -> Result<(), Error> {
     tracing_subscriber::fmt::init();
 
@@ -37,7 +37,7 @@ fn main() -> Result<(), Error> {
     println!("Connecting to camera at {camera_addr}\n");
 
     // Connect to camera using the convenience API
-    let mut camera = Camera::open_tcp_blocking::<PtzOpticsG2>(format!("{camera_addr}:5678"))
+    let mut camera = Connect::open_tcp_blocking::<PtzOpticsG2>(format!("{camera_addr}:5678"))
         .map_err(|e| {
             eprintln!("Failed to connect to camera at {camera_addr}: {e}");
             e
@@ -141,7 +141,7 @@ fn main() -> Result<(), Error> {
     Ok(())
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 fn main() {
     println!("This example requires blocking mode. Run without the async feature:");
     println!("  cargo run --example preset_demo --no-default-features");

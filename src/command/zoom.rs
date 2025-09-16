@@ -8,7 +8,7 @@
 //!
 //! # Example
 //! ```ignore
-//! # #[cfg(not(feature = "async"))]
+//! # #[cfg(not(feature = "mode-async"))]
 //! # {
 //! # use grafton_visca::command::{Zoom, zoom::ZoomSpeed};
 //! # use grafton_visca::Client;

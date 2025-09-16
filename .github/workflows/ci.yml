@@ -10,7 +10,7 @@ name: Rust CI/CD
 # - Reusable workflows for better organization
 # - Job timeouts for reliability
 # - Comprehensive feature matrix testing (matches pre-commit hooks)
-# - Tests all combinations: default, no-default, async, rt-tokio, rt-async-std, rt-smol, test-utils
+# - Tests all combinations: default, no-default, mode-async, runtime-tokio, runtime-async-std, runtime-smol, test-utils
 # - Enhanced clippy coverage for all feature combinations
 # - Platform matrix testing (ubuntu, windows, macos) × (stable, beta)
 # - Separate minimal testing for feature branches (faster feedback)
@@ -90,7 +90,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Install system dependencies for serialport
+      # Install system dependencies for transport-serial
       - name: Install system dependencies
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -158,8 +158,8 @@ jobs:
         features:
           - ""  # default features
           - "no-default"
-          - "rt-tokio"
-          - "rt-async-std"
+          - "runtime-tokio"
+          - "runtime-async-std"
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -233,15 +233,15 @@ jobs:
       matrix:
         features:
           - ""  # no features
-          - "async"
-          - "rt-tokio"
-          - "rt-async-std"
-          - "rt-smol"
+          - "mode-async"
+          - "runtime-tokio"
+          - "runtime-async-std"
+          - "runtime-smol"
           - "test-utils"
-          - "rt-tokio,test-utils"
-          - "rt-async-std,test-utils"
-          - "rt-smol,test-utils"
-          - "rt-tokio,serialport"  # legacy compatibility
+          - "runtime-tokio,test-utils"
+          - "runtime-async-std,test-utils"
+          - "runtime-smol,test-utils"
+          - "runtime-tokio,transport-serial"  # legacy compatibility
     steps:
       - uses: actions/checkout@v4
 
@@ -319,8 +319,8 @@ jobs:
         run: cargo miri test --no-default-features --features async
         continue-on-error: true
 
-      - name: Run miri tests (rt-tokio)
-        run: cargo miri test --no-default-features --features rt-tokio
+      - name: Run miri tests (runtime-tokio)
+        run: cargo miri test --no-default-features --features runtime-tokio
         continue-on-error: true
 
   # Cross-compilation testing
@@ -366,14 +366,14 @@ jobs:
             cross build --target ${{ matrix.target }} --no-default-features --features async
           else
             # Other targets can use full features
-            cross build --target ${{ matrix.target }} --no-default-features --features rt-tokio
+            cross build --target ${{ matrix.target }} --no-default-features --features runtime-tokio
           fi
 
       # Also test that examples compile for the target
       - name: Build examples for ${{ matrix.target }}
         if: matrix.target != 'wasm32-unknown-unknown'
         run: |
-          cross build --examples --target ${{ matrix.target }} --no-default-features --features rt-tokio
+          cross build --examples --target ${{ matrix.target }} --no-default-features --features runtime-tokio
 
   # Combined lint and doc check
   lint-and-docs:
@@ -414,14 +414,14 @@ jobs:
 
           features=(
             ""
-            "async"
-            "rt-tokio"
-            "rt-async-std"
-            "rt-smol"
+            "mode-async"
+            "runtime-tokio"
+            "runtime-async-std"
+            "runtime-smol"
             "test-utils"
-            "rt-tokio,test-utils"
-            "rt-async-std,test-utils"
-            "rt-tokio,serialport"
+            "runtime-tokio,test-utils"
+            "runtime-async-std,test-utils"
+            "runtime-tokio,transport-serial"
           )
 
           for feature in "${features[@]}"; do
@@ -441,7 +441,7 @@ jobs:
           cargo clippy -p grafton-visca-macros --all-targets -- -D warnings
 
           # Check examples
-          cargo clippy --examples --no-default-features --features rt-tokio -- -D warnings
+          cargo clippy --examples --no-default-features --features runtime-tokio -- -D warnings
           EOF
 
           chmod +x /tmp/clippy-features.sh
@@ -453,12 +453,12 @@ jobs:
         run: |
           # Check documentation builds for different feature sets
           cargo doc --no-deps --no-default-features
-          cargo doc --no-deps --no-default-features --features rt-tokio
-          cargo doc --no-deps --no-default-features --features rt-async-std
+          cargo doc --no-deps --no-default-features --features runtime-tokio
+          cargo doc --no-deps --no-default-features --features runtime-async-std
           cargo doc --no-deps --all-features
 
           # Check private items documentation
-          cargo doc --document-private-items --no-deps --no-default-features --features rt-tokio
+          cargo doc --document-private-items --no-deps --no-default-features --features runtime-tokio
 
           # Check macro crate documentation
           cargo doc -p grafton-visca-macros --no-deps
@@ -472,7 +472,7 @@ jobs:
     timeout-minutes: 30
     strategy:
       matrix:
-        runtime: [rt-tokio, rt-async-std, rt-smol]
+        runtime: [runtime-tokio, runtime-async-std, runtime-smol]
     steps:
       - uses: actions/checkout@v4
 
@@ -509,14 +509,14 @@ jobs:
           echo "Testing that multiple runtime features can coexist..."
 
           case "${{ matrix.runtime }}" in
-            "rt-tokio")
-              other_runtime="rt-async-std"
+            "runtime-tokio")
+              other_runtime="runtime-async-std"
               ;;
-            "rt-async-std")
-              other_runtime="rt-smol"
+            "runtime-async-std")
+              other_runtime="runtime-smol"
               ;;
-            "rt-smol")
-              other_runtime="rt-tokio"
+            "runtime-smol")
+              other_runtime="runtime-tokio"
               ;;
           esac
 
@@ -578,7 +578,7 @@ jobs:
       - uses: obi1kenobi/cargo-semver-checks-action@v2
         with:
           feature-group: only-explicit-features
-          features: rt-tokio,serialport
+          features: runtime-tokio,transport-serial
 
   # Check package metadata and dependencies
   package-check:
@@ -620,8 +620,8 @@ jobs:
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         run: |
           echo "Running build validation for non-release..."
-          cargo build --no-default-features --features rt-tokio --workspace
-          cargo build --examples --no-default-features --features rt-tokio
+          cargo build --no-default-features --features runtime-tokio --workspace
+          cargo build --examples --no-default-features --features runtime-tokio
           cargo metadata --format-version 1 > /dev/null
 
       # Security audit

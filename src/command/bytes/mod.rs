@@ -11,5 +11,5 @@ pub use builder::ConstCommandBuilder;
 /// VISCA command terminator byte.
 pub const VISCA_TERMINATOR: u8 = 0xFF;
 
-/// Default camera address for VISCA commands.
-pub const DEFAULT_ADDRESS: u8 = 0x81;
+/// Default camera ID for VISCA commands.
+pub const DEFAULT_CAMERA_ID: u8 = 0x81;

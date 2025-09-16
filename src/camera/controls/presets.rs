@@ -1,12 +1,12 @@
-//! Unified preset control implementation using Mode trait.
+//! preset control implementation using Mode trait.
 
-use crate::{camera::CameraSend, command::preset::PresetNumber, mode::Mode, Error};
+use crate::{camera::CommandClient, command::preset::PresetNumber, mode::Mode, Error};
 
-/// Unified presets operations for cameras.
+/// presets operations for cameras.
 ///
 /// This trait provides preset control methods that work seamlessly for both
 /// blocking and async cameras through the Mode trait system.
-#[grafton_visca_macros::forward_control_to_session]
+#[grafton_visca_macros::delegate_to_session]
 pub trait PresetsControl {
     /// The mode type for this camera (Async or Blocking).
     type Mode: Mode;
@@ -28,11 +28,11 @@ pub trait PresetsControl {
 }
 
 // Single unified implementation for all Camera types!
-impl<M, P, Tr, Exec> PresetsControl for crate::camera::UnifiedCamera<M, P, Tr, Exec>
+impl<M, P, Tr, Exec> PresetsControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + Default,
-    Self: CameraSend<M>,
+    Self: CommandClient<M>,
     Exec: crate::executor::Executor,
 {
     type Mode = M;

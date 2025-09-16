@@ -56,7 +56,7 @@ pub trait SchedulerLike {
 }
 
 // Feature-gated implementation for async adapter
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 mod async_impl {
     use super::*;
     use crate::{capabilities::Profile, executor::Executor, runtime::async_adapter::AsyncAdapter};
@@ -93,10 +93,10 @@ mod async_impl {
 }
 
 // Feature-gated implementation for blocking scheduler core
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 pub use blocking_impl::BlockingScheduler;
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 mod blocking_impl {
     use super::*;
     use crate::runtime::core::SchedulerCore;

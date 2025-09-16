@@ -525,7 +525,7 @@
 //!     .open_async::<PtzOpticsG2, _>(transport).await?;
 //!
 //! // For blocking mode (when async feature is disabled)
-//! #[cfg(not(feature = "async"))]
+//! #[cfg(not(feature = "mode-async"))]
 //! let camera = CameraBuilder::new()
 //!     .timeout_config(config)
 //!     .build_blocking::<PtzOpticsG2, _>(transport)?;
@@ -595,10 +595,10 @@
 mod error;
 pub(crate) mod macros;
 
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 pub(crate) mod executor;
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 pub(crate) mod executor {
     /// Dummy Executor trait for non-async mode.
     /// This allows the code to remain uniform regardless of feature flags.
@@ -647,15 +647,15 @@ pub mod protocol;
 pub mod runtime;
 
 /// Runtime-specific transport adapters
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 pub mod runtime_adapters;
 
 /// Runtime trait for binding executor and transport connectors
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 pub mod runtime_trait;
 
 /// Testing utilities (available with test-utils feature for deterministic testing)
-#[cfg(any(feature = "rt-tokio", feature = "test-utils"))]
+#[cfg(any(feature = "runtime-tokio", feature = "test-utils"))]
 #[doc(hidden)]
 pub mod testing;
 
@@ -680,9 +680,10 @@ pub use grafton_visca_macros::{InquiryCommand, ViscaEnum, ViscaValue};
 pub use crate::{
     camera::{Camera, CameraBuilder},
     camera_id::CameraId,
-    error::{Error, Result},
     // High-level types for public API
-    types::{PanTiltDirection, SpeedLevel, ZoomVelocity},
+    command::zoom::ZoomSpeed,
+    error::{Error, Result},
+    types::{MotionSyncSpeed, PanTiltDirection, SpeedLevel},
     visca_socket::ViscaSocket,
 };
 
@@ -696,19 +697,19 @@ pub use crate::command::{
     pan_tilt::PanTiltLimitCorner,
     preset::PresetNumber,
     resolution::{PictureEffectMode, ResolutionMode},
-    system::{MotionSyncMode, MotionSyncSpeed},
+    system::{MotionSyncMode, MotionSyncPreset},
     white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode},
 };
 
 // Re-export the new concrete camera types
-#[cfg(not(feature = "async"))]
-pub use crate::camera::UnifiedBlockingCamera;
+#[cfg(not(feature = "mode-async"))]
+pub use crate::camera::BlockingCamera;
 
-// Re-export the BlockingCamera wrapper for ergonomic blocking API
-#[cfg(not(feature = "async"))]
-pub use crate::camera::blocking_api::BlockingCamera;
+// Re-export the BlockingClient wrapper for ergonomic blocking API
+#[cfg(not(feature = "mode-async"))]
+pub use crate::camera::blocking_api::BlockingClient;
 
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 pub use crate::camera::AsyncCamera;
 
 // Export unified camera control traits that work with both blocking and async cameras
@@ -733,23 +734,23 @@ pub use crate::camera::controls::{
 // Internal use only - users should use accessor methods instead
 #[doc(hidden)]
 pub use crate::camera::controls::inquiry::{InquiryControl, PanTiltInquiryControl};
-#[cfg(all(feature = "async", feature = "rt-async-std"))]
+#[cfg(all(feature = "mode-async", feature = "runtime-async-std"))]
 pub use crate::executor::AsyncStdExecutor;
-#[cfg(all(feature = "async", feature = "rt-smol"))]
+#[cfg(all(feature = "mode-async", feature = "runtime-smol"))]
 pub use crate::executor::SmolExecutor;
-#[cfg(all(feature = "async", feature = "rt-tokio"))]
+#[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]
 pub use crate::executor::TokioExecutor;
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 pub use crate::executor::{ExecError, Executor};
 
 // Re-export Runtime trait and implementations
-#[cfg(all(feature = "async", feature = "rt-async-std"))]
+#[cfg(all(feature = "mode-async", feature = "runtime-async-std"))]
 pub use crate::runtime_trait::AsyncStdRuntime;
-#[cfg(all(feature = "async", feature = "rt-smol"))]
+#[cfg(all(feature = "mode-async", feature = "runtime-smol"))]
 pub use crate::runtime_trait::SmolRuntime;
-#[cfg(all(feature = "async", feature = "rt-tokio"))]
+#[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]
 pub use crate::runtime_trait::TokioRuntime;
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 pub use crate::runtime_trait::{Runtime, TransportHandle};
 
 /// Camera profiles with compositional capabilities

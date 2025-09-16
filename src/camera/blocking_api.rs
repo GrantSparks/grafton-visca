@@ -1,12 +1,11 @@
 //! Blocking-specific wrapper providing direct `Result<T, E>` returns.
 //!
-//! This module provides a thin wrapper around `UnifiedCamera<Blocking, _, _, _>` that
+//! This module provides a thin wrapper around `Camera<Blocking, _, _, _>` that
 //! converts the `Ready<T>` futures to direct `Result<T, E>` values, restoring
 //! traditional blocking ergonomics while maintaining the unified Mode-generic design.
 
 use crate::{
-    camera::UnifiedCamera,
-    camera::UnifiedCamera as Camera,
+    camera::Camera,
     mode::{Blocking, BlockingFutureExt},
     Error,
 };
@@ -14,7 +13,7 @@ use std::ops::Deref;
 
 /// Zero-cost wrapper for blocking cameras providing direct method access.
 ///
-/// This type wraps a `UnifiedCamera<Blocking, P, Tr, ()>` and provides methods that
+/// This type wraps a `Camera<Blocking, P, Tr, ()>` and provides methods that
 /// return `Result<T, Error>` directly instead of `Ready<Result<T, Error>>`,
 /// eliminating the need for `.block()` calls at every usage site.
 ///
@@ -22,7 +21,7 @@ use std::ops::Deref;
 ///
 /// ```ignore
 /// use grafton_visca::{
-///     BlockingCamera, CameraBuilder, Error,
+///     BlockingClient, CameraBuilder, Error,
 ///     camera::profiles::PtzOpticsG2,
 ///     transport::Transport,
 ///     PowerControl, ZoomControl,
@@ -34,7 +33,7 @@ use std::ops::Deref;
 ///         .connect_blocking()?;
 ///
 ///     // Create wrapped camera for ergonomic blocking API
-///     let camera = BlockingCamera::new::<PtzOpticsG2, _>(transport)?;
+///     let camera = BlockingClient::new::<PtzOpticsG2, _>(transport)?;
 ///
 ///     // Direct Result<T, Error> returns - no .block() needed!
 ///     camera.power_on()?;
@@ -46,14 +45,14 @@ use std::ops::Deref;
 /// ```
 #[repr(transparent)]
 #[derive(Debug)]
-pub struct BlockingCamera<P, Tr>
+pub struct BlockingClient<P, Tr>
 where
     P: crate::capabilities::Profile,
 {
-    inner: UnifiedCamera<Blocking, P, Tr, ()>,
+    inner: Camera<Blocking, P, Tr, ()>,
 }
 
-impl<P, Tr> BlockingCamera<P, Tr>
+impl<P, Tr> BlockingClient<P, Tr>
 where
     P: crate::capabilities::Profile,
 {
@@ -64,7 +63,7 @@ where
         Tr: crate::transport::SyncTransport + crate::transport::HasTransportConfig + Send + 'static,
     {
         Ok(Self {
-            inner: UnifiedCamera::<Blocking, P, Tr, ()>::new_blocking(transport)?,
+            inner: Camera::<Blocking, P, Tr, ()>::new_blocking(transport)?,
         })
     }
 
@@ -78,7 +77,7 @@ where
         Tr: crate::transport::SyncTransport + crate::transport::HasTransportConfig + Send + 'static,
     {
         Ok(Self {
-            inner: UnifiedCamera::<Blocking, P, Tr, ()>::new_blocking_with_style(
+            inner: Camera::<Blocking, P, Tr, ()>::new_blocking_with_style(
                 transport,
                 protocol_style,
             )?,
@@ -86,22 +85,22 @@ where
     }
 
     /// Convert from an existing blocking camera.
-    pub fn from_camera(camera: UnifiedCamera<Blocking, P, Tr, ()>) -> Self {
+    pub fn from_camera(camera: Camera<Blocking, P, Tr, ()>) -> Self {
         Self { inner: camera }
     }
 
     /// Get the inner camera for advanced operations.
-    pub fn into_inner(self) -> UnifiedCamera<Blocking, P, Tr, ()> {
+    pub fn into_inner(self) -> Camera<Blocking, P, Tr, ()> {
         self.inner
     }
 
     /// Get a reference to the inner camera.
-    pub fn inner(&self) -> &UnifiedCamera<Blocking, P, Tr, ()> {
+    pub fn inner(&self) -> &Camera<Blocking, P, Tr, ()> {
         &self.inner
     }
 
     /// Get a mutable reference to the inner camera for advanced operations.
-    pub fn inner_mut(&mut self) -> &mut UnifiedCamera<Blocking, P, Tr, ()> {
+    pub fn inner_mut(&mut self) -> &mut Camera<Blocking, P, Tr, ()> {
         &mut self.inner
     }
 
@@ -135,7 +134,7 @@ where
     /// # Example
     ///
     /// ```rust,ignore
-    /// use grafton_visca::{BlockingCamera, camera::profiles::PtzOpticsG2};
+    /// use grafton_visca::{BlockingClient, camera::profiles::PtzOpticsG2};
     /// use std::time::Duration;
     ///
     /// let camera = Camera::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?;
@@ -160,7 +159,7 @@ where
     /// # Example
     ///
     /// ```rust,ignore
-    /// use grafton_visca::{BlockingCamera, camera::profiles::PtzOpticsG2};
+    /// use grafton_visca::{BlockingClient, camera::profiles::PtzOpticsG2};
     ///
     /// let camera = Camera::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?;
     /// // Use the camera...
@@ -175,7 +174,7 @@ where
     }
 }
 
-impl<P, Tr> From<Camera<Blocking, P, Tr, ()>> for BlockingCamera<P, Tr>
+impl<P, Tr> From<Camera<Blocking, P, Tr, ()>> for BlockingClient<P, Tr>
 where
     P: crate::capabilities::Profile,
 {
@@ -184,18 +183,18 @@ where
     }
 }
 
-impl<P, Tr> Deref for BlockingCamera<P, Tr>
+impl<P, Tr> Deref for BlockingClient<P, Tr>
 where
     P: crate::capabilities::Profile,
 {
-    type Target = UnifiedCamera<Blocking, P, Tr, ()>;
+    type Target = Camera<Blocking, P, Tr, ()>;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
     }
 }
 
-impl<P, Tr> AsRef<Camera<Blocking, P, Tr, ()>> for BlockingCamera<P, Tr>
+impl<P, Tr> AsRef<Camera<Blocking, P, Tr, ()>> for BlockingClient<P, Tr>
 where
     P: crate::capabilities::Profile,
 {
@@ -251,7 +250,7 @@ use crate::camera::controls::{
 // ZoomControl implementation
 // ============================================================================
 
-impl<P, Tr> BlockingCamera<P, Tr>
+impl<P, Tr> BlockingClient<P, Tr>
 where
     Camera<Blocking, P, Tr, ()>: ZoomControl<Mode = Blocking>,
     P: crate::capabilities::Profile + Default + crate::capabilities::zoom::Zoom,
@@ -287,7 +286,7 @@ where
 // PowerControl implementation
 // ============================================================================
 
-impl<P, Tr> BlockingCamera<P, Tr>
+impl<P, Tr> BlockingClient<P, Tr>
 where
     Camera<Blocking, P, Tr, ()>: PowerControl<Mode = Blocking>,
     P: crate::capabilities::Profile + Default + crate::capabilities::power::Power,
@@ -305,7 +304,7 @@ where
 // FocusControl implementation
 // ============================================================================
 
-impl<P, Tr> BlockingCamera<P, Tr>
+impl<P, Tr> BlockingClient<P, Tr>
 where
     Camera<Blocking, P, Tr, ()>: FocusControl<Mode = Blocking>,
     P: crate::capabilities::Profile + Default + crate::capabilities::focus::Focus,
@@ -362,7 +361,7 @@ where
 // ExposureControl implementation
 // ============================================================================
 
-impl<P, Tr> BlockingCamera<P, Tr>
+impl<P, Tr> BlockingClient<P, Tr>
 where
     Camera<Blocking, P, Tr, ()>: ExposureControl<Mode = Blocking>,
     P: crate::capabilities::Profile + Default + crate::capabilities::exposure::Exposure,
@@ -466,7 +465,7 @@ where
 // ExposureCompensationControl implementation
 // ============================================================================
 
-impl<P, Tr> BlockingCamera<P, Tr>
+impl<P, Tr> BlockingClient<P, Tr>
 where
     Camera<Blocking, P, Tr, ()>: ExposureCompensationControl<Mode = Blocking>,
     P: crate::capabilities::Profile + Default,
@@ -496,7 +495,7 @@ where
 // PanTiltControl implementation
 // ============================================================================
 
-impl<P, Tr> BlockingCamera<P, Tr>
+impl<P, Tr> BlockingClient<P, Tr>
 where
     Camera<Blocking, P, Tr, ()>: PanTiltControl<Mode = Blocking>,
     P: crate::capabilities::Profile + Default + crate::capabilities::pan_tilt::PanTilt,
@@ -532,7 +531,7 @@ where
 // PresetsControl implementation
 // ============================================================================
 
-impl<P, Tr> BlockingCamera<P, Tr>
+impl<P, Tr> BlockingClient<P, Tr>
 where
     Camera<Blocking, P, Tr, ()>: PresetsControl<Mode = Blocking>,
     P: crate::capabilities::Profile + Default + crate::capabilities::presets::Presets,
@@ -553,7 +552,7 @@ where
 // WhiteBalanceControl implementation
 // ============================================================================
 
-impl<P, Tr> BlockingCamera<P, Tr>
+impl<P, Tr> BlockingClient<P, Tr>
 where
     Camera<Blocking, P, Tr, ()>: WhiteBalanceControl<Mode = Blocking>,
     P: crate::capabilities::Profile + Default + crate::capabilities::white_balance::WhiteBalance,
@@ -592,7 +591,7 @@ where
 // MenuControl implementation
 // ============================================================================
 
-impl<P, Tr> BlockingCamera<P, Tr>
+impl<P, Tr> BlockingClient<P, Tr>
 where
     Camera<Blocking, P, Tr, ()>: MenuControl<Mode = Blocking>,
     P: crate::capabilities::Profile + Default + crate::capabilities::MenuControl,
@@ -613,7 +612,7 @@ where
 // DirectMenuControl implementation
 // ============================================================================
 
-impl<P, Tr> BlockingCamera<P, Tr>
+impl<P, Tr> BlockingClient<P, Tr>
 where
     Camera<Blocking, P, Tr, ()>: DirectMenuControl<Mode = Blocking>,
     P: crate::capabilities::Profile + Default + crate::capabilities::MenuControl,
@@ -631,7 +630,7 @@ where
 // SystemControl implementation
 // ============================================================================
 
-impl<P, Tr> BlockingCamera<P, Tr>
+impl<P, Tr> BlockingClient<P, Tr>
 where
     Camera<Blocking, P, Tr, ()>: SystemControl<Mode = Blocking>,
     P: crate::capabilities::Profile + Default,
@@ -652,7 +651,7 @@ where
 // TallyControl implementation
 // ============================================================================
 
-impl<P, Tr> BlockingCamera<P, Tr>
+impl<P, Tr> BlockingClient<P, Tr>
 where
     Camera<Blocking, P, Tr, ()>: TallyControl<Mode = Blocking>,
     P: crate::capabilities::Profile + Default,
@@ -697,7 +696,7 @@ where
 // ColorControl implementation
 // ============================================================================
 
-impl<P, Tr> BlockingCamera<P, Tr>
+impl<P, Tr> BlockingClient<P, Tr>
 where
     Camera<Blocking, P, Tr, ()>: ColorControl<Mode = Blocking>,
     P: crate::capabilities::Profile + Default,
@@ -745,7 +744,7 @@ where
 // ImageProcessingControl implementation
 // ============================================================================
 
-impl<P, Tr> BlockingCamera<P, Tr>
+impl<P, Tr> BlockingClient<P, Tr>
 where
     Camera<Blocking, P, Tr, ()>: ImageProcessingControl<Mode = Blocking>,
     P: crate::capabilities::Profile
@@ -828,7 +827,7 @@ where
 // StreamingControl implementation
 // ============================================================================
 
-impl<P, Tr> BlockingCamera<P, Tr>
+impl<P, Tr> BlockingClient<P, Tr>
 where
     Camera<Blocking, P, Tr, ()>: StreamingControl<Mode = Blocking>,
     P: crate::capabilities::Profile + Default,
@@ -849,7 +848,7 @@ where
 // VariableSpeedControl implementation
 // ============================================================================
 
-impl<P, Tr> BlockingCamera<P, Tr>
+impl<P, Tr> BlockingClient<P, Tr>
 where
     Camera<Blocking, P, Tr, ()>: VariableSpeedControl<Mode = Blocking>,
     P: crate::capabilities::Profile + Default + crate::capabilities::variable_speed::VariableSpeed,
@@ -864,7 +863,7 @@ where
 // MotionSyncControl implementation
 // ============================================================================
 
-impl<P, Tr> BlockingCamera<P, Tr>
+impl<P, Tr> BlockingClient<P, Tr>
 where
     Camera<Blocking, P, Tr, ()>: MotionSyncControl<Mode = Blocking>,
     P: crate::capabilities::Profile + Default + crate::capabilities::motion_sync::MotionSync,
@@ -874,16 +873,16 @@ where
         fn set_motion_sync_mode(mode: crate::command::system::MotionSyncMode) -> ();
 
         /// Set motion sync speed.
-        fn set_motion_sync_speed(speed: crate::types::MotionSyncSpeedValue) -> ();
+        fn set_motion_sync_speed(speed: crate::types::MotionSyncSpeed) -> ();
 
         /// Set motion sync preset speed.
-        fn set_motion_sync_preset_speed(speed: crate::command::system::MotionSyncSpeed) -> ();
+        fn set_motion_sync_preset_speed(speed: crate::command::system::MotionSyncPreset) -> ();
 
         /// Get motion sync mode.
         fn get_motion_sync_mode() -> crate::command::system::MotionSyncMode;
 
         /// Get motion sync speed.
-        fn get_motion_sync_speed() -> crate::command::system::MotionSyncSpeed;
+        fn get_motion_sync_speed() -> crate::command::system::MotionSyncPreset;
     }
 }
 
@@ -891,7 +890,7 @@ where
 // NdFilterControl implementation
 // ============================================================================
 
-impl<P, Tr> BlockingCamera<P, Tr>
+impl<P, Tr> BlockingClient<P, Tr>
 where
     Camera<Blocking, P, Tr, ()>: NdFilterControl<Mode = Blocking>,
     P: crate::capabilities::Profile + Default + crate::capabilities::nd_filter::NdFilter,
@@ -921,7 +920,7 @@ where
 // InquiryControl implementation
 // ============================================================================
 
-impl<P, Tr> BlockingCamera<P, Tr>
+impl<P, Tr> BlockingClient<P, Tr>
 where
     Camera<Blocking, P, Tr, ()>: InquiryControl<Mode = Blocking>,
     P: crate::capabilities::Profile + Default,
@@ -1094,7 +1093,7 @@ where
 // PanTiltInquiryControl implementation
 // ============================================================================
 
-impl<P, Tr> BlockingCamera<P, Tr>
+impl<P, Tr> BlockingClient<P, Tr>
 where
     Camera<Blocking, P, Tr, ()>: PanTiltInquiryControl<Mode = Blocking>,
     P: crate::capabilities::Profile + Default,

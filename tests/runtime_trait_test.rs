@@ -5,7 +5,7 @@
 //! 2. Type-safe pairing prevents mismatched runtime combinations
 //! 3. The TransportHandle enum correctly dispatches to the underlying transport
 
-#![cfg(feature = "async")]
+#![cfg(feature = "mode-async")]
 
 #[cfg(feature = "rt-tokio")]
 mod tokio_runtime_tests {

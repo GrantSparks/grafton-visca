@@ -9,7 +9,7 @@ use quote::quote;
 use syn::{FnArg, Pat, TraitItem};
 
 /// Parse the trait and generate both async and blocking forwarding implementations
-pub fn forward_control_to_session_impl(input: syn::ItemTrait) -> TokenStream {
+pub fn delegate_to_session_impl(input: syn::ItemTrait) -> TokenStream {
     let trait_name = &input.ident;
 
     // Parse trait methods
@@ -30,20 +30,20 @@ pub fn forward_control_to_session_impl(input: syn::ItemTrait) -> TokenStream {
     quote! {
         #input
 
-        #[cfg(feature = "async")]
+        #[cfg(feature = "mode-async")]
         impl<M, P, Tr, Exec> #trait_name for crate::camera::CameraSession<M, P, Tr, Exec>
         where
             M: crate::mode::Mode,
             P: crate::capabilities::Profile,
             Exec: crate::executor::Executor,
-            crate::camera::UnifiedCamera<M, P, Tr, Exec>: #trait_name<Mode = M>,
+            crate::camera::Camera<M, P, Tr, Exec>: #trait_name<Mode = M>,
         {
             type Mode = M;
 
             #async_methods
         }
 
-        #[cfg(not(feature = "async"))]
+        #[cfg(not(feature = "mode-async"))]
         impl<P, Tr> #trait_name for crate::camera::CameraSession<crate::mode::Blocking, P, Tr, ()>
         where
             P: crate::capabilities::Profile,
@@ -51,7 +51,7 @@ pub fn forward_control_to_session_impl(input: syn::ItemTrait) -> TokenStream {
                 + crate::transport::HasTransportConfig
                 + Send
                 + 'static,
-            crate::camera::UnifiedCamera<crate::mode::Blocking, P, Tr, ()>: #trait_name<Mode = crate::mode::Blocking>,
+            crate::camera::Camera<crate::mode::Blocking, P, Tr, ()>: #trait_name<Mode = crate::mode::Blocking>,
         {
             type Mode = crate::mode::Blocking;
 

@@ -11,14 +11,14 @@ fn main() {
     eprintln!("Run with: cargo run --example runtime_demo --features async,rt-tokio");
 }
 
-#[cfg(all(feature = "async", feature = "rt-tokio"))]
+#[cfg(all(feature = "mode-async", feature = "rt-tokio"))]
 use grafton_visca::{
-    camera::{convenience::Camera, profiles::PtzOpticsG2},
+    camera::{profiles::PtzOpticsG2, Connect},
     runtime_trait::TokioRuntime,
     Error,
 };
 
-#[cfg(all(feature = "async", feature = "rt-tokio"))]
+#[cfg(all(feature = "mode-async", feature = "rt-tokio"))]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     // Initialize logging
@@ -32,7 +32,7 @@ async fn main() -> Result<(), Error> {
 
     // Create camera using high-level API
     let runtime = TokioRuntime::from_current()?;
-    let camera = Camera::open_tcp_async::<PtzOpticsG2, _>(camera_address, runtime).await?;
+    let camera = Connect::open_tcp_async::<PtzOpticsG2, _>(camera_address, runtime).await?;
 
     println!("Connected! Demonstrating runtime features with high-level API...");
 

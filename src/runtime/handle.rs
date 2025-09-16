@@ -178,7 +178,7 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
     where
         for<'a> &'a T: HasTransportConfig,
     {
-        use crate::transport::protocol_detection::{DetectionResult, ProtocolDetector};
+        use crate::protocol::detect::{DetectionResult, ProtocolDetector};
 
         let detector = ProtocolDetector::new();
         let result = detector
@@ -274,7 +274,7 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
     /// Create a new camera runtime with raw TCP transport (PtzOptics style).
     ///
     /// Note: This method requires the "rt-tokio" feature as it uses tokio-specific async transports.
-    #[cfg(feature = "rt-tokio")]
+    #[cfg(feature = "runtime-tokio")]
     pub async fn new_tcp_raw(address: impl AsRef<str>, executor: Arc<E>) -> Result<Self> {
         // Use native tokio TCP transport for raw VISCA
         let transport = crate::transport::tokio::tcp::Tcp::connect(address.as_ref()).await?;
@@ -284,7 +284,7 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
     /// Create a new camera runtime with raw UDP transport (PtzOptics style).
     ///
     /// Note: This method requires the "rt-tokio" feature as it uses tokio-specific async transports.
-    #[cfg(feature = "rt-tokio")]
+    #[cfg(feature = "runtime-tokio")]
     pub async fn new_udp_raw(address: impl AsRef<str>, executor: Arc<E>) -> Result<Self> {
         // Use native tokio UDP transport for raw VISCA
         let transport = crate::transport::tokio::udp::Udp::connect(address.as_ref()).await?;

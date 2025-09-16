@@ -1,7 +1,7 @@
-//! Unified ND filter control implementation using Mode trait.
+//! ND filter control implementation using Mode trait.
 
 use crate::{
-    camera::CameraSend,
+    camera::CommandClient,
     command::{
         inquiry_structs::NdFilterInquiry,
         nd_filter::{AutoNdCommand, NdFilterModeCommand, NdFilterStepCommand, NdFilterValue},
@@ -11,11 +11,11 @@ use crate::{
     Error,
 };
 
-/// Unified ND filter operations for cameras.
+/// ND filter operations for cameras.
 ///
 /// This trait provides ND filter control methods that work seamlessly for both
 /// blocking and async cameras through the Mode trait system.
-#[grafton_visca_macros::forward_control_to_session]
+#[grafton_visca_macros::delegate_to_session]
 pub trait NdFilterControl {
     /// The mode type for this camera (Async or Blocking).
     type Mode: Mode;
@@ -46,11 +46,11 @@ pub trait NdFilterControl {
 }
 
 // Single unified implementation for all Camera types!
-impl<M, P, Tr, Exec> NdFilterControl for crate::camera::UnifiedCamera<M, P, Tr, Exec>
+impl<M, P, Tr, Exec> NdFilterControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + Default + crate::capabilities::nd_filter::NdFilter,
-    Self: CameraSend<M>,
+    Self: CommandClient<M>,
     Exec: crate::executor::Executor,
 {
     type Mode = M;

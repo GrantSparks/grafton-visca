@@ -1,7 +1,7 @@
-//! Unified image processing control implementation using Mode trait.
+//! image processing control implementation using Mode trait.
 
 use crate::{
-    camera::CameraSend,
+    camera::CommandClient,
     command::{resolution::PictureEffectMode, ImageFlipMode},
     mode::Mode,
     types::{
@@ -11,11 +11,11 @@ use crate::{
     Error,
 };
 
-/// Unified image processing operations for cameras.
+/// image processing operations for cameras.
 ///
 /// This trait provides image processing control methods that work seamlessly for both
 /// blocking and async cameras through the Mode trait system.
-#[grafton_visca_macros::forward_control_to_session]
+#[grafton_visca_macros::delegate_to_session]
 pub trait ImageProcessingControl {
     /// The mode type for this camera (Async or Blocking).
     type Mode: Mode;
@@ -124,11 +124,11 @@ pub trait ImageProcessingControl {
 }
 
 // Single unified implementation for all Camera types!
-impl<M, P, Tr, Exec> ImageProcessingControl for crate::camera::UnifiedCamera<M, P, Tr, Exec>
+impl<M, P, Tr, Exec> ImageProcessingControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + Default,
-    Self: CameraSend<M>,
+    Self: CommandClient<M>,
     Exec: crate::executor::Executor,
 {
     type Mode = M;

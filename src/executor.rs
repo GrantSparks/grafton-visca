@@ -3,10 +3,10 @@
 //! This module provides a single `Executor` trait that combines all async runtime
 //! operations into one coherent interface, preventing runtime/spawner mismatches.
 
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 use core::future::Future;
 
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 use std::time::Instant;
 
 use crate::Error;
@@ -39,7 +39,7 @@ impl From<ExecError> for Error {
 /// By using a single `Executor` trait with an associated `Join` type, we ensure
 /// that runtime and spawner come from the same ecosystem, preventing runtime
 /// mismatches at compile time.
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 pub trait Executor: Clone + Send + Sync + 'static {
     /// The join handle type for spawned tasks.
     type Join<T>: Future<Output = Result<T, ExecError>> + Send + 'static
@@ -130,7 +130,7 @@ pub trait Executor: Clone + Send + Sync + 'static {
 }
 
 // Generic implementation for Arc<E> where E: Executor
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 #[allow(refining_impl_trait_reachable)]
 impl<E> Executor for std::sync::Arc<E>
 where
@@ -212,7 +212,7 @@ where
 }
 
 // Tokio executor implementation
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 mod tokio_impl {
     use super::*;
 
@@ -372,11 +372,11 @@ mod tokio_impl {
     }
 }
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 pub use tokio_impl::TokioExecutor;
 
 // async-std executor implementation
-#[cfg(feature = "rt-async-std")]
+#[cfg(feature = "runtime-async-std")]
 mod async_std_impl {
     use super::*;
 
@@ -518,11 +518,11 @@ mod async_std_impl {
     }
 }
 
-#[cfg(feature = "rt-async-std")]
+#[cfg(feature = "runtime-async-std")]
 pub use async_std_impl::AsyncStdExecutor;
 
 // smol executor implementation
-#[cfg(feature = "rt-smol")]
+#[cfg(feature = "runtime-smol")]
 mod smol_impl {
     use super::*;
     use std::pin::Pin;
@@ -719,5 +719,5 @@ mod smol_impl {
     }
 }
 
-#[cfg(feature = "rt-smol")]
+#[cfg(feature = "runtime-smol")]
 pub use smol_impl::SmolExecutor;

@@ -1,14 +1,14 @@
-//! Unified menu control implementation using Mode trait.
+//! menu control implementation using Mode trait.
 
 use crate::{
-    camera::CameraSend,
+    camera::CommandClient,
     command::{MenuAction, MenuDirection},
     mode::Mode,
     Error,
 };
 
-/// Unified menu control methods for cameras that support menu navigation.
-#[grafton_visca_macros::forward_control_to_session]
+/// menu control methods for cameras that support menu navigation.
+#[grafton_visca_macros::delegate_to_session]
 pub trait MenuControl {
     /// The mode type for this camera (Async or Blocking).
     type Mode: Mode;
@@ -44,7 +44,7 @@ pub trait MenuControl {
     fn menu_action(&self, action: MenuAction) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
 }
 
-/// Unified direct menu control methods for cameras that support advanced menu control.
+/// direct menu control methods for cameras that support advanced menu control.
 pub trait DirectMenuControl: MenuControl {
     /// Send a direct menu control command.
     ///
@@ -68,11 +68,11 @@ pub trait DirectMenuControl: MenuControl {
 }
 
 // Single unified implementation for MenuControl
-impl<M, P, Tr, Exec> MenuControl for crate::camera::UnifiedCamera<M, P, Tr, Exec>
+impl<M, P, Tr, Exec> MenuControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + crate::capabilities::MenuControl + Default,
-    Self: CameraSend<M>,
+    Self: CommandClient<M>,
     Exec: crate::executor::Executor,
 {
     type Mode = M;
@@ -94,11 +94,11 @@ where
 }
 
 // Single unified implementation for DirectMenuControl
-impl<M, P, Tr, Exec> DirectMenuControl for crate::camera::UnifiedCamera<M, P, Tr, Exec>
+impl<M, P, Tr, Exec> DirectMenuControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + crate::capabilities::MenuControl + Default,
-    Self: CameraSend<M>,
+    Self: CommandClient<M>,
     Exec: crate::executor::Executor,
 {
     fn direct_menu_control(&self, control1: u8, control2: u8) -> M::Ret<'_, Result<(), Error>> {

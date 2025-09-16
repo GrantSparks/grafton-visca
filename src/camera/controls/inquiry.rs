@@ -1,7 +1,7 @@
-//! Unified inquiry control implementation using Mode trait.
+//! inquiry control implementation using Mode trait.
 
 use crate::{
-    camera::CameraSend,
+    camera::CommandClient,
     command::{
         system::MotionSyncMode, ExposureMode, FocusMode, FocusZone, SharpnessMode, WhiteBalanceMode,
     },
@@ -9,11 +9,11 @@ use crate::{
     Error,
 };
 
-/// Unified inquiry operations for cameras.
+/// inquiry operations for cameras.
 ///
 /// This trait provides inquiry methods that work seamlessly for both
 /// blocking and async cameras through the Mode trait system.
-#[grafton_visca_macros::forward_control_to_session]
+#[grafton_visca_macros::delegate_to_session]
 pub trait InquiryControl {
     /// The mode type for this camera (Async or Blocking).
     type Mode: Mode;
@@ -202,11 +202,11 @@ pub trait InquiryControl {
     fn get_motion_sync_mode(&self) -> <Self::Mode as Mode>::Ret<'_, Result<MotionSyncMode, Error>>;
 }
 
-/// Unified pan/tilt-specific inquiry operations for cameras.
+/// pan/tilt-specific inquiry operations for cameras.
 ///
 /// This trait provides pan/tilt inquiry methods that work seamlessly for both
 /// blocking and async cameras through the Mode trait system.
-#[grafton_visca_macros::forward_control_to_session]
+#[grafton_visca_macros::delegate_to_session]
 pub trait PanTiltInquiryControl {
     /// The mode type for this camera (Async or Blocking).
     type Mode: Mode;
@@ -218,11 +218,11 @@ pub trait PanTiltInquiryControl {
 }
 
 // Single unified implementation for InquiryControl
-impl<M, P, Tr, Exec> InquiryControl for crate::camera::UnifiedCamera<M, P, Tr, Exec>
+impl<M, P, Tr, Exec> InquiryControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + Default,
-    Self: CameraSend<M>,
+    Self: CommandClient<M>,
     Exec: crate::executor::Executor,
 {
     type Mode = M;
@@ -501,11 +501,11 @@ where
 }
 
 // Single unified implementation for PanTiltInquiryControl
-impl<M, P, Tr, Exec> PanTiltInquiryControl for crate::camera::UnifiedCamera<M, P, Tr, Exec>
+impl<M, P, Tr, Exec> PanTiltInquiryControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + Default,
-    Self: CameraSend<M>,
+    Self: CommandClient<M>,
     Exec: crate::executor::Executor,
 {
     type Mode = M;

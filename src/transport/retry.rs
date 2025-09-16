@@ -3,12 +3,12 @@
 //! This module provides a unified retry mechanism that can be used across
 //! all transport implementations, both blocking and async.
 
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 use std::future::Future;
 use std::time::{Duration, Instant};
 
 use super::RetryConfig;
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 use crate::executor::Executor;
 use crate::{
     timeout::{CommandTimeout, Deadline, TimeoutPolicy},
@@ -129,7 +129,7 @@ where
 ///
 /// # Returns
 /// The result of the operation, or the last error if all retries are exhausted
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 pub async fn execute_with_retry_async<E, T, F, Fut>(
     executor: &E,
     config: &RetryConfig,
@@ -206,7 +206,7 @@ impl RetryExecutor {
     }
 
     /// Execute an async operation with retry logic.
-    #[cfg(feature = "async")]
+    #[cfg(feature = "mode-async")]
     pub async fn execute_async<E, T, F, Fut>(&self, executor: &E, operation: F) -> Result<T, Error>
     where
         E: Executor,
@@ -247,7 +247,7 @@ impl RetryExecutor {
     ///
     /// This method automatically uses the command's timeout class to determine
     /// appropriate timeout and retry behavior.
-    #[cfg(feature = "async")]
+    #[cfg(feature = "mode-async")]
     pub async fn execute_command_async<E, C, T, F, Fut>(
         &self,
         executor: &E,
@@ -278,7 +278,7 @@ impl RetryExecutor {
     /// Execute an operation with deadline-based async retry logic.
     ///
     /// This method uses a pre-calculated deadline instead of command classification.
-    #[cfg(feature = "async")]
+    #[cfg(feature = "mode-async")]
     pub async fn execute_with_deadline_async<E, T, F, Fut>(
         &self,
         executor: &E,
@@ -410,7 +410,7 @@ where
 ///
 /// # Returns
 /// The result of the operation, or the last error if all retries are exhausted
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 pub async fn execute_command_with_retry_async<E, C, T, F, Fut>(
     executor: &E,
     command: &C,
@@ -443,7 +443,7 @@ where
 ///
 /// # Returns
 /// The result of the operation, or the last error if all retries are exhausted
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 pub async fn execute_with_deadline_retry_async<E, T, F, Fut>(
     executor: &E,
     deadline: Deadline,
@@ -609,7 +609,7 @@ mod tests {
         assert_eq!(calls, 2);
     }
 
-    #[cfg(feature = "rt-tokio")]
+    #[cfg(feature = "runtime-tokio")]
     #[tokio::test]
     async fn test_async_retry_with_success() {
         use crate::executor::TokioExecutor;
@@ -642,7 +642,7 @@ mod tests {
         assert_eq!(counter.load(Ordering::SeqCst), 3);
     }
 
-    #[cfg(feature = "rt-async-std")]
+    #[cfg(feature = "runtime-async-std")]
     #[async_std::test]
     async fn test_async_retry_with_async_std() {
         use crate::executor::AsyncStdExecutor;
@@ -675,7 +675,7 @@ mod tests {
         assert_eq!(counter.load(Ordering::SeqCst), 2);
     }
 
-    #[cfg(feature = "rt-smol")]
+    #[cfg(feature = "runtime-smol")]
     #[test]
     fn test_async_retry_with_smol() {
         use crate::executor::SmolExecutor;

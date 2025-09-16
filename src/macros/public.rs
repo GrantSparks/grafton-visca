@@ -103,105 +103,6 @@ macro_rules! visca_bounded_param {
     };
 }
 
-/// Macro to forward method calls from wrapper types to the inner camera instance.
-///
-/// This macro reduces boilerplate when implementing trait forwarding for the
-/// `blocking::Camera` and `async::Camera` wrapper types. It's particularly useful
-/// when creating custom camera wrappers that need to expose the same API.
-///
-/// # Example
-///
-/// ```ignore
-/// use grafton_visca::delegate_methods;
-///
-/// // For blocking APIs
-/// delegate_methods!(Camera, blocking,
-///     ZoomControl:
-///         zoom_stop() -> crate::Result<()>,
-///         zoom_in() -> crate::Result<()>,
-///         zoom_out() -> crate::Result<()>,
-///         zoom_absolute(position: crate::units::Normalized) -> crate::Result<()>;
-///     InquiryControl:
-///         get_power_state() -> crate::Result<bool>,
-///         get_zoom_position() -> crate::Result<u16>;
-/// );
-///
-/// // For async APIs
-/// delegate_methods!(AsyncCamera, async,
-///     ZoomControl:
-///         zoom_stop() -> crate::Result<()>,
-///         zoom_in() -> crate::Result<()>;
-/// );
-/// ```
-///
-/// # Syntax
-///
-/// - First parameter: The wrapper type name
-/// - Second parameter: Either `blocking` or `async`
-/// - Following parameters: Trait implementations with method signatures
-///
-/// ## Method Disambiguation
-///
-/// When forwarding methods that might have naming conflicts, you can use the `@` syntax:
-///
-/// ```ignore
-/// delegate_methods!(Camera, blocking,
-///     PowerControl:
-///         power_on() -> crate::Result<()>,
-///         get_state @ PowerControl() -> crate::Result<PowerState>;
-/// );
-/// ```
-#[macro_export]
-macro_rules! delegate_methods {
-    // Blocking variant with optional trait disambiguation
-    ($wrapper:ident, blocking, $($trait_name:ident : $($method:ident $(@ $disambiguate_trait:ident)? $(($($param:ident : $ptype:ty),* $(,)?))? -> $ret:ty),+ ;)+) => {
-        $(
-            impl<P: $crate::capabilities::Profile, T: $crate::transport::SyncTransport + Send + Sync + 'static> $trait_name for $wrapper<P, T>
-            {
-                $(
-                    fn $method(&mut self $(, $($param: $ptype),*)?) -> $ret {
-                        delegate_methods!(@call $($disambiguate_trait)?, $method, self.0, $($($param),*)?)
-                    }
-                )+
-            }
-        )+
-    };
-
-    // Async variant with optional trait disambiguation
-    ($wrapper:ident, async, $($trait_name:ident : $($method:ident $(@ $disambiguate_trait:ident)? $(($($param:ident : $ptype:ty),* $(,)?))? -> $ret:ty),+ ;)+) => {
-        $(
-            impl<P: $crate::capabilities::Profile, T: $crate::transport::AsyncTransport + Send + Sync + 'static> $trait_name for $wrapper<P, T>
-            {
-                $(
-                    async fn $method(&self $(, $($param: $ptype),*)?) -> $ret {
-                        delegate_methods!(@call_async $($disambiguate_trait)?, $method, self.0, $($($param),*)?)
-                    }
-                )+
-            }
-        )+
-    };
-
-    // Helper for blocking calls with trait disambiguation
-    (@call $trait:ident, $method:ident, $receiver:expr, $($param:expr),*) => {
-        $trait::$method(&$receiver, $($param),*)
-    };
-
-    // Helper for blocking calls without trait disambiguation
-    (@call , $method:ident, $receiver:expr, $($param:expr),*) => {
-        $receiver.$method($($param),*)
-    };
-
-    // Helper for async calls with trait disambiguation
-    (@call_async $trait:ident, $method:ident, $receiver:expr, $($param:expr),*) => {
-        $trait::$method(&$receiver, $($param),*).await
-    };
-
-    // Helper for async calls without trait disambiguation
-    (@call_async , $method:ident, $receiver:expr, $($param:expr),*) => {
-        $receiver.$method($($param),*).await
-    };
-}
-
 /// Generate trait implementations that forward to inherent methods on Camera.
 ///
 /// This macro eliminates boilerplate for trait implementations that simply
@@ -236,7 +137,7 @@ macro_rules! impl_camera_ops {
     (async, $trait_name:ident,
      $(async fn $method:ident(&self $(, $param:ident: $ptype:ty)*) -> $ret:ty; $(,)? )*
     ) => {
-        #[cfg(feature = "async")]
+        #[cfg(feature = "mode-async")]
         impl<P, T> $trait_name for $crate::camera::Camera<$crate::camera::AsyncMode, P, T>
         where
             P: $crate::capabilities::Profile,
@@ -252,7 +153,7 @@ macro_rules! impl_camera_ops {
     (blocking, $trait_name:ident,
      $(fn $method:ident(&mut self $(, $param:ident: $ptype:ty)*) -> $ret:ty; $(,)? )*
     ) => {
-        #[cfg(not(feature = "async"))]
+        #[cfg(not(feature = "mode-async"))]
         impl<P, T> $trait_name for $crate::camera::Camera<$crate::camera::BlockingMode, P, T>
         where
             P: $crate::capabilities::Profile,

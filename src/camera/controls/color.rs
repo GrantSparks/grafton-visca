@@ -1,7 +1,7 @@
 //! Unified color adjustment implementation using Mode trait.
 
 use crate::{
-    camera::CameraSend,
+    camera::CommandClient,
     command::color::{
         BlueGain, BlueTuningCommand, ColorTemperature, OnePushTriggerCommand, RedGain,
         RedTuningCommand,
@@ -11,11 +11,11 @@ use crate::{
     Error,
 };
 
-/// Unified color operations for cameras.
+/// color operations for cameras.
 ///
 /// This trait provides color control methods that work seamlessly for both
 /// blocking and async cameras through the Mode trait system.
-#[grafton_visca_macros::forward_control_to_session]
+#[grafton_visca_macros::delegate_to_session]
 pub trait ColorControl {
     /// The mode type for this camera (Async or Blocking).
     type Mode: Mode;
@@ -68,11 +68,11 @@ pub trait ColorControl {
 }
 
 // Single unified implementation for all Camera types!
-impl<M, P, Tr, Exec> ColorControl for crate::camera::UnifiedCamera<M, P, Tr, Exec>
+impl<M, P, Tr, Exec> ColorControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + Default,
-    Self: CameraSend<M>,
+    Self: CommandClient<M>,
     Exec: crate::executor::Executor,
 {
     type Mode = M;

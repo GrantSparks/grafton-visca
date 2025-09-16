@@ -52,7 +52,7 @@ pub use self::{
     power::*,
     preset::*,
     response::{ViscaResponse, ViscaResponseType},
-    system::{MotionSyncMode, MotionSyncSpeed},
+    system::{MotionSyncMode, MotionSyncPreset},
     // tally::*,
     variable_speed::*,
     white_balance::*,
@@ -371,9 +371,9 @@ pub enum InquiryResponse {
         mode: MotionSyncMode,
     },
     /// Motion sync speed inquiry response.
-    MotionSyncSpeed {
+    MotionSyncPreset {
         /// Current motion sync speed setting.
-        speed: MotionSyncSpeed,
+        speed: MotionSyncPreset,
     },
     /// Noise reduction mode inquiry response.
     NrMode {

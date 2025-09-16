@@ -9,19 +9,16 @@
 //! cargo run --example sony_encapsulation [camera_ip[:port]]
 //! ```
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 use grafton_visca::{
-    camera::profiles::SonyFR7,
-    prelude::blocking::*,
-    types::{SpeedLevel, ZoomVelocity},
-    units::Degrees,
-    CameraBuilder, Error,
+    camera::profiles::SonyFR7, command::zoom::ZoomSpeed, prelude::blocking::*, types::SpeedLevel,
+    units::Degrees, CameraBuilder, Error,
 };
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 use std::{env, thread::sleep, time::Duration};
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 fn main() -> Result<(), Error> {
     tracing_subscriber::fmt::init();
 
@@ -101,7 +98,7 @@ fn main() -> Result<(), Error> {
     println!("  ✓ Moved to Pan=30°, Tilt=10°");
 
     println!("Testing zoom...");
-    camera.zoom().tele_variable(ZoomVelocity::new(4)?)?;
+    camera.zoom().tele_variable(ZoomSpeed::try_from(4)?)?;
     sleep(Duration::from_millis(500));
     camera.zoom().stop()?;
     camera.await_idle(Duration::from_secs(10))?;
@@ -110,7 +107,7 @@ fn main() -> Result<(), Error> {
     // Return to home
     println!("\nReturning to home position...");
     camera.pan_tilt().home()?;
-    camera.zoom().wide_variable(ZoomVelocity::new(4)?)?;
+    camera.zoom().wide_variable(ZoomSpeed::try_from(4)?)?;
     sleep(Duration::from_millis(500));
     camera.zoom().stop()?;
     camera.await_idle(Duration::from_secs(10))?;
@@ -269,7 +266,7 @@ async fn main() -> Result<(), Error> {
 }
 
 // Provide a stub main when neither blocking nor tokio runtime is available
-#[cfg(all(feature = "async", not(feature = "rt-tokio")))]
+#[cfg(all(feature = "mode-async", not(feature = "rt-tokio")))]
 fn main() {
     eprintln!(
         "This example requires either no features (for blocking) or --features rt-tokio for async"

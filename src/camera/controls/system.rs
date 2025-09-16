@@ -1,12 +1,12 @@
-//! Unified system control implementation using Mode trait.
+//! system control implementation using Mode trait.
 
-use crate::{camera::CameraSend, mode::Mode, Error, ViscaSocket};
+use crate::{camera::CommandClient, mode::Mode, Error, ViscaSocket};
 
-/// Unified system operations for cameras.
+/// system operations for cameras.
 ///
 /// This trait provides system control methods that work seamlessly for both
 /// blocking and async cameras through the Mode trait system.
-#[grafton_visca_macros::forward_control_to_session]
+#[grafton_visca_macros::delegate_to_session]
 pub trait SystemControl {
     /// The mode type for this camera (Async or Blocking).
     type Mode: Mode;
@@ -26,11 +26,11 @@ pub trait SystemControl {
 }
 
 // Single unified implementation for all Camera types!
-impl<M, P, Tr, Exec> SystemControl for crate::camera::UnifiedCamera<M, P, Tr, Exec>
+impl<M, P, Tr, Exec> SystemControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + Default,
-    Self: CameraSend<M>,
+    Self: CommandClient<M>,
     Exec: crate::executor::Executor,
 {
     type Mode = M;

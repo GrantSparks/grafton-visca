@@ -10,15 +10,10 @@
 //! - Blocking: cargo run --example builder_api
 //! - Async: cargo run --example builder_api --features rt-tokio
 
-use grafton_visca::Result;
+#[cfg(not(feature = "mode-async"))]
+use grafton_visca::{CameraBuilder, Result};
 
-#[cfg(not(all(
-    feature = "async",
-    not(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))
-)))]
-use grafton_visca::CameraBuilder;
-
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 use grafton_visca::camera::profiles::{PtzOpticsG2, SonyBRC300, SonyFR7};
 
 #[cfg(all(feature = "rt-async-std", not(feature = "rt-smol")))]
@@ -33,7 +28,7 @@ use grafton_visca::camera::profiles::PtzOpticsG2;
 ))]
 use grafton_visca::camera::profiles::{PtzOpticsG2, SonyBRC300, SonyFR7};
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 fn main() -> Result<()> {
     // Direct transport types are no longer available - use CameraBuilder instead
 
@@ -251,4 +246,10 @@ fn main() -> Result<()> {
 
         Ok(())
     })
+}
+
+#[cfg(feature = "mode-async")]
+fn main() {
+    println!("This example requires blocking mode. Run without the async feature:");
+    println!("  cargo run --example builder_api --no-default-features");
 }

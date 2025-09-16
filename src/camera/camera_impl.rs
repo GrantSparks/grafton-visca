@@ -1,16 +1,16 @@
-//! Unified camera implementation using Mode trait for async/blocking operations.
+//! Camera implementation using Mode trait for async/blocking operations.
 //!
 //! This module provides a single Camera type that works with both blocking and async
 //! operations through the Mode trait system, eliminating the need for separate
 //! AsyncCamera and BlockingCamera types.
 
 use core::marker::PhantomData;
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 use std::{future::Future, pin::Pin, sync::Arc};
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 use crate::runtime::blocking_runner::BlockingRunner;
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 use crate::transport::SyncTransport;
 use crate::{
     camera_id::CameraId,
@@ -20,10 +20,10 @@ use crate::{
     mode::Mode,
     timeout::TimeoutConfig,
 };
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 use crate::{executor::Executor, transport::AsyncTransport};
 
-/// Unified camera client that works in both blocking and async modes.
+/// Camera client that works in both blocking and async modes.
 ///
 /// This struct provides type-safe camera control that adapts to the chosen
 /// execution mode through the Mode trait system. All mode-specific behavior
@@ -52,7 +52,7 @@ use crate::{executor::Executor, transport::AsyncTransport};
 /// let mut camera = Camera::<Blocking, PtzOpticsG2, _, ()>::new_blocking(transport)?;
 /// camera.power_on().await?; // .await works for both modes via Mode trait
 /// ```
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 pub struct Camera<M, P, Tr, Exec>
 where
     M: Mode,
@@ -70,11 +70,11 @@ where
     _phantom_transport: PhantomData<Tr>,
 }
 
-/// Unified camera interface for VISCA protocol communication.
+/// Camera interface for VISCA protocol communication.
 ///
 /// This type provides a uniform API for both blocking and async modes,
 /// with runtime-agnostic execution through the Executor trait.
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 pub struct Camera<M, P, Tr, Exec = ()>
 where
     M: Mode,
@@ -93,7 +93,7 @@ where
     _phantom_exec: PhantomData<Exec>,
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 impl<P, Tr, Exec> Camera<crate::mode::Async, P, Tr, Exec>
 where
     P: Profile + Default,
@@ -136,7 +136,7 @@ where
     }
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 impl<P, Tr> Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: Profile + Default,
@@ -191,7 +191,7 @@ where
     }
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 impl<M, P, Tr, Exec> Camera<M, P, Tr, Exec>
 where
     M: Mode,
@@ -273,7 +273,7 @@ where
     }
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 impl<M, P, Tr, Exec> Camera<M, P, Tr, Exec>
 where
     M: Mode,
@@ -365,7 +365,7 @@ where
 }
 
 // Unified constructor methods for blocking mode with BlockingTransportHandle (zero-cost)
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 impl<P> Camera<crate::mode::Blocking, P, crate::transport::BlockingTransportHandle, ()>
 where
     P: Profile + Default,
@@ -444,21 +444,21 @@ where
 }
 
 // Methods specific to blocking cameras regardless of transport bounds
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 impl<P, Tr> Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: Profile,
     Tr: SyncTransport,
 {
     /// Get access to the transport for blocking mode.
-    #[cfg(not(feature = "async"))]
+    #[cfg(not(feature = "mode-async"))]
     pub(crate) fn transport(&self) -> &std::cell::RefCell<Tr> {
         &self.transport
     }
 }
 
 // Methods for async mode requiring Send + Sync transports
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 impl<P, Tr, Exec> Camera<crate::mode::Async, P, Tr, Exec>
 where
     P: Profile + Default,
@@ -645,7 +645,7 @@ where
     }
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 impl<P, Tr> Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: Profile + Default,
@@ -726,7 +726,7 @@ where
 }
 
 // Close/shutdown methods for blocking mode
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 impl<P, Tr, Exec> Camera<crate::mode::Blocking, P, Tr, Exec>
 where
     P: Profile,
@@ -758,7 +758,7 @@ where
 }
 
 // Close/shutdown methods for async mode
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 impl<P, Tr, Exec> Camera<crate::mode::Async, P, Tr, Exec>
 where
     P: Profile,
@@ -788,7 +788,7 @@ where
     }
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 impl<M, P, Tr, Exec> core::fmt::Debug for Camera<M, P, Tr, Exec>
 where
     M: Mode,
@@ -803,7 +803,7 @@ where
     }
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 impl<M, P, Tr, Exec> core::fmt::Debug for Camera<M, P, Tr, Exec>
 where
     M: Mode,
@@ -828,7 +828,7 @@ mod tests {
         capabilities::ProfileMetadata,
     };
 
-    #[cfg(all(feature = "async", feature = "rt-tokio"))]
+    #[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]
     #[tokio::test]
     async fn test_async_camera_uses_profile_protocol_style() -> Result<(), Error> {
         use crate::{executor::TokioExecutor, testing::camera_simulator::ViscaCameraSimulator};
@@ -858,7 +858,7 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(all(feature = "async", feature = "rt-tokio"))]
+    #[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]
     #[tokio::test]
     async fn test_async_camera_with_explicit_protocol_style() -> Result<(), Error> {
         use crate::{executor::TokioExecutor, testing::camera_simulator::ViscaCameraSimulator};
@@ -877,7 +877,7 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(all(not(feature = "async"), feature = "rt-tokio"))]
+    #[cfg(all(not(feature = "mode-async"), feature = "runtime-tokio"))]
     #[test]
     fn test_blocking_camera_uses_profile_protocol_style() {
         use crate::testing::camera_simulator::ViscaCameraSimulator;
@@ -901,7 +901,7 @@ mod tests {
         // The envelope should be configured with RawVisca protocol
     }
 
-    #[cfg(all(not(feature = "async"), feature = "rt-tokio"))]
+    #[cfg(all(not(feature = "mode-async"), feature = "runtime-tokio"))]
     #[test]
     fn test_blocking_camera_with_explicit_protocol_style() {
         use crate::testing::camera_simulator::ViscaCameraSimulator;

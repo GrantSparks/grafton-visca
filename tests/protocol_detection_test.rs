@@ -3,7 +3,7 @@
 //! These tests verify that the connect_auto method properly detects and honors
 //! the protocol style (Sony encapsulated vs Raw VISCA) returned by auto_detect.
 
-#![cfg(all(feature = "async", feature = "test-utils"))]
+#![cfg(all(feature = "mode-async", feature = "test-utils"))]
 
 use grafton_visca::testing::testkit::{ScriptedTransport, Step};
 
@@ -47,7 +47,7 @@ mod tokio_tests {
         // the overall flow differently
 
         // For now, we'll test that the detection logic correctly identifies Sony format
-        use grafton_visca::transport::protocol_detection::{DetectionResult, ProtocolDetector};
+        use grafton_visca::protocol::detect::{DetectionResult, ProtocolDetector};
 
         let mut transport = transport;
         let executor = TokioExecutor::from_handle(tokio::runtime::Handle::current());
@@ -141,7 +141,7 @@ mod tokio_tests {
             }]);
 
         // Test the detection logic
-        use grafton_visca::transport::protocol_detection::{DetectionResult, ProtocolDetector};
+        use grafton_visca::protocol::detect::{DetectionResult, ProtocolDetector};
 
         let mut transport = transport;
         let executor = TokioExecutor::from_handle(tokio::runtime::Handle::current());
@@ -224,7 +224,7 @@ mod async_std_tests {
                 ]],
             }]);
 
-        use grafton_visca::transport::protocol_detection::{DetectionResult, ProtocolDetector};
+        use grafton_visca::protocol::detect::{DetectionResult, ProtocolDetector};
 
         let mut transport = transport;
         let executor = AsyncStdExecutor::new();
@@ -271,7 +271,7 @@ mod smol_tests {
                     ]],
                 }]);
 
-            use grafton_visca::transport::protocol_detection::{DetectionResult, ProtocolDetector};
+            use grafton_visca::protocol::detect::{DetectionResult, ProtocolDetector};
 
             let mut transport = transport;
             let executor = SmolExecutor::new();

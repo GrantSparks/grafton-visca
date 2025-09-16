@@ -147,7 +147,7 @@ pub enum ViscaResponseType {
     /// Motion sync mode inquiry response.
     MotionSyncMode,
     /// Motion sync speed inquiry response.
-    MotionSyncSpeed,
+    MotionSyncPreset,
     /// Focus mode inquiry response.
     FocusMode,
     /// Focus range inquiry response.

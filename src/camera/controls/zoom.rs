@@ -1,12 +1,14 @@
-//! Unified zoom control implementation using Mode trait.
+//! zoom control implementation using Mode trait.
 
-use crate::{camera::CameraSend, command::zoom::ZoomSpeed, mode::Mode, units::Normalized, Error};
+use crate::{
+    camera::CommandClient, command::zoom::ZoomSpeed, mode::Mode, units::Normalized, Error,
+};
 
-/// Unified zoom operations for cameras.
+/// zoom operations for cameras.
 ///
 /// This trait provides zoom control methods that work seamlessly for both
 /// blocking and async cameras through the Mode trait system.
-#[grafton_visca_macros::forward_control_to_session]
+#[grafton_visca_macros::delegate_to_session]
 pub trait ZoomControl {
     /// The mode type for this camera (Async or Blocking).
     type Mode: Mode;
@@ -54,11 +56,11 @@ pub trait ZoomControl {
 }
 
 // Single unified implementation for all Camera types!
-impl<M, P, Tr, Exec> ZoomControl for crate::camera::UnifiedCamera<M, P, Tr, Exec>
+impl<M, P, Tr, Exec> ZoomControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + Default + crate::capabilities::zoom::Zoom,
-    Self: CameraSend<M>,
+    Self: CommandClient<M>,
     Exec: crate::executor::Executor,
 {
     type Mode = M;

@@ -3,7 +3,7 @@
 //! This module provides async transport implementations using the tokio runtime.
 
 pub(crate) mod connectors;
-#[cfg(feature = "tokio-serial")]
+#[cfg(feature = "transport-serial-tokio")]
 pub mod serial;
 pub mod tcp;
 pub mod udp;

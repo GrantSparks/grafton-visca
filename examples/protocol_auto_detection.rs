@@ -15,7 +15,7 @@
 //! 4. Display the difference in wire format between protocols
 
 use grafton_visca::{
-    camera::{profiles::GenericVisca, Camera},
+    camera::{profiles::GenericVisca, Camera, Connect},
     runtime_trait::TokioRuntime,
     Error,
 };
@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Use the new session-centric API with auto-detection
     let session =
-        match Camera::open_auto_async::<GenericVisca, _>(&camera_addr, runtime.clone()).await {
+        match Connect::open_auto_async::<GenericVisca, _>(&camera_addr, runtime.clone()).await {
             Ok(session) => {
                 println!("✅ Protocol Detection Successful!");
 

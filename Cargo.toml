@@ -27,12 +27,28 @@ readme = "README.md"
 
 [features]
 default = []
-async = ["dep:futures-lite", "dep:async-lock"]
-rt-tokio = ["async", "dep:tokio"]
-rt-async-std = ["async", "dep:async-std"]
-rt-smol = ["async", "dep:smol", "dep:async-executor"]
-tokio-serial = ["dep:tokio-serial", "rt-tokio"]
-serialport = ["dep:serialport"]
+# Mode features (not mutually exclusive)
+mode-async = ["dep:futures-lite", "dep:async-lock"]
+mode-blocking = []  # Blocking mode is always available, this is for explicit feature detection
+
+# Runtime features (each implies mode-async)
+runtime-tokio = ["mode-async", "dep:tokio"]
+runtime-async-std = ["mode-async", "dep:async-std"]
+runtime-smol = ["mode-async", "dep:smol", "dep:async-executor"]
+
+# Transport features
+transport-serial = ["dep:serialport"]
+transport-serial-tokio = ["dep:tokio-serial", "runtime-tokio"]
+
+# Legacy feature names (for backward compatibility, marked for deprecation)
+async = ["mode-async"]
+rt-tokio = ["runtime-tokio"]
+rt-async-std = ["runtime-async-std"]
+rt-smol = ["runtime-smol"]
+tokio-serial = ["transport-serial-tokio"]
+serialport = ["transport-serial"]
+
+# Internal features
 test-utils = ["dep:async-executor", "dep:futures-lite"]
 DISABLED = []
 
@@ -92,11 +108,11 @@ name = "inquiry_quickstart"
 
 [[example]]
 name = "concurrent_control"
-required-features = ["rt-tokio"]
+required-features = ["runtime-tokio"]
 
 [[example]]
 name = "error_handling"
-required-features = ["rt-tokio"]
+required-features = ["runtime-tokio"]
 
 [[example]]
 name = "preset_demo"
@@ -108,20 +124,20 @@ path = "examples-advanced/type_safe_commands.rs"
 [[example]]
 name = "runtime_demo_lowlevel"
 path = "examples-advanced/runtime_demo_lowlevel.rs"
-required-features = ["async", "rt-tokio"]
+required-features = ["mode-async", "runtime-tokio"]
 
 [[example]]
 name = "runtime_agnostic"
-required-features = ["async"]
+required-features = ["mode-async"]
 
 [[example]]
 name = "sony_encapsulation"
-required-features = ["rt-tokio"]
+required-features = ["runtime-tokio"]
 
 [[example]]
 name = "protocol_auto_detection"
-required-features = ["rt-tokio"]
+required-features = ["runtime-tokio"]
 
 [[example]]
 name = "serial_async_demo"
-required-features = ["rt-tokio", "tokio-serial"]
+required-features = ["runtime-tokio", "transport-serial-tokio"]

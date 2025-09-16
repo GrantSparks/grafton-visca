@@ -130,7 +130,7 @@ where
             protocol: ProtocolConfig::Explicit(P::PROTOCOL_STYLE),
             timeouts: TimeoutConfig::default(),
             retries: crate::transport::RetryConfig::default(),
-            camera_id: CameraId::new(P::DEFAULT_ADDRESS).unwrap_or_default(),
+            camera_id: CameraId::new(P::DEFAULT_CAMERA_ID).unwrap_or_default(),
             _phantom: std::marker::PhantomData,
         }
     }
@@ -261,7 +261,7 @@ where
 pub use CameraConfig as Config;
 
 // Implementation of open methods
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 impl<P> CameraConfig<P>
 where
     P: crate::capabilities::Profile + Default,
@@ -359,7 +359,7 @@ where
                         // Serial transport is handled separately via open_serial_async
                         // This path only handles TCP/UDP, so always use detection
                         // Use ProtocolDetector on TCP/UDP transports
-                        use crate::transport::protocol_detection::ProtocolDetector;
+                        use crate::protocol::detect::ProtocolDetector;
 
                         let detector = ProtocolDetector::new();
                         let detection_result =
@@ -380,7 +380,7 @@ where
 
         // Create camera with determined protocol style
         let mut camera =
-            crate::camera::UnifiedCamera::<crate::mode::Async, P, _, _>::new_async_with_style(
+            crate::camera::Camera::<crate::mode::Async, P, _, _>::new_async_with_style(
                 transport,
                 runtime.clone(),
                 protocol_style,
@@ -389,7 +389,7 @@ where
 
         // Apply configuration
         camera.set_timeout_config(self.timeouts);
-        if self.camera_id.id() != P::DEFAULT_ADDRESS {
+        if self.camera_id.id() != P::DEFAULT_CAMERA_ID {
             camera.set_camera_id(self.camera_id);
         }
 
@@ -413,7 +413,7 @@ where
     ///
     /// let session = config.open_serial_async(runtime).await?;
     /// ```
-    #[cfg(all(feature = "async", feature = "tokio-serial"))]
+    #[cfg(all(feature = "mode-async", feature = "transport-serial-tokio"))]
     pub async fn open_serial_async<R>(
         &self,
         runtime: R,
@@ -446,16 +446,17 @@ where
                 };
 
                 // Create camera with determined protocol style
-                let mut camera = crate::camera::UnifiedCamera::<crate::mode::Async, P, _, _>::new_async_with_style(
-                    serial,
-                    runtime,
-                    protocol_style,
-                )
-                .await?;
+                let mut camera =
+                    crate::camera::Camera::<crate::mode::Async, P, _, _>::new_async_with_style(
+                        serial,
+                        runtime,
+                        protocol_style,
+                    )
+                    .await?;
 
                 // Apply configuration
                 camera.set_timeout_config(self.timeouts);
-                if self.camera_id.id() != P::DEFAULT_ADDRESS {
+                if self.camera_id.id() != P::DEFAULT_CAMERA_ID {
                     camera.set_camera_id(self.camera_id);
                 }
 
@@ -469,7 +470,7 @@ where
     }
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 impl<P> CameraConfig<P>
 where
     P: crate::capabilities::Profile + Default,
@@ -549,7 +550,7 @@ where
                     ProtocolConfig::Explicit(style) => style,
                     ProtocolConfig::Auto => {
                         // Use ProtocolDetector for TCP/UDP transports
-                        use crate::transport::protocol_detection::ProtocolDetector;
+                        use crate::protocol::detect::ProtocolDetector;
 
                         let detector = ProtocolDetector::new();
                         let detection_result = detector.detect_protocol_blocking(&mut transport)?;
@@ -566,14 +567,14 @@ where
 
         // Create camera with determined protocol style
         let mut camera =
-            crate::camera::UnifiedCamera::<crate::mode::Blocking, P, _, ()>::new_blocking_with_style(
+            crate::camera::Camera::<crate::mode::Blocking, P, _, ()>::new_blocking_with_style(
                 transport,
                 protocol_style,
             )?;
 
         // Apply configuration
         camera.set_timeout_config(self.timeouts);
-        if self.camera_id.id() != P::DEFAULT_ADDRESS {
+        if self.camera_id.id() != P::DEFAULT_CAMERA_ID {
             camera.set_camera_id(self.camera_id);
         }
 
@@ -595,7 +596,7 @@ where
     ///
     /// let session = config.open_serial_blocking()?;
     /// ```
-    #[cfg(feature = "serialport")]
+    #[cfg(feature = "transport-serial")]
     pub fn open_serial_blocking(
         &self,
     ) -> Result<
@@ -626,14 +627,14 @@ where
                 };
 
                 // Create camera with determined protocol style
-                let mut camera = crate::camera::UnifiedCamera::<crate::mode::Blocking, P, _, _>::new_blocking_with_style(
+                let mut camera = crate::camera::Camera::<crate::mode::Blocking, P, _, _>::new_blocking_with_style(
                     transport,
                     protocol_style,
                 )?;
 
                 // Apply configuration
                 camera.set_timeout_config(self.timeouts);
-                if self.camera_id.id() != P::DEFAULT_ADDRESS {
+                if self.camera_id.id() != P::DEFAULT_CAMERA_ID {
                     camera.set_camera_id(self.camera_id);
                 }
 

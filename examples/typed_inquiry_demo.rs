@@ -8,12 +8,12 @@
 //! cargo run --example typed_inquiry_demo
 //! ```
 
-#[cfg(not(feature = "async"))]
-use grafton_visca::{mode::BlockingFutureExt, profiles::GenericVisca, Camera, Error};
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
+use grafton_visca::{camera::Connect, mode::BlockingFutureExt, profiles::GenericVisca, Error};
+#[cfg(not(feature = "mode-async"))]
 use std::time::Duration;
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 fn main() -> Result<(), Error> {
     // Initialize logging
     let _ = tracing_subscriber::fmt::try_init();
@@ -22,7 +22,7 @@ fn main() -> Result<(), Error> {
     let address = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.1.100:5678".to_string());
     println!("Connecting to camera at {address}...");
 
-    let camera = Camera::open_tcp_blocking::<GenericVisca>(&address)?;
+    let camera = Connect::open_tcp_blocking::<GenericVisca>(&address)?;
 
     println!("\n=== High-Level API Inquiry Demo ===\n");
 
@@ -71,7 +71,7 @@ fn main() -> Result<(), Error> {
     Ok(())
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 fn main() {
     eprintln!("This example requires blocking mode. Build without async features.");
     eprintln!("Try: cargo run --example typed_inquiry_demo --no-default-features");

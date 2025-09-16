@@ -46,9 +46,9 @@ pub enum MotionSyncMode {
     Off = 0x03,
 }
 
-/// Motion sync speed settings for camera movement.
+/// Motion sync preset speed settings for camera movement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
-pub enum MotionSyncSpeed {
+pub enum MotionSyncPreset {
     /// Slow motion sync speed.
     Slow = 0x00,
     /// Normal motion sync speed.

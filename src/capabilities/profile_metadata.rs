@@ -10,8 +10,9 @@ pub trait ProfileMetadata {
     /// Camera model name for display/logging.
     const MODEL_NAME: &'static str;
 
-    /// Default VISCA address (usually 1).
-    const DEFAULT_ADDRESS: u8;
+    /// Default camera ID (usually 1).
+    /// This is the VISCA address identifier for the camera.
+    const DEFAULT_CAMERA_ID: u8;
 
     /// Protocol style affects framing and headers.
     const PROTOCOL_STYLE: ProtocolStyle;
@@ -163,7 +164,7 @@ mod tests {
 
     impl ProfileMetadata for TestCamera {
         const MODEL_NAME: &'static str = "Test Camera";
-        const DEFAULT_ADDRESS: u8 = 1;
+        const DEFAULT_CAMERA_ID: u8 = 1;
         const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::RawVisca;
         const ACK_TIMEOUT: Duration = Duration::from_millis(100);
         const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);

@@ -1,7 +1,7 @@
-//! Unified focus control implementation using Mode trait.
+//! focus control implementation using Mode trait.
 
 use crate::{
-    camera::CameraSend,
+    camera::CommandClient,
     command::focus::{
         AutoFocusSensitivity, AutoFocusSensitivityCommand, Focus, FocusLock, FocusNearLimitCommand,
         FocusSpeed, FocusZone, FocusZoneCommand, PushAF,
@@ -11,11 +11,11 @@ use crate::{
     Error,
 };
 
-/// Unified focus operations for cameras.
+/// focus operations for cameras.
 ///
 /// This trait provides focus control methods that work seamlessly for both
 /// blocking and async cameras through the Mode trait system.
-#[grafton_visca_macros::forward_control_to_session]
+#[grafton_visca_macros::delegate_to_session]
 pub trait FocusControl {
     /// The mode type for this camera (Async or Blocking).
     type Mode: Mode;
@@ -83,11 +83,11 @@ pub trait FocusControl {
 }
 
 // Single unified implementation for all Camera types!
-impl<M, P, Tr, Exec> FocusControl for crate::camera::UnifiedCamera<M, P, Tr, Exec>
+impl<M, P, Tr, Exec> FocusControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + Default,
-    Self: CameraSend<M>,
+    Self: CommandClient<M>,
     Exec: crate::executor::Executor,
 {
     type Mode = M;

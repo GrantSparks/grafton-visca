@@ -14,7 +14,6 @@
 //! These macros are re-exported at the crate root and are considered stable:
 //!
 //! - `visca_bounded_param!` - Create validated newtype wrappers for numeric parameters
-//! - `delegate_methods!` - Forward trait methods through wrapper types
 //!
 //! ## Internal Macros
 //!

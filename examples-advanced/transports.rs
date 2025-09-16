@@ -13,22 +13,22 @@
 //! cargo run --example transports [camera_ip[:port]]
 //! ```
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 use grafton_visca::{
     mode::BlockingFutureExt,
     profiles::PtzOpticsG2,
     types::SpeedLevel,
     units::{Degrees, Normalized},
-    Camera, Error, PanTiltControl, ZoomControl,
+    BlockingCamera, Error, PanTiltControl, ZoomControl,
 };
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 use std::{
     env, thread,
     time::{Duration, Instant},
 };
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 fn main() -> Result<(), Error> {
     let _ = tracing_subscriber::fmt::try_init();
 
@@ -49,7 +49,7 @@ fn main() -> Result<(), Error> {
     println!();
 
     println!("Connecting via TCP (default port 5678)...");
-    let mut tcp_camera = Camera::open_tcp_blocking::<PtzOpticsG2>(format!("{camera_addr}:5678"))?;
+    let mut tcp_camera = BlockingCamera::<PtzOpticsG2, _>::open_tcp(format!("{camera_addr}:5678"))?;
 
     println!("✓ TCP connection established");
 
@@ -64,7 +64,7 @@ fn main() -> Result<(), Error> {
     println!("═══ TCP with Custom Port ═══");
     println!("Connecting via TCP on custom port 1259...");
 
-    match Camera::open_tcp_blocking::<PtzOpticsG2>(format!("{camera_addr}:1259")) {
+    match BlockingCamera::<PtzOpticsG2, _>::open_tcp(format!("{camera_addr}:1259")) {
         Ok(camera) => {
             println!("✓ TCP connection established on port 1259");
 
@@ -90,7 +90,7 @@ fn main() -> Result<(), Error> {
     // PTZOptics uses UDP port 1259 for raw VISCA
     // Sony cameras typically use UDP port 52381 with encapsulation
 
-    match Camera::open_udp_blocking::<PtzOpticsG2>(format!("{camera_addr}:1259")) {
+    match BlockingCamera::<PtzOpticsG2, _>::open_udp(format!("{camera_addr}:1259")) {
         Ok(mut camera) => {
             println!("✓ UDP transport initialized");
 
@@ -121,7 +121,7 @@ fn main() -> Result<(), Error> {
     println!("Attempting to connect to non-existent camera (192.168.255.255)...");
     let start = Instant::now();
 
-    let timeout_result = Camera::open_tcp_blocking::<PtzOpticsG2>("192.168.255.255:5678");
+    let timeout_result = BlockingCamera::<PtzOpticsG2, _>::open_tcp("192.168.255.255:5678");
 
     let elapsed = start.elapsed();
 
@@ -175,7 +175,8 @@ fn main() -> Result<(), Error> {
     tcp_camera.zoom_absolute(Normalized(0.0)).block()?;
 
     // If UDP is available, compare performance
-    if let Ok(udp_camera) = Camera::open_udp_blocking::<PtzOpticsG2>(format!("{camera_addr}:52381"))
+    if let Ok(udp_camera) =
+        BlockingCamera::<PtzOpticsG2, _>::open_udp(format!("{camera_addr}:52381"))
     {
         println!("Sending 10 commands via UDP...");
 
@@ -217,7 +218,7 @@ fn main() -> Result<(), Error> {
     Ok(())
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 fn main() {
     println!("This example requires blocking mode. Run without the async feature:");
     println!("  cargo run --example transports --no-default-features");

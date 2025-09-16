@@ -7,34 +7,34 @@
 //! for robust frame handling instead of manual buffer scanning.
 
 #[cfg(any(
-    feature = "tokio-serial",
-    all(not(feature = "async"), feature = "serialport"),
+    feature = "transport-serial-tokio",
+    all(not(feature = "mode-async"), feature = "transport-serial"),
     test
 ))]
 use tracing::{debug, trace};
 
 #[cfg(any(
-    feature = "tokio-serial",
-    all(not(feature = "async"), feature = "serialport"),
+    feature = "transport-serial-tokio",
+    all(not(feature = "mode-async"), feature = "transport-serial"),
     test
 ))]
 use crate::command::bytes::VISCA_TERMINATOR;
 
 #[cfg(any(
-    feature = "tokio-serial",
-    all(not(feature = "async"), feature = "serialport")
+    feature = "transport-serial-tokio",
+    all(not(feature = "mode-async"), feature = "transport-serial")
 ))]
 use std::time::Duration;
 
 #[cfg(any(
-    feature = "tokio-serial",
-    all(not(feature = "async"), feature = "serialport")
+    feature = "transport-serial-tokio",
+    all(not(feature = "mode-async"), feature = "transport-serial")
 ))]
 use tracing::warn;
 
 #[cfg(any(
-    feature = "tokio-serial",
-    all(not(feature = "async"), feature = "serialport")
+    feature = "transport-serial-tokio",
+    all(not(feature = "mode-async"), feature = "transport-serial")
 ))]
 use crate::{
     camera_id::CameraId,
@@ -49,8 +49,8 @@ use crate::{
 
 /// Result of parsing address set response bytes.
 #[cfg(any(
-    feature = "tokio-serial",
-    all(not(feature = "async"), feature = "serialport"),
+    feature = "transport-serial-tokio",
+    all(not(feature = "mode-async"), feature = "transport-serial"),
     test
 ))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,8 +79,8 @@ pub enum ParseOutcome {
 /// Note: In VISCA protocol, cameras respond with their assigned number (1-7),
 /// and 0x02 is specifically the "Network Change" completion marker, not camera 2.
 #[cfg(any(
-    feature = "tokio-serial",
-    all(not(feature = "async"), feature = "serialport"),
+    feature = "transport-serial-tokio",
+    all(not(feature = "mode-async"), feature = "transport-serial"),
     test
 ))]
 pub fn parse_address_set_bytes(buf: &[u8]) -> ParseOutcome {
@@ -121,7 +121,7 @@ pub fn parse_address_set_bytes(buf: &[u8]) -> ParseOutcome {
 }
 
 // Async handshake functions (feature-gated for tokio-serial)
-#[cfg(feature = "tokio-serial")]
+#[cfg(feature = "transport-serial-tokio")]
 pub mod async_handshake {
     use super::*;
     use crate::{
@@ -287,7 +287,7 @@ pub mod async_handshake {
 }
 
 // Blocking handshake functions
-#[cfg(all(not(feature = "async"), feature = "serialport"))]
+#[cfg(all(not(feature = "mode-async"), feature = "transport-serial"))]
 pub mod blocking_handshake {
     use super::*;
     use std::{

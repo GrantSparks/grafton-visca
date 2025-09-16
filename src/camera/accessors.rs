@@ -23,7 +23,7 @@ use crate::{
             white_balance::WhiteBalanceControl,
             zoom::ZoomControl,
         },
-        CameraSend, UnifiedCamera as Camera,
+        Camera, CommandClient,
     },
     capabilities::Profile,
     mode::Mode,
@@ -154,7 +154,7 @@ where
 
     /// Zoom to telephoto (zoom in) with variable speed.
     ///
-    /// Accepts either `SpeedLevel` or `ZoomVelocity` for speed control.
+    /// Accepts either `SpeedLevel` or `ZoomSpeed` for speed control.
     pub fn tele_variable<S>(&self, speed: S) -> M::Ret<'_, Result<(), Error>>
     where
         Camera<M, P, Tr, Exec>: ZoomControl<Mode = M>,
@@ -165,7 +165,7 @@ where
 
     /// Zoom to wide (zoom out) with variable speed.
     ///
-    /// Accepts either `SpeedLevel` or `ZoomVelocity` for speed control.
+    /// Accepts either `SpeedLevel` or `ZoomSpeed` for speed control.
     pub fn wide_variable<S>(&self, speed: S) -> M::Ret<'_, Result<(), Error>>
     where
         Camera<M, P, Tr, Exec>: ZoomControl<Mode = M>,
@@ -1165,7 +1165,7 @@ where
     /// Recall a preset.
     pub fn recall(&self, preset: u8) -> M::Ret<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>: PresetsControl<Mode = M> + CameraSend<M>,
+        Camera<M, P, Tr, Exec>: PresetsControl<Mode = M> + CommandClient<M>,
     {
         use crate::command::preset::PresetNumber;
         match PresetNumber::new(preset) {
@@ -1181,7 +1181,7 @@ where
     /// Set (save) a preset.
     pub fn set(&self, preset: u8) -> M::Ret<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>: PresetsControl<Mode = M> + CameraSend<M>,
+        Camera<M, P, Tr, Exec>: PresetsControl<Mode = M> + CommandClient<M>,
     {
         use crate::command::preset::PresetNumber;
         match PresetNumber::new(preset) {
@@ -1197,7 +1197,7 @@ where
     /// Reset (clear) a preset.
     pub fn reset(&self, preset: u8) -> M::Ret<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>: PresetsControl<Mode = M> + CameraSend<M>,
+        Camera<M, P, Tr, Exec>: PresetsControl<Mode = M> + CommandClient<M>,
     {
         use crate::command::preset::PresetNumber;
         match PresetNumber::new(preset) {
@@ -1298,7 +1298,7 @@ where
     P: Profile,
     Exec: Executor,
 {
-    #[cfg(feature = "async")]
+    #[cfg(feature = "mode-async")]
     pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
         Self { camera }
     }
@@ -1345,7 +1345,7 @@ where
     P: Profile,
     Exec: Executor,
 {
-    #[cfg(feature = "async")]
+    #[cfg(feature = "mode-async")]
     pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
         Self { camera }
     }
@@ -1476,7 +1476,7 @@ where
     P: Profile,
     Exec: Executor,
 {
-    #[cfg(feature = "async")]
+    #[cfg(feature = "mode-async")]
     pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
         Self { camera }
     }

@@ -19,19 +19,19 @@
 //! cargo run --example quickstart [camera_ip[:port]]
 //! ```
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 use std::{env, thread::sleep, time::Duration};
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 use grafton_visca::{
-    camera::profiles::PtzOpticsG2,
+    camera::{profiles::PtzOpticsG2, Connect},
     mode::BlockingFutureExt,
     types::{PanSpeed, PanTiltDirection, SpeedLevel, TiltSpeed},
     units::{Degrees, Normalized},
-    Camera, Error,
+    Error,
 };
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 fn main() -> Result<(), Error> {
     tracing_subscriber::fmt::init();
 
@@ -45,7 +45,7 @@ fn main() -> Result<(), Error> {
     println!();
 
     // Use the new convenience API for blocking mode
-    let mut camera = Camera::open_tcp_blocking::<PtzOpticsG2>(&camera_addr)?;
+    let mut camera = Connect::open_tcp_blocking::<PtzOpticsG2>(&camera_addr)?;
 
     println!("✅ Connected successfully!");
     println!();
@@ -252,7 +252,7 @@ fn main() -> Result<(), Error> {
     Ok(())
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 fn main() {
     println!("This example requires blocking mode. Run without the async feature:");
     println!("  cargo run --example quickstart --no-default-features");

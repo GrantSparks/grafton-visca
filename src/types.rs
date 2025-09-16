@@ -969,30 +969,6 @@ impl From<SpeedLevel> for TiltSpeed {
     }
 }
 
-/// Variable zoom speed for camera zoom operations.
-///
-/// High-level type for specifying zoom speed. Valid range is 0-7 where
-/// 0 is the slowest and 7 is the fastest. This type is part of the public
-/// API and avoids exposing the low-level command module types to users.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[visca_value(min = "0", max = "7", display_prefix = "Zoom Velocity")]
-pub struct ZoomVelocity(u8);
-
-impl From<SpeedLevel> for ZoomVelocity {
-    fn from(level: SpeedLevel) -> Self {
-        Self(level.to_zoom_speed())
-    }
-}
-
-impl From<ZoomVelocity> for crate::command::zoom::ZoomSpeed {
-    fn from(velocity: ZoomVelocity) -> Self {
-        // SAFETY: ZoomVelocity is guaranteed to be in range 0-7 by its constructor,
-        // which matches ZoomSpeed's valid range exactly. Both types use the
-        // visca_bounded_param! macro with identical bounds.
-        crate::command::zoom::ZoomSpeed::new_unchecked(velocity.0)
-    }
-}
-
 /// Direction for pan/tilt movement.
 ///
 /// High-level type for specifying camera movement direction.
@@ -1043,9 +1019,9 @@ impl From<PanTiltDirection> for crate::command::pan_tilt::PanTiltDirection {
 /// pan, tilt, and zoom movements during preset recalls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[visca_value(min = "0x01", max = "0x18", display_prefix = "Motion Sync Speed")]
-pub struct MotionSyncSpeedValue(u8);
+pub struct MotionSyncSpeed(u8);
 
-impl MotionSyncSpeedValue {
+impl MotionSyncSpeed {
     /// Slow motion sync speed (typically 8).
     pub const SLOW: Self = Self(8);
 
@@ -1056,17 +1032,17 @@ impl MotionSyncSpeedValue {
     pub const FAST: Self = Self(24);
 
     /// Creates a motion sync speed from a preset speed.
-    pub fn from_preset(speed: crate::MotionSyncSpeed) -> Self {
+    pub fn from_preset(speed: crate::MotionSyncPreset) -> Self {
         match speed {
-            crate::MotionSyncSpeed::Slow => Self::SLOW,
-            crate::MotionSyncSpeed::Normal => Self::NORMAL,
-            crate::MotionSyncSpeed::Fast => Self::FAST,
+            crate::MotionSyncPreset::Slow => Self::SLOW,
+            crate::MotionSyncPreset::Normal => Self::NORMAL,
+            crate::MotionSyncPreset::Fast => Self::FAST,
         }
     }
 }
 
-impl From<crate::MotionSyncSpeed> for MotionSyncSpeedValue {
-    fn from(speed: crate::MotionSyncSpeed) -> Self {
+impl From<crate::MotionSyncPreset> for MotionSyncSpeed {
+    fn from(speed: crate::MotionSyncPreset) -> Self {
         Self::from_preset(speed)
     }
 }
@@ -1163,37 +1139,37 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn test_motion_sync_speed_value() {
         // Test valid range (ViscaValue macro provides new() method)
-        assert!(MotionSyncSpeedValue::new(1).is_ok());
-        assert!(MotionSyncSpeedValue::new(12).is_ok());
-        assert!(MotionSyncSpeedValue::new(24).is_ok());
+        assert!(MotionSyncSpeed::new(1).is_ok());
+        assert!(MotionSyncSpeed::new(12).is_ok());
+        assert!(MotionSyncSpeed::new(24).is_ok());
 
         // Test invalid range
-        assert!(MotionSyncSpeedValue::new(0).is_err());
-        assert!(MotionSyncSpeedValue::new(25).is_err());
+        assert!(MotionSyncSpeed::new(0).is_err());
+        assert!(MotionSyncSpeed::new(25).is_err());
 
         // Test constants (ViscaValue macro provides value() method)
-        assert_eq!(MotionSyncSpeedValue::SLOW.value(), 8);
-        assert_eq!(MotionSyncSpeedValue::NORMAL.value(), 16);
-        assert_eq!(MotionSyncSpeedValue::FAST.value(), 24);
+        assert_eq!(MotionSyncSpeed::SLOW.value(), 8);
+        assert_eq!(MotionSyncSpeed::NORMAL.value(), 16);
+        assert_eq!(MotionSyncSpeed::FAST.value(), 24);
 
         // Test from preset
         assert_eq!(
-            MotionSyncSpeedValue::from_preset(crate::MotionSyncSpeed::Slow).value(),
+            MotionSyncSpeed::from_preset(crate::MotionSyncPreset::Slow).value(),
             8
         );
         assert_eq!(
-            MotionSyncSpeedValue::from_preset(crate::MotionSyncSpeed::Normal).value(),
+            MotionSyncSpeed::from_preset(crate::MotionSyncPreset::Normal).value(),
             16
         );
         assert_eq!(
-            MotionSyncSpeedValue::from_preset(crate::MotionSyncSpeed::Fast).value(),
+            MotionSyncSpeed::from_preset(crate::MotionSyncPreset::Fast).value(),
             24
         );
 
         // Test TryFrom (ViscaValue macro provides TryFrom<u8>)
-        assert_eq!(MotionSyncSpeedValue::try_from(15).unwrap().value(), 15);
-        assert!(MotionSyncSpeedValue::try_from(0).is_err());
-        assert!(MotionSyncSpeedValue::try_from(30).is_err());
+        assert_eq!(MotionSyncSpeed::try_from(15).unwrap().value(), 15);
+        assert!(MotionSyncSpeed::try_from(0).is_err());
+        assert!(MotionSyncSpeed::try_from(30).is_err());
     }
 
     #[test]

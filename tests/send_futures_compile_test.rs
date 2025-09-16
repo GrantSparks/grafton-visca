@@ -4,7 +4,7 @@
 //! encodes Send bounds for all control trait method futures. These tests use
 //! compile-time assertions to ensure futures can be sent across threads.
 
-#![cfg(feature = "async")]
+#![cfg(feature = "mode-async")]
 
 use grafton_visca::camera::controls::{power::PowerControl, zoom::ZoomControl};
 

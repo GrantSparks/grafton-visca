@@ -3,7 +3,7 @@
 //! This test suite validates the mode-based Camera API with profile capabilities.
 
 // External crates
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 use grafton_visca::{
     camera::{
         profiles::{GenericVisca, PtzOpticsG2, SonyFR7},
@@ -13,7 +13,7 @@ use grafton_visca::{
     Executor,
 };
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 use grafton_visca::{
     camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7},
     transport::SyncTransport,
@@ -28,7 +28,7 @@ use grafton_visca::capabilities::*;
 fn test_profile_type_aliases() {
     // Verify that type aliases exist and compile for both modes
 
-    #[cfg(feature = "async")]
+    #[cfg(feature = "mode-async")]
     {
         #[allow(dead_code)]
         fn _accepts_g2_camera_async<T, E>(_camera: AsyncCamera<PtzOpticsG2, T, E>)
@@ -56,7 +56,7 @@ fn test_profile_type_aliases() {
         }
     }
 
-    #[cfg(not(feature = "async"))]
+    #[cfg(not(feature = "mode-async"))]
     {
         fn _accepts_g2_camera_blocking<T>(_camera: BlockingCamera<PtzOpticsG2, T>)
         where
@@ -87,7 +87,7 @@ fn test_profile_type_aliases() {
 fn test_profile_capabilities_are_compile_time() {
     // Mode-specific functions demonstrating compile-time capability checking
 
-    #[cfg(feature = "async")]
+    #[cfg(feature = "mode-async")]
     {
         // This function can only accept async cameras with ND filter support
         fn _requires_nd_filter_async<P, T, E>(_camera: &AsyncCamera<P, T, E>) -> bool
@@ -112,7 +112,7 @@ fn test_profile_capabilities_are_compile_time() {
         }
     }
 
-    #[cfg(not(feature = "async"))]
+    #[cfg(not(feature = "mode-async"))]
     {
         // This function can only accept blocking cameras with ND filter support
         fn _requires_nd_filter_blocking<P, T>(_camera: &BlockingCamera<P, T>) -> bool
@@ -204,7 +204,7 @@ fn test_optional_capabilities() {
 fn test_mode_separation() {
     // Demonstrate that async and blocking modes are completely separate types
 
-    #[cfg(feature = "async")]
+    #[cfg(feature = "mode-async")]
     {
         // This function only accepts AsyncCamera
         fn _async_mode_only<P, T, E>(_camera: &AsyncCamera<P, T, E>)
@@ -221,7 +221,7 @@ fn test_mode_separation() {
         // where T: AsyncTransport { }
     }
 
-    #[cfg(not(feature = "async"))]
+    #[cfg(not(feature = "mode-async"))]
     {
         // This function only accepts BlockingCamera
         fn _blocking_mode_only<P, T>(_camera: &BlockingCamera<P, T>)

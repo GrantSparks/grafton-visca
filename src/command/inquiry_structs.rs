@@ -661,12 +661,13 @@ pub struct MotionSyncModeInquiry;
 #[derive(InquiryCommand, Debug, Copy, Clone)]
 #[visca(
     command = 0x57,
-    response = "MotionSyncSpeed",
+    response = "MotionSyncPreset",
+    inquiry_variant = "MotionSyncPreset",
     parser = "speed",
-    type = "MotionSyncSpeed",
+    type = "MotionSyncPreset",
     constant = "MOTION_SYNC_SPEED"
 )]
-pub struct MotionSyncSpeedInquiry;
+pub struct MotionSyncPresetInquiry;
 
 /// Inquiry command to get the noise reduction mode setting.
 #[derive(InquiryCommand, Debug, Copy, Clone)]
@@ -935,9 +936,9 @@ mod tests {
         constants::inquiry::MOTION_SYNC_MODE
     );
     visca_test!(
-        MotionSyncSpeedInquiry,
+        MotionSyncPresetInquiry,
         test_motion_sync_speed_inquiry,
-        MotionSyncSpeedInquiry,
+        MotionSyncPresetInquiry,
         constants::inquiry::MOTION_SYNC_SPEED
     );
     visca_test!(

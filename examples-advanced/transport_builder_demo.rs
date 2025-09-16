@@ -15,7 +15,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Note: This demo shows the builder API without establishing actual connections.\n");
 
     // Example set A: Blocking TCP/UDP builders (only when not using async feature)
-    #[cfg(not(feature = "async"))]
+    #[cfg(not(feature = "mode-async"))]
     {
         // Example 1: Simple TCP transport builder
         println!("Example 1: Simple TCP transport builder");
@@ -65,7 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Example 5: Using a custom RetryConfig (blocking-only)
-    #[cfg(not(feature = "async"))]
+    #[cfg(not(feature = "mode-async"))]
     {
         println!("Example 5: Using a custom RetryConfig");
         let retry_config = RetryConfig {
@@ -85,7 +85,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Example 6: Demonstrating the fluent API (blocking-only)
-    #[cfg(not(feature = "async"))]
+    #[cfg(not(feature = "mode-async"))]
     {
         println!("Example 6: Demonstrating the fluent API");
         let _fluent = Transport::tcp()

@@ -3,7 +3,7 @@
 //! This test validates that our implementation correctly handles VISCA error codes
 //! according to the unified reference specification.
 
-#![cfg(all(feature = "async", feature = "test-utils"))]
+#![cfg(all(feature = "mode-async", feature = "test-utils"))]
 
 use grafton_visca::{testing::testkit::DeterministicExecutor, Executor};
 

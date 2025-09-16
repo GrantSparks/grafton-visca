@@ -6,9 +6,8 @@ use crate::{
     capabilities::ProtocolStyle,
     command::CommandKind,
     protocol::detect::core::{Action, DetectorCore},
-    transport::{
-        buffer::BufferConfig, protocol_detection::DetectionResult, RetryConfig, SyncTransport,
-    },
+    protocol::detect::DetectionResult,
+    transport::{buffer::BufferConfig, RetryConfig, SyncTransport},
     Error,
 };
 

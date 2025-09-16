@@ -199,9 +199,9 @@ pub fn derive_visca_enum(input: TokenStream) -> TokenStream {
 /// Apply this attribute to control trait definitions:
 ///
 /// ```rust,ignore
-/// use grafton_visca_macros::forward_control_to_session;
+/// use grafton_visca_macros::delegate_to_session;
 ///
-/// #[forward_control_to_session]
+/// #[delegate_to_session]
 /// pub trait ZoomControl {
 ///     type Mode: Mode;
 ///
@@ -215,7 +215,7 @@ pub fn derive_visca_enum(input: TokenStream) -> TokenStream {
 ///
 /// The macro generates two implementations:
 ///
-/// 1. **Async variant** (when `feature = "async"`):
+/// 1. **Async variant** (when `feature = "mode-async"`):
 ///    - Forwards calls from `CameraSession<M, P, Tr, Exec>` to the inner camera
 ///    - Preserves the generic Mode type `M`
 ///
@@ -233,7 +233,7 @@ pub fn derive_visca_enum(input: TokenStream) -> TokenStream {
 ///
 /// - The trait must have a `type Mode: Mode` associated type
 /// - Methods should use `<Self::Mode as Mode>::Ret<'_, T>` for return types
-/// - The trait should be implemented for `UnifiedCamera` (the actual logic)
+/// - The trait should be implemented for `Camera` (the actual logic)
 ///
 /// # Benefits
 ///
@@ -242,7 +242,7 @@ pub fn derive_visca_enum(input: TokenStream) -> TokenStream {
 /// - **Feature-gate aware**: Handles both async and blocking configurations
 /// - **Zero runtime cost**: Generated code is identical to hand-written forwarding
 #[proc_macro_attribute]
-pub fn forward_control_to_session(_attr: TokenStream, input: TokenStream) -> TokenStream {
+pub fn delegate_to_session(_attr: TokenStream, input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as syn::ItemTrait);
-    TokenStream::from(forward_control::forward_control_to_session_impl(input))
+    TokenStream::from(forward_control::delegate_to_session_impl(input))
 }

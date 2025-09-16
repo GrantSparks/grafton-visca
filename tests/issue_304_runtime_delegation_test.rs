@@ -10,7 +10,7 @@
 //! that the configuration is accepted, not that timeouts actually work.
 //! See issue #394 for details on test executor selection strategy.
 
-#![cfg(all(feature = "async", feature = "test-utils"))]
+#![cfg(all(feature = "mode-async", feature = "test-utils"))]
 
 use std::time::Duration;
 

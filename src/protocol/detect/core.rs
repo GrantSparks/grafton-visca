@@ -15,10 +15,11 @@ use crate::{
     transport::{
         buffer::{BufferConfig, BufferManager},
         envelope::TransportEnvelope,
-        protocol_detection::DetectionResult,
         RetryConfig,
     },
 };
+
+use super::DetectionResult;
 
 /// Actions that the detector core requests from the runner.
 ///

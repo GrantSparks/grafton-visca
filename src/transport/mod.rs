@@ -15,13 +15,13 @@
 //!
 //! For blocking transports (using camera-first API):
 //! ```rust,no_run
-//! # #[cfg(not(feature = "async"))]
-//! use grafton_visca::{Camera, mode::Blocking, profiles::PtzOpticsG2};
+//! # #[cfg(not(feature = "mode-async"))]
+//! use grafton_visca::{camera::Connect, mode::Blocking, profiles::PtzOpticsG2};
 //!
-//! # #[cfg(not(feature = "async"))]
+//! # #[cfg(not(feature = "mode-async"))]
 //! # fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! # #[cfg(not(feature = "async"))]
-//! let camera = Camera::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?;
+//! # #[cfg(not(feature = "mode-async"))]
+//! let camera = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?;
 //! // camera is ready to use with accessor pattern: camera.power().on(), camera.zoom().tele(), etc.
 //! # Ok(())
 //! # }
@@ -29,12 +29,12 @@
 //!
 //! For async transports (with tokio):
 //! ```rust,no_run
-//! # #[cfg(feature = "rt-tokio")]
+//! # #[cfg(feature = "runtime-tokio")]
 //! use grafton_visca::runtime_adapters::tokio::TcpTransport;
-//! # #[cfg(feature = "rt-tokio")]
+//! # #[cfg(feature = "runtime-tokio")]
 //! use grafton_visca::transport::AsyncTransport;
 //!
-//! # #[cfg(feature = "rt-tokio")]
+//! # #[cfg(feature = "runtime-tokio")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let transport = TcpTransport::connect("192.168.0.110:5678").await?;
 //! // transport is ready to use with Camera<P, T: AsyncTransport>
@@ -45,20 +45,32 @@
 pub mod address;
 // Unified async I/O helpers for reducing code duplication across runtimes
 // Only needed when we have at least one runtime
-#[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
+#[cfg(any(
+    feature = "runtime-tokio",
+    feature = "runtime-async-std",
+    feature = "runtime-smol"
+))]
 pub(crate) mod async_io;
 // Generic async transport implementations (require runtime for BufferManager methods)
-#[cfg(feature = "tokio-serial")]
+#[cfg(feature = "transport-serial-tokio")]
 pub(crate) mod async_serial;
-#[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
+#[cfg(any(
+    feature = "runtime-tokio",
+    feature = "runtime-async-std",
+    feature = "runtime-smol"
+))]
 pub(crate) mod async_tcp;
-#[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
+#[cfg(any(
+    feature = "runtime-tokio",
+    feature = "runtime-async-std",
+    feature = "runtime-smol"
+))]
 pub(crate) mod async_udp;
 // Async transport trait and runtime-specific transports are only public with `async`
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 pub mod async_transport;
 // Blocking transports are now private - use camera-first API instead
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 pub(crate) mod blocking;
 pub mod buffer;
 pub mod builder;
@@ -71,35 +83,35 @@ pub mod envelope;
 pub mod protocol_detection;
 pub mod retry;
 // Unified serial configuration module (available with either blocking or async serial)
-#[cfg(any(feature = "serialport", feature = "tokio-serial"))]
+#[cfg(any(feature = "transport-serial", feature = "transport-serial-tokio"))]
 pub mod serial;
 // Old blocking serial transport (being phased out in favor of unified approach)
-#[cfg(all(not(feature = "async"), feature = "serialport"))]
+#[cfg(all(not(feature = "mode-async"), feature = "transport-serial"))]
 pub(crate) mod serial_blocking;
 
 // Runtime-specific transport implementations are feature-gated extensions
 // They should be accessed through the runtime_adapters module
-#[cfg(all(feature = "async", feature = "rt-tokio"))]
+#[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]
 pub(crate) mod tokio;
 
-#[cfg(all(feature = "async", feature = "rt-async-std"))]
+#[cfg(all(feature = "mode-async", feature = "runtime-async-std"))]
 pub(crate) mod async_std;
 
-#[cfg(all(feature = "async", feature = "rt-smol"))]
+#[cfg(all(feature = "mode-async", feature = "runtime-smol"))]
 pub(crate) mod smol;
 
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 pub use async_transport::AsyncTransport;
 // Direct transport types are no longer exported - use camera-first API instead:
 // - BlockingCamera::connect_tcp/udp()
 // - CameraBuilder::tcp/udp()
 // - Camera::<Blocking, _, _, _>::connect_tcp/udp()
 pub use builder::{NetTransportBuilder, Transport, TransportBuilderExt};
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 pub use protocol_detection::{DetectionResult, ProtocolDetector};
 use std::time::{Duration, Instant};
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 pub use sync_transport::BlockingTransportHandle;
 pub use sync_transport::{HasTransportConfig, SyncTransport};
 

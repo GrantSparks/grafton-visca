@@ -3,7 +3,7 @@
 //! These tests ensure that Tokio, async-std, and smol runtime adapters provide
 //! identical behavior for all transport operations.
 
-#![cfg(feature = "async")]
+#![cfg(feature = "mode-async")]
 
 #[cfg(feature = "test-utils")]
 mod parity_tests {

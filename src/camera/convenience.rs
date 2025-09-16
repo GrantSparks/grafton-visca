@@ -9,12 +9,12 @@ use crate::{
     error::Error,
 };
 
-/// Convenience methods for Camera that provide one-liner setup.
+/// Convenience methods for connecting to cameras with one-liner setup.
 #[derive(Debug, Clone, Copy)]
-pub struct Camera;
+pub struct Connect;
 
-#[cfg(feature = "async")]
-impl Camera {
+#[cfg(feature = "mode-async")]
+impl Connect {
     /// Open an async camera connection with automatic protocol detection.
     ///
     /// This is the simplest way to connect to a camera asynchronously. It will:
@@ -137,7 +137,7 @@ impl Camera {
     /// cam.power().on().await?;
     /// cam.close().await?;
     /// ```
-    #[cfg(feature = "tokio-serial")]
+    #[cfg(feature = "transport-serial-tokio")]
     pub async fn open_serial_async<P, R>(
         port: impl Into<String>,
         baud_rate: u32,
@@ -162,8 +162,8 @@ impl Camera {
     }
 }
 
-#[cfg(not(feature = "async"))]
-impl Camera {
+#[cfg(not(feature = "mode-async"))]
+impl Connect {
     /// Open a blocking camera connection with automatic protocol detection.
     ///
     /// This is the simplest way to connect to a camera in blocking mode. It will:
@@ -225,8 +225,7 @@ impl Camera {
     {
         let tcp = crate::transport::blocking::tcp::Tcp::connect(&addr.into())?;
         let transport = crate::transport::BlockingTransportHandle::Tcp(tcp);
-        let camera =
-            crate::camera::UnifiedCamera::new_blocking_with_style(transport, P::PROTOCOL_STYLE)?;
+        let camera = crate::camera::Camera::new_blocking_with_style(transport, P::PROTOCOL_STYLE)?;
         Ok(CameraSession::new(camera))
     }
 
@@ -253,8 +252,7 @@ impl Camera {
     {
         let udp = crate::transport::blocking::udp::Udp::connect(&addr.into())?;
         let transport = crate::transport::BlockingTransportHandle::Udp(udp);
-        let camera =
-            crate::camera::UnifiedCamera::new_blocking_with_style(transport, P::PROTOCOL_STYLE)?;
+        let camera = crate::camera::Camera::new_blocking_with_style(transport, P::PROTOCOL_STYLE)?;
         Ok(CameraSession::new(camera))
     }
 
@@ -276,7 +274,7 @@ impl Camera {
     /// cam.power().on()?;
     /// cam.close()?;
     /// ```
-    #[cfg(feature = "serialport")]
+    #[cfg(feature = "transport-serial")]
     pub fn open_serial_blocking<P>(
         port: impl Into<String>,
         baud_rate: u32,

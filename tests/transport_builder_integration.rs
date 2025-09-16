@@ -1,5 +1,5 @@
 //! Integration tests for the camera-first API with builder pattern.
-#![cfg(not(feature = "async"))]
+#![cfg(not(feature = "mode-async"))]
 //!
 //! These tests verify that the camera-first API correctly creates and configures
 //! cameras with the transport builder pattern.
@@ -12,7 +12,7 @@ use std::{
 };
 
 use grafton_visca::{
-    camera::profiles::PtzOpticsG2, mode::BlockingFutureExt, Camera, CameraBuilder,
+    camera::profiles::PtzOpticsG2, mode::BlockingFutureExt, BlockingCamera, CameraBuilder,
 };
 
 /// Test that the camera-first API creates a TCP camera with proper configuration
@@ -41,7 +41,7 @@ fn test_camera_creates_configured_tcp_camera() {
     thread::sleep(Duration::from_millis(50));
 
     // Use camera-first API to create camera
-    let camera_result = Camera::open_tcp_blocking::<PtzOpticsG2>(addr.to_string());
+    let camera_result = BlockingCamera::<PtzOpticsG2, _>::open_tcp(addr.to_string());
 
     assert!(
         camera_result.is_ok(),
@@ -77,7 +77,7 @@ fn test_camera_creates_configured_udp_camera() {
     });
 
     // Use camera-first API to create camera
-    let camera_result = Camera::open_udp_blocking::<PtzOpticsG2>(addr.to_string());
+    let camera_result = BlockingCamera::<PtzOpticsG2, _>::open_udp(addr.to_string());
 
     assert!(
         camera_result.is_ok(),
@@ -145,7 +145,7 @@ fn test_camera_retry_behavior() {
     });
 
     // Create camera (underlying transport handles retries)
-    let camera_result = Camera::open_udp_blocking::<PtzOpticsG2>(addr.to_string());
+    let camera_result = BlockingCamera::<PtzOpticsG2, _>::open_udp(addr.to_string());
 
     // Camera creation should work
     assert!(camera_result.is_ok(), "Camera creation should succeed");
@@ -187,7 +187,7 @@ fn test_camera_builder_validation() {
     let _valid_builder = CameraBuilder::tcp("127.0.0.1:5678").profile::<PtzOpticsG2>();
 
     // Invalid address should be caught at connection time
-    let invalid_result = Camera::open_tcp_blocking::<PtzOpticsG2>("invalid:address:format");
+    let invalid_result = BlockingCamera::<PtzOpticsG2, _>::open_tcp("invalid:address:format");
     assert!(invalid_result.is_err(), "Invalid address should fail");
 }
 
@@ -197,8 +197,8 @@ fn test_camera_direct_connection_methods() {
     // Test that direct connection methods work without addresses
     // (they will fail to connect, but should compile and create the right error)
 
-    let tcp_result = Camera::open_tcp_blocking::<PtzOpticsG2>("127.0.0.1:99999");
-    let udp_result = Camera::open_udp_blocking::<PtzOpticsG2>("127.0.0.1:99999");
+    let tcp_result = BlockingCamera::<PtzOpticsG2, _>::open_tcp("127.0.0.1:99999");
+    let udp_result = BlockingCamera::<PtzOpticsG2, _>::open_udp("127.0.0.1:99999");
 
     // Both should fail gracefully (connection refused or timeout)
     assert!(
@@ -221,6 +221,6 @@ fn test_complete_camera_configuration_flow() {
     // The camera-first API provides a simpler, more focused interface than the transport builder
 
     // Test that both direct connection and builder pattern work
-    let _direct_result = Camera::open_tcp_blocking::<PtzOpticsG2>("127.0.0.1:99999");
+    let _direct_result = BlockingCamera::<PtzOpticsG2, _>::open_tcp("127.0.0.1:99999");
     // Will fail to connect, but should compile successfully
 }

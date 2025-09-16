@@ -1,4 +1,4 @@
-//! Unified camera module with Send-safe, profile-centric VISCA API.
+//! Camera module with Send-safe, profile-centric VISCA API.
 //!
 //! This module provides a single, unified camera implementation that works in both
 //! async and blocking modes through the Mode trait system. All mode-specific behavior
@@ -13,58 +13,56 @@
 
 pub mod accessors;
 pub mod builder;
+pub mod camera_impl;
 pub mod capabilities;
 pub mod config;
 pub mod controls;
 pub mod convenience;
-pub mod movement_detection;
-pub mod movement_probe;
+pub mod movement;
 pub mod profiles;
 pub mod session;
-pub mod unified;
 
 // Blocking-specific wrapper module
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 pub mod blocking_api;
 
-// Re-export the unified camera type (the actual implementation)
-pub use unified::Camera as UnifiedCamera;
+// Re-export the camera type (the actual implementation)
+pub use camera_impl::Camera;
 
 // Re-export new API types
 pub use config::{CameraConfig, ProtocolConfig, TransportOptions};
 pub use session::CameraSession;
 
-// Re-export convenience methods as the main Camera type
-// This provides the one-liner convenience methods that users expect
-pub use convenience::Camera;
+// Re-export convenience methods for quick connection
+pub use convenience::Connect;
 
 // Type aliases for easier usage
 /// Async camera type alias for easier usage.
 ///
 /// This type represents a camera operating in async mode with Send-safe futures.
 /// It requires an async transport and executor for operation.
-#[cfg(feature = "async")]
-pub type AsyncCamera<P, Tr, Exec> = UnifiedCamera<crate::mode::Async, P, Tr, Exec>;
+#[cfg(feature = "mode-async")]
+pub type AsyncCamera<P, Tr, Exec> = Camera<crate::mode::Async, P, Tr, Exec>;
 
 /// Blocking camera type alias for unified API usage.
 ///
 /// This type represents a camera operating in blocking mode with synchronous operations.
 /// It requires a sync transport for operation. For ergonomic blocking API with direct
 /// Result returns, see `blocking_api::BlockingCamera`.
-#[cfg(not(feature = "async"))]
-pub type UnifiedBlockingCamera<P, Tr> = UnifiedCamera<crate::mode::Blocking, P, Tr, ()>;
+#[cfg(not(feature = "mode-async"))]
+pub type BlockingCamera<P, Tr> = Camera<crate::mode::Blocking, P, Tr, ()>;
 
 // Re-export builder types
 pub use builder::CameraBuilder;
 
 // Re-export movement detection types
-pub use movement_probe::{MovementConfig, PanTiltPosition};
+pub use movement::{MovementConfig, PanTiltPosition};
 
-/// Internal trait that provides mode-agnostic sending capabilities.
+/// Internal trait that provides mode-agnostic command client capabilities.
 ///
 /// This trait abstracts over the differences between async and blocking modes,
 /// allowing control traits to have a single implementation that works for both.
-pub trait CameraSend<M>
+pub trait CommandClient<M>
 where
     M: crate::mode::Mode,
 {
@@ -91,9 +89,9 @@ where
         T: Send + 'static;
 }
 
-// Async implementation of CameraSend
-#[cfg(feature = "async")]
-impl<P, Tr, Exec> CameraSend<crate::mode::Async> for UnifiedCamera<crate::mode::Async, P, Tr, Exec>
+// Async implementation of CommandClient
+#[cfg(feature = "mode-async")]
+impl<P, Tr, Exec> CommandClient<crate::mode::Async> for Camera<crate::mode::Async, P, Tr, Exec>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
@@ -147,9 +145,9 @@ where
     }
 }
 
-// Blocking implementation of CameraSend
-#[cfg(not(feature = "async"))]
-impl<P, Tr> CameraSend<crate::mode::Blocking> for UnifiedCamera<crate::mode::Blocking, P, Tr, ()>
+// Blocking implementation of CommandClient
+#[cfg(not(feature = "mode-async"))]
+impl<P, Tr> CommandClient<crate::mode::Blocking> for Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::SyncTransport + crate::transport::HasTransportConfig + Send + 'static,

@@ -171,16 +171,16 @@ grafton-visca = "0.7"
 
 # Async support (runtime-agnostic)
 [dependencies]
-grafton-visca = { version = "0.7", features = ["async"] }
+grafton-visca = { version = "0.7", features = ["mode-async"] }
 
 # With Tokio runtime support (recommended)
 [dependencies]
-grafton-visca = { version = "0.7", features = ["rt-tokio"] }
+grafton-visca = { version = "0.7", features = ["runtime-tokio"] }
 tokio = { version = "1", features = ["full"] }
 
 # Multi-runtime support (NEW: runtimes can coexist!)
 [dependencies]
-grafton-visca = { version = "0.7", features = ["rt-tokio", "rt-async-std"] }
+grafton-visca = { version = "0.7", features = ["runtime-tokio", "runtime-async-std"] }
 ```
 
 ## Camera Profiles
@@ -274,12 +274,12 @@ These examples demonstrate the recommended high-level accessor API:
 | Example | Description | Features Required |
 |---------|-------------|-------------------|
 | [`quickstart`](examples/quickstart.rs) | Basic blocking usage with accessor API | None |
-| [`quickstart_async`](examples/quickstart_async.rs) | Async control with any runtime (tokio/async-std/smol) | `rt-tokio` or `rt-async-std` or `rt-smol` |
+| [`quickstart_async`](examples/quickstart_async.rs) | Async control with any runtime (tokio/async-std/smol) | `runtime-tokio` or `runtime-async-std` or `runtime-smol` |
 | [`preset_demo`](examples/preset_demo.rs) | Preset management using accessors | None |
 | [`typed_inquiry_demo`](examples/typed_inquiry_demo.rs) | Type-safe inquiries with accessor API | None |
-| [`inquiry_quickstart`](examples/inquiry_quickstart.rs) | Query camera state | `rt-tokio` |
-| [`concurrent_control`](examples/concurrent_control.rs) | Multi-camera control with accessors | `rt-tokio` |
-| [`error_handling`](examples/error_handling.rs) | Error recovery patterns | None or `rt-tokio` |
+| [`inquiry_quickstart`](examples/inquiry_quickstart.rs) | Query camera state | `runtime-tokio` |
+| [`concurrent_control`](examples/concurrent_control.rs) | Multi-camera control with accessors | `runtime-tokio` |
+| [`error_handling`](examples/error_handling.rs) | Error recovery patterns | None or `runtime-tokio` |
 
 ### Advanced Examples
 These examples demonstrate low-level features, transport configuration, and advanced patterns:
@@ -288,27 +288,27 @@ These examples demonstrate low-level features, transport configuration, and adva
 |---------|-------------|-------------------|
 | [`transports`](examples-advanced/transports.rs) | TCP vs UDP transport details | None |
 | [`transport_builder_demo`](examples-advanced/transport_builder_demo.rs) | Advanced transport configuration | None |
-| [`runtime_demo_lowlevel`](examples-advanced/runtime_demo_lowlevel.rs) | Low-level runtime interactions | `async` |
+| [`runtime_demo_lowlevel`](examples-advanced/runtime_demo_lowlevel.rs) | Low-level runtime interactions | `mode-async` |
 | [`type_safe_commands`](examples-advanced/type_safe_commands.rs) | Direct command module usage | None |
 | [`builder_api`](examples/builder_api.rs) | Builder configuration patterns | Multiple runtime features |
-| [`runtime_agnostic`](examples/runtime_agnostic.rs) | Implementing custom runtime support | `async` |
+| [`runtime_agnostic`](examples/runtime_agnostic.rs) | Implementing custom runtime support | `mode-async` |
 | [`runtime_demo`](examples/runtime_demo.rs) | Runtime adapter patterns | None |
 | [`protocol_auto_detection`](examples/protocol_auto_detection.rs) | Auto-detect camera protocol | None |
 | [`sony_encapsulation`](examples/sony_encapsulation.rs) | Sony protocol mode | None |
-| [`serial_async_demo`](examples/serial_async_demo.rs) | Serial port control | `serial`, `rt-tokio` |
+| [`serial_async_demo`](examples/serial_async_demo.rs) | Serial port control | `transport-serial`, `runtime-tokio` |
 
 ### Choosing Your Runtime
 For async examples, you can choose between three runtimes:
 
 ```bash
 # With tokio (recommended for most applications)
-cargo run --example quickstart_async --features rt-tokio
+cargo run --example quickstart_async --features runtime-tokio
 
 # With async-std
-cargo run --example quickstart_async --features rt-async-std
+cargo run --example quickstart_async --features runtime-async-std
 
 # With smol (lightweight runtime)
-cargo run --example quickstart_async --features rt-smol
+cargo run --example quickstart_async --features runtime-smol
 
 # Blocking mode (no async runtime needed)
 cargo run --example quickstart --no-default-features
@@ -413,11 +413,11 @@ cargo test --all-features
 
 # Test specific feature combinations
 cargo test --no-default-features
-cargo test --no-default-features --features async
-cargo test --no-default-features --features rt-tokio
+cargo test --no-default-features --features mode-async
+cargo test --no-default-features --features runtime-tokio
 
 # Multi-runtime testing
-cargo test --features rt-tokio,rt-async-std
+cargo test --features runtime-tokio,runtime-async-std
 ```
 
 ## Performance

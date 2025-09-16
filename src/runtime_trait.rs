@@ -4,10 +4,10 @@
 //! of executors and their corresponding transport implementations, preventing
 //! cross-runtime mismatches at compile time.
 
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 use std::time::Instant;
 
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 use crate::{
     executor::Executor,
     transport::{builder::TransportConfig, AsyncTransport, HasTransportConfig},
@@ -24,10 +24,10 @@ use crate::{
 /// # Example
 ///
 /// ```rust,ignore
-/// # #[cfg(feature = "rt-tokio")]
+/// # #[cfg(feature = "runtime-tokio")]
 /// use grafton_visca::{Runtime, TokioRuntime};
 ///
-/// # #[cfg(feature = "rt-tokio")]
+/// # #[cfg(feature = "runtime-tokio")]
 /// # #[tokio::main]
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let runtime = TokioRuntime::from_current()?;
@@ -35,7 +35,7 @@ use crate::{
 /// # Ok(())
 /// # }
 /// ```
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 pub trait Runtime: Executor + Clone + Send + Sync + 'static {
     /// TCP transport type for this runtime.
     type TcpTransport: AsyncTransport + HasTransportConfig + Send + 'static;
@@ -79,7 +79,7 @@ pub trait Runtime: Executor + Clone + Send + Sync + 'static {
 /// when the serialport feature is enabled.
 ///
 /// Currently only implemented for Tokio runtime as it has tokio-serial integration.
-#[cfg(all(feature = "async", feature = "tokio-serial"))]
+#[cfg(all(feature = "mode-async", feature = "transport-serial-tokio"))]
 pub trait RuntimeSerial: Runtime {
     /// Serial transport type for this runtime.
     type SerialTransport: AsyncTransport + HasTransportConfig + Send + 'static;
@@ -108,10 +108,10 @@ pub trait RuntimeSerial: Runtime {
 /// # Example
 ///
 /// ```rust,ignore
-/// # #[cfg(feature = "rt-tokio")]
+/// # #[cfg(feature = "runtime-tokio")]
 /// use grafton_visca::{Runtime, TokioRuntime, TransportHandle};
 ///
-/// # #[cfg(feature = "rt-tokio")]
+/// # #[cfg(feature = "runtime-tokio")]
 /// # #[tokio::main]
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let runtime = TokioRuntime::from_current()?;
@@ -120,7 +120,7 @@ pub trait RuntimeSerial: Runtime {
 /// # Ok(())
 /// # }
 /// ```
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 #[derive(Debug)]
 pub enum TransportHandle<R: Runtime> {
     /// TCP transport for this runtime.
@@ -129,7 +129,7 @@ pub enum TransportHandle<R: Runtime> {
     Udp(R::UdpTransport),
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 impl<R: Runtime> AsyncTransport for TransportHandle<R> {
     async fn send(&mut self, bytes: &[u8]) -> Result<(), Error> {
         match self {
@@ -146,7 +146,7 @@ impl<R: Runtime> AsyncTransport for TransportHandle<R> {
     }
 }
 
-#[cfg(feature = "async")]
+#[cfg(feature = "mode-async")]
 impl<R: Runtime> HasTransportConfig for TransportHandle<R> {
     fn transport_config(&self) -> &TransportConfig {
         match self {
@@ -157,7 +157,7 @@ impl<R: Runtime> HasTransportConfig for TransportHandle<R> {
 }
 
 // Tokio runtime implementation
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 mod tokio_impl {
     use super::*;
     use crate::executor::TokioExecutor;
@@ -296,7 +296,7 @@ mod tokio_impl {
     }
 
     // Implement RuntimeSerial for TokioRuntime when tokio-serial feature is enabled
-    #[cfg(feature = "tokio-serial")]
+    #[cfg(feature = "transport-serial-tokio")]
     impl RuntimeSerial for TokioRuntime {
         type SerialTransport = crate::transport::tokio::serial::Serial;
 
@@ -310,11 +310,11 @@ mod tokio_impl {
     }
 }
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 pub use tokio_impl::TokioRuntime;
 
 // async-std runtime implementation
-#[cfg(feature = "rt-async-std")]
+#[cfg(feature = "runtime-async-std")]
 mod async_std_impl {
     use super::*;
     use crate::executor::AsyncStdExecutor;
@@ -448,11 +448,11 @@ mod async_std_impl {
     }
 }
 
-#[cfg(feature = "rt-async-std")]
+#[cfg(feature = "runtime-async-std")]
 pub use async_std_impl::AsyncStdRuntime;
 
 // smol runtime implementation
-#[cfg(feature = "rt-smol")]
+#[cfg(feature = "runtime-smol")]
 mod smol_impl {
     use super::*;
     use crate::executor::SmolExecutor;
@@ -586,5 +586,5 @@ mod smol_impl {
     }
 }
 
-#[cfg(feature = "rt-smol")]
+#[cfg(feature = "runtime-smol")]
 pub use smol_impl::SmolRuntime;

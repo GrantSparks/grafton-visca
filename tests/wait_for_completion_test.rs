@@ -1,6 +1,6 @@
 //! Tests for wait_for_completion and runtime idle detection concepts.
 
-#![cfg(all(feature = "async", feature = "test-utils"))]
+#![cfg(all(feature = "mode-async", feature = "test-utils"))]
 
 use grafton_visca::{testing::testkit::DeterministicExecutor, Error, Executor};
 

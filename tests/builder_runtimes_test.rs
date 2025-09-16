@@ -1,6 +1,6 @@
 //! Tests for CameraBuilder runtime support
 
-#[cfg(all(feature = "async", feature = "rt-tokio"))]
+#[cfg(all(feature = "mode-async", feature = "rt-tokio"))]
 #[test]
 fn test_tokio_builder() {
     use grafton_visca::camera::CameraBuilder;
@@ -15,7 +15,7 @@ fn test_tokio_builder() {
     });
 }
 
-#[cfg(all(feature = "async", feature = "rt-async-std"))]
+#[cfg(all(feature = "mode-async", feature = "rt-async-std"))]
 #[test]
 fn test_async_std_builder() {
     use grafton_visca::camera::CameraBuilder;
@@ -27,7 +27,7 @@ fn test_async_std_builder() {
     let _: CameraBuilder<AsyncStdRuntime> = builder;
 }
 
-#[cfg(all(feature = "async", feature = "rt-smol"))]
+#[cfg(all(feature = "mode-async", feature = "rt-smol"))]
 #[test]
 fn test_smol_builder() {
     use grafton_visca::camera::CameraBuilder;
