@@ -168,6 +168,35 @@ pub struct RetryCommand {
     pub retry_at: Instant,
 }
 
+/// Wrapper for RetryCommand that implements Ord for BinaryHeap (min-heap).
+#[derive(Clone, Debug)]
+struct RetryKey {
+    /// The retry command.
+    command: RetryCommand,
+}
+
+impl PartialEq for RetryKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.command.retry_at == other.command.retry_at
+    }
+}
+
+impl Eq for RetryKey {}
+
+impl PartialOrd for RetryKey {
+    fn partial_cmp(&self, other: &Self) -> Option<CmpOrdering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for RetryKey {
+    fn cmp(&self, other: &Self) -> CmpOrdering {
+        // For min-heap behavior, we want earlier times to have higher priority
+        // So we reverse the comparison
+        other.command.retry_at.cmp(&self.command.retry_at)
+    }
+}
+
 impl std::fmt::Debug for RetryCommand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RetryCommand")
@@ -485,7 +514,8 @@ pub struct SchedulerCore {
         ),
     >,
     /// Commands waiting to be retried (after busy response).
-    pub retry_queue: Vec<RetryCommand>,
+    /// Uses a min-heap ordered by retry_at for efficient deadline-driven scheduling.
+    retry_queue: BinaryHeap<RetryKey>,
     /// Store command metadata for potential retry.
     command_metadata: HashMap<
         u32,
@@ -541,7 +571,7 @@ impl SchedulerCore {
             timeout_config,
             retry_config,
             pending_ack: HashMap::new(),
-            retry_queue: Vec::new(),
+            retry_queue: BinaryHeap::new(),
             command_metadata: HashMap::new(),
             retry_attempts: HashMap::new(),
             retry_trigger_transport_error: HashMap::new(),
@@ -1283,7 +1313,7 @@ impl SchedulerCore {
                         retry_at: now + retry_delay,
                     };
 
-                    self.retry_queue.push(retry_cmd);
+                    self.retry_queue.push(RetryKey { command: retry_cmd });
 
                     actions.push(SchedulerAction::RetryCommand {
                         id: cmd_id,
@@ -1351,21 +1381,87 @@ impl SchedulerCore {
         actions
     }
 
+    /// Get the number of commands waiting to be retried.
+    pub fn retry_queue_depth(&self) -> usize {
+        self.retry_queue.len()
+    }
+
     /// Get commands that are ready to retry.
     pub fn get_ready_retries(&mut self, now: Instant) -> Vec<RetryCommand> {
         let mut ready = Vec::new();
-        let mut remaining = Vec::new();
 
-        for retry_cmd in self.retry_queue.drain(..) {
-            if retry_cmd.retry_at <= now {
-                ready.push(retry_cmd);
+        // Pop commands from the heap while they're ready
+        while let Some(retry_key) = self.retry_queue.peek() {
+            if retry_key.command.retry_at <= now {
+                // Pop the ready command - we know it exists because we just peeked
+                if let Some(retry_key) = self.retry_queue.pop() {
+                    ready.push(retry_key.command);
+                } else {
+                    // This shouldn't happen since we just peeked, but handle gracefully
+                    debug!("Unexpected: retry queue empty after peek");
+                    break;
+                }
             } else {
-                remaining.push(retry_cmd);
+                // Heap is ordered by retry_at, so no more are ready
+                break;
             }
         }
 
-        self.retry_queue = remaining;
         ready
+    }
+
+    /// Get the next deadline for time-based operations.
+    /// Returns the earliest deadline among ACK timeouts, command timeouts, inquiry timeouts, and retry eligibility.
+    pub fn next_deadline(&self, _now: Instant) -> Option<Instant> {
+        let mut earliest: Option<Instant> = None;
+
+        // Check ACK timeouts
+        for (_, _, _, sent_at, _) in self.pending_ack.values() {
+            let deadline = *sent_at + self.timeout_config.ack_timeout;
+            earliest = match earliest {
+                None => Some(deadline),
+                Some(e) if deadline < e => Some(deadline),
+                _ => earliest,
+            };
+        }
+
+        // Check socket command timeouts
+        for socket_state in &self.sockets {
+            if let (Some(started_at), Some(category)) =
+                (socket_state.started_at, socket_state.category)
+            {
+                let timeout = self.timeout_config.get_timeout(category);
+                let deadline = started_at + timeout;
+                earliest = match earliest {
+                    None => Some(deadline),
+                    Some(e) if deadline < e => Some(deadline),
+                    _ => earliest,
+                };
+            }
+        }
+
+        // Check inquiry timeouts
+        for &(started_at, category) in self.inquiries_inflight.values() {
+            let timeout = self.timeout_config.get_timeout(category);
+            let deadline = started_at + timeout;
+            earliest = match earliest {
+                None => Some(deadline),
+                Some(e) if deadline < e => Some(deadline),
+                _ => earliest,
+            };
+        }
+
+        // Check retry queue (peek at the earliest retry)
+        if let Some(retry_key) = self.retry_queue.peek() {
+            let deadline = retry_key.command.retry_at;
+            earliest = match earliest {
+                None => Some(deadline),
+                Some(e) if deadline < e => Some(deadline),
+                _ => earliest,
+            };
+        }
+
+        earliest
     }
 
     // Private helper methods
@@ -1654,7 +1750,7 @@ impl SchedulerCore {
                 "Queueing retry for command {} (attempt {} of {})",
                 cmd_id, attempt, max_retries
             );
-            self.retry_queue.push(retry_cmd);
+            self.retry_queue.push(RetryKey { command: retry_cmd });
 
             Some(SchedulerAction::RetryCommand { id: cmd_id, delay })
         } else {

@@ -30,7 +30,6 @@ use crate::{
 
 /// Configuration for the runtime loop.
 pub struct RuntimeLoopConfig {
-    pub tick_interval_ms: Option<u64>,
     pub envelope: TransportEnvelope,
     pub buffer_manager: BufferManager,
     pub timeout_config: TimeoutConfig,
@@ -40,7 +39,19 @@ pub struct RuntimeLoopConfig {
 }
 
 /// Main runtime loop with configurable tick interval.
-#[instrument(level = "debug", name = "visca_runtime_loop", skip(transport, submit_rx, metrics_rx, completions_rx, shutdown_rx, executor, config), fields(tick_ms = config.tick_interval_ms))]
+#[instrument(
+    level = "debug",
+    name = "visca_runtime_loop",
+    skip(
+        transport,
+        submit_rx,
+        metrics_rx,
+        completions_rx,
+        shutdown_rx,
+        executor,
+        config
+    )
+)]
 pub async fn runtime_loop_with_config<
     P: Profile + 'static,
     T: AsyncTransport + Send + 'static,
@@ -65,9 +76,8 @@ pub async fn runtime_loop_with_config<
 
     debug!("VISCA runtime started");
 
-    // Create a timer interval for periodic checks
-    let tick_ms = config.tick_interval_ms.unwrap_or(50);
-    let tick_duration = std::time::Duration::from_millis(tick_ms);
+    // Default idle sleep duration when no deadlines are pending
+    const DEFAULT_IDLE_SLEEP: std::time::Duration = std::time::Duration::from_millis(100);
 
     loop {
         // Use select! style approach with explicit enum
@@ -200,47 +210,10 @@ pub async fn runtime_loop_with_config<
             continue;
         }
 
-        // Process any ready retries
-        let ready_retries = adapter.get_ready_retries();
-        for retry in ready_retries {
-            debug!(
-                "Processing retry for command {} (attempt {})",
-                retry.id, retry.attempt
-            );
-
-            // Create pending command from retry
-            // Use the kind preserved from the original command
-            let kind = retry.kind;
-            let pending_cmd = PendingCommand {
-                id: retry.id,
-                command: retry.command,
-                priority: retry.priority,
-                category: retry.category,
-                camera_id: retry.camera_id,
-                submitted_at: executor.now(),
-                kind,
-            };
-
-            // Use the shared driver for sending retries
-            if let Err(e) = send_one(
-                &mut transport,
-                &executor,
-                &mut adapter,
-                pending_cmd,
-                &config.envelope,
-                &config.buffer_manager,
-                config.write_timeout,
-            )
-            .await
-            {
-                // send_one already rolled back and failed the command via scheduler
-                debug!("Send failed during retry: {e}");
-                // Continue loop; do not stop runtime
-            }
-        }
-
-        // Dynamic tick scheduling: sleep until housekeeping tick
-        let sleep_dur = tick_duration;
+        // Compute the next deadline for time-based operations
+        let now = executor.now();
+        let until = adapter.next_deadline().unwrap_or(now + DEFAULT_IDLE_SLEEP);
+        let sleep_dur = until.saturating_duration_since(now);
 
         // Use select to handle recv, tick, and shutdown operations
         let operation = {
@@ -410,53 +383,89 @@ pub async fn runtime_loop_with_config<
                 }
             }
             Operation::Tick => {
-                // Handle idle tick - check timeouts and send pending commands
-                runtime_trace!(
-                    "Before check_timeouts: pending_ack={}",
-                    adapter.pending_ack_count()
-                );
-                adapter.check_timeouts().await?;
-                runtime_trace!(
-                    "After check_timeouts: pending_ack={}",
-                    adapter.pending_ack_count()
-                );
-
-                // Try to send more commands if we have room
-                while adapter.can_send_command() {
-                    if let Some(cmd) = adapter.next_command_to_send() {
-                        // Use the shared driver for sending
-                        if let Err(e) = send_one(
-                            &mut transport,
-                            &executor,
-                            &mut adapter,
-                            cmd,
-                            &config.envelope,
-                            &config.buffer_manager,
-                            config.write_timeout,
-                        )
-                        .await
-                        {
-                            // send_one already rolled back and failed the command via scheduler
-                            debug!("Send failed during tick: {e}");
-                            // Continue loop; do not stop runtime
-                        }
-                    } else {
-                        break;
-                    }
-                }
-
-                // NOTE: No sleep here! The tick came from the timeout above, sleeping again
-                // would cause the observed 2× slowdown (double-sleep issue).
+                // Deadline fired - no data received
+                runtime_trace!("Deadline fired with no data");
             }
             Operation::RecvErr(e) => {
                 error!("Error receiving from transport: {e}");
                 // Handle network error - all pending commands will be retried or failed
                 adapter.on_network_error(e).await?;
 
-                // Avoid hot-looping on immediate errors; give timers a chance to fire.
-                // This sleep prevents the loop from immediately re-entering the race and
-                // canceling any pending sleep futures, ensuring virtual time can advance.
-                executor.sleep(tick_duration).await;
+                // Avoid hot-looping on immediate errors
+                executor.sleep(std::time::Duration::from_millis(10)).await;
+            }
+        }
+
+        // After processing recv or deadline, check timeouts and process ready retries
+        // This happens on both data reception and deadline expiry
+        runtime_trace!(
+            "Before check_timeouts: pending_ack={}",
+            adapter.pending_ack_count()
+        );
+        adapter.check_timeouts().await?;
+        runtime_trace!(
+            "After check_timeouts: pending_ack={}",
+            adapter.pending_ack_count()
+        );
+
+        // Process any newly ready retries
+        let ready_retries = adapter.get_ready_retries();
+        for retry in ready_retries {
+            debug!(
+                "Processing retry for command {} (attempt {})",
+                retry.id, retry.attempt
+            );
+
+            // Create pending command from retry
+            let kind = retry.kind;
+            let pending_cmd = PendingCommand {
+                id: retry.id,
+                command: retry.command,
+                priority: retry.priority,
+                category: retry.category,
+                camera_id: retry.camera_id,
+                submitted_at: executor.now(),
+                kind,
+            };
+
+            // Use the shared driver for sending retries
+            if let Err(e) = send_one(
+                &mut transport,
+                &executor,
+                &mut adapter,
+                pending_cmd,
+                &config.envelope,
+                &config.buffer_manager,
+                config.write_timeout,
+            )
+            .await
+            {
+                // send_one already rolled back and failed the command via scheduler
+                debug!("Send failed during retry: {e}");
+            }
+        }
+
+        // Try to send more commands if we have room
+        while adapter.can_send_command() {
+            if let Some(cmd) = adapter.next_command_to_send() {
+                // Use the shared driver for sending
+                if let Err(e) = send_one(
+                    &mut transport,
+                    &executor,
+                    &mut adapter,
+                    cmd,
+                    &config.envelope,
+                    &config.buffer_manager,
+                    config.write_timeout,
+                )
+                .await
+                {
+                    // send_one already rolled back and failed the command via scheduler
+                    debug!("Send failed while draining pending: {e}");
+                    // Continue loop; do not stop runtime
+                }
+            } else {
+                break;
             }
         }
     }

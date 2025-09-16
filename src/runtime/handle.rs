@@ -79,7 +79,14 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
     where
         for<'a> &'a T: HasTransportConfig,
     {
-        Self::new_with_style(transport, executor, ProtocolStyle::RawVisca).await
+        Self::new_with_full_config(
+            transport,
+            executor,
+            ProtocolStyle::RawVisca,
+            None,
+            crate::transport::RetryConfig::default(),
+        )
+        .await
     }
 
     /// Create a new runtime handle with a transport and executor.
@@ -106,7 +113,14 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
     where
         for<'a> &'a T: HasTransportConfig,
     {
-        Self::with_tick_interval_and_style(transport, executor, None, protocol_style, None).await
+        Self::new_with_full_config(
+            transport,
+            executor,
+            protocol_style,
+            None,
+            crate::transport::RetryConfig::default(),
+        )
+        .await
     }
 
     /// Create a new camera runtime with explicit protocol style and timeout config.
@@ -121,12 +135,12 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
     where
         for<'a> &'a T: HasTransportConfig,
     {
-        Self::with_tick_interval_and_style(
+        Self::new_with_full_config(
             transport,
             executor,
-            None,
             protocol_style,
             Some(timeout_config),
+            crate::transport::RetryConfig::default(),
         )
         .await
     }
@@ -144,10 +158,9 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
     where
         for<'a> &'a T: HasTransportConfig,
     {
-        Self::with_tick_interval_style_and_retry(
+        Self::new_with_full_config(
             transport,
             executor,
-            None,
             protocol_style,
             Some(timeout_config),
             retry_config,
@@ -185,78 +198,18 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
         Self::new_with_style(transport, executor, protocol_style).await
     }
 
-    /// Create a new camera runtime with a custom tick interval.
-    ///
-    /// The tick interval controls how often the runtime checks for timeouts
-    /// and processes retries. Default is 50ms.
-    /// For compatibility, this defaults to raw VISCA protocol.
+    /// Create a new camera runtime with full configuration.
     ///
     /// # Arguments
     /// * `transport` - The transport to use for communication
     /// * `executor` - The async executor to spawn tasks on
-    /// * `tick_interval_ms` - Optional tick interval in milliseconds (default: 50ms)
-    #[instrument(level = "debug", skip(transport, executor), fields(tick_ms = tick_interval_ms))]
-    pub async fn with_tick_interval<T: AsyncTransport + HasTransportConfig + Send + 'static>(
-        transport: T,
-        executor: Arc<E>,
-        tick_interval_ms: Option<u64>,
-    ) -> Result<Self> {
-        Self::with_tick_interval_and_style(
-            transport,
-            executor,
-            tick_interval_ms,
-            ProtocolStyle::RawVisca,
-            None,
-        )
-        .await
-    }
-
-    /// Create a new camera runtime with a custom tick interval and protocol style.
-    ///
-    /// # Arguments
-    /// * `transport` - The transport to use for communication
-    /// * `executor` - The async executor to spawn tasks on
-    /// * `tick_interval_ms` - Optional tick interval in milliseconds (default: 50ms)
-    /// * `protocol_style` - The protocol style to use (Raw VISCA or Sony encapsulated)
-    /// * `timeout_config` - Optional timeout configuration (defaults to TimeoutConfig::default())
-    #[instrument(level = "debug", skip(transport, executor, timeout_config), fields(tick_ms = tick_interval_ms, protocol = ?protocol_style))]
-    pub async fn with_tick_interval_and_style<T: AsyncTransport + Send + 'static>(
-        transport: T,
-        executor: Arc<E>,
-        tick_interval_ms: Option<u64>,
-        protocol_style: ProtocolStyle,
-        timeout_config: Option<crate::timeout::TimeoutConfig>,
-    ) -> Result<Self>
-    where
-        for<'a> &'a T: HasTransportConfig,
-    {
-        // Use default retry config
-        let retry_config = crate::transport::RetryConfig::default();
-        Self::with_tick_interval_style_and_retry(
-            transport,
-            executor,
-            tick_interval_ms,
-            protocol_style,
-            timeout_config,
-            retry_config,
-        )
-        .await
-    }
-
-    /// Create a new camera runtime with a custom tick interval, protocol style, and retry config.
-    ///
-    /// # Arguments
-    /// * `transport` - The transport to use for communication
-    /// * `executor` - The async executor to spawn tasks on
-    /// * `tick_interval_ms` - Optional tick interval in milliseconds (default: 50ms)
     /// * `protocol_style` - The protocol style to use (Raw VISCA or Sony encapsulated)
     /// * `timeout_config` - Optional timeout configuration (defaults to TimeoutConfig::default())
     /// * `retry_config` - Retry configuration for the runtime
-    #[instrument(level = "debug", skip(transport, executor, timeout_config, retry_config), fields(tick_ms = tick_interval_ms, protocol = ?protocol_style))]
-    pub async fn with_tick_interval_style_and_retry<T: AsyncTransport + Send + 'static>(
+    #[instrument(level = "debug", skip(transport, executor, timeout_config, retry_config), fields(protocol = ?protocol_style))]
+    pub async fn new_with_full_config<T: AsyncTransport + Send + 'static>(
         transport: T,
         executor: Arc<E>,
-        tick_interval_ms: Option<u64>,
         protocol_style: ProtocolStyle,
         timeout_config: Option<crate::timeout::TimeoutConfig>,
         retry_config: crate::transport::RetryConfig,
@@ -282,7 +235,6 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
 
         // Pre-bake a plain data config for the loop
         let config = RuntimeLoopConfig {
-            tick_interval_ms,
             envelope,
             buffer_manager,
             timeout_config,

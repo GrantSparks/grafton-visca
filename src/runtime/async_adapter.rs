@@ -562,6 +562,12 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
         self.core.get_ready_retries(now)
     }
 
+    /// Get the next deadline for time-based operations.
+    pub fn next_deadline(&self) -> Option<Instant> {
+        let now = self.executor.now();
+        self.core.next_deadline(now)
+    }
+
     /// Check if we can send another command.
     pub fn can_send_command(&self) -> bool {
         self.core.can_send_command()
@@ -584,7 +590,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
             protocol_errors: self.metrics.protocol_errors,
             timeouts: self.metrics.timeouts,
             pending_queue_depth: 0, // Can be obtained from core if needed
-            retry_queue_depth: self.core.retry_queue.len(),
+            retry_queue_depth: self.core.retry_queue_depth(),
         }
     }
 
