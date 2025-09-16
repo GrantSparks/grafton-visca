@@ -2,6 +2,7 @@
 
 use std::borrow::Cow;
 
+use super::super::payload::{Nibbles, Payload};
 use crate::{
     command::{
         response::types::{ViscaResponse, ViscaResponseType},
@@ -9,8 +10,6 @@ use crate::{
     },
     error::Error,
 };
-
-use super::super::payload::{Nibbles, Payload};
 
 /// Decode exposure-related inquiry responses.
 pub(crate) fn decode(
@@ -31,7 +30,7 @@ pub(crate) fn decode(
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "exposure_mode",
-                        value: Cow::Owned(format!("{value:02X}", value = payload.as_slice()[0])),
+                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed("Unknown exposure mode value"),
                     }))
                 }
@@ -126,7 +125,7 @@ pub(crate) fn decode(
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "iris_control",
-                        value: Cow::Owned(format!("{value:02X}", value = payload.as_slice()[0])),
+                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed(
                             "Invalid iris control value. Expected 0x02 (manual) or 0x03 (auto)",
                         ),
@@ -147,7 +146,7 @@ pub(crate) fn decode(
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "IrisUp status",
-                        value: Cow::Owned(format!("0x{value:02X}", value = payload.as_slice()[0])),
+                        value: Cow::Owned(format!("0x{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed("Expected 0x02 (inactive) or 0x03 (active)"),
                     }))
                 }
@@ -166,7 +165,7 @@ pub(crate) fn decode(
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "IrisDown status",
-                        value: Cow::Owned(format!("0x{value:02X}", value = payload.as_slice()[0])),
+                        value: Cow::Owned(format!("0x{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed("Expected 0x02 (inactive) or 0x03 (active)"),
                     }))
                 }

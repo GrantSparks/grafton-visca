@@ -40,23 +40,23 @@ pub use self::{
     color::*,
     encode_visca::{CommandKind, ViscaEncode},
     exposure::*,
-    // flip::*,  // Commented out - unused
+    // flip::*,
     focus::*,
     image::*,
-    // inquiry::*,  // Individual types are re-exported from inquiry module
+    // inquiry::*,
     inquiry_types::{FlipMode, ImageFlipStatus, IrisControl, NightDayMode, TallyStatus, Version},
     menu::*,
-    // motion_sync::*,  // Commands are internal only
+    // motion_sync::*,
     nd_filter::*,
     pan_tilt::*,
     power::*,
     preset::*,
     response::{ViscaResponse, ViscaResponseType},
     system::{MotionSyncMode, MotionSyncSpeed},
-    // tally::*,  // Commented out - unused
+    // tally::*,
     variable_speed::*,
     white_balance::*,
-    // zoom::*,  // Commented out - unused
+    // zoom::*,
 };
 
 /// ViscaResponse data from VISCA inquiry commands.
@@ -464,7 +464,6 @@ pub enum InquiryResponse {
 
 #[cfg(test)]
 mod tests {
-    // Local modules
     use crate::{
         camera_id::CameraId,
         command::{bytes::VISCA_TERMINATOR, encode_visca::ViscaEncode},

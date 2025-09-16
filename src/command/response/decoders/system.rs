@@ -52,7 +52,7 @@ pub(crate) fn decode(
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "menu_status",
-                        value: Cow::Owned(format!("{value:02X}", value = payload.as_slice()[0])),
+                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed(
                             "Invalid menu status value. Expected 0x02 (closed) or 0x03 (open)",
                         ),
@@ -73,7 +73,7 @@ pub(crate) fn decode(
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "UsbAudio status",
-                        value: Cow::Owned(format!("0x{value:02X}", value = payload.as_slice()[0])),
+                        value: Cow::Owned(format!("0x{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed("Expected 0x02 (off) or 0x03 (on)"),
                     }))
                 }
@@ -90,7 +90,7 @@ pub(crate) fn decode(
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "RTMP status",
-                        value: Cow::Owned(format!("0x{value:02X}", value = payload.as_slice()[0])),
+                        value: Cow::Owned(format!("0x{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed("Expected 0x02 (off) or 0x03 (on)"),
                     }))
                 }
@@ -107,7 +107,7 @@ pub(crate) fn decode(
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "night_day_mode",
-                        value: Cow::Owned(format!("{value:02X}", value = payload.as_slice()[0])),
+                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed(
                             "Invalid night/day mode value. Expected 0x02 (day) or 0x03 (night)",
                         ),
@@ -128,7 +128,7 @@ pub(crate) fn decode(
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "Digital mode status",
-                        value: Cow::Owned(format!("0x{value:02X}", value = payload.as_slice()[0])),
+                        value: Cow::Owned(format!("0x{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed("Expected 0x02 (off) or 0x03 (on)"),
                     }))
                 }
@@ -145,7 +145,7 @@ pub(crate) fn decode(
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "AutoTrace mode status",
-                        value: Cow::Owned(format!("0x{value:02X}", value = payload.as_slice()[0])),
+                        value: Cow::Owned(format!("0x{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed("Expected 0x02 (off) or 0x03 (on)"),
                     }))
                 }

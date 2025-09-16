@@ -2,6 +2,7 @@
 
 use std::borrow::Cow;
 
+use super::super::payload::{Nibbles, Payload};
 use crate::{
     command::{
         response::types::{ViscaResponse, ViscaResponseType},
@@ -9,8 +10,6 @@ use crate::{
     },
     error::Error,
 };
-
-use super::super::payload::{Nibbles, Payload};
 
 /// Decode focus-related inquiry responses.
 pub(crate) fn decode(
@@ -47,7 +46,7 @@ pub(crate) fn decode(
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "focus_zone",
-                        value: Cow::Owned(format!("{value:02X}", value = payload.as_slice()[0])),
+                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed("Unknown focus zone value"),
                     }))
                 }
@@ -67,7 +66,7 @@ pub(crate) fn decode(
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "auto_focus_sensitivity",
-                        value: Cow::Owned(format!("{value:02X}", value = payload.as_slice()[0])),
+                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed("Unknown auto focus sensitivity value"),
                     }))
                 }
@@ -86,7 +85,7 @@ pub(crate) fn decode(
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "focus_mode",
-                        value: Cow::Owned(format!("{value:02X}", value = payload.as_slice()[0])),
+                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed("Unknown focus mode value"),
                     }))
                 }
@@ -114,7 +113,7 @@ pub(crate) fn decode(
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "autofocus_status",
-                        value: Cow::Owned(format!("{value:02X}", value = payload.as_slice()[0])),
+                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed(
                             "Invalid autofocus status value. Expected 0x02 (off) or 0x03 (on)",
                         ),
@@ -135,7 +134,7 @@ pub(crate) fn decode(
                     0x03 => true,
                     _ => return Some(Err(Error::InvalidParameter {
                         parameter: "focus_unlock",
-                        value: Cow::Owned(format!("{value:02X}", value = payload.as_slice()[0])),
+                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed(
                             "Invalid focus unlock value. Expected 0x02 (locked) or 0x03 (unlocked)",
                         ),
@@ -155,7 +154,7 @@ pub(crate) fn decode(
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "FocusNearFar status",
-                        value: Cow::Owned(format!("0x{value:02X}", value = payload.as_slice()[0])),
+                        value: Cow::Owned(format!("0x{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed("Expected 0x02 (far) or 0x03 (near)"),
                     }))
                 }

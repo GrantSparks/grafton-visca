@@ -10,8 +10,10 @@ mod system;
 mod tally;
 mod zoom;
 
-use super::payload::Payload;
-use super::types::{ViscaResponse, ViscaResponseType};
+use super::{
+    payload::Payload,
+    types::{ViscaResponse, ViscaResponseType},
+};
 use crate::{capabilities::Profile, error::Error};
 
 /// Try each domain decoder until one claims the ViscaResponseType.
