@@ -237,7 +237,7 @@ pub fn find_next_frame(buffer: &[u8]) -> Option<(Vec<u8>, &[u8])> {
 mod tests {
     use super::*;
 
-    use crate::command::response::{lift_inquiry, ViscaResponse, ViscaResponseType};
+    use crate::command::response::{lift_inquiry, Response, ResponseKind};
     use crate::command::InquiryResponse;
 
     #[test]
@@ -367,9 +367,7 @@ mod tests {
             payload: Payload::new(&[]),
         };
         let lifted = lift_inquiry(&basic, None).expect("Failed to lift ACK");
-        assert!(
-            matches!(lifted, ViscaResponse::CmdAck { socket } if socket == Some(ViscaSocket::S1))
-        );
+        assert!(matches!(lifted, Response::CmdAck { socket } if socket == Some(ViscaSocket::S1)));
 
         // Test Completion lifting
         let basic = BasicResponse {
@@ -379,7 +377,7 @@ mod tests {
         };
         let lifted = lift_inquiry(&basic, None).expect("Failed to lift Completion");
         assert!(
-            matches!(lifted, ViscaResponse::Completion { socket } if socket == Some(ViscaSocket::S2))
+            matches!(lifted, Response::Completion { socket } if socket == Some(ViscaSocket::S2))
         );
 
         // Test Error lifting
@@ -389,7 +387,7 @@ mod tests {
             payload: Payload::new(&[]),
         };
         let lifted = lift_inquiry(&basic, None).expect("Failed to lift Error");
-        assert!(matches!(lifted, ViscaResponse::Error(_)));
+        assert!(matches!(lifted, Response::Error(_)));
 
         // Test DataReply without expected type
         let basic = BasicResponse {
@@ -400,7 +398,7 @@ mod tests {
         let lifted = lift_inquiry(&basic, None).expect("Failed to lift DataReply");
         assert!(matches!(
             lifted,
-            ViscaResponse::Unknown { data, .. } if data == vec![0x02]
+            Response::Unknown { data, .. } if data == vec![0x02]
         ));
 
         // Test Power inquiry
@@ -409,10 +407,10 @@ mod tests {
             socket: None,
             payload: Payload::new(&[0x02]),
         };
-        let lifted = lift_inquiry(&basic, Some(&ViscaResponseType::Power))
-            .expect("Failed to lift Power inquiry");
+        let lifted =
+            lift_inquiry(&basic, Some(&ResponseKind::Power)).expect("Failed to lift Power inquiry");
         match lifted {
-            ViscaResponse::Inquiry(InquiryResponse::Power { on }) => assert!(on),
+            Response::Inquiry(InquiryResponse::Power { on }) => assert!(on),
             _ => panic!("Expected Power inquiry response"),
         }
     }

@@ -8,7 +8,7 @@ use grafton_visca::{
     camera::profiles::{GenericVisca, SonyBRC300},
     capabilities::{CoordinateSystem, PanTilt},
     command::{
-        response::{lift_inquiry_for, payload::Payload, ViscaResponse, ViscaResponseType},
+        response::{lift_inquiry_for, payload::Payload, Response, ResponseKind},
         InquiryResponse,
     },
     protocol::response::{BasicKind, BasicResponse},
@@ -28,7 +28,7 @@ fn test_lift_inquiry_for_signed_centered() {
         payload: Payload::new(&payload),
     };
 
-    let response_type = ViscaResponseType::PanTiltPosition;
+    let response_type = ResponseKind::PanTiltPosition;
 
     // Use profile-aware lifting with GenericVisca (signed-centered)
     let response = lift_inquiry_for::<GenericVisca>(&basic, Some(&response_type))
@@ -36,7 +36,7 @@ fn test_lift_inquiry_for_signed_centered() {
 
     // Verify the response is correctly interpreted as (0, 0)
     match response {
-        ViscaResponse::Inquiry(InquiryResponse::PanTiltPosition { pan, tilt }) => {
+        Response::Inquiry(InquiryResponse::PanTiltPosition { pan, tilt }) => {
             assert_eq!(pan, 0, "Pan should be 0 at center for signed-centered");
             assert_eq!(tilt, 0, "Tilt should be 0 at center for signed-centered");
         }
@@ -58,7 +58,7 @@ fn test_lift_inquiry_for_unsigned_centered() {
         payload: Payload::new(&payload),
     };
 
-    let response_type = ViscaResponseType::PanTiltPosition;
+    let response_type = ResponseKind::PanTiltPosition;
 
     // Use profile-aware lifting with SonyBRC300 (unsigned-centered)
     let response = lift_inquiry_for::<SonyBRC300>(&basic, Some(&response_type))
@@ -66,7 +66,7 @@ fn test_lift_inquiry_for_unsigned_centered() {
 
     // Verify the response is correctly interpreted as (0, 0)
     match response {
-        ViscaResponse::Inquiry(InquiryResponse::PanTiltPosition { pan, tilt }) => {
+        Response::Inquiry(InquiryResponse::PanTiltPosition { pan, tilt }) => {
             assert_eq!(pan, 0, "Pan should be 0 at center for unsigned-centered");
             assert_eq!(tilt, 0, "Tilt should be 0 at center for unsigned-centered");
         }
@@ -89,14 +89,14 @@ fn test_coordinate_conversion_extremes() {
         payload: Payload::new(&payload),
     };
 
-    let response_type = ViscaResponseType::PanTiltPosition;
+    let response_type = ResponseKind::PanTiltPosition;
 
     // Use profile-aware lifting for unsigned-centered
     let response = lift_inquiry_for::<SonyBRC300>(&basic, Some(&response_type))
         .expect("Should parse successfully");
 
     match response {
-        ViscaResponse::Inquiry(InquiryResponse::PanTiltPosition { pan, tilt }) => {
+        Response::Inquiry(InquiryResponse::PanTiltPosition { pan, tilt }) => {
             assert_eq!(
                 pan, 32767,
                 "Pan should be 32767 at max for unsigned-centered"
@@ -125,7 +125,7 @@ fn test_coordinate_conversion_extremes() {
         .expect("Should parse successfully");
 
     match response {
-        ViscaResponse::Inquiry(InquiryResponse::PanTiltPosition { pan, tilt }) => {
+        Response::Inquiry(InquiryResponse::PanTiltPosition { pan, tilt }) => {
             assert_eq!(
                 pan, -32768,
                 "Pan should be -32768 at min for unsigned-centered"

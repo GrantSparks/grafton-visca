@@ -6,8 +6,8 @@
 
 use crate::{
     command::{
-        bytes::builder::ConstCommandBuilder, encode_visca::ViscaEncode, MotionSyncMode,
-        MotionSyncPreset, ViscaResponseType,
+        bytes::builder::ConstCommandBuilder, encode::ViscaCommand, MotionSyncMode,
+        MotionSyncPreset, ResponseKind,
     },
     error::Error,
     timeout::CommandCategory,
@@ -29,12 +29,12 @@ impl MotionSyncModeCommand {
     }
 }
 
-impl ViscaEncode for MotionSyncModeCommand {
-    type ViscaResponse = ();
+impl ViscaCommand for MotionSyncModeCommand {
+    type Response = ();
     const MAX_SIZE: usize = 6;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
-    fn encode_into(
+    fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
@@ -50,7 +50,7 @@ impl ViscaEncode for MotionSyncModeCommand {
             .build_into(buffer)
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_kind(&self) -> Option<ResponseKind> {
         None // Command response, not inquiry
     }
 
@@ -113,12 +113,12 @@ impl MotionSyncPresetCommand {
     }
 }
 
-impl ViscaEncode for MotionSyncPresetCommand {
-    type ViscaResponse = ();
+impl ViscaCommand for MotionSyncPresetCommand {
+    type Response = ();
     const MAX_SIZE: usize = 6;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
-    fn encode_into(
+    fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
@@ -133,7 +133,7 @@ impl ViscaEncode for MotionSyncPresetCommand {
             .build_into(buffer)
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_kind(&self) -> Option<ResponseKind> {
         None // Command response, not inquiry
     }
 

@@ -5,19 +5,16 @@ use std::borrow::Cow;
 use super::super::payload::{Nibbles, Payload};
 use crate::{
     command::{
-        response::types::{ViscaResponse, ViscaResponseType},
+        response::types::{Response, ResponseKind},
         ExposureMode, InquiryResponse,
     },
     error::Error,
 };
 
 /// Decode exposure-related inquiry responses.
-pub(crate) fn decode(
-    kind: ViscaResponseType,
-    payload: Payload<'_>,
-) -> Option<Result<ViscaResponse, Error>> {
+pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<Response, Error>> {
     match kind {
-        ViscaResponseType::ExposureMode => {
+        ResponseKind::ExposureMode => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -35,24 +32,24 @@ pub(crate) fn decode(
                     }))
                 }
             };
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::ExposureMode {
+            Some(Ok(Response::Inquiry(InquiryResponse::ExposureMode {
                 mode,
             })))
         }
-        ViscaResponseType::ExposureCompensationMode => {
+        ResponseKind::ExposureCompensationMode => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            Some(Ok(ViscaResponse::Inquiry(
+            Some(Ok(Response::Inquiry(
                 InquiryResponse::ExposureCompensationMode {
                     on: payload.as_slice()[0] == 0x02,
                 },
             )))
         }
-        ViscaResponseType::ExposureCompensation => match Nibbles::<4>::try_from(payload) {
+        ResponseKind::ExposureCompensation => match Nibbles::<4>::try_from(payload) {
             Ok(nibbles) => {
                 let raw_value = nibbles.u8_pair(2);
-                Some(Ok(ViscaResponse::Inquiry(
+                Some(Ok(Response::Inquiry(
                     InquiryResponse::ExposureCompensation {
                         value: raw_value as i8 - 7,
                     },
@@ -60,62 +57,54 @@ pub(crate) fn decode(
             }
             Err(e) => Some(Err(e)),
         },
-        ViscaResponseType::ExposureCompensationPosition => match Nibbles::<4>::try_from(payload) {
+        ResponseKind::ExposureCompensationPosition => match Nibbles::<4>::try_from(payload) {
             Ok(nibbles) => {
                 let position = nibbles.u16_quad(0);
-                Some(Ok(ViscaResponse::Inquiry(
+                Some(Ok(Response::Inquiry(
                     InquiryResponse::ExposureCompensationPosition { position },
                 )))
             }
             Err(e) => Some(Err(e)),
         },
-        ViscaResponseType::Shutter => match Nibbles::<4>::try_from(payload) {
+        ResponseKind::Shutter => match Nibbles::<4>::try_from(payload) {
             Ok(nibbles) => {
                 let position = nibbles.u8_pair(2) as u16;
-                Some(Ok(ViscaResponse::Inquiry(InquiryResponse::Shutter {
-                    position,
-                })))
+                Some(Ok(Response::Inquiry(InquiryResponse::Shutter { position })))
             }
             Err(e) => Some(Err(e)),
         },
-        ViscaResponseType::Iris => {
+        ResponseKind::Iris => {
             if payload.len() != 4 {
                 return Some(Err(Error::InvalidResponseLength));
             }
             // Extract the iris position from the last nibble
             let position = payload.as_slice()[3];
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::Iris {
-                position,
-            })))
+            Some(Ok(Response::Inquiry(InquiryResponse::Iris { position })))
         }
-        ViscaResponseType::Bright => match Nibbles::<4>::try_from(payload) {
+        ResponseKind::Bright => match Nibbles::<4>::try_from(payload) {
             Ok(nibbles) => {
                 let position = nibbles.u16_quad(0);
-                Some(Ok(ViscaResponse::Inquiry(InquiryResponse::Bright {
-                    position,
-                })))
+                Some(Ok(Response::Inquiry(InquiryResponse::Bright { position })))
             }
             Err(e) => Some(Err(e)),
         },
-        ViscaResponseType::Gain => {
+        ResponseKind::Gain => {
             if payload.len() != 4 {
                 return Some(Err(Error::InvalidResponseLength));
             }
             // Extract the gain value from the last nibble
             let gain = payload.as_slice()[3];
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::GainLevel {
-                gain,
-            })))
+            Some(Ok(Response::Inquiry(InquiryResponse::GainLevel { gain })))
         }
-        ViscaResponseType::GainLimit => {
+        ResponseKind::GainLimit => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::GainLimit {
+            Some(Ok(Response::Inquiry(InquiryResponse::GainLimit {
                 limit: payload.as_slice()[0],
             })))
         }
-        ViscaResponseType::IrisControl => {
+        ResponseKind::IrisControl => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -132,11 +121,9 @@ pub(crate) fn decode(
                     }))
                 }
             };
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::IrisControl {
-                auto,
-            })))
+            Some(Ok(Response::Inquiry(InquiryResponse::IrisControl { auto })))
         }
-        ViscaResponseType::IrisUp => {
+        ResponseKind::IrisUp => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -151,11 +138,9 @@ pub(crate) fn decode(
                     }))
                 }
             };
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::IrisUp {
-                active,
-            })))
+            Some(Ok(Response::Inquiry(InquiryResponse::IrisUp { active })))
         }
-        ViscaResponseType::IrisDown => {
+        ResponseKind::IrisDown => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -170,9 +155,7 @@ pub(crate) fn decode(
                     }))
                 }
             };
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::IrisDown {
-                active,
-            })))
+            Some(Ok(Response::Inquiry(InquiryResponse::IrisDown { active })))
         }
         _ => None,
     }

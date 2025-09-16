@@ -117,7 +117,7 @@ pub enum Error {
     #[error("Camera not initialized")]
     CameraNotReady,
 
-    /// ViscaResponse from camera doesn't match the expected format.
+    /// Response from camera doesn't match the expected format.
     #[error("Invalid response: expected {expected}, got {actual:?}")]
     InvalidResponse {
         /// Description of expected response.
@@ -171,15 +171,15 @@ pub enum Error {
     #[error("Command is not executable")]
     CommandNotExecutable,
 
-    /// ViscaResponse data doesn't conform to expected VISCA protocol format.
+    /// Response data doesn't conform to expected VISCA protocol format.
     #[error("Invalid response format")]
     InvalidResponseFormat,
 
-    /// ViscaResponse has an unexpected number of bytes.
+    /// Response has an unexpected number of bytes.
     #[error("Invalid response length")]
     InvalidResponseLength,
 
-    /// ViscaResponse type doesn't match what the command should return.
+    /// Response type doesn't match what the command should return.
     #[error("Unexpected response type")]
     UnexpectedResponseType,
 
@@ -255,7 +255,7 @@ pub enum Error {
 
     /// Operation is not supported by this implementation.
     #[error("Operation not supported")]
-    Unsupported,
+    NotSupported,
 
     /// Operation cannot be performed in current state.
     #[error("Invalid state: {0}")]
@@ -296,7 +296,7 @@ pub enum Error {
 
     /// Unknown inquiry response type.
     #[error("Unknown inquiry response type '{response_type}' with data: {data:?}")]
-    UnknownResponse {
+    UnknownResponseKind {
         /// The response type that was not recognized.
         response_type: Cow<'static, str>,
         /// The raw response data.
@@ -314,8 +314,8 @@ pub enum Error {
     #[error("Lock poisoned for {0}")]
     LockPoisoned(&'static str),
 
-    /// ViscaResponse exceeds maximum allowed size.
-    #[error("ViscaResponse too large: exceeds maximum of {max_size} bytes")]
+    /// Response exceeds maximum allowed size.
+    #[error("Response too large: exceeds maximum of {max_size} bytes")]
     ResponseTooLarge {
         /// Maximum allowed size.
         max_size: usize,
@@ -329,8 +329,8 @@ pub enum Error {
     #[error("Socket manager channel closed")]
     SocketManagerChannelClosed,
 
-    /// ViscaResponse channel has been closed unexpectedly.
-    #[error("ViscaResponse channel closed")]
+    /// Response channel has been closed unexpectedly.
+    #[error("Response channel closed")]
     ResponseChannelClosed,
 
     /// Invalid network address format.

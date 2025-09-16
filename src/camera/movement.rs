@@ -197,7 +197,7 @@ where
             // Check only pan/tilt movement
             let pos1_response = self.send_command(&PanTiltPositionInquiry).block()?;
             let (pos1_pan, pos1_tilt) = match pos1_response {
-                crate::command::ViscaResponse::Inquiry(
+                crate::command::Response::Inquiry(
                     crate::command::InquiryResponse::PanTiltPosition { pan, tilt },
                 ) => (pan, tilt),
                 _ => {
@@ -211,7 +211,7 @@ where
 
             let pos2_response = self.send_command(&PanTiltPositionInquiry).block()?;
             let (pos2_pan, pos2_tilt) = match pos2_response {
-                crate::command::ViscaResponse::Inquiry(
+                crate::command::Response::Inquiry(
                     crate::command::InquiryResponse::PanTiltPosition { pan, tilt },
                 ) => (pan, tilt),
                 _ => {
@@ -253,7 +253,7 @@ where
             // Check only zoom movement
             let pos1_response = self.send_command(&ZoomPositionInquiry).block()?;
             let pos1_zoom = match pos1_response {
-                crate::command::ViscaResponse::Inquiry(
+                crate::command::Response::Inquiry(
                     crate::command::InquiryResponse::ZoomPosition { position },
                 ) => position,
                 _ => return Err(Error::ParseError("Expected ZoomPosition response".into())),
@@ -263,7 +263,7 @@ where
 
             let pos2_response = self.send_command(&ZoomPositionInquiry).block()?;
             let pos2_zoom = match pos2_response {
-                crate::command::ViscaResponse::Inquiry(
+                crate::command::Response::Inquiry(
                     crate::command::InquiryResponse::ZoomPosition { position },
                 ) => position,
                 _ => return Err(Error::ParseError("Expected ZoomPosition response".into())),
@@ -301,7 +301,7 @@ where
             // Check only focus movement
             let pos1_response = self.send_command(&FocusPositionInquiry).block()?;
             let pos1_focus = match pos1_response {
-                crate::command::ViscaResponse::Inquiry(
+                crate::command::Response::Inquiry(
                     crate::command::InquiryResponse::FocusPosition { position },
                 ) => position,
                 _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
@@ -311,7 +311,7 @@ where
 
             let pos2_response = self.send_command(&FocusPositionInquiry).block()?;
             let pos2_focus = match pos2_response {
-                crate::command::ViscaResponse::Inquiry(
+                crate::command::Response::Inquiry(
                     crate::command::InquiryResponse::FocusPosition { position },
                 ) => position,
                 _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
@@ -342,7 +342,7 @@ where
         // Get first reading using inquiry commands
         let pos1_pt_response = self.send_command(&PanTiltPositionInquiry).block()?;
         let (pos1_pan, pos1_tilt) = match pos1_pt_response {
-            crate::command::ViscaResponse::Inquiry(
+            crate::command::Response::Inquiry(
                 crate::command::InquiryResponse::PanTiltPosition { pan, tilt },
             ) => (pan, tilt),
             _ => {
@@ -354,17 +354,17 @@ where
 
         let pos1_zoom_response = self.send_command(&ZoomPositionInquiry).block()?;
         let pos1_zoom = match pos1_zoom_response {
-            crate::command::ViscaResponse::Inquiry(
-                crate::command::InquiryResponse::ZoomPosition { position },
-            ) => position,
+            crate::command::Response::Inquiry(crate::command::InquiryResponse::ZoomPosition {
+                position,
+            }) => position,
             _ => return Err(Error::ParseError("Expected ZoomPosition response".into())),
         };
 
         let pos1_focus_response = self.send_command(&FocusPositionInquiry).block()?;
         let pos1_focus = match pos1_focus_response {
-            crate::command::ViscaResponse::Inquiry(
-                crate::command::InquiryResponse::FocusPosition { position },
-            ) => position,
+            crate::command::Response::Inquiry(crate::command::InquiryResponse::FocusPosition {
+                position,
+            }) => position,
             _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
         };
 
@@ -374,7 +374,7 @@ where
         // Get second reading
         let pos2_pt_response = self.send_command(&PanTiltPositionInquiry).block()?;
         let (pos2_pan, pos2_tilt) = match pos2_pt_response {
-            crate::command::ViscaResponse::Inquiry(
+            crate::command::Response::Inquiry(
                 crate::command::InquiryResponse::PanTiltPosition { pan, tilt },
             ) => (pan, tilt),
             _ => {
@@ -386,17 +386,17 @@ where
 
         let pos2_zoom_response = self.send_command(&ZoomPositionInquiry).block()?;
         let pos2_zoom = match pos2_zoom_response {
-            crate::command::ViscaResponse::Inquiry(
-                crate::command::InquiryResponse::ZoomPosition { position },
-            ) => position,
+            crate::command::Response::Inquiry(crate::command::InquiryResponse::ZoomPosition {
+                position,
+            }) => position,
             _ => return Err(Error::ParseError("Expected ZoomPosition response".into())),
         };
 
         let pos2_focus_response = self.send_command(&FocusPositionInquiry).block()?;
         let pos2_focus = match pos2_focus_response {
-            crate::command::ViscaResponse::Inquiry(
-                crate::command::InquiryResponse::FocusPosition { position },
-            ) => position,
+            crate::command::Response::Inquiry(crate::command::InquiryResponse::FocusPosition {
+                position,
+            }) => position,
             _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
         };
 
@@ -450,7 +450,7 @@ where
                     }
                     return Ok(());
                 }
-                Err(Error::Unsupported) => {
+                Err(Error::NotSupported) => {
                     // Transport doesn't support waiting for completion
                     if config.debug {
                         tracing::debug!("Transport doesn't support event-driven detection, falling back to state query");
@@ -530,7 +530,7 @@ where
             // Check only pan/tilt movement
             let pos1_response = self.send_command(&PanTiltPositionInquiry).await?;
             let (pos1_pan, pos1_tilt) = match pos1_response {
-                crate::command::ViscaResponse::Inquiry(
+                crate::command::Response::Inquiry(
                     crate::command::InquiryResponse::PanTiltPosition { pan, tilt },
                 ) => (pan, tilt),
                 _ => {
@@ -544,7 +544,7 @@ where
 
             let pos2_response = self.send_command(&PanTiltPositionInquiry).await?;
             let (pos2_pan, pos2_tilt) = match pos2_response {
-                crate::command::ViscaResponse::Inquiry(
+                crate::command::Response::Inquiry(
                     crate::command::InquiryResponse::PanTiltPosition { pan, tilt },
                 ) => (pan, tilt),
                 _ => {
@@ -586,7 +586,7 @@ where
             // Check only zoom movement
             let pos1_response = self.send_command(&ZoomPositionInquiry).await?;
             let pos1_zoom = match pos1_response {
-                crate::command::ViscaResponse::Inquiry(
+                crate::command::Response::Inquiry(
                     crate::command::InquiryResponse::ZoomPosition { position },
                 ) => position,
                 _ => return Err(Error::ParseError("Expected ZoomPosition response".into())),
@@ -596,7 +596,7 @@ where
 
             let pos2_response = self.send_command(&ZoomPositionInquiry).await?;
             let pos2_zoom = match pos2_response {
-                crate::command::ViscaResponse::Inquiry(
+                crate::command::Response::Inquiry(
                     crate::command::InquiryResponse::ZoomPosition { position },
                 ) => position,
                 _ => return Err(Error::ParseError("Expected ZoomPosition response".into())),
@@ -634,7 +634,7 @@ where
             // Check only focus movement
             let pos1_response = self.send_command(&FocusPositionInquiry).await?;
             let pos1_focus = match pos1_response {
-                crate::command::ViscaResponse::Inquiry(
+                crate::command::Response::Inquiry(
                     crate::command::InquiryResponse::FocusPosition { position },
                 ) => position,
                 _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
@@ -644,7 +644,7 @@ where
 
             let pos2_response = self.send_command(&FocusPositionInquiry).await?;
             let pos2_focus = match pos2_response {
-                crate::command::ViscaResponse::Inquiry(
+                crate::command::Response::Inquiry(
                     crate::command::InquiryResponse::FocusPosition { position },
                 ) => position,
                 _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
@@ -682,7 +682,7 @@ where
             // Try to use event-driven approach
             match self.wait_for_movement_event_driven(config).await {
                 Ok(()) => return Ok(()),
-                Err(Error::Unsupported) => {
+                Err(Error::NotSupported) => {
                     // Fall through to polling approach
                     if config.debug {
                         tracing::debug!(
@@ -723,7 +723,7 @@ where
         // Subscribe to completion events from the runtime
         let completion_rx = match self.runtime().subscribe_completions().await {
             Ok(rx) => rx,
-            Err(_) => return Err(Error::Unsupported),
+            Err(_) => return Err(Error::NotSupported),
         };
 
         let start = Instant::now();
@@ -782,7 +782,7 @@ where
                 }
                 Err(flume::TryRecvError::Disconnected) => {
                     // Channel closed
-                    return Err(Error::Unsupported);
+                    return Err(Error::NotSupported);
                 }
             }
         }
@@ -807,7 +807,7 @@ where
         // Get first reading using inquiry commands
         let pos1_pt_response = self.send_command(&PanTiltPositionInquiry).await?;
         let (pos1_pan, pos1_tilt) = match pos1_pt_response {
-            crate::command::ViscaResponse::Inquiry(
+            crate::command::Response::Inquiry(
                 crate::command::InquiryResponse::PanTiltPosition { pan, tilt },
             ) => (pan, tilt),
             _ => {
@@ -819,17 +819,17 @@ where
 
         let pos1_zoom_response = self.send_command(&ZoomPositionInquiry).await?;
         let pos1_zoom = match pos1_zoom_response {
-            crate::command::ViscaResponse::Inquiry(
-                crate::command::InquiryResponse::ZoomPosition { position },
-            ) => position,
+            crate::command::Response::Inquiry(crate::command::InquiryResponse::ZoomPosition {
+                position,
+            }) => position,
             _ => return Err(Error::ParseError("Expected ZoomPosition response".into())),
         };
 
         let pos1_focus_response = self.send_command(&FocusPositionInquiry).await?;
         let pos1_focus = match pos1_focus_response {
-            crate::command::ViscaResponse::Inquiry(
-                crate::command::InquiryResponse::FocusPosition { position },
-            ) => position,
+            crate::command::Response::Inquiry(crate::command::InquiryResponse::FocusPosition {
+                position,
+            }) => position,
             _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
         };
 
@@ -839,7 +839,7 @@ where
         // Get second reading
         let pos2_pt_response = self.send_command(&PanTiltPositionInquiry).await?;
         let (pos2_pan, pos2_tilt) = match pos2_pt_response {
-            crate::command::ViscaResponse::Inquiry(
+            crate::command::Response::Inquiry(
                 crate::command::InquiryResponse::PanTiltPosition { pan, tilt },
             ) => (pan, tilt),
             _ => {
@@ -851,17 +851,17 @@ where
 
         let pos2_zoom_response = self.send_command(&ZoomPositionInquiry).await?;
         let pos2_zoom = match pos2_zoom_response {
-            crate::command::ViscaResponse::Inquiry(
-                crate::command::InquiryResponse::ZoomPosition { position },
-            ) => position,
+            crate::command::Response::Inquiry(crate::command::InquiryResponse::ZoomPosition {
+                position,
+            }) => position,
             _ => return Err(Error::ParseError("Expected ZoomPosition response".into())),
         };
 
         let pos2_focus_response = self.send_command(&FocusPositionInquiry).await?;
         let pos2_focus = match pos2_focus_response {
-            crate::command::ViscaResponse::Inquiry(
-                crate::command::InquiryResponse::FocusPosition { position },
-            ) => position,
+            crate::command::Response::Inquiry(crate::command::InquiryResponse::FocusPosition {
+                position,
+            }) => position,
             _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
         };
 

@@ -17,8 +17,8 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
             let attrs = parse_visca_attributes_from_struct(&input);
 
             // Extract required attributes
-            let response_type = attrs
-                .response_type
+            let response_kind = attrs
+                .response_kind
                 .expect("visca attribute must have a 'response' value");
 
             let constant_name = attrs
@@ -46,7 +46,7 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
 
             // Generate parser implementation if parser info is provided
             let parse_response_impl = if let Some(parser_info) = &attrs.parser {
-                let parser_body = generate_parser_body(&response_type, parser_info, &crate_path);
+                let parser_body = generate_parser_body(&response_kind, parser_info, &crate_path);
                 quote! {
                     impl #struct_name {
                         /// Parse the response data for this inquiry command
@@ -65,17 +65,18 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
             // Optionally generate a typed ViscaCommand impl for a subset of inquiries
             let typed_impl = generate_typed_impl(
                 struct_name,
-                &response_type,
+                &response_kind,
                 attrs.parser.as_ref(),
                 &crate_path,
             );
 
             let expanded = quote! {
-                impl #crate_path::command::ViscaEncode for #struct_name {
-                    type ViscaResponse = #crate_path::command::InquiryResponse;
+                impl #crate_path::command::ViscaCommand for #struct_name {
+                    type Response = #crate_path::command::InquiryResponse;
                     const MAX_SIZE: usize = 5;
+                    const TIMEOUT_CATEGORY: #crate_path::timeout::CommandCategory = #crate_path::timeout::CommandCategory::Quick;
 
-                    fn encode_into(&self, camera_id: #crate_path::camera_id::CameraId, buffer: &mut [u8]) -> Result<usize, #crate_path::Error> {
+                    fn write_into(&self, camera_id: #crate_path::camera_id::CameraId, buffer: &mut [u8]) -> Result<usize, #crate_path::Error> {
                         let bytes = #bytes_expr;
                         let len = bytes.len();
                         if buffer.len() < len {
@@ -88,12 +89,8 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
                         Ok(len)
                     }
 
-                    fn response_type(&self) -> Option<#crate_path::command::ViscaResponseType> {
-                        Some(#crate_path::command::ViscaResponseType::#response_type)
-                    }
-
-                    fn timeout_kind(&self) -> #crate_path::timeout::CommandCategory {
-                        #crate_path::timeout::CommandCategory::Quick
+                    fn response_kind(&self) -> Option<#crate_path::command::ResponseKind> {
+                        Some(#crate_path::command::ResponseKind::#response_kind)
                     }
                 }
 
@@ -114,7 +111,7 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
 struct ViscaAttributes {
     byte_value: Option<u8>,
     subcategory: Option<u8>,
-    response_type: Option<Ident>,
+    response_kind: Option<Ident>,
     parser: Option<ParserInfo>,
     constant: Option<String>, // Name of the constant to use
 }
@@ -165,7 +162,7 @@ fn parse_visca_attributes_from_struct(input: &DeriveInput) -> ViscaAttributes {
                         .trim()
                         .trim_matches('"');
                     // For struct attributes, response should be a simple string
-                    attrs.response_type = Some(format_ident!("{}", value));
+                    attrs.response_kind = Some(format_ident!("{}", value));
                 } else if part.contains("sub_command") {
                     let value = part
                         .split('=')
@@ -339,7 +336,7 @@ fn generate_parser_body(
     }
 }
 
-/// Optionally generate an impl of `command::typed::ViscaCommand` for the struct
+/// Optionally generate an impl of `command::typed::ResponseParser` for the struct
 /// when we can map its `response` to a clear concrete type.
 fn generate_typed_impl(
     struct_name: &Ident,
@@ -359,13 +356,13 @@ fn generate_typed_impl(
     ) {
         ("Power", Some("bool"), _) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = bool;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::Power { on }) => Ok(on),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::Power { on }) => Ok(on),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -374,15 +371,15 @@ fn generate_typed_impl(
         }
         ("PanTiltPosition", Some("pan_tilt"), _) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = #crate_path::camera::PanTiltPosition;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(
+                            #crate_path::command::Response::Inquiry(
                                 #crate_path::command::InquiryResponse::PanTiltPosition { pan, tilt }
                             ) => Ok(#crate_path::camera::PanTiltPosition { pan, tilt }),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -391,15 +388,15 @@ fn generate_typed_impl(
         }
         ("ZoomPosition", Some("position"), _) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = #crate_path::types::ZoomPosition;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(
+                            #crate_path::command::Response::Inquiry(
                                 #crate_path::command::InquiryResponse::ZoomPosition { position }
                             ) => #crate_path::types::ZoomPosition::new(position),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -408,15 +405,15 @@ fn generate_typed_impl(
         }
         ("FocusNearLimit", Some("position"), _) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = u16;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(
+                            #crate_path::command::Response::Inquiry(
                                 #crate_path::command::InquiryResponse::FocusNearLimit { position }
                             ) => Ok(position),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -425,15 +422,15 @@ fn generate_typed_impl(
         }
         ("FocusPosition", Some("position"), _) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = u16;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(
+                            #crate_path::command::Response::Inquiry(
                                 #crate_path::command::InquiryResponse::FocusPosition { position }
                             ) => Ok(position),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -442,15 +439,15 @@ fn generate_typed_impl(
         }
         ("ExposureMode", Some("mode"), Some("ExposureMode")) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = #crate_path::command::ExposureMode;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(
+                            #crate_path::command::Response::Inquiry(
                                 #crate_path::command::InquiryResponse::ExposureMode { mode }
                             ) => Ok(mode),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -459,15 +456,15 @@ fn generate_typed_impl(
         }
         ("FocusMode", Some("mode"), Some("FocusMode")) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = #crate_path::command::FocusMode;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(
+                            #crate_path::command::Response::Inquiry(
                                 #crate_path::command::InquiryResponse::FocusMode { mode }
                             ) => Ok(mode),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -476,15 +473,15 @@ fn generate_typed_impl(
         }
         ("WhiteBalanceMode", Some("mode"), Some("WhiteBalanceMode")) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = #crate_path::command::WhiteBalanceMode;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(
+                            #crate_path::command::Response::Inquiry(
                                 #crate_path::command::InquiryResponse::WhiteBalanceMode { mode }
                             ) => Ok(mode),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -493,15 +490,15 @@ fn generate_typed_impl(
         }
         ("BlackWhiteMode", Some("mode"), Some("BlackWhiteMode")) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = #crate_path::command::BlackWhiteMode;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(
+                            #crate_path::command::Response::Inquiry(
                                 #crate_path::command::InquiryResponse::BlackWhiteMode { mode }
                             ) => Ok(mode),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -510,15 +507,15 @@ fn generate_typed_impl(
         }
         ("MotionSyncMode", Some("mode"), Some("MotionSyncMode")) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = #crate_path::command::MotionSyncMode;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(
+                            #crate_path::command::Response::Inquiry(
                                 #crate_path::command::InquiryResponse::MotionSyncMode { mode }
                             ) => Ok(mode),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -527,15 +524,15 @@ fn generate_typed_impl(
         }
         ("MotionSyncSpeed", Some("mode"), Some("MotionSyncSpeed")) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = #crate_path::command::MotionSyncSpeed;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(
+                            #crate_path::command::Response::Inquiry(
                                 #crate_path::command::InquiryResponse::MotionSyncSpeed { speed }
                             ) => Ok(speed),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -544,15 +541,15 @@ fn generate_typed_impl(
         }
         ("MotionSyncPreset", Some("speed"), Some("MotionSyncPreset")) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = #crate_path::command::MotionSyncPreset;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(
+                            #crate_path::command::Response::Inquiry(
                                 #crate_path::command::InquiryResponse::MotionSyncPreset { speed }
                             ) => Ok(speed),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -561,15 +558,15 @@ fn generate_typed_impl(
         }
         ("NrMode", Some("mode"), Some("NrMode")) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = #crate_path::command::NrMode;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(
+                            #crate_path::command::Response::Inquiry(
                                 #crate_path::command::InquiryResponse::NrMode { mode }
                             ) => Ok(mode),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -578,15 +575,15 @@ fn generate_typed_impl(
         }
         ("NrSpeed", Some("mode"), Some("NrSpeed")) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = #crate_path::command::NrSpeed;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(
+                            #crate_path::command::Response::Inquiry(
                                 #crate_path::command::InquiryResponse::NrSpeed { speed }
                             ) => Ok(speed),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -595,15 +592,15 @@ fn generate_typed_impl(
         }
         ("NrSpeed", Some("speed"), Some("NrSpeed")) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = #crate_path::command::NrSpeed;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(
+                            #crate_path::command::Response::Inquiry(
                                 #crate_path::command::InquiryResponse::NrSpeed { speed }
                             ) => Ok(speed),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -612,15 +609,15 @@ fn generate_typed_impl(
         }
         ("FocusZone", Some("mode"), Some("FocusZone")) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = #crate_path::command::FocusZone;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(
+                            #crate_path::command::Response::Inquiry(
                                 #crate_path::command::InquiryResponse::FocusZone { zone }
                             ) => Ok(zone),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -629,15 +626,15 @@ fn generate_typed_impl(
         }
         ("AutoWhiteBalanceSensitivity", _, Some("AutoWhiteBalanceSensitivity")) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = #crate_path::command::AutoWhiteBalanceSensitivity;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(
+                            #crate_path::command::Response::Inquiry(
                                 #crate_path::command::InquiryResponse::AutoWhiteBalanceSensitivity { sensitivity }
                             ) => Ok(sensitivity),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -646,15 +643,15 @@ fn generate_typed_impl(
         }
         ("FocusRange", _, Some("FocusRange")) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = #crate_path::command::FocusRange;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(
+                            #crate_path::command::Response::Inquiry(
                                 #crate_path::command::InquiryResponse::FocusRange { range }
                             ) => Ok(range),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -663,15 +660,15 @@ fn generate_typed_impl(
         }
         ("GainLimit", Some("byte"), _) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = u8;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(
+                            #crate_path::command::Response::Inquiry(
                                 #crate_path::command::InquiryResponse::GainLimit { limit }
                             ) => Ok(limit),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -680,13 +677,13 @@ fn generate_typed_impl(
         }
         ("NrLevel", Some("byte"), _) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = u8;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::NrLevel(val)) => Ok(val),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::NrLevel(val)) => Ok(val),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -695,13 +692,13 @@ fn generate_typed_impl(
         }
         ("Resolution", Some("byte"), _) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = u8;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::Resolution(val)) => Ok(val),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::Resolution(val)) => Ok(val),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -710,13 +707,13 @@ fn generate_typed_impl(
         }
         ("BroadcastDomain", Some("byte"), _) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = u8;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::BroadcastDomain(val)) => Ok(val),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::BroadcastDomain(val)) => Ok(val),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -725,13 +722,13 @@ fn generate_typed_impl(
         }
         ("NoiseReduction2D", Some("byte"), _) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = u8;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::NoiseReduction2D { level }) => Ok(level),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::NoiseReduction2D { level }) => Ok(level),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -740,13 +737,13 @@ fn generate_typed_impl(
         }
         ("NoiseReduction3D", Some("byte"), _) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = u8;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::NoiseReduction3D { level }) => Ok(level),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::NoiseReduction3D { level }) => Ok(level),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -755,13 +752,13 @@ fn generate_typed_impl(
         }
         ("Gamma", _, _) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = u8;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::Gamma { value }) => Ok(value),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::Gamma { value }) => Ok(value),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -770,13 +767,13 @@ fn generate_typed_impl(
         }
         ("RedTuning", _, _) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = u8;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::RedTuning { level }) => Ok(level),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::RedTuning { level }) => Ok(level),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -785,13 +782,13 @@ fn generate_typed_impl(
         }
         ("BlueTuning", _, _) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = u8;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::BlueTuning { level }) => Ok(level),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::BlueTuning { level }) => Ok(level),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -800,13 +797,13 @@ fn generate_typed_impl(
         }
         ("DefogLevel", _, _) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = u8;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::DefogLevel { level }) => Ok(level),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::DefogLevel { level }) => Ok(level),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -815,15 +812,15 @@ fn generate_typed_impl(
         }
         ("ExposureCompensationPosition", _, _) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = u16;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(
+                            #crate_path::command::Response::Inquiry(
                                 #crate_path::command::InquiryResponse::ExposureCompensationPosition { position }
                             ) => Ok(position),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -832,13 +829,13 @@ fn generate_typed_impl(
         }
         ("Standby", _, _) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = bool;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::Standby { in_standby }) => Ok(in_standby),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::Standby { in_standby }) => Ok(in_standby),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -847,13 +844,13 @@ fn generate_typed_impl(
         }
         ("DigitalPtz", _, _) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = bool;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::DigitalPtz { enabled }) => Ok(enabled),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::DigitalPtz { enabled }) => Ok(enabled),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -862,13 +859,13 @@ fn generate_typed_impl(
         }
         ("AutoTrace", _, _) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = bool;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::AutoTrace { enabled }) => Ok(enabled),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::AutoTrace { enabled }) => Ok(enabled),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -877,13 +874,13 @@ fn generate_typed_impl(
         }
         ("FocusUnlock", _, _) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = bool;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::FocusUnlock { unlocked }) => Ok(unlocked),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::FocusUnlock { unlocked }) => Ok(unlocked),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -892,13 +889,13 @@ fn generate_typed_impl(
         }
         ("IrisControl", _, _) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = bool;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::IrisControl { auto }) => Ok(auto),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::IrisControl { auto }) => Ok(auto),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -907,15 +904,15 @@ fn generate_typed_impl(
         }
         ("Backlight", Some("bool"), _) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = bool;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(
+                            #crate_path::command::Response::Inquiry(
                                 #crate_path::command::InquiryResponse::Backlight { status }
                             ) => Ok(status),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -924,15 +921,15 @@ fn generate_typed_impl(
         }
         ("BlackWhite", Some("bool"), _) => {
             quote! {
-                impl #crate_path::command::typed::ViscaCommand for #struct_name {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
                     type Response = bool;
 
-                    fn from_response(resp: #crate_path::command::ViscaResponse) -> Result<Self::Response, #crate_path::Error> {
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::ViscaResponse::Inquiry(
+                            #crate_path::command::Response::Inquiry(
                                 #crate_path::command::InquiryResponse::BlackWhite { on }
                             ) => Ok(on),
-                            #crate_path::command::ViscaResponse::Error(e) => Err(e),
+                            #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
                     }
@@ -940,85 +937,85 @@ fn generate_typed_impl(
             }
         }
         ("ExposureCompensationMode", Some("bool"), _) => {
-            quote! { impl #crate_path::command::typed::ViscaCommand for #struct_name { type Response = bool; fn from_response(resp:#crate_path::command::ViscaResponse)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::ExposureCompensationMode{ on })=>Ok(on), #crate_path::command::ViscaResponse::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = bool; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::ExposureCompensationMode{ on })=>Ok(on), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("ExposureCompensation", _, _) => {
-            quote! { impl #crate_path::command::typed::ViscaCommand for #struct_name { type Response = i8; fn from_response(resp:#crate_path::command::ViscaResponse)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::ExposureCompensation{ value })=>Ok(value), #crate_path::command::ViscaResponse::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = i8; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::ExposureCompensation{ value })=>Ok(value), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("Bright", _, _) => {
-            quote! { impl #crate_path::command::typed::ViscaCommand for #struct_name { type Response = u16; fn from_response(resp:#crate_path::command::ViscaResponse)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::Bright{ position })=>Ok(position), #crate_path::command::ViscaResponse::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = u16; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::Bright{ position })=>Ok(position), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("Iris", _, _) => {
-            quote! { impl #crate_path::command::typed::ViscaCommand for #struct_name { type Response = u8; fn from_response(resp:#crate_path::command::ViscaResponse)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::Iris{ position })=>Ok(position), #crate_path::command::ViscaResponse::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = u8; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::Iris{ position })=>Ok(position), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("Shutter", _, _) => {
-            quote! { impl #crate_path::command::typed::ViscaCommand for #struct_name { type Response = u16; fn from_response(resp:#crate_path::command::ViscaResponse)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::Shutter{ position })=>Ok(position), #crate_path::command::ViscaResponse::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = u16; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::Shutter{ position })=>Ok(position), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("ColorTemperature", _, _) => {
-            quote! { impl #crate_path::command::typed::ViscaCommand for #struct_name { type Response = u16; fn from_response(resp:#crate_path::command::ViscaResponse)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::ColorTemperature{ temperature })=>Ok(temperature), #crate_path::command::ViscaResponse::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = u16; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::ColorTemperature{ temperature })=>Ok(temperature), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("RedChannel", _, _) => {
-            quote! { impl #crate_path::command::typed::ViscaCommand for #struct_name { type Response = i8; fn from_response(resp:#crate_path::command::ViscaResponse)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::RedChannel{ gain })=>Ok(gain), #crate_path::command::ViscaResponse::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = i8; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::RedChannel{ gain })=>Ok(gain), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("BlueChannel", _, _) => {
-            quote! { impl #crate_path::command::typed::ViscaCommand for #struct_name { type Response = i8; fn from_response(resp:#crate_path::command::ViscaResponse)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::BlueChannel{ gain })=>Ok(gain), #crate_path::command::ViscaResponse::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = i8; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::BlueChannel{ gain })=>Ok(gain), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("Saturation", _, _) => {
-            quote! { impl #crate_path::command::typed::ViscaCommand for #struct_name { type Response = u8; fn from_response(resp:#crate_path::command::ViscaResponse)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::Saturation{ level })=>Ok(level), #crate_path::command::ViscaResponse::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = u8; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::Saturation{ level })=>Ok(level), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("Hue", _, _) => {
-            quote! { impl #crate_path::command::typed::ViscaCommand for #struct_name { type Response = u8; fn from_response(resp:#crate_path::command::ViscaResponse)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::Hue{ hue })=>Ok(hue), #crate_path::command::ViscaResponse::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = u8; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::Hue{ hue })=>Ok(hue), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("Gain", _, _) => {
-            quote! { impl #crate_path::command::typed::ViscaCommand for #struct_name { type Response = u8; fn from_response(resp:#crate_path::command::ViscaResponse)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::GainLevel{ gain })=>Ok(gain), #crate_path::command::ViscaResponse::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = u8; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::GainLevel{ gain })=>Ok(gain), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("SharpnessMode", _, _) => {
-            quote! { impl #crate_path::command::typed::ViscaCommand for #struct_name { type Response = #crate_path::command::SharpnessMode; fn from_response(resp:#crate_path::command::ViscaResponse)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::SharpnessMode{ mode })=>Ok(mode), #crate_path::command::ViscaResponse::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = #crate_path::command::SharpnessMode; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::SharpnessMode{ mode })=>Ok(mode), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("ImageFlip", Some("flags"), _) => {
-            quote! { impl #crate_path::command::typed::ViscaCommand for #struct_name { type Response = #crate_path::command::typed::FlipState; fn from_response(resp:#crate_path::command::ViscaResponse)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::ImageFlip{ vertical, horizontal })=>Ok(#crate_path::command::typed::FlipState{ horizontal, vertical }), #crate_path::command::ViscaResponse::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = #crate_path::command::typed::FlipState; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::ImageFlip{ vertical, horizontal })=>Ok(#crate_path::command::typed::FlipState{ horizontal, vertical }), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("FlipMode", _, _) => {
-            quote! { impl #crate_path::command::typed::ViscaCommand for #struct_name { type Response = #crate_path::command::typed::FlipState; fn from_response(resp:#crate_path::command::ViscaResponse)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::FlipMode{ horizontal, vertical })=>Ok(#crate_path::command::typed::FlipState{ horizontal, vertical }), #crate_path::command::ViscaResponse::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = #crate_path::command::typed::FlipState; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::FlipMode{ horizontal, vertical })=>Ok(#crate_path::command::typed::FlipState{ horizontal, vertical }), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("Version", _, _) => {
-            quote! { impl #crate_path::command::typed::ViscaCommand for #struct_name { type Response = #crate_path::command::typed::VersionInfo; fn from_response(resp:#crate_path::command::ViscaResponse)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::Version{ vendor, model, rom_version, max_socket })=>Ok(#crate_path::command::typed::VersionInfo{ vendor, model, rom_version, max_socket }), #crate_path::command::ViscaResponse::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = #crate_path::command::typed::VersionInfo; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::Version{ vendor, model, rom_version, max_socket })=>Ok(#crate_path::command::typed::VersionInfo{ vendor, model, rom_version, max_socket }), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("TallyStatus", _, _) => {
-            quote! { impl #crate_path::command::typed::ViscaCommand for #struct_name { type Response = #crate_path::command::typed::TallyStatusState; fn from_response(resp:#crate_path::command::ViscaResponse)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::TallyStatus{ red_on, green_on })=>Ok(#crate_path::command::typed::TallyStatusState{ red_on, green_on }), #crate_path::command::ViscaResponse::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = #crate_path::command::typed::TallyStatusState; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::TallyStatus{ red_on, green_on })=>Ok(#crate_path::command::typed::TallyStatusState{ red_on, green_on }), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("UsbAudio", _, _) => {
-            quote! { impl #crate_path::command::typed::ViscaCommand for #struct_name { type Response = bool; fn from_response(resp:#crate_path::command::ViscaResponse)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::UsbAudio{ on })=>Ok(on), #crate_path::command::ViscaResponse::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = bool; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::UsbAudio{ on })=>Ok(on), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("TwoToneMode", _, _) => {
-            quote! { impl #crate_path::command::typed::ViscaCommand for #struct_name { type Response = bool; fn from_response(resp:#crate_path::command::ViscaResponse)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::TwoToneMode{ on })=>Ok(on), #crate_path::command::ViscaResponse::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = bool; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::TwoToneMode{ on })=>Ok(on), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("Digital", _, _) => {
-            quote! { impl #crate_path::command::typed::ViscaCommand for #struct_name { type Response = bool; fn from_response(resp:#crate_path::command::ViscaResponse)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::Digital{ on })=>Ok(on), #crate_path::command::ViscaResponse::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = bool; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::Digital{ on })=>Ok(on), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("TallyAutoAdjust", _, _) => {
-            quote! { impl #crate_path::command::typed::ViscaCommand for #struct_name { type Response = bool; fn from_response(resp:#crate_path::command::ViscaResponse)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::TallyAutoAdjust{ on })=>Ok(on), #crate_path::command::ViscaResponse::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = bool; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::TallyAutoAdjust{ on })=>Ok(on), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("Rtmp", _, _) => {
-            quote! { impl #crate_path::command::typed::ViscaCommand for #struct_name { type Response = bool; fn from_response(resp:#crate_path::command::ViscaResponse)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::Rtmp{ on })=>Ok(on), #crate_path::command::ViscaResponse::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = bool; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::Rtmp{ on })=>Ok(on), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("MenuOpenClose", _, _) => {
-            quote! { impl #crate_path::command::typed::ViscaCommand for #struct_name { type Response = bool; fn from_response(resp:#crate_path::command::ViscaResponse)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::MenuOpenClose{ is_open })=>Ok(is_open), #crate_path::command::ViscaResponse::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = bool; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::MenuOpenClose{ is_open })=>Ok(is_open), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("AutoFocus", _, _) => {
-            quote! { impl #crate_path::command::typed::ViscaCommand for #struct_name { type Response = bool; fn from_response(resp:#crate_path::command::ViscaResponse)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::AutoFocus{ enabled })=>Ok(enabled), #crate_path::command::ViscaResponse::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = bool; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::AutoFocus{ enabled })=>Ok(enabled), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("NightDayMode", _, _) => {
-            quote! { impl #crate_path::command::typed::ViscaCommand for #struct_name { type Response = bool; fn from_response(resp:#crate_path::command::ViscaResponse)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::NightDayMode{ is_night })=>Ok(is_night), #crate_path::command::ViscaResponse::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = bool; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::NightDayMode{ is_night })=>Ok(is_night), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("NdFilterPreset", _, _) => {
-            quote! { impl #crate_path::command::typed::ViscaCommand for #struct_name { type Response = u8; fn from_response(resp:#crate_path::command::ViscaResponse)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::NdFilterPreset{ preset })=>Ok(preset), #crate_path::command::ViscaResponse::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = u8; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::NdFilterPreset{ preset })=>Ok(preset), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("NdFilter", _, _) => {
-            quote! { impl #crate_path::command::typed::ViscaCommand for #struct_name { type Response = u8; fn from_response(resp:#crate_path::command::ViscaResponse)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::NdFilter{ position })=>Ok(position), #crate_path::command::ViscaResponse::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = u8; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::NdFilter{ position })=>Ok(position), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("PictureEffect", _, _) => {
-            quote! { impl #crate_path::command::typed::ViscaCommand for #struct_name { type Response = u8; fn from_response(resp:#crate_path::command::ViscaResponse)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::ViscaResponse::Inquiry(#crate_path::command::InquiryResponse::PictureEffect{ effect })=>Ok(effect), #crate_path::command::ViscaResponse::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = u8; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::PictureEffect{ effect })=>Ok(effect), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         _ => quote! {},
     }

@@ -971,13 +971,13 @@ mod tests {
 #[derive(Debug, Copy, Clone)]
 pub struct TallyGreenInquiry;
 
-impl crate::command::encode_visca::ViscaEncode for TallyGreenInquiry {
-    type ViscaResponse = crate::command::InquiryResponse;
+impl crate::command::encode::ViscaCommand for TallyGreenInquiry {
+    type Response = crate::command::InquiryResponse;
     const MAX_SIZE: usize = 7;
     const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
         crate::timeout::CommandCategory::Quick;
 
-    fn encode_into(
+    fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
@@ -992,20 +992,20 @@ impl crate::command::encode_visca::ViscaEncode for TallyGreenInquiry {
         builder.build_into(buffer)
     }
 
-    fn response_type(&self) -> Option<crate::command::response::ViscaResponseType> {
-        Some(crate::command::response::ViscaResponseType::TallyGreen)
+    fn response_kind(&self) -> Option<crate::command::response::ResponseKind> {
+        Some(crate::command::response::ResponseKind::TallyGreen)
     }
 }
 
-impl crate::command::typed::ViscaCommand for TallyGreenInquiry {
+impl crate::command::typed::ResponseParser for TallyGreenInquiry {
     type Response = bool;
 
-    fn from_response(resp: crate::command::ViscaResponse) -> Result<Self::Response, crate::Error> {
+    fn from_response(resp: crate::command::Response) -> Result<Self::Response, crate::Error> {
         match resp {
-            crate::command::ViscaResponse::Inquiry(
-                crate::command::InquiryResponse::TallyGreen { on },
-            ) => Ok(on),
-            crate::command::ViscaResponse::Error(e) => Err(e),
+            crate::command::Response::Inquiry(crate::command::InquiryResponse::TallyGreen {
+                on,
+            }) => Ok(on),
+            crate::command::Response::Error(e) => Err(e),
             _ => Err(crate::Error::UnexpectedResponseType),
         }
     }

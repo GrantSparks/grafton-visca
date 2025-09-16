@@ -3,7 +3,7 @@
 //! This module contains macros that are part of the stable public API and are intended
 //! for use by library consumers to extend functionality.
 
-/// Create a bounded parameter type with validation.
+/// Create a type with range validation.
 ///
 /// This macro generates a newtype wrapper that enforces value constraints
 /// at the type level. It's useful for creating custom parameter types that
@@ -11,9 +11,9 @@
 ///
 /// # Example
 /// ```
-/// use grafton_visca::visca_bounded_param;
+/// use grafton_visca::visca_range_type;
 ///
-/// visca_bounded_param! {
+/// visca_range_type! {
 ///     /// Zoom speed level from 0 (slow) to 7 (fast)
 ///     ZoomSpeed: u8 {
 ///         min: 0,
@@ -46,7 +46,7 @@
 /// - `From<YourType> for T` to extract the inner value
 /// - Common derives: `Debug`, `Copy`, `Clone`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`
 #[macro_export]
-macro_rules! visca_bounded_param {
+macro_rules! visca_range_type {
     (
         $(#[$meta:meta])*
         $name:ident : $inner:ty {
@@ -138,7 +138,7 @@ macro_rules! impl_camera_ops {
      $(async fn $method:ident(&self $(, $param:ident: $ptype:ty)*) -> $ret:ty; $(,)? )*
     ) => {
         #[cfg(feature = "mode-async")]
-        impl<P, T> $trait_name for $crate::camera::Camera<$crate::camera::AsyncMode, P, T>
+        impl<P, T> $trait_name for $crate::camera::Camera<$crate::mode::Async, P, T>
         where
             P: $crate::capabilities::Profile,
             T: $crate::transport::AsyncTransport + Send + Sync + 'static,
@@ -154,7 +154,7 @@ macro_rules! impl_camera_ops {
      $(fn $method:ident(&mut self $(, $param:ident: $ptype:ty)*) -> $ret:ty; $(,)? )*
     ) => {
         #[cfg(not(feature = "mode-async"))]
-        impl<P, T> $trait_name for $crate::camera::Camera<$crate::camera::BlockingMode, P, T>
+        impl<P, T> $trait_name for $crate::camera::Camera<$crate::mode::Blocking, P, T>
         where
             P: $crate::capabilities::Profile,
             T: $crate::transport::SyncTransport + Send + Sync + 'static,

@@ -776,7 +776,7 @@ mod validation_tests {
     #[test]
     fn test_constant_usage_in_commands() {
         use crate::camera_id::CameraId;
-        use crate::command::encode_visca::ViscaEncode;
+        use crate::command::encode::ViscaCommand;
 
         // Test gain commands use constants
         let mut buffer = [0u8; 32];
@@ -784,7 +784,7 @@ mod validation_tests {
         // Test Gain::Reset uses CONTROL_PREFIX
         let gain_reset = crate::command::gain::Gain::Reset;
         let len = gain_reset
-            .encode_into(CameraId::CAMERA_1, &mut buffer)
+            .write_into(CameraId::CAMERA_1, &mut buffer)
             .unwrap();
         assert_eq!(&buffer[0..4], gain::CONTROL_PREFIX);
         assert_eq!(buffer[4], 0x00); // Reset control byte
@@ -795,7 +795,7 @@ mod validation_tests {
         let gain_value =
             crate::command::gain::Gain::SetValue(crate::types::GainLevel::new(0x05).unwrap());
         let _len = gain_value
-            .encode_into(CameraId::CAMERA_1, &mut buffer)
+            .write_into(CameraId::CAMERA_1, &mut buffer)
             .unwrap();
         assert_eq!(&buffer[0..6], gain::DIRECT_PREFIX);
 
@@ -804,7 +804,7 @@ mod validation_tests {
             crate::types::GainLimit::new(0x03).unwrap(),
         );
         let len = gain_limit
-            .encode_into(CameraId::CAMERA_1, &mut buffer)
+            .write_into(CameraId::CAMERA_1, &mut buffer)
             .unwrap();
         assert_eq!(&buffer[0..4], gain::GAIN_LIMIT_PREFIX);
         assert_eq!(buffer[4], 0x03); // Limit value

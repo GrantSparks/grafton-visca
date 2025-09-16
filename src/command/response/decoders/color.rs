@@ -5,19 +5,16 @@ use std::borrow::Cow;
 use super::super::payload::{Nibbles, Payload};
 use crate::{
     command::{
-        response::types::{ViscaResponse, ViscaResponseType},
+        response::types::{Response, ResponseKind},
         AutoWhiteBalanceSensitivity, InquiryResponse, WhiteBalanceMode,
     },
     error::Error,
 };
 
 /// Decode color-related inquiry responses.
-pub(crate) fn decode(
-    kind: ViscaResponseType,
-    payload: Payload<'_>,
-) -> Option<Result<ViscaResponse, Error>> {
+pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<Response, Error>> {
     match kind {
-        ViscaResponseType::WhiteBalanceMode => {
+        ResponseKind::WhiteBalanceMode => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -36,53 +33,53 @@ pub(crate) fn decode(
                     }))
                 }
             };
-            Some(Ok(ViscaResponse::Inquiry(
-                InquiryResponse::WhiteBalanceMode { mode },
-            )))
+            Some(Ok(Response::Inquiry(InquiryResponse::WhiteBalanceMode {
+                mode,
+            })))
         }
-        ViscaResponseType::ColorTemperature => match Nibbles::<4>::try_from(payload) {
+        ResponseKind::ColorTemperature => match Nibbles::<4>::try_from(payload) {
             Ok(nibbles) => {
                 // Extract the color temperature from nibbles 2 and 3
                 let temperature = nibbles.u8_pair(2) as u16;
-                Some(Ok(ViscaResponse::Inquiry(
-                    InquiryResponse::ColorTemperature { temperature },
-                )))
+                Some(Ok(Response::Inquiry(InquiryResponse::ColorTemperature {
+                    temperature,
+                })))
             }
             Err(e) => Some(Err(e)),
         },
-        ViscaResponseType::RedChannel => {
+        ResponseKind::RedChannel => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::RedChannel {
+            Some(Ok(Response::Inquiry(InquiryResponse::RedChannel {
                 gain: payload.as_slice()[0] as i8 - 10,
             })))
         }
-        ViscaResponseType::BlueChannel => {
+        ResponseKind::BlueChannel => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::BlueChannel {
+            Some(Ok(Response::Inquiry(InquiryResponse::BlueChannel {
                 gain: payload.as_slice()[0] as i8 - 10,
             })))
         }
-        ViscaResponseType::RedTuning => {
+        ResponseKind::RedTuning => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::RedTuning {
+            Some(Ok(Response::Inquiry(InquiryResponse::RedTuning {
                 level: payload.as_slice()[0],
             })))
         }
-        ViscaResponseType::BlueTuning => {
+        ResponseKind::BlueTuning => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::BlueTuning {
+            Some(Ok(Response::Inquiry(InquiryResponse::BlueTuning {
                 level: payload.as_slice()[0],
             })))
         }
-        ViscaResponseType::AutoWhiteBalanceSensitivity => {
+        ResponseKind::AutoWhiteBalanceSensitivity => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -97,7 +94,7 @@ pub(crate) fn decode(
                     }))
                 }
             };
-            Some(Ok(ViscaResponse::Inquiry(
+            Some(Ok(Response::Inquiry(
                 InquiryResponse::AutoWhiteBalanceSensitivity { sensitivity },
             )))
         }

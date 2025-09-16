@@ -100,7 +100,7 @@ impl Clone for Step {
                 Error::CommandCanceled => Error::CommandCanceled,
                 Error::NoSocket => Error::NoSocket,
                 Error::CommandNotExecutable => Error::CommandNotExecutable,
-                Error::Unsupported => Error::Unsupported,
+                Error::NotSupported => Error::NotSupported,
                 // For other variants, just create a generic transport error with the display representation
                 _ => Error::TransportError(format!("Mock error: {err}").into()),
             }),

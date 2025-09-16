@@ -4,9 +4,7 @@
 //! including manual gain adjustment, gain limit control, and anti-flicker settings.
 
 use crate::{
-    command::{
-        bytes::builder::ConstCommandBuilder, encode_visca::ViscaEncode, response::ViscaResponseType,
-    },
+    command::{bytes::builder::ConstCommandBuilder, encode::ViscaCommand, response::ResponseKind},
     error::Error,
     macros::internal::*,
     timeout::CommandCategory,
@@ -32,12 +30,12 @@ pub enum Gain {
 }
 
 // Manual implementation to add model validation
-impl ViscaEncode for Gain {
-    type ViscaResponse = ();
+impl ViscaCommand for Gain {
+    type Response = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
-    fn encode_into(
+    fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
@@ -76,7 +74,7 @@ impl ViscaEncode for Gain {
         }
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_kind(&self) -> Option<ResponseKind> {
         None
     }
 }
@@ -107,9 +105,10 @@ impl GainLimitCommand {
 mod tests {
     use super::*;
     use crate::command::bytes::VISCA_TERMINATOR;
-    use crate::command::encode_visca::ViscaEncode;
+    use crate::command::encode::ViscaCommand;
     use crate::constants::CameraVariant;
     use crate::macros::test_utils::visca_test;
+    use crate::timeout::CommandTimeout;
 
     visca_test!(
         Gain,
@@ -143,7 +142,7 @@ mod tests {
             let high = (value >> 4) & 0x0F;
             let low = value & 0x0F;
             assert_eq!(
-                cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                     .map(|b| b.to_vec())
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
                 vec![
@@ -195,7 +194,7 @@ mod tests {
                 GainLimit::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = GainLimitCommand::new(limit);
             assert_eq!(
-                cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                     .map(|b| b.to_vec())
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
                 vec![0x81, 0x01, 0x04, 0x2C, value, VISCA_TERMINATOR]
@@ -206,21 +205,21 @@ mod tests {
     #[test]
     fn test_command_categories() {
         // All gain commands should be Quick category
-        assert_eq!(Gain::Reset.timeout_kind(), CommandCategory::Quick);
-        assert_eq!(Gain::Up.timeout_kind(), CommandCategory::Quick);
-        assert_eq!(Gain::Down.timeout_kind(), CommandCategory::Quick);
+        assert_eq!(Gain::Reset.timeout_class(), CommandCategory::Quick);
+        assert_eq!(Gain::Up.timeout_class(), CommandCategory::Quick);
+        assert_eq!(Gain::Down.timeout_class(), CommandCategory::Quick);
         assert_eq!(
             Gain::SetValue(
                 GainLevel::new(0x05).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
             )
-            .timeout_kind(),
+            .timeout_class(),
             CommandCategory::Quick
         );
         assert_eq!(
             GainLimitCommand::new(
                 GainLimit::new(0x03).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
             )
-            .timeout_kind(),
+            .timeout_class(),
             CommandCategory::Quick
         );
     }
@@ -228,18 +227,18 @@ mod tests {
     #[test]
     fn test_response_types() {
         // All gain commands should return None for response_type
-        assert!(Gain::Reset.response_type().is_none());
-        assert!(Gain::Up.response_type().is_none());
-        assert!(Gain::Down.response_type().is_none());
+        assert!(Gain::Reset.response_kind().is_none());
+        assert!(Gain::Up.response_kind().is_none());
+        assert!(Gain::Down.response_kind().is_none());
         assert!(Gain::SetValue(
             GainLevel::new(0x05).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
         )
-        .response_type()
+        .response_kind()
         .is_none());
         assert!(GainLimitCommand::new(
             GainLimit::new(0x03).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
         )
-        .response_type()
+        .response_kind()
         .is_none());
     }
 

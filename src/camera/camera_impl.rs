@@ -15,7 +15,7 @@ use crate::transport::SyncTransport;
 use crate::{
     camera_id::CameraId,
     capabilities::{Profile, ProtocolStyle},
-    command::{typed::ViscaCommand, ViscaEncode},
+    command::{typed::ResponseParser, ViscaCommand},
     error::Error,
     mode::Mode,
     timeout::TimeoutConfig,
@@ -472,12 +472,9 @@ where
     pub fn send_command<'a, C>(
         &'a self,
         command: &'a C,
-    ) -> <crate::mode::Async as Mode>::Ret<
-        'static,
-        Result<crate::command::response::ViscaResponse, Error>,
-    >
+    ) -> <crate::mode::Async as Mode>::Ret<'static, Result<crate::command::response::Response, Error>>
     where
-        C: ViscaEncode + Send + Sync + Clone + std::fmt::Debug + 'static,
+        C: ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
         Tr: AsyncTransport + Send + Sync,
         Exec: Executor + Send + Sync + Clone,
     {
@@ -504,10 +501,10 @@ where
     pub fn send_command_typed<'a, C>(
         &'a self,
         command: &'a C,
-    ) -> <crate::mode::Async as Mode>::Ret<'static, Result<C::Response, Error>>
+    ) -> <crate::mode::Async as Mode>::Ret<'static, Result<<C as ResponseParser>::Response, Error>>
     where
-        C: ViscaCommand + ViscaEncode + Send + Sync + Clone + std::fmt::Debug + 'static,
-        C::Response: Send + 'static,
+        C: ResponseParser + ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
+        <C as ResponseParser>::Response: Send + 'static,
         Tr: AsyncTransport + Send + Sync,
         Exec: Executor + Send + Sync + Clone,
     {
@@ -527,10 +524,10 @@ where
         command: &'a C,
     ) -> <crate::mode::Async as Mode>::Ret<
         'static,
-        Result<(u32, crate::command::response::ViscaResponse), Error>,
+        Result<(u32, crate::command::response::Response), Error>,
     >
     where
-        C: ViscaEncode + Send + Sync + Clone + std::fmt::Debug + 'static,
+        C: ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
         Tr: AsyncTransport + Send + Sync,
         Exec: Executor + Send + Sync + Clone,
     {
@@ -577,7 +574,7 @@ where
             u32,
             Pin<
                 Box<
-                    dyn Future<Output = Result<crate::command::response::ViscaResponse, Error>>
+                    dyn Future<Output = Result<crate::command::response::Response, Error>>
                         + Send
                         + 'static,
                 >,
@@ -586,7 +583,7 @@ where
         Error,
     >
     where
-        C: ViscaEncode + Send + Sync + Clone + std::fmt::Debug + 'static,
+        C: ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
         Tr: AsyncTransport + Send + Sync,
         Exec: Executor + Send + Sync + Clone,
     {
@@ -655,12 +652,9 @@ where
     pub fn send_command<C>(
         &self,
         command: &C,
-    ) -> <crate::mode::Blocking as Mode>::Ret<
-        '_,
-        Result<crate::command::response::ViscaResponse, Error>,
-    >
+    ) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<crate::command::response::Response, Error>>
     where
-        C: ViscaEncode + Send + Sync + Clone + std::fmt::Debug + 'static,
+        C: ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
     {
         // Always use BlockingRunner for both Sony and Raw VISCA protocols
         let transport_cell = self.transport();
@@ -692,10 +686,10 @@ where
     pub fn send_command_typed<C>(
         &self,
         command: &C,
-    ) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<C::Response, Error>>
+    ) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<<C as ResponseParser>::Response, Error>>
     where
-        C: ViscaCommand + ViscaEncode + Send + Sync + Clone + std::fmt::Debug + 'static,
-        C::Response: Send + 'static,
+        C: ResponseParser + ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
+        <C as ResponseParser>::Response: Send + 'static,
     {
         // In blocking mode, send_command executes synchronously and returns a Ready future.
         // We need to execute it, get the result, transform it, and wrap in a new Ready.

@@ -100,9 +100,10 @@ impl AWBSensitivityCommand {
 mod tests {
     use super::*;
     use crate::command::bytes::VISCA_TERMINATOR;
-    use crate::command::encode_visca::ViscaEncode;
+    use crate::command::encode::ViscaCommand;
     use crate::macros::test_utils::visca_test;
     use crate::timeout::CommandCategory;
+    use crate::timeout::CommandTimeout;
 
     #[test]
     fn test_white_balance_mode_values() {
@@ -221,13 +222,13 @@ mod tests {
         let cmd = WhiteBalanceCommand {
             mode: WhiteBalanceMode::Auto,
         };
-        assert_eq!(cmd.timeout_kind(), CommandCategory::Quick);
+        assert_eq!(cmd.timeout_class(), CommandCategory::Quick);
 
         // Test with different modes
         let cmd = WhiteBalanceCommand {
             mode: WhiteBalanceMode::Manual,
         };
-        assert_eq!(cmd.timeout_kind(), CommandCategory::Quick);
+        assert_eq!(cmd.timeout_class(), CommandCategory::Quick);
     }
 
     #[test]
@@ -235,13 +236,13 @@ mod tests {
         let cmd = WhiteBalanceCommand {
             mode: WhiteBalanceMode::Auto,
         };
-        assert!(cmd.response_type().is_none());
+        assert!(cmd.response_kind().is_none());
 
         // Test with different modes
         let cmd = WhiteBalanceCommand {
             mode: WhiteBalanceMode::ColorTemperature,
         };
-        assert!(cmd.response_type().is_none());
+        assert!(cmd.response_kind().is_none());
     }
 
     #[test]
@@ -270,18 +271,18 @@ mod tests {
         let cmd3 = cmd1; // Copy (clone() not needed for Copy types)
 
         assert_eq!(
-            cmd1.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd1.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            cmd2.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd2.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
         );
         assert_eq!(
-            cmd1.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd1.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            cmd3.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd3.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
         );
@@ -302,7 +303,7 @@ mod tests {
         for mode in modes {
             let cmd = WhiteBalanceCommand { mode };
             let bytes = cmd
-                .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
 
@@ -322,7 +323,7 @@ mod tests {
         // Test High sensitivity
         let cmd = AWBSensitivityCommand::new(AutoWhiteBalanceSensitivity::High);
         assert_eq!(
-            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0xA9, 0x00, VISCA_TERMINATOR]
@@ -331,7 +332,7 @@ mod tests {
         // Test Normal sensitivity
         let cmd = AWBSensitivityCommand::new(AutoWhiteBalanceSensitivity::Normal);
         assert_eq!(
-            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0xA9, 0x01, VISCA_TERMINATOR]
@@ -340,7 +341,7 @@ mod tests {
         // Test Low sensitivity
         let cmd = AWBSensitivityCommand::new(AutoWhiteBalanceSensitivity::Low);
         assert_eq!(
-            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0xA9, 0x02, VISCA_TERMINATOR]

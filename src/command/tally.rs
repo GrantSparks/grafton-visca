@@ -11,7 +11,7 @@
 //! - Flash/solid modes (`Flash`, `On`, `Off`) - PtzOptics specific
 
 use crate::{
-    command::{bytes::builder::ConstCommandBuilder, encode_visca::ViscaEncode, ViscaResponseType},
+    command::{bytes::builder::ConstCommandBuilder, encode::ViscaCommand, ResponseKind},
     error::Error,
     macros::internal::*,
     timeout::CommandCategory,
@@ -22,7 +22,7 @@ visca_command! {
     ///
     /// Controls the tally light indicators on compatible cameras.
     /// Not all cameras support all tally light features.
-    category = "Quick",
+    category = CommandCategory::Quick,
     max_size = 8, // TALLY_PREFIX (6 bytes) + 1 data + 1 terminator = 8
     enum Tally {
         /// Turn red tally light on
@@ -93,12 +93,12 @@ pub enum TallyInquiry {
     Green,
 }
 
-impl ViscaEncode for TallyInquiry {
-    type ViscaResponse = ();
+impl ViscaCommand for TallyInquiry {
+    type Response = ();
     const MAX_SIZE: usize = 7;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
-    fn encode_into(
+    fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
@@ -117,10 +117,10 @@ impl ViscaEncode for TallyInquiry {
         }
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_kind(&self) -> Option<ResponseKind> {
         Some(match self {
-            Self::Red => ViscaResponseType::TallyRed,
-            Self::Green => ViscaResponseType::TallyGreen,
+            Self::Red => ResponseKind::TallyRed,
+            Self::Green => ResponseKind::TallyGreen,
         })
     }
 }

@@ -340,7 +340,7 @@ where
                         // Serial requires serialport feature and RuntimeSerial implementation
                         // Since we can't add the constraint here, we return Unsupported
                         // Users should use the serial-specific methods like open_serial_async()
-                        return Err(Error::Unsupported);
+                        return Err(Error::NotSupported);
                     }
                     TransportOptions::Custom => {
                         return Err(Error::InvalidState(

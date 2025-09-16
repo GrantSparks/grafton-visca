@@ -421,7 +421,7 @@ mod tests {
     fn test_invalid_sony_response() {
         let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated);
 
-        // ViscaResponse too short
+        // Response too short
         let short_response = vec![0x01, 0x11, 0x00];
         assert!(envelope.extract_response(&short_response).is_err());
 

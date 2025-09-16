@@ -118,13 +118,13 @@ pub struct DirectMenuControl {
     pub control2: u8,
 }
 
-impl crate::command::encode_visca::ViscaEncode for DirectMenuControl {
-    type ViscaResponse = ();
+impl crate::command::encode::ViscaCommand for DirectMenuControl {
+    type Response = ();
     const MAX_SIZE: usize = 8;
     const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
         crate::timeout::CommandCategory::Quick;
 
-    fn encode_into(
+    fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
@@ -139,7 +139,7 @@ impl crate::command::encode_visca::ViscaEncode for DirectMenuControl {
             .build_into(buffer)
     }
 
-    fn response_type(&self) -> Option<crate::command::ViscaResponseType> {
+    fn response_kind(&self) -> Option<crate::command::ResponseKind> {
         None
     }
 

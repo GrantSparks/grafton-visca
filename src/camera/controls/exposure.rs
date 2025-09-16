@@ -257,7 +257,7 @@ where
     ) -> M::Ret<'_, Result<(), Error>> {
         // TODO: This requires sending two commands sequentially
         // For now, return unsupported
-        self.error(Error::Unsupported)
+        self.error(Error::NotSupported)
     }
 
     fn set_shutter_speed(

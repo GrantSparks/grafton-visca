@@ -5,19 +5,16 @@ use std::borrow::Cow;
 use super::super::payload::{Nibbles4Or8, Payload};
 use crate::{
     command::{
-        response::types::{ViscaResponse, ViscaResponseType},
+        response::types::{Response, ResponseKind},
         InquiryResponse,
     },
     error::Error,
 };
 
 /// Decode zoom-related inquiry responses.
-pub(crate) fn decode(
-    kind: ViscaResponseType,
-    payload: Payload<'_>,
-) -> Option<Result<ViscaResponse, Error>> {
+pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<Response, Error>> {
     match kind {
-        ViscaResponseType::ZoomPosition => match Nibbles4Or8::try_from(payload) {
+        ResponseKind::ZoomPosition => match Nibbles4Or8::try_from(payload) {
             Ok(nibbles) => {
                 if matches!(nibbles, Nibbles4Or8::N8(_)) {
                     tracing::warn!(
@@ -25,13 +22,13 @@ pub(crate) fn decode(
                     );
                 }
                 let position = nibbles.first_u16();
-                Some(Ok(ViscaResponse::Inquiry(InquiryResponse::ZoomPosition {
+                Some(Ok(Response::Inquiry(InquiryResponse::ZoomPosition {
                     position,
                 })))
             }
             Err(e) => Some(Err(e)),
         },
-        ViscaResponseType::ZoomOut => {
+        ResponseKind::ZoomOut => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -46,11 +43,9 @@ pub(crate) fn decode(
                     }))
                 }
             };
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::ZoomOut {
-                active,
-            })))
+            Some(Ok(Response::Inquiry(InquiryResponse::ZoomOut { active })))
         }
-        ViscaResponseType::ZoomIn => {
+        ResponseKind::ZoomIn => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -65,11 +60,9 @@ pub(crate) fn decode(
                     }))
                 }
             };
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::ZoomIn {
-                active,
-            })))
+            Some(Ok(Response::Inquiry(InquiryResponse::ZoomIn { active })))
         }
-        ViscaResponseType::ZoomTeleWide => {
+        ResponseKind::ZoomTeleWide => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -84,7 +77,7 @@ pub(crate) fn decode(
                     }))
                 }
             };
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::ZoomTeleWide {
+            Some(Ok(Response::Inquiry(InquiryResponse::ZoomTeleWide {
                 tele,
             })))
         }

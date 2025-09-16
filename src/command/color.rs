@@ -6,8 +6,8 @@
 use crate::{
     command::{
         bytes::{ConstCommandBuilder, VISCA_TERMINATOR},
-        encode_visca::ViscaEncode,
-        response::ViscaResponseType,
+        encode::ViscaCommand,
+        response::ResponseKind,
     },
     error::Error,
     macros::internal::*,
@@ -161,12 +161,12 @@ pub enum ColorTemperature {
     SetTemperature(crate::types::ColorTemp),
 }
 
-impl ViscaEncode for ColorTemperature {
-    type ViscaResponse = ();
+impl ViscaCommand for ColorTemperature {
+    type Response = ();
     const MAX_SIZE: usize = 8;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
-    fn encode_into(
+    fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
@@ -207,7 +207,7 @@ impl ViscaEncode for ColorTemperature {
         }
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_kind(&self) -> Option<ResponseKind> {
         None
     }
 }
@@ -230,12 +230,12 @@ pub enum RedGain {
     SetValue(crate::types::RedChannel),
 }
 
-impl ViscaEncode for RedGain {
-    type ViscaResponse = ();
+impl ViscaCommand for RedGain {
+    type Response = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
-    fn encode_into(
+    fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
@@ -274,7 +274,7 @@ impl ViscaEncode for RedGain {
         }
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_kind(&self) -> Option<ResponseKind> {
         None
     }
 }
@@ -297,12 +297,12 @@ pub enum BlueGain {
     SetValue(crate::types::BlueChannel),
 }
 
-impl ViscaEncode for BlueGain {
-    type ViscaResponse = ();
+impl ViscaCommand for BlueGain {
+    type Response = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
-    fn encode_into(
+    fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
@@ -344,7 +344,7 @@ impl ViscaEncode for BlueGain {
         }
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_kind(&self) -> Option<ResponseKind> {
         None
     }
 }
@@ -357,9 +357,10 @@ impl ViscaEncode for BlueGain {
 )]
 mod tests {
     use super::*;
-    use crate::command::encode_visca::ViscaEncode;
+    use crate::command::encode::ViscaCommand;
     use crate::constants::CameraVariant;
     use crate::macros::test_utils::visca_test;
+    use crate::timeout::CommandTimeout;
 
     visca_test!(
         OnePushTriggerCommand,
@@ -375,7 +376,7 @@ mod tests {
             let tuning = RedTuning::new(level).unwrap();
             let cmd = RedTuningCommand::new(tuning);
             let bytes = cmd
-                .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap();
             assert_eq!(bytes.len(), 9);
@@ -383,8 +384,8 @@ mod tests {
             assert_eq!(bytes[6], 0x00);
             assert_eq!(bytes[7], (level + 10) as u8);
             assert_eq!(bytes[8], 0xFF);
-            assert!(cmd.response_type().is_none());
-            assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
+            assert!(cmd.response_kind().is_none());
+            assert!(matches!(cmd.timeout_class(), CommandCategory::Quick));
         }
 
         // Test invalid values - can't create invalid RedTuning
@@ -411,7 +412,7 @@ mod tests {
             let tuning = BlueTuning::new(level).unwrap();
             let cmd = BlueTuningCommand::new(tuning);
             let bytes = cmd
-                .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap();
             assert_eq!(bytes.len(), 9);
@@ -419,8 +420,8 @@ mod tests {
             assert_eq!(bytes[6], 0x00);
             assert_eq!(bytes[7], (level + 10) as u8);
             assert_eq!(bytes[8], 0xFF);
-            assert!(cmd.response_type().is_none());
-            assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
+            assert!(cmd.response_kind().is_none());
+            assert!(matches!(cmd.timeout_class(), CommandCategory::Quick));
         }
 
         // Test invalid values - can't create invalid BlueTuning
@@ -447,7 +448,7 @@ mod tests {
             let sat_level = SaturationLevel::new(level).unwrap();
             let cmd = SaturationCommand::new(sat_level);
             let bytes = cmd
-                .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap();
             assert_eq!(
@@ -464,8 +465,8 @@ mod tests {
                     VISCA_TERMINATOR
                 ]
             );
-            assert!(cmd.response_type().is_none());
-            assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
+            assert!(cmd.response_kind().is_none());
+            assert!(matches!(cmd.timeout_class(), CommandCategory::Quick));
         }
 
         // Test invalid value - can't create invalid SaturationLevel
@@ -491,7 +492,7 @@ mod tests {
             let hue_level = HueLevel::new(level).unwrap();
             let cmd = HueCommand::new(hue_level);
             let bytes = cmd
-                .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap();
             assert_eq!(
@@ -508,8 +509,8 @@ mod tests {
                     VISCA_TERMINATOR
                 ]
             );
-            assert!(cmd.response_type().is_none());
-            assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
+            assert!(cmd.response_kind().is_none());
+            assert!(matches!(cmd.timeout_class(), CommandCategory::Quick));
         }
 
         // Test invalid value - can't create invalid HueLevel
@@ -533,7 +534,7 @@ mod tests {
         // Test Reset
         let cmd = ColorTemperature::Reset;
         assert_eq!(
-            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap(),
             vec![0x81, 0x01, 0x04, 0x20, 0x00, VISCA_TERMINATOR]
@@ -542,7 +543,7 @@ mod tests {
         // Test Up
         let cmd = ColorTemperature::Up;
         assert_eq!(
-            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap(),
             vec![0x81, 0x01, 0x04, 0x20, 0x02, VISCA_TERMINATOR]
@@ -551,7 +552,7 @@ mod tests {
         // Test Down
         let cmd = ColorTemperature::Down;
         assert_eq!(
-            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap(),
             vec![0x81, 0x01, 0x04, 0x20, 0x03, VISCA_TERMINATOR]
@@ -563,7 +564,7 @@ mod tests {
             let color_temp = crate::types::ColorTemp::new(temp).unwrap();
             let cmd = ColorTemperature::SetTemperature(color_temp);
             let bytes = cmd
-                .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap();
             assert_eq!(bytes.len(), 7);
@@ -582,7 +583,7 @@ mod tests {
         // Test Reset
         let cmd = RedGain::Reset;
         assert_eq!(
-            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap(),
             vec![0x81, 0x01, 0x04, 0x03, 0x00, VISCA_TERMINATOR]
@@ -591,7 +592,7 @@ mod tests {
         // Test Up
         let cmd = RedGain::Up;
         assert_eq!(
-            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap(),
             vec![0x81, 0x01, 0x04, 0x03, 0x02, VISCA_TERMINATOR]
@@ -600,7 +601,7 @@ mod tests {
         // Test Down
         let cmd = RedGain::Down;
         assert_eq!(
-            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap(),
             vec![0x81, 0x01, 0x04, 0x03, 0x03, VISCA_TERMINATOR]
@@ -612,7 +613,7 @@ mod tests {
             let red_gain = crate::types::RedChannel::new(gain).unwrap();
             let cmd = RedGain::SetValue(red_gain);
             let bytes = cmd
-                .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap();
             assert_eq!(bytes.len(), 9);
@@ -629,7 +630,7 @@ mod tests {
         // Test Reset
         let cmd = BlueGain::Reset;
         assert_eq!(
-            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap(),
             vec![0x81, 0x01, 0x04, 0x04, 0x00, VISCA_TERMINATOR]
@@ -638,7 +639,7 @@ mod tests {
         // Test Up
         let cmd = BlueGain::Up;
         assert_eq!(
-            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap(),
             vec![0x81, 0x01, 0x04, 0x04, 0x02, VISCA_TERMINATOR]
@@ -647,7 +648,7 @@ mod tests {
         // Test Down
         let cmd = BlueGain::Down;
         assert_eq!(
-            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap(),
             vec![0x81, 0x01, 0x04, 0x04, 0x03, VISCA_TERMINATOR]
@@ -659,7 +660,7 @@ mod tests {
             let blue_gain = crate::types::BlueChannel::new(gain).unwrap();
             let cmd = BlueGain::SetValue(blue_gain);
             let bytes = cmd
-                .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap();
             assert_eq!(bytes.len(), 9);
@@ -694,11 +695,11 @@ mod tests {
         let red_cmd2 = red_cmd1;
         assert_eq!(
             red_cmd1
-                .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap(),
             red_cmd2
-                .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap()
         );
@@ -709,12 +710,12 @@ mod tests {
         // Test boundary values for tuning commands
         let red_min = RedTuningCommand::new(RedTuning::new(-10).unwrap());
         assert!(red_min
-            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
             .map(|b| b.to_vec())
             .is_ok());
         assert_eq!(
             red_min
-                .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap()[7],
             0x00
@@ -722,12 +723,12 @@ mod tests {
 
         let red_max = RedTuningCommand::new(RedTuning::MAX);
         assert!(red_max
-            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
             .map(|b| b.to_vec())
             .is_ok());
         assert_eq!(
             red_max
-                .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap()[7],
             0x14
@@ -735,12 +736,12 @@ mod tests {
 
         let blue_min = BlueTuningCommand::new(BlueTuning::new(-10).unwrap());
         assert!(blue_min
-            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
             .map(|b| b.to_vec())
             .is_ok());
         assert_eq!(
             blue_min
-                .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap()[7],
             0x00
@@ -748,12 +749,12 @@ mod tests {
 
         let blue_max = BlueTuningCommand::new(BlueTuning::MAX);
         assert!(blue_max
-            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
             .map(|b| b.to_vec())
             .is_ok());
         assert_eq!(
             blue_max
-                .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap()[7],
             0x14
@@ -762,25 +763,25 @@ mod tests {
         // Test boundary values for saturation and hue
         let sat_min = SaturationCommand::new(SaturationLevel::new(0x00).unwrap());
         assert!(sat_min
-            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
             .map(|b| b.to_vec())
             .is_ok());
 
         let sat_max = SaturationCommand::new(SaturationLevel::new(0x0E).unwrap());
         assert!(sat_max
-            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
             .map(|b| b.to_vec())
             .is_ok());
 
         let hue_min = HueCommand::new(HueLevel::new(0x00).unwrap());
         assert!(hue_min
-            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
             .map(|b| b.to_vec())
             .is_ok());
 
         let hue_max = HueCommand::new(HueLevel::new(0x0E).unwrap());
         assert!(hue_max
-            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
             .map(|b| b.to_vec())
             .is_ok());
 
@@ -788,14 +789,14 @@ mod tests {
         let temp_min =
             ColorTemperature::SetTemperature(crate::types::ColorTemp::new(0x00).unwrap());
         assert!(temp_min
-            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
             .map(|b| b.to_vec())
             .is_ok());
 
         let temp_max =
             ColorTemperature::SetTemperature(crate::types::ColorTemp::new(0x37).unwrap());
         assert!(temp_max
-            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
             .map(|b| b.to_vec())
             .is_ok());
     }
@@ -805,7 +806,7 @@ mod tests {
         // Test that Direct commands properly encode values as nibbles
         let cmd = ColorTemperature::SetTemperature(crate::types::ColorTemp::new(0x25).unwrap());
         let bytes = cmd
-            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
             .map(|b| b.to_vec())
             .unwrap();
         assert_eq!(bytes[4], 0x02);
@@ -813,7 +814,7 @@ mod tests {
 
         let cmd = RedGain::SetValue(crate::types::RedChannel::new(0xAB).unwrap());
         let bytes = cmd
-            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
             .map(|b| b.to_vec())
             .unwrap();
         assert_eq!(bytes[6], 0x0A);
@@ -821,7 +822,7 @@ mod tests {
 
         let cmd = BlueGain::SetValue(crate::types::BlueChannel::new(0xF0).unwrap());
         let bytes = cmd
-            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
             .map(|b| b.to_vec())
             .unwrap();
         assert_eq!(bytes[6], 0x0F);
@@ -837,14 +838,14 @@ mod tests {
 
             let red_cmd = RedTuningCommand::new(RedTuning::new(level).unwrap());
             let red_bytes = red_cmd
-                .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap();
             assert_eq!(red_bytes[7], expected);
 
             let blue_cmd = BlueTuningCommand::new(BlueTuning::new(level).unwrap());
             let blue_bytes = blue_cmd
-                .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap();
             assert_eq!(blue_bytes[7], expected);

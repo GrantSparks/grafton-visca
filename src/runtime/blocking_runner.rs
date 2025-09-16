@@ -15,8 +15,8 @@ use crate::{
     camera_id::CameraId,
     capabilities::{Profile, ProtocolStyle},
     command::{
-        response::{lift_inquiry_for, ViscaResponse},
-        CommandKind, ViscaEncode,
+        response::{lift_inquiry_for, Response},
+        CommandKind, ViscaCommand,
     },
     error::{Error, Result},
     protocol::{
@@ -118,19 +118,20 @@ impl<P: Profile> BlockingRunner<P> {
     pub fn send_command<T: SyncTransport + HasTransportConfig>(
         &mut self,
         transport: &mut T,
-        command: &(impl ViscaEncode + std::fmt::Debug + Clone + 'static),
+        command: &(impl ViscaCommand + std::fmt::Debug + Clone + 'static),
         camera_id: CameraId,
         category: CommandCategory,
-    ) -> Result<ViscaResponse> {
+    ) -> Result<Response> {
         let cmd_id = self.next_id.fetch_add(1, Ordering::SeqCst);
 
         // Create PreparedCommand for zero-copy path
         let prepared_cmd = std::sync::Arc::new(
-            crate::command::encode_visca::PreparedCommand::new(command.clone(), camera_id)
-                .map_err(|e| {
+            crate::command::encode::PreparedCommand::new(command.clone(), camera_id).map_err(
+                |e| {
                     tracing::error!("Failed to prepare command: {:?}", e);
                     e
-                })?,
+                },
+            )?,
         );
 
         // Store response type in core for inquiries
@@ -168,7 +169,7 @@ impl<P: Profile> BlockingRunner<P> {
         &mut self,
         transport: &mut T,
         target_cmd_id: u32,
-    ) -> Result<ViscaResponse> {
+    ) -> Result<Response> {
         // Allocate a single reusable buffer for receiving data using the configured size
         let mut read_buf = vec![0u8; self.buffer_manager.config().recv_buffer_size];
 
@@ -353,7 +354,7 @@ impl<P: Profile> BlockingRunner<P> {
                                         debug!("Command {} completed successfully", cmd_id);
                                         // Get the expected response type from core
                                         let response_type = self.core.get_inquiry_type(cmd_id);
-                                        // Convert to ViscaResponse for return with profile-aware lifting
+                                        // Convert to Response for return with profile-aware lifting
                                         let response =
                                             lift_inquiry_for::<P>(&basic, response_type)?;
                                         return Ok(response);
@@ -408,7 +409,7 @@ impl<P: Profile> BlockingRunner<P> {
                                 if let Some(cmd_id) = cmd_id {
                                     if cmd_id == target_cmd_id {
                                         debug!("Inquiry {} completed successfully", cmd_id);
-                                        // Convert to ViscaResponse for return with profile-aware lifting
+                                        // Convert to Response for return with profile-aware lifting
                                         let response =
                                             lift_inquiry_for::<P>(&basic, response_type.as_ref())?;
                                         return Ok(response);
@@ -476,7 +477,7 @@ impl<P: Profile> BlockingRunner<P> {
 mod tests {
     use super::*;
     use crate::camera::profiles::PtzOpticsG2;
-    use crate::command::encode_visca::ViscaEncode;
+    use crate::command::encode::ViscaCommand;
 
     #[test]
     fn test_scheduler_core_creation() {
@@ -511,18 +512,18 @@ mod tests {
             bytes: Vec<u8>,
         }
 
-        impl ViscaEncode for TestCmd {
-            type ViscaResponse = ();
+        impl ViscaCommand for TestCmd {
+            type Response = ();
             const MAX_SIZE: usize = 6;
             const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
-            fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+            fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
                 let len = self.bytes.len();
                 buffer[..len].copy_from_slice(&self.bytes);
                 Ok(len)
             }
 
-            fn response_type(&self) -> Option<crate::command::response::ViscaResponseType> {
+            fn response_kind(&self) -> Option<crate::command::response::ResponseKind> {
                 None
             }
         }
@@ -534,7 +535,7 @@ mod tests {
             bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
         };
         let prepared_cmd = std::sync::Arc::new(
-            crate::command::encode_visca::PreparedCommand::new(test_cmd, camera_id).unwrap(),
+            crate::command::encode::PreparedCommand::new(test_cmd, camera_id).unwrap(),
         );
 
         let cmd = PendingCommand {

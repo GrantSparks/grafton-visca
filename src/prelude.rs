@@ -228,9 +228,7 @@ pub mod advanced {
     pub use crate::visca_socket::ViscaSocket;
 
     // Raw command types and encoding
-    pub use crate::command::{
-        CommandKind, InquiryResponse, ViscaEncode, ViscaResponse, ViscaResponseType,
-    };
+    pub use crate::command::{CommandKind, InquiryResponse, Response, ResponseKind, ViscaCommand};
 
     // Camera ID for multi-camera setups
     pub use crate::camera_id::CameraId;

@@ -18,7 +18,7 @@ use std::sync::Arc;
 use grafton_visca::{
     camera::profiles::GenericVisca,
     camera_id::CameraId,
-    command::{power::Power, zoom::Zoom, InquiryResponse, ViscaResponse},
+    command::{power::Power, zoom::Zoom, InquiryResponse, Response},
     runtime::{Priority, RuntimeHandle},
     TokioExecutor,
 };
@@ -47,8 +47,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .send_command(&power_on, CameraId::default(), Some(Priority::High))
         .await?;
     match response {
-        ViscaResponse::Completion { .. } => println!("   ✓ Camera powered on"),
-        ViscaResponse::Error(e) => println!("   ✗ Power on failed: {e}"),
+        Response::Completion { .. } => println!("   ✓ Camera powered on"),
+        Response::Error(e) => println!("   ✗ Power on failed: {e}"),
         _ => println!("   ? Unexpected response: {response:?}"),
     }
 
@@ -62,8 +62,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .send_command(&zoom_in, CameraId::default(), None)
         .await?;
     match response {
-        ViscaResponse::Completion { .. } => println!("   ✓ Zoom in started"),
-        ViscaResponse::Error(e) => println!("   ✗ Zoom in failed: {e}"),
+        Response::Completion { .. } => println!("   ✓ Zoom in started"),
+        Response::Error(e) => println!("   ✗ Zoom in failed: {e}"),
         _ => println!("   ? Unexpected response: {response:?}"),
     }
 
@@ -77,8 +77,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .send_command(&zoom_stop, CameraId::default(), None)
         .await?;
     match response {
-        ViscaResponse::Completion { .. } => println!("   ✓ Zoom stopped"),
-        ViscaResponse::Error(e) => println!("   ✗ Zoom stop failed: {e}"),
+        Response::Completion { .. } => println!("   ✓ Zoom stopped"),
+        Response::Error(e) => println!("   ✗ Zoom stop failed: {e}"),
         _ => println!("   ? Unexpected response: {response:?}"),
     }
 
@@ -89,11 +89,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .send_inquiry(&power_inquiry, CameraId::default())
         .await?;
     match response {
-        ViscaResponse::Inquiry(InquiryResponse::Power { on }) => {
+        Response::Inquiry(InquiryResponse::Power { on }) => {
             let status = if on { "ON" } else { "OFF" };
             println!("   ✓ Power status: {status}");
         }
-        ViscaResponse::Error(e) => println!("   ✗ Power inquiry failed: {e}"),
+        Response::Error(e) => println!("   ✗ Power inquiry failed: {e}"),
         _ => println!("   ? Unexpected response: {response:?}"),
     }
 
@@ -121,13 +121,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (high_result, low_result) = tokio::join!(high_priority_future, low_priority_future);
 
     match high_result {
-        Ok(ViscaResponse::Completion { .. }) => println!("   ✓ High priority command completed"),
+        Ok(Response::Completion { .. }) => println!("   ✓ High priority command completed"),
         Ok(resp) => println!("   ? High priority response: {resp:?}"),
         Err(e) => println!("   ✗ High priority failed: {e}"),
     }
 
     match low_result {
-        Ok(ViscaResponse::Completion { .. }) => println!("   ✓ Low priority command completed"),
+        Ok(Response::Completion { .. }) => println!("   ✓ Low priority command completed"),
         Ok(resp) => println!("   ? Low priority response: {resp:?}"),
         Err(e) => println!("   ✗ Low priority failed: {e}"),
     }

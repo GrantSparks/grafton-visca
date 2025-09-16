@@ -10,7 +10,7 @@ use std::sync::{
 
 use crate::{
     capabilities::{Profile, ProtocolStyle},
-    command::response::ViscaResponse,
+    command::response::Response,
     error::{Error, Result},
     runtime::{
         async_adapter::{CompletionEvent, MetricsSummary, TxItem},
@@ -415,12 +415,12 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
         self.inner.executor.timeout(duration, fut).await
     }
 
-    /// Send a VISCA command to the camera using the ViscaEncode trait.
+    /// Send a VISCA command to the camera using the ViscaCommand trait.
     ///
     /// This method bridges the existing command system with the new runtime.
     ///
     /// # Arguments
-    /// * `cmd` - A command implementing the ViscaEncode trait
+    /// * `cmd` - A command implementing the ViscaCommand trait
     /// * `camera_id` - The camera ID to send the command to
     /// * `priority` - The priority level for the command (defaults to Normal)
     ///
@@ -431,9 +431,9 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
         cmd: &C,
         camera_id: crate::camera_id::CameraId,
         priority: Option<Priority>,
-    ) -> Result<ViscaResponse>
+    ) -> Result<Response>
     where
-        C: crate::command::encode_visca::ViscaEncode + Clone + std::fmt::Debug + 'static,
+        C: crate::command::encode::ViscaCommand + Clone + std::fmt::Debug + 'static,
     {
         let (_, response) = self.send_command_with_id(cmd, camera_id, priority).await?;
         response.await
@@ -444,7 +444,7 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
     /// This method allows canceling commands by their ID.
     ///
     /// # Arguments
-    /// * `cmd` - A command implementing the ViscaEncode trait
+    /// * `cmd` - A command implementing the ViscaCommand trait
     /// * `camera_id` - The camera ID to send the command to
     /// * `priority` - The priority level for the command (defaults to Normal)
     ///
@@ -455,21 +455,16 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
         cmd: &C,
         camera_id: crate::camera_id::CameraId,
         priority: Option<Priority>,
-    ) -> Result<(
-        u32,
-        impl std::future::Future<Output = Result<ViscaResponse>>,
-    )>
+    ) -> Result<(u32, impl std::future::Future<Output = Result<Response>>)>
     where
-        C: crate::command::encode_visca::ViscaEncode + Clone + std::fmt::Debug + 'static,
+        C: crate::command::encode::ViscaCommand + Clone + std::fmt::Debug + 'static,
     {
         // Create pre-encoded command
         let prepared_command = Arc::new(
-            crate::command::encode_visca::PreparedCommand::new(cmd.clone(), camera_id).map_err(
-                |e| {
-                    tracing::error!("Failed to prepare command: {:?}", e);
-                    e
-                },
-            )?,
+            crate::command::encode::PreparedCommand::new(cmd.clone(), camera_id).map_err(|e| {
+                tracing::error!("Failed to prepare command: {:?}", e);
+                e
+            })?,
         );
 
         // Generate command ID
@@ -502,12 +497,12 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
         Ok((command_id, future))
     }
 
-    /// Send a VISCA inquiry to the camera using the ViscaEncode trait.
+    /// Send a VISCA inquiry to the camera using the ViscaCommand trait.
     ///
     /// This method bridges the existing inquiry system with the new runtime.
     ///
     /// # Arguments
-    /// * `inquiry` - An inquiry command implementing the ViscaEncode trait
+    /// * `inquiry` - An inquiry command implementing the ViscaCommand trait
     /// * `camera_id` - The camera ID to send the inquiry to
     ///
     /// # Returns
@@ -516,17 +511,22 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
         &self,
         inquiry: &I,
         camera_id: crate::camera_id::CameraId,
-    ) -> Result<ViscaResponse>
+    ) -> Result<Response>
     where
-        I: crate::command::encode_visca::ViscaEncode + Clone + std::fmt::Debug + 'static,
+        I: crate::command::encode::ViscaCommand
+            + crate::timeout::CommandTimeout
+            + Clone
+            + std::fmt::Debug
+            + 'static,
     {
         // Create pre-encoded command
         let prepared_command = Arc::new(
-            crate::command::encode_visca::PreparedCommand::new(inquiry.clone(), camera_id)
-                .map_err(|e| {
+            crate::command::encode::PreparedCommand::new(inquiry.clone(), camera_id).map_err(
+                |e| {
                     tracing::error!("Failed to prepare inquiry: {:?}", e);
                     e
-                })?,
+                },
+            )?,
         );
 
         // Generate inquiry ID
@@ -539,9 +539,9 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
         let item = TxItem::Inquiry {
             id: inquiry_id,
             command: prepared_command,
-            category: inquiry.timeout_kind(),
+            category: inquiry.timeout_class(),
             camera_id,
-            response_type: inquiry.response_type(),
+            response_type: inquiry.response_kind(),
             response_tx,
         };
 

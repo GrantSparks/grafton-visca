@@ -5,19 +5,16 @@ use std::borrow::Cow;
 use super::super::payload::Payload;
 use crate::{
     command::{
-        response::types::{ViscaResponse, ViscaResponseType},
+        response::types::{Response, ResponseKind},
         InquiryResponse,
     },
     error::Error,
 };
 
 /// Decode system-related inquiry responses.
-pub(crate) fn decode(
-    kind: ViscaResponseType,
-    payload: Payload<'_>,
-) -> Option<Result<ViscaResponse, Error>> {
+pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<Response, Error>> {
     match kind {
-        ViscaResponseType::Version => {
+        ResponseKind::Version => {
             if payload.len() != 7 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -26,23 +23,23 @@ pub(crate) fn decode(
             let rom_version =
                 ((payload.as_slice()[4] as u32) << 8) | (payload.as_slice()[5] as u32);
             let max_socket = payload.as_slice()[6];
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::Version {
+            Some(Ok(Response::Inquiry(InquiryResponse::Version {
                 vendor,
                 model,
                 rom_version,
                 max_socket,
             })))
         }
-        ViscaResponseType::Resolution => {
+        ResponseKind::Resolution => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
             let resolution_mode = payload.as_slice()[0];
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::Resolution(
+            Some(Ok(Response::Inquiry(InquiryResponse::Resolution(
                 resolution_mode,
             ))))
         }
-        ViscaResponseType::MenuOpenClose => {
+        ResponseKind::MenuOpenClose => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -59,11 +56,11 @@ pub(crate) fn decode(
                     }))
                 }
             };
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::MenuOpenClose {
+            Some(Ok(Response::Inquiry(InquiryResponse::MenuOpenClose {
                 is_open,
             })))
         }
-        ViscaResponseType::UsbAudio => {
+        ResponseKind::UsbAudio => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -78,9 +75,9 @@ pub(crate) fn decode(
                     }))
                 }
             };
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::UsbAudio { on })))
+            Some(Ok(Response::Inquiry(InquiryResponse::UsbAudio { on })))
         }
-        ViscaResponseType::Rtmp => {
+        ResponseKind::Rtmp => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -95,9 +92,9 @@ pub(crate) fn decode(
                     }))
                 }
             };
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::Rtmp { on })))
+            Some(Ok(Response::Inquiry(InquiryResponse::Rtmp { on })))
         }
-        ViscaResponseType::NightDayMode => {
+        ResponseKind::NightDayMode => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -114,11 +111,11 @@ pub(crate) fn decode(
                     }))
                 }
             };
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::NightDayMode {
+            Some(Ok(Response::Inquiry(InquiryResponse::NightDayMode {
                 is_night,
             })))
         }
-        ViscaResponseType::Digital => {
+        ResponseKind::Digital => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -133,9 +130,9 @@ pub(crate) fn decode(
                     }))
                 }
             };
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::Digital { on })))
+            Some(Ok(Response::Inquiry(InquiryResponse::Digital { on })))
         }
-        ViscaResponseType::AutoTrace => {
+        ResponseKind::AutoTrace => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -150,19 +147,17 @@ pub(crate) fn decode(
                     }))
                 }
             };
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::AutoTrace {
+            Some(Ok(Response::Inquiry(InquiryResponse::AutoTrace {
                 enabled: on,
             })))
         }
-        ViscaResponseType::NdFilterPreset => {
+        ResponseKind::NdFilterPreset => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            Some(Ok(ViscaResponse::Inquiry(
-                InquiryResponse::NdFilterPreset {
-                    preset: payload.as_slice()[0],
-                },
-            )))
+            Some(Ok(Response::Inquiry(InquiryResponse::NdFilterPreset {
+                preset: payload.as_slice()[0],
+            })))
         }
         _ => None,
     }

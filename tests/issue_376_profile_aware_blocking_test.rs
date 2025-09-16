@@ -65,7 +65,7 @@ mod profile_aware_blocking_tests {
 
         match result {
             Ok(response) => {
-                if let grafton_visca::command::response::ViscaResponse::Inquiry(
+                if let grafton_visca::command::response::Response::Inquiry(
                     InquiryResponse::PanTiltPosition { pan, tilt },
                 ) = response
                 {
@@ -106,7 +106,7 @@ mod profile_aware_blocking_tests {
 
         match result {
             Ok(response) => {
-                if let grafton_visca::command::response::ViscaResponse::Inquiry(
+                if let grafton_visca::command::response::Response::Inquiry(
                     InquiryResponse::PanTiltPosition { pan, tilt },
                 ) = response
                 {
@@ -157,7 +157,7 @@ mod profile_aware_blocking_tests {
 
             match result {
                 Ok(response) => {
-                    if let grafton_visca::command::response::ViscaResponse::Inquiry(
+                    if let grafton_visca::command::response::Response::Inquiry(
                         InquiryResponse::PanTiltPosition { pan, tilt },
                     ) = response
                     {
@@ -209,7 +209,7 @@ mod profile_aware_blocking_tests {
 
         match result {
             Ok(response) => {
-                if let grafton_visca::command::response::ViscaResponse::Inquiry(
+                if let grafton_visca::command::response::Response::Inquiry(
                     InquiryResponse::PanTiltPosition { pan, tilt },
                 ) = response
                 {

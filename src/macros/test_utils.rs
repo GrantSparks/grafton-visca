@@ -25,12 +25,12 @@ macro_rules! visca_test {
         #[test]
         fn $test_name() {
             use $crate::camera_id::CameraId;
-            use $crate::command::encode_visca::ViscaEncode;
+            use $crate::command::encode::ViscaCommand;
 
             let cmd = $cmd;
             let mut buffer = vec![0u8; 32];
             let len = cmd
-                .encode_into(CameraId::CAMERA_1, &mut buffer)
+                .write_into(CameraId::CAMERA_1, &mut buffer)
                 .expect("encode failed");
             assert_eq!(&buffer[..len], $expected);
         }

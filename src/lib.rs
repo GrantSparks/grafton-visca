@@ -595,6 +595,7 @@
 mod error;
 pub(crate) mod macros;
 
+
 #[cfg(feature = "mode-async")]
 pub(crate) mod executor;
 
@@ -626,7 +627,6 @@ pub mod capabilities;
 ///
 /// This module remains public for extensibility but its direct use is discouraged.
 /// Consider it unstable and subject to breaking changes.
-#[doc(hidden)]
 pub mod command;
 
 /// Constants for VISCA protocol including default ports
@@ -640,7 +640,6 @@ pub mod prelude;
 ///
 /// **⚠️ Internal API**: This module contains protocol-level utilities.
 /// Users should not need to interact with this module directly.
-#[doc(hidden)]
 pub mod protocol;
 
 /// VISCA runtime with flume-based scheduling
@@ -656,7 +655,6 @@ pub mod runtime_trait;
 
 /// Testing utilities (available with test-utils feature for deterministic testing)
 #[cfg(any(feature = "runtime-tokio", feature = "test-utils"))]
-#[doc(hidden)]
 pub mod testing;
 
 pub mod timeout;
@@ -687,9 +685,7 @@ pub use crate::{
     visca_socket::ViscaSocket,
 };
 
-// Command module types - marked as unstable/advanced
-// Users should prefer the high-level types from the types module
-#[doc(hidden)]
+// Re-export commonly used types from command module
 pub use crate::command::{
     exposure::ExposureMode,
     focus::{AutoFocusSensitivity, FocusMode},
@@ -718,6 +714,7 @@ pub use crate::camera::controls::{
     exposure::ExposureControl,
     focus::FocusControl,
     image_processing::ImageProcessingControl,
+    inquiry::{InquiryControl, PanTiltInquiryControl},
     menu::{DirectMenuControl, MenuControl},
     nd_filter::NdFilterControl,
     pan_tilt::PanTiltControl,
@@ -731,9 +728,6 @@ pub use crate::camera::controls::{
     zoom::ZoomControl,
 };
 
-// Internal use only - users should use accessor methods instead
-#[doc(hidden)]
-pub use crate::camera::controls::inquiry::{InquiryControl, PanTiltInquiryControl};
 #[cfg(all(feature = "mode-async", feature = "runtime-async-std"))]
 pub use crate::executor::AsyncStdExecutor;
 #[cfg(all(feature = "mode-async", feature = "runtime-smol"))]

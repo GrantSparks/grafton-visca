@@ -155,7 +155,7 @@ struct SimulatorInner {
     // Socket management
     socket_states: RwLock<[SocketState; 2]>,
 
-    // ViscaResponse management
+    // Response management
     response_broadcaster: broadcast::Sender<Vec<u8>>,
 
     // Configuration

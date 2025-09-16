@@ -8,16 +8,16 @@
 //! - `PanTiltPositionInquiry` -> `crate::camera::PanTiltPosition`
 //! - `ZoomPositionInquiry` -> `u16`
 
-use crate::command::ViscaResponse;
+use crate::command::Response;
 use crate::error::Error;
 
-/// Trait for commands that have an associated typed response.
-pub trait ViscaCommand {
+/// Trait for commands that can parse responses into strongly-typed values.
+pub trait ResponseParser {
     /// Strongly-typed response for this command.
     type Response;
 
-    /// Convert a generic `ViscaResponse` into the typed response for this command.
-    fn from_response(resp: ViscaResponse) -> Result<Self::Response, Error>;
+    /// Convert a generic `Response` into the typed response for this command.
+    fn from_response(resp: Response) -> Result<Self::Response, Error>;
 }
 
 // Typed response structs for compound responses

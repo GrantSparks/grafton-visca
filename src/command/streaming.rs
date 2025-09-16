@@ -36,23 +36,23 @@ impl From<MulticastStreaming> for MulticastStreamingInternal {
     }
 }
 
-impl crate::command::encode_visca::ViscaEncode for MulticastStreaming {
-    type ViscaResponse = ();
+impl crate::command::encode::ViscaCommand for MulticastStreaming {
+    type Response = ();
     const MAX_SIZE: usize = MulticastStreamingInternal::MAX_SIZE;
     const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
         crate::timeout::CommandCategory::Network;
 
-    fn encode_into(
+    fn write_into(
         &self,
         camera_id: crate::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, crate::Error> {
         let internal: MulticastStreamingInternal = (*self).into();
-        internal.encode_into(camera_id, buffer)
+        internal.write_into(camera_id, buffer)
     }
 
-    fn response_type(&self) -> Option<crate::command::ViscaResponseType> {
-        MulticastStreamingInternal::new(true).response_type()
+    fn response_kind(&self) -> Option<crate::command::ResponseKind> {
+        MulticastStreamingInternal::new(true).response_kind()
     }
 }
 
@@ -82,13 +82,13 @@ pub struct NdiQualityCommand {
     pub quality: NdiQuality,
 }
 
-impl crate::command::encode_visca::ViscaEncode for NdiQualityCommand {
-    type ViscaResponse = ();
+impl crate::command::encode::ViscaCommand for NdiQualityCommand {
+    type Response = ();
     const MAX_SIZE: usize = NdiQualityCommandInternal::MAX_SIZE;
     const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
         crate::timeout::CommandCategory::Network;
 
-    fn encode_into(
+    fn write_into(
         &self,
         camera_id: crate::CameraId,
         buffer: &mut [u8],
@@ -96,14 +96,14 @@ impl crate::command::encode_visca::ViscaEncode for NdiQualityCommand {
         let internal = NdiQualityCommandInternal {
             quality: self.quality,
         };
-        internal.encode_into(camera_id, buffer)
+        internal.write_into(camera_id, buffer)
     }
 
-    fn response_type(&self) -> Option<crate::command::ViscaResponseType> {
+    fn response_kind(&self) -> Option<crate::command::ResponseKind> {
         NdiQualityCommandInternal {
             quality: self.quality,
         }
-        .response_type()
+        .response_kind()
     }
 }
 

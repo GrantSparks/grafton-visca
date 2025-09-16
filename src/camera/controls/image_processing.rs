@@ -175,7 +175,7 @@ where
     ) -> M::Ret<'_, Result<(), Error>> {
         // SharpnessMode command not documented in VISCA protocol spec
         // This may be a proprietary extension - returning unsupported for now
-        self.error(Error::Unsupported)
+        self.error(Error::NotSupported)
     }
 
     fn reset_sharpness(&self) -> M::Ret<'_, Result<(), Error>> {

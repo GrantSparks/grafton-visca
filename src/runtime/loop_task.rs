@@ -16,7 +16,7 @@ use std::{collections::HashSet, sync::Arc};
 
 use crate::{
     capabilities::Profile,
-    command::{encode_visca::ViscaEncode, CommandKind},
+    command::{encode::ViscaCommand, CommandKind},
     error::{Error, Result},
     protocol::framer::ProtocolFramer,
     runtime::{
@@ -135,7 +135,7 @@ pub async fn runtime_loop_with_config<
 
                     let cancel_cmd = CommandCancelCommand::new(socket);
                     // Encode directly to bytes
-                    let cancel_bytes = cancel_cmd.try_into_bytes(camera_id).map_err(|e| {
+                    let cancel_bytes = cancel_cmd.to_bytes(camera_id).map_err(|e| {
                         error!("Failed to encode cancel command: {e}");
                         e
                     })?;
@@ -168,7 +168,7 @@ pub async fn runtime_loop_with_config<
 
                         let cancel_cmd = CommandCancelCommand::new(socket);
                         // Encode directly to bytes
-                        let cancel_bytes = cancel_cmd.try_into_bytes(camera_id).map_err(|e| {
+                        let cancel_bytes = cancel_cmd.to_bytes(camera_id).map_err(|e| {
                             error!("Failed to encode cancel command: {e}");
                             e
                         })?;
@@ -337,7 +337,7 @@ pub async fn runtime_loop_with_config<
                     for id in ready {
                         if let Some(socket) = adapter.socket_for_command(id) {
                             use crate::command::{
-                                encode_visca::ViscaEncode, system::CommandCancelCommand,
+                                encode::ViscaCommand, system::CommandCancelCommand,
                             };
 
                             // Get the camera ID for this specific command
@@ -350,11 +350,10 @@ pub async fn runtime_loop_with_config<
                             let cancel_cmd = CommandCancelCommand::new(socket);
 
                             // Encode with the actual camera ID
-                            let cancel_bytes =
-                                cancel_cmd.try_into_bytes(camera_id).map_err(|e| {
-                                    error!("Failed to encode queued cancel command: {e}");
-                                    e
-                                })?;
+                            let cancel_bytes = cancel_cmd.to_bytes(camera_id).map_err(|e| {
+                                error!("Failed to encode queued cancel command: {e}");
+                                e
+                            })?;
 
                             let kind = CommandKind::Command;
                             let (framed, _meta) = config.envelope.frame_bytes_into(

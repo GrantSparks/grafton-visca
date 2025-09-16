@@ -13,7 +13,7 @@
 //!
 //! These macros are re-exported at the crate root and are considered stable:
 //!
-//! - `visca_bounded_param!` - Create validated newtype wrappers for numeric parameters
+//! - `visca_range_type!` - Create validated newtype wrappers for numeric parameters
 //!
 //! ## Internal Macros
 //!

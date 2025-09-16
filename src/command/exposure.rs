@@ -6,7 +6,7 @@
 use grafton_visca_macros::ViscaEnum;
 
 use crate::{
-    command::{bytes::constants, encode_visca::ViscaEncode, response::ViscaResponseType},
+    command::{bytes::constants, encode::ViscaCommand, response::ResponseKind},
     error::Error,
     macros::internal::*,
     timeout::CommandCategory,
@@ -67,12 +67,12 @@ pub enum ExposureCompensation {
     SetLevel(ExposureCompensationLevel),
 }
 
-impl ViscaEncode for ExposureCompensation {
-    type ViscaResponse = ();
+impl ViscaCommand for ExposureCompensation {
+    type Response = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
-    fn encode_into(
+    fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
@@ -119,7 +119,7 @@ impl ViscaEncode for ExposureCompensation {
         }
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_kind(&self) -> Option<ResponseKind> {
         None
     }
 }
@@ -169,12 +169,12 @@ pub enum Iris {
 }
 
 // Manual implementation to add model validation
-impl ViscaEncode for Iris {
-    type ViscaResponse = ();
+impl ViscaCommand for Iris {
+    type Response = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
-    fn encode_into(
+    fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
@@ -208,7 +208,7 @@ impl ViscaEncode for Iris {
         }
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_kind(&self) -> Option<ResponseKind> {
         None
     }
 }
@@ -232,12 +232,12 @@ pub enum Shutter {
 }
 
 // Manual implementation to add model validation
-impl ViscaEncode for Shutter {
-    type ViscaResponse = ();
+impl ViscaCommand for Shutter {
+    type Response = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
-    fn encode_into(
+    fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
@@ -271,7 +271,7 @@ impl ViscaEncode for Shutter {
         }
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_kind(&self) -> Option<ResponseKind> {
         None
     }
 }
@@ -292,12 +292,12 @@ pub enum Bright {
     Direct(BrightnessLevel),
 }
 
-impl ViscaEncode for Bright {
-    type ViscaResponse = ();
+impl ViscaCommand for Bright {
+    type Response = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
-    fn encode_into(
+    fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
@@ -340,7 +340,7 @@ impl ViscaEncode for Bright {
         }
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_kind(&self) -> Option<ResponseKind> {
         None
     }
 }
@@ -349,7 +349,7 @@ visca_command! {
     /// Spotlight command (Sony models).
     ///
     /// Controls the spotlight feature which enhances exposure for specific subjects.
-    category = "Quick",
+    category = CommandCategory::Quick,
     max_size = 6, // SPOTLIGHT_PREFIX (4 bytes) + 1 data + 1 terminator = 6
     enum Spotlight {
         /// Turn spotlight on
@@ -373,7 +373,7 @@ visca_command! {
     /// Controls the auto slow shutter feature which automatically reduces shutter speed
     /// in low light conditions to maintain proper exposure. This feature is supported
     /// on Sony cameras and FR7, but PtzOptics only supports it via HTTP API.
-    category = "Quick",
+    category = CommandCategory::Quick,
     max_size = 6, // SPOT_AE_PREFIX (4 bytes) + 1 data + 1 terminator = 6
     enum AutoSlowShutter {
         /// Turn auto slow shutter on
@@ -396,9 +396,10 @@ visca_command! {
 mod tests {
     use super::*;
     use crate::command::bytes::VISCA_TERMINATOR;
-    use crate::command::encode_visca::ViscaEncode;
+    use crate::command::encode::ViscaCommand;
     use crate::constants::CameraVariant;
     use crate::macros::test_utils::visca_test;
+    use crate::timeout::CommandTimeout;
 
     // Test Auto mode
     visca_test!(
@@ -1094,11 +1095,11 @@ mod tests {
             ExposureCommand {
                 mode: ExposureMode::Auto
             }
-            .timeout_kind(),
+            .timeout_class(),
             CommandCategory::Quick
         );
         assert_eq!(
-            ExposureCompensation::On.timeout_kind(),
+            ExposureCompensation::On.timeout_class(),
             CommandCategory::Quick
         );
         assert_eq!(
@@ -1106,12 +1107,12 @@ mod tests {
                 DynamicRangeLevel::new(5)
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
             )
-            .timeout_kind(),
+            .timeout_class(),
             CommandCategory::Quick
         );
-        assert_eq!(Iris::Reset.timeout_kind(), CommandCategory::Quick);
-        assert_eq!(Shutter::Reset.timeout_kind(), CommandCategory::Quick);
-        assert_eq!(Bright::Reset.timeout_kind(), CommandCategory::Quick);
+        assert_eq!(Iris::Reset.timeout_class(), CommandCategory::Quick);
+        assert_eq!(Shutter::Reset.timeout_class(), CommandCategory::Quick);
+        assert_eq!(Bright::Reset.timeout_class(), CommandCategory::Quick);
     }
 
     #[test]
@@ -1120,17 +1121,17 @@ mod tests {
         assert!(ExposureCommand {
             mode: ExposureMode::Auto
         }
-        .response_type()
+        .response_kind()
         .is_none());
-        assert!(ExposureCompensation::On.response_type().is_none());
+        assert!(ExposureCompensation::On.response_kind().is_none());
         assert!(DynamicRange::new(
             DynamicRangeLevel::new(5).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
         )
-        .response_type()
+        .response_kind()
         .is_none());
-        assert!(Iris::Reset.response_type().is_none());
-        assert!(Shutter::Reset.response_type().is_none());
-        assert!(Bright::Reset.response_type().is_none());
+        assert!(Iris::Reset.response_kind().is_none());
+        assert!(Shutter::Reset.response_kind().is_none());
+        assert!(Bright::Reset.response_kind().is_none());
     }
 
     // Test On command

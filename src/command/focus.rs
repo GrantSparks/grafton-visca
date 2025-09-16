@@ -13,7 +13,7 @@
 use grafton_visca_macros::ViscaEnum;
 
 use crate::{
-    command::{encode_visca::ViscaEncode, ViscaResponseType},
+    command::{encode::ViscaCommand, ResponseKind},
     error::Error,
     macros::internal::*,
     timeout::CommandCategory,
@@ -46,7 +46,7 @@ pub enum FocusRange {
     Range0_35x = 0x05,
 }
 
-crate::visca_bounded_param! {
+crate::visca_range_type! {
     /// Variable focus speed.
     ///
     /// Valid range: 0 to 7 where 0 is the slowest and 7 is the fastest.
@@ -109,12 +109,12 @@ pub enum Focus {
     Infinity,
 }
 
-impl ViscaEncode for Focus {
-    type ViscaResponse = ();
+impl ViscaCommand for Focus {
+    type Response = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
 
-    fn encode_into(
+    fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
@@ -191,7 +191,7 @@ impl ViscaEncode for Focus {
         }
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_kind(&self) -> Option<ResponseKind> {
         None
     }
 }
@@ -293,12 +293,12 @@ pub enum FocusLock {
     Off,
 }
 
-impl ViscaEncode for FocusLock {
-    type ViscaResponse = ();
+impl ViscaCommand for FocusLock {
+    type Response = ();
     const MAX_SIZE: usize = 6;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
-    fn encode_into(
+    fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
@@ -320,7 +320,7 @@ impl ViscaEncode for FocusLock {
             .build_into(buffer)
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_kind(&self) -> Option<ResponseKind> {
         None
     }
 
@@ -353,12 +353,12 @@ pub enum PushAF {
     Release,
 }
 
-impl ViscaEncode for PushAF {
-    type ViscaResponse = ();
+impl ViscaCommand for PushAF {
+    type Response = ();
     const MAX_SIZE: usize = 8;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
-    fn encode_into(
+    fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
@@ -377,7 +377,7 @@ impl ViscaEncode for PushAF {
             .build_into(buffer)
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_kind(&self) -> Option<ResponseKind> {
         None
     }
 
@@ -401,8 +401,9 @@ impl ViscaEncode for PushAF {
 mod tests {
     use super::*;
     use crate::command::bytes::VISCA_TERMINATOR;
-    use crate::command::encode_visca::ViscaEncode;
+    use crate::command::encode::ViscaCommand;
     use crate::macros::test_utils::visca_test;
+    use crate::timeout::CommandTimeout;
 
     visca_test!(
         Focus,
@@ -433,7 +434,7 @@ mod tests {
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = Focus::FarWithSpeed(speed);
             assert_eq!(
-                cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                     .map(|b| b.to_vec())
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
                 vec![0x81, 0x01, 0x04, 0x08, 0x20 | speed_val, VISCA_TERMINATOR]
@@ -449,7 +450,7 @@ mod tests {
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = Focus::NearWithSpeed(speed);
             assert_eq!(
-                cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                     .map(|b| b.to_vec())
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
                 vec![0x81, 0x01, 0x04, 0x08, 0x30 | speed_val, VISCA_TERMINATOR]
@@ -476,7 +477,7 @@ mod tests {
             FocusPosition::new(0x1234).unwrap_or_else(|e| panic!("Valid focus position: {e:?}")),
         );
         assert_eq!(
-            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![
@@ -496,7 +497,7 @@ mod tests {
             FocusPosition::new(0xF000).unwrap_or_else(|e| panic!("Valid focus position: {e:?}")),
         );
         assert_eq!(
-            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![
@@ -547,7 +548,7 @@ mod tests {
             zone: FocusZone::Top,
         };
         assert_eq!(
-            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0xAA, 0x00, VISCA_TERMINATOR]
@@ -557,7 +558,7 @@ mod tests {
             zone: FocusZone::Center,
         };
         assert_eq!(
-            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0xAA, 0x01, VISCA_TERMINATOR]
@@ -567,7 +568,7 @@ mod tests {
             zone: FocusZone::Bottom,
         };
         assert_eq!(
-            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0xAA, 0x02, VISCA_TERMINATOR]
@@ -580,7 +581,7 @@ mod tests {
             sensitivity: AutoFocusSensitivity::High,
         };
         assert_eq!(
-            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x58, 0x02, VISCA_TERMINATOR]
@@ -590,7 +591,7 @@ mod tests {
             sensitivity: AutoFocusSensitivity::Normal,
         };
         assert_eq!(
-            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x58, 0x01, VISCA_TERMINATOR]
@@ -600,7 +601,7 @@ mod tests {
             sensitivity: AutoFocusSensitivity::Low,
         };
         assert_eq!(
-            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x58, 0x00, VISCA_TERMINATOR]
@@ -614,7 +615,7 @@ mod tests {
                 .unwrap_or_else(|e| panic!("Valid focus position: {e:?}")),
         };
         assert_eq!(
-            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![
@@ -635,7 +636,7 @@ mod tests {
                 .unwrap_or_else(|e| panic!("Valid focus position: {e:?}")),
         };
         assert_eq!(
-            cmd.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![
@@ -654,20 +655,20 @@ mod tests {
 
     #[test]
     fn test_command_categories() {
-        assert_eq!(Focus::Stop.timeout_kind(), CommandCategory::Movement);
-        assert_eq!(Focus::Auto.timeout_kind(), CommandCategory::Movement);
+        assert_eq!(Focus::Stop.timeout_class(), CommandCategory::Movement);
+        assert_eq!(Focus::Auto.timeout_class(), CommandCategory::Movement);
         assert_eq!(
             FocusZoneCommand {
                 zone: FocusZone::Top
             }
-            .timeout_kind(),
+            .timeout_class(),
             CommandCategory::Quick
         );
         assert_eq!(
             AutoFocusSensitivityCommand {
                 sensitivity: AutoFocusSensitivity::High
             }
-            .timeout_kind(),
+            .timeout_class(),
             CommandCategory::Quick
         );
         assert_eq!(
@@ -675,7 +676,7 @@ mod tests {
                 position: FocusPosition::new(0x1000)
                     .unwrap_or_else(|e| panic!("Valid focus position: {e:?}"))
             }
-            .timeout_kind(),
+            .timeout_class(),
             CommandCategory::Quick
         );
     }

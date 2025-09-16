@@ -5,37 +5,34 @@ use std::borrow::Cow;
 use super::super::payload::{Nibbles, Payload};
 use crate::{
     command::{
-        response::types::{ViscaResponse, ViscaResponseType},
+        response::types::{Response, ResponseKind},
         AutoFocusSensitivity, FocusMode, FocusRange, FocusZone, InquiryResponse,
     },
     error::Error,
 };
 
 /// Decode focus-related inquiry responses.
-pub(crate) fn decode(
-    kind: ViscaResponseType,
-    payload: Payload<'_>,
-) -> Option<Result<ViscaResponse, Error>> {
+pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<Response, Error>> {
     match kind {
-        ViscaResponseType::FocusPosition => match Nibbles::<4>::try_from(payload) {
+        ResponseKind::FocusPosition => match Nibbles::<4>::try_from(payload) {
             Ok(nibbles) => {
                 let position = nibbles.u16_quad(0);
-                Some(Ok(ViscaResponse::Inquiry(InquiryResponse::FocusPosition {
+                Some(Ok(Response::Inquiry(InquiryResponse::FocusPosition {
                     position,
                 })))
             }
             Err(e) => Some(Err(e)),
         },
-        ViscaResponseType::FocusNearLimit => match Nibbles::<4>::try_from(payload) {
+        ResponseKind::FocusNearLimit => match Nibbles::<4>::try_from(payload) {
             Ok(nibbles) => {
                 let position = nibbles.u16_quad(0);
-                Some(Ok(ViscaResponse::Inquiry(
-                    InquiryResponse::FocusNearLimit { position },
-                )))
+                Some(Ok(Response::Inquiry(InquiryResponse::FocusNearLimit {
+                    position,
+                })))
             }
             Err(e) => Some(Err(e)),
         },
-        ViscaResponseType::FocusZone => {
+        ResponseKind::FocusZone => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -51,11 +48,9 @@ pub(crate) fn decode(
                     }))
                 }
             };
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::FocusZone {
-                zone,
-            })))
+            Some(Ok(Response::Inquiry(InquiryResponse::FocusZone { zone })))
         }
-        ViscaResponseType::AutoFocusSensitivity => {
+        ResponseKind::AutoFocusSensitivity => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -71,11 +66,11 @@ pub(crate) fn decode(
                     }))
                 }
             };
-            Some(Ok(ViscaResponse::Inquiry(
+            Some(Ok(Response::Inquiry(
                 InquiryResponse::AutoFocusSensitivity { sensitivity },
             )))
         }
-        ViscaResponseType::FocusMode => {
+        ResponseKind::FocusMode => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -90,20 +85,18 @@ pub(crate) fn decode(
                     }))
                 }
             };
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::FocusMode {
-                mode,
-            })))
+            Some(Ok(Response::Inquiry(InquiryResponse::FocusMode { mode })))
         }
-        ViscaResponseType::FocusRange => {
+        ResponseKind::FocusRange => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
             match parse_focus_range(payload.as_slice()) {
-                Ok(response) => Some(Ok(ViscaResponse::Inquiry(response))),
+                Ok(response) => Some(Ok(Response::Inquiry(response))),
                 Err(e) => Some(Err(e)),
             }
         }
-        ViscaResponseType::AutoFocus => {
+        ResponseKind::AutoFocus => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -120,11 +113,11 @@ pub(crate) fn decode(
                     }))
                 }
             };
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::AutoFocus {
+            Some(Ok(Response::Inquiry(InquiryResponse::AutoFocus {
                 enabled,
             })))
         }
-        ViscaResponseType::FocusUnlock => {
+        ResponseKind::FocusUnlock => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -140,11 +133,11 @@ pub(crate) fn decode(
                         ),
                     })),
                 };
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::FocusUnlock {
+            Some(Ok(Response::Inquiry(InquiryResponse::FocusUnlock {
                 unlocked,
             })))
         }
-        ViscaResponseType::FocusNearFar => {
+        ResponseKind::FocusNearFar => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -159,7 +152,7 @@ pub(crate) fn decode(
                     }))
                 }
             };
-            Some(Ok(ViscaResponse::Inquiry(InquiryResponse::FocusNearFar {
+            Some(Ok(Response::Inquiry(InquiryResponse::FocusNearFar {
                 near,
             })))
         }

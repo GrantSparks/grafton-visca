@@ -7,7 +7,7 @@
 use grafton_visca::{
     camera_id::CameraId,
     command::{
-        encode_visca::ViscaEncode,
+        encode::ViscaCommand,
         image::{Contrast, Luminance},
     },
     types::{ContrastLevel, LuminanceLevel},
@@ -22,7 +22,7 @@ fn test_luminance_right_sized_buffer() {
 
     // Test with exact-sized buffer (9 bytes)
     let mut buffer = [0u8; 9];
-    let result = cmd.encode_into(CameraId::CAMERA_1, &mut buffer);
+    let result = cmd.write_into(CameraId::CAMERA_1, &mut buffer);
     assert!(result.is_ok(), "Should accept exact-sized buffer");
     let len = result.unwrap();
     assert_eq!(len, 9);
@@ -41,7 +41,7 @@ fn test_contrast_right_sized_buffer() {
 
     // Test with exact-sized buffer (9 bytes)
     let mut buffer = [0u8; 9];
-    let result = cmd.encode_into(CameraId::CAMERA_1, &mut buffer);
+    let result = cmd.write_into(CameraId::CAMERA_1, &mut buffer);
     assert!(result.is_ok(), "Should accept exact-sized buffer");
     let len = result.unwrap();
     assert_eq!(len, 9);
@@ -59,7 +59,7 @@ fn test_luminance_undersized_buffer() {
 
     // Buffer too small (8 bytes when we need 9)
     let mut buffer = [0u8; 8];
-    let result = cmd.encode_into(CameraId::CAMERA_1, &mut buffer);
+    let result = cmd.write_into(CameraId::CAMERA_1, &mut buffer);
 
     assert!(result.is_err(), "Should reject undersized buffer");
     match result {
@@ -78,7 +78,7 @@ fn test_contrast_undersized_buffer() {
 
     // Buffer too small (7 bytes when we need 9)
     let mut buffer = [0u8; 7];
-    let result = cmd.encode_into(CameraId::CAMERA_1, &mut buffer);
+    let result = cmd.write_into(CameraId::CAMERA_1, &mut buffer);
 
     assert!(result.is_err(), "Should reject undersized buffer");
     match result {
@@ -96,7 +96,7 @@ fn test_luminance_encode_array_exact_size() {
     let cmd = Luminance::new(LuminanceLevel::new(7).unwrap());
 
     // Use encode_array with exact size (9 bytes)
-    let result = cmd.encode_array::<9>(CameraId::CAMERA_1);
+    let result = cmd.to_fixed_bytes::<9>(CameraId::CAMERA_1);
     assert!(result.is_ok(), "encode_array should work with exact size");
 
     let buffer = result.unwrap();
@@ -113,7 +113,7 @@ fn test_contrast_encode_array_exact_size() {
     let cmd = Contrast::new(ContrastLevel::new(5).unwrap());
 
     // Use encode_array with exact size (9 bytes)
-    let result = cmd.encode_array::<9>(CameraId::CAMERA_1);
+    let result = cmd.to_fixed_bytes::<9>(CameraId::CAMERA_1);
     assert!(result.is_ok(), "encode_array should work with exact size");
 
     let buffer = result.unwrap();
@@ -130,7 +130,7 @@ fn test_encode_array_undersized() {
     let cmd = Luminance::new(LuminanceLevel::new(7).unwrap());
 
     // Try to use encode_array with insufficient size (8 bytes when we need 9)
-    let result = cmd.encode_array::<8>(CameraId::CAMERA_1);
+    let result = cmd.to_fixed_bytes::<8>(CameraId::CAMERA_1);
 
     assert!(
         result.is_err(),
@@ -151,7 +151,7 @@ fn test_encode_array_larger_than_needed() {
     let cmd = Luminance::new(LuminanceLevel::new(7).unwrap());
 
     // Use encode_array with more space than needed (16 bytes)
-    let result = cmd.encode_array::<16>(CameraId::CAMERA_1);
+    let result = cmd.to_fixed_bytes::<16>(CameraId::CAMERA_1);
     assert!(result.is_ok(), "encode_array should work with extra space");
 
     let buffer = result.unwrap();
@@ -169,13 +169,13 @@ fn test_different_camera_ids() {
 
     // Camera 2 (0x82)
     let mut buffer = [0u8; 9];
-    let result = cmd.encode_into(CameraId::CAMERA_2, &mut buffer);
+    let result = cmd.write_into(CameraId::CAMERA_2, &mut buffer);
     assert!(result.is_ok());
     let _len = result.unwrap();
     assert_eq!(buffer[0], 0x82, "Should have correct camera ID");
 
     // Camera 7 (0x87)
-    let result = cmd.encode_into(CameraId::CAMERA_7, &mut buffer);
+    let result = cmd.write_into(CameraId::CAMERA_7, &mut buffer);
     assert!(result.is_ok());
     let _len = result.unwrap();
     assert_eq!(buffer[0], 0x87, "Should have correct camera ID");

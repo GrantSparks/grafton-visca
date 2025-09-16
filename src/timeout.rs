@@ -564,13 +564,13 @@ pub trait CommandTimeout {
     fn timeout_class(&self) -> CommandCategory;
 }
 
-/// Blanket implementation for all commands that implement ViscaEncode.
+/// Blanket implementation for all commands that implement ViscaCommand.
 ///
 /// This automatically provides timeout classification for all VISCA commands
 /// based on their TIMEOUT_CATEGORY constant.
 impl<T> CommandTimeout for T
 where
-    T: crate::command::encode_visca::ViscaEncode,
+    T: crate::command::encode::ViscaCommand,
 {
     fn timeout_class(&self) -> CommandCategory {
         T::TIMEOUT_CATEGORY

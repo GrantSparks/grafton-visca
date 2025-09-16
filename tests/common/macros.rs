@@ -74,7 +74,7 @@ macro_rules! assert_response_err {
 macro_rules! assert_inquiry_response {
     ($response:expr, $variant:ident { $($field:ident),+ }) => {{
         match $response {
-            $crate::ViscaResponse::InquiryResponse($crate::InquiryResponse::$variant { $($field),+ }) => {
+            $crate::Response::InquiryResponse($crate::InquiryResponse::$variant { $($field),+ }) => {
                 ($($field),+)
             }
             _ => panic!(
@@ -87,7 +87,7 @@ macro_rules! assert_inquiry_response {
     }};
     ($response:expr, $variant:ident) => {{
         match $response {
-            $crate::ViscaResponse::InquiryResponse($crate::InquiryResponse::$variant) => {}
+            $crate::Response::InquiryResponse($crate::InquiryResponse::$variant) => {}
             _ => panic!(
                 "Expected InquiryResponse::{}, got {:?}",
                 stringify!($variant),

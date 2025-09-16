@@ -39,7 +39,7 @@ use tracing::warn;
 use crate::{
     camera_id::CameraId,
     command::{
-        encode_visca::ViscaEncode,
+        encode::ViscaCommand,
         system::{AddressSetCommand, InterfaceClearCommand},
     },
     error::{Error, Result},
@@ -144,7 +144,7 @@ pub mod async_handshake {
 
         // InterfaceClearCommand is const-constructed and guaranteed to encode
         let len = cmd
-            .encode_into(CameraId::CAMERA_1, &mut buffer)
+            .write_into(CameraId::CAMERA_1, &mut buffer)
             .map_err(|e| Error::TransportError(format!("Failed to encode IF Clear: {e}").into()))?;
 
         io.write_all(&buffer[..len]).await?;
@@ -173,7 +173,7 @@ pub mod async_handshake {
 
             // AddressSetCommand is const-constructed and guaranteed to encode
             let len = cmd
-                .encode_into(CameraId::CAMERA_1, &mut buffer)
+                .write_into(CameraId::CAMERA_1, &mut buffer)
                 .map_err(|e| {
                     Error::TransportError(format!("Failed to encode Address Set: {e}").into())
                 })?;
@@ -306,7 +306,7 @@ pub mod blocking_handshake {
 
         // InterfaceClearCommand is const-constructed and guaranteed to encode
         let len = cmd
-            .encode_into(CameraId::CAMERA_1, &mut buffer)
+            .write_into(CameraId::CAMERA_1, &mut buffer)
             .map_err(|e| Error::TransportError(format!("Failed to encode IF Clear: {e}").into()))?;
 
         io.write_all(&buffer[..len])
@@ -335,7 +335,7 @@ pub mod blocking_handshake {
 
             // AddressSetCommand is const-constructed and guaranteed to encode
             let len = cmd
-                .encode_into(CameraId::CAMERA_1, &mut buffer)
+                .write_into(CameraId::CAMERA_1, &mut buffer)
                 .map_err(|e| {
                     Error::TransportError(format!("Failed to encode Address Set: {e}").into())
                 })?;

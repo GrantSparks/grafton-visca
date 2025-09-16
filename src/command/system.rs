@@ -81,7 +81,8 @@ impl CommandCancelCommand {
 mod tests {
     use super::*;
     use crate::macros::test_utils::visca_test;
-    use crate::{command::encode_visca::ViscaEncode, timeout::CommandCategory};
+    use crate::timeout::CommandTimeout;
+    use crate::{command::encode::ViscaCommand, timeout::CommandCategory};
 
     visca_test!(
         AddressSetCommand,
@@ -114,16 +115,16 @@ mod tests {
     #[test]
     fn test_response_type_and_timeout() {
         let cmd = AddressSetCommand::new();
-        assert!(cmd.response_type().is_none());
-        assert_eq!(cmd.timeout_kind(), CommandCategory::Quick);
+        assert!(cmd.response_kind().is_none());
+        assert_eq!(cmd.timeout_class(), CommandCategory::Quick);
 
         let cmd = InterfaceClearCommand::new();
-        assert!(cmd.response_type().is_none());
-        assert_eq!(cmd.timeout_kind(), CommandCategory::Quick);
+        assert!(cmd.response_kind().is_none());
+        assert_eq!(cmd.timeout_class(), CommandCategory::Quick);
 
         let cmd = CommandCancelCommand::new(ViscaSocket::S1);
-        assert!(cmd.response_type().is_none());
-        assert_eq!(cmd.timeout_kind(), CommandCategory::Quick);
+        assert!(cmd.response_kind().is_none());
+        assert_eq!(cmd.timeout_class(), CommandCategory::Quick);
     }
 
     #[test]

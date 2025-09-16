@@ -32,13 +32,13 @@ pub mod zoom;
 // Command encoding module
 pub mod bytes;
 
-// New unified ViscaEncode trait
-pub mod encode_visca;
+// New unified ViscaCommand trait
+pub mod encode;
 
 // Re-export command types
 pub use self::{
     color::*,
-    encode_visca::{CommandKind, ViscaEncode},
+    encode::{CommandKind, ViscaCommand},
     exposure::*,
     // flip::*,
     focus::*,
@@ -51,7 +51,7 @@ pub use self::{
     pan_tilt::*,
     power::*,
     preset::*,
-    response::{ViscaResponse, ViscaResponseType},
+    response::{Response, ResponseKind},
     system::{MotionSyncMode, MotionSyncPreset},
     // tally::*,
     variable_speed::*,
@@ -59,10 +59,10 @@ pub use self::{
     // zoom::*,
 };
 
-/// ViscaResponse data from VISCA inquiry commands.
+/// Response data from VISCA inquiry commands.
 ///
 /// Each variant represents a different type of inquiry response with its associated data.
-/// These are returned wrapped in `ViscaResponse::Inquiry(...)`.
+/// These are returned wrapped in `Response::Inquiry(...)`.
 #[derive(Debug, Copy, Clone)]
 pub enum InquiryResponse {
     /// Power status inquiry response.
@@ -466,14 +466,14 @@ pub enum InquiryResponse {
 mod tests {
     use crate::{
         camera_id::CameraId,
-        command::{bytes::VISCA_TERMINATOR, encode_visca::ViscaEncode},
+        command::{bytes::VISCA_TERMINATOR, encode::ViscaCommand},
     };
 
     /// Helper to encode a command and verify it has a terminator
     #[allow(clippy::expect_used, clippy::unwrap_used)]
-    fn assert_command_has_terminator<C: ViscaEncode>(command: C, name: &str) {
+    fn assert_command_has_terminator<C: ViscaCommand>(command: C, name: &str) {
         let mut buffer = [0u8; 256];
-        let result = command.encode_into(CameraId::CAMERA_1, &mut buffer);
+        let result = command.write_into(CameraId::CAMERA_1, &mut buffer);
 
         assert!(
             result.is_ok(),
@@ -665,19 +665,19 @@ mod tests {
         let test_cases = vec![
             TestCase {
                 name: "Quick command (Power)",
-                encode: Box::new(|buf| Power::On.encode_into(CameraId::CAMERA_1, buf)),
+                encode: Box::new(|buf| Power::On.write_into(CameraId::CAMERA_1, buf)),
             },
             TestCase {
                 name: "Movement command (PanTilt)",
-                encode: Box::new(|buf| PanTilt::Home.encode_into(CameraId::CAMERA_1, buf)),
+                encode: Box::new(|buf| PanTilt::Home.write_into(CameraId::CAMERA_1, buf)),
             },
             TestCase {
                 name: "Movement command (Zoom)",
-                encode: Box::new(|buf| Zoom::Stop.encode_into(CameraId::CAMERA_1, buf)),
+                encode: Box::new(|buf| Zoom::Stop.write_into(CameraId::CAMERA_1, buf)),
             },
             TestCase {
                 name: "Movement command (Focus)",
-                encode: Box::new(|buf| Focus::Near.encode_into(CameraId::CAMERA_1, buf)),
+                encode: Box::new(|buf| Focus::Near.write_into(CameraId::CAMERA_1, buf)),
             },
         ];
 

@@ -9,7 +9,7 @@
 
 use grafton_visca::{
     camera_id::CameraId,
-    command::{encode_visca::ViscaEncode, exposure::Spotlight, tally::Tally},
+    command::{encode::ViscaCommand, exposure::Spotlight, tally::Tally},
 };
 
 #[test]
@@ -38,7 +38,7 @@ fn test_issue_275_tally_exact_sizing() {
 
     for variant in variants {
         let mut buffer = vec![0u8; Tally::MAX_SIZE];
-        let size = variant.encode_into(camera_id, &mut buffer).unwrap();
+        let size = variant.write_into(camera_id, &mut buffer).unwrap();
         assert!(
             size <= Tally::MAX_SIZE,
             "Tally::{:?} size {} exceeds MAX_SIZE {}",
@@ -65,7 +65,7 @@ fn test_issue_275_spotlight_exact_sizing() {
 
     for variant in variants {
         let mut buffer = vec![0u8; Spotlight::MAX_SIZE];
-        let size = variant.encode_into(camera_id, &mut buffer).unwrap();
+        let size = variant.write_into(camera_id, &mut buffer).unwrap();
         assert!(
             size <= Spotlight::MAX_SIZE,
             "Spotlight::{:?} size {} exceeds MAX_SIZE {}",
@@ -84,7 +84,7 @@ fn test_issue_275_try_into_vec_allocation() {
     let camera_id = CameraId::new(1).unwrap();
 
     let tally = Tally::RedOn;
-    let tally_bytes = tally.try_into_bytes(camera_id).unwrap();
+    let tally_bytes = tally.to_bytes(camera_id).unwrap();
     let tally_vec = tally_bytes.to_vec();
     assert!(
         tally_vec.len() <= Tally::MAX_SIZE,
@@ -96,7 +96,7 @@ fn test_issue_275_try_into_vec_allocation() {
     );
 
     let spotlight = Spotlight::On;
-    let spotlight_bytes = spotlight.try_into_bytes(camera_id).unwrap();
+    let spotlight_bytes = spotlight.to_bytes(camera_id).unwrap();
     let spotlight_vec = spotlight_bytes.to_vec();
     assert!(
         spotlight_vec.len() <= Spotlight::MAX_SIZE,

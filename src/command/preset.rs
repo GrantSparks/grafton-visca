@@ -4,7 +4,7 @@
 //! `PtzOptics` G2 cameras support up to 90 presets (0-89).
 
 use crate::{
-    command::{bytes::builder::ConstCommandBuilder, encode_visca::ViscaEncode, ViscaResponseType},
+    command::{bytes::builder::ConstCommandBuilder, encode::ViscaCommand, ResponseKind},
     error::Error,
     timeout::CommandCategory,
 };
@@ -20,7 +20,7 @@ pub enum PresetAction {
     Recall = 0x02,
 }
 
-crate::visca_bounded_param! {
+crate::visca_range_type! {
     /// Preset number with validation.
     ///
     /// Valid range: 0 to 255 (0x00 to 0xFF).
@@ -47,12 +47,12 @@ pub(crate) struct PresetCommand {
 
 impl PresetCommand {}
 
-impl ViscaEncode for PresetCommand {
-    type ViscaResponse = ();
+impl ViscaCommand for PresetCommand {
+    type Response = ();
     const MAX_SIZE: usize = 7;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Preset;
 
-    fn encode_into(
+    fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
@@ -67,7 +67,7 @@ impl ViscaEncode for PresetCommand {
             .build_into(buffer)
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_kind(&self) -> Option<ResponseKind> {
         None
     }
 }
@@ -78,6 +78,7 @@ mod tests {
     use super::*;
     use crate::command::bytes::VISCA_TERMINATOR;
     use crate::macros::test_utils::visca_test;
+    use crate::timeout::CommandTimeout;
 
     #[test]
     fn test_preset_number_new() {
@@ -155,7 +156,7 @@ mod tests {
             preset_number: PresetNumber::new(0)
                 .unwrap_or_else(|e| panic!("Valid preset number: {e:?}")),
         };
-        assert_eq!(cmd.timeout_kind(), CommandCategory::Preset);
+        assert_eq!(cmd.timeout_class(), CommandCategory::Preset);
     }
 
     #[test]
@@ -165,6 +166,6 @@ mod tests {
             preset_number: PresetNumber::new(0)
                 .unwrap_or_else(|e| panic!("Valid preset number: {e:?}")),
         };
-        assert!(cmd.response_type().is_none());
+        assert!(cmd.response_kind().is_none());
     }
 }

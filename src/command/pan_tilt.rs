@@ -28,7 +28,7 @@
 //! ```
 
 use crate::{
-    command::{bytes::ConstCommandBuilder, encode_visca::ViscaEncode, ViscaResponseType},
+    command::{bytes::ConstCommandBuilder, encode::ViscaCommand, ResponseKind},
     error::Error,
     timeout::CommandCategory,
     types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed},
@@ -283,12 +283,12 @@ impl PanTilt {
     // ```
 }
 
-impl ViscaEncode for PanTilt {
-    type ViscaResponse = ();
+impl ViscaCommand for PanTilt {
+    type Response = ();
     const MAX_SIZE: usize = 15;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
 
-    fn encode_into(
+    fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
@@ -436,7 +436,7 @@ impl ViscaEncode for PanTilt {
         }
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_kind(&self) -> Option<ResponseKind> {
         None
     }
 }

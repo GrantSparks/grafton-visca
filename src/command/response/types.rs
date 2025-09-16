@@ -4,12 +4,12 @@ use std::borrow::Cow;
 
 use crate::{command::InquiryResponse, error::Error, ViscaSocket};
 
-/// ViscaResponse from a VISCA command.
+/// Response from a VISCA command.
 ///
 /// Represents all possible responses from the camera including acknowledgments,
 /// completions, errors, and inquiry data.
 #[derive(Debug)]
-pub enum ViscaResponse {
+pub enum Response {
     /// Acknowledgment that the command was received and is being processed
     CmdAck {
         /// Socket that acknowledged, if available
@@ -27,13 +27,13 @@ pub enum ViscaResponse {
     /// Unknown response format with type information and raw data
     Unknown {
         /// The response type that could not be parsed
-        response_type: Option<ViscaResponseType>,
+        response_type: Option<ResponseKind>,
         /// Raw response data for debugging
         data: Vec<u8>,
     },
 }
 
-impl ViscaResponse {
+impl Response {
     /// Convert response to a Result, treating Completion as Ok and Error as Err.
     ///
     /// Note: ACK responses are treated as an error because they only indicate
@@ -41,11 +41,11 @@ impl ViscaResponse {
     /// subsequent Completion response.
     pub fn into_result(self) -> Result<(), Error> {
         match self {
-            ViscaResponse::Completion { .. } => Ok(()),
-            ViscaResponse::CmdAck { .. } => Err(Error::CommandPending), // ACK means command is queued, not completed
-            ViscaResponse::Error(e) => Err(e),
-            ViscaResponse::Inquiry(_) => Ok(()), // Inquiry responses are success
-            ViscaResponse::Unknown { data, .. } => Err(Error::InvalidResponse {
+            Response::Completion { .. } => Ok(()),
+            Response::CmdAck { .. } => Err(Error::CommandPending), // ACK means command is queued, not completed
+            Response::Error(e) => Err(e),
+            Response::Inquiry(_) => Ok(()), // Inquiry responses are success
+            Response::Unknown { data, .. } => Err(Error::InvalidResponse {
                 expected: Cow::Borrowed("Known response type"),
                 actual: data,
             }),
@@ -57,7 +57,7 @@ impl ViscaResponse {
 ///
 /// Used to indicate what kind of data parser should expect in the response payload.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ViscaResponseType {
+pub enum ResponseKind {
     /// Power state inquiry response (On/Off).
     Power,
     /// Pan and tilt position inquiry response.

@@ -10,7 +10,7 @@ use crate::{
     camera::Camera,
     camera_id::CameraId,
     capabilities::Profile,
-    command::{response::ViscaResponseType, CommandKind, ViscaEncode},
+    command::{response::ResponseKind, typed::ResponseParser, CommandKind, ViscaCommand},
     error::Error,
     mode::Mode,
     timeout::CommandCategory,
@@ -29,12 +29,12 @@ impl RawCommand {
     }
 }
 
-impl ViscaEncode for RawCommand {
-    type ViscaResponse = ();
+impl ViscaCommand for RawCommand {
+    type Response = ();
     const MAX_SIZE: usize = 256; // Allow reasonably sized raw commands
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Custom;
 
-    fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+    fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         let len = self.bytes.len();
         if buffer.len() < len {
             return Err(Error::BufferTooSmall {
@@ -46,7 +46,7 @@ impl ViscaEncode for RawCommand {
         Ok(len)
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_kind(&self) -> Option<ResponseKind> {
         // Raw commands don't specify a response type
         None
     }
@@ -697,25 +697,22 @@ where
         // Send through the camera's scheduler
         let response = self.camera.send_command(&command).await?;
 
-        use crate::command::response::ViscaResponse;
+        use crate::command::response::Response;
         match response {
-            ViscaResponse::Completion { .. } => Ok(()),
-            ViscaResponse::Error(e) => Err(e),
+            Response::Completion { .. } => Ok(()),
+            Response::Error(e) => Err(e),
             _ => Ok(()),
         }
     }
 
     /// Send a typed VISCA command.
-    pub async fn send_command<C>(&self, command: C) -> Result<C::Response, Error>
+    pub async fn send_command<C>(
+        &self,
+        command: C,
+    ) -> Result<<C as ResponseParser>::Response, Error>
     where
-        C: crate::command::typed::ViscaCommand
-            + ViscaEncode
-            + Send
-            + Sync
-            + Clone
-            + std::fmt::Debug
-            + 'static,
-        C::Response: Send + 'static,
+        C: ResponseParser + ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
+        <C as ResponseParser>::Response: Send + 'static,
     {
         // Use the camera's typed command method
         self.camera.send_command_typed(&command).await
@@ -738,25 +735,25 @@ where
         // Send through the camera's scheduler
         let response = self.camera.send_command(&command).block()?;
 
-        use crate::command::response::ViscaResponse;
+        use crate::command::response::Response;
         match response {
-            ViscaResponse::Completion { .. } => Ok(()),
-            ViscaResponse::Error(e) => Err(e),
+            Response::Completion { .. } => Ok(()),
+            Response::Error(e) => Err(e),
             _ => Ok(()),
         }
     }
 
     /// Send a typed VISCA command.
-    pub fn send_command<C>(&self, command: C) -> Result<C::Response, Error>
+    pub fn send_command<C>(&self, command: C) -> Result<<C as ResponseParser>::Response, Error>
     where
-        C: crate::command::typed::ViscaCommand
-            + ViscaEncode
+        C: crate::command::typed::ResponseParser
+            + ViscaCommand
             + Send
             + Sync
             + Clone
             + std::fmt::Debug
             + 'static,
-        C::Response: Send + 'static,
+        <C as ResponseParser>::Response: Send + 'static,
     {
         use crate::mode::BlockingFutureExt;
 
@@ -967,7 +964,7 @@ where
 {
     fn send_and_complete<C>(&self, command: C) -> M::Ret<'_, Result<(), Error>>
     where
-        C: ViscaEncode + Send + Sync + Clone + std::fmt::Debug + 'static,
+        C: ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
     {
         if let Some(camera) = &self.camera {
             camera.send_and_complete(command)
@@ -976,16 +973,13 @@ where
         }
     }
 
-    fn send_and_parse<C>(&self, command: C) -> M::Ret<'_, Result<C::Response, Error>>
+    fn send_and_parse<C>(
+        &self,
+        command: C,
+    ) -> M::Ret<'_, Result<<C as ResponseParser>::Response, Error>>
     where
-        C: crate::command::typed::ViscaCommand
-            + ViscaEncode
-            + Send
-            + Sync
-            + Clone
-            + std::fmt::Debug
-            + 'static,
-        C::Response: Send + 'static,
+        C: ResponseParser + ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
+        <C as ResponseParser>::Response: Send + 'static,
     {
         if let Some(camera) = &self.camera {
             camera.send_and_parse(command)

@@ -14,7 +14,7 @@ use std::{
 
 use crate::{
     command::{
-        response::{parse_inquiry_payload, ViscaResponse, ViscaResponseType},
+        response::{parse_inquiry_payload, Response, ResponseKind},
         CommandKind,
     },
     timeout::{CommandCategory, TimeoutConfig},
@@ -151,7 +151,7 @@ pub struct RetryCommand {
     /// Command ID.
     pub id: u32,
     /// The pre-encoded command to retry.
-    pub command: std::sync::Arc<crate::command::encode_visca::PreparedCommand>,
+    pub command: std::sync::Arc<crate::command::encode::PreparedCommand>,
     /// Command priority.
     pub priority: Priority,
     /// Command category.
@@ -242,7 +242,7 @@ pub struct PendingCommand {
     /// Unique identifier for this command.
     pub id: u32,
     /// The pre-encoded command to send.
-    pub command: std::sync::Arc<crate::command::encode_visca::PreparedCommand>,
+    pub command: std::sync::Arc<crate::command::encode::PreparedCommand>,
     /// Priority level for scheduling.
     pub priority: Priority,
     /// Category for timeout calculation.
@@ -314,7 +314,7 @@ pub enum SchedulerAction {
         /// Camera ID.
         camera_id: crate::camera_id::CameraId,
         /// Response from the camera.
-        response: ViscaResponse,
+        response: Response,
     },
     /// Command failed with error.
     CommandFailed {
@@ -368,14 +368,14 @@ pub enum SchedulerEvent {
         /// Command ID (from sequence mapping when available).
         cmd_id: Option<u32>,
         /// Response from the camera.
-        response: ViscaResponse,
+        response: Response,
     },
     /// Inquiry data reply (no socket allocation).
     InquiryReply {
         /// Command ID (from sequence mapping or order queue).
         cmd_id: Option<u32>,
         /// Response from the camera.
-        response: ViscaResponse,
+        response: Response,
     },
     /// Error response.
     Error {
@@ -506,7 +506,7 @@ pub struct SchedulerCore {
     pending_ack: HashMap<
         u32,
         (
-            std::sync::Arc<crate::command::encode_visca::PreparedCommand>,
+            std::sync::Arc<crate::command::encode::PreparedCommand>,
             Priority,
             CommandCategory,
             Instant,
@@ -520,7 +520,7 @@ pub struct SchedulerCore {
     command_metadata: HashMap<
         u32,
         (
-            std::sync::Arc<crate::command::encode_visca::PreparedCommand>,
+            std::sync::Arc<crate::command::encode::PreparedCommand>,
             Priority,
             CommandCategory,
             crate::camera_id::CameraId,
@@ -552,7 +552,7 @@ pub struct SchedulerCore {
     /// Inquiry order tracking for raw VISCA (no sequence).
     inquiries_order: VecDeque<u32>,
     /// Response types for inquiries (for parsing DataReply).
-    inquiry_response_types: HashMap<u32, ViscaResponseType>,
+    inquiry_response_types: HashMap<u32, ResponseKind>,
 }
 
 impl SchedulerCore {
@@ -685,7 +685,7 @@ impl SchedulerCore {
     pub fn register_pending_ack(
         &mut self,
         id: u32,
-        command: std::sync::Arc<crate::command::encode_visca::PreparedCommand>,
+        command: std::sync::Arc<crate::command::encode::PreparedCommand>,
         priority: Priority,
         category: CommandCategory,
         camera_id: crate::camera_id::CameraId,
@@ -904,17 +904,17 @@ impl SchedulerCore {
     }
 
     /// Register the expected response type for an inquiry.
-    pub fn register_inquiry_type(&mut self, id: u32, ty: ViscaResponseType) {
+    pub fn register_inquiry_type(&mut self, id: u32, ty: ResponseKind) {
         self.inquiry_response_types.insert(id, ty);
     }
 
     /// Take the response type for an inquiry (removing it from storage).
-    pub fn take_inquiry_type(&mut self, id: u32) -> Option<ViscaResponseType> {
+    pub fn take_inquiry_type(&mut self, id: u32) -> Option<ResponseKind> {
         self.inquiry_response_types.remove(&id)
     }
 
     /// Get the response type for an inquiry (without removing it).
-    pub fn get_inquiry_type(&self, id: u32) -> Option<&ViscaResponseType> {
+    pub fn get_inquiry_type(&self, id: u32) -> Option<&ResponseKind> {
         self.inquiry_response_types.get(&id)
     }
 
@@ -936,7 +936,7 @@ impl SchedulerCore {
 
         // Try content-based matching for raw VISCA
         // Build a map of active inquiries with their types
-        let active_inquiries: HashMap<u32, ViscaResponseType> = self
+        let active_inquiries: HashMap<u32, ResponseKind> = self
             .inquiries_inflight
             .keys()
             .filter_map(|&id| self.inquiry_response_types.get(&id).map(|ty| (id, *ty)))
@@ -1602,7 +1602,7 @@ impl SchedulerCore {
     pub fn start_inquiry(
         &mut self,
         id: u32,
-        command: std::sync::Arc<crate::command::encode_visca::PreparedCommand>,
+        command: std::sync::Arc<crate::command::encode::PreparedCommand>,
         priority: Priority,
         category: CommandCategory,
         camera_id: crate::camera_id::CameraId,
@@ -1797,7 +1797,7 @@ impl SchedulerCore {
 mod tests {
     use super::*;
     use crate::command::bytes::VISCA_TERMINATOR;
-    use crate::command::encode_visca::PreparedCommand;
+    use crate::command::encode::PreparedCommand;
     use crate::transport::RetryConfig;
     use crate::CameraId;
     use bytes::Bytes;
@@ -1807,21 +1807,21 @@ mod tests {
     #[derive(Debug, Clone)]
     struct TestCommandQuick {
         bytes: Vec<u8>,
-        response_type: Option<ViscaResponseType>,
+        response_type: Option<ResponseKind>,
     }
 
-    impl crate::command::encode_visca::ViscaEncode for TestCommandQuick {
-        type ViscaResponse = ();
+    impl crate::command::encode::ViscaCommand for TestCommandQuick {
+        type Response = ();
         const MAX_SIZE: usize = 16;
         const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
-        fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+        fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
             let len = self.bytes.len();
             buffer[..len].copy_from_slice(&self.bytes);
             Ok(len)
         }
 
-        fn response_type(&self) -> Option<ViscaResponseType> {
+        fn response_kind(&self) -> Option<ResponseKind> {
             self.response_type
         }
     }
@@ -1829,21 +1829,21 @@ mod tests {
     #[derive(Debug, Clone)]
     struct TestCommandMovement {
         bytes: Vec<u8>,
-        response_type: Option<ViscaResponseType>,
+        response_type: Option<ResponseKind>,
     }
 
-    impl crate::command::encode_visca::ViscaEncode for TestCommandMovement {
-        type ViscaResponse = ();
+    impl crate::command::encode::ViscaCommand for TestCommandMovement {
+        type Response = ();
         const MAX_SIZE: usize = 16;
         const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
 
-        fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+        fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
             let len = self.bytes.len();
             buffer[..len].copy_from_slice(&self.bytes);
             Ok(len)
         }
 
-        fn response_type(&self) -> Option<ViscaResponseType> {
+        fn response_kind(&self) -> Option<ResponseKind> {
             self.response_type
         }
     }
@@ -1851,7 +1851,7 @@ mod tests {
     // Helper function to create test commands from byte patterns
     fn create_test_command(
         bytes: Vec<u8>,
-        response_type: Option<ViscaResponseType>,
+        response_type: Option<ResponseKind>,
         category: CommandCategory,
         camera_id: CameraId,
     ) -> Arc<PreparedCommand> {
@@ -1993,11 +1993,11 @@ mod tests {
         // Create a test inquiry
         #[derive(Clone)]
         struct TestInquiry;
-        impl crate::command::encode_visca::ViscaEncode for TestInquiry {
-            type ViscaResponse = ();
+        impl crate::command::encode::ViscaCommand for TestInquiry {
+            type Response = ();
             const MAX_SIZE: usize = 5;
             const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
-            fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+            fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
                 buffer[0] = 0x81;
                 buffer[1] = 0x09;
                 buffer[2] = 0x00;
@@ -2005,8 +2005,8 @@ mod tests {
                 buffer[4] = VISCA_TERMINATOR;
                 Ok(5)
             }
-            fn response_type(&self) -> Option<ViscaResponseType> {
-                Some(ViscaResponseType::Power)
+            fn response_kind(&self) -> Option<ResponseKind> {
+                Some(ResponseKind::Power)
             }
         }
         impl std::fmt::Debug for TestInquiry {
@@ -2020,11 +2020,11 @@ mod tests {
         // Helper to create test commands
         #[derive(Clone)]
         struct TestCmd1;
-        impl crate::command::encode_visca::ViscaEncode for TestCmd1 {
-            type ViscaResponse = ();
+        impl crate::command::encode::ViscaCommand for TestCmd1 {
+            type Response = ();
             const MAX_SIZE: usize = 6;
             const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
-            fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+            fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
                 buffer[0] = 0x81;
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
@@ -2033,7 +2033,7 @@ mod tests {
                 buffer[5] = VISCA_TERMINATOR;
                 Ok(6)
             }
-            fn response_type(&self) -> Option<ViscaResponseType> {
+            fn response_kind(&self) -> Option<ResponseKind> {
                 None
             }
         }
@@ -2045,11 +2045,11 @@ mod tests {
 
         #[derive(Clone)]
         struct TestCmd2;
-        impl crate::command::encode_visca::ViscaEncode for TestCmd2 {
-            type ViscaResponse = ();
+        impl crate::command::encode::ViscaCommand for TestCmd2 {
+            type Response = ();
             const MAX_SIZE: usize = 6;
             const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
-            fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+            fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
                 buffer[0] = 0x81;
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
@@ -2058,7 +2058,7 @@ mod tests {
                 buffer[5] = VISCA_TERMINATOR;
                 Ok(6)
             }
-            fn response_type(&self) -> Option<ViscaResponseType> {
+            fn response_kind(&self) -> Option<ResponseKind> {
                 None
             }
         }
@@ -2147,11 +2147,11 @@ mod tests {
         // Create a test inquiry command
         #[derive(Debug, Clone)]
         struct TestInquiryCmd;
-        impl crate::command::encode_visca::ViscaEncode for TestInquiryCmd {
-            type ViscaResponse = ();
+        impl crate::command::encode::ViscaCommand for TestInquiryCmd {
+            type Response = ();
             const MAX_SIZE: usize = 5;
             const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
-            fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+            fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
                 buffer[0] = 0x81;
                 buffer[1] = 0x09;
                 buffer[2] = 0x00;
@@ -2159,8 +2159,8 @@ mod tests {
                 buffer[4] = VISCA_TERMINATOR;
                 Ok(5)
             }
-            fn response_type(&self) -> Option<ViscaResponseType> {
-                Some(ViscaResponseType::Power)
+            fn response_kind(&self) -> Option<ResponseKind> {
+                Some(ResponseKind::Power)
             }
         }
 
@@ -2185,7 +2185,7 @@ mod tests {
         assert!(core.inquiries_order.contains(&1));
 
         // Process InquiryReply event
-        let response = ViscaResponse::Inquiry(crate::command::InquiryResponse::Power { on: true });
+        let response = Response::Inquiry(crate::command::InquiryResponse::Power { on: true });
         let event = SchedulerEvent::InquiryReply {
             cmd_id: Some(1),
             response,
@@ -2201,7 +2201,7 @@ mod tests {
             } => {
                 assert_eq!(*id, 1);
                 match resp {
-                    ViscaResponse::Inquiry(crate::command::InquiryResponse::Power { on }) => {
+                    Response::Inquiry(crate::command::InquiryResponse::Power { on }) => {
                         assert!(*on);
                     }
                     _ => panic!("Expected Power inquiry response"),
@@ -2229,11 +2229,11 @@ mod tests {
         // Create test inquiry commands
         #[derive(Debug, Clone)]
         struct TestInquiry1;
-        impl crate::command::encode_visca::ViscaEncode for TestInquiry1 {
-            type ViscaResponse = ();
+        impl crate::command::encode::ViscaCommand for TestInquiry1 {
+            type Response = ();
             const MAX_SIZE: usize = 5;
             const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
-            fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+            fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
                 buffer[0] = 0x81;
                 buffer[1] = 0x09;
                 buffer[2] = 0x00;
@@ -2241,18 +2241,18 @@ mod tests {
                 buffer[4] = VISCA_TERMINATOR;
                 Ok(5)
             }
-            fn response_type(&self) -> Option<ViscaResponseType> {
-                Some(ViscaResponseType::Power)
+            fn response_kind(&self) -> Option<ResponseKind> {
+                Some(ResponseKind::Power)
             }
         }
 
         #[derive(Debug, Clone)]
         struct TestInquiry2;
-        impl crate::command::encode_visca::ViscaEncode for TestInquiry2 {
-            type ViscaResponse = ();
+        impl crate::command::encode::ViscaCommand for TestInquiry2 {
+            type Response = ();
             const MAX_SIZE: usize = 5;
             const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
-            fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+            fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
                 buffer[0] = 0x81;
                 buffer[1] = 0x09;
                 buffer[2] = 0x04;
@@ -2260,18 +2260,18 @@ mod tests {
                 buffer[4] = VISCA_TERMINATOR;
                 Ok(5)
             }
-            fn response_type(&self) -> Option<ViscaResponseType> {
-                Some(ViscaResponseType::ZoomPosition)
+            fn response_kind(&self) -> Option<ResponseKind> {
+                Some(ResponseKind::ZoomPosition)
             }
         }
 
         #[derive(Debug, Clone)]
         struct TestInquiry3;
-        impl crate::command::encode_visca::ViscaEncode for TestInquiry3 {
-            type ViscaResponse = ();
+        impl crate::command::encode::ViscaCommand for TestInquiry3 {
+            type Response = ();
             const MAX_SIZE: usize = 5;
             const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
-            fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+            fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
                 buffer[0] = 0x81;
                 buffer[1] = 0x09;
                 buffer[2] = 0x06;
@@ -2279,8 +2279,8 @@ mod tests {
                 buffer[4] = VISCA_TERMINATOR;
                 Ok(5)
             }
-            fn response_type(&self) -> Option<ViscaResponseType> {
-                Some(ViscaResponseType::Power)
+            fn response_kind(&self) -> Option<ResponseKind> {
+                Some(ResponseKind::Power)
             }
         }
 
@@ -2324,7 +2324,7 @@ mod tests {
 
         // Process InquiryReply events without cmd_id (raw VISCA)
         // First reply should match first inquiry
-        let response1 = ViscaResponse::Inquiry(crate::command::InquiryResponse::Power { on: true });
+        let response1 = Response::Inquiry(crate::command::InquiryResponse::Power { on: true });
         let event1 = SchedulerEvent::InquiryReply {
             cmd_id: None, // No sequence in raw VISCA
             response: response1,
@@ -2358,11 +2358,11 @@ mod tests {
         // Create test commands
         #[derive(Debug, Clone)]
         struct TestCmd1;
-        impl crate::command::encode_visca::ViscaEncode for TestCmd1 {
-            type ViscaResponse = ();
+        impl crate::command::encode::ViscaCommand for TestCmd1 {
+            type Response = ();
             const MAX_SIZE: usize = 6;
             const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
-            fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+            fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
                 buffer[0] = 0x81;
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
@@ -2371,18 +2371,18 @@ mod tests {
                 buffer[5] = VISCA_TERMINATOR;
                 Ok(6)
             }
-            fn response_type(&self) -> Option<ViscaResponseType> {
+            fn response_kind(&self) -> Option<ResponseKind> {
                 None
             }
         }
 
         #[derive(Debug, Clone)]
         struct TestCmd2;
-        impl crate::command::encode_visca::ViscaEncode for TestCmd2 {
-            type ViscaResponse = ();
+        impl crate::command::encode::ViscaCommand for TestCmd2 {
+            type Response = ();
             const MAX_SIZE: usize = 6;
             const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
-            fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+            fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
                 buffer[0] = 0x81;
                 buffer[1] = 0x01;
                 buffer[2] = 0x04;
@@ -2391,7 +2391,7 @@ mod tests {
                 buffer[5] = VISCA_TERMINATOR;
                 Ok(6)
             }
-            fn response_type(&self) -> Option<ViscaResponseType> {
+            fn response_kind(&self) -> Option<ResponseKind> {
                 None
             }
         }
@@ -2474,7 +2474,7 @@ mod tests {
         let camera_id = CameraId::CAMERA_1;
         let command = create_test_command(
             vec![0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR],
-            Some(ViscaResponseType::Power),
+            Some(ResponseKind::Power),
             CommandCategory::Quick,
             camera_id,
         );
@@ -2652,7 +2652,7 @@ mod tests {
         assert_eq!(core.get_command_by_sequence(102), Some(1));
 
         // Complete the command (simulating success on the third attempt)
-        let response = ViscaResponse::Completion {
+        let response = Response::Completion {
             socket: Some(ViscaSocket::S1),
         };
         let event = SchedulerEvent::Completion {
@@ -2967,13 +2967,13 @@ mod tests {
         // Start two different inquiries in raw VISCA mode
         let power_cmd = create_test_command(
             vec![0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR],
-            Some(ViscaResponseType::Power),
+            Some(ResponseKind::Power),
             CommandCategory::Quick,
             camera_id,
         );
         let zoom_cmd = create_test_command(
             vec![0x81, 0x09, 0x04, 0x47, VISCA_TERMINATOR],
-            Some(ViscaResponseType::ZoomPosition),
+            Some(ResponseKind::ZoomPosition),
             CommandCategory::Quick,
             camera_id,
         );
@@ -3005,9 +3005,8 @@ mod tests {
         // Process replies out of order
         // Second inquiry (zoom) reply arrives first - with explicit cmd_id
         // (This simulates the adapter layer doing content-based matching)
-        let zoom_response = ViscaResponse::Inquiry(crate::command::InquiryResponse::ZoomPosition {
-            position: 0x1234,
-        });
+        let zoom_response =
+            Response::Inquiry(crate::command::InquiryResponse::ZoomPosition { position: 0x1234 });
         let event2 = SchedulerEvent::InquiryReply {
             cmd_id: Some(2), // Content-based matching identified this as inquiry 2
             response: zoom_response,
@@ -3020,7 +3019,7 @@ mod tests {
                 assert_eq!(*id, 2); // Second inquiry completed
                                     // Verify it's a zoom response
                 match response {
-                    ViscaResponse::Inquiry(crate::command::InquiryResponse::ZoomPosition {
+                    Response::Inquiry(crate::command::InquiryResponse::ZoomPosition {
                         position,
                     }) => {
                         assert_eq!(*position, 0x1234);
@@ -3032,8 +3031,7 @@ mod tests {
         }
 
         // First inquiry (power) reply arrives second
-        let power_response =
-            ViscaResponse::Inquiry(crate::command::InquiryResponse::Power { on: true });
+        let power_response = Response::Inquiry(crate::command::InquiryResponse::Power { on: true });
         let event1 = SchedulerEvent::InquiryReply {
             cmd_id: Some(1), // Content-based matching identified this as inquiry 1
             response: power_response,
@@ -3046,7 +3044,7 @@ mod tests {
                 assert_eq!(*id, 1); // First inquiry completed
                                     // Verify it's a power response
                 match response {
-                    ViscaResponse::Inquiry(crate::command::InquiryResponse::Power { on }) => {
+                    Response::Inquiry(crate::command::InquiryResponse::Power { on }) => {
                         assert!(*on);
                     }
                     _ => panic!("Expected Power response"),
@@ -3512,12 +3510,12 @@ mod tests {
         // Create a dummy command for testing
         #[derive(Debug, Clone)]
         struct TestCommand;
-        impl crate::command::encode_visca::ViscaEncode for TestCommand {
-            type ViscaResponse = ();
+        impl crate::command::encode::ViscaCommand for TestCommand {
+            type Response = ();
             const MAX_SIZE: usize = 6;
             const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
 
-            fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+            fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
                 // Encode a command with bytes[1] == 0x09 that would be misclassified
                 buffer[0] = 0x81;
                 buffer[1] = 0x09;
@@ -3528,7 +3526,7 @@ mod tests {
                 Ok(6)
             }
 
-            fn response_type(&self) -> Option<ViscaResponseType> {
+            fn response_kind(&self) -> Option<ResponseKind> {
                 None // This is a command, not an inquiry
             }
         }
@@ -3572,12 +3570,12 @@ mod tests {
         // Create a dummy inquiry for testing
         #[derive(Debug, Clone)]
         struct TestInquiry;
-        impl crate::command::encode_visca::ViscaEncode for TestInquiry {
-            type ViscaResponse = ();
+        impl crate::command::encode::ViscaCommand for TestInquiry {
+            type Response = ();
             const MAX_SIZE: usize = 6;
             const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
-            fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+            fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
                 buffer[0] = 0x81;
                 buffer[1] = 0x09;
                 buffer[2] = 0x04;
@@ -3587,8 +3585,8 @@ mod tests {
                 Ok(6)
             }
 
-            fn response_type(&self) -> Option<ViscaResponseType> {
-                Some(ViscaResponseType::Power) // This is an inquiry
+            fn response_kind(&self) -> Option<ResponseKind> {
+                Some(ResponseKind::Power) // This is an inquiry
             }
         }
 
@@ -3651,7 +3649,7 @@ mod tests {
             payload: Bytes::from(vec![0x01, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
             kind: CommandKind::Inquiry,
             category: CommandCategory::Quick,
-            response_type: Some(ViscaResponseType::ZoomPosition),
+            response_type: Some(ResponseKind::ZoomPosition),
         });
 
         // Queue both commands
@@ -3773,7 +3771,7 @@ mod tests {
             payload: Bytes::from(vec![0x01, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
             kind: CommandKind::Inquiry,
             category: CommandCategory::Quick,
-            response_type: Some(ViscaResponseType::ZoomPosition),
+            response_type: Some(ResponseKind::ZoomPosition),
         });
 
         // Queue 3 inquiries
@@ -3848,7 +3846,7 @@ mod tests {
             payload: Bytes::from(vec![0x01, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
             kind: CommandKind::Inquiry,
             category: CommandCategory::Quick,
-            response_type: Some(ViscaResponseType::ZoomPosition),
+            response_type: Some(ResponseKind::ZoomPosition),
         });
 
         // Queue items with different priorities

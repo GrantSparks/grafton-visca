@@ -44,7 +44,7 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
 /// Derive macro for generating InquiryCommand implementations with parser support
 ///
 /// This macro eliminates boilerplate by automatically generating the `Command` trait
-/// implementation with `to_bytes()`, `response_type()`, and `command_category()` methods,
+/// implementation with `to_bytes()`, `response_kind()`, and `command_category()` methods,
 /// as well as a `From` conversion to the `InquiryCommand` enum.
 /// When parser attributes are provided, it also generates a `parse_response()` method.
 ///

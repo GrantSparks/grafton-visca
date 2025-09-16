@@ -69,19 +69,22 @@ where
     /// Send a command and expect completion.
     fn send_and_complete<C>(&self, command: C) -> M::Ret<'_, Result<(), crate::Error>>
     where
-        C: crate::command::ViscaEncode + Send + Sync + Clone + std::fmt::Debug + 'static;
+        C: crate::command::ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static;
 
     /// Send a typed command and parse the response.
-    fn send_and_parse<C>(&self, command: C) -> M::Ret<'_, Result<C::Response, crate::Error>>
+    fn send_and_parse<C>(
+        &self,
+        command: C,
+    ) -> M::Ret<'_, Result<<C as crate::command::typed::ResponseParser>::Response, crate::Error>>
     where
-        C: crate::command::typed::ViscaCommand
-            + crate::command::ViscaEncode
+        C: crate::command::typed::ResponseParser
+            + crate::command::ViscaCommand
             + Send
             + Sync
             + Clone
             + std::fmt::Debug
             + 'static,
-        C::Response: Send + 'static;
+        <C as crate::command::typed::ResponseParser>::Response: Send + 'static;
 
     /// Return an error immediately.
     fn error<T>(&self, error: crate::Error) -> M::Ret<'_, Result<T, crate::Error>>
@@ -102,15 +105,15 @@ where
         command: C,
     ) -> <crate::mode::Async as crate::mode::Mode>::Ret<'_, Result<(), crate::Error>>
     where
-        C: crate::command::ViscaEncode + Send + Sync + Clone + std::fmt::Debug + 'static,
+        C: crate::command::ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
     {
         use crate::mode::Mode;
         let future = self.send_command(&command);
         crate::mode::Async::ret_fut(async move {
-            use crate::command::response::ViscaResponse;
+            use crate::command::response::Response;
             match future.await? {
-                ViscaResponse::Completion { .. } => Ok(()),
-                ViscaResponse::Error(e) => Err(e),
+                Response::Completion { .. } => Ok(()),
+                Response::Error(e) => Err(e),
                 _ => Ok(()),
             }
         })
@@ -119,16 +122,19 @@ where
     fn send_and_parse<C>(
         &self,
         command: C,
-    ) -> <crate::mode::Async as crate::mode::Mode>::Ret<'_, Result<C::Response, crate::Error>>
+    ) -> <crate::mode::Async as crate::mode::Mode>::Ret<
+        '_,
+        Result<<C as crate::command::typed::ResponseParser>::Response, crate::Error>,
+    >
     where
-        C: crate::command::typed::ViscaCommand
-            + crate::command::ViscaEncode
+        C: crate::command::typed::ResponseParser
+            + crate::command::ViscaCommand
             + Send
             + Sync
             + Clone
             + std::fmt::Debug
             + 'static,
-        C::Response: Send + 'static,
+        <C as crate::command::typed::ResponseParser>::Response: Send + 'static,
     {
         self.send_command_typed(&command)
     }
@@ -157,17 +163,17 @@ where
         command: C,
     ) -> <crate::mode::Blocking as crate::mode::Mode>::Ret<'_, Result<(), crate::Error>>
     where
-        C: crate::command::ViscaEncode + Send + Sync + Clone + std::fmt::Debug + 'static,
+        C: crate::command::ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
     {
         // In blocking mode, send_command already returns a Ready<Result<...>>
         // so we need to extract the value from it using pollster
         use crate::mode::BlockingFutureExt;
         let future = self.send_command(&command);
         let result = future.block();
-        use crate::command::response::ViscaResponse;
+        use crate::command::response::Response;
         std::future::ready(match result {
-            Ok(ViscaResponse::Completion { .. }) => Ok(()),
-            Ok(ViscaResponse::Error(e)) => Err(e),
+            Ok(Response::Completion { .. }) => Ok(()),
+            Ok(Response::Error(e)) => Err(e),
             Ok(_) => Ok(()),
             Err(e) => Err(e),
         })
@@ -176,16 +182,19 @@ where
     fn send_and_parse<C>(
         &self,
         command: C,
-    ) -> <crate::mode::Blocking as crate::mode::Mode>::Ret<'_, Result<C::Response, crate::Error>>
+    ) -> <crate::mode::Blocking as crate::mode::Mode>::Ret<
+        '_,
+        Result<<C as crate::command::typed::ResponseParser>::Response, crate::Error>,
+    >
     where
-        C: crate::command::typed::ViscaCommand
-            + crate::command::ViscaEncode
+        C: crate::command::typed::ResponseParser
+            + crate::command::ViscaCommand
             + Send
             + Sync
             + Clone
             + std::fmt::Debug
             + 'static,
-        C::Response: Send + 'static,
+        <C as crate::command::typed::ResponseParser>::Response: Send + 'static,
     {
         // send_command_typed already returns a Ready future in blocking mode
         // so we need to extract the value from it using .block()

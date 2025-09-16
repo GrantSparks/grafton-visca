@@ -10,8 +10,7 @@ use std::borrow::Cow;
 
 use crate::{
     command::{
-        bytes::constants, encode_visca::ViscaEncode, resolution::PictureEffectMode,
-        ViscaResponseType,
+        bytes::constants, encode::ViscaCommand, resolution::PictureEffectMode, ResponseKind,
     },
     error::Error,
     macros::internal::*,
@@ -78,12 +77,12 @@ pub enum Sharpness {
     },
 }
 
-impl ViscaEncode for Sharpness {
-    type ViscaResponse = ();
+impl ViscaCommand for Sharpness {
+    type Response = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Custom;
 
-    fn encode_into(
+    fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
@@ -150,7 +149,7 @@ impl ViscaEncode for Sharpness {
         }
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_kind(&self) -> Option<ResponseKind> {
         None
     }
 }
@@ -215,7 +214,7 @@ visca_command! {
     /// Reduces spatial noise in individual frames by analyzing and smoothing
     /// pixel variations. Higher levels provide more noise reduction but may
     /// reduce fine detail.
-    category = "Custom",
+    category = CommandCategory::Custom,
     max_size = 6, // NOISE_REDUCTION_2D_PREFIX (4 bytes) + 1 data + 1 terminator = 6
     enum NoiseReduction2D {
         /// Disable 2D noise reduction.
@@ -239,7 +238,7 @@ visca_command! {
     /// Reduces temporal noise by analyzing multiple frames over time.
     /// This is effective for reducing noise in video streams while preserving
     /// motion detail. Higher levels provide more noise reduction.
-    category = "Custom",
+    category = CommandCategory::Custom,
     max_size = 6, // NOISE_REDUCTION_3D_PREFIX (4 bytes) + 1 data + 1 terminator = 6
     enum NoiseReduction3D {
         /// Disable 3D noise reduction.
@@ -318,9 +317,10 @@ visca_param_command! {
 mod tests {
     use super::*;
     use crate::command::bytes::VISCA_TERMINATOR;
-    use crate::command::encode_visca::ViscaEncode;
+    use crate::command::encode::ViscaCommand;
     use crate::macros::test_utils::visca_test;
     use crate::timeout::CommandCategory;
+    use crate::timeout::CommandTimeout;
 
     visca_test!(
         BacklightCommand,
@@ -339,8 +339,8 @@ mod tests {
     #[test]
     fn test_backlight_command_properties() {
         let cmd = BacklightCommand::new(true);
-        assert!(cmd.response_type().is_none());
-        assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
+        assert!(cmd.response_kind().is_none());
+        assert!(matches!(cmd.timeout_class(), CommandCategory::Quick));
     }
 
     visca_test!(
@@ -374,8 +374,8 @@ mod tests {
     #[test]
     fn test_noise_reduction_2d_properties() {
         let cmd = NoiseReduction2D::Off;
-        assert!(cmd.response_type().is_none());
-        assert!(matches!(cmd.timeout_kind(), CommandCategory::Custom));
+        assert!(cmd.response_kind().is_none());
+        assert!(matches!(cmd.timeout_class(), CommandCategory::Custom));
     }
 
     visca_test!(
@@ -409,8 +409,8 @@ mod tests {
     #[test]
     fn test_noise_reduction_3d_properties() {
         let cmd = NoiseReduction3D::Off;
-        assert!(cmd.response_type().is_none());
-        assert!(matches!(cmd.timeout_kind(), CommandCategory::Custom));
+        assert!(cmd.response_kind().is_none());
+        assert!(matches!(cmd.timeout_class(), CommandCategory::Custom));
     }
 
     visca_test!(
@@ -444,8 +444,8 @@ mod tests {
     #[test]
     fn test_image_flip_properties() {
         let cmd = ImageFlipCombinedCommand::new(ImageFlipMode::Off);
-        assert!(cmd.response_type().is_none());
-        assert!(matches!(cmd.timeout_kind(), CommandCategory::Custom));
+        assert!(cmd.response_kind().is_none());
+        assert!(matches!(cmd.timeout_class(), CommandCategory::Custom));
     }
 
     #[test]
@@ -468,11 +468,11 @@ mod tests {
         // Verify commands produce same bytes
         assert_eq!(
             backlight_cmd1
-                .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap(),
             backlight_cmd2
-                .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap()
         );
@@ -482,7 +482,7 @@ mod tests {
         // Verify the command was copied correctly
         assert_eq!(
             flip_cmd2
-                .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap(),
             vec![0x81, 0x01, 0x04, 0xA4, 0x01, VISCA_TERMINATOR]
@@ -492,11 +492,11 @@ mod tests {
     #[test]
     fn test_response_type_none() {
         // Verify all commands return None for response_type
-        assert!(BacklightCommand::new(true).response_type().is_none());
-        assert!(NoiseReduction2D::Off.response_type().is_none());
-        assert!(NoiseReduction3D::Off.response_type().is_none());
+        assert!(BacklightCommand::new(true).response_kind().is_none());
+        assert!(NoiseReduction2D::Off.response_kind().is_none());
+        assert!(NoiseReduction3D::Off.response_kind().is_none());
         assert!(ImageFlipCombinedCommand::new(ImageFlipMode::Off)
-            .response_type()
+            .response_kind()
             .is_none());
     }
 
@@ -528,10 +528,10 @@ mod tests {
         let cmd1 = BacklightCommand::new(true);
         let cmd2 = BacklightCommand::new(true);
         assert_eq!(
-            cmd1.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd1.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap(),
-            cmd2.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd2.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap()
         );
@@ -540,10 +540,10 @@ mod tests {
         let cmd1 = NoiseReduction2D::Level(level);
         let cmd2 = NoiseReduction2D::Level(level);
         assert_eq!(
-            cmd1.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd1.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap(),
-            cmd2.try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd2.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap()
         );
@@ -581,21 +581,21 @@ mod tests {
 
     #[test]
     fn test_command_categories() {
-        use crate::command::encode_visca::ViscaEncode;
+        use crate::command::encode::ViscaCommand;
 
         // Test that BacklightCommand and BlackWhiteCommand use Quick category
         let cmd = BacklightCommand::new(true);
-        assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
+        assert!(matches!(cmd.timeout_class(), CommandCategory::Quick));
 
         // Test that noise reduction and flip commands use Custom category
         let cmd = NoiseReduction2D::Off;
-        assert!(matches!(cmd.timeout_kind(), CommandCategory::Custom));
+        assert!(matches!(cmd.timeout_class(), CommandCategory::Custom));
 
         let cmd = NoiseReduction3D::Off;
-        assert!(matches!(cmd.timeout_kind(), CommandCategory::Custom));
+        assert!(matches!(cmd.timeout_class(), CommandCategory::Custom));
 
         let cmd = ImageFlipCombinedCommand::new(ImageFlipMode::Off);
-        assert!(matches!(cmd.timeout_kind(), CommandCategory::Custom));
+        assert!(matches!(cmd.timeout_class(), CommandCategory::Custom));
     }
 
     #[test]
@@ -680,8 +680,8 @@ mod tests {
         let cmd = PictureEffectCommand {
             mode: PictureEffectMode::Off,
         };
-        assert!(cmd.response_type().is_none());
-        assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
+        assert!(cmd.response_kind().is_none());
+        assert!(matches!(cmd.timeout_class(), CommandCategory::Quick));
     }
 
     // Tests from image_adjustment.rs
@@ -705,8 +705,8 @@ mod tests {
     #[test]
     fn test_sharpness_properties() {
         let cmd = Sharpness::Mode(SharpnessMode::Auto);
-        assert!(cmd.response_type().is_none());
-        assert!(matches!(cmd.timeout_kind(), CommandCategory::Custom));
+        assert!(cmd.response_kind().is_none());
+        assert!(matches!(cmd.timeout_class(), CommandCategory::Custom));
     }
 
     visca_test!(
@@ -868,8 +868,8 @@ mod tests {
     #[test]
     fn test_luminance_properties() {
         let cmd = Luminance::new(LuminanceLevel::new(7).unwrap());
-        assert!(cmd.response_type().is_none());
-        assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
+        assert!(cmd.response_kind().is_none());
+        assert!(matches!(cmd.timeout_class(), CommandCategory::Quick));
     }
 
     #[test]
@@ -945,8 +945,8 @@ mod tests {
     #[test]
     fn test_contrast_properties() {
         let cmd = Contrast::new(ContrastLevel::new(7).unwrap());
-        assert!(cmd.response_type().is_none());
-        assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
+        assert!(cmd.response_kind().is_none());
+        assert!(matches!(cmd.timeout_class(), CommandCategory::Quick));
     }
 
     #[test]
@@ -1007,13 +1007,13 @@ mod tests {
         // Test boundary values for sharpness
         let cmd = Sharpness::SetLevel { value: 0 };
         assert!(cmd
-            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
             .map(|b| b.to_vec())
             .is_ok());
 
         let cmd = Sharpness::SetLevel { value: 11 };
         assert!(cmd
-            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
             .map(|b| b.to_vec())
             .is_ok());
 
@@ -1022,7 +1022,7 @@ mod tests {
             LuminanceLevel::new(0).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         let cmd = Luminance { value: level };
         assert!(cmd
-            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
             .map(|b| b.to_vec())
             .is_ok());
 
@@ -1030,7 +1030,7 @@ mod tests {
             LuminanceLevel::new(14).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         let cmd = Luminance { value: level };
         assert!(cmd
-            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
             .map(|b| b.to_vec())
             .is_ok());
 
@@ -1039,7 +1039,7 @@ mod tests {
             ContrastLevel::new(0).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         let cmd = Contrast { value: level };
         assert!(cmd
-            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
             .map(|b| b.to_vec())
             .is_ok());
 
@@ -1047,7 +1047,7 @@ mod tests {
             ContrastLevel::new(14).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         let cmd = Contrast { value: level };
         assert!(cmd
-            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
             .map(|b| b.to_vec())
             .is_ok());
     }
@@ -1057,7 +1057,7 @@ mod tests {
         // Test that SetLevel command properly encodes value as nibbles
         let cmd = Sharpness::SetLevel { value: 0x0B };
         let bytes = cmd
-            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
             .map(|b| b.to_vec())
             .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         assert_eq!(bytes[6], 0x00); // High nibble
@@ -1065,7 +1065,7 @@ mod tests {
 
         let cmd = Sharpness::SetLevel { value: 0x05 };
         let bytes = cmd
-            .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
             .map(|b| b.to_vec())
             .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         assert_eq!(bytes[6], 0x00); // High nibble
@@ -1075,22 +1075,22 @@ mod tests {
     #[test]
     fn test_response_type_none_extended() {
         // Verify all commands return None for response_type
-        assert!(Sharpness::Reset.response_type().is_none());
+        assert!(Sharpness::Reset.response_kind().is_none());
         assert!(Sharpness::Mode(SharpnessMode::Auto)
-            .response_type()
+            .response_kind()
             .is_none());
-        assert!(Sharpness::Up.response_type().is_none());
-        assert!(Sharpness::Down.response_type().is_none());
-        assert!(Sharpness::SetLevel { value: 5 }.response_type().is_none());
+        assert!(Sharpness::Up.response_kind().is_none());
+        assert!(Sharpness::Down.response_kind().is_none());
+        assert!(Sharpness::SetLevel { value: 5 }.response_kind().is_none());
         assert!(Luminance::new(
             LuminanceLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
         )
-        .response_type()
+        .response_kind()
         .is_none());
         assert!(Contrast::new(
             ContrastLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
         )
-        .response_type()
+        .response_kind()
         .is_none());
     }
 
@@ -1106,18 +1106,18 @@ mod tests {
         ];
 
         for cmd in sharpness_cmds {
-            assert!(matches!(cmd.timeout_kind(), CommandCategory::Custom));
+            assert!(matches!(cmd.timeout_class(), CommandCategory::Custom));
         }
 
         // Test Luminance and Contrast use Quick category
         let level =
             LuminanceLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         let cmd = Luminance { value: level };
-        assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
+        assert!(matches!(cmd.timeout_class(), CommandCategory::Quick));
 
         let level =
             ContrastLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         let cmd = Contrast { value: level };
-        assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
+        assert!(matches!(cmd.timeout_class(), CommandCategory::Quick));
     }
 }

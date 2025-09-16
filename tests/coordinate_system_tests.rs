@@ -6,8 +6,8 @@ use grafton_visca::{
     capabilities::CoordinateSystem,
     command::{
         pan_tilt::{PanTilt as PanTiltCommand, PanTiltLimitCorner},
-        response::{types::ViscaResponse, ViscaResponseType},
-        ViscaEncode,
+        response::{types::Response, ResponseKind},
+        ViscaCommand,
     },
     types::{PanSpeed, TiltSpeed},
     CameraId,
@@ -25,7 +25,7 @@ fn test_signed_centered_encoding() {
 
     let mut buffer = [0u8; 32];
     let camera_id = CameraId::new(1).unwrap();
-    let len = cmd.encode_into(camera_id, &mut buffer).unwrap();
+    let len = cmd.write_into(camera_id, &mut buffer).unwrap();
 
     // Expected: 81 01 06 02 0A 0A 01 00 00 00 0F 00 00 00 FF
     assert_eq!(buffer[0], 0x81);
@@ -64,7 +64,7 @@ fn test_unsigned_centered_encoding() {
 
     let mut buffer = [0u8; 32];
     let camera_id = CameraId::new(1).unwrap();
-    let len = cmd.encode_into(camera_id, &mut buffer).unwrap();
+    let len = cmd.write_into(camera_id, &mut buffer).unwrap();
 
     // Expected: 81 01 06 02 0A 0A 08 00 00 00 08 00 00 00 FF
     assert_eq!(buffer[0], 0x81);
@@ -95,13 +95,13 @@ fn test_signed_centered_decoding() {
         0x90, 0x50, 0x01, 0x00, 0x00, 0x00, 0x0F, 0x00, 0x00, 0x00, 0xFF,
     ];
 
-    let result = ViscaResponse::parse_with_profile::<PtzOpticsG2>(
+    let result = Response::parse_with_profile::<PtzOpticsG2>(
         &response_bytes,
-        &ViscaResponseType::PanTiltPosition,
+        &ResponseKind::PanTiltPosition,
     );
 
     assert!(result.is_ok());
-    if let Ok(ViscaResponse::Inquiry(inquiry)) = result {
+    if let Ok(Response::Inquiry(inquiry)) = result {
         if let grafton_visca::command::InquiryResponse::PanTiltPosition { pan, tilt } = inquiry {
             // For SignedCentered, 0x1000 should be 4096 and 0xF000 should be -4096
             assert_eq!(pan, 0x1000_u16 as i16);
@@ -122,13 +122,11 @@ fn test_unsigned_centered_decoding() {
         0x90, 0x50, 0x08, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0xFF,
     ];
 
-    let result = ViscaResponse::parse_with_profile::<SonyBRC300>(
-        &response_bytes,
-        &ViscaResponseType::PanTiltPosition,
-    );
+    let result =
+        Response::parse_with_profile::<SonyBRC300>(&response_bytes, &ResponseKind::PanTiltPosition);
 
     assert!(result.is_ok());
-    if let Ok(ViscaResponse::Inquiry(inquiry)) = result {
+    if let Ok(Response::Inquiry(inquiry)) = result {
         if let grafton_visca::command::InquiryResponse::PanTiltPosition { pan, tilt } = inquiry {
             // For UnsignedCentered, 0x8000 should be converted to logical 0
             assert_eq!(pan, 0);
@@ -216,7 +214,7 @@ fn test_limit_set_encoding_with_coordinate_system() {
 
     let mut buffer = [0u8; 32];
     let camera_id = CameraId::new(1).unwrap();
-    let len = cmd.encode_into(camera_id, &mut buffer).unwrap();
+    let len = cmd.write_into(camera_id, &mut buffer).unwrap();
 
     // Verify the command structure
     assert_eq!(buffer[0], 0x81);

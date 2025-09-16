@@ -22,13 +22,13 @@
 //! ```
 
 use crate::{
-    command::{bytes::ConstCommandBuilder, encode_visca::ViscaEncode, ViscaResponseType},
+    command::{bytes::ConstCommandBuilder, encode::ViscaCommand, ResponseKind},
     error::Error,
     timeout::CommandCategory,
     types::{SpeedLevel, ZoomPosition},
 };
 
-crate::visca_bounded_param! {
+crate::visca_range_type! {
     /// Variable zoom speed.
     ///
     /// Valid range: 0 to 7 where 0 is the slowest and 7 is the fastest.
@@ -102,12 +102,12 @@ pub enum Zoom {
 
 impl Zoom {}
 
-impl ViscaEncode for Zoom {
-    type ViscaResponse = ();
+impl ViscaCommand for Zoom {
+    type Response = ();
     const MAX_SIZE: usize = 10;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
 
-    fn encode_into(
+    fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
@@ -160,7 +160,7 @@ impl ViscaEncode for Zoom {
         }
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_kind(&self) -> Option<ResponseKind> {
         // Zoom movement commands are action commands, not inquiries.
         // They receive ACK + Completion responses like pan-tilt movements.
         // Only dedicated inquiry commands should return specific response types.
@@ -184,12 +184,12 @@ impl DigitalZoom {
     }
 }
 
-impl ViscaEncode for DigitalZoom {
-    type ViscaResponse = ();
+impl ViscaCommand for DigitalZoom {
+    type Response = ();
     const MAX_SIZE: usize = 6;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
-    fn encode_into(
+    fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
@@ -203,7 +203,7 @@ impl ViscaEncode for DigitalZoom {
         builder.build_into(buffer)
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_kind(&self) -> Option<ResponseKind> {
         None
     }
 }

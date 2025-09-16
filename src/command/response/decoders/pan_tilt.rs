@@ -3,7 +3,7 @@
 use crate::{
     capabilities::{PanTilt, Profile},
     command::{
-        response::types::{ViscaResponse, ViscaResponseType},
+        response::types::{Response, ResponseKind},
         InquiryResponse,
     },
     error::Error,
@@ -12,20 +12,18 @@ use crate::{
 use super::super::payload::{Nibbles, Payload};
 
 /// Decode pan/tilt-related inquiry responses.
-pub(crate) fn decode(
-    kind: ViscaResponseType,
-    payload: Payload<'_>,
-) -> Option<Result<ViscaResponse, Error>> {
+pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<Response, Error>> {
     match kind {
-        ViscaResponseType::PanTiltPosition => {
+        ResponseKind::PanTiltPosition => {
             if payload.len() == 8 {
                 match Nibbles::<8>::try_from(payload) {
                     Ok(nibbles) => {
                         let pan = nibbles.i16_quad(0);
                         let tilt = nibbles.i16_quad(4);
-                        Some(Ok(ViscaResponse::Inquiry(
-                            InquiryResponse::PanTiltPosition { pan, tilt },
-                        )))
+                        Some(Ok(Response::Inquiry(InquiryResponse::PanTiltPosition {
+                            pan,
+                            tilt,
+                        })))
                     }
                     Err(e) => Some(Err(e)),
                 }
@@ -43,9 +41,10 @@ pub(crate) fn decode(
                 } else {
                     0
                 };
-                Some(Ok(ViscaResponse::Inquiry(
-                    InquiryResponse::PanTiltPosition { pan, tilt },
-                )))
+                Some(Ok(Response::Inquiry(InquiryResponse::PanTiltPosition {
+                    pan,
+                    tilt,
+                })))
             } else {
                 tracing::error!(
                     "PanTiltPosition: Invalid response length. Expected 8 or 4 bytes, got {len}. Payload: {payload:02X?}",
@@ -63,11 +62,11 @@ pub(crate) fn decode(
 /// This function uses the profile's coordinate system to convert camera
 /// coordinates to logical coordinates.
 pub(crate) fn decode_for<P: Profile + PanTilt>(
-    kind: ViscaResponseType,
+    kind: ResponseKind,
     payload: Payload<'_>,
-) -> Option<Result<ViscaResponse, Error>> {
+) -> Option<Result<Response, Error>> {
     match kind {
-        ViscaResponseType::PanTiltPosition => {
+        ResponseKind::PanTiltPosition => {
             if payload.len() == 8 {
                 match Nibbles::<8>::try_from(payload) {
                     Ok(nibbles) => {
@@ -79,9 +78,10 @@ pub(crate) fn decode_for<P: Profile + PanTilt>(
                         let (pan, tilt) =
                             P::COORDINATE_SYSTEM.convert_from_camera_coords(pan_u16, tilt_u16);
 
-                        Some(Ok(ViscaResponse::Inquiry(
-                            InquiryResponse::PanTiltPosition { pan, tilt },
-                        )))
+                        Some(Ok(Response::Inquiry(InquiryResponse::PanTiltPosition {
+                            pan,
+                            tilt,
+                        })))
                     }
                     Err(e) => Some(Err(e)),
                 }
@@ -105,9 +105,10 @@ pub(crate) fn decode_for<P: Profile + PanTilt>(
                 let (pan, tilt) =
                     P::COORDINATE_SYSTEM.convert_from_camera_coords(pan_u16, tilt_u16);
 
-                Some(Ok(ViscaResponse::Inquiry(
-                    InquiryResponse::PanTiltPosition { pan, tilt },
-                )))
+                Some(Ok(Response::Inquiry(InquiryResponse::PanTiltPosition {
+                    pan,
+                    tilt,
+                })))
             } else {
                 tracing::error!(
                     "PanTiltPosition: Invalid response length. Expected 8 or 4 bytes, got {len}. Payload: {payload:02X?}",

@@ -4,7 +4,7 @@
 //! When in 50-step mode, pan/tilt speed values can range from 1-50 for finer control.
 
 use crate::{
-    command::{bytes::builder::ConstCommandBuilder, encode_visca::ViscaEncode, ViscaResponseType},
+    command::{bytes::builder::ConstCommandBuilder, encode::ViscaCommand, ResponseKind},
     error::Error,
     timeout::CommandCategory,
 };
@@ -37,12 +37,12 @@ impl VariableSpeedModeCommand {
     }
 }
 
-impl ViscaEncode for VariableSpeedModeCommand {
-    type ViscaResponse = ();
+impl ViscaCommand for VariableSpeedModeCommand {
+    type Response = ();
     const MAX_SIZE: usize = 7;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
-    fn encode_into(
+    fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
@@ -61,7 +61,7 @@ impl ViscaEncode for VariableSpeedModeCommand {
             .build_into(buffer)
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_kind(&self) -> Option<ResponseKind> {
         None
     }
 }

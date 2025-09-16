@@ -100,7 +100,7 @@ where
     fn color_temperature(&self, temp: Option<ColorTemp>) -> M::Ret<'_, Result<(), Error>> {
         match temp {
             Some(t) => self.send_and_complete(ColorTemperature::SetTemperature(t)),
-            None => self.error(Error::Unsupported),
+            None => self.error(Error::NotSupported),
         }
     }
 

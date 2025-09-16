@@ -11,7 +11,7 @@ use std::{collections::HashMap, sync::Arc, time::Instant};
 use crate::{
     camera_id::CameraId,
     capabilities::Profile,
-    command::response::{lift_inquiry_for, ViscaResponse, ViscaResponseType},
+    command::response::{lift_inquiry_for, Response, ResponseKind},
     error::{Error, Result},
     executor::Executor,
     protocol::response::{decode_basic, BasicKind},
@@ -32,7 +32,7 @@ pub(crate) enum TxItem {
         /// Unique identifier for this command.
         id: u32,
         /// The pre-encoded command to send.
-        command: Arc<crate::command::encode_visca::PreparedCommand>,
+        command: Arc<crate::command::encode::PreparedCommand>,
         /// Priority level for scheduling.
         priority: Priority,
         /// Category for timeout calculation.
@@ -40,22 +40,22 @@ pub(crate) enum TxItem {
         /// Camera ID used to encode the command.
         camera_id: CameraId,
         /// Channel to send response back.
-        response_tx: Sender<Result<ViscaResponse>>,
+        response_tx: Sender<Result<Response>>,
     },
     /// An inquiry that doesn't require a socket, expects DataReply.
     Inquiry {
         /// Unique identifier for this inquiry.
         id: u32,
         /// The pre-encoded command to send.
-        command: Arc<crate::command::encode_visca::PreparedCommand>,
+        command: Arc<crate::command::encode::PreparedCommand>,
         /// Category for timeout calculation.
         category: CommandCategory,
         /// Camera ID used to encode the inquiry.
         camera_id: CameraId,
         /// Expected response type for parsing DataReply.
-        response_type: Option<ViscaResponseType>,
+        response_type: Option<ResponseKind>,
         /// Channel to send response back.
-        response_tx: Sender<Result<ViscaResponse>>,
+        response_tx: Sender<Result<Response>>,
     },
     /// Cancel a command on a specific socket.
     Cancel {
@@ -156,7 +156,7 @@ pub(crate) struct AsyncAdapter<P: Profile, E: Executor> {
     /// Executor for time and async operations.
     executor: Arc<E>,
     /// Response channels for commands.
-    response_channels: HashMap<u32, Sender<Result<ViscaResponse>>>,
+    response_channels: HashMap<u32, Sender<Result<Response>>>,
     /// Metrics tracking.
     metrics: Metrics,
     /// Completion event subscribers.

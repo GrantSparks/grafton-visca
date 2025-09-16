@@ -10,8 +10,8 @@
 //! - All ND filter commands - Sony FR7 specific
 //! - The FR7 supports variable ND filter (2 to 7 stops, continuously variable)
 
-use crate::command::encode_visca::ViscaEncode;
-use crate::command::ViscaResponseType;
+use crate::command::encode::ViscaCommand;
+use crate::command::ResponseKind;
 use crate::timeout::CommandCategory;
 use crate::{command::bytes::constants, error::Error};
 
@@ -44,12 +44,12 @@ pub struct NdFilterModeCommand {
     mode: NdFilterMode,
 }
 
-impl ViscaEncode for NdFilterModeCommand {
-    type ViscaResponse = ();
+impl ViscaCommand for NdFilterModeCommand {
+    type Response = ();
     const MAX_SIZE: usize = 7;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
-    fn encode_into(
+    fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
@@ -64,7 +64,7 @@ impl ViscaEncode for NdFilterModeCommand {
             .build_into(buffer)
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_kind(&self) -> Option<ResponseKind> {
         None
     }
 
@@ -102,12 +102,12 @@ pub struct NdFilterValue {
     value: u16,
 }
 
-impl ViscaEncode for NdFilterValue {
-    type ViscaResponse = ();
+impl ViscaCommand for NdFilterValue {
+    type Response = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
-    fn encode_into(
+    fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
@@ -122,7 +122,7 @@ impl ViscaEncode for NdFilterValue {
             .build_into(buffer)
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_kind(&self) -> Option<ResponseKind> {
         None
     }
 
@@ -205,12 +205,12 @@ pub struct NdFilterStepCommand {
     direction: NdFilterStep,
 }
 
-impl ViscaEncode for NdFilterStepCommand {
-    type ViscaResponse = ();
+impl ViscaCommand for NdFilterStepCommand {
+    type Response = ();
     const MAX_SIZE: usize = 7;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
-    fn encode_into(
+    fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
@@ -225,7 +225,7 @@ impl ViscaEncode for NdFilterStepCommand {
             .build_into(buffer)
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_kind(&self) -> Option<ResponseKind> {
         None
     }
 
@@ -271,12 +271,12 @@ impl AutoNdCommand {
     }
 }
 
-impl ViscaEncode for AutoNdCommand {
-    type ViscaResponse = ();
+impl ViscaCommand for AutoNdCommand {
+    type Response = ();
     const MAX_SIZE: usize = 7;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
-    fn encode_into(
+    fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
@@ -291,7 +291,7 @@ impl ViscaEncode for AutoNdCommand {
             .build_into(buffer)
     }
 
-    fn response_type(&self) -> Option<ViscaResponseType> {
+    fn response_kind(&self) -> Option<ResponseKind> {
         None
     }
 

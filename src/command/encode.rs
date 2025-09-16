@@ -1,12 +1,12 @@
 //! Unified trait for encoding VISCA commands.
 //!
-//! This module provides the `ViscaEncode` trait which unifies the previous
+//! This module provides the `ViscaCommand` trait which unifies the previous
 //! `Command` and `ViscaCommand` traits into a single interface with zero-allocation
 //! encoding support.
 
 use bytes::Bytes;
 
-use super::response::ViscaResponseType;
+use super::response::ResponseKind;
 use crate::{
     camera_id::CameraId, constants::CameraVariant, error::Error, timeout::CommandCategory,
 };
@@ -101,12 +101,12 @@ fn check_command_structure(buffer: &[u8], len: usize) -> Result<(), Error> {
 /// # use grafton_visca::Error;
 /// struct MyCommand;
 ///
-/// impl ViscaEncode for MyCommand {
-///     type ViscaResponse = ();
+/// impl ViscaCommand for MyCommand {
+///     type Response = ();
 ///     const MAX_SIZE: usize = 6;
 ///     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 ///
-///     fn encode_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+///     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
 ///         // Check buffer size
 ///         if buffer.len() < 6 {
 ///             return Err(Error::BufferTooSmall { required: 6, actual: buffer.len() });
@@ -122,15 +122,15 @@ fn check_command_structure(buffer: &[u8], len: usize) -> Result<(), Error> {
 ///         Ok(6)
 ///     }
 ///
-///     fn response_type(&self) -> Option<ViscaResponseType> {
+///     fn response_kind(&self) -> Option<ResponseKind> {
 ///         // Return None for action commands, Some(...) for inquiries
 ///         None
 ///     }
 /// }
 /// ```
-pub trait ViscaEncode: Send + Sync {
+pub trait ViscaCommand: Send + Sync {
     /// The type of response expected from this command.
-    type ViscaResponse;
+    type Response;
 
     /// Maximum size in bytes that this command can encode to.
     const MAX_SIZE: usize;
@@ -142,7 +142,7 @@ pub trait ViscaEncode: Send + Sync {
     /// which uses the default timeout duration.
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Custom;
 
-    /// Encodes the command into the provided buffer.
+    /// Writes the command into the provided buffer.
     ///
     /// This is the primary method for zero-allocation encoding. The buffer must
     /// be at least `MAX_SIZE` bytes. Returns the number of bytes written.
@@ -160,7 +160,7 @@ pub trait ViscaEncode: Send + Sync {
     ///
     /// * `Error::BufferTooSmall` if the buffer is smaller than required
     /// * `Error::InvalidParameter` if the command contains invalid parameters
-    fn encode_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error>;
+    fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error>;
 
     /// Encodes the command to a fixed-size array.
     ///
@@ -174,9 +174,9 @@ pub trait ViscaEncode: Send + Sync {
     ///
     /// * `Error::BufferTooSmall` if N is smaller than the encoded size
     /// * `Error::InvalidParameter` if the command contains invalid parameters
-    fn encode_array<const N: usize>(&self, camera_id: CameraId) -> Result<[u8; N], Error> {
+    fn to_fixed_bytes<const N: usize>(&self, camera_id: CameraId) -> Result<[u8; N], Error> {
         let mut buffer = [0u8; N];
-        let size = self.encode_into(camera_id, &mut buffer)?;
+        let size = self.write_into(camera_id, &mut buffer)?;
         if size > N {
             return Err(Error::BufferTooSmall {
                 required: size,
@@ -205,12 +205,12 @@ pub trait ViscaEncode: Send + Sync {
     ///
     /// * `Error::InvalidParameter` if the command contains invalid parameters
     /// * `Error::InvalidRequest` if command structure validation fails
-    fn try_into_bytes(&self, camera_id: CameraId) -> Result<Bytes, Error> {
+    fn to_bytes(&self, camera_id: CameraId) -> Result<Bytes, Error> {
         let mut buf = bytes::BytesMut::with_capacity(Self::MAX_SIZE);
-        // Give encode_into a full mutable slice
+        // Give write_into a full mutable slice
         buf.resize(Self::MAX_SIZE, 0);
 
-        let len = self.encode_into(camera_id, &mut buf)?;
+        let len = self.write_into(camera_id, &mut buf)?;
 
         // Validate command structure before freezing
         check_command_structure(&buf, len)?;
@@ -220,31 +220,22 @@ pub trait ViscaEncode: Send + Sync {
         Ok(buf.freeze())
     }
 
-    /// Returns the expected response type for this command.
+    /// Returns the expected response kind for this command.
     ///
     /// - Returns `None` for action commands that only receive ACK/Completion
-    /// - Returns `Some(ViscaResponseType::...)` for inquiry commands that receive data
-    fn response_type(&self) -> Option<ViscaResponseType>;
+    /// - Returns `Some(ResponseKind::...)` for inquiry commands that receive data
+    fn response_kind(&self) -> Option<ResponseKind>;
 
     /// Returns the command kind based on the response type.
     ///
     /// Commands with a response type are inquiries; others are commands.
     #[inline(always)]
     fn command_kind(&self) -> CommandKind {
-        if self.response_type().is_some() {
+        if self.response_kind().is_some() {
             CommandKind::Inquiry
         } else {
             CommandKind::Command
         }
-    }
-
-    /// Returns the command category for timeout configuration.
-    ///
-    /// This is used to determine the appropriate timeout duration for the command.
-    /// The default implementation returns the value of the `TIMEOUT_CATEGORY`
-    /// associated constant.
-    fn timeout_kind(&self) -> CommandCategory {
-        Self::TIMEOUT_CATEGORY
     }
 
     /// Validate this command for a specific camera model.
@@ -283,11 +274,11 @@ pub struct PreparedCommand {
     /// The timeout category for this command.
     pub category: CommandCategory,
     /// The expected response type for inquiry commands.
-    pub response_type: Option<ViscaResponseType>,
+    pub response_type: Option<ResponseKind>,
 }
 
 impl PreparedCommand {
-    /// Create a new PreparedCommand from a ViscaEncode implementation.
+    /// Create a new PreparedCommand from a ViscaCommand implementation.
     ///
     /// This encodes the command once and stores the bytes for repeated use.
     ///
@@ -299,17 +290,17 @@ impl PreparedCommand {
     /// # Errors
     ///
     /// Returns an error if encoding fails or command structure is invalid.
-    pub fn new<C: ViscaEncode + Clone + std::fmt::Debug>(
+    pub fn new<C: ViscaCommand + Clone + std::fmt::Debug>(
         cmd: C,
         camera_id: CameraId,
     ) -> Result<Self, Error> {
         // Encode the command to bytes
-        let payload = cmd.try_into_bytes(camera_id)?;
+        let payload = cmd.to_bytes(camera_id)?;
 
         // Extract metadata from the command
         let kind = cmd.command_kind();
-        let category = cmd.timeout_kind();
-        let response_type = cmd.response_type();
+        let category = C::TIMEOUT_CATEGORY;
+        let response_type = cmd.response_kind();
 
         Ok(Self {
             payload,
@@ -326,74 +317,74 @@ mod tests {
 
     struct DummyInvalidAddr;
 
-    impl ViscaEncode for DummyInvalidAddr {
-        type ViscaResponse = ();
+    impl ViscaCommand for DummyInvalidAddr {
+        type Response = ();
         const MAX_SIZE: usize = 2;
         const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
-        fn encode_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+        fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
             buffer[0] = 0x01; // Invalid address byte (must be 0x81..=0x88)
             buffer[1] = crate::command::bytes::VISCA_TERMINATOR;
             Ok(2)
         }
 
-        fn response_type(&self) -> Option<ViscaResponseType> {
+        fn response_kind(&self) -> Option<ResponseKind> {
             None
         }
     }
 
     struct DummyTooShort;
 
-    impl ViscaEncode for DummyTooShort {
-        type ViscaResponse = ();
+    impl ViscaCommand for DummyTooShort {
+        type Response = ();
         const MAX_SIZE: usize = 2;
         const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
-        fn encode_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+        fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
             buffer[0] = camera_id.to_address_byte();
             // Intentionally omit terminator and return len 1
             Ok(1)
         }
 
-        fn response_type(&self) -> Option<ViscaResponseType> {
+        fn response_kind(&self) -> Option<ResponseKind> {
             None
         }
     }
 
     struct DummyMissingTerminator;
 
-    impl ViscaEncode for DummyMissingTerminator {
-        type ViscaResponse = ();
+    impl ViscaCommand for DummyMissingTerminator {
+        type Response = ();
         const MAX_SIZE: usize = 3;
         const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
-        fn encode_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+        fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
             buffer[0] = camera_id.to_address_byte();
             buffer[1] = 0x01;
             buffer[2] = 0x02; // Missing terminator
             Ok(3)
         }
 
-        fn response_type(&self) -> Option<ViscaResponseType> {
+        fn response_kind(&self) -> Option<ResponseKind> {
             None
         }
     }
 
     #[test]
-    fn encode_array_validates_command_structure() {
+    fn to_fixed_bytes_validates_command_structure() {
         let cmd = DummyInvalidAddr;
-        let result: Result<[u8; 2], Error> = cmd.encode_array(CameraId::CAMERA_1);
+        let result: Result<[u8; 2], Error> = cmd.to_fixed_bytes(CameraId::CAMERA_1);
         assert!(result.is_err(), "Expected error for invalid address");
 
         let cmd2 = DummyMissingTerminator;
-        let result2: Result<[u8; 3], Error> = cmd2.encode_array(CameraId::CAMERA_1);
+        let result2: Result<[u8; 3], Error> = cmd2.to_fixed_bytes(CameraId::CAMERA_1);
         assert!(result2.is_err(), "Expected error for missing terminator");
     }
 
     #[test]
-    fn try_into_bytes_validates_command_structure() {
+    fn to_bytes_validates_command_structure() {
         let cmd = DummyTooShort;
-        let result = cmd.try_into_bytes(CameraId::CAMERA_1);
+        let result = cmd.to_bytes(CameraId::CAMERA_1);
         assert!(result.is_err(), "Expected error for too short command");
         assert!(
             matches!(result, Err(Error::InvalidRequest(ref msg)) if msg.contains("VISCA command too short")),
