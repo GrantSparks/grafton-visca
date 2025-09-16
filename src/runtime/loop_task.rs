@@ -16,7 +16,7 @@ use std::{collections::HashSet, sync::Arc};
 
 use crate::{
     capabilities::Profile,
-    command::CommandKind,
+    command::{encode_visca::ViscaEncode, CommandKind},
     error::{Error, Result},
     protocol::framer::ProtocolFramer,
     runtime::{
@@ -124,17 +124,17 @@ pub async fn runtime_loop_with_config<
                     });
 
                     let cancel_cmd = CommandCancelCommand::new(socket);
-                    let encodable_cmd =
-                        crate::command::encode_visca::EncodableCommand::new(cancel_cmd);
-
-                    // Frame with single-allocation encoding
-                    let (framed, _meta) = config
-                        .envelope
-                        .frame_encodable_command(&encodable_cmd, camera_id, &config.buffer_manager)
-                        .map_err(|e| {
-                            error!("Failed to frame cancel command: {e}");
-                            e
-                        })?;
+                    // Encode directly to bytes
+                    let cancel_bytes = cancel_cmd.try_into_bytes(camera_id).map_err(|e| {
+                        error!("Failed to encode cancel command: {e}");
+                        e
+                    })?;
+                    let kind = CommandKind::Command;
+                    let (framed, _meta) = config.envelope.frame_bytes_into(
+                        &cancel_bytes,
+                        kind,
+                        &config.buffer_manager,
+                    );
                     // Best effort for cancel - don't abort runtime on failure
                     if let Err(e) = transport.send(&framed).await {
                         debug!("Failed to send cancel for socket {:?}: {e}", socket);
@@ -157,21 +157,17 @@ pub async fn runtime_loop_with_config<
                         });
 
                         let cancel_cmd = CommandCancelCommand::new(socket);
-                        let encodable_cmd =
-                            crate::command::encode_visca::EncodableCommand::new(cancel_cmd);
-
-                        // Frame with single-allocation encoding
-                        let (framed, _meta) = config
-                            .envelope
-                            .frame_encodable_command(
-                                &encodable_cmd,
-                                camera_id,
-                                &config.buffer_manager,
-                            )
-                            .map_err(|e| {
-                                error!("Failed to frame cancel command: {e}");
-                                e
-                            })?;
+                        // Encode directly to bytes
+                        let cancel_bytes = cancel_cmd.try_into_bytes(camera_id).map_err(|e| {
+                            error!("Failed to encode cancel command: {e}");
+                            e
+                        })?;
+                        let kind = CommandKind::Command;
+                        let (framed, _meta) = config.envelope.frame_bytes_into(
+                            &cancel_bytes,
+                            kind,
+                            &config.buffer_manager,
+                        );
                         // Best effort for cancel - don't abort runtime on failure
                         if let Err(e) = transport.send(&framed).await {
                             debug!("Failed to send cancel for command {}: {e}", id);

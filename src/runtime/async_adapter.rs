@@ -31,8 +31,8 @@ pub(crate) enum TxItem {
     Command {
         /// Unique identifier for this command.
         id: u32,
-        /// The type-erased command to send.
-        command: Arc<crate::command::encode_visca::EncodableCommand>,
+        /// The pre-encoded command to send.
+        command: Arc<crate::command::encode_visca::PreparedCommand>,
         /// Priority level for scheduling.
         priority: Priority,
         /// Category for timeout calculation.
@@ -46,8 +46,8 @@ pub(crate) enum TxItem {
     Inquiry {
         /// Unique identifier for this inquiry.
         id: u32,
-        /// The type-erased command to send.
-        command: Arc<crate::command::encode_visca::EncodableCommand>,
+        /// The pre-encoded command to send.
+        command: Arc<crate::command::encode_visca::PreparedCommand>,
         /// Category for timeout calculation.
         category: CommandCategory,
         /// Camera ID used to encode the inquiry.

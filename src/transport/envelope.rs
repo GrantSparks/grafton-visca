@@ -14,54 +14,12 @@ use std::{
 };
 
 use crate::{
-    camera_id::CameraId,
     capabilities::ProtocolStyle,
-    command::{bytes::VISCA_TERMINATOR, CommandKind},
+    command::CommandKind,
     protocol::sony::{PayloadType, SonyHeader},
     transport::buffer::BufferManager,
     Error,
 };
-
-/// Checks that a VISCA command buffer has valid structure.
-///
-/// This function ensures:
-/// - Commands have proper terminator (0xFF)
-/// - Commands have valid camera address byte (0x81-0x88)
-/// - Commands have minimum required length
-///
-/// These are critical safety invariants for the VISCA protocol.
-#[inline]
-fn check_command_structure(buffer: &[u8], len: usize) -> Result<(), Error> {
-    use std::borrow::Cow;
-
-    // Validate minimum length (at least address + terminator)
-    if len < 2 {
-        return Err(Error::InvalidRequest(Cow::Owned(format!(
-            "VISCA command too short: {len} bytes. Minimum is 2 bytes. Command bytes: {bytes:02X?}",
-            bytes = &buffer[..len]
-        ))));
-    }
-
-    // Validate camera address byte (0x81-0x88 for cameras 1-8)
-    if len > 0 && (buffer[0] < 0x81 || buffer[0] > 0x88) {
-        return Err(Error::InvalidRequest(Cow::Owned(format!(
-            "Invalid VISCA camera address byte: 0x{addr:02X}. Must be 0x81-0x88. Command bytes: {bytes:02X?}",
-            addr = buffer[0],
-            bytes = &buffer[..len]
-        ))));
-    }
-
-    // Validate terminator
-    if len > 0 && buffer[len - 1] != VISCA_TERMINATOR {
-        return Err(Error::InvalidRequest(Cow::Owned(format!(
-            "VISCA command missing 0xFF terminator at position {pos}. Command bytes: {bytes:02X?}",
-            pos = len - 1,
-            bytes = &buffer[..len]
-        ))));
-    }
-
-    Ok(())
-}
 
 /// Metadata extracted from or used during framing operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -184,72 +142,6 @@ impl TransportEnvelope {
         }
     }
 
-    /// Frame an EncodableCommand directly into a single buffer.
-    ///
-    /// This method provides single-allocation framing for type-erased commands,
-    /// encoding directly into the final frame buffer with appropriate protocol
-    /// headers.
-    pub fn frame_encodable_command(
-        &self,
-        cmd: &crate::command::encode_visca::EncodableCommand,
-        camera_id: CameraId,
-        buffer_manager: &BufferManager,
-    ) -> Result<(Bytes, FrameMeta), Error> {
-        match self.style {
-            ProtocolStyle::RawVisca => {
-                // Single allocation: encode directly to buffer
-                let mut buffer = buffer_manager.alloc_send_buffer();
-                // Ensure we have enough space
-                buffer.resize(cmd.max_size, 0);
-
-                // Encode command directly
-                let len = cmd.encode_into(camera_id, &mut buffer)?;
-
-                // Validate command structure
-                check_command_structure(&buffer, len)?;
-
-                // Truncate to actual size and freeze
-                buffer.truncate(len);
-                Ok((buffer.freeze(), FrameMeta { sequence: None }))
-            }
-            ProtocolStyle::SonyEncapsulated => {
-                // Single allocation: reserve space for header, encode after it
-                let sequence = self.next_sequence();
-                let mut buffer = buffer_manager.alloc_send_buffer();
-
-                // Reserve space for Sony header
-                buffer.extend_from_slice(&[0; SonyHeader::SIZE]);
-
-                // Ensure we have enough space for the command
-                let start_len = buffer.len();
-                buffer.resize(start_len + cmd.max_size, 0);
-
-                // Encode command directly after header
-                let payload_len = cmd.encode_into(camera_id, &mut buffer[SonyHeader::SIZE..])?;
-
-                // Check structure before patching header
-                check_command_structure(&buffer[SonyHeader::SIZE..], payload_len)?;
-
-                // Truncate to actual size (header + payload)
-                buffer.truncate(SonyHeader::SIZE + payload_len);
-
-                // Patch header in-place
-                let header = match cmd.kind {
-                    CommandKind::Inquiry => SonyHeader::new_inquiry(payload_len, sequence),
-                    CommandKind::Command => SonyHeader::new_command(payload_len, sequence),
-                };
-                buffer[..SonyHeader::SIZE].copy_from_slice(&header.encode());
-
-                Ok((
-                    buffer.freeze(),
-                    FrameMeta {
-                        sequence: Some(sequence),
-                    },
-                ))
-            }
-        }
-    }
-
     /// Optimized framing that writes VISCA bytes directly into final frame buffer.
     ///
     /// This method eliminates the double-allocation pattern by writing the VISCA
@@ -258,7 +150,6 @@ impl TransportEnvelope {
     ///
     /// For raw VISCA, performs a single copy of the bytes.
     /// For Sony encapsulated, writes header and payload in one allocation.
-    #[cfg(any(feature = "async", test))]
     pub fn frame_bytes_into(
         &self,
         visca_bytes: &[u8],
@@ -345,9 +236,7 @@ impl TransportEnvelope {
 mod tests {
     use super::*;
     use crate::command::bytes::VISCA_TERMINATOR;
-    use crate::command::encode_visca::ViscaEncode;
     use crate::transport::buffer::BufferConfig;
-    use std::sync::Arc;
 
     fn test_buffer_manager() -> BufferManager {
         BufferManager::new(BufferConfig::default())
@@ -880,247 +769,6 @@ mod tests {
 
         // Check metadata
         assert_eq!(meta.sequence, Some(0));
-    }
-
-    // Create test command for frame_encodable_command tests
-    #[derive(Debug)]
-    struct TestCommand {
-        pub value: u8,
-    }
-
-    impl ViscaEncode for TestCommand {
-        type ViscaResponse = ();
-        const MAX_SIZE: usize = 6;
-        const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
-            crate::timeout::CommandCategory::Quick;
-
-        fn encode_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
-            if buffer.len() < 6 {
-                return Err(Error::BufferTooSmall {
-                    required: 6,
-                    actual: buffer.len(),
-                });
-            }
-
-            buffer[0] = camera_id.to_address_byte();
-            buffer[1] = 0x01;
-            buffer[2] = 0x04;
-            buffer[3] = 0x00;
-            buffer[4] = self.value;
-            buffer[5] = VISCA_TERMINATOR;
-            Ok(6)
-        }
-
-        fn response_type(&self) -> Option<crate::command::response::ViscaResponseType> {
-            None
-        }
-    }
-
-    #[derive(Debug)]
-    struct TestInquiry;
-
-    impl ViscaEncode for TestInquiry {
-        type ViscaResponse = ();
-        const MAX_SIZE: usize = 5;
-        const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
-            crate::timeout::CommandCategory::Quick;
-
-        fn encode_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
-            if buffer.len() < 5 {
-                return Err(Error::BufferTooSmall {
-                    required: 5,
-                    actual: buffer.len(),
-                });
-            }
-
-            buffer[0] = camera_id.to_address_byte();
-            buffer[1] = 0x09;
-            buffer[2] = 0x04;
-            buffer[3] = 0x00;
-            buffer[4] = VISCA_TERMINATOR;
-            Ok(5)
-        }
-
-        fn response_type(&self) -> Option<crate::command::response::ViscaResponseType> {
-            Some(crate::command::response::ViscaResponseType::Power)
-        }
-    }
-
-    #[test]
-    fn test_frame_encodable_command_raw_visca_command() {
-        let envelope = TransportEnvelope::new(ProtocolStyle::RawVisca);
-        let cmd = TestCommand { value: 0x02 };
-        let encodable_cmd = Arc::new(crate::command::encode_visca::EncodableCommand::new(cmd));
-
-        let result = envelope.frame_encodable_command(
-            &encodable_cmd,
-            CameraId::CAMERA_1,
-            &test_buffer_manager(),
-        );
-
-        assert!(result.is_ok());
-        let (framed, meta) = result.expect("frame_encodable_command should succeed");
-
-        // Raw VISCA should pass through unchanged
-        assert_eq!(framed.len(), 6);
-        assert_eq!(
-            &framed[..],
-            &[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]
-        );
-        assert_eq!(meta.sequence, None);
-    }
-
-    #[test]
-    fn test_frame_encodable_command_raw_visca_inquiry() {
-        let envelope = TransportEnvelope::new(ProtocolStyle::RawVisca);
-        let cmd = TestInquiry;
-        let encodable_cmd = Arc::new(crate::command::encode_visca::EncodableCommand::new(cmd));
-
-        let result = envelope.frame_encodable_command(
-            &encodable_cmd,
-            CameraId::CAMERA_1,
-            &test_buffer_manager(),
-        );
-
-        assert!(result.is_ok());
-        let (framed, meta) = result.expect("frame_encodable_command should succeed");
-
-        // Raw VISCA should pass through unchanged
-        assert_eq!(framed.len(), 5);
-        assert_eq!(&framed[..], &[0x81, 0x09, 0x04, 0x00, VISCA_TERMINATOR]);
-        assert_eq!(meta.sequence, None);
-    }
-
-    #[test]
-    fn test_frame_encodable_command_sony_command() {
-        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated);
-        let cmd = TestCommand { value: 0x02 };
-        let encodable_cmd = Arc::new(crate::command::encode_visca::EncodableCommand::new(cmd));
-
-        let result = envelope.frame_encodable_command(
-            &encodable_cmd,
-            CameraId::CAMERA_1,
-            &test_buffer_manager(),
-        );
-
-        assert!(result.is_ok());
-        let (framed, meta) = result.expect("frame_encodable_command should succeed");
-
-        // Should be 8-byte header + 6-byte VISCA command = 14 bytes
-        assert_eq!(framed.len(), 14);
-
-        // Check header
-        assert_eq!(&framed[0..2], &[0x01, 0x00]); // Command payload type
-        assert_eq!(&framed[2..4], &(6u16).to_be_bytes()); // Length = 6
-        assert_eq!(&framed[4..8], &0u32.to_be_bytes()); // Sequence = 0 (first call)
-
-        // Check VISCA payload
-        assert_eq!(
-            &framed[8..],
-            &[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]
-        );
-
-        // Check metadata
-        assert_eq!(meta.sequence, Some(0));
-    }
-
-    #[test]
-    fn test_frame_encodable_command_sony_inquiry() {
-        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated);
-        let cmd = TestInquiry;
-        let encodable_cmd = Arc::new(crate::command::encode_visca::EncodableCommand::new(cmd));
-
-        let result = envelope.frame_encodable_command(
-            &encodable_cmd,
-            CameraId::CAMERA_1,
-            &test_buffer_manager(),
-        );
-
-        assert!(result.is_ok());
-        let (framed, meta) = result.expect("frame_encodable_command should succeed");
-
-        // Should be 8-byte header + 5-byte VISCA inquiry = 13 bytes
-        assert_eq!(framed.len(), 13);
-
-        // Check header
-        assert_eq!(&framed[0..2], &[0x01, 0x10]); // Inquiry payload type
-        assert_eq!(&framed[2..4], &(5u16).to_be_bytes()); // Length = 5
-        assert_eq!(&framed[4..8], &0u32.to_be_bytes()); // Sequence = 0
-
-        // Check VISCA payload
-        assert_eq!(&framed[8..], &[0x81, 0x09, 0x04, 0x00, VISCA_TERMINATOR]);
-
-        // Check metadata
-        assert_eq!(meta.sequence, Some(0));
-    }
-
-    #[test]
-    fn test_frame_encodable_command_sequence_increment() {
-        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated);
-        let cmd = TestCommand { value: 0x02 };
-        let encodable_cmd = Arc::new(crate::command::encode_visca::EncodableCommand::new(cmd));
-
-        let result1 = envelope.frame_encodable_command(
-            &encodable_cmd,
-            CameraId::CAMERA_1,
-            &test_buffer_manager(),
-        );
-        let result2 = envelope.frame_encodable_command(
-            &encodable_cmd,
-            CameraId::CAMERA_1,
-            &test_buffer_manager(),
-        );
-
-        assert!(result1.is_ok());
-        assert!(result2.is_ok());
-
-        let (framed1, meta1) = result1.expect("frame_encodable_command should succeed");
-        let (framed2, meta2) = result2.expect("frame_encodable_command should succeed");
-
-        // Extract sequence numbers
-        let seq1 = u32::from_be_bytes([framed1[4], framed1[5], framed1[6], framed1[7]]);
-        let seq2 = u32::from_be_bytes([framed2[4], framed2[5], framed2[6], framed2[7]]);
-
-        assert_eq!(seq1, 0);
-        assert_eq!(seq2, 1);
-        assert_eq!(meta1.sequence, Some(0));
-        assert_eq!(meta2.sequence, Some(1));
-    }
-
-    #[test]
-    fn test_frame_encodable_command_vs_frame_bytes_into_equivalence() {
-        // Test that frame_encodable_command produces the same output as the two-step process
-        // when given the same input
-        let envelope = TransportEnvelope::new(ProtocolStyle::SonyEncapsulated);
-        let cmd = TestCommand { value: 0x42 };
-
-        // Method 1: frame_encodable_command (single allocation)
-        let encodable_cmd = Arc::new(crate::command::encode_visca::EncodableCommand::new(cmd));
-        let result1 = envelope.frame_encodable_command(
-            &encodable_cmd,
-            CameraId::CAMERA_1,
-            &test_buffer_manager(),
-        );
-
-        // Method 2: try_into_bytes + frame_bytes_into (double allocation)
-        let cmd2 = TestCommand { value: 0x42 };
-        let visca_bytes = cmd2
-            .try_into_bytes(CameraId::CAMERA_1)
-            .expect("encode should succeed");
-        let (framed2, meta2) =
-            envelope.frame_bytes_into(&visca_bytes, CommandKind::Command, &test_buffer_manager());
-
-        assert!(result1.is_ok());
-        let (framed1, meta1) = result1.expect("frame_encodable_command should succeed");
-
-        // Both methods should produce identical output (except sequence numbers will differ)
-        assert_eq!(framed1.len(), framed2.len());
-        assert_eq!(&framed1[0..4], &framed2[0..4]); // Header type and length should match
-        assert_eq!(&framed1[8..], &framed2[8..]); // Payload should match
-
-        // Both should have sequence numbers (though they'll differ due to counter increment)
-        assert!(meta1.sequence.is_some());
-        assert!(meta2.sequence.is_some());
     }
 
     #[test]

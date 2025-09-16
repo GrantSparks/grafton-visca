@@ -510,10 +510,15 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
     where
         C: crate::command::encode_visca::ViscaEncode + Clone + std::fmt::Debug + 'static,
     {
-        // Create type-erased command wrapper
-        let encodable_command = Arc::new(crate::command::encode_visca::EncodableCommand::new(
-            cmd.clone(),
-        ));
+        // Create pre-encoded command
+        let prepared_command = Arc::new(
+            crate::command::encode_visca::PreparedCommand::new(cmd.clone(), camera_id).map_err(
+                |e| {
+                    tracing::error!("Failed to prepare command: {:?}", e);
+                    e
+                },
+            )?,
+        );
 
         // Generate command ID
         let command_id = self.inner.next_command_id.fetch_add(1, Ordering::Relaxed);
@@ -524,7 +529,7 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
         // Create the TxItem
         let item = TxItem::Command {
             id: command_id,
-            command: encodable_command,
+            command: prepared_command,
             priority: priority.unwrap_or(Priority::Normal),
             category: C::TIMEOUT_CATEGORY,
             camera_id,
@@ -563,10 +568,14 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
     where
         I: crate::command::encode_visca::ViscaEncode + Clone + std::fmt::Debug + 'static,
     {
-        // Create type-erased command wrapper
-        let encodable_command = Arc::new(crate::command::encode_visca::EncodableCommand::new(
-            inquiry.clone(),
-        ));
+        // Create pre-encoded command
+        let prepared_command = Arc::new(
+            crate::command::encode_visca::PreparedCommand::new(inquiry.clone(), camera_id)
+                .map_err(|e| {
+                    tracing::error!("Failed to prepare inquiry: {:?}", e);
+                    e
+                })?,
+        );
 
         // Generate inquiry ID
         let inquiry_id = self.inner.next_command_id.fetch_add(1, Ordering::Relaxed);
@@ -577,7 +586,7 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
         // Create the TxItem
         let item = TxItem::Inquiry {
             id: inquiry_id,
-            command: encodable_command,
+            command: prepared_command,
             category: inquiry.timeout_kind(),
             camera_id,
             response_type: inquiry.response_type(),

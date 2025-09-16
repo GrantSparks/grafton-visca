@@ -91,13 +91,8 @@ where
     E: crate::executor::Executor,
     S: SchedulerLike,
 {
-    // Frame the command using single-allocation path with direct encoding
-    let (framed, meta) = envelope
-        .frame_encodable_command(&cmd.command, cmd.camera_id, buffer_manager)
-        .map_err(|e| {
-            error!("Failed to frame command {}: {:?}", cmd.id, e);
-            e
-        })?;
+    // Frame the command using the bytes path
+    let (framed, meta) = envelope.frame_bytes_into(&cmd.command.payload, cmd.kind, buffer_manager);
 
     // Create guard for tracking rollback state
     let mut guard = SendGuard::new(cmd.id);
@@ -188,13 +183,8 @@ where
     T: crate::transport::SyncTransport,
     S: SchedulerLike,
 {
-    // Frame the command using single-allocation path with direct encoding
-    let (framed, meta) = envelope
-        .frame_encodable_command(&cmd.command, cmd.camera_id, buffer_manager)
-        .map_err(|e| {
-            error!("Failed to frame command {}: {:?}", cmd.id, e);
-            e
-        })?;
+    // Frame the command using the bytes path
+    let (framed, meta) = envelope.frame_bytes_into(&cmd.command.payload, cmd.kind, buffer_manager);
 
     // Create guard for tracking rollback state
     let mut guard = SendGuard::new(cmd.id);

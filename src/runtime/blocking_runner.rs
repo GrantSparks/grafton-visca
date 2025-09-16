@@ -105,23 +105,27 @@ impl<P: Profile> BlockingRunner<P> {
     ) -> Result<ViscaResponse> {
         let cmd_id = self.next_id.fetch_add(1, Ordering::SeqCst);
 
-        // Create EncodableCommand for zero-copy path
-        let encodable_cmd = std::sync::Arc::new(
-            crate::command::encode_visca::EncodableCommand::new(command.clone()),
+        // Create PreparedCommand for zero-copy path
+        let prepared_cmd = std::sync::Arc::new(
+            crate::command::encode_visca::PreparedCommand::new(command.clone(), camera_id)
+                .map_err(|e| {
+                    tracing::error!("Failed to prepare command: {:?}", e);
+                    e
+                })?,
         );
 
         // Store response type in core for inquiries
-        if let Some(rt) = encodable_cmd.response_type() {
+        if let Some(rt) = prepared_cmd.response_type {
             self.core.register_inquiry_type(cmd_id, rt);
         }
 
         // Queue the command (both commands and inquiries use the unified path)
         let now = Instant::now();
         // Get command kind from the command itself
-        let kind = encodable_cmd.kind;
+        let kind = prepared_cmd.kind;
         let pending_cmd = PendingCommand {
             id: cmd_id,
-            command: encodable_cmd,
+            command: prepared_cmd,
             priority: Priority::Normal,
             category,
             camera_id,
@@ -449,6 +453,7 @@ impl<P: Profile> BlockingRunner<P> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::camera::profiles::PtzOpticsG2;
@@ -482,7 +487,7 @@ mod tests {
             BlockingRunner::<PtzOpticsG2>::new(ProtocolStyle::SonyEncapsulated, timeout_config);
 
         // Create a test command helper struct
-        #[derive(Debug)]
+        #[derive(Debug, Clone)]
         struct TestCmd {
             bytes: Vec<u8>,
         }
@@ -509,18 +514,18 @@ mod tests {
         let test_cmd = TestCmd {
             bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
         };
-        let encodable_cmd = std::sync::Arc::new(
-            crate::command::encode_visca::EncodableCommand::new(test_cmd),
+        let prepared_cmd = std::sync::Arc::new(
+            crate::command::encode_visca::PreparedCommand::new(test_cmd, camera_id).unwrap(),
         );
 
         let cmd = PendingCommand {
             id: 1,
-            command: encodable_cmd,
+            command: prepared_cmd.clone(),
             priority: Priority::Normal,
             category: CommandCategory::Quick,
             camera_id,
             submitted_at: Instant::now(),
-            kind: CommandKind::Command,
+            kind: prepared_cmd.kind,
         };
 
         // Queue the command

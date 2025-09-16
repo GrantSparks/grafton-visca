@@ -8,6 +8,7 @@ use super::response::ViscaResponseType;
 use crate::{
     camera_id::CameraId, constants::CameraVariant, error::Error, timeout::CommandCategory,
 };
+use bytes::Bytes;
 
 /// Command kind classification for VISCA protocol.
 ///
@@ -203,7 +204,7 @@ pub trait ViscaEncode: Send + Sync {
     ///
     /// * `Error::InvalidParameter` if the command contains invalid parameters
     /// * `Error::InvalidRequest` if command structure validation fails
-    fn try_into_bytes(&self, camera_id: CameraId) -> Result<bytes::Bytes, Error> {
+    fn try_into_bytes(&self, camera_id: CameraId) -> Result<Bytes, Error> {
         let mut buf = bytes::BytesMut::with_capacity(Self::MAX_SIZE);
         // Give encode_into a full mutable slice
         buf.resize(Self::MAX_SIZE, 0);
@@ -258,88 +259,63 @@ pub trait ViscaEncode: Send + Sync {
     }
 }
 
-/// Type-erased wrapper for commands that can be stored in runtime structures.
+/// Pre-encoded command that stores the VISCA bytes and metadata.
 ///
-/// This wrapper allows the runtime to store and work with commands without
-/// knowing their specific types, enabling single-allocation framing via
-/// `frame_encode` while maintaining type safety.
-#[derive(Debug)]
-pub struct EncodableCommand {
-    // Use a trait object to store the command
-    inner: Box<dyn EncodableCommandTrait>,
-    /// The maximum size this command can encode to
-    pub max_size: usize,
-    /// The timeout category for this command
-    pub timeout_category: CommandCategory,
-    /// The command kind (Command or Inquiry)
+/// This struct replaces the dynamic `EncodableCommand` in the hot path,
+/// enabling zero-cost sends by preparing commands once at submission time
+/// rather than re-encoding on each send/retry.
+///
+/// # Example
+/// ```ignore
+/// // Internal type - not part of public API
+/// let cmd = MyCommand { value: 42 };
+/// let prepared = PreparedCommand::new(cmd, CameraId::CAMERA_1)?;
+/// // Now prepared.payload contains the encoded VISCA bytes
+/// // and can be sent multiple times without re-encoding
+/// ```
+#[derive(Debug, Clone)]
+pub struct PreparedCommand {
+    /// The encoded VISCA bytes including camera address and 0xFF terminator.
+    pub payload: Bytes,
+    /// The command kind (Command or Inquiry).
     pub kind: CommandKind,
+    /// The timeout category for this command.
+    pub category: CommandCategory,
+    /// The expected response type for inquiry commands.
+    pub response_type: Option<ViscaResponseType>,
 }
 
-/// Internal trait for type-erased command encoding.
-///
-/// This trait provides the encoding functionality without associated types
-/// or const generics, allowing it to be used as a trait object.
-trait EncodableCommandTrait: Send + Sync + std::fmt::Debug {
-    /// Encode the command into a buffer
-    fn encode_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error>;
+impl PreparedCommand {
+    /// Create a new PreparedCommand from a ViscaEncode implementation.
+    ///
+    /// This encodes the command once and stores the bytes for repeated use.
+    ///
+    /// # Arguments
+    ///
+    /// * `cmd` - The command to encode
+    /// * `camera_id` - The camera ID to address the command to
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if encoding fails or command structure is invalid.
+    pub fn new<C: ViscaEncode + Clone + std::fmt::Debug>(
+        cmd: C,
+        camera_id: CameraId,
+    ) -> Result<Self, Error> {
+        // Encode the command to bytes
+        let payload = cmd.try_into_bytes(camera_id)?;
 
-    /// Get the response type for this command
-    fn response_type(&self) -> Option<ViscaResponseType>;
+        // Extract metadata from the command
+        let kind = cmd.command_kind();
+        let category = cmd.timeout_kind();
+        let response_type = cmd.response_type();
 
-    /// Validate the command for a specific camera model
-    fn validate_for_model(&self, model: CameraVariant) -> Result<(), Error>;
-}
-
-/// Concrete implementation that wraps a ViscaEncode type.
-#[derive(Debug)]
-struct EncodableCommandImpl<T: ViscaEncode> {
-    command: T,
-}
-
-impl<T: ViscaEncode + std::fmt::Debug> EncodableCommandTrait for EncodableCommandImpl<T> {
-    fn encode_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
-        self.command.encode_into(camera_id, buffer)
-    }
-
-    fn response_type(&self) -> Option<ViscaResponseType> {
-        self.command.response_type()
-    }
-
-    fn validate_for_model(&self, model: CameraVariant) -> Result<(), Error> {
-        self.command.validate_for_model(model)
-    }
-}
-
-impl EncodableCommand {
-    /// Create a new EncodableCommand from a ViscaEncode implementation.
-    pub fn new<T: ViscaEncode + std::fmt::Debug + 'static>(command: T) -> Self {
-        let kind = if command.response_type().is_some() {
-            CommandKind::Inquiry
-        } else {
-            CommandKind::Command
-        };
-
-        Self {
-            inner: Box::new(EncodableCommandImpl { command }),
-            max_size: T::MAX_SIZE,
-            timeout_category: T::TIMEOUT_CATEGORY,
+        Ok(Self {
+            payload,
             kind,
-        }
-    }
-
-    /// Encode the command into a buffer.
-    pub fn encode_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
-        self.inner.encode_into(camera_id, buffer)
-    }
-
-    /// Get the response type for this command.
-    pub fn response_type(&self) -> Option<ViscaResponseType> {
-        self.inner.response_type()
-    }
-
-    /// Validate the command for a specific camera model.
-    pub fn validate_for_model(&self, model: CameraVariant) -> Result<(), Error> {
-        self.inner.validate_for_model(model)
+            category,
+            response_type,
+        })
     }
 }
 
