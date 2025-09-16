@@ -495,6 +495,21 @@ impl ZoomPosition {
     /// This represents the maximum zoom including both optical and digital zoom.
     /// Not all cameras support digital zoom to this level.
     pub const MAX_DIGITAL: Self = Self(0x7000);
+
+    /// Creates a zoom position with model-specific validation.
+    ///
+    /// This constructor validates the position against the specific camera model's
+    /// zoom range limits.
+    ///
+    /// # Errors
+    /// Returns an error if the position is outside the model's zoom range.
+    pub fn new_for_model(
+        value: u16,
+        model: crate::constants::CameraVariant,
+    ) -> Result<Self, Error> {
+        crate::constants::validate_zoom_position(value, model)?;
+        Self::new(value)
+    }
 }
 
 /// Focus position value for direct focus control.
@@ -506,6 +521,23 @@ impl ZoomPosition {
     display_prefix = "Focus"
 )]
 pub struct FocusPosition(u16);
+
+impl FocusPosition {
+    /// Creates a focus position with model-specific validation.
+    ///
+    /// This constructor validates the position against the specific camera model's
+    /// focus range limits.
+    ///
+    /// # Errors
+    /// Returns an error if the position is outside the model's focus range.
+    pub fn new_for_model(
+        value: u16,
+        model: crate::constants::CameraVariant,
+    ) -> Result<Self, Error> {
+        crate::constants::validate_focus_position(value, model)?;
+        Self::new(value)
+    }
+}
 
 macro_rules! impl_normalized_conversion {
     ($type:ty, $min_field:ident, $max_field:ident) => {
@@ -609,6 +641,122 @@ impl SaturationLevel {
     pub fn to_percentage(self) -> u8 {
         60 + (self.0 * 10)
     }
+
+    /// Creates a new `SaturationLevel` with model-specific validation.
+    ///
+    /// Currently uses universal VISCA ranges, but the model parameter is available
+    /// for future model-specific refinements.
+    ///
+    /// # Errors
+    /// Returns an error if the level is outside the model's saturation range.
+    pub fn new_for_model(level: u8, model: crate::constants::CameraVariant) -> Result<Self, Error> {
+        crate::constants::validate_saturation_level(level, model)?;
+        Self::new(level)
+    }
+}
+
+impl HueLevel {
+    /// Creates a new `HueLevel` with model-specific validation.
+    ///
+    /// Currently uses universal VISCA ranges, but the model parameter is available
+    /// for future model-specific refinements.
+    ///
+    /// # Errors
+    /// Returns an error if the level is outside the model's hue range.
+    pub fn new_for_model(level: u8, model: crate::constants::CameraVariant) -> Result<Self, Error> {
+        crate::constants::validate_hue_level(level, model)?;
+        Self::new(level)
+    }
+}
+
+impl GainLevel {
+    /// Creates a new `GainLevel` with model-specific validation.
+    ///
+    /// Currently uses universal VISCA ranges, but the model parameter is available
+    /// for future model-specific refinements.
+    ///
+    /// # Errors
+    /// Returns an error if the level is outside the model's gain range.
+    pub fn new_for_model(level: u8, model: crate::constants::CameraVariant) -> Result<Self, Error> {
+        crate::constants::validate_gain_level(level, model)?;
+        Self::new(level)
+    }
+}
+
+impl IrisLevel {
+    /// Creates a new `IrisLevel` with model-specific validation.
+    ///
+    /// Currently uses universal VISCA ranges, but the model parameter is available
+    /// for future model-specific refinements.
+    ///
+    /// # Errors
+    /// Returns an error if the level is outside the model's iris range.
+    pub fn new_for_model(level: u8, model: crate::constants::CameraVariant) -> Result<Self, Error> {
+        crate::constants::validate_iris_level(level, model)?;
+        Self::new(level)
+    }
+}
+
+impl ShutterSpeed {
+    /// Creates a new `ShutterSpeed` with model-specific validation.
+    ///
+    /// Currently uses universal VISCA ranges, but the model parameter is available
+    /// for future model-specific refinements.
+    ///
+    /// # Errors
+    /// Returns an error if the speed is outside the model's shutter speed range.
+    pub fn new_for_model(
+        speed: u16,
+        model: crate::constants::CameraVariant,
+    ) -> Result<Self, Error> {
+        crate::constants::validate_shutter_speed(speed, model)?;
+        Self::new(speed)
+    }
+}
+
+impl BrightnessLevel {
+    /// Creates a new `BrightnessLevel` with model-specific validation.
+    ///
+    /// Currently uses universal VISCA ranges, but the model parameter is available
+    /// for future model-specific refinements.
+    ///
+    /// # Errors
+    /// Returns an error if the level is outside the model's brightness range.
+    pub fn new_for_model(
+        level: u16,
+        model: crate::constants::CameraVariant,
+    ) -> Result<Self, Error> {
+        crate::constants::validate_brightness_level(level, model)?;
+        Self::new(level)
+    }
+}
+
+impl ContrastLevel {
+    /// Creates a new `ContrastLevel` with model-specific validation.
+    ///
+    /// Currently uses universal VISCA ranges, but the model parameter is available
+    /// for future model-specific refinements.
+    ///
+    /// # Errors
+    /// Returns an error if the level is outside the model's contrast range.
+    pub fn new_for_model(level: u8, model: crate::constants::CameraVariant) -> Result<Self, Error> {
+        crate::constants::validate_contrast_level(level, model)?;
+        Self::new(level)
+    }
+}
+
+impl SharpnessLevel {
+    /// Creates a new `SharpnessLevel` with model-specific validation.
+    ///
+    /// Currently uses universal VISCA ranges, but the model parameter is available
+    /// for future model-specific refinements.
+    ///
+    /// # Errors
+    /// Returns an error if the level is outside the model's sharpness range.
+    pub fn new_for_model(level: u8, model: crate::constants::CameraVariant) -> Result<Self, Error> {
+        crate::constants::validate_sharpness_level(level, model)?;
+        Self::new(level)
+    }
 }
 
 /// Hue level for color adjustment.
@@ -644,6 +792,21 @@ pub struct PanPosition(i16);
 impl PanPosition {
     /// Center pan position (no horizontal offset).
     pub const CENTER: Self = Self(0);
+
+    /// Creates a pan position with model-specific validation.
+    ///
+    /// This constructor validates the position against the specific camera model's
+    /// pan range limits.
+    ///
+    /// # Errors
+    /// Returns an error if the position is outside the model's pan range.
+    pub fn new_for_model(
+        value: i16,
+        model: crate::constants::CameraVariant,
+    ) -> Result<Self, Error> {
+        crate::constants::validate_pan_position(value, model)?;
+        Ok(Self(value))
+    }
 
     /// Converts this pan position to degrees (-170° to +170°).
     #[must_use]
@@ -682,6 +845,21 @@ pub struct TiltPosition(i16);
 impl TiltPosition {
     /// Center tilt position (no vertical offset).
     pub const CENTER: Self = Self(0);
+
+    /// Creates a tilt position with model-specific validation.
+    ///
+    /// This constructor validates the position against the specific camera model's
+    /// tilt range limits.
+    ///
+    /// # Errors
+    /// Returns an error if the position is outside the model's tilt range.
+    pub fn new_for_model(
+        value: i16,
+        model: crate::constants::CameraVariant,
+    ) -> Result<Self, Error> {
+        crate::constants::validate_tilt_position(value, model)?;
+        Ok(Self(value))
+    }
 
     /// Converts this tilt position to degrees.
     ///
@@ -731,6 +909,24 @@ pub struct PanSpeed(u8);
 impl PanSpeed {
     /// Zero pan speed (stopped).
     pub const ZERO: Self = Self(0x00);
+
+    /// Creates a pan speed with model-specific validation.
+    ///
+    /// This constructor validates the speed against the specific camera model's
+    /// pan speed limits. Different camera models may have different maximum
+    /// speed capabilities.
+    ///
+    /// # Errors
+    /// Returns an error if the speed exceeds the model's maximum pan speed.
+    pub fn new_for_model(
+        value: u8,
+        _model: crate::constants::CameraVariant,
+    ) -> Result<Self, Error> {
+        // For now, use the same validation for all models
+        // In the future, this could check model-specific limits
+        crate::constants::validate_pan_speed(value)?;
+        Ok(Self(value))
+    }
 }
 
 impl From<SpeedLevel> for PanSpeed {
@@ -747,11 +943,64 @@ pub struct TiltSpeed(u8);
 impl TiltSpeed {
     /// Zero tilt speed (stopped).
     pub const ZERO: Self = Self(0x00);
+
+    /// Creates a tilt speed with model-specific validation.
+    ///
+    /// This constructor validates the speed against the specific camera model's
+    /// tilt speed limits. Different camera models may have different maximum
+    /// speed capabilities.
+    ///
+    /// # Errors
+    /// Returns an error if the speed exceeds the model's maximum tilt speed.
+    pub fn new_for_model(
+        value: u8,
+        _model: crate::constants::CameraVariant,
+    ) -> Result<Self, Error> {
+        // For now, use the same validation for all models
+        // In the future, this could check model-specific limits
+        crate::constants::validate_tilt_speed(value)?;
+        Ok(Self(value))
+    }
 }
 
 impl From<SpeedLevel> for TiltSpeed {
     fn from(level: SpeedLevel) -> Self {
         Self(level.to_tilt_speed())
+    }
+}
+
+/// Motion sync speed value for synchronized camera movements.
+///
+/// Valid range: 1 to 24 (0x01 to 0x18)
+/// Used with PtzOptics cameras to control the speed of synchronized
+/// pan, tilt, and zoom movements during preset recalls.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[visca_value(min = "0x01", max = "0x18", display_prefix = "Motion Sync Speed")]
+pub struct MotionSyncSpeedValue(u8);
+
+impl MotionSyncSpeedValue {
+    /// Slow motion sync speed (typically 8).
+    pub const SLOW: Self = Self(8);
+
+    /// Normal motion sync speed (typically 16).
+    pub const NORMAL: Self = Self(16);
+
+    /// Fast motion sync speed (typically 24).
+    pub const FAST: Self = Self(24);
+
+    /// Creates a motion sync speed from a preset speed.
+    pub fn from_preset(speed: crate::MotionSyncSpeed) -> Self {
+        match speed {
+            crate::MotionSyncSpeed::Slow => Self::SLOW,
+            crate::MotionSyncSpeed::Normal => Self::NORMAL,
+            crate::MotionSyncSpeed::Fast => Self::FAST,
+        }
+    }
+}
+
+impl From<crate::MotionSyncSpeed> for MotionSyncSpeedValue {
+    fn from(speed: crate::MotionSyncSpeed) -> Self {
+        Self::from_preset(speed)
     }
 }
 
@@ -841,6 +1090,43 @@ mod tests {
         assert!(NoiseReductionStrength::Off.to_3d_level().is_err());
         assert_eq!(NoiseReductionStrength::Minimal.to_3d_level().unwrap(), 1);
         assert_eq!(NoiseReductionStrength::Maximum.to_3d_level().unwrap(), 8);
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_motion_sync_speed_value() {
+        // Test valid range (ViscaValue macro provides new() method)
+        assert!(MotionSyncSpeedValue::new(1).is_ok());
+        assert!(MotionSyncSpeedValue::new(12).is_ok());
+        assert!(MotionSyncSpeedValue::new(24).is_ok());
+
+        // Test invalid range
+        assert!(MotionSyncSpeedValue::new(0).is_err());
+        assert!(MotionSyncSpeedValue::new(25).is_err());
+
+        // Test constants (ViscaValue macro provides value() method)
+        assert_eq!(MotionSyncSpeedValue::SLOW.value(), 8);
+        assert_eq!(MotionSyncSpeedValue::NORMAL.value(), 16);
+        assert_eq!(MotionSyncSpeedValue::FAST.value(), 24);
+
+        // Test from preset
+        assert_eq!(
+            MotionSyncSpeedValue::from_preset(crate::MotionSyncSpeed::Slow).value(),
+            8
+        );
+        assert_eq!(
+            MotionSyncSpeedValue::from_preset(crate::MotionSyncSpeed::Normal).value(),
+            16
+        );
+        assert_eq!(
+            MotionSyncSpeedValue::from_preset(crate::MotionSyncSpeed::Fast).value(),
+            24
+        );
+
+        // Test TryFrom (ViscaValue macro provides TryFrom<u8>)
+        assert_eq!(MotionSyncSpeedValue::try_from(15).unwrap().value(), 15);
+        assert!(MotionSyncSpeedValue::try_from(0).is_err());
+        assert!(MotionSyncSpeedValue::try_from(30).is_err());
     }
 
     #[test]

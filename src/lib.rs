@@ -44,6 +44,62 @@
 //! - **Command Cancellation**: Cancel specific commands or entire socket operations
 //! - **Async Completion Tracking**: Wait for camera movements to complete with await methods
 //!
+//! ## Model-Aware Parameter Validation
+//!
+//! The library provides comprehensive parameter validation at multiple levels, ensuring
+//! commands are correct before being sent to the camera:
+//!
+//! ### Type-Safe Parameters with Conservative Defaults
+//! All parameter types provide conservative VISCA-compliant ranges by default:
+//! ```ignore
+//! use grafton_visca::types::{PanSpeed, ZoomPosition};
+//!
+//! // Conservative VISCA ranges work with any camera
+//! let speed = PanSpeed::new(15)?;  // Valid: 0-24 (VISCA max)
+//! let zoom = ZoomPosition::new(0x4000)?;  // Valid: 0x0000-0xFFFF
+//! ```
+//!
+//! ### Model-Specific Validation
+//! For precise control, use model-aware constructors that validate against
+//! specific camera capabilities:
+//! ```ignore
+//! use grafton_visca::types::{PanPosition, TiltSpeed};
+//! use grafton_visca::constants::CameraVariant;
+//!
+//! // Model-specific validation for PTZOptics G2
+//! let model = CameraVariant::PtzOpticsG2;
+//! let pan = PanPosition::new_for_model(2000, model)?;  // Validates against G2 pan range
+//! let speed = TiltSpeed::new_for_model(18, model)?;    // Validates against G2 tilt speed
+//! ```
+//!
+//! ### Profile-Based Compile-Time Safety
+//! When using camera profiles, validation happens at compile time through
+//! capability traits:
+//! ```ignore
+//! use grafton_visca::{Camera, camera::profiles::PtzOpticsG2};
+//!
+//! // Profile provides model-specific constants at compile time
+//! let camera = Camera::<PtzOpticsG2, _>::new(transport);
+//! // Methods automatically use profile's validated ranges
+//! camera.pan_tilt_absolute(1000, 500, 10, 10)?;  // Validated against G2 limits
+//! ```
+//!
+//! ### Command-Level Validation
+//! Extended commands validate model support before encoding:
+//! ```ignore
+//! use grafton_visca::command::focus::FocusLock;
+//!
+//! // FocusLock validates it's only used with PTZOptics cameras
+//! let cmd = FocusLock::On;
+//! // validate_for_model() is called automatically during encoding
+//! ```
+//!
+//! This multi-layered approach ensures:
+//! - Early error detection at construction time
+//! - Model-specific precision when needed
+//! - Conservative defaults for generic usage
+//! - Zero-cost abstractions through compile-time validation
+//!
 //! ## Quick Start
 //!
 //! ### Blocking Example

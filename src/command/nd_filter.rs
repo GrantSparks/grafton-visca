@@ -10,7 +10,10 @@
 //! - All ND filter commands - Sony FR7 specific
 //! - The FR7 supports variable ND filter (2 to 7 stops, continuously variable)
 
-use crate::{command::bytes::constants, error::Error, macros::internal::*};
+use crate::command::encode_visca::ViscaEncode;
+use crate::command::ViscaResponseType;
+use crate::timeout::CommandCategory;
+use crate::{command::bytes::constants, error::Error};
 
 /// ND filter mode for Sony FR7.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,19 +33,54 @@ impl From<NdFilterMode> for u8 {
     }
 }
 
-visca_param_command! {
-    /// Set the ND filter mode (preset or variable).
-    ///
-    /// # Sony FR7 Specific
-    /// Command: `8x 01 7E 04 52 0p FF`
-    /// - p = 0 (Preset mode)
-    /// - p = 1 (Variable mode)
-    pub struct NdFilterModeCommand {
-        mode: NdFilterMode,
+/// Set the ND filter mode (preset or variable).
+///
+/// # Sony FR7 Specific
+/// Command: `8x 01 7E 04 52 0p FF`
+/// - p = 0 (Preset mode)
+/// - p = 1 (Variable mode)
+#[derive(Debug, Clone, Copy)]
+pub struct NdFilterModeCommand {
+    mode: NdFilterMode,
+}
+
+impl ViscaEncode for NdFilterModeCommand {
+    type ViscaResponse = ();
+    const MAX_SIZE: usize = 7;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+
+    fn encode_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
+        use crate::command::bytes::ConstCommandBuilder;
+
+        ConstCommandBuilder::<7>::new()
+            .append(constants::nd_filter::CONTROL_PREFIX)
+            .push(u8::from(self.mode))
+            .with_camera_id(camera_id)
+            .terminate()
+            .build_into(buffer)
     }
-    prefix = constants::nd_filter::CONTROL_PREFIX;
-    param_byte = u8::from(*mode);
-    timeout = Quick;
+
+    fn response_type(&self) -> Option<ViscaResponseType> {
+        None
+    }
+
+    fn validate_for_model(&self, model: crate::constants::CameraVariant) -> Result<(), Error> {
+        use crate::constants::CameraVariant;
+        use std::borrow::Cow;
+
+        match model {
+            CameraVariant::SonyFR7 => Ok(()),
+            _ => Err(Error::ModelValidation {
+                model,
+                command: Cow::Borrowed("NdFilterModeCommand"),
+                reason: Cow::Borrowed("ND filter commands are only supported on Sony FR7 cameras"),
+            }),
+        }
+    }
 }
 
 impl NdFilterModeCommand {
@@ -52,23 +90,55 @@ impl NdFilterModeCommand {
     }
 }
 
-visca_builder! {
-    /// Direct ND filter value command for variable mode.
-    ///
-    /// # Sony FR7 Specific
-    /// Command: `8x 01 7E 04 42 00 0p 0q FF`
-    /// - Value 0x0000 = ND 1/4 (2 stops, minimum ND)
-    /// - Value 0x0014 = ND 1/128 (7 stops, maximum density)
-    /// - Linear scale for optical density (each increment ~0.5 stop)
-    pub struct NdFilterValue {
-        value: u16,
-    }
-    builder<9> => |builder, value| {
-        builder
+/// Direct ND filter value command for variable mode.
+///
+/// # Sony FR7 Specific
+/// Command: `8x 01 7E 04 42 00 0p 0q FF`
+/// - Value 0x0000 = ND 1/4 (2 stops, minimum ND)
+/// - Value 0x0014 = ND 1/128 (7 stops, maximum density)
+/// - Linear scale for optical density (each increment ~0.5 stop)
+#[derive(Debug, Clone, Copy)]
+pub struct NdFilterValue {
+    value: u16,
+}
+
+impl ViscaEncode for NdFilterValue {
+    type ViscaResponse = ();
+    const MAX_SIZE: usize = 9;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+
+    fn encode_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
+        use crate::command::bytes::ConstCommandBuilder;
+
+        ConstCommandBuilder::<9>::new()
             .append(constants::nd_filter::DIRECT_PREFIX)
-            .push_nibble_pair(*value)
+            .push_nibble_pair(self.value)
+            .with_camera_id(camera_id)
+            .terminate()
+            .build_into(buffer)
     }
-    timeout = Quick;
+
+    fn response_type(&self) -> Option<ViscaResponseType> {
+        None
+    }
+
+    fn validate_for_model(&self, model: crate::constants::CameraVariant) -> Result<(), Error> {
+        use crate::constants::CameraVariant;
+        use std::borrow::Cow;
+
+        match model {
+            CameraVariant::SonyFR7 => Ok(()),
+            _ => Err(Error::ModelValidation {
+                model,
+                command: Cow::Borrowed("NdFilterValue"),
+                reason: Cow::Borrowed("ND filter commands are only supported on Sony FR7 cameras"),
+            }),
+        }
+    }
 }
 
 impl NdFilterValue {
@@ -123,20 +193,55 @@ impl From<NdFilterStep> for u8 {
     }
 }
 
-visca_param_command! {
-    /// ND filter step adjustment command.
-    ///
-    /// # Sony FR7 Specific
-    /// Command: `8x 01 7E 04 12 0p FF`
-    /// - p = 02 (ND Filter Up - increase ND one step)
-    /// - p = 03 (ND Filter Down - decrease ND one step)
-    ///   Works in Variable mode to bump ND in small increments.
-    pub struct NdFilterStepCommand {
-        direction: NdFilterStep,
+/// ND filter step adjustment command.
+///
+/// # Sony FR7 Specific
+/// Command: `8x 01 7E 04 12 0p FF`
+/// - p = 02 (ND Filter Up - increase ND one step)
+/// - p = 03 (ND Filter Down - decrease ND one step)
+///   Works in Variable mode to bump ND in small increments.
+#[derive(Debug, Clone, Copy)]
+pub struct NdFilterStepCommand {
+    direction: NdFilterStep,
+}
+
+impl ViscaEncode for NdFilterStepCommand {
+    type ViscaResponse = ();
+    const MAX_SIZE: usize = 7;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+
+    fn encode_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
+        use crate::command::bytes::ConstCommandBuilder;
+
+        ConstCommandBuilder::<7>::new()
+            .append(constants::nd_filter::MODE_PREFIX)
+            .push(u8::from(self.direction))
+            .with_camera_id(camera_id)
+            .terminate()
+            .build_into(buffer)
     }
-    prefix = constants::nd_filter::MODE_PREFIX;
-    param_byte = u8::from(*direction);
-    timeout = Quick;
+
+    fn response_type(&self) -> Option<ViscaResponseType> {
+        None
+    }
+
+    fn validate_for_model(&self, model: crate::constants::CameraVariant) -> Result<(), Error> {
+        use crate::constants::CameraVariant;
+        use std::borrow::Cow;
+
+        match model {
+            CameraVariant::SonyFR7 => Ok(()),
+            _ => Err(Error::ModelValidation {
+                model,
+                command: Cow::Borrowed("NdFilterStepCommand"),
+                reason: Cow::Borrowed("ND filter commands are only supported on Sony FR7 cameras"),
+            }),
+        }
+    }
 }
 
 impl NdFilterStepCommand {
@@ -146,21 +251,67 @@ impl NdFilterStepCommand {
     }
 }
 
-visca_bool_command! {
-    /// Auto ND filter control.
-    ///
-    /// # Sony FR7 Specific
-    /// Command: `8x 01 7E 04 53 0p FF`
-    /// - p = 02 (Auto ND On)
-    /// - p = 03 (Auto ND Off)
-    ///   When Auto ND is On, the camera automatically engages the ND filter
-    ///   to maintain exposure (like auto-iris, but using ND).
-    struct AutoNdCommand {
-        prefix: constants::nd_filter::LEVEL_PREFIX,
-        on: 0x02,
-        off: 0x03,
+/// Auto ND filter control.
+///
+/// # Sony FR7 Specific
+/// Command: `8x 01 7E 04 53 0p FF`
+/// - p = 02 (Auto ND On)
+/// - p = 03 (Auto ND Off)
+///   When Auto ND is On, the camera automatically engages the ND filter
+///   to maintain exposure (like auto-iris, but using ND).
+#[derive(Debug, Clone, Copy)]
+pub struct AutoNdCommand {
+    enabled: bool,
+}
+
+impl AutoNdCommand {
+    /// Create a new auto ND command.
+    pub fn new(enabled: bool) -> Self {
+        Self { enabled }
     }
 }
+
+impl ViscaEncode for AutoNdCommand {
+    type ViscaResponse = ();
+    const MAX_SIZE: usize = 7;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+
+    fn encode_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
+        use crate::command::bytes::ConstCommandBuilder;
+
+        ConstCommandBuilder::<7>::new()
+            .append(constants::nd_filter::LEVEL_PREFIX)
+            .push(if self.enabled { 0x02 } else { 0x03 })
+            .with_camera_id(camera_id)
+            .terminate()
+            .build_into(buffer)
+    }
+
+    fn response_type(&self) -> Option<ViscaResponseType> {
+        None
+    }
+
+    fn validate_for_model(&self, model: crate::constants::CameraVariant) -> Result<(), Error> {
+        use crate::constants::CameraVariant;
+        use std::borrow::Cow;
+
+        match model {
+            CameraVariant::SonyFR7 => Ok(()),
+            _ => Err(Error::ModelValidation {
+                model,
+                command: Cow::Borrowed("AutoNdCommand"),
+                reason: Cow::Borrowed("ND filter commands are only supported on Sony FR7 cameras"),
+            }),
+        }
+    }
+}
+
+// Remove the old macro-based implementation
+// // Old macro-based implementation removed - manual implementation above provides validate_for_model
 
 #[cfg(test)]
 #[allow(clippy::expect_used)]

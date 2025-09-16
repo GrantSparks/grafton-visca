@@ -874,7 +874,7 @@ where
         fn set_motion_sync_mode(mode: crate::command::system::MotionSyncMode) -> ();
 
         /// Set motion sync speed.
-        fn set_motion_sync_speed(speed: u8) -> ();
+        fn set_motion_sync_speed(speed: crate::types::MotionSyncSpeedValue) -> ();
 
         /// Set motion sync preset speed.
         fn set_motion_sync_preset_speed(speed: crate::command::system::MotionSyncSpeed) -> ();

@@ -56,6 +56,26 @@ crate::visca_bounded_param! {
     }
 }
 
+impl FocusSpeed {
+    /// Creates a focus speed with model-specific validation.
+    ///
+    /// This constructor validates the speed against the specific camera model's
+    /// focus speed limits. Different camera models may have different maximum
+    /// speed capabilities.
+    ///
+    /// # Errors
+    /// Returns an error if the speed exceeds the model's maximum focus speed.
+    pub fn new_for_model(
+        value: u8,
+        _model: crate::constants::CameraVariant,
+    ) -> Result<Self, Error> {
+        // For now, use the same validation for all models
+        // In the future, this could check model-specific limits
+        crate::constants::validate_focus_speed(value)?;
+        Self::new(value)
+    }
+}
+
 impl From<SpeedLevel> for FocusSpeed {
     fn from(level: SpeedLevel) -> Self {
         Self(level.to_focus_speed())
@@ -260,27 +280,62 @@ visca_builder! {
     timeout = Quick;
 }
 
-visca_command! {
-    /// Focus Lock command.
-    ///
-    /// Controls whether the camera locks focus at the current position.
-    ///
-    /// **Vendor-Specific**: This command is specific to PtzOptics cameras.
-    category = "Quick",
-    max_size = 6, // LOCK_PREFIX (4 bytes) + 1 data + 1 terminator = 6
-    enum FocusLock {
-        /// Enable focus lock
-        On => {
-            Ok(ConstCommandBuilder::<6>::new()
+/// Focus Lock command.
+///
+/// Controls whether the camera locks focus at the current position.
+///
+/// **Vendor-Specific**: This command is specific to PtzOptics cameras.
+#[derive(Debug, Copy, Clone)]
+pub enum FocusLock {
+    /// Enable focus lock
+    On,
+    /// Disable focus lock
+    Off,
+}
+
+impl ViscaEncode for FocusLock {
+    type ViscaResponse = ();
+    const MAX_SIZE: usize = 6;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+
+    fn encode_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
+        use crate::command::bytes::ConstCommandBuilder;
+
+        let builder = match self {
+            Self::On => ConstCommandBuilder::<6>::new()
                 .append(crate::command::bytes::constants::focus::LOCK_PREFIX)
-                .push(0x02))
-        },
-        /// Disable focus lock
-        Off => {
-            Ok(ConstCommandBuilder::<6>::new()
+                .push(0x02),
+            Self::Off => ConstCommandBuilder::<6>::new()
                 .append(crate::command::bytes::constants::focus::LOCK_PREFIX)
-                .push(0x03))
-        },
+                .push(0x03),
+        };
+
+        builder
+            .with_camera_id(camera_id)
+            .terminate()
+            .build_into(buffer)
+    }
+
+    fn response_type(&self) -> Option<ViscaResponseType> {
+        None
+    }
+
+    fn validate_for_model(&self, model: crate::constants::CameraVariant) -> Result<(), Error> {
+        use crate::constants::CameraVariant;
+        use std::borrow::Cow;
+
+        match model {
+            CameraVariant::PtzOpticsG2 | CameraVariant::PtzOpticsG3 => Ok(()),
+            _ => Err(Error::ModelValidation {
+                model,
+                command: Cow::Borrowed("FocusLock"),
+                reason: Cow::Borrowed("FocusLock is only supported on PtzOptics cameras"),
+            }),
+        }
     }
 }
 
@@ -324,6 +379,20 @@ impl ViscaEncode for PushAF {
 
     fn response_type(&self) -> Option<ViscaResponseType> {
         None
+    }
+
+    fn validate_for_model(&self, model: crate::constants::CameraVariant) -> Result<(), Error> {
+        use crate::constants::CameraVariant;
+        use std::borrow::Cow;
+
+        match model {
+            CameraVariant::SonyFR7 => Ok(()),
+            _ => Err(Error::ModelValidation {
+                model,
+                command: Cow::Borrowed("PushAF"),
+                reason: Cow::Borrowed("PushAF is only supported on Sony FR7 cameras"),
+            }),
+        }
     }
 }
 

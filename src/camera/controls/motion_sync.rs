@@ -1,6 +1,9 @@
 //! Unified Motion Sync control implementation using Mode trait.
 
-use crate::{camera::CameraSend, mode::Mode, Error, MotionSyncMode, MotionSyncSpeed};
+use crate::{
+    camera::CameraSend, mode::Mode, types::MotionSyncSpeedValue, Error, MotionSyncMode,
+    MotionSyncSpeed,
+};
 
 /// Unified Motion Sync control methods for cameras that support this feature.
 ///
@@ -35,7 +38,10 @@ pub trait MotionSyncControl {
     /// Returns an error if:
     /// - The camera doesn't support motion sync
     /// - The speed is outside the valid range (1-24)
-    fn set_motion_sync_speed(&self, speed: u8) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    fn set_motion_sync_speed(
+        &self,
+        speed: MotionSyncSpeedValue,
+    ) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
 
     /// Sets the motion sync speed using a preset value.
     ///
@@ -80,15 +86,14 @@ where
         self.send_and_complete(cmd)
     }
 
-    fn set_motion_sync_speed(&self, speed: u8) -> M::Ret<'_, Result<(), Error>> {
+    fn set_motion_sync_speed(&self, speed: MotionSyncSpeedValue) -> M::Ret<'_, Result<(), Error>> {
         use crate::command::motion_sync::MotionSyncSpeedCommand;
-        match MotionSyncSpeedCommand::new(speed) {
+        // MotionSyncSpeedValue is already validated to be in range 1-24
+        // MotionSyncSpeedCommand::new() validates the same range, so this should never fail
+        // But we handle the error properly to satisfy clippy
+        match MotionSyncSpeedCommand::new(speed.value()) {
             Ok(cmd) => self.send_and_complete(cmd),
-            Err(_) => self.error(Error::InvalidParameter {
-                parameter: "speed",
-                value: speed.to_string().into(),
-                reason: "must be between 1 and 24".into(),
-            }),
+            Err(e) => self.error(e),
         }
     }
 
