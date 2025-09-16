@@ -102,26 +102,63 @@ impl MenuActionCommand {
     }
 }
 
-visca_builder! {
-    /// Direct menu control command for Sony FR7.
-    ///
-    /// Provides direct control over the FR7's advanced menu system using
-    /// manufacturer-specific codes for button presses and dial turns.
-    ///
-    /// VISCA format: `81 01 7E 04 72 pp qq FF`
-    pub struct DirectMenuControl {
-        /// First control byte (pp)
-        control1: u8,
-        /// Second control byte (qq)
-        control2: u8,
+/// Direct menu control command for Sony FR7.
+///
+/// Provides direct control over the FR7's advanced menu system using
+/// manufacturer-specific codes for button presses and dial turns.
+///
+/// VISCA format: `81 01 7E 04 72 pp qq FF`
+#[derive(Debug, Copy, Clone)]
+pub struct DirectMenuControl {
+    /// The control1 parameter.
+    /// First control byte (pp)
+    pub control1: u8,
+    /// The control2 parameter.
+    /// Second control byte (qq)
+    pub control2: u8,
+}
+
+impl crate::command::encode_visca::ViscaEncode for DirectMenuControl {
+    type ViscaResponse = ();
+    const MAX_SIZE: usize = 8;
+    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
+        crate::timeout::CommandCategory::Quick;
+
+    fn encode_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, crate::Error> {
+        use crate::command::bytes::ConstCommandBuilder;
+
+        ConstCommandBuilder::<8>::from_prefix(constants::menu::SETTINGS_PREFIX)
+            .with_camera_id(camera_id)
+            .push(self.control1)
+            .push(self.control2)
+            .terminate()
+            .build_into(buffer)
     }
-    builder<8> => |builder, control1, control2| {
-        builder
-            .append(constants::menu::SETTINGS_PREFIX)
-            .push(*control1)
-            .push(*control2)
+
+    fn response_type(&self) -> Option<crate::command::ViscaResponseType> {
+        None
     }
-    timeout = Quick;
+
+    fn validate_for_model(
+        &self,
+        model: crate::constants::CameraVariant,
+    ) -> Result<(), crate::Error> {
+        use crate::constants::CameraVariant;
+        use std::borrow::Cow;
+
+        match model {
+            CameraVariant::SonyFR7 => Ok(()),
+            _ => Err(crate::Error::ModelValidation {
+                model,
+                command: Cow::Borrowed("DirectMenuControl"),
+                reason: Cow::Borrowed("Direct menu control is only supported on Sony FR7 cameras"),
+            }),
+        }
+    }
 }
 
 impl DirectMenuControl {
