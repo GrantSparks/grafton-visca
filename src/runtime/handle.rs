@@ -273,7 +273,7 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
 
     /// Create a new camera runtime with raw TCP transport (PtzOptics style).
     ///
-    /// Note: This method requires the "rt-tokio" feature as it uses tokio-specific async transports.
+    /// Note: This method requires the "runtime-tokio" feature as it uses tokio-specific async transports.
     #[cfg(feature = "runtime-tokio")]
     pub async fn new_tcp_raw(address: impl AsRef<str>, executor: Arc<E>) -> Result<Self> {
         // Use native tokio TCP transport for raw VISCA
@@ -283,7 +283,7 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
 
     /// Create a new camera runtime with raw UDP transport (PtzOptics style).
     ///
-    /// Note: This method requires the "rt-tokio" feature as it uses tokio-specific async transports.
+    /// Note: This method requires the "runtime-tokio" feature as it uses tokio-specific async transports.
     #[cfg(feature = "runtime-tokio")]
     pub async fn new_udp_raw(address: impl AsRef<str>, executor: Arc<E>) -> Result<Self> {
         // Use native tokio UDP transport for raw VISCA

@@ -12,7 +12,7 @@ fn test_blocking_mode_compile() {
     fn _accepts_blocking(_camera: &_BlockingCamera) {}
 }
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 #[test]
 fn test_async_mode_compile() {
     use grafton_visca::{
@@ -76,7 +76,7 @@ fn test_preludes_per_mode() {
         let _ = core::any::type_name::<_BlockingG2>();
     }
 
-    #[cfg(all(feature = "mode-async", feature = "rt-tokio"))]
+    #[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]
     {
         use grafton_visca::prelude::r#async as async_prelude;
         use grafton_visca::runtime_adapters::tokio::TcpTransport as AsyncTcp;

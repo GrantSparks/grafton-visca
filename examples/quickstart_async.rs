@@ -12,38 +12,50 @@
 //! Run with your preferred runtime:
 //! ```sh
 //! # With tokio (most common)
-//! cargo run --example quickstart_async --features rt-tokio [camera_ip[:port]]
+//! cargo run --example quickstart_async --features runtime-tokio [camera_ip[:port]]
 //!
 //! # With async-std
-//! cargo run --example quickstart_async --features rt-async-std [camera_ip[:port]]
+//! cargo run --example quickstart_async --features runtime-async-std [camera_ip[:port]]
 //!
 //! # With smol
-//! cargo run --example quickstart_async --features rt-smol [camera_ip[:port]]
+//! cargo run --example quickstart_async --features runtime-smol [camera_ip[:port]]
 //! ```
 
-#[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
+#[cfg(any(
+    feature = "runtime-tokio",
+    feature = "runtime-async-std",
+    feature = "runtime-smol"
+))]
 use std::env;
 
-#[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
+#[cfg(any(
+    feature = "runtime-tokio",
+    feature = "runtime-async-std",
+    feature = "runtime-smol"
+))]
 use grafton_visca::{
     camera::{profiles::PtzOpticsG2, Connect},
-    Camera, Error,
+    Error,
 };
 
 // Main function for when no runtime is selected
-#[cfg(not(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")))]
+#[cfg(not(any(
+    feature = "runtime-tokio",
+    feature = "runtime-async-std",
+    feature = "runtime-smol"
+)))]
 fn main() {
     eprintln!("This example requires an async runtime feature.");
     eprintln!("Run with one of:");
-    eprintln!("  cargo run --example quickstart_async --features rt-tokio");
-    eprintln!("  cargo run --example quickstart_async --features rt-async-std");
-    eprintln!("  cargo run --example quickstart_async --features rt-smol");
+    eprintln!("  cargo run --example quickstart_async --features runtime-tokio");
+    eprintln!("  cargo run --example quickstart_async --features runtime-async-std");
+    eprintln!("  cargo run --example quickstart_async --features runtime-smol");
 }
 
 // =================== TOKIO RUNTIME ===================
 #[cfg(all(
-    feature = "rt-tokio",
-    not(any(feature = "rt-async-std", feature = "rt-smol"))
+    feature = "runtime-tokio",
+    not(any(feature = "runtime-async-std", feature = "runtime-smol"))
 ))]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -133,7 +145,7 @@ async fn main() -> Result<(), Error> {
 }
 
 // =================== ASYNC-STD RUNTIME ===================
-#[cfg(all(feature = "rt-async-std", not(feature = "rt-smol")))]
+#[cfg(all(feature = "runtime-async-std", not(feature = "runtime-smol")))]
 #[async_std::main]
 async fn main() -> Result<(), Error> {
     use async_std::task::sleep;
@@ -224,7 +236,7 @@ async fn main() -> Result<(), Error> {
 }
 
 // =================== SMOL RUNTIME ===================
-#[cfg(feature = "rt-smol")]
+#[cfg(feature = "runtime-smol")]
 fn main() -> Result<(), Error> {
     use grafton_visca::runtime_trait::SmolRuntime;
 

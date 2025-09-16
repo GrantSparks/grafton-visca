@@ -7,11 +7,11 @@
 //! DeterministicExecutor has issues with timeout handling when real runtimes
 //! are present. See issue #394 for details.
 #![cfg(all(
-    feature = "async",
+    feature = "mode-async",
     feature = "test-utils",
-    not(feature = "rt-tokio"),
-    not(feature = "rt-async-std"),
-    not(feature = "rt-smol")
+    not(feature = "runtime-tokio"),
+    not(feature = "runtime-async-std"),
+    not(feature = "runtime-smol")
 ))]
 
 use grafton_visca::{

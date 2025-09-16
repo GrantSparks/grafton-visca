@@ -6,16 +6,16 @@
 //! 3. How to create your own AsyncTransport implementation
 //!
 //! The library provides built-in executors for common runtimes:
-//! - tokio (with --features rt-tokio)
-//! - async-std (with --features rt-async-std)
-//! - smol (with --features rt-smol)
+//! - tokio (with --features runtime-tokio)
+//! - async-std (with --features runtime-async-std)
+//! - smol (with --features runtime-smol)
 //!
 //! But you can use ANY runtime by implementing the Executor trait!
 //!
 //! Run with:
 //! ```sh
 //! cargo run --example runtime_agnostic --features async
-//! cargo run --example runtime_agnostic --features rt-tokio
+//! cargo run --example runtime_agnostic --features runtime-tokio
 //! ```
 
 #[cfg(feature = "mode-async")]
@@ -29,13 +29,13 @@ fn main() {
     println!();
 
     // Show which runtime features are enabled
-    #[cfg(feature = "rt-tokio")]
+    #[cfg(feature = "runtime-tokio")]
     println!("✅ Tokio runtime support enabled");
 
-    #[cfg(feature = "rt-async-std")]
+    #[cfg(feature = "runtime-async-std")]
     println!("✅ async-std runtime support enabled");
 
-    #[cfg(feature = "rt-smol")]
+    #[cfg(feature = "runtime-smol")]
     println!("✅ smol runtime support enabled");
 
     println!();
@@ -154,7 +154,7 @@ fn main() {
     }
 
     // Demonstrate using different runtime executors
-    #[cfg(feature = "rt-tokio")]
+    #[cfg(feature = "runtime-tokio")]
     {
         use grafton_visca::TokioExecutor;
 
@@ -171,7 +171,7 @@ fn main() {
         }
     }
 
-    #[cfg(feature = "rt-async-std")]
+    #[cfg(feature = "runtime-async-std")]
     {
         use grafton_visca::AsyncStdExecutor;
 
@@ -181,7 +181,7 @@ fn main() {
         let _ = executor;
     }
 
-    #[cfg(feature = "rt-smol")]
+    #[cfg(feature = "runtime-smol")]
     {
         use grafton_visca::SmolExecutor;
 
@@ -244,7 +244,7 @@ fn main() {
     println!("✅ Full control over async execution");
 
     println!("\n💡 Tips:");
-    println!("- Start with a provided executor (rt-tokio) to test");
+    println!("- Start with a provided executor (runtime-tokio) to test");
     println!("- Look at TokioExecutor source for implementation example");
     println!("- The spawn() method is used for background tasks");
     println!("- The timeout() method is critical for camera operations");

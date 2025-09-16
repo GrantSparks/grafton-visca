@@ -4,7 +4,7 @@
 
 use grafton_visca::camera::TransportOptions;
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 mod async_tests {
     use super::*;
     // TokioExecutor is now handled internally

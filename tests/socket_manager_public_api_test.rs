@@ -1,6 +1,6 @@
 //! Tests for socket manager functionality through the public Camera API
 
-#[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
+#[cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
 mod tokio_tests {
     // External crates
     use grafton_visca::{

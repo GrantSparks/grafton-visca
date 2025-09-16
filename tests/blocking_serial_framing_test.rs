@@ -3,7 +3,7 @@
 //! This test addresses issue #357 where the blocking transports were dropping
 //! frames when multiple VISCA frames arrived in a single serial read.
 
-#![cfg(all(not(feature = "async"), feature = "serialport"))]
+#![cfg(all(not(feature = "mode-async"), feature = "serialport"))]
 
 use bytes::Bytes;
 use grafton_visca::{command::CommandKind, transport::SyncTransport, Error};

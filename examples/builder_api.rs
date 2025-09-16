@@ -8,7 +8,7 @@
 //!
 //! Run with:
 //! - Blocking: cargo run --example builder_api
-//! - Async: cargo run --example builder_api --features rt-tokio
+//! - Async: cargo run --example builder_api --features runtime-tokio
 
 #[cfg(not(feature = "mode-async"))]
 use grafton_visca::{CameraBuilder, Result};
@@ -16,17 +16,7 @@ use grafton_visca::{CameraBuilder, Result};
 #[cfg(not(feature = "mode-async"))]
 use grafton_visca::camera::profiles::{PtzOpticsG2, SonyBRC300, SonyFR7};
 
-#[cfg(all(feature = "rt-async-std", not(feature = "rt-smol")))]
-use grafton_visca::camera::profiles::PtzOpticsG2;
-
-#[cfg(feature = "rt-smol")]
-use grafton_visca::camera::profiles::PtzOpticsG2;
-
-#[cfg(all(
-    feature = "rt-tokio",
-    not(any(feature = "rt-async-std", feature = "rt-smol"))
-))]
-use grafton_visca::camera::profiles::{PtzOpticsG2, SonyBRC300, SonyFR7};
+// Imports are now done in each function to avoid unused import warnings
 
 #[cfg(not(feature = "mode-async"))]
 fn main() -> Result<()> {
@@ -84,27 +74,33 @@ fn main() -> Result<()> {
 }
 
 #[cfg(all(
-    feature = "async",
-    not(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))
+    feature = "mode-async",
+    not(any(
+        feature = "runtime-tokio",
+        feature = "runtime-async-std",
+        feature = "runtime-smol"
+    ))
 ))]
-fn main() -> Result<()> {
+fn main() -> grafton_visca::Result<()> {
     println!("=== CameraBuilder API Demo ===\n");
     println!("This example requires a specific async runtime feature:");
-    println!("- Run with: cargo run --example builder_api --features rt-tokio");
-    println!("- Or with:  cargo run --example builder_api --features rt-async-std");
-    println!("- Or with:  cargo run --example builder_api --features rt-smol");
+    println!("- Run with: cargo run --example builder_api --features runtime-tokio");
+    println!("- Or with:  cargo run --example builder_api --features runtime-async-std");
+    println!("- Or with:  cargo run --example builder_api --features runtime-smol");
     println!("- Or for blocking: cargo run --example builder_api (no features)");
     Ok(())
 }
 
 #[cfg(all(
-    feature = "rt-tokio",
-    not(any(feature = "rt-async-std", feature = "rt-smol"))
+    feature = "runtime-tokio",
+    not(any(feature = "runtime-async-std", feature = "runtime-smol"))
 ))]
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> grafton_visca::Result<()> {
+    use grafton_visca::camera::profiles::{PtzOpticsG2, SonyBRC300, SonyFR7};
     use grafton_visca::runtime_adapters::tokio::{TcpTransport as Tcp, UdpTransport as Udp};
     use grafton_visca::runtime_trait::TokioRuntime;
+    use grafton_visca::CameraBuilder;
 
     tracing_subscriber::fmt::init();
 
@@ -131,7 +127,7 @@ async fn main() -> Result<()> {
 
     async fn create_camera<P: grafton_visca::capabilities::Profile + Default>(
         addr: &str,
-    ) -> Result<()> {
+    ) -> grafton_visca::Result<()> {
         let transport = Tcp::connect(addr).await?;
         let runtime = TokioRuntime::from_current()?;
         let _camera = CameraBuilder::with_executor(runtime)
@@ -185,10 +181,12 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-#[cfg(all(feature = "rt-async-std", not(feature = "rt-smol")))]
-fn main() -> Result<()> {
+#[cfg(all(feature = "runtime-async-std", not(feature = "runtime-smol")))]
+fn main() -> grafton_visca::Result<()> {
     use async_std::task;
+    use grafton_visca::camera::profiles::PtzOpticsG2;
     use grafton_visca::runtime_adapters::async_std::{TcpTransport as Tcp, UdpTransport as Udp};
+    use grafton_visca::CameraBuilder;
 
     tracing_subscriber::fmt::init();
 
@@ -217,9 +215,11 @@ fn main() -> Result<()> {
     })
 }
 
-#[cfg(feature = "rt-smol")]
-fn main() -> Result<()> {
+#[cfg(feature = "runtime-smol")]
+fn main() -> grafton_visca::Result<()> {
+    use grafton_visca::camera::profiles::PtzOpticsG2;
     use grafton_visca::runtime_adapters::smol::{TcpTransport as Tcp, UdpTransport as Udp};
+    use grafton_visca::CameraBuilder;
 
     tracing_subscriber::fmt::init();
 
@@ -246,10 +246,4 @@ fn main() -> Result<()> {
 
         Ok(())
     })
-}
-
-#[cfg(feature = "mode-async")]
-fn main() {
-    println!("This example requires blocking mode. Run without the async feature:");
-    println!("  cargo run --example builder_api --no-default-features");
 }

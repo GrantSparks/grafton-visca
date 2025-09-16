@@ -1,6 +1,6 @@
 //! Direct test of the VISCA simulator's inquiry response functionality.
 
-#![cfg(feature = "rt-tokio")]
+#![cfg(feature = "runtime-tokio")]
 
 use grafton_visca::{testing::camera_simulator::ViscaCameraSimulator, transport::AsyncTransport};
 

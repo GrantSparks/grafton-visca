@@ -7,7 +7,7 @@
 
 use grafton_visca::testing::testkit::{ScriptedTransport, Step};
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 mod tokio_tests {
     use grafton_visca::{capabilities::ProtocolStyle, TokioExecutor};
 
@@ -193,7 +193,7 @@ mod tokio_tests {
     }
 }
 
-#[cfg(feature = "rt-async-std")]
+#[cfg(feature = "runtime-async-std")]
 mod async_std_tests {
     use grafton_visca::AsyncStdExecutor;
 
@@ -239,7 +239,7 @@ mod async_std_tests {
     }
 }
 
-#[cfg(feature = "rt-smol")]
+#[cfg(feature = "runtime-smol")]
 mod smol_tests {
     use grafton_visca::SmolExecutor;
 

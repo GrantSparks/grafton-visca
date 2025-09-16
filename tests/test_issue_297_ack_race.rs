@@ -4,7 +4,11 @@
 //! to eliminate the race condition where an ACK arrives before the
 //! command is registered in the pending list.
 
-#![cfg(all(feature = "mode-async", feature = "rt-tokio", feature = "test-utils"))]
+#![cfg(all(
+    feature = "mode-async",
+    feature = "runtime-tokio",
+    feature = "test-utils"
+))]
 
 use grafton_visca::camera::{profiles::PtzOpticsG2, CameraBuilder};
 use grafton_visca::runtime_trait::TokioRuntime;

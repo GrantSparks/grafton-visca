@@ -6,8 +6,8 @@
 mod common;
 
 #[cfg(all(
-    not(feature = "async"),
-    any(feature = "rt-tokio", feature = "test-utils")
+    not(feature = "mode-async"),
+    any(feature = "runtime-tokio", feature = "test-utils")
 ))]
 mod blocking_tests {
     use grafton_visca::{

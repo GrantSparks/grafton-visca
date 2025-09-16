@@ -137,7 +137,7 @@ fn test_trait_object_send_compatibility() {
 
 /// Test spawning futures across threads to verify Send bounds work in practice.
 #[tokio::test]
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 async fn test_spawn_futures_across_threads() {
     let camera = MockCamera;
 
@@ -187,7 +187,7 @@ fn test_control_trait_bounds() {
 
 /// Test that futures from different control traits can be used together.
 #[tokio::test]
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 async fn test_mixed_control_trait_futures() {
     let camera = MockCamera;
 

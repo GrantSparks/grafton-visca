@@ -1,6 +1,6 @@
 //! Tests for the DeterministicExecutor integration with the runtime.
 
-#![cfg(all(feature = "test-utils", feature = "async"))]
+#![cfg(all(feature = "test-utils", feature = "mode-async"))]
 
 use std::time::Duration;
 

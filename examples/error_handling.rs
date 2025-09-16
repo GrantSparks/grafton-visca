@@ -3,12 +3,12 @@
 //! This example demonstrates error handling patterns with the Camera API,
 //! including retry logic and error classification.
 
-#[cfg(any(not(feature = "async"), feature = "rt-tokio"))]
+#[cfg(any(not(feature = "mode-async"), feature = "runtime-tokio"))]
 use std::time::Instant;
 use std::{borrow::Cow, time::Duration};
 
 use grafton_visca::Error;
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 use grafton_visca::{
     camera::{
         builder::CameraBuilder,
@@ -28,7 +28,7 @@ use grafton_visca::{
     types::{PanSpeed, PanTiltDirection, TiltSpeed},
 };
 
-#[cfg(all(feature = "mode-async", not(feature = "rt-tokio")))]
+#[cfg(all(feature = "mode-async", not(feature = "runtime-tokio")))]
 fn main() {
     println!("=== VISCA Error Handling Demo ===\n");
     println!("This example demonstrates error handling patterns.\n");
@@ -68,7 +68,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
@@ -311,7 +311,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     Ok(())
 }
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("   Attempting to connect to camera at {camera_addr}...");
 

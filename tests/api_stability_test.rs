@@ -7,13 +7,17 @@
 #![cfg(feature = "mode-async")]
 
 // External crates
-#[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
+#[cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
 use grafton_visca::testing::testkit::ScriptedTransport;
 
-#[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
+#[cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
 use grafton_visca::TokioExecutor;
 
-#[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
+#[cfg(any(
+    feature = "runtime-tokio",
+    feature = "runtime-async-std",
+    feature = "runtime-smol"
+))]
 use grafton_visca::transport::Transport;
 
 // Standard library
@@ -23,12 +27,16 @@ use std::marker::PhantomData;
 #[test]
 fn test_transport_builder_api_stability() {
     // Test that Transport type is publicly available when runtime features are enabled
-    #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
+    #[cfg(any(
+        feature = "runtime-tokio",
+        feature = "runtime-async-std",
+        feature = "runtime-smol"
+    ))]
     {
         // Test that common builder methods exist and have expected signatures
         let _tcp_builder = Transport::tcp();
 
-        #[cfg(feature = "rt-tokio")]
+        #[cfg(feature = "runtime-tokio")]
         let _udp_builder = Transport::udp();
 
         // Test that Transport can be used in generic contexts
@@ -39,7 +47,7 @@ fn test_transport_builder_api_stability() {
         }
 
         accepts_transport_builder(Transport::tcp());
-        #[cfg(feature = "rt-tokio")]
+        #[cfg(feature = "runtime-tokio")]
         accepts_transport_builder(Transport::udp());
     }
 }
@@ -48,7 +56,7 @@ fn test_transport_builder_api_stability() {
 #[test]
 fn test_zero_cost_generic_transports() {
     // Test that generic transport types are available and work correctly
-    #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
+    #[cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
     {
         // Test that generic transports can be used with type parameters
         fn accepts_generic_transport<T>(_transport: T)
@@ -62,14 +70,14 @@ fn test_zero_cost_generic_transports() {
     }
 
     // Test that we can still work with generic constraints
-    #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
+    #[cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
     fn requires_send_sync<T>()
     where
         T: Send + Sync + 'static,
     {
     }
 
-    #[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
+    #[cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
     requires_send_sync::<ScriptedTransport<TokioExecutor>>();
 }
 
@@ -94,23 +102,31 @@ fn test_control_traits_api_stability() {
 #[test]
 fn test_runtime_feature_detection_stability() {
     // Count active runtime features
-    #[cfg(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol"))]
+    #[cfg(any(
+        feature = "runtime-tokio",
+        feature = "runtime-async-std",
+        feature = "runtime-smol"
+    ))]
     let mut active_runtimes = 0;
 
-    #[cfg(not(any(feature = "rt-tokio", feature = "rt-async-std", feature = "rt-smol")))]
+    #[cfg(not(any(
+        feature = "runtime-tokio",
+        feature = "runtime-async-std",
+        feature = "runtime-smol"
+    )))]
     let active_runtimes = 0;
 
-    #[cfg(feature = "rt-tokio")]
+    #[cfg(feature = "runtime-tokio")]
     {
         active_runtimes += 1;
     }
 
-    #[cfg(feature = "rt-async-std")]
+    #[cfg(feature = "runtime-async-std")]
     {
         active_runtimes += 1;
     }
 
-    #[cfg(feature = "rt-smol")]
+    #[cfg(feature = "runtime-smol")]
     {
         active_runtimes += 1;
     }
@@ -277,7 +293,11 @@ fn test_transport_module_structure() {
     use grafton_visca::transport::builder::TransportConfig;
     use grafton_visca::transport::RetryConfig;
 
-    #[cfg(all(feature = "mode-async", feature = "rt-tokio", feature = "test-utils"))]
+    #[cfg(all(
+        feature = "mode-async",
+        feature = "runtime-tokio",
+        feature = "test-utils"
+    ))]
     use grafton_visca::transport::AsyncTransport;
 
     #[cfg(not(feature = "mode-async"))]
@@ -289,7 +309,11 @@ fn test_transport_module_structure() {
     let _transport_config = TransportConfig::default();
 
     // Test that transport traits can be used as bounds - call it to verify it compiles
-    #[cfg(all(feature = "mode-async", feature = "rt-tokio", feature = "test-utils"))]
+    #[cfg(all(
+        feature = "mode-async",
+        feature = "runtime-tokio",
+        feature = "test-utils"
+    ))]
     {
         fn accepts_async_transport<T>(_transport: T)
         where

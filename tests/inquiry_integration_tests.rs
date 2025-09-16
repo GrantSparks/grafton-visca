@@ -3,7 +3,7 @@
 //! This module tests the end-to-end flow of inquiry commands from the camera
 //! through the socket manager to the simulator and back.
 
-#![cfg(feature = "rt-tokio")]
+#![cfg(feature = "runtime-tokio")]
 
 use grafton_visca::{
     camera::CameraBuilder,

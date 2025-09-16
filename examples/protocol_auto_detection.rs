@@ -6,7 +6,7 @@
 //! multiple camera brands without manual protocol configuration.
 //!
 //! Usage:
-//!   cargo run --example protocol_auto_detection --features rt-tokio [camera_ip[:port]]
+//!   cargo run --example protocol_auto_detection --features runtime-tokio [camera_ip[:port]]
 //!
 //! The example will:
 //! 1. Connect to the camera using auto-detection
@@ -15,14 +15,14 @@
 //! 4. Display the difference in wire format between protocols
 
 use grafton_visca::{
-    camera::{profiles::GenericVisca, Camera, Connect},
+    camera::{profiles::GenericVisca, Connect},
     runtime_trait::TokioRuntime,
     Error,
 };
 
 use std::env;
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
@@ -129,8 +129,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(not(feature = "rt-tokio"))]
+#[cfg(not(feature = "runtime-tokio"))]
 fn main() {
-    println!("This example requires the 'rt-tokio' feature.");
-    println!("Run with: cargo run --example protocol_auto_detection --features rt-tokio");
+    println!("This example requires the 'runtime-tokio' feature.");
+    println!("Run with: cargo run --example protocol_auto_detection --features runtime-tokio");
 }

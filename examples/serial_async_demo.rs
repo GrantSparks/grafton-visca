@@ -4,24 +4,36 @@
 //! using the new async serial transport implementation.
 //!
 //! Usage:
-//!   cargo run --example serial_async_demo --features "rt-tokio" [port] [camera_address]
+//!   cargo run --example serial_async_demo --features "runtime-tokio" [port] [camera_address]
 //!
 //! The example will:
 //! 1. Connect to the camera using async serial transport
 //! 2. Send I/F Clear and optionally Address Set commands
 //! 3. Send some basic commands to verify operation
 
-#[cfg(all(feature = "mode-async", feature = "rt-tokio", feature = "tokio-serial"))]
+#[cfg(all(
+    feature = "mode-async",
+    feature = "runtime-tokio",
+    feature = "tokio-serial"
+))]
 use std::env;
 
-#[cfg(all(feature = "mode-async", feature = "rt-tokio", feature = "tokio-serial"))]
+#[cfg(all(
+    feature = "mode-async",
+    feature = "runtime-tokio",
+    feature = "tokio-serial"
+))]
 use grafton_visca::{
-    camera::{profiles::GenericVisca, Camera, Connect},
+    camera::{profiles::GenericVisca, Connect},
     runtime_trait::TokioRuntime,
     Error,
 };
 
-#[cfg(all(feature = "mode-async", feature = "rt-tokio", feature = "tokio-serial"))]
+#[cfg(all(
+    feature = "mode-async",
+    feature = "runtime-tokio",
+    feature = "tokio-serial"
+))]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
@@ -104,10 +116,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(not(all(feature = "async", feature = "rt-tokio", feature = "tokio-serial")))]
+#[cfg(not(all(
+    feature = "mode-async",
+    feature = "runtime-tokio",
+    feature = "tokio-serial"
+)))]
 fn main() {
-    eprintln!("This example requires 'async', 'rt-tokio', and 'tokio-serial' features.");
+    eprintln!("This example requires 'async', 'runtime-tokio', and 'tokio-serial' features.");
     eprintln!(
-        "Run with: cargo run --example serial_async_demo --features 'async,rt-tokio,tokio-serial'"
+        "Run with: cargo run --example serial_async_demo --features 'async,runtime-tokio,tokio-serial'"
     );
 }

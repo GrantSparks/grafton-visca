@@ -127,19 +127,19 @@ fn main() -> Result<(), Error> {
     Ok(())
 }
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 use tokio::time::{sleep, Duration};
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 use std::env;
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 use grafton_visca::{
     camera::profiles::SonyFR7, runtime_adapters::tokio::TcpTransport as Tcp,
     runtime_trait::TokioRuntime, types::SpeedLevel, units::Degrees, CameraBuilder, Error,
 };
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     tracing_subscriber::fmt::init();
@@ -266,11 +266,11 @@ async fn main() -> Result<(), Error> {
 }
 
 // Provide a stub main when neither blocking nor tokio runtime is available
-#[cfg(all(feature = "mode-async", not(feature = "rt-tokio")))]
+#[cfg(all(feature = "mode-async", not(feature = "runtime-tokio")))]
 fn main() {
     eprintln!(
-        "This example requires either no features (for blocking) or --features rt-tokio for async"
+        "This example requires either no features (for blocking) or --features runtime-tokio for async"
     );
     eprintln!("Try: cargo run --example sony_encapsulation");
-    eprintln!("  or: cargo run --example sony_encapsulation --features rt-tokio");
+    eprintln!("  or: cargo run --example sony_encapsulation --features runtime-tokio");
 }

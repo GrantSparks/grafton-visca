@@ -10,26 +10,26 @@
 //! **Context**: This example uses native async transports with the tokio runtime
 //! to demonstrate true concurrent operations across multiple cameras.
 //!
-//! Run with: cargo run --example concurrent_control --features rt-tokio
+//! Run with: cargo run --example concurrent_control --features runtime-tokio
 
-#[cfg(not(feature = "rt-tokio"))]
+#[cfg(not(feature = "runtime-tokio"))]
 fn main() {
-    println!("This example requires the 'rt-tokio' feature.");
-    println!("Run with: cargo run --example concurrent_control --features rt-tokio");
+    println!("This example requires the 'runtime-tokio' feature.");
+    println!("Run with: cargo run --example concurrent_control --features runtime-tokio");
 }
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 use tokio::time::{sleep, Duration};
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 use std::sync::Arc;
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 use grafton_visca::{
     camera::{
         profiles::{PtzOpticsG2, PtzOpticsG3, SonyBRC300},
         session::CameraSession,
-        Camera, Connect,
+        Connect,
     },
     mode::Async,
     runtime_trait::TransportHandle,
@@ -38,7 +38,7 @@ use grafton_visca::{
     PresetNumber, Result, TokioRuntime,
 };
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
@@ -60,7 +60,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 async fn multi_camera_control() -> Result<()> {
     println!("--- Example 1: Multiple Cameras Simultaneously ---");
 
@@ -175,7 +175,7 @@ async fn multi_camera_control() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 async fn parallel_single_camera() -> Result<()> {
     println!("--- Example 2: Parallel Operations on Single Camera ---");
 
@@ -251,7 +251,7 @@ async fn parallel_single_camera() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 async fn producer_consumer_pattern() -> Result<()> {
     println!("--- Example 3: Producer-Consumer Pattern ---");
 
@@ -328,7 +328,7 @@ async fn producer_consumer_pattern() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 async fn synchronized_movement() -> Result<()> {
     println!("--- Example 4: Synchronized Multi-Camera Movement ---");
 
@@ -419,7 +419,7 @@ async fn synchronized_movement() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 #[derive(Debug)]
 enum Command {
     Home,

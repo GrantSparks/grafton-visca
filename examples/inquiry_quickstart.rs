@@ -14,7 +14,7 @@
 //!
 //! Run with:
 //! - Blocking: cargo run --example inquiry_quickstart
-//! - Async (Tokio): cargo run --example inquiry_quickstart --features rt-tokio
+//! - Async (Tokio): cargo run --example inquiry_quickstart --features runtime-tokio
 //!
 //! Set the CAMERA_IP environment variable to override the default (192.168.0.110):
 //! CAMERA_IP=192.168.1.100 cargo run --example inquiry_quickstart
@@ -149,13 +149,13 @@ fn main() -> grafton_visca::Result<()> {
     }
 
     println!("\n✓ Inquiry completed!");
-    println!("Tip: Run with --features rt-tokio for faster concurrent queries!");
+    println!("Tip: Run with --features runtime-tokio for faster concurrent queries!");
 
     Ok(())
 }
 
 // Async implementation with concurrent inquiries
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 #[tokio::main]
 async fn main() -> grafton_visca::Result<()> {
     use tokio::time::Instant;
@@ -319,9 +319,9 @@ async fn main() -> grafton_visca::Result<()> {
 }
 
 // Handle unsupported configurations
-#[cfg(all(feature = "mode-async", not(feature = "rt-tokio")))]
+#[cfg(all(feature = "mode-async", not(feature = "runtime-tokio")))]
 fn main() {
     println!("This example requires either blocking mode or tokio runtime:");
     println!("  cargo run --example inquiry_quickstart");
-    println!("  cargo run --example inquiry_quickstart --features rt-tokio");
+    println!("  cargo run --example inquiry_quickstart --features runtime-tokio");
 }

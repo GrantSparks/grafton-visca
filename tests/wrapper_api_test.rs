@@ -28,9 +28,7 @@ fn test_blocking_wrapper_api() {
 #[tokio::test]
 async fn test_async_wrapper_api() {
     // External crates
-    use grafton_visca::{
-        camera::AsyncCamera, capabilities::Profile, transport::AsyncTransport, ZoomControl,
-    };
+    use grafton_visca::{camera::AsyncCamera, capabilities::Profile, transport::AsyncTransport};
     #[allow(dead_code)]
     async fn example<
         P: Profile + Default,

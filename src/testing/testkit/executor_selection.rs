@@ -80,7 +80,7 @@ pub trait TestExecutorSelector {
             not(feature = "runtime-async-std"),
             not(feature = "runtime-smol")
         ))]
-        panic!("No real runtime available for timeout tests. Enable at least one of: rt-tokio, rt-async-std, rt-smol");
+        panic!("No real runtime available for timeout tests. Enable at least one of: runtime-tokio, runtime-async-std, runtime-smol");
     }
 }
 

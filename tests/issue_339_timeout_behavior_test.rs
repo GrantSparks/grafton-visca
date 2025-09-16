@@ -5,9 +5,9 @@
 //! 2. Genuine IO errors DO trigger network error
 //! 3. Normal traffic flow is not affected by the fix
 
-#![cfg(all(feature = "test-utils", feature = "async"))]
+#![cfg(all(feature = "test-utils", feature = "mode-async"))]
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 mod timeout_behavior_tests {
     use grafton_visca::{
         camera::CameraBuilder,
@@ -205,9 +205,9 @@ mod timeout_behavior_tests {
 // real runtimes are present. See issue #394 for details.
 #[cfg(all(
     feature = "test-utils",
-    not(feature = "rt-tokio"),
-    not(feature = "rt-async-std"),
-    not(feature = "rt-smol")
+    not(feature = "runtime-tokio"),
+    not(feature = "runtime-async-std"),
+    not(feature = "runtime-smol")
 ))]
 mod deterministic_tests {
     use grafton_visca::testing::testkit::deterministic_executor::DeterministicExecutor;

@@ -10,10 +10,10 @@ mod parity_tests {
     use grafton_visca::{
         camera::CameraBuilder,
         testing::testkit::{ScriptedTransport, Step},
-        PowerControl, PresetsControl, ZoomControl,
     };
 
     // Common test scenario: Power on, zoom in, recall preset
+    #[allow(dead_code)]
     fn create_test_script() -> Vec<Step> {
         vec![
             // Power inquiry
@@ -48,7 +48,7 @@ mod parity_tests {
         ]
     }
 
-    #[cfg(feature = "rt-tokio")]
+    #[cfg(feature = "runtime-tokio")]
     #[tokio::test]
     async fn test_tokio_runtime_operations() {
         use grafton_visca::TokioExecutor;
@@ -67,20 +67,20 @@ mod parity_tests {
         let power_status = camera.power().state().await.expect("Power inquiry failed");
         assert!(power_status, "Expected power to be on");
 
-        camera.power_off().await.expect("Power off failed");
+        camera.power().off().await.expect("Power off failed");
 
         // Test zoom operations
-        camera.zoom_tele_std().await.expect("Zoom tele failed");
+        camera.zoom().tele().await.expect("Zoom tele failed");
 
         // Test preset operations
-        use grafton_visca::command::preset::PresetNumber;
         camera
-            .preset_recall(PresetNumber::new(1).unwrap())
+            .presets()
+            .recall(1)
             .await
             .expect("Preset recall failed");
     }
 
-    #[cfg(feature = "rt-async-std")]
+    #[cfg(feature = "runtime-async-std")]
     #[test]
     fn test_async_std_runtime_operations() {
         use grafton_visca::AsyncStdExecutor;
@@ -100,21 +100,21 @@ mod parity_tests {
             let power_status = camera.power().state().await.expect("Power inquiry failed");
             assert!(power_status, "Expected power to be on");
 
-            camera.power_off().await.expect("Power off failed");
+            camera.power().off().await.expect("Power off failed");
 
             // Test zoom operations
-            camera.zoom_tele_std().await.expect("Zoom tele failed");
+            camera.zoom().tele().await.expect("Zoom tele failed");
 
             // Test preset operations
-            use grafton_visca::command::preset::PresetNumber;
             camera
-                .preset_recall(PresetNumber::new(1).unwrap())
+                .presets()
+                .recall(1)
                 .await
                 .expect("Preset recall failed");
         });
     }
 
-    #[cfg(feature = "rt-smol")]
+    #[cfg(feature = "runtime-smol")]
     #[test]
     fn test_smol_runtime_operations() {
         use grafton_visca::SmolExecutor;
@@ -134,22 +134,22 @@ mod parity_tests {
             let power_status = camera.power().state().await.expect("Power inquiry failed");
             assert!(power_status, "Expected power to be on");
 
-            camera.power_off().await.expect("Power off failed");
+            camera.power().off().await.expect("Power off failed");
 
             // Test zoom operations
-            camera.zoom_tele_std().await.expect("Zoom tele failed");
+            camera.zoom().tele().await.expect("Zoom tele failed");
 
             // Test preset operations
-            use grafton_visca::command::preset::PresetNumber;
             camera
-                .preset_recall(PresetNumber::new(1).unwrap())
+                .presets()
+                .recall(1)
                 .await
                 .expect("Preset recall failed");
         });
     }
 
     // Test builder method parity
-    #[cfg(feature = "rt-tokio")]
+    #[cfg(feature = "runtime-tokio")]
     #[tokio::test]
     async fn test_tokio_builder_transport_creation() {
         use grafton_visca::TokioExecutor;
@@ -172,7 +172,7 @@ mod parity_tests {
         assert!(!power_status, "Expected power to be off");
     }
 
-    #[cfg(feature = "rt-async-std")]
+    #[cfg(feature = "runtime-async-std")]
     #[test]
     fn test_async_std_builder_transport_creation() {
         use grafton_visca::AsyncStdExecutor;
@@ -197,7 +197,7 @@ mod parity_tests {
         });
     }
 
-    #[cfg(feature = "rt-smol")]
+    #[cfg(feature = "runtime-smol")]
     #[test]
     fn test_smol_builder_transport_creation() {
         use grafton_visca::SmolExecutor;
@@ -223,7 +223,7 @@ mod parity_tests {
     }
 
     // Test error handling parity
-    #[cfg(feature = "rt-tokio")]
+    #[cfg(feature = "runtime-tokio")]
     #[tokio::test]
     async fn test_tokio_error_handling() {
         use grafton_visca::TokioExecutor;
@@ -246,7 +246,7 @@ mod parity_tests {
         assert!(result.is_err(), "Expected error from error response");
     }
 
-    #[cfg(feature = "rt-async-std")]
+    #[cfg(feature = "runtime-async-std")]
     #[test]
     fn test_async_std_error_handling() {
         use grafton_visca::AsyncStdExecutor;
@@ -271,7 +271,7 @@ mod parity_tests {
         });
     }
 
-    #[cfg(feature = "rt-smol")]
+    #[cfg(feature = "runtime-smol")]
     #[test]
     fn test_smol_error_handling() {
         use grafton_visca::SmolExecutor;
@@ -299,9 +299,9 @@ mod parity_tests {
 
 #[cfg(all(
     feature = "test-utils",
-    feature = "rt-tokio",
-    feature = "rt-async-std",
-    feature = "rt-smol"
+    feature = "runtime-tokio",
+    feature = "runtime-async-std",
+    feature = "runtime-smol"
 ))]
 mod all_runtimes_test {
     use grafton_visca::{

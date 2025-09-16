@@ -5,16 +5,16 @@
 //!
 //! For typical usage, see the high-level examples in examples/
 
-#[cfg(not(all(feature = "async", feature = "rt-tokio")))]
+#[cfg(not(all(feature = "mode-async", feature = "runtime-tokio")))]
 fn main() {
-    eprintln!("This example requires the 'async' and 'rt-tokio' features to be enabled.");
-    eprintln!("Run with: cargo run --example runtime_demo_lowlevel --features async,rt-tokio");
+    eprintln!("This example requires the 'async' and 'runtime-tokio' features to be enabled.");
+    eprintln!("Run with: cargo run --example runtime_demo_lowlevel --features async,runtime-tokio");
 }
 
-#[cfg(all(feature = "mode-async", feature = "rt-tokio"))]
+#[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]
 use std::sync::Arc;
 
-#[cfg(all(feature = "mode-async", feature = "rt-tokio"))]
+#[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]
 use grafton_visca::{
     camera::profiles::GenericVisca,
     camera_id::CameraId,
@@ -23,7 +23,7 @@ use grafton_visca::{
     TokioExecutor,
 };
 
-#[cfg(all(feature = "mode-async", feature = "rt-tokio"))]
+#[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging

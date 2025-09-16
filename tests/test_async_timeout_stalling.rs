@@ -10,10 +10,10 @@
 
 #![cfg(all(feature = "mode-async", feature = "test-utils"))]
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 use std::time::Duration;
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 use grafton_visca::{
     camera::profiles::PtzOpticsG2,
     prelude::advanced::ProtocolStyle,
@@ -29,7 +29,7 @@ use grafton_visca::{
 /// - Uses short ACK timeout (50-100ms)
 /// - Verifies the command completes with Error::Timeout under deterministic executor
 /// - Acts as a sentinel for future changes
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 #[tokio::test]
 async fn test_command_timeout_completes_deterministically() {
     use grafton_visca::TokioExecutor;
@@ -77,7 +77,7 @@ async fn test_command_timeout_completes_deterministically() {
 ///
 /// This ensures the runtime can handle multiple pending timeouts without
 /// getting stuck in an infinite loop.
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 #[tokio::test]
 async fn test_multiple_timeouts_no_starvation() {
     use grafton_visca::TokioExecutor;
@@ -133,7 +133,7 @@ async fn test_multiple_timeouts_no_starvation() {
 /// Test that runtime properly shuts down even with pending timeouts.
 ///
 /// This verifies the shutdown race implementation works correctly.
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 #[tokio::test]
 async fn test_shutdown_with_pending_timeouts() {
     use grafton_visca::TokioExecutor;

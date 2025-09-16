@@ -3,7 +3,7 @@
 //! This example shows how to create transport builders with custom configurations
 //! without actually establishing connections.
 //!
-//! Run with: cargo run --example transport_builder_demo --features rt-tokio
+//! Run with: cargo run --example transport_builder_demo --features runtime-tokio
 
 use std::time::Duration;
 
@@ -108,10 +108,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("    - Exponential backoff: enabled\n");
     }
 
-    // Example 7: Runtime-based async transport API (requires rt-tokio feature)
-    #[cfg(feature = "rt-tokio")]
+    // Example 7: Runtime-based async transport API (requires runtime-tokio feature)
+    #[cfg(feature = "runtime-tokio")]
     {
-        println!("Example 7: Runtime-based async transport API (rt-tokio feature)");
+        println!("Example 7: Runtime-based async transport API (runtime-tokio feature)");
 
         // Example 7a: TCP transport with Runtime
         println!("  7a. TCP transport with Runtime:");
@@ -142,11 +142,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!();
     }
 
-    #[cfg(not(feature = "rt-tokio"))]
+    #[cfg(not(feature = "runtime-tokio"))]
     {
         println!("Example 7: Async transport builders");
-        println!("  (Skipped - requires 'rt-tokio' feature)");
-        println!("  Run with: cargo run --example transport_builder_demo --features rt-tokio\n");
+        println!("  (Skipped - requires 'runtime-tokio' feature)");
+        println!(
+            "  Run with: cargo run --example transport_builder_demo --features runtime-tokio\n"
+        );
     }
 
     println!("\n✅ All transport builder examples completed successfully!");

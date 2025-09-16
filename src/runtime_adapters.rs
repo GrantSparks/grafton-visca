@@ -7,7 +7,7 @@
 /// Tokio runtime transport adapters.
 ///
 /// These transports are optimized for use with the Tokio runtime and require
-/// the `rt-tokio` feature to be enabled.
+/// the `runtime-tokio` feature to be enabled.
 ///
 /// # Example
 ///
@@ -37,7 +37,7 @@ pub mod tokio {
 /// async-std runtime transport adapters.
 ///
 /// These transports are optimized for use with the async-std runtime and require
-/// the `rt-async-std` feature to be enabled.
+/// the `runtime-async-std` feature to be enabled.
 ///
 /// # Example
 ///
@@ -62,7 +62,7 @@ pub mod async_std {
 /// smol runtime transport adapters.
 ///
 /// These transports are optimized for use with the smol runtime and require
-/// the `rt-smol` feature to be enabled.
+/// the `runtime-smol` feature to be enabled.
 ///
 /// # Example
 ///

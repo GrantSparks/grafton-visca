@@ -6,7 +6,7 @@
 //! 3. Socket manager respects custom timeout configurations
 //! 4. Timeout errors are handled deterministically
 
-#[cfg(all(test, feature = "rt-tokio", feature = "test-utils"))]
+#[cfg(all(test, feature = "runtime-tokio", feature = "test-utils"))]
 mod timeout_tests {
     // External crates
     use grafton_visca::{

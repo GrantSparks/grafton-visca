@@ -7,7 +7,7 @@
 
 #![cfg(feature = "mode-async")]
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 mod tokio_runtime_tests {
     use grafton_visca::{
         runtime_trait::{Runtime, TokioRuntime},
@@ -100,7 +100,7 @@ mod tokio_runtime_tests {
     }
 }
 
-#[cfg(feature = "rt-async-std")]
+#[cfg(feature = "runtime-async-std")]
 mod async_std_runtime_tests {
     use grafton_visca::runtime_trait::{AsyncStdRuntime, Runtime};
 
@@ -151,7 +151,7 @@ mod async_std_runtime_tests {
 
 // NOTE: Smol tests are disabled when Tokio is also enabled to avoid
 // runtime conflicts. See issue #394 for details.
-#[cfg(all(feature = "rt-smol", not(feature = "rt-tokio")))]
+#[cfg(all(feature = "runtime-smol", not(feature = "runtime-tokio")))]
 mod smol_runtime_tests {
     use grafton_visca::runtime_trait::{Runtime, SmolRuntime};
 
@@ -211,7 +211,7 @@ mod smol_runtime_tests {
 }
 
 // Compile-time tests to ensure type safety
-#[cfg(all(feature = "rt-tokio", feature = "rt-async-std"))]
+#[cfg(all(feature = "runtime-tokio", feature = "runtime-async-std"))]
 mod compile_time_safety_tests {
     use std::any::TypeId;
 
@@ -240,7 +240,7 @@ mod compile_time_safety_tests {
 }
 
 // Test that TransportHandle properly implements AsyncTransport
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 #[tokio::test]
 async fn test_transport_handle_async_transport_impl() {
     use grafton_visca::runtime_trait::{TokioRuntime, TransportHandle};

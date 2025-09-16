@@ -97,7 +97,7 @@ macro_rules! assert_inquiry_response {
     }};
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 #[macro_export]
 macro_rules! create_test_client {
     (udp, $addr:expr) => {{
@@ -110,7 +110,7 @@ macro_rules! create_test_client {
     }};
 }
 
-#[cfg(not(feature = "async"))]
+#[cfg(not(feature = "mode-async"))]
 #[macro_export]
 macro_rules! assert_send_ok {
     ($client:expr, $command:expr) => {{

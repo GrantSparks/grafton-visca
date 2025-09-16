@@ -4,7 +4,7 @@
 //! coordinate system conversion for pan/tilt responses, matching the
 //! behavior of the async runtime.
 
-#[cfg(all(test, not(feature = "async"), feature = "test-utils"))]
+#[cfg(all(test, not(feature = "mode-async"), feature = "test-utils"))]
 mod profile_aware_blocking_tests {
     use grafton_visca::{
         camera::profiles::{PtzOpticsG2, SonyBRC300},

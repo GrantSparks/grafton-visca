@@ -162,7 +162,7 @@
 //! ```ignore
 //! // Multiple runtimes can coexist! Priority: tokio → async-std → smol
 //! [dependencies]
-//! grafton-visca = { version = "*", features = ["rt-tokio", "rt-async-std"] }
+//! grafton-visca = { version = "*", features = ["runtime-tokio", "runtime-async-std"] }
 //!
 //! use grafton_visca::{
 //!     CameraBuilder, Error,
@@ -299,9 +299,9 @@
 //! ### Feature Flags
 //!
 //! - `async` - Enables async support without any specific runtime. You must provide your own runtime.
-//! - `rt-tokio` - Enables async with built-in Tokio runtime support (implies `async`).
-//! - `rt-async-std` - Enables async with built-in async-std runtime support (implies `async`).
-//! - `rt-smol` - Enables async with built-in smol runtime support (implies `async`).
+//! - `runtime-tokio` - Enables async with built-in Tokio runtime support (implies `async`).
+//! - `runtime-async-std` - Enables async with built-in async-std runtime support (implies `async`).
+//! - `runtime-smol` - Enables async with built-in smol runtime support (implies `async`).
 //! - `test-utils` - Testing utilities including ScriptedTransport and DeterministicExecutor (not for production).
 //!
 //! **Multiple Runtime Support**: As of version 0.7.0, runtime features can be enabled simultaneously.
@@ -339,13 +339,13 @@
 //! ```toml
 //! [dependencies]
 //! # Single runtime:
-//! grafton-visca = { version = "*", features = ["rt-tokio"] }
-//! grafton-visca = { version = "*", features = ["rt-async-std"] }
-//! grafton-visca = { version = "*", features = ["rt-smol"] }
+//! grafton-visca = { version = "*", features = ["runtime-tokio"] }
+//! grafton-visca = { version = "*", features = ["runtime-async-std"] }
+//! grafton-visca = { version = "*", features = ["runtime-smol"] }
 //!
 //! # Multiple runtimes (choose executor at construction time):
-//! grafton-visca = { version = "*", features = ["rt-tokio", "rt-async-std"] }
-//! grafton-visca = { version = "*", features = ["rt-tokio", "rt-smol", "rt-async-std"] }
+//! grafton-visca = { version = "*", features = ["runtime-tokio", "runtime-async-std"] }
+//! grafton-visca = { version = "*", features = ["runtime-tokio", "runtime-smol", "runtime-async-std"] }
 //! ```
 //!
 //! Then use the corresponding `CameraBuilder` method:
@@ -442,7 +442,7 @@
 //! #### Error: `InvalidState("No runtime configured for async operations")`
 //! **Cause:** You're using async mode but haven't configured a runtime.
 //! **Solution:** Either:
-//! - Enable `rt-tokio` feature and use `CameraBuilder::with_executor(TokioRuntime::from_current())`
+//! - Enable `runtime-tokio` feature and use `CameraBuilder::with_executor(TokioRuntime::from_current())`
 //! - Use `CameraBuilder::with_executor()` with your own runtime implementation
 //!
 //! #### Error: `InvalidState("Operation requires runtime for timeout handling")`

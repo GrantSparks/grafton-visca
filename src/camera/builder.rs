@@ -6,9 +6,9 @@
 //! # Supported Runtimes
 //!
 //! The builder supports multiple async runtimes through the unified executor approach:
-//! - **Tokio**: `CameraBuilder::with_executor(TokioRuntime::from_current())` (requires `rt-tokio` feature)
-//! - **async-std**: `CameraBuilder::with_executor(AsyncStdRuntime::new())` (requires `rt-async-std` feature)
-//! - **smol**: `CameraBuilder::with_executor(SmolRuntime::new())` (requires `rt-smol` feature)
+//! - **Tokio**: `CameraBuilder::with_executor(TokioRuntime::from_current())` (requires `runtime-tokio` feature)
+//! - **async-std**: `CameraBuilder::with_executor(AsyncStdRuntime::new())` (requires `runtime-async-std` feature)
+//! - **smol**: `CameraBuilder::with_executor(SmolRuntime::new())` (requires `runtime-smol` feature)
 //!
 //! # Example
 //!

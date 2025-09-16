@@ -12,7 +12,7 @@ use grafton_visca::ViscaSocket;
 /// Test that cancel methods are available on Camera.
 /// This is a compilation test to ensure the API is properly exposed.
 #[tokio::test]
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 async fn test_cancel_api_available() {
     // This test verifies that the cancel methods compile and are accessible.
     // Actual execution would require a connected camera or mock transport.
@@ -41,7 +41,7 @@ async fn test_cancel_api_available() {
 
 /// Test that demonstrates the intended usage pattern for cancellation.
 #[tokio::test]
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 async fn test_cancel_usage_pattern() {
     // This demonstrates how a user would use the cancellation API
     // with a real camera connection.

@@ -10,11 +10,11 @@
 //! DeterministicExecutor has issues with timeout handling when real runtimes
 //! are present. See issue #394 for details.
 #![cfg(all(
-    feature = "async",
+    feature = "mode-async",
     feature = "test-utils",
-    not(feature = "rt-tokio"),
-    not(feature = "rt-async-std"),
-    not(feature = "rt-smol")
+    not(feature = "runtime-tokio"),
+    not(feature = "runtime-async-std"),
+    not(feature = "runtime-smol")
 ))]
 
 use grafton_visca::{
@@ -247,7 +247,7 @@ fn test_async_detect_race_semantics() {
     });
 }
 
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 mod tokio_runtime_tests {
     use super::*;
     use grafton_visca::TokioExecutor;
@@ -278,7 +278,7 @@ mod tokio_runtime_tests {
     }
 }
 
-#[cfg(feature = "rt-async-std")]
+#[cfg(feature = "runtime-async-std")]
 mod async_std_runtime_tests {
     use super::*;
     use grafton_visca::AsyncStdExecutor;

@@ -1,17 +1,17 @@
 //! Tests for runtime functionality with async operations.
 //!
 //! These tests verify that async operations work correctly with the default
-//! runtime provided by the rt-tokio feature.
+//! runtime provided by the runtime-tokio feature.
 
 #![cfg(feature = "mode-async")]
 
-#[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
+#[cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
 use grafton_visca::testing::testkit::{helpers, ScriptedTransport};
 
-#[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
+#[cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
 use grafton_visca::TokioExecutor;
 
-#[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
+#[cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
 #[tokio::test(start_paused = true)]
 async fn test_operations_work_with_default_runtime() {
     use grafton_visca::camera::{profiles::PtzOpticsG2, CameraBuilder};
@@ -50,7 +50,7 @@ async fn test_operations_work_with_default_runtime() {
     drop(camera);
 }
 
-#[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
+#[cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
 #[tokio::test(start_paused = true)]
 async fn test_operations_succeed_with_explicit_runtime() {
     use grafton_visca::camera::{profiles::PtzOpticsG2, CameraBuilder};
@@ -87,14 +87,14 @@ async fn test_operations_succeed_with_explicit_runtime() {
 //
 // For now, we'll skip this test as it's not testing anything meaningful
 // in the context of running inside tokio.
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 #[tokio::test]
 #[ignore] // Ignore this test as it causes issues with nested runtimes
 async fn test_custom_runtime_works() {
     // This test would need to be run in a different context to be meaningful
 }
 
-#[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
+#[cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
 #[tokio::test(start_paused = true)]
 async fn test_movement_detection_works_with_default_runtime() {
     use grafton_visca::camera::{profiles::PtzOpticsG2, CameraBuilder};
@@ -125,7 +125,7 @@ async fn test_movement_detection_works_with_default_runtime() {
     drop(camera);
 }
 
-#[cfg(all(feature = "rt-tokio", feature = "test-utils"))]
+#[cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
 #[tokio::test(start_paused = true)]
 async fn test_power_operations_work_with_default_runtime() {
     use grafton_visca::camera::{profiles::PtzOpticsG2, CameraBuilder};
@@ -157,7 +157,7 @@ async fn test_power_operations_work_with_default_runtime() {
 }
 
 // NOTE: To truly test "no runtime" scenarios, we would need:
-// 1. Tests that run with async feature but WITHOUT rt-tokio
+// 1. Tests that run with async feature but WITHOUT runtime-tokio
 // 2. Tests that don't use #[tokio::test] (since that requires tokio)
 // 3. A way to run async tests without any runtime
 //
