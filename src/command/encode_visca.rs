@@ -4,11 +4,12 @@
 //! `Command` and `ViscaCommand` traits into a single interface with zero-allocation
 //! encoding support.
 
+use bytes::Bytes;
+
 use super::response::ViscaResponseType;
 use crate::{
     camera_id::CameraId, constants::CameraVariant, error::Error, timeout::CommandCategory,
 };
-use bytes::Bytes;
 
 /// Command kind classification for VISCA protocol.
 ///

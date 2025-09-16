@@ -39,14 +39,14 @@ visca_builder! {
         // Convert -10..+10 to 0x00..0x14 (0x00 = -10, 0x0A = 0, 0x14 = +10)
         let level_value = level.value();
         let level_offset = level_value + 10;
-        assert!((0..=20).contains(&level_offset), "Color tuning level offset out of range: {level_offset}");
-        // Safe cast: level_offset is guaranteed to be 0..=20 after validation
+        assert!((0..=20).contains(&level_offset), "Color tuning level offset out of range: {}", level_offset);
+        // SAFETY: level_offset is guaranteed to be 0..=20 after validation
         #[allow(clippy::cast_sign_loss)]
         let encoded = level_offset as u8;
 
         builder
             .append(crate::command::bytes::constants::color::RED_GAIN_DIRECT_PREFIX)
-            .push(0x00) // High nibble always 0 for range 0x00-0x14
+            .push(0x00)
             .push(encoded)
     }
     timeout = Quick;
@@ -72,14 +72,14 @@ visca_builder! {
         // Convert -10..+10 to 0x00..0x14 (0x00 = -10, 0x0A = 0, 0x14 = +10)
         let level_value = level.value();
         let level_offset = level_value + 10;
-        assert!((0..=20).contains(&level_offset), "Color tuning level offset out of range: {level_offset}");
-        // Safe cast: level_offset is guaranteed to be 0..=20 after validation
+        assert!((0..=20).contains(&level_offset), "Color tuning level offset out of range: {}", level_offset);
+        // SAFETY: level_offset is guaranteed to be 0..=20 after validation
         #[allow(clippy::cast_sign_loss)]
         let encoded = level_offset as u8;
 
         builder
             .append(crate::command::bytes::constants::color::BLUE_GAIN_DIRECT_PREFIX)
-            .push(0x00) // High nibble always 0 for range 0x00-0x14
+            .push(0x00)
             .push(encoded)
     }
     timeout = Quick;
@@ -380,9 +380,9 @@ mod tests {
                 .unwrap();
             assert_eq!(bytes.len(), 9);
             assert_eq!(bytes[0..6], [0x81, 0x01, 0x04, 0x43, 0x00, 0x00]);
-            assert_eq!(bytes[6], 0x00); // High nibble (0p)
-            assert_eq!(bytes[7], (level + 10) as u8); // Low nibble (0q)
-            assert_eq!(bytes[8], 0xFF); // Terminator
+            assert_eq!(bytes[6], 0x00);
+            assert_eq!(bytes[7], (level + 10) as u8);
+            assert_eq!(bytes[8], 0xFF);
             assert!(cmd.response_type().is_none());
             assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
         }
@@ -416,9 +416,9 @@ mod tests {
                 .unwrap();
             assert_eq!(bytes.len(), 9);
             assert_eq!(bytes[0..6], [0x81, 0x01, 0x04, 0x44, 0x00, 0x00]);
-            assert_eq!(bytes[6], 0x00); // High nibble (0p)
-            assert_eq!(bytes[7], (level + 10) as u8); // Low nibble (0q)
-            assert_eq!(bytes[8], 0xFF); // Terminator
+            assert_eq!(bytes[6], 0x00);
+            assert_eq!(bytes[7], (level + 10) as u8);
+            assert_eq!(bytes[8], 0xFF);
             assert!(cmd.response_type().is_none());
             assert!(matches!(cmd.timeout_kind(), CommandCategory::Quick));
         }
@@ -686,7 +686,7 @@ mod tests {
         ];
 
         for cmd in cmds {
-            let _ = format!("{cmd:?}");
+            let _ = format!("{:?}", cmd);
         }
 
         // Test Clone
@@ -718,7 +718,7 @@ mod tests {
                 .map(|b| b.to_vec())
                 .unwrap()[7],
             0x00
-        ); // Value at index 7 after padding
+        );
 
         let red_max = RedTuningCommand::new(RedTuning::MAX);
         assert!(red_max
@@ -731,7 +731,7 @@ mod tests {
                 .map(|b| b.to_vec())
                 .unwrap()[7],
             0x14
-        ); // Value at index 7 after padding
+        );
 
         let blue_min = BlueTuningCommand::new(BlueTuning::new(-10).unwrap());
         assert!(blue_min
@@ -744,7 +744,7 @@ mod tests {
                 .map(|b| b.to_vec())
                 .unwrap()[7],
             0x00
-        ); // Value at index 7 after padding
+        );
 
         let blue_max = BlueTuningCommand::new(BlueTuning::MAX);
         assert!(blue_max
@@ -757,7 +757,7 @@ mod tests {
                 .map(|b| b.to_vec())
                 .unwrap()[7],
             0x14
-        ); // Value at index 7 after padding
+        );
 
         // Test boundary values for saturation and hue
         let sat_min = SaturationCommand::new(SaturationLevel::new(0x00).unwrap());
@@ -808,24 +808,24 @@ mod tests {
             .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
             .map(|b| b.to_vec())
             .unwrap();
-        assert_eq!(bytes[4], 0x02); // High nibble (ColorTemp has no padding)
-        assert_eq!(bytes[5], 0x05); // Low nibble
+        assert_eq!(bytes[4], 0x02);
+        assert_eq!(bytes[5], 0x05);
 
         let cmd = RedGain::SetValue(crate::types::RedChannel::new(0xAB).unwrap());
         let bytes = cmd
             .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
             .map(|b| b.to_vec())
             .unwrap();
-        assert_eq!(bytes[6], 0x0A); // High nibble (RedGain has 00 00 padding)
-        assert_eq!(bytes[7], 0x0B); // Low nibble
+        assert_eq!(bytes[6], 0x0A);
+        assert_eq!(bytes[7], 0x0B);
 
         let cmd = BlueGain::SetValue(crate::types::BlueChannel::new(0xF0).unwrap());
         let bytes = cmd
             .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
             .map(|b| b.to_vec())
             .unwrap();
-        assert_eq!(bytes[6], 0x0F); // High nibble (BlueGain has 00 00 padding)
-        assert_eq!(bytes[7], 0x00); // Low nibble
+        assert_eq!(bytes[6], 0x0F);
+        assert_eq!(bytes[7], 0x00);
     }
 
     #[test]
@@ -840,14 +840,14 @@ mod tests {
                 .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap();
-            assert_eq!(red_bytes[7], expected); // Value is at index 7 after 00 00 padding
+            assert_eq!(red_bytes[7], expected);
 
             let blue_cmd = BlueTuningCommand::new(BlueTuning::new(level).unwrap());
             let blue_bytes = blue_cmd
                 .try_into_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap();
-            assert_eq!(blue_bytes[7], expected); // Value is at index 7 after 00 00 padding
+            assert_eq!(blue_bytes[7], expected);
         }
     }
 }

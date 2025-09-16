@@ -1,10 +1,8 @@
 //! White balance capability trait and associated types.
 
-use std::borrow::Cow;
-use std::ops::Range;
+use std::{borrow::Cow, ops::Range};
 
-use crate::capabilities::ValidationError;
-use crate::WhiteBalanceMode;
+use crate::{capabilities::ValidationError, WhiteBalanceMode};
 
 /// Trait for cameras that support white balance control.
 ///

@@ -67,3 +67,10 @@
 ./src/capabilities/types.rs
 ./src/capabilities/validation.rs
 ./src/capabilities/variable_speed.rs
+./src/capabilities/white_balance.rs
+./src/capabilities/zoom.rs
+./src/command/bytes/builder.rs
+./src/command/bytes/constants.rs
+./src/command/bytes/mod.rs
+./src/command/encode_visca.rs
+./src/command/exposure.rs
