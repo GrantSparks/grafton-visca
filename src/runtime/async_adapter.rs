@@ -268,9 +268,9 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
         }
     }
 
-    /// Get the next command to send.
-    pub fn next_command_to_send(&mut self) -> Option<PendingCommand> {
-        self.core.next_command_to_send()
+    /// Get the next item to send (command or inquiry).
+    pub fn next_item_to_send(&mut self) -> Option<PendingCommand> {
+        self.core.next_item_to_send()
     }
 
     /// Register that a command was sent and is pending ACK.

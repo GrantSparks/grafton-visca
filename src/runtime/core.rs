@@ -533,6 +533,10 @@ pub struct SchedulerCore {
     retry_trigger_transport_error: HashMap<u32, bool>,
     /// Priority queue for pending commands.
     command_queue: BinaryHeap<PendingCommand>,
+    /// Priority queue for pending inquiries (separate from commands to avoid socket gating).
+    inquiry_queue: BinaryHeap<PendingCommand>,
+    /// Maximum number of inquiries that can be in flight simultaneously.
+    max_inquiries_inflight: usize,
     /// Retry budget for command categories.
     retry_budget: RetryBudget,
     /// Sony sequence tracking: sequence -> command_id.
@@ -576,6 +580,8 @@ impl SchedulerCore {
             retry_attempts: HashMap::new(),
             retry_trigger_transport_error: HashMap::new(),
             command_queue: BinaryHeap::new(),
+            inquiry_queue: BinaryHeap::new(),
+            max_inquiries_inflight: 8, // Conservative default to avoid overwhelming devices
             retry_budget,
             seq_to_cmd: HashMap::new(),
             cmd_to_seqs: HashMap::new(),
@@ -592,9 +598,22 @@ impl SchedulerCore {
         self.timeout_config = timeout_config;
     }
 
+    /// Set the maximum number of inquiries that can be in flight simultaneously.
+    pub fn set_max_inquiries_inflight(&mut self, max: usize) {
+        self.max_inquiries_inflight = max;
+    }
+
     /// Queue a command for execution.
     pub fn queue_command(&mut self, command: PendingCommand) {
-        self.command_queue.push(command);
+        // Route based on command kind
+        match command.kind {
+            CommandKind::Inquiry => {
+                self.inquiry_queue.push(command);
+            }
+            CommandKind::Command => {
+                self.command_queue.push(command);
+            }
+        }
     }
 
     /// Check if we can send another command (have room for pending ACK).
@@ -638,13 +657,27 @@ impl SchedulerCore {
         can_send
     }
 
-    /// Get the next command to send if any.
-    pub fn next_command_to_send(&mut self) -> Option<PendingCommand> {
-        if self.can_send_command() && !self.command_queue.is_empty() {
-            self.command_queue.pop()
-        } else {
-            None
+    /// Check if we can send an inquiry (not at max capacity).
+    pub fn can_send_inquiry(&self) -> bool {
+        self.inquiries_inflight.len() < self.max_inquiries_inflight
+    }
+
+    /// Get the next item to send (inquiry or command).
+    ///
+    /// Inquiries bypass the two-socket gate and are returned immediately if available
+    /// and under the inquiry limit. Commands are only returned if sockets are available.
+    pub fn next_item_to_send(&mut self) -> Option<PendingCommand> {
+        // First check for inquiries - they don't need socket allocation
+        if !self.inquiry_queue.is_empty() && self.can_send_inquiry() {
+            return self.inquiry_queue.pop();
         }
+
+        // Then check for commands if we have socket capacity
+        if self.can_send_command() && !self.command_queue.is_empty() {
+            return self.command_queue.pop();
+        }
+
+        None
     }
 
     /// Register that a command was sent and is pending ACK.
@@ -1764,8 +1797,11 @@ impl SchedulerCore {
 mod tests {
     use super::*;
     use crate::command::bytes::VISCA_TERMINATOR;
+    use crate::command::encode_visca::PreparedCommand;
     use crate::transport::RetryConfig;
     use crate::CameraId;
+    use bytes::Bytes;
+    use std::sync::Arc;
 
     // Helper structs for different test command categories
     #[derive(Debug, Clone)]
@@ -1818,9 +1854,9 @@ mod tests {
         response_type: Option<ViscaResponseType>,
         category: CommandCategory,
         camera_id: CameraId,
-    ) -> std::sync::Arc<crate::command::encode_visca::PreparedCommand> {
+    ) -> Arc<PreparedCommand> {
         let command = match category {
-            CommandCategory::Quick => crate::command::encode_visca::PreparedCommand::new(
+            CommandCategory::Quick => PreparedCommand::new(
                 TestCommandQuick {
                     bytes,
                     response_type,
@@ -1828,7 +1864,7 @@ mod tests {
                 camera_id,
             )
             .unwrap(),
-            CommandCategory::Movement => crate::command::encode_visca::PreparedCommand::new(
+            CommandCategory::Movement => PreparedCommand::new(
                 TestCommandMovement {
                     bytes,
                     response_type,
@@ -1838,7 +1874,7 @@ mod tests {
             .unwrap(),
             _ => {
                 // Default to Quick for other categories in tests
-                crate::command::encode_visca::PreparedCommand::new(
+                PreparedCommand::new(
                     TestCommandQuick {
                         bytes,
                         response_type,
@@ -1848,7 +1884,7 @@ mod tests {
                 .unwrap()
             }
         };
-        std::sync::Arc::new(command)
+        Arc::new(command)
     }
 
     #[test]
@@ -1979,9 +2015,7 @@ mod tests {
             }
         }
 
-        let inquiry_cmd = std::sync::Arc::new(
-            crate::command::encode_visca::PreparedCommand::new(TestInquiry, camera_id).unwrap(),
-        );
+        let inquiry_cmd = Arc::new(PreparedCommand::new(TestInquiry, camera_id).unwrap());
 
         // Helper to create test commands
         #[derive(Clone)]
@@ -2035,12 +2069,8 @@ mod tests {
         }
 
         // Start two commands to occupy both sockets
-        let cmd1 = std::sync::Arc::new(
-            crate::command::encode_visca::PreparedCommand::new(TestCmd1, camera_id).unwrap(),
-        );
-        let cmd2 = std::sync::Arc::new(
-            crate::command::encode_visca::PreparedCommand::new(TestCmd2, camera_id).unwrap(),
-        );
+        let cmd1 = Arc::new(PreparedCommand::new(TestCmd1, camera_id).unwrap());
+        let cmd2 = Arc::new(PreparedCommand::new(TestCmd2, camera_id).unwrap());
 
         // Register first command on socket 1
         core.register_pending_ack(
@@ -2137,9 +2167,7 @@ mod tests {
         let priority = Priority::Normal;
         let category = CommandCategory::Quick;
         let camera_id = CameraId::CAMERA_1;
-        let command = std::sync::Arc::new(
-            crate::command::encode_visca::PreparedCommand::new(TestInquiryCmd, camera_id).unwrap(),
-        );
+        let command = Arc::new(PreparedCommand::new(TestInquiryCmd, camera_id).unwrap());
 
         // Start an inquiry
         core.start_inquiry(
@@ -2256,15 +2284,9 @@ mod tests {
             }
         }
 
-        let cmd1 = std::sync::Arc::new(
-            crate::command::encode_visca::PreparedCommand::new(TestInquiry1, camera_id).unwrap(),
-        );
-        let cmd2 = std::sync::Arc::new(
-            crate::command::encode_visca::PreparedCommand::new(TestInquiry2, camera_id).unwrap(),
-        );
-        let cmd3 = std::sync::Arc::new(
-            crate::command::encode_visca::PreparedCommand::new(TestInquiry3, camera_id).unwrap(),
-        );
+        let cmd1 = Arc::new(PreparedCommand::new(TestInquiry1, camera_id).unwrap());
+        let cmd2 = Arc::new(PreparedCommand::new(TestInquiry2, camera_id).unwrap());
+        let cmd3 = Arc::new(PreparedCommand::new(TestInquiry3, camera_id).unwrap());
 
         core.start_inquiry(
             1,
@@ -2374,12 +2396,8 @@ mod tests {
             }
         }
 
-        let cmd1 = std::sync::Arc::new(
-            crate::command::encode_visca::PreparedCommand::new(TestCmd1, camera_id).unwrap(),
-        );
-        let cmd2 = std::sync::Arc::new(
-            crate::command::encode_visca::PreparedCommand::new(TestCmd2, camera_id).unwrap(),
-        );
+        let cmd1 = Arc::new(PreparedCommand::new(TestCmd1, camera_id).unwrap());
+        let cmd2 = Arc::new(PreparedCommand::new(TestCmd2, camera_id).unwrap());
 
         core.register_pending_ack(
             1,
@@ -3515,10 +3533,7 @@ mod tests {
             }
         }
 
-        let test_command = std::sync::Arc::new(
-            crate::command::encode_visca::PreparedCommand::new(TestCommand, CameraId::CAMERA_1)
-                .unwrap(),
-        );
+        let test_command = Arc::new(PreparedCommand::new(TestCommand, CameraId::CAMERA_1).unwrap());
         let cmd_id = 1;
 
         // Register as Command explicitly
@@ -3549,7 +3564,7 @@ mod tests {
         assert_eq!(retry.kind, CommandKind::Command);
         assert_eq!(retry.id, cmd_id);
         // Verify the command is preserved (same Arc)
-        assert!(std::sync::Arc::ptr_eq(&retry.command, &test_command));
+        assert!(Arc::ptr_eq(&retry.command, &test_command));
 
         // Test case 2: A normal Inquiry to ensure it also preserves correctly
         let mut core2 = SchedulerCore::new(TimeoutConfig::default());
@@ -3577,10 +3592,7 @@ mod tests {
             }
         }
 
-        let test_inquiry = std::sync::Arc::new(
-            crate::command::encode_visca::PreparedCommand::new(TestInquiry, CameraId::CAMERA_1)
-                .unwrap(),
-        );
+        let test_inquiry = Arc::new(PreparedCommand::new(TestInquiry, CameraId::CAMERA_1).unwrap());
         let inquiry_id = 2;
 
         // Start as inquiry
@@ -3613,9 +3625,291 @@ mod tests {
         assert_eq!(inquiry_retry.kind, CommandKind::Inquiry);
         assert_eq!(inquiry_retry.id, inquiry_id);
         // Verify the inquiry is preserved (same Arc)
-        assert!(std::sync::Arc::ptr_eq(
-            &inquiry_retry.command,
-            &test_inquiry
-        ));
+        assert!(Arc::ptr_eq(&inquiry_retry.command, &test_inquiry));
+    }
+
+    #[test]
+    fn test_inquiry_bypasses_socket_gate() {
+        // This test verifies that inquiries can be sent even when both command sockets are occupied
+        let mut core = SchedulerCore::new(TimeoutConfig::default());
+        let now = Instant::now();
+
+        // Create two commands and one inquiry
+        let command1 = Arc::new(PreparedCommand {
+            payload: Bytes::from(vec![0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]),
+            kind: CommandKind::Command,
+            category: CommandCategory::Movement,
+            response_type: None,
+        });
+        let command2 = Arc::new(PreparedCommand {
+            payload: Bytes::from(vec![0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]),
+            kind: CommandKind::Command,
+            category: CommandCategory::Movement,
+            response_type: None,
+        });
+        let inquiry = Arc::new(PreparedCommand {
+            payload: Bytes::from(vec![0x01, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
+            kind: CommandKind::Inquiry,
+            category: CommandCategory::Quick,
+            response_type: Some(ViscaResponseType::ZoomPosition),
+        });
+
+        // Queue both commands
+        core.queue_command(PendingCommand {
+            id: 1,
+            command: command1.clone(),
+            priority: Priority::Normal,
+            category: CommandCategory::Movement,
+            camera_id: CameraId::CAMERA_1,
+            submitted_at: now,
+            kind: CommandKind::Command,
+        });
+        core.queue_command(PendingCommand {
+            id: 2,
+            command: command2.clone(),
+            priority: Priority::Normal,
+            category: CommandCategory::Movement,
+            camera_id: CameraId::CAMERA_1,
+            submitted_at: now,
+            kind: CommandKind::Command,
+        });
+
+        // Send and register both commands as pending ACK
+        let cmd1 = core.next_item_to_send().unwrap();
+        assert_eq!(cmd1.id, 1);
+        core.register_pending_ack(
+            1,
+            command1.clone(),
+            Priority::Normal,
+            CommandCategory::Movement,
+            CameraId::CAMERA_1,
+            CommandKind::Command,
+            now,
+        );
+
+        let cmd2 = core.next_item_to_send().unwrap();
+        assert_eq!(cmd2.id, 2);
+        core.register_pending_ack(
+            2,
+            command2.clone(),
+            Priority::Normal,
+            CommandCategory::Movement,
+            CameraId::CAMERA_1,
+            CommandKind::Command,
+            now,
+        );
+
+        // Now both commands are pending ACK - sockets are at capacity
+        assert!(!core.can_send_command());
+        assert_eq!(core.next_item_to_send(), None); // No commands can be sent
+
+        // Queue an inquiry
+        core.queue_command(PendingCommand {
+            id: 3,
+            command: inquiry.clone(),
+            priority: Priority::Normal,
+            category: CommandCategory::Quick,
+            camera_id: CameraId::CAMERA_1,
+            submitted_at: now,
+            kind: CommandKind::Inquiry,
+        });
+
+        // The inquiry should be sendable even though command sockets are full
+        let inq = core.next_item_to_send();
+        assert!(inq.is_some());
+        let inq = inq.unwrap();
+        assert_eq!(inq.id, 3);
+        assert_eq!(inq.kind, CommandKind::Inquiry);
+
+        // Start the inquiry (track it in flight)
+        core.start_inquiry(
+            3,
+            inquiry.clone(),
+            Priority::Normal,
+            CommandCategory::Quick,
+            CameraId::CAMERA_1,
+            CommandKind::Inquiry,
+            now,
+        );
+
+        // Queue another command - should not be sendable
+        core.queue_command(PendingCommand {
+            id: 4,
+            command: command1.clone(),
+            priority: Priority::Normal,
+            category: CommandCategory::Movement,
+            camera_id: CameraId::CAMERA_1,
+            submitted_at: now,
+            kind: CommandKind::Command,
+        });
+
+        // No more commands should be sendable (sockets still full)
+        assert_eq!(core.next_item_to_send(), None);
+
+        // Queue another inquiry - should be sendable
+        core.queue_command(PendingCommand {
+            id: 5,
+            command: inquiry.clone(),
+            priority: Priority::Normal,
+            category: CommandCategory::Quick,
+            camera_id: CameraId::CAMERA_1,
+            submitted_at: now,
+            kind: CommandKind::Inquiry,
+        });
+
+        let inq2 = core.next_item_to_send();
+        assert!(inq2.is_some());
+        assert_eq!(inq2.unwrap().id, 5);
+    }
+
+    #[test]
+    fn test_inquiry_pipeline_limit() {
+        // Test that inquiries respect the max_inquiries_inflight limit
+        let mut core = SchedulerCore::new(TimeoutConfig::default());
+        core.set_max_inquiries_inflight(2); // Set a low limit for testing
+        let now = Instant::now();
+
+        let inquiry = Arc::new(PreparedCommand {
+            payload: Bytes::from(vec![0x01, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
+            kind: CommandKind::Inquiry,
+            category: CommandCategory::Quick,
+            response_type: Some(ViscaResponseType::ZoomPosition),
+        });
+
+        // Queue 3 inquiries
+        for id in 1..=3 {
+            core.queue_command(PendingCommand {
+                id,
+                command: inquiry.clone(),
+                priority: Priority::Normal,
+                category: CommandCategory::Quick,
+                camera_id: CameraId::CAMERA_1,
+                submitted_at: now,
+                kind: CommandKind::Inquiry,
+            });
+        }
+
+        // First inquiry should be sendable
+        let inq1 = core.next_item_to_send();
+        assert!(inq1.is_some());
+        assert_eq!(inq1.unwrap().id, 1);
+        core.start_inquiry(
+            1,
+            inquiry.clone(),
+            Priority::Normal,
+            CommandCategory::Quick,
+            CameraId::CAMERA_1,
+            CommandKind::Inquiry,
+            now,
+        );
+
+        // Second inquiry should be sendable
+        let inq2 = core.next_item_to_send();
+        assert!(inq2.is_some());
+        assert_eq!(inq2.unwrap().id, 2);
+        core.start_inquiry(
+            2,
+            inquiry.clone(),
+            Priority::Normal,
+            CommandCategory::Quick,
+            CameraId::CAMERA_1,
+            CommandKind::Inquiry,
+            now,
+        );
+
+        // Third inquiry should NOT be sendable (limit reached)
+        assert!(!core.can_send_inquiry());
+        let inq3 = core.next_item_to_send();
+        assert!(inq3.is_none());
+
+        // Complete one inquiry by removing it from inflight
+        core.inquiries_inflight.remove(&1);
+
+        // Now the third inquiry should be sendable
+        assert!(core.can_send_inquiry());
+        let inq3 = core.next_item_to_send();
+        assert!(inq3.is_some());
+        assert_eq!(inq3.unwrap().id, 3);
+    }
+
+    #[test]
+    fn test_mixed_priority_queue_ordering() {
+        // Test that priority works correctly across both queues
+        let mut core = SchedulerCore::new(TimeoutConfig::default());
+        let now = Instant::now();
+
+        let command = Arc::new(PreparedCommand {
+            payload: Bytes::from(vec![0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]),
+            kind: CommandKind::Command,
+            category: CommandCategory::Movement,
+            response_type: None,
+        });
+        let inquiry = Arc::new(PreparedCommand {
+            payload: Bytes::from(vec![0x01, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
+            kind: CommandKind::Inquiry,
+            category: CommandCategory::Quick,
+            response_type: Some(ViscaResponseType::ZoomPosition),
+        });
+
+        // Queue items with different priorities
+        core.queue_command(PendingCommand {
+            id: 1,
+            command: command.clone(),
+            priority: Priority::Low,
+            category: CommandCategory::Movement,
+            camera_id: CameraId::CAMERA_1,
+            submitted_at: now,
+            kind: CommandKind::Command,
+        });
+
+        core.queue_command(PendingCommand {
+            id: 2,
+            command: inquiry.clone(),
+            priority: Priority::High,
+            category: CommandCategory::Quick,
+            camera_id: CameraId::CAMERA_1,
+            submitted_at: now,
+            kind: CommandKind::Inquiry,
+        });
+
+        core.queue_command(PendingCommand {
+            id: 3,
+            command: command.clone(),
+            priority: Priority::Critical,
+            category: CommandCategory::Movement,
+            camera_id: CameraId::CAMERA_1,
+            submitted_at: now,
+            kind: CommandKind::Command,
+        });
+
+        core.queue_command(PendingCommand {
+            id: 4,
+            command: inquiry.clone(),
+            priority: Priority::Normal,
+            category: CommandCategory::Quick,
+            camera_id: CameraId::CAMERA_1,
+            submitted_at: now,
+            kind: CommandKind::Inquiry,
+        });
+
+        // High priority inquiry should come first
+        let item1 = core.next_item_to_send().unwrap();
+        assert_eq!(item1.id, 2);
+        assert_eq!(item1.priority, Priority::High);
+
+        // Normal priority inquiry next (inquiries not gated by sockets)
+        let item2 = core.next_item_to_send().unwrap();
+        assert_eq!(item2.id, 4);
+        assert_eq!(item2.priority, Priority::Normal);
+
+        // Critical priority command
+        let item3 = core.next_item_to_send().unwrap();
+        assert_eq!(item3.id, 3);
+        assert_eq!(item3.priority, Priority::Critical);
+
+        // Low priority command last
+        let item4 = core.next_item_to_send().unwrap();
+        assert_eq!(item4.id, 1);
+        assert_eq!(item4.priority, Priority::Low);
     }
 }

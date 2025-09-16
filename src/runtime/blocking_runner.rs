@@ -156,8 +156,8 @@ impl<P: Profile> BlockingRunner<P> {
         loop {
             let now = Instant::now();
 
-            // Check for commands to send
-            if let Some(cmd) = self.core.next_command_to_send() {
+            // Check for items to send (commands or inquiries)
+            if let Some(cmd) = self.core.next_item_to_send() {
                 // Use command kind from PendingCommand
                 let kind = cmd.kind;
 
@@ -532,7 +532,7 @@ mod tests {
         runner.core.queue_command(cmd);
 
         // Verify it can be retrieved
-        let next = runner.core.next_command_to_send();
+        let next = runner.core.next_item_to_send();
         assert!(next.is_some());
         assert!(next.is_some(), "should have command");
         if let Some(cmd) = next {

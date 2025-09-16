@@ -104,7 +104,7 @@ pub async fn runtime_loop_with_config<
                     adapter.submit(item);
 
                     // Try to send immediately if possible
-                    if let Some(cmd) = adapter.next_command_to_send() {
+                    if let Some(cmd) = adapter.next_item_to_send() {
                         // Use the shared driver for sending
                         if let Err(e) = send_one(
                             &mut transport,
@@ -304,27 +304,23 @@ pub async fn runtime_loop_with_config<
                     }
                 }
 
-                // Try to send more commands if we can
-                while adapter.can_send_command() {
-                    if let Some(cmd) = adapter.next_command_to_send() {
-                        // Use the shared driver for sending
-                        if let Err(e) = send_one(
-                            &mut transport,
-                            &executor,
-                            &mut adapter,
-                            cmd,
-                            &config.envelope,
-                            &config.buffer_manager,
-                            config.write_timeout,
-                        )
-                        .await
-                        {
-                            // send_one already rolled back and failed the command via scheduler
-                            debug!("Send failed while draining pending: {e}");
-                            // Continue loop; do not stop runtime
-                        }
-                    } else {
-                        break;
+                // Try to send more items (commands or inquiries)
+                while let Some(cmd) = adapter.next_item_to_send() {
+                    // Use the shared driver for sending
+                    if let Err(e) = send_one(
+                        &mut transport,
+                        &executor,
+                        &mut adapter,
+                        cmd,
+                        &config.envelope,
+                        &config.buffer_manager,
+                        config.write_timeout,
+                    )
+                    .await
+                    {
+                        // send_one already rolled back and failed the command via scheduler
+                        debug!("Send failed while draining pending: {e}");
+                        // Continue loop; do not stop runtime
                     }
                 }
 
@@ -445,27 +441,23 @@ pub async fn runtime_loop_with_config<
             }
         }
 
-        // Try to send more commands if we have room
-        while adapter.can_send_command() {
-            if let Some(cmd) = adapter.next_command_to_send() {
-                // Use the shared driver for sending
-                if let Err(e) = send_one(
-                    &mut transport,
-                    &executor,
-                    &mut adapter,
-                    cmd,
-                    &config.envelope,
-                    &config.buffer_manager,
-                    config.write_timeout,
-                )
-                .await
-                {
-                    // send_one already rolled back and failed the command via scheduler
-                    debug!("Send failed while draining pending: {e}");
-                    // Continue loop; do not stop runtime
-                }
-            } else {
-                break;
+        // Try to send more items (commands or inquiries)
+        while let Some(cmd) = adapter.next_item_to_send() {
+            // Use the shared driver for sending
+            if let Err(e) = send_one(
+                &mut transport,
+                &executor,
+                &mut adapter,
+                cmd,
+                &config.envelope,
+                &config.buffer_manager,
+                config.write_timeout,
+            )
+            .await
+            {
+                // send_one already rolled back and failed the command via scheduler
+                debug!("Send failed while draining pending: {e}");
+                // Continue loop; do not stop runtime
             }
         }
     }
