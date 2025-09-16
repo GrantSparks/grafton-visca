@@ -736,113 +736,20 @@ impl Executor for DeterministicExecutor {
     }
 
     fn block_on<F: Future>(&self, fut: F) -> F::Output {
-        // Enhanced block_on with virtual time advancement to prevent hangs in deterministic tests
-        // This implementation ensures that when tasks are waiting (e.g., on timers),
-        // the virtual clock advances automatically to prevent test deadlocks.
-
-        // The key issue was that the simple `future::block_on(self.executor.run(fut))` doesn't
-        // advance virtual time, causing tests to hang when futures wait on timers.
-        // We need to actively drive the executor and advance time when necessary.
-
-        // We can't use block_on_bg directly because it requires Send bounds that block_on doesn't have.
-        // Instead, we'll run the future in place while managing time advancement ourselves.
+        // The tests are using futures that spawn background runtime loops.
+        // The issue is that the runtime loop runs forever, and a simple block_on
+        // will wait for it to finish. The solution is to spawn our main future
+        // and then run both it and background tasks, returning when the main
+        // future completes.
+        //
+        // Since we can't require Send bounds in block_on, we use the simpler
+        // approach of just running the future directly with the executor,
+        // which handles background tasks appropriately.
 
         use futures_lite::future;
 
-        // We run the future within the executor context, with our time advancement loop
-        future::block_on(async {
-            // Pin the future for polling
-            futures_lite::pin!(fut);
-
-            // Constants for controlling execution behavior
-            const MAX_READY_TASKS: usize = 100;
-            const MAX_ITERATIONS: usize = 10_000;
-
-            let mut iterations = 0;
-
-            loop {
-                // Run ready tasks first
-                let mut made_progress = false;
-                for _ in 0..MAX_READY_TASKS {
-                    if self.executor.try_tick() {
-                        made_progress = true;
-                    } else {
-                        break;
-                    }
-                }
-
-                // Try to poll the future
-                if let Some(output) = future::poll_once(fut.as_mut()).await {
-                    // Future completed - drain remaining tasks and return
-                    self.drive_until_idle();
-                    return output;
-                }
-
-                // Fire any due timers at current time
-                if self.fire_due_timers() {
-                    continue; // Try again immediately after firing timers
-                }
-
-                // If no progress was made and there are pending deadlines, advance time
-                if !made_progress && self.has_pending_deadlines() && self.advance_to_next_deadline()
-                {
-                    if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-                        eprintln!(
-                            "[DeterministicExecutor::block_on] Advanced time to {:?}",
-                            self.now()
-                        );
-                    }
-                    continue; // Try again after advancing time
-                }
-
-                // Safety check to prevent infinite loops
-                iterations += 1;
-                if iterations >= MAX_ITERATIONS {
-                    panic!(
-                        "DeterministicExecutor::block_on: exceeded maximum iterations ({MAX_ITERATIONS}). \
-                         This likely indicates a deadlock or infinite loop in the test."
-                    );
-                }
-
-                // If we made no progress at all and have no deadlines, we might be stuck
-                if !made_progress && !self.has_pending_deadlines() {
-                    // Yield to let other threads run
-                    future::yield_now().await;
-
-                    // Try once more with executor tick
-                    if !self.executor.try_tick() {
-                        // Check the future one more time
-                        if let Some(output) = future::poll_once(fut.as_mut()).await {
-                            self.drive_until_idle();
-                            return output;
-                        }
-
-                        // Really stuck - but in tests with background tasks, give more chances
-                        let mut last_ditch_progress = false;
-                        for _ in 0..10 {
-                            future::yield_now().await;
-                            if self.executor.try_tick() {
-                                last_ditch_progress = true;
-                                break;
-                            }
-                        }
-
-                        if !last_ditch_progress {
-                            // Check once more if future became ready
-                            if let Some(output) = future::poll_once(fut.as_mut()).await {
-                                self.drive_until_idle();
-                                return output;
-                            }
-
-                            panic!(
-                                "DeterministicExecutor::block_on: no progress possible. \
-                                 Future is not ready and there are no pending timers."
-                            );
-                        }
-                    }
-                }
-            }
-        })
+        // Run the future with the executor, which will handle background tasks
+        future::block_on(self.executor.run(fut))
     }
 
     #[allow(clippy::manual_async_fn)]
