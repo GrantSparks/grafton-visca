@@ -6,7 +6,8 @@
 //! ## Module Organization
 //!
 //! - `public` - Macros that form part of the stable public API
-//! - `internal` - Internal implementation macros not intended for external use
+//! - `support` - Internal helper macros not intended for external use
+//! - `consolidated` - Main command implementation macros
 //! - `test_utils` - Test-specific utilities
 //!
 //! ## Public API Macros
@@ -27,8 +28,8 @@
 // Public API macros - these are exported at crate root
 pub mod public;
 
-// Internal implementation macros - not exported
-pub(crate) mod internal;
+// Internal helper macros - not exported
+pub(crate) mod support;
 
 // Consolidated macros module
 pub(crate) mod consolidated;

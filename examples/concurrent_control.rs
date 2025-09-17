@@ -35,7 +35,7 @@ use grafton_visca::{
         Connect,
     },
     mode::Async,
-    runtime_trait::TransportHandle,
+    runtime::TransportHandle,
     types::{PanTiltDirection, SpeedLevel},
     units::Normalized,
     PresetNumber, Result, TokioRuntime,

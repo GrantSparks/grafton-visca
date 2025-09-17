@@ -12,7 +12,7 @@ visca_command! {
     /// Toggles the camera's on-screen menu display on or off.
     ///
     /// VISCA format: `81 01 06 06 0p FF` where p = 2 (On) or 3 (Off)
-    pub struct MenuDisplayCommand {
+    pub struct SetMenuDisplay {
         on: bool,
     };
     prefix = [0x01, 0x06, 0x06];
@@ -20,7 +20,7 @@ visca_command! {
     category = CommandCategory::Quick;
 }
 
-impl MenuDisplayCommand {
+impl SetMenuDisplay {
     /// Create a new menu display command.
     pub fn new(on: bool) -> Self {
         Self { on }
@@ -65,7 +65,7 @@ impl crate::command::encode::ViscaCommand for MenuNavigate {
         builder.terminate().build_into(buffer)
     }
 
-    fn response_kind(&self) -> Option<crate::command::ResponseKind> {
+    fn response_kind(&self) -> Option<crate::command::InquiryKind> {
         None
     }
 }
@@ -114,7 +114,7 @@ visca_command! {
     /// Performs menu selection (Enter) or cancellation (Back) actions.
     ///
     /// VISCA format: `81 01 06 06 0p FF` where p = 5 (Select) or 4 (Cancel)
-    pub struct MenuActionCommand {
+    pub struct PerformMenuAction {
         action: MenuAction,
     };
     prefix = [0x01, 0x06, 0x06];
@@ -122,7 +122,7 @@ visca_command! {
     category = CommandCategory::Quick;
 }
 
-impl MenuActionCommand {
+impl PerformMenuAction {
     /// Create a new menu action command.
     pub fn new(action: MenuAction) -> Self {
         Self { action }
@@ -165,7 +165,7 @@ impl crate::command::encode::ViscaCommand for DirectMenuControl {
         builder.terminate().build_into(buffer)
     }
 
-    fn response_kind(&self) -> Option<crate::command::ResponseKind> {
+    fn response_kind(&self) -> Option<crate::command::InquiryKind> {
         None
     }
 
@@ -207,16 +207,16 @@ mod tests {
     use crate::macros::test_utils::visca_test;
 
     visca_test!(
-        MenuDisplayCommand,
+        SetMenuDisplay,
         test_menu_display_on,
-        MenuDisplayCommand::new(true),
+        SetMenuDisplay::new(true),
         &[0x81, 0x01, 0x06, 0x06, 0x02, VISCA_TERMINATOR]
     );
 
     visca_test!(
-        MenuDisplayCommand,
+        SetMenuDisplay,
         test_menu_display_off,
-        MenuDisplayCommand::new(false),
+        SetMenuDisplay::new(false),
         &[0x81, 0x01, 0x06, 0x06, 0x03, VISCA_TERMINATOR]
     );
 
@@ -289,16 +289,16 @@ mod tests {
     );
 
     visca_test!(
-        MenuActionCommand,
+        PerformMenuAction,
         test_menu_select,
-        MenuActionCommand::new(MenuAction::Select),
+        PerformMenuAction::new(MenuAction::Select),
         &[0x81, 0x01, 0x06, 0x06, 0x05, VISCA_TERMINATOR]
     );
 
     visca_test!(
-        MenuActionCommand,
+        PerformMenuAction,
         test_menu_cancel,
-        MenuActionCommand::new(MenuAction::Cancel),
+        PerformMenuAction::new(MenuAction::Cancel),
         &[0x81, 0x01, 0x06, 0x06, 0x04, VISCA_TERMINATOR]
     );
 

@@ -10,7 +10,7 @@
 #[cfg(feature = "runtime-tokio")]
 mod tokio_runtime_tests {
     use grafton_visca::{
-        runtime_trait::{Runtime, TokioRuntime},
+        runtime::{Runtime, TokioRuntime},
         Error,
     };
 
@@ -70,7 +70,7 @@ mod tokio_runtime_tests {
 
     #[tokio::test]
     async fn test_transport_handle_type_safety() {
-        use grafton_visca::runtime_trait::TransportHandle;
+        use grafton_visca::runtime::TransportHandle;
         // This test verifies that TransportHandle is properly parameterized
         // The following should compile:
         let _handle: Result<TransportHandle<TokioRuntime>, Error>;
@@ -102,7 +102,7 @@ mod tokio_runtime_tests {
 
 #[cfg(feature = "runtime-async-std")]
 mod async_std_runtime_tests {
-    use grafton_visca::runtime_trait::{AsyncStdRuntime, Runtime};
+    use grafton_visca::runtime::{AsyncStdRuntime, Runtime};
 
     #[async_std::test]
     async fn test_async_std_runtime_creation() {
@@ -153,7 +153,7 @@ mod async_std_runtime_tests {
 // runtime conflicts. See issue #394 for details.
 #[cfg(all(feature = "runtime-smol", not(feature = "runtime-tokio")))]
 mod smol_runtime_tests {
-    use grafton_visca::runtime_trait::{Runtime, SmolRuntime};
+    use grafton_visca::runtime::{Runtime, SmolRuntime};
 
     fn run_smol<F: std::future::Future>(f: F) -> F::Output {
         smol::block_on(f)
@@ -215,7 +215,7 @@ mod smol_runtime_tests {
 mod compile_time_safety_tests {
     use std::any::TypeId;
 
-    use grafton_visca::runtime_trait::{AsyncStdRuntime, TokioRuntime};
+    use grafton_visca::runtime::{AsyncStdRuntime, TokioRuntime};
 
     // This function should NOT compile if uncommented, proving type safety:
     // fn mismatched_runtime_transport() {
@@ -230,7 +230,7 @@ mod compile_time_safety_tests {
     #[test]
     fn test_runtime_types_are_distinct() {
         // Verify that runtime types are distinct at compile time
-        fn is_tokio_runtime<R: grafton_visca::runtime_trait::Runtime>() -> bool {
+        fn is_tokio_runtime<R: grafton_visca::runtime::Runtime>() -> bool {
             TypeId::of::<R>() == TypeId::of::<TokioRuntime>()
         }
 
@@ -243,7 +243,7 @@ mod compile_time_safety_tests {
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
 async fn test_transport_handle_async_transport_impl() {
-    use grafton_visca::runtime_trait::{TokioRuntime, TransportHandle};
+    use grafton_visca::runtime::{TokioRuntime, TransportHandle};
     use grafton_visca::transport::AsyncTransport;
 
     // We can't actually create a real transport without a connection,

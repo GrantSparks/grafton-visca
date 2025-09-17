@@ -279,7 +279,7 @@ where
     ///
     /// ```ignore
     /// use grafton_visca::camera::{CameraConfig, profiles::PtzOpticsG2};
-    /// use grafton_visca::runtime_trait::TokioRuntime;
+    /// use grafton_visca::runtime::TokioRuntime;
     ///
     /// let runtime = TokioRuntime::from_current()?;
     /// let config = CameraConfig::for::<PtzOpticsG2>()
@@ -295,15 +295,15 @@ where
         crate::camera::session::CameraSession<
             crate::mode::Async,
             P,
-            crate::runtime_trait::TransportHandle<R>,
+            crate::runtime::TransportHandle<R>,
             R,
         >,
         Error,
     >
     where
-        R: crate::runtime_trait::Runtime,
+        R: crate::runtime::Runtime,
     {
-        use crate::runtime_trait::TransportHandle;
+        use crate::runtime::TransportHandle;
         use crate::transport::builder::TransportConfig;
 
         // Handle Auto transport option separately
@@ -405,7 +405,7 @@ where
     ///
     /// ```ignore
     /// use grafton_visca::camera::{CameraConfig, profiles::PtzOpticsG2};
-    /// use grafton_visca::runtime_trait::TokioRuntime;
+    /// use grafton_visca::runtime::TokioRuntime;
     ///
     /// let runtime = TokioRuntime::from_current()?;
     /// let config = CameraConfig::for::<PtzOpticsG2>()
@@ -421,13 +421,13 @@ where
         crate::camera::session::CameraSession<
             crate::mode::Async,
             P,
-            <R as crate::runtime_trait::RuntimeSerial>::SerialTransport,
+            <R as crate::runtime::RuntimeSerial>::SerialTransport,
             R,
         >,
         Error,
     >
     where
-        R: crate::runtime_trait::Runtime + crate::runtime_trait::RuntimeSerial,
+        R: crate::runtime::Runtime + crate::runtime::RuntimeSerial,
     {
         match &self.transport {
             TransportOptions::Serial { port, baud_rate } => {

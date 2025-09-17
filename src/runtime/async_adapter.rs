@@ -11,7 +11,7 @@ use std::{collections::HashMap, sync::Arc, time::Instant};
 use crate::{
     camera_id::CameraId,
     capabilities::Profile,
-    command::response::{lift_inquiry_for, Response, ResponseKind},
+    command::response::{lift_inquiry_for, InquiryKind, Response},
     error::{Error, Result},
     executor::Executor,
     protocol::response::{decode_basic, BasicKind},
@@ -53,7 +53,7 @@ pub(crate) enum TxItem {
         /// Camera ID used to encode the inquiry.
         camera_id: CameraId,
         /// Expected response type for parsing DataReply.
-        response_type: Option<ResponseKind>,
+        response_type: Option<InquiryKind>,
         /// Channel to send response back.
         response_tx: Sender<Result<Response>>,
     },

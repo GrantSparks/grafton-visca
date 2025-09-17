@@ -45,6 +45,9 @@ pub mod inquiry_matcher;
 pub mod blocking_runner;
 
 #[cfg(feature = "mode-async")]
+pub mod traits;
+
+#[cfg(feature = "mode-async")]
 mod async_adapter;
 #[cfg(feature = "mode-async")]
 mod handle;
@@ -59,6 +62,22 @@ pub use async_adapter::MetricsSummary;
 #[cfg(feature = "mode-async")]
 #[doc(hidden)]
 pub use handle::RuntimeHandle;
+
+// Re-export runtime traits at the module level for compatibility
+#[cfg(feature = "mode-async")]
+pub use traits::{Runtime, TransportHandle};
+
+#[cfg(all(feature = "mode-async", feature = "transport-serial-tokio"))]
+pub use traits::RuntimeSerial;
+
+#[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]
+pub use traits::TokioRuntime;
+
+#[cfg(all(feature = "mode-async", feature = "runtime-async-std"))]
+pub use traits::AsyncStdRuntime;
+
+#[cfg(all(feature = "mode-async", feature = "runtime-smol"))]
+pub use traits::SmolRuntime;
 
 #[cfg(test)]
 mod tests {

@@ -5,34 +5,34 @@ use std::borrow::Cow;
 use super::super::payload::{Nibbles, Payload};
 use crate::{
     command::{
-        response::types::{Response, ResponseKind},
-        AutoFocusSensitivity, FocusMode, FocusRange, FocusZone, InquiryResponse,
+        response::types::{InquiryKind, Response},
+        AutoFocusSensitivity, FocusMode, FocusRange, FocusZone, InquiryData,
     },
     error::Error,
 };
 
 /// Decode focus-related inquiry responses.
-pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<Response, Error>> {
+pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<Response, Error>> {
     match kind {
-        ResponseKind::FocusPosition => match Nibbles::<4>::try_from(payload) {
+        InquiryKind::FocusPosition => match Nibbles::<4>::try_from(payload) {
             Ok(nibbles) => {
                 let position = nibbles.u16_quad(0);
-                Some(Ok(Response::Inquiry(InquiryResponse::FocusPosition {
+                Some(Ok(Response::Inquiry(InquiryData::FocusPosition {
                     position,
                 })))
             }
             Err(e) => Some(Err(e)),
         },
-        ResponseKind::FocusNearLimit => match Nibbles::<4>::try_from(payload) {
+        InquiryKind::FocusNearLimit => match Nibbles::<4>::try_from(payload) {
             Ok(nibbles) => {
                 let position = nibbles.u16_quad(0);
-                Some(Ok(Response::Inquiry(InquiryResponse::FocusNearLimit {
+                Some(Ok(Response::Inquiry(InquiryData::FocusNearLimit {
                     position,
                 })))
             }
             Err(e) => Some(Err(e)),
         },
-        ResponseKind::FocusZone => {
+        InquiryKind::FocusZone => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -48,9 +48,9 @@ pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<
                     }))
                 }
             };
-            Some(Ok(Response::Inquiry(InquiryResponse::FocusZone { zone })))
+            Some(Ok(Response::Inquiry(InquiryData::FocusZone { zone })))
         }
-        ResponseKind::AutoFocusSensitivity => {
+        InquiryKind::AutoFocusSensitivity => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -66,11 +66,11 @@ pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<
                     }))
                 }
             };
-            Some(Ok(Response::Inquiry(
-                InquiryResponse::AutoFocusSensitivity { sensitivity },
-            )))
+            Some(Ok(Response::Inquiry(InquiryData::AutoFocusSensitivity {
+                sensitivity,
+            })))
         }
-        ResponseKind::FocusMode => {
+        InquiryKind::FocusMode => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -85,9 +85,9 @@ pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<
                     }))
                 }
             };
-            Some(Ok(Response::Inquiry(InquiryResponse::FocusMode { mode })))
+            Some(Ok(Response::Inquiry(InquiryData::FocusMode { mode })))
         }
-        ResponseKind::FocusRange => {
+        InquiryKind::FocusRange => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -96,7 +96,7 @@ pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<
                 Err(e) => Some(Err(e)),
             }
         }
-        ResponseKind::AutoFocus => {
+        InquiryKind::AutoFocus => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -113,11 +113,9 @@ pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<
                     }))
                 }
             };
-            Some(Ok(Response::Inquiry(InquiryResponse::AutoFocus {
-                enabled,
-            })))
+            Some(Ok(Response::Inquiry(InquiryData::AutoFocus { enabled })))
         }
-        ResponseKind::FocusUnlock => {
+        InquiryKind::FocusUnlock => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -133,11 +131,9 @@ pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<
                         ),
                     })),
                 };
-            Some(Ok(Response::Inquiry(InquiryResponse::FocusUnlock {
-                unlocked,
-            })))
+            Some(Ok(Response::Inquiry(InquiryData::FocusUnlock { unlocked })))
         }
-        ResponseKind::FocusNearFar => {
+        InquiryKind::FocusNearFar => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -152,18 +148,16 @@ pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<
                     }))
                 }
             };
-            Some(Ok(Response::Inquiry(InquiryResponse::FocusNearFar {
-                near,
-            })))
+            Some(Ok(Response::Inquiry(InquiryData::FocusNearFar { near })))
         }
         _ => None,
     }
 }
 
-fn parse_focus_range(data: &[u8]) -> Result<InquiryResponse, Error> {
+fn parse_focus_range(data: &[u8]) -> Result<InquiryData, Error> {
     if data.is_empty() {
         return Err(Error::InvalidResponseLength);
     }
     let range = FocusRange::try_from(data[0])?;
-    Ok(InquiryResponse::FocusRange { range })
+    Ok(InquiryData::FocusRange { range })
 }

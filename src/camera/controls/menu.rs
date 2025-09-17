@@ -1,7 +1,7 @@
 //! menu control implementation using Mode trait.
 
 use crate::{
-    camera::CommandClient,
+    camera::ViscaClient,
     command::{MenuAction, MenuDirection},
     mode::Mode,
     Error,
@@ -20,7 +20,7 @@ pub trait MenuControl {
     ///
     /// # Errors
     /// Returns an error if the command fails or the camera doesn't support menu control.
-    fn set_menu_display(&self, display: bool) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    fn set_menu_display(&self, display: bool) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Navigate the menu cursor.
     ///
@@ -32,7 +32,7 @@ pub trait MenuControl {
     fn menu_navigate(
         &self,
         direction: MenuDirection,
-    ) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Perform a menu action (select or cancel).
     ///
@@ -41,7 +41,7 @@ pub trait MenuControl {
     ///
     /// # Errors
     /// Returns an error if the command fails or the camera doesn't support menu control.
-    fn menu_action(&self, action: MenuAction) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    fn menu_action(&self, action: MenuAction) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
 /// direct menu control methods for cameras that support advanced menu control.
@@ -58,13 +58,13 @@ pub trait DirectMenuControl: MenuControl {
         &self,
         control1: u8,
         control2: u8,
-    ) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Toggle menu open/close.
     ///
     /// # Errors
     /// Returns an error if the command fails or the camera doesn't support direct menu control.
-    fn toggle_menu(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    fn toggle_menu(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
 // Single unified implementation for MenuControl
@@ -72,24 +72,24 @@ impl<M, P, Tr, Exec> MenuControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + crate::capabilities::MenuCapability + Default,
-    Self: CommandClient<M>,
+    Self: ViscaClient<M>,
     Exec: crate::executor::Executor,
 {
     type Mode = M;
 
-    fn set_menu_display(&self, display: bool) -> M::Ret<'_, Result<(), Error>> {
-        use crate::command::menu::MenuDisplayCommand;
-        self.send_and_complete(MenuDisplayCommand::new(display))
+    fn set_menu_display(&self, display: bool) -> M::Fut<'_, Result<(), Error>> {
+        use crate::command::menu::SetMenuDisplay;
+        self.execute(SetMenuDisplay::new(display))
     }
 
-    fn menu_navigate(&self, direction: MenuDirection) -> M::Ret<'_, Result<(), Error>> {
+    fn menu_navigate(&self, direction: MenuDirection) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::menu::MenuNavigate;
-        self.send_and_complete(MenuNavigate::new(direction))
+        self.execute(MenuNavigate::new(direction))
     }
 
-    fn menu_action(&self, action: MenuAction) -> M::Ret<'_, Result<(), Error>> {
-        use crate::command::menu::MenuActionCommand;
-        self.send_and_complete(MenuActionCommand::new(action))
+    fn menu_action(&self, action: MenuAction) -> M::Fut<'_, Result<(), Error>> {
+        use crate::command::menu::PerformMenuAction;
+        self.execute(PerformMenuAction::new(action))
     }
 }
 
@@ -98,16 +98,16 @@ impl<M, P, Tr, Exec> DirectMenuControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + crate::capabilities::MenuCapability + Default,
-    Self: CommandClient<M>,
+    Self: ViscaClient<M>,
     Exec: crate::executor::Executor,
 {
-    fn direct_menu_control(&self, control1: u8, control2: u8) -> M::Ret<'_, Result<(), Error>> {
+    fn direct_menu_control(&self, control1: u8, control2: u8) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::menu::DirectMenuControl;
-        self.send_and_complete(DirectMenuControl::new(control1, control2))
+        self.execute(DirectMenuControl::new(control1, control2))
     }
 
-    fn toggle_menu(&self) -> M::Ret<'_, Result<(), Error>> {
+    fn toggle_menu(&self) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::menu::DirectMenuControl;
-        self.send_and_complete(DirectMenuControl::open_close())
+        self.execute(DirectMenuControl::open_close())
     }
 }

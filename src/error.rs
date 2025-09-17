@@ -350,9 +350,36 @@ pub enum Error {
     /// Runtime is required for async operations but was not provided.
     #[error("No runtime configured for async operations")]
     MissingRuntime,
+
+    /// Transport is not available for operations.
+    /// This is a consolidated error that covers various transport unavailability scenarios.
+    #[error("No transport available for operations")]
+    NoTransport,
+
+    /// Transport channel has been closed.
+    /// This is a consolidated error that covers various channel closure scenarios.
+    #[error("Transport channel has been closed")]
+    TransportChannelClosed,
 }
 
 impl Error {
+    /// Map internal/detailed error variants to public API errors.
+    /// This provides a simpler error interface for end users while preserving
+    /// internal detail for debugging.
+    #[must_use]
+    pub fn to_public_error(self) -> Self {
+        match self {
+            // Map various "no transport" conditions to NoTransport
+            Self::NoSocket | Self::SocketManagerUnavailable => Self::NoTransport,
+            // Map various channel closure conditions to TransportChannelClosed
+            Self::ChannelClosed
+            | Self::SocketManagerChannelClosed
+            | Self::ResponseChannelClosed => Self::TransportChannelClosed,
+            // All other errors pass through unchanged
+            other => other,
+        }
+    }
+
     /// Create an `Error` from a VISCA error response code.
     ///
     /// ## Error Code Mapping

@@ -6,7 +6,7 @@
 
 use bytes::Bytes;
 
-use super::response::ResponseKind;
+use super::response::InquiryKind;
 use crate::{
     camera_id::CameraId, constants::CameraVariant, error::Error, timeout::CommandCategory,
 };
@@ -122,7 +122,7 @@ fn check_command_structure(buffer: &[u8], len: usize) -> Result<(), Error> {
 ///         Ok(6)
 ///     }
 ///
-///     fn response_kind(&self) -> Option<ResponseKind> {
+///     fn response_kind(&self) -> Option<InquiryKind> {
 ///         // Return None for action commands, Some(...) for inquiries
 ///         None
 ///     }
@@ -223,8 +223,8 @@ pub trait ViscaCommand: Send + Sync {
     /// Returns the expected response kind for this command.
     ///
     /// - Returns `None` for action commands that only receive ACK/Completion
-    /// - Returns `Some(ResponseKind::...)` for inquiry commands that receive data
-    fn response_kind(&self) -> Option<ResponseKind>;
+    /// - Returns `Some(InquiryKind::...)` for inquiry commands that receive data
+    fn response_kind(&self) -> Option<InquiryKind>;
 
     /// Returns the command kind based on the response type.
     ///
@@ -274,7 +274,7 @@ pub struct PreparedCommand {
     /// The timeout category for this command.
     pub category: CommandCategory,
     /// The expected response type for inquiry commands.
-    pub response_type: Option<ResponseKind>,
+    pub response_type: Option<InquiryKind>,
 }
 
 impl PreparedCommand {
@@ -328,7 +328,7 @@ mod tests {
             Ok(2)
         }
 
-        fn response_kind(&self) -> Option<ResponseKind> {
+        fn response_kind(&self) -> Option<InquiryKind> {
             None
         }
     }
@@ -346,7 +346,7 @@ mod tests {
             Ok(1)
         }
 
-        fn response_kind(&self) -> Option<ResponseKind> {
+        fn response_kind(&self) -> Option<InquiryKind> {
             None
         }
     }
@@ -365,7 +365,7 @@ mod tests {
             Ok(3)
         }
 
-        fn response_kind(&self) -> Option<ResponseKind> {
+        fn response_kind(&self) -> Option<InquiryKind> {
             None
         }
     }

@@ -241,15 +241,15 @@ Query camera state:
 use grafton_visca::camera::controls::inquiry::InquiryControlBlocking;
 
 // Get current position (returns raw values)
-let (pan, tilt) = camera.get_pan_tilt_position()?;
+let (pan, tilt) = camera.pan_tilt().position()?;
 println!("Pan: {}, Tilt: {}", pan, tilt);
 
 // Get zoom level
-let zoom = camera.get_zoom_position()?;
+let zoom = camera.zoom().position()?;
 println!("Zoom position: {}", zoom);
 
 // Get power state
-let power = camera.get_power_state()?;
+let power = camera.power().state()?;
 println!("Power: {:?}", power);
 ```
 

@@ -6,7 +6,7 @@
 use grafton_visca_macros::ViscaEnum;
 
 use crate::{
-    command::{encode::ViscaCommand, response::ResponseKind},
+    command::{encode::ViscaCommand, response::InquiryKind},
     error::Error,
     timeout::CommandCategory,
     types::{
@@ -126,7 +126,7 @@ impl ViscaCommand for ExposureCompensation {
         }
     }
 
-    fn response_kind(&self) -> Option<ResponseKind> {
+    fn response_kind(&self) -> Option<InquiryKind> {
         None
     }
 }
@@ -211,7 +211,7 @@ impl ViscaCommand for Iris {
         }
     }
 
-    fn response_kind(&self) -> Option<ResponseKind> {
+    fn response_kind(&self) -> Option<InquiryKind> {
         None
     }
 }
@@ -274,7 +274,7 @@ impl ViscaCommand for Shutter {
         }
     }
 
-    fn response_kind(&self) -> Option<ResponseKind> {
+    fn response_kind(&self) -> Option<InquiryKind> {
         None
     }
 }
@@ -343,7 +343,7 @@ impl ViscaCommand for Brightness {
         }
     }
 
-    fn response_kind(&self) -> Option<ResponseKind> {
+    fn response_kind(&self) -> Option<InquiryKind> {
         None
     }
 }

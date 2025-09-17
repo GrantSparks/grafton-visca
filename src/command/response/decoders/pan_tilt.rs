@@ -3,8 +3,8 @@
 use crate::{
     capabilities::{PanTilt, Profile},
     command::{
-        response::types::{Response, ResponseKind},
-        InquiryResponse,
+        response::types::{InquiryKind, Response},
+        InquiryData,
     },
     error::Error,
 };
@@ -12,15 +12,15 @@ use crate::{
 use super::super::payload::{Nibbles, Payload};
 
 /// Decode pan/tilt-related inquiry responses.
-pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<Response, Error>> {
+pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<Response, Error>> {
     match kind {
-        ResponseKind::PanTiltPosition => {
+        InquiryKind::PanTiltPosition => {
             if payload.len() == 8 {
                 match Nibbles::<8>::try_from(payload) {
                     Ok(nibbles) => {
                         let pan = nibbles.i16_quad(0);
                         let tilt = nibbles.i16_quad(4);
-                        Some(Ok(Response::Inquiry(InquiryResponse::PanTiltPosition {
+                        Some(Ok(Response::Inquiry(InquiryData::PanTiltPosition {
                             pan,
                             tilt,
                         })))
@@ -41,7 +41,7 @@ pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<
                 } else {
                     0
                 };
-                Some(Ok(Response::Inquiry(InquiryResponse::PanTiltPosition {
+                Some(Ok(Response::Inquiry(InquiryData::PanTiltPosition {
                     pan,
                     tilt,
                 })))
@@ -62,11 +62,11 @@ pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<
 /// This function uses the profile's coordinate system to convert camera
 /// coordinates to logical coordinates.
 pub(crate) fn decode_for<P: Profile + PanTilt>(
-    kind: ResponseKind,
+    kind: InquiryKind,
     payload: Payload<'_>,
 ) -> Option<Result<Response, Error>> {
     match kind {
-        ResponseKind::PanTiltPosition => {
+        InquiryKind::PanTiltPosition => {
             if payload.len() == 8 {
                 match Nibbles::<8>::try_from(payload) {
                     Ok(nibbles) => {
@@ -78,7 +78,7 @@ pub(crate) fn decode_for<P: Profile + PanTilt>(
                         let (pan, tilt) =
                             P::COORDINATE_SYSTEM.convert_from_camera_coords(pan_u16, tilt_u16);
 
-                        Some(Ok(Response::Inquiry(InquiryResponse::PanTiltPosition {
+                        Some(Ok(Response::Inquiry(InquiryData::PanTiltPosition {
                             pan,
                             tilt,
                         })))
@@ -105,7 +105,7 @@ pub(crate) fn decode_for<P: Profile + PanTilt>(
                 let (pan, tilt) =
                     P::COORDINATE_SYSTEM.convert_from_camera_coords(pan_u16, tilt_u16);
 
-                Some(Ok(Response::Inquiry(InquiryResponse::PanTiltPosition {
+                Some(Ok(Response::Inquiry(InquiryData::PanTiltPosition {
                     pan,
                     tilt,
                 })))

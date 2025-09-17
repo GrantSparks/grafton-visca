@@ -1,6 +1,6 @@
 //! preset control implementation using Mode trait.
 
-use crate::{camera::CommandClient, command::preset::PresetNumber, mode::Mode, Error};
+use crate::{camera::ViscaClient, command::preset::PresetNumber, mode::Mode, Error};
 
 /// presets operations for cameras.
 ///
@@ -15,16 +15,16 @@ pub trait PresetsControl {
     fn preset_recall(
         &self,
         preset: PresetNumber,
-    ) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set current position as a preset.
-    fn preset_set(&self, preset: PresetNumber) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    fn preset_set(&self, preset: PresetNumber) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Reset/clear a preset.
     fn preset_reset(
         &self,
         preset: PresetNumber,
-    ) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
 // Single unified implementation for all Camera types!
@@ -32,35 +32,35 @@ impl<M, P, Tr, Exec> PresetsControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + Default,
-    Self: CommandClient<M>,
+    Self: ViscaClient<M>,
     Exec: crate::executor::Executor,
 {
     type Mode = M;
 
-    fn preset_recall(&self, preset: PresetNumber) -> M::Ret<'_, Result<(), Error>> {
+    fn preset_recall(&self, preset: PresetNumber) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::preset::{PresetAction, PresetCommand};
         let cmd = PresetCommand {
             action: PresetAction::Recall,
             preset_number: preset,
         };
-        self.send_and_complete(cmd)
+        self.execute(cmd)
     }
 
-    fn preset_set(&self, preset: PresetNumber) -> M::Ret<'_, Result<(), Error>> {
+    fn preset_set(&self, preset: PresetNumber) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::preset::{PresetAction, PresetCommand};
         let cmd = PresetCommand {
             action: PresetAction::Set,
             preset_number: preset,
         };
-        self.send_and_complete(cmd)
+        self.execute(cmd)
     }
 
-    fn preset_reset(&self, preset: PresetNumber) -> M::Ret<'_, Result<(), Error>> {
+    fn preset_reset(&self, preset: PresetNumber) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::preset::{PresetAction, PresetCommand};
         let cmd = PresetCommand {
             action: PresetAction::Reset,
             preset_number: preset,
         };
-        self.send_and_complete(cmd)
+        self.execute(cmd)
     }
 }

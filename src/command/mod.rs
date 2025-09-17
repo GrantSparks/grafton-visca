@@ -51,7 +51,7 @@ pub use self::{
     pan_tilt::*,
     power::*,
     preset::*,
-    response::{Response, ResponseKind},
+    response::{InquiryKind, Response},
     system::{MotionSyncMode, MotionSyncPreset},
     // tally::*,
     variable_speed::*,
@@ -64,7 +64,7 @@ pub use self::{
 /// Each variant represents a different type of inquiry response with its associated data.
 /// These are returned wrapped in `Response::Inquiry(...)`.
 #[derive(Debug, Copy, Clone)]
-pub enum InquiryResponse {
+pub enum InquiryData {
     /// Power status inquiry response.
     Power {
         /// Whether the camera is powered on.

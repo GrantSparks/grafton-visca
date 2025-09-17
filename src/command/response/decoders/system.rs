@@ -5,16 +5,16 @@ use std::borrow::Cow;
 use super::super::payload::Payload;
 use crate::{
     command::{
-        response::types::{Response, ResponseKind},
-        InquiryResponse,
+        response::types::{InquiryKind, Response},
+        InquiryData,
     },
     error::Error,
 };
 
 /// Decode system-related inquiry responses.
-pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<Response, Error>> {
+pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<Response, Error>> {
     match kind {
-        ResponseKind::Version => {
+        InquiryKind::Version => {
             if payload.len() != 7 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -23,23 +23,23 @@ pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<
             let rom_version =
                 ((payload.as_slice()[4] as u32) << 8) | (payload.as_slice()[5] as u32);
             let max_socket = payload.as_slice()[6];
-            Some(Ok(Response::Inquiry(InquiryResponse::Version {
+            Some(Ok(Response::Inquiry(InquiryData::Version {
                 vendor,
                 model,
                 rom_version,
                 max_socket,
             })))
         }
-        ResponseKind::Resolution => {
+        InquiryKind::Resolution => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
             let resolution_mode = payload.as_slice()[0];
-            Some(Ok(Response::Inquiry(InquiryResponse::Resolution(
+            Some(Ok(Response::Inquiry(InquiryData::Resolution(
                 resolution_mode,
             ))))
         }
-        ResponseKind::MenuOpenClose => {
+        InquiryKind::MenuOpenClose => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -56,11 +56,11 @@ pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<
                     }))
                 }
             };
-            Some(Ok(Response::Inquiry(InquiryResponse::MenuOpenClose {
+            Some(Ok(Response::Inquiry(InquiryData::MenuOpenClose {
                 is_open,
             })))
         }
-        ResponseKind::UsbAudio => {
+        InquiryKind::UsbAudio => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -75,9 +75,9 @@ pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<
                     }))
                 }
             };
-            Some(Ok(Response::Inquiry(InquiryResponse::UsbAudio { on })))
+            Some(Ok(Response::Inquiry(InquiryData::UsbAudio { on })))
         }
-        ResponseKind::Rtmp => {
+        InquiryKind::Rtmp => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -92,9 +92,9 @@ pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<
                     }))
                 }
             };
-            Some(Ok(Response::Inquiry(InquiryResponse::Rtmp { on })))
+            Some(Ok(Response::Inquiry(InquiryData::Rtmp { on })))
         }
-        ResponseKind::NightDayMode => {
+        InquiryKind::NightDayMode => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -111,11 +111,11 @@ pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<
                     }))
                 }
             };
-            Some(Ok(Response::Inquiry(InquiryResponse::NightDayMode {
+            Some(Ok(Response::Inquiry(InquiryData::NightDayMode {
                 is_night,
             })))
         }
-        ResponseKind::Digital => {
+        InquiryKind::Digital => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -130,9 +130,9 @@ pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<
                     }))
                 }
             };
-            Some(Ok(Response::Inquiry(InquiryResponse::Digital { on })))
+            Some(Ok(Response::Inquiry(InquiryData::Digital { on })))
         }
-        ResponseKind::AutoTrace => {
+        InquiryKind::AutoTrace => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -147,15 +147,15 @@ pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<
                     }))
                 }
             };
-            Some(Ok(Response::Inquiry(InquiryResponse::AutoTrace {
+            Some(Ok(Response::Inquiry(InquiryData::AutoTrace {
                 enabled: on,
             })))
         }
-        ResponseKind::NdFilterPreset => {
+        InquiryKind::NdFilterPreset => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            Some(Ok(Response::Inquiry(InquiryResponse::NdFilterPreset {
+            Some(Ok(Response::Inquiry(InquiryData::NdFilterPreset {
                 preset: payload.as_slice()[0],
             })))
         }

@@ -40,14 +40,6 @@ runtime-smol = ["mode-async", "dep:smol", "dep:async-executor"]
 transport-serial = ["dep:serialport"]
 transport-serial-tokio = ["dep:tokio-serial", "runtime-tokio"]
 
-# Legacy feature names (for backward compatibility, marked for deprecation)
-async = ["mode-async"]
-rt-tokio = ["runtime-tokio"]
-rt-async-std = ["runtime-async-std"]
-rt-smol = ["runtime-smol"]
-tokio-serial = ["transport-serial-tokio"]
-serialport = ["transport-serial"]
-
 # Internal features
 test-utils = ["dep:async-executor", "dep:futures-lite"]
 DISABLED = []

@@ -1,7 +1,7 @@
 //! Motion Sync control implementation using Mode trait.
 
 use crate::{
-    camera::CommandClient, mode::Mode, types::MotionSyncSpeed, Error, MotionSyncMode,
+    camera::ViscaClient, mode::Mode, types::MotionSyncSpeed, Error, MotionSyncMode,
     MotionSyncPreset,
 };
 
@@ -27,7 +27,7 @@ pub trait MotionSyncControl {
     fn set_motion_sync_mode(
         &self,
         mode: MotionSyncMode,
-    ) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Sets the motion sync speed.
     ///
@@ -41,7 +41,7 @@ pub trait MotionSyncControl {
     fn set_motion_sync_speed(
         &self,
         speed: MotionSyncSpeed,
-    ) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Sets the motion sync speed using a preset value.
     ///
@@ -53,21 +53,19 @@ pub trait MotionSyncControl {
     fn set_motion_sync_preset_speed(
         &self,
         speed: MotionSyncPreset,
-    ) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Gets the current motion sync mode.
     ///
     /// # Errors
     /// Returns an error if the camera doesn't support motion sync.
-    fn get_motion_sync_mode(&self) -> <Self::Mode as Mode>::Ret<'_, Result<MotionSyncMode, Error>>;
+    fn motion_sync_mode(&self) -> <Self::Mode as Mode>::Fut<'_, Result<MotionSyncMode, Error>>;
 
     /// Gets the current motion sync speed.
     ///
     /// # Errors
     /// Returns an error if the camera doesn't support motion sync.
-    fn get_motion_sync_speed(
-        &self,
-    ) -> <Self::Mode as Mode>::Ret<'_, Result<MotionSyncPreset, Error>>;
+    fn motion_sync_speed(&self) -> <Self::Mode as Mode>::Fut<'_, Result<MotionSyncPreset, Error>>;
 }
 
 // Single unified implementation for all Camera types!
@@ -75,24 +73,24 @@ impl<M, P, Tr, Exec> MotionSyncControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + Default + crate::capabilities::motion_sync::MotionSync,
-    Self: CommandClient<M>,
+    Self: ViscaClient<M>,
     Exec: crate::executor::Executor,
 {
     type Mode = M;
 
-    fn set_motion_sync_mode(&self, mode: MotionSyncMode) -> M::Ret<'_, Result<(), Error>> {
-        use crate::command::motion_sync::MotionSyncModeCommand;
-        let cmd = MotionSyncModeCommand::new(mode);
-        self.send_and_complete(cmd)
+    fn set_motion_sync_mode(&self, mode: MotionSyncMode) -> M::Fut<'_, Result<(), Error>> {
+        use crate::command::motion_sync::SetMotionSyncMode;
+        let cmd = SetMotionSyncMode::new(mode);
+        self.execute(cmd)
     }
 
-    fn set_motion_sync_speed(&self, speed: MotionSyncSpeed) -> M::Ret<'_, Result<(), Error>> {
-        use crate::command::motion_sync::MotionSyncPresetCommand;
+    fn set_motion_sync_speed(&self, speed: MotionSyncSpeed) -> M::Fut<'_, Result<(), Error>> {
+        use crate::command::motion_sync::SetMotionSyncPreset;
         // MotionSyncSpeed is already validated to be in range 1-24
-        // MotionSyncPresetCommand::new() validates the same range, so this should never fail
+        // SetMotionSyncPreset::new() validates the same range, so this should never fail
         // But we handle the error properly to satisfy clippy
-        match MotionSyncPresetCommand::new(speed.value()) {
-            Ok(cmd) => self.send_and_complete(cmd),
+        match SetMotionSyncPreset::new(speed.value()) {
+            Ok(cmd) => self.execute(cmd),
             Err(e) => self.error(e),
         }
     }
@@ -100,19 +98,19 @@ where
     fn set_motion_sync_preset_speed(
         &self,
         speed: MotionSyncPreset,
-    ) -> M::Ret<'_, Result<(), Error>> {
-        use crate::command::motion_sync::MotionSyncPresetCommand;
-        let cmd = MotionSyncPresetCommand::from_preset(speed);
-        self.send_and_complete(cmd)
+    ) -> M::Fut<'_, Result<(), Error>> {
+        use crate::command::motion_sync::SetMotionSyncPreset;
+        let cmd = SetMotionSyncPreset::from_preset(speed);
+        self.execute(cmd)
     }
 
-    fn get_motion_sync_mode(&self) -> M::Ret<'_, Result<MotionSyncMode, Error>> {
+    fn motion_sync_mode(&self) -> M::Fut<'_, Result<MotionSyncMode, Error>> {
         use crate::command::inquiry_structs::MotionSyncModeInquiry;
-        self.send_and_parse(MotionSyncModeInquiry)
+        self.query(MotionSyncModeInquiry)
     }
 
-    fn get_motion_sync_speed(&self) -> M::Ret<'_, Result<MotionSyncPreset, Error>> {
+    fn motion_sync_speed(&self) -> M::Fut<'_, Result<MotionSyncPreset, Error>> {
         use crate::command::inquiry_structs::MotionSyncPresetInquiry;
-        self.send_and_parse(MotionSyncPresetInquiry)
+        self.query(MotionSyncPresetInquiry)
     }
 }

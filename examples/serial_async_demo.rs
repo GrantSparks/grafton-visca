@@ -14,25 +14,25 @@
 #[cfg(all(
     feature = "mode-async",
     feature = "runtime-tokio",
-    feature = "tokio-serial"
+    feature = "transport-serial-tokio"
 ))]
 use std::env;
 
 #[cfg(all(
     feature = "mode-async",
     feature = "runtime-tokio",
-    feature = "tokio-serial"
+    feature = "transport-serial-tokio"
 ))]
 use grafton_visca::{
     camera::{profiles::GenericVisca, Connect},
-    runtime_trait::TokioRuntime,
+    runtime::TokioRuntime,
     Error,
 };
 
 #[cfg(all(
     feature = "mode-async",
     feature = "runtime-tokio",
-    feature = "tokio-serial"
+    feature = "transport-serial-tokio"
 ))]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -119,7 +119,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(not(all(
     feature = "mode-async",
     feature = "runtime-tokio",
-    feature = "tokio-serial"
+    feature = "transport-serial-tokio"
 )))]
 fn main() {
     eprintln!("This example requires 'async', 'runtime-tokio', and 'tokio-serial' features.");

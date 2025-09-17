@@ -349,7 +349,7 @@ use grafton_visca::{ZoomControl, units::Normalized};  // Unified trait
 use std::thread::sleep;
 
 loop {
-    match camera.zoom_absolute(Normalized::new(0.5)) {
+    match camera.zoom().absolute(Normalized::new(0.5)) {
         Ok(_) => break,
         Err(e) if e.is_retryable() => {
             // Camera busy, network issue, etc.

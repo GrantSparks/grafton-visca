@@ -14,7 +14,7 @@ use grafton_visca_macros::ViscaEnum;
 
 use crate::command::bytes::VISCA_TERMINATOR;
 use crate::command::encode::ViscaCommand;
-use crate::command::response::ResponseKind;
+use crate::command::response::InquiryKind;
 use crate::error::Error;
 use crate::timeout::CommandCategory;
 use crate::ViscaSocket;
@@ -56,7 +56,7 @@ impl ViscaCommand for AddressSetCommand {
         Ok(4)
     }
 
-    fn response_kind(&self) -> Option<ResponseKind> {
+    fn response_kind(&self) -> Option<InquiryKind> {
         None
     }
 }
@@ -99,7 +99,7 @@ impl ViscaCommand for InterfaceClearCommand {
         Ok(5)
     }
 
-    fn response_kind(&self) -> Option<ResponseKind> {
+    fn response_kind(&self) -> Option<InquiryKind> {
         None
     }
 }
@@ -154,7 +154,7 @@ impl ViscaCommand for CommandCancelCommand {
         Ok(3)
     }
 
-    fn response_kind(&self) -> Option<ResponseKind> {
+    fn response_kind(&self) -> Option<InquiryKind> {
         None
     }
 }

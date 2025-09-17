@@ -9,7 +9,7 @@ use grafton_visca_macros::ViscaEnum;
 use std::borrow::Cow;
 
 use crate::{
-    command::{encode::ViscaCommand, resolution::PictureEffectMode, ResponseKind},
+    command::{encode::ViscaCommand, resolution::PictureEffectMode, InquiryKind},
     error::Error,
     timeout::CommandCategory,
     types::{ContrastLevel, LuminanceLevel, NoiseReduction2DLevel, NoiseReduction3DLevel},
@@ -147,7 +147,7 @@ impl ViscaCommand for Sharpness {
         }
     }
 
-    fn response_kind(&self) -> Option<ResponseKind> {
+    fn response_kind(&self) -> Option<InquiryKind> {
         None
     }
 }

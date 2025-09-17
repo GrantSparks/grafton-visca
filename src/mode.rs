@@ -8,10 +8,7 @@
 use async_lock;
 
 // Standard library
-use core::{
-    future::{ready, Ready},
-    pin::Pin,
-};
+use core::{future::Ready, pin::Pin};
 use std::future::Future;
 
 /// Type alias for boxed futures used in async mode.
@@ -30,7 +27,7 @@ pub trait Mode {
     ///
     /// For async mode, this will be a boxed Future that can borrow from the caller.
     /// For blocking mode, this will be a `Ready<T>` (immediate result).
-    type Ret<'a, T>: Future<Output = T> + Send + 'a
+    type Fut<'a, T>: Future<Output = T> + Send + 'a
     where
         Self: 'a,
         T: Send + 'a;
@@ -45,7 +42,7 @@ pub trait Mode {
     fn share<T>(value: T) -> Self::Shared<T>;
 
     /// Create a return value from a result.
-    fn ret<'a, T>(result: T) -> Self::Ret<'a, T>
+    fn ready<'a, T>(result: T) -> Self::Fut<'a, T>
     where
         T: Send + 'a;
 
@@ -53,7 +50,7 @@ pub trait Mode {
     ///
     /// This method accepts futures with non-'static lifetimes, allowing
     /// futures to borrow from the caller without requiring 'static promotion.
-    fn ret_fut<'a, F, T>(future: F) -> Self::Ret<'a, T>
+    fn from_future<'a, F, T>(future: F) -> Self::Fut<'a, T>
     where
         F: Future<Output = T> + Send + 'a,
         T: Send + 'a;
@@ -74,7 +71,7 @@ impl Mode for Async {
     // zero-cost futures. The current approach still avoids double-boxing and
     // maintains a single allocation per async operation.
     // See: https://github.com/rust-lang/rust/issues/63063
-    type Ret<'a, T>
+    type Fut<'a, T>
         = BoxFuture<'a, T>
     where
         T: Send + 'a;
@@ -94,14 +91,14 @@ impl Mode for Async {
         value
     }
 
-    fn ret<'a, T>(result: T) -> Self::Ret<'a, T>
+    fn ready<'a, T>(result: T) -> Self::Fut<'a, T>
     where
         T: Send + 'a,
     {
-        Box::pin(ready(result))
+        Box::pin(core::future::ready(result))
     }
 
-    fn ret_fut<'a, F, T>(future: F) -> Self::Ret<'a, T>
+    fn from_future<'a, F, T>(future: F) -> Self::Fut<'a, T>
     where
         F: Future<Output = T> + Send + 'a,
         T: Send + 'a,
@@ -111,7 +108,7 @@ impl Mode for Async {
 }
 
 impl Mode for Blocking {
-    type Ret<'a, T>
+    type Fut<'a, T>
         = Ready<T>
     where
         T: Send + 'a;
@@ -122,20 +119,20 @@ impl Mode for Blocking {
         std::cell::RefCell::new(value)
     }
 
-    fn ret<'a, T>(result: T) -> Self::Ret<'a, T>
+    fn ready<'a, T>(result: T) -> Self::Fut<'a, T>
     where
         T: Send + 'a,
     {
-        ready(result)
+        core::future::ready(result)
     }
 
-    fn ret_fut<'a, F, T>(_future: F) -> Self::Ret<'a, T>
+    fn from_future<'a, F, T>(_future: F) -> Self::Fut<'a, T>
     where
         F: Future<Output = T> + Send + 'a,
         T: Send + 'a,
     {
         // NOTE: For blocking mode, futures should be avoided.
-        unreachable!("Blocking mode should not use futures directly - use Mode::ret() instead")
+        unreachable!("Blocking mode should not use futures directly - use Mode::ready() instead")
     }
 }
 
@@ -193,13 +190,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_async_mode() {
-        let result = Async::ret(42).await;
+        let result = Async::ready(42).await;
         assert_eq!(result, 42);
     }
 
     #[tokio::test]
     async fn test_blocking_mode() {
-        let result = Blocking::ret("test").await;
+        let result = Blocking::ready("test").await;
         assert_eq!(result, "test");
     }
 }

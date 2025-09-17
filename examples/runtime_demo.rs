@@ -14,7 +14,7 @@ fn main() {
 #[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]
 use grafton_visca::{
     camera::{profiles::PtzOpticsG2, Connect},
-    runtime_trait::TokioRuntime,
+    runtime::TokioRuntime,
     Error,
 };
 

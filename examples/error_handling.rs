@@ -14,7 +14,7 @@ use grafton_visca::{
         builder::CameraBuilder,
         profiles::{G2PresetId, PtzOpticsG2},
     },
-    runtime_trait::TokioRuntime,
+    runtime::TokioRuntime,
     types::{PanSpeed, PanTiltDirection, TiltSpeed},
 };
 #[cfg(not(feature = "mode-async"))]

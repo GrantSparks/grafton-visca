@@ -54,13 +54,13 @@
 //! # }
 //! ```
 //!
-//! # Low-Level API (Advanced)
+//! # Low-Level API (Raw)
 //!
 //! Advanced users who need direct access to transports, raw commands, or custom protocols
 //! can use the low-level API:
 //!
 //! ```ignore
-//! use grafton_visca::prelude::advanced::*;
+//! use grafton_visca::prelude::raw::*;
 //! use grafton_visca::transport::Transport;
 //!
 //! // Build custom transport with specific settings
@@ -82,7 +82,7 @@
 /// - Common types and error handling
 /// - Runtime support
 ///
-/// For advanced features (custom transports, raw commands), use `prelude::advanced`.
+/// For advanced features (custom transports, raw commands), use `prelude::raw`.
 ///
 /// # Example
 /// ```no_run
@@ -111,11 +111,11 @@ pub mod r#async {
 
     // Runtime support for async operations
     #[cfg(feature = "runtime-async-std")]
-    pub use crate::runtime_trait::AsyncStdRuntime;
+    pub use crate::runtime::AsyncStdRuntime;
     #[cfg(feature = "runtime-smol")]
-    pub use crate::runtime_trait::SmolRuntime;
+    pub use crate::runtime::SmolRuntime;
     #[cfg(feature = "runtime-tokio")]
-    pub use crate::runtime_trait::TokioRuntime;
+    pub use crate::runtime::TokioRuntime;
 }
 
 /// Blocking prelude - import this for synchronous camera control.
@@ -124,7 +124,7 @@ pub mod r#async {
 /// - Camera profiles and type aliases
 /// - Common types and error handling
 ///
-/// For advanced features (custom transports, raw commands), use `prelude::advanced`.
+/// For advanced features (custom transports, raw commands), use `prelude::raw`.
 ///
 /// # Example
 /// ```no_run
@@ -180,9 +180,9 @@ pub mod blocking {
     pub type GenericViscaCam<T> = Camera<GenericVisca, T>;
 }
 
-/// Advanced prelude - import this for low-level and custom control.
+/// Raw prelude - import this for low-level and custom control.
 ///
-/// This prelude provides access to advanced features for power users:
+/// This prelude provides access to raw/low-level features for power users:
 /// - Direct transport builders and configuration
 /// - Raw VISCA commands and protocol handling
 /// - Socket managers and buffer management
@@ -194,7 +194,7 @@ pub mod blocking {
 ///
 /// # Example
 /// ```ignore
-/// use grafton_visca::prelude::advanced::*;
+/// use grafton_visca::prelude::raw::*;
 /// use grafton_visca::CameraBuilder;
 /// use std::time::Duration;
 ///
@@ -214,7 +214,7 @@ pub mod blocking {
 /// # Ok(())
 /// # }
 /// ```
-pub mod advanced {
+pub mod raw {
     // Re-export camera profiles for convenience
     pub use crate::camera::profiles::*;
 
@@ -228,7 +228,7 @@ pub mod advanced {
     pub use crate::visca_socket::ViscaSocket;
 
     // Raw command types and encoding
-    pub use crate::command::{CommandKind, InquiryResponse, Response, ResponseKind, ViscaCommand};
+    pub use crate::command::{CommandKind, InquiryData, InquiryKind, Response, ViscaCommand};
 
     // Camera ID for multi-camera setups
     pub use crate::camera_id::CameraId;
@@ -243,7 +243,7 @@ pub mod advanced {
     #[cfg(feature = "mode-async")]
     pub use crate::executor::Executor;
     #[cfg(feature = "mode-async")]
-    pub use crate::runtime_trait::{Runtime, TransportHandle};
+    pub use crate::runtime::{Runtime, TransportHandle};
 
     // Error types with retry logic
     pub use crate::error::{Error, Result};

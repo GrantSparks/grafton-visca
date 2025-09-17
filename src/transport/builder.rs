@@ -12,7 +12,7 @@
 //! # #[cfg(feature = "runtime-tokio")]
 //! use grafton_visca::camera::{Camera, Connect, CameraConfig, profiles::GenericVisca};
 //! # #[cfg(feature = "runtime-tokio")]
-//! use grafton_visca::runtime_trait::TokioRuntime;
+//! use grafton_visca::runtime::TokioRuntime;
 //!
 //! # #[cfg(feature = "runtime-tokio")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -112,7 +112,7 @@ impl Transport {
     /// # #[cfg(feature = "runtime-tokio")]
     /// # async fn async_example() -> Result<(), Box<dyn std::error::Error>> {
     /// // Building cameras with transport configuration
-    /// use grafton_visca::{camera::{CameraConfig, Camera, Connect}, runtime_trait::TokioRuntime};
+    /// use grafton_visca::{camera::{CameraConfig, Camera, Connect}, runtime::TokioRuntime};
     /// use grafton_visca::camera::profiles::GenericVisca;
     /// let runtime = TokioRuntime::from_current()?;
     /// // Use convenience method for quick setup
@@ -145,7 +145,7 @@ impl Transport {
     /// # #[cfg(feature = "runtime-tokio")]
     /// # async fn async_example() -> Result<(), Box<dyn std::error::Error>> {
     /// // Building cameras with transport configuration
-    /// use grafton_visca::{camera::{CameraConfig, Camera, Connect}, runtime_trait::TokioRuntime};
+    /// use grafton_visca::{camera::{CameraConfig, Camera, Connect}, runtime::TokioRuntime};
     /// use grafton_visca::camera::profiles::GenericVisca;
     /// let runtime = TokioRuntime::from_current()?;
     /// // Use convenience method for quick setup
@@ -182,7 +182,7 @@ impl Transport {
 /// # #[cfg(feature = "runtime-tokio")]
 /// # async fn async_example() -> Result<(), Box<dyn std::error::Error>> {
 /// // Building cameras with custom transport configuration
-/// use grafton_visca::{camera::{CameraConfig, profiles::GenericVisca}, runtime_trait::TokioRuntime};
+/// use grafton_visca::{camera::{CameraConfig, profiles::GenericVisca}, runtime::TokioRuntime};
 /// let runtime = TokioRuntime::from_current()?;
 /// let session = CameraConfig::<GenericVisca>::new()
 ///     .tcp()
@@ -404,16 +404,16 @@ pub async fn auto_connect_and_detect<R>(
     runtime: &R,
 ) -> Result<
     (
-        crate::runtime_trait::TransportHandle<R>,
+        crate::runtime::TransportHandle<R>,
         crate::capabilities::ProtocolStyle,
     ),
     Error,
 >
 where
-    R: crate::runtime_trait::Runtime,
+    R: crate::runtime::Runtime,
 {
     use crate::protocol::detect::{ProtocolDetector, TransportProtocol};
-    use crate::runtime_trait::TransportHandle;
+    use crate::runtime::TransportHandle;
     use tracing::{debug, info};
 
     info!("Starting auto-connect and detect for host: {}", host);

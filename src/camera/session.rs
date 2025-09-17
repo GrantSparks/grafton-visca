@@ -6,11 +6,14 @@
 
 use std::{marker::PhantomData, time::Duration};
 
+#[cfg(feature = "mode-async")]
+use crate::camera::ViscaClient;
+
 use crate::{
     camera::Camera,
     camera_id::CameraId,
     capabilities::Profile,
-    command::{response::ResponseKind, typed::ResponseParser, CommandKind, ViscaCommand},
+    command::{response::InquiryKind, typed::ResponseParser, CommandKind, ViscaCommand},
     error::Error,
     mode::Mode,
     timeout::CommandCategory,
@@ -46,7 +49,7 @@ impl ViscaCommand for RawCommand {
         Ok(len)
     }
 
-    fn response_kind(&self) -> Option<ResponseKind> {
+    fn response_kind(&self) -> Option<InquiryKind> {
         // Raw commands don't specify a response type
         None
     }
@@ -133,7 +136,7 @@ impl<M, P, Tr, Exec> std::fmt::Debug for CameraSession<M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
-    Exec: Executor,
+    Exec: crate::executor::Executor,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CameraSession")
@@ -185,10 +188,10 @@ where
 
 // Async-specific close implementation for Runtime-based cameras
 #[cfg(feature = "mode-async")]
-impl<P, R> CameraSession<crate::mode::Async, P, crate::runtime_trait::TransportHandle<R>, R>
+impl<P, R> CameraSession<crate::mode::Async, P, crate::runtime::TransportHandle<R>, R>
 where
     P: Profile,
-    R: crate::runtime_trait::Runtime,
+    R: crate::runtime::Runtime,
 {
     /// Explicitly close the camera session.
     ///
@@ -212,8 +215,7 @@ where
     /// the session's command scheduler to maintain proper sequencing.
     pub fn raw(
         &self,
-    ) -> Option<RawSender<'_, crate::mode::Async, P, crate::runtime_trait::TransportHandle<R>, R>>
-    {
+    ) -> Option<RawSender<'_, crate::mode::Async, P, crate::runtime::TransportHandle<R>, R>> {
         self.camera.as_ref().map(|cam| RawSender {
             camera: cam,
             _phantom: PhantomData,
@@ -945,52 +947,48 @@ where
 // This allows using the session directly for all control operations
 
 #[cfg(feature = "mode-async")]
-use crate::camera::CommandClient;
 use crate::executor::Executor;
 
 #[cfg(feature = "mode-async")]
-impl<M, P, Tr, Exec> CommandClient<M> for CameraSession<M, P, Tr, Exec>
+impl<M, P, Tr, Exec> ViscaClient<M> for CameraSession<M, P, Tr, Exec>
 where
     M: Mode,
     P: Profile,
-    Camera<M, P, Tr, Exec>: CommandClient<M>,
+    Camera<M, P, Tr, Exec>: ViscaClient<M>,
     Exec: Executor,
 {
-    fn send_and_complete<C>(&self, command: C) -> M::Ret<'_, Result<(), Error>>
+    fn execute<C>(&self, command: C) -> M::Fut<'_, Result<(), Error>>
     where
         C: ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
     {
         if let Some(camera) = &self.camera {
-            camera.send_and_complete(command)
+            camera.execute(command)
         } else {
             self.error(Error::InvalidState("Session is closed".into()))
         }
     }
 
-    fn send_and_parse<C>(
-        &self,
-        command: C,
-    ) -> M::Ret<'_, Result<<C as ResponseParser>::Response, Error>>
+    fn query<C>(&self, command: C) -> M::Fut<'_, Result<<C as ResponseParser>::Response, Error>>
     where
         C: ResponseParser + ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
         <C as ResponseParser>::Response: Send + 'static,
     {
         if let Some(camera) = &self.camera {
-            camera.send_and_parse(command)
+            camera.query(command)
         } else {
             self.error(Error::InvalidState("Session is closed".into()))
         }
     }
 
-    fn error<T>(&self, error: Error) -> M::Ret<'_, Result<T, Error>>
+    fn error<T>(&self, error: Error) -> M::Fut<'_, Result<T, Error>>
     where
         T: Send + 'static,
     {
         if let Some(camera) = &self.camera {
             camera.error(error)
         } else {
-            // Return error directly using Mode::ret
-            M::ret(Err(error))
+            // Return error directly using Mode::ready
+            M::ready(Err(error))
         }
     }
 }

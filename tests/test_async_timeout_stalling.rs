@@ -16,7 +16,7 @@ use std::time::Duration;
 #[cfg(feature = "runtime-tokio")]
 use grafton_visca::{
     camera::profiles::PtzOpticsG2,
-    prelude::advanced::ProtocolStyle,
+    prelude::raw::ProtocolStyle,
     testing::testkit::{ScriptedTransport, Step},
     timeout::TimeoutConfig,
     Error, ZoomControl,

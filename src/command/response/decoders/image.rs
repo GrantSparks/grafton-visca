@@ -6,23 +6,23 @@ use super::super::payload::{Nibbles, Payload};
 use crate::{
     command::{
         image::{BlackWhiteMode, NoiseReductionMode, NoiseReductionSpeed, SharpnessMode},
-        response::types::{Response, ResponseKind},
-        InquiryResponse,
+        response::types::{InquiryKind, Response},
+        InquiryData,
     },
     error::Error,
 };
 
 /// Decode image-related inquiry responses.
-pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<Response, Error>> {
+pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<Response, Error>> {
     match kind {
-        ResponseKind::Sharpness => match Nibbles::<4>::try_from(payload) {
+        InquiryKind::Sharpness => match Nibbles::<4>::try_from(payload) {
             Ok(nibbles) => {
                 let value = nibbles.u8_pair(2);
-                Some(Ok(Response::Inquiry(InquiryResponse::Sharpness { value })))
+                Some(Ok(Response::Inquiry(InquiryData::Sharpness { value })))
             }
             Err(e) => Some(Err(e)),
         },
-        ResponseKind::SharpnessMode => {
+        InquiryKind::SharpnessMode => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -37,50 +37,46 @@ pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<
                     }))
                 }
             };
-            Some(Ok(Response::Inquiry(InquiryResponse::SharpnessMode {
-                mode,
-            })))
+            Some(Ok(Response::Inquiry(InquiryData::SharpnessMode { mode })))
         }
-        ResponseKind::Saturation => {
+        InquiryKind::Saturation => {
             if payload.len() != 4 {
                 return Some(Err(Error::InvalidResponseLength));
             }
             let level = payload.as_slice()[3];
-            Some(Ok(Response::Inquiry(InquiryResponse::Saturation { level })))
+            Some(Ok(Response::Inquiry(InquiryData::Saturation { level })))
         }
-        ResponseKind::Hue => {
+        InquiryKind::Hue => {
             if payload.len() != 4 {
                 return Some(Err(Error::InvalidResponseLength));
             }
             let hue = payload.as_slice()[3];
-            Some(Ok(Response::Inquiry(InquiryResponse::Hue { hue })))
+            Some(Ok(Response::Inquiry(InquiryData::Hue { hue })))
         }
-        ResponseKind::Contrast => {
+        InquiryKind::Contrast => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            Some(Ok(Response::Inquiry(InquiryResponse::Contrast(
+            Some(Ok(Response::Inquiry(InquiryData::Contrast(
                 payload.as_slice()[0],
             ))))
         }
-        ResponseKind::PictureEffect => {
+        InquiryKind::PictureEffect => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
             let effect = payload.as_slice()[0];
-            Some(Ok(Response::Inquiry(InquiryResponse::PictureEffect {
-                effect,
-            })))
+            Some(Ok(Response::Inquiry(InquiryData::PictureEffect { effect })))
         }
-        ResponseKind::BlackWhite => {
+        InquiryKind::BlackWhite => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            Some(Ok(Response::Inquiry(InquiryResponse::BlackWhite {
+            Some(Ok(Response::Inquiry(InquiryData::BlackWhite {
                 on: payload.as_slice()[0] == 0x04,
             })))
         }
-        ResponseKind::BlackWhiteMode => {
+        InquiryKind::BlackWhiteMode => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -88,29 +84,27 @@ pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<
                 Ok(mode) => mode,
                 Err(e) => return Some(Err(e)),
             };
-            Some(Ok(Response::Inquiry(InquiryResponse::BlackWhiteMode {
-                mode,
-            })))
+            Some(Ok(Response::Inquiry(InquiryData::BlackWhiteMode { mode })))
         }
-        ResponseKind::NoiseReduction2D => {
+        InquiryKind::NoiseReduction2D => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
             let level = payload.as_slice()[0];
-            Some(Ok(Response::Inquiry(InquiryResponse::NoiseReduction2D {
+            Some(Ok(Response::Inquiry(InquiryData::NoiseReduction2D {
                 level,
             })))
         }
-        ResponseKind::NoiseReduction3D => {
+        InquiryKind::NoiseReduction3D => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
             let level = payload.as_slice()[0];
-            Some(Ok(Response::Inquiry(InquiryResponse::NoiseReduction3D {
+            Some(Ok(Response::Inquiry(InquiryData::NoiseReduction3D {
                 level,
             })))
         }
-        ResponseKind::NoiseReductionMode => {
+        InquiryKind::NoiseReductionMode => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -118,11 +112,11 @@ pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<
                 Ok(mode) => mode,
                 Err(e) => return Some(Err(e)),
             };
-            Some(Ok(Response::Inquiry(InquiryResponse::NoiseReductionMode {
+            Some(Ok(Response::Inquiry(InquiryData::NoiseReductionMode {
                 mode,
             })))
         }
-        ResponseKind::NoiseReductionSpeed => {
+        InquiryKind::NoiseReductionSpeed => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -130,67 +124,63 @@ pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<
                 Ok(speed) => speed,
                 Err(e) => return Some(Err(e)),
             };
-            Some(Ok(Response::Inquiry(
-                InquiryResponse::NoiseReductionSpeed { speed },
-            )))
+            Some(Ok(Response::Inquiry(InquiryData::NoiseReductionSpeed {
+                speed,
+            })))
         }
-        ResponseKind::FlipState => {
+        InquiryKind::FlipState => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
             let value = payload.as_slice()[0];
-            Some(Ok(Response::Inquiry(InquiryResponse::FlipState {
+            Some(Ok(Response::Inquiry(InquiryData::FlipState {
                 horizontal: (value & 0x01) != 0,
                 vertical: (value & 0x02) != 0,
             })))
         }
-        ResponseKind::DynamicRange => {
+        InquiryKind::DynamicRange => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
             let level = payload.as_slice()[0];
-            Some(Ok(Response::Inquiry(InquiryResponse::DynamicRange {
-                level,
-            })))
+            Some(Ok(Response::Inquiry(InquiryData::DynamicRange { level })))
         }
-        ResponseKind::Backlight => {
+        InquiryKind::Backlight => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            Some(Ok(Response::Inquiry(InquiryResponse::Backlight {
+            Some(Ok(Response::Inquiry(InquiryData::Backlight {
                 status: payload.as_slice()[0] == 0x02,
             })))
         }
-        ResponseKind::Luminance => {
+        InquiryKind::Luminance => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            Some(Ok(Response::Inquiry(InquiryResponse::Luminance(
+            Some(Ok(Response::Inquiry(InquiryData::Luminance(
                 payload.as_slice()[0],
             ))))
         }
-        ResponseKind::NdFilter => {
+        InquiryKind::NdFilter => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
             let position = payload.as_slice()[0];
-            Some(Ok(Response::Inquiry(InquiryResponse::NdFilter {
-                position,
-            })))
+            Some(Ok(Response::Inquiry(InquiryData::NdFilter { position })))
         }
-        ResponseKind::Gamma => {
+        InquiryKind::Gamma => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            Some(Ok(Response::Inquiry(InquiryResponse::Gamma {
+            Some(Ok(Response::Inquiry(InquiryData::Gamma {
                 value: payload.as_slice()[0],
             })))
         }
-        ResponseKind::TwoToneMode => {
+        InquiryKind::TwoToneMode => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            Some(Ok(Response::Inquiry(InquiryResponse::TwoToneMode {
+            Some(Ok(Response::Inquiry(InquiryData::TwoToneMode {
                 on: payload.as_slice()[0] == 0x02,
             })))
         }

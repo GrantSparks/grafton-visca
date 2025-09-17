@@ -6,7 +6,7 @@ use grafton_visca::{
     capabilities::CoordinateSystem,
     command::{
         pan_tilt::{PanTilt as PanTiltCommand, PanTiltLimitCorner},
-        response::{types::Response, ResponseKind},
+        response::{types::Response, InquiryKind},
         ViscaCommand,
     },
     types::{PanSpeed, TiltSpeed},
@@ -95,14 +95,12 @@ fn test_signed_centered_decoding() {
         0x90, 0x50, 0x01, 0x00, 0x00, 0x00, 0x0F, 0x00, 0x00, 0x00, 0xFF,
     ];
 
-    let result = Response::parse_with_profile::<PtzOpticsG2>(
-        &response_bytes,
-        &ResponseKind::PanTiltPosition,
-    );
+    let result =
+        Response::parse_with_profile::<PtzOpticsG2>(&response_bytes, &InquiryKind::PanTiltPosition);
 
     assert!(result.is_ok());
     if let Ok(Response::Inquiry(inquiry)) = result {
-        if let grafton_visca::command::InquiryResponse::PanTiltPosition { pan, tilt } = inquiry {
+        if let grafton_visca::command::InquiryData::PanTiltPosition { pan, tilt } = inquiry {
             // For SignedCentered, 0x1000 should be 4096 and 0xF000 should be -4096
             assert_eq!(pan, 0x1000_u16 as i16);
             assert_eq!(tilt, 0xF000_u16 as i16);
@@ -123,11 +121,11 @@ fn test_unsigned_centered_decoding() {
     ];
 
     let result =
-        Response::parse_with_profile::<SonyBRC300>(&response_bytes, &ResponseKind::PanTiltPosition);
+        Response::parse_with_profile::<SonyBRC300>(&response_bytes, &InquiryKind::PanTiltPosition);
 
     assert!(result.is_ok());
     if let Ok(Response::Inquiry(inquiry)) = result {
-        if let grafton_visca::command::InquiryResponse::PanTiltPosition { pan, tilt } = inquiry {
+        if let grafton_visca::command::InquiryData::PanTiltPosition { pan, tilt } = inquiry {
             // For UnsignedCentered, 0x8000 should be converted to logical 0
             assert_eq!(pan, 0);
             assert_eq!(tilt, 0);

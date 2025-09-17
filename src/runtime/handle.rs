@@ -301,6 +301,7 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
             .send_async(item)
             .await
             .map_err(|_| Error::ChannelClosed)
+            .map_err(Error::to_public_error)
     }
 
     /// Cancel a command by its ID.
@@ -327,6 +328,7 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
             .send_async(cancel_item)
             .await
             .map_err(|_| Error::ChannelClosed)
+            .map_err(Error::to_public_error)
     }
 
     /// Cancel all commands on a specific socket.
@@ -350,6 +352,7 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
             .send_async(cancel_item)
             .await
             .map_err(|_| Error::ChannelClosed)
+            .map_err(Error::to_public_error)
     }
 
     /// Shutdown the runtime.
@@ -377,6 +380,7 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
             .recv_async()
             .await
             .map_err(|_| Error::ChannelClosed)
+            .map_err(Error::to_public_error)
     }
 
     /// Subscribe to completion events from the runtime.
@@ -394,6 +398,7 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
             .recv_async()
             .await
             .map_err(|_| Error::ChannelClosed)
+            .map_err(Error::to_public_error)
     }
 
     /// Sleep for a specified duration.
@@ -491,7 +496,8 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
             response_rx
                 .recv_async()
                 .await
-                .map_err(|_| Error::ChannelClosed)?
+                .map_err(|_| Error::ChannelClosed)
+                .map_err(Error::to_public_error)?
         };
 
         Ok((command_id, future))
@@ -552,7 +558,8 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
         response_rx
             .recv_async()
             .await
-            .map_err(|_| Error::ChannelClosed)?
+            .map_err(|_| Error::ChannelClosed)
+            .map_err(Error::to_public_error)?
     }
 }
 

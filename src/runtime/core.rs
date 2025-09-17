@@ -14,7 +14,7 @@ use std::{
 
 use crate::{
     command::{
-        response::{parse_inquiry_payload, Response, ResponseKind},
+        response::{parse_inquiry_payload, InquiryKind, Response},
         CommandKind,
     },
     timeout::{CommandCategory, TimeoutConfig},
@@ -552,7 +552,7 @@ pub struct SchedulerCore {
     /// Inquiry order tracking for raw VISCA (no sequence).
     inquiries_order: VecDeque<u32>,
     /// Response types for inquiries (for parsing DataReply).
-    inquiry_response_types: HashMap<u32, ResponseKind>,
+    inquiry_response_types: HashMap<u32, InquiryKind>,
 }
 
 impl SchedulerCore {
@@ -904,17 +904,17 @@ impl SchedulerCore {
     }
 
     /// Register the expected response type for an inquiry.
-    pub fn register_inquiry_type(&mut self, id: u32, ty: ResponseKind) {
+    pub fn register_inquiry_type(&mut self, id: u32, ty: InquiryKind) {
         self.inquiry_response_types.insert(id, ty);
     }
 
     /// Take the response type for an inquiry (removing it from storage).
-    pub fn take_inquiry_type(&mut self, id: u32) -> Option<ResponseKind> {
+    pub fn take_inquiry_type(&mut self, id: u32) -> Option<InquiryKind> {
         self.inquiry_response_types.remove(&id)
     }
 
     /// Get the response type for an inquiry (without removing it).
-    pub fn get_inquiry_type(&self, id: u32) -> Option<&ResponseKind> {
+    pub fn get_inquiry_type(&self, id: u32) -> Option<&InquiryKind> {
         self.inquiry_response_types.get(&id)
     }
 
@@ -936,7 +936,7 @@ impl SchedulerCore {
 
         // Try content-based matching for raw VISCA
         // Build a map of active inquiries with their types
-        let active_inquiries: HashMap<u32, ResponseKind> = self
+        let active_inquiries: HashMap<u32, InquiryKind> = self
             .inquiries_inflight
             .keys()
             .filter_map(|&id| self.inquiry_response_types.get(&id).map(|ty| (id, *ty)))
@@ -1807,7 +1807,7 @@ mod tests {
     #[derive(Debug, Clone)]
     struct TestCommandQuick {
         bytes: Vec<u8>,
-        response_type: Option<ResponseKind>,
+        response_type: Option<InquiryKind>,
     }
 
     impl crate::command::encode::ViscaCommand for TestCommandQuick {
@@ -1821,7 +1821,7 @@ mod tests {
             Ok(len)
         }
 
-        fn response_kind(&self) -> Option<ResponseKind> {
+        fn response_kind(&self) -> Option<InquiryKind> {
             self.response_type
         }
     }
@@ -1829,7 +1829,7 @@ mod tests {
     #[derive(Debug, Clone)]
     struct TestCommandMovement {
         bytes: Vec<u8>,
-        response_type: Option<ResponseKind>,
+        response_type: Option<InquiryKind>,
     }
 
     impl crate::command::encode::ViscaCommand for TestCommandMovement {
@@ -1843,7 +1843,7 @@ mod tests {
             Ok(len)
         }
 
-        fn response_kind(&self) -> Option<ResponseKind> {
+        fn response_kind(&self) -> Option<InquiryKind> {
             self.response_type
         }
     }
@@ -1851,7 +1851,7 @@ mod tests {
     // Helper function to create test commands from byte patterns
     fn create_test_command(
         bytes: Vec<u8>,
-        response_type: Option<ResponseKind>,
+        response_type: Option<InquiryKind>,
         category: CommandCategory,
         camera_id: CameraId,
     ) -> Arc<PreparedCommand> {
@@ -2005,8 +2005,8 @@ mod tests {
                 buffer[4] = VISCA_TERMINATOR;
                 Ok(5)
             }
-            fn response_kind(&self) -> Option<ResponseKind> {
-                Some(ResponseKind::Power)
+            fn response_kind(&self) -> Option<InquiryKind> {
+                Some(InquiryKind::Power)
             }
         }
         impl std::fmt::Debug for TestInquiry {
@@ -2033,7 +2033,7 @@ mod tests {
                 buffer[5] = VISCA_TERMINATOR;
                 Ok(6)
             }
-            fn response_kind(&self) -> Option<ResponseKind> {
+            fn response_kind(&self) -> Option<InquiryKind> {
                 None
             }
         }
@@ -2058,7 +2058,7 @@ mod tests {
                 buffer[5] = VISCA_TERMINATOR;
                 Ok(6)
             }
-            fn response_kind(&self) -> Option<ResponseKind> {
+            fn response_kind(&self) -> Option<InquiryKind> {
                 None
             }
         }
@@ -2159,8 +2159,8 @@ mod tests {
                 buffer[4] = VISCA_TERMINATOR;
                 Ok(5)
             }
-            fn response_kind(&self) -> Option<ResponseKind> {
-                Some(ResponseKind::Power)
+            fn response_kind(&self) -> Option<InquiryKind> {
+                Some(InquiryKind::Power)
             }
         }
 
@@ -2185,7 +2185,7 @@ mod tests {
         assert!(core.inquiries_order.contains(&1));
 
         // Process InquiryReply event
-        let response = Response::Inquiry(crate::command::InquiryResponse::Power { on: true });
+        let response = Response::Inquiry(crate::command::InquiryData::Power { on: true });
         let event = SchedulerEvent::InquiryReply {
             cmd_id: Some(1),
             response,
@@ -2201,7 +2201,7 @@ mod tests {
             } => {
                 assert_eq!(*id, 1);
                 match resp {
-                    Response::Inquiry(crate::command::InquiryResponse::Power { on }) => {
+                    Response::Inquiry(crate::command::InquiryData::Power { on }) => {
                         assert!(*on);
                     }
                     _ => panic!("Expected Power inquiry response"),
@@ -2241,8 +2241,8 @@ mod tests {
                 buffer[4] = VISCA_TERMINATOR;
                 Ok(5)
             }
-            fn response_kind(&self) -> Option<ResponseKind> {
-                Some(ResponseKind::Power)
+            fn response_kind(&self) -> Option<InquiryKind> {
+                Some(InquiryKind::Power)
             }
         }
 
@@ -2260,8 +2260,8 @@ mod tests {
                 buffer[4] = VISCA_TERMINATOR;
                 Ok(5)
             }
-            fn response_kind(&self) -> Option<ResponseKind> {
-                Some(ResponseKind::ZoomPosition)
+            fn response_kind(&self) -> Option<InquiryKind> {
+                Some(InquiryKind::ZoomPosition)
             }
         }
 
@@ -2279,8 +2279,8 @@ mod tests {
                 buffer[4] = VISCA_TERMINATOR;
                 Ok(5)
             }
-            fn response_kind(&self) -> Option<ResponseKind> {
-                Some(ResponseKind::Power)
+            fn response_kind(&self) -> Option<InquiryKind> {
+                Some(InquiryKind::Power)
             }
         }
 
@@ -2324,7 +2324,7 @@ mod tests {
 
         // Process InquiryReply events without cmd_id (raw VISCA)
         // First reply should match first inquiry
-        let response1 = Response::Inquiry(crate::command::InquiryResponse::Power { on: true });
+        let response1 = Response::Inquiry(crate::command::InquiryData::Power { on: true });
         let event1 = SchedulerEvent::InquiryReply {
             cmd_id: None, // No sequence in raw VISCA
             response: response1,
@@ -2371,7 +2371,7 @@ mod tests {
                 buffer[5] = VISCA_TERMINATOR;
                 Ok(6)
             }
-            fn response_kind(&self) -> Option<ResponseKind> {
+            fn response_kind(&self) -> Option<InquiryKind> {
                 None
             }
         }
@@ -2391,7 +2391,7 @@ mod tests {
                 buffer[5] = VISCA_TERMINATOR;
                 Ok(6)
             }
-            fn response_kind(&self) -> Option<ResponseKind> {
+            fn response_kind(&self) -> Option<InquiryKind> {
                 None
             }
         }
@@ -2474,7 +2474,7 @@ mod tests {
         let camera_id = CameraId::CAMERA_1;
         let command = create_test_command(
             vec![0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR],
-            Some(ResponseKind::Power),
+            Some(InquiryKind::Power),
             CommandCategory::Quick,
             camera_id,
         );
@@ -2967,13 +2967,13 @@ mod tests {
         // Start two different inquiries in raw VISCA mode
         let power_cmd = create_test_command(
             vec![0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR],
-            Some(ResponseKind::Power),
+            Some(InquiryKind::Power),
             CommandCategory::Quick,
             camera_id,
         );
         let zoom_cmd = create_test_command(
             vec![0x81, 0x09, 0x04, 0x47, VISCA_TERMINATOR],
-            Some(ResponseKind::ZoomPosition),
+            Some(InquiryKind::ZoomPosition),
             CommandCategory::Quick,
             camera_id,
         );
@@ -3006,7 +3006,7 @@ mod tests {
         // Second inquiry (zoom) reply arrives first - with explicit cmd_id
         // (This simulates the adapter layer doing content-based matching)
         let zoom_response =
-            Response::Inquiry(crate::command::InquiryResponse::ZoomPosition { position: 0x1234 });
+            Response::Inquiry(crate::command::InquiryData::ZoomPosition { position: 0x1234 });
         let event2 = SchedulerEvent::InquiryReply {
             cmd_id: Some(2), // Content-based matching identified this as inquiry 2
             response: zoom_response,
@@ -3019,9 +3019,7 @@ mod tests {
                 assert_eq!(*id, 2); // Second inquiry completed
                                     // Verify it's a zoom response
                 match response {
-                    Response::Inquiry(crate::command::InquiryResponse::ZoomPosition {
-                        position,
-                    }) => {
+                    Response::Inquiry(crate::command::InquiryData::ZoomPosition { position }) => {
                         assert_eq!(*position, 0x1234);
                     }
                     _ => panic!("Expected ZoomPosition response"),
@@ -3031,7 +3029,7 @@ mod tests {
         }
 
         // First inquiry (power) reply arrives second
-        let power_response = Response::Inquiry(crate::command::InquiryResponse::Power { on: true });
+        let power_response = Response::Inquiry(crate::command::InquiryData::Power { on: true });
         let event1 = SchedulerEvent::InquiryReply {
             cmd_id: Some(1), // Content-based matching identified this as inquiry 1
             response: power_response,
@@ -3044,7 +3042,7 @@ mod tests {
                 assert_eq!(*id, 1); // First inquiry completed
                                     // Verify it's a power response
                 match response {
-                    Response::Inquiry(crate::command::InquiryResponse::Power { on }) => {
+                    Response::Inquiry(crate::command::InquiryData::Power { on }) => {
                         assert!(*on);
                     }
                     _ => panic!("Expected Power response"),
@@ -3526,7 +3524,7 @@ mod tests {
                 Ok(6)
             }
 
-            fn response_kind(&self) -> Option<ResponseKind> {
+            fn response_kind(&self) -> Option<InquiryKind> {
                 None // This is a command, not an inquiry
             }
         }
@@ -3585,8 +3583,8 @@ mod tests {
                 Ok(6)
             }
 
-            fn response_kind(&self) -> Option<ResponseKind> {
-                Some(ResponseKind::Power) // This is an inquiry
+            fn response_kind(&self) -> Option<InquiryKind> {
+                Some(InquiryKind::Power) // This is an inquiry
             }
         }
 
@@ -3649,7 +3647,7 @@ mod tests {
             payload: Bytes::from(vec![0x01, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
             kind: CommandKind::Inquiry,
             category: CommandCategory::Quick,
-            response_type: Some(ResponseKind::ZoomPosition),
+            response_type: Some(InquiryKind::ZoomPosition),
         });
 
         // Queue both commands
@@ -3771,7 +3769,7 @@ mod tests {
             payload: Bytes::from(vec![0x01, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
             kind: CommandKind::Inquiry,
             category: CommandCategory::Quick,
-            response_type: Some(ResponseKind::ZoomPosition),
+            response_type: Some(InquiryKind::ZoomPosition),
         });
 
         // Queue 3 inquiries
@@ -3846,7 +3844,7 @@ mod tests {
             payload: Bytes::from(vec![0x01, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
             kind: CommandKind::Inquiry,
             category: CommandCategory::Quick,
-            response_type: Some(ResponseKind::ZoomPosition),
+            response_type: Some(InquiryKind::ZoomPosition),
         });
 
         // Queue items with different priorities

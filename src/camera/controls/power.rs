@@ -1,6 +1,6 @@
 //! power control implementation using Mode trait.
 
-use crate::{camera::CommandClient, mode::Mode, Error};
+use crate::{camera::ViscaClient, mode::Mode, Error};
 
 /// power operations for cameras.
 ///
@@ -12,10 +12,10 @@ pub trait PowerControl {
     type Mode: Mode;
 
     /// Power on the camera.
-    fn power_on(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    fn power_on(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Power off the camera.
-    fn power_off(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    fn power_off(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
 // Single unified implementation for all Camera types!
@@ -23,18 +23,18 @@ impl<M, P, Tr, Exec> PowerControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + Default,
-    Self: CommandClient<M>,
+    Self: ViscaClient<M>,
     Exec: crate::executor::Executor,
 {
     type Mode = M;
 
-    fn power_on(&self) -> M::Ret<'_, Result<(), Error>> {
+    fn power_on(&self) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::power::PowerOn;
-        self.send_and_complete(PowerOn::new())
+        self.execute(PowerOn::new())
     }
 
-    fn power_off(&self) -> M::Ret<'_, Result<(), Error>> {
+    fn power_off(&self) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::power::PowerStandby;
-        self.send_and_complete(PowerStandby::new())
+        self.execute(PowerStandby::new())
     }
 }

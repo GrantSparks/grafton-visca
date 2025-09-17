@@ -18,7 +18,7 @@ use std::env;
 
 use grafton_visca::{
     camera::{profiles::GenericVisca, Connect},
-    runtime_trait::TokioRuntime,
+    runtime::TokioRuntime,
     Error,
 };
 

@@ -48,7 +48,7 @@ impl crate::command::encode::ViscaCommand for MulticastStreaming {
         internal.write_into(camera_id, buffer)
     }
 
-    fn response_kind(&self) -> Option<crate::command::ResponseKind> {
+    fn response_kind(&self) -> Option<crate::command::InquiryKind> {
         MulticastStreamingInternal { enabled: true }.response_kind()
     }
 }
@@ -70,12 +70,12 @@ visca_command! {
 ///
 /// Vendor-specific command for PtzOptics Ndi cameras to set the Ndi stream bandwidth/quality
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct NdiQualityCommand {
+pub struct SetNdiQuality {
     /// The Ndi quality setting to apply
     pub quality: NdiQuality,
 }
 
-impl crate::command::encode::ViscaCommand for NdiQualityCommand {
+impl crate::command::encode::ViscaCommand for SetNdiQuality {
     type Response = ();
     const MAX_SIZE: usize = 8; // Conservative estimate
     const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
@@ -92,7 +92,7 @@ impl crate::command::encode::ViscaCommand for NdiQualityCommand {
         internal.write_into(camera_id, buffer)
     }
 
-    fn response_kind(&self) -> Option<crate::command::ResponseKind> {
+    fn response_kind(&self) -> Option<crate::command::InquiryKind> {
         NdiQualityCommandInternal {
             quality: self.quality,
         }
@@ -100,7 +100,7 @@ impl crate::command::encode::ViscaCommand for NdiQualityCommand {
     }
 }
 
-impl NdiQualityCommand {
+impl SetNdiQuality {
     /// Create a new Ndi quality command
     pub fn new(quality: NdiQuality) -> Self {
         Self { quality }
@@ -131,28 +131,28 @@ mod tests {
     visca_test!(
         NdiQuality,
         test_ndi_quality_high_encoding,
-        NdiQualityCommand::new(NdiQuality::High),
+        SetNdiQuality::new(NdiQuality::High),
         &[0x81, 0x0B, 0x01, 0x01, 0x01, VISCA_TERMINATOR]
     );
 
     visca_test!(
         NdiQuality,
         test_ndi_quality_medium_encoding,
-        NdiQualityCommand::new(NdiQuality::Medium),
+        SetNdiQuality::new(NdiQuality::Medium),
         &[0x81, 0x0B, 0x01, 0x01, 0x02, VISCA_TERMINATOR]
     );
 
     visca_test!(
         NdiQuality,
         test_ndi_quality_low_encoding,
-        NdiQualityCommand::new(NdiQuality::Low),
+        SetNdiQuality::new(NdiQuality::Low),
         &[0x81, 0x0B, 0x01, 0x01, 0x03, VISCA_TERMINATOR]
     );
 
     visca_test!(
         NdiQuality,
         test_ndi_quality_off_encoding,
-        NdiQualityCommand::new(NdiQuality::Off),
+        SetNdiQuality::new(NdiQuality::Off),
         &[0x81, 0x0B, 0x01, 0x01, 0x04, VISCA_TERMINATOR]
     );
 }

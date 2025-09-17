@@ -18,7 +18,7 @@ use std::sync::Arc;
 use grafton_visca::{
     camera::profiles::GenericVisca,
     camera_id::CameraId,
-    command::{power::PowerOn, zoom::Zoom, InquiryResponse, Response},
+    command::{power::PowerOn, zoom::Zoom, InquiryData, Response},
     runtime::{Priority, RuntimeHandle},
     TokioExecutor,
 };
@@ -89,7 +89,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .send_inquiry(&power_inquiry, CameraId::default())
         .await?;
     match response {
-        Response::Inquiry(InquiryResponse::Power { on }) => {
+        Response::Inquiry(InquiryData::Power { on }) => {
             let status = if on { "ON" } else { "OFF" };
             println!("   ✓ Power status: {status}");
         }

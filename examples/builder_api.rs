@@ -96,8 +96,8 @@ fn main() -> grafton_visca::Result<()> {
 #[tokio::main]
 async fn main() -> grafton_visca::Result<()> {
     use grafton_visca::camera::profiles::{PtzOpticsG2, SonyBRC300, SonyFR7};
+    use grafton_visca::runtime::TokioRuntime;
     use grafton_visca::runtime_adapters::tokio::{TcpTransport as Tcp, UdpTransport as Udp};
-    use grafton_visca::runtime_trait::TokioRuntime;
     use grafton_visca::CameraBuilder;
 
     tracing_subscriber::fmt::init();
@@ -193,7 +193,7 @@ fn main() -> grafton_visca::Result<()> {
     task::block_on(async {
         println!("--- Example 1: async-std TCP ---");
         let transport = Tcp::connect("192.168.0.110:5678").await?;
-        let runtime = grafton_visca::runtime_trait::AsyncStdRuntime::new();
+        let runtime = grafton_visca::runtime::AsyncStdRuntime::new();
         let _camera = CameraBuilder::with_executor(runtime)
             .open_async::<PtzOpticsG2, _>(transport)
             .await?;
@@ -201,7 +201,7 @@ fn main() -> grafton_visca::Result<()> {
 
         println!("\n--- Example 2: async-std UDP ---");
         let transport = Udp::connect("192.168.0.110:1259").await?;
-        let runtime = grafton_visca::runtime_trait::AsyncStdRuntime::new();
+        let runtime = grafton_visca::runtime::AsyncStdRuntime::new();
         let _camera = CameraBuilder::with_executor(runtime)
             .open_async::<PtzOpticsG2, _>(transport)
             .await?;
@@ -226,7 +226,7 @@ fn main() -> grafton_visca::Result<()> {
     smol::block_on(async {
         println!("--- Example 1: smol TCP ---");
         let transport = Tcp::connect("192.168.0.110:5678").await?;
-        let runtime = grafton_visca::runtime_trait::SmolRuntime::new();
+        let runtime = grafton_visca::runtime::SmolRuntime::new();
         let _camera = CameraBuilder::with_executor(runtime)
             .open_async::<PtzOpticsG2, _>(transport)
             .await?;
@@ -234,7 +234,7 @@ fn main() -> grafton_visca::Result<()> {
 
         println!("\n--- Example 2: smol UDP ---");
         let transport = Udp::connect("192.168.0.110:1259").await?;
-        let runtime = grafton_visca::runtime_trait::SmolRuntime::new();
+        let runtime = grafton_visca::runtime::SmolRuntime::new();
         let _camera = CameraBuilder::with_executor(runtime)
             .open_async::<PtzOpticsG2, _>(transport)
             .await?;

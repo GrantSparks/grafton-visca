@@ -61,7 +61,7 @@ macro_rules! visca_command {
                 Ok(len)
             }
 
-            fn response_kind(&self) -> Option<$crate::command::ResponseKind> {
+            fn response_kind(&self) -> Option<$crate::command::InquiryKind> {
                 None
             }
         }
@@ -122,7 +122,7 @@ macro_rules! visca_command {
                 Ok(pos + 1)
             }
 
-            fn response_kind(&self) -> Option<$crate::command::ResponseKind> {
+            fn response_kind(&self) -> Option<$crate::command::InquiryKind> {
                 None
             }
         }
@@ -183,7 +183,7 @@ macro_rules! visca_command {
                 Ok(pos + 1)
             }
 
-            fn response_kind(&self) -> Option<$crate::command::ResponseKind> {
+            fn response_kind(&self) -> Option<$crate::command::InquiryKind> {
                 None
             }
         }

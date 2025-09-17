@@ -2,7 +2,7 @@
 
 use std::borrow::Cow;
 
-use crate::{command::InquiryResponse, error::Error, ViscaSocket};
+use crate::{command::InquiryData, error::Error, ViscaSocket};
 
 /// Response from a VISCA command.
 ///
@@ -23,11 +23,11 @@ pub enum Response {
     /// Command failed with an error
     Error(Error),
     /// Inquiry command response containing requested data
-    Inquiry(InquiryResponse),
+    Inquiry(InquiryData),
     /// Unknown response format with type information and raw data
     Unknown {
         /// The response type that could not be parsed
-        response_type: Option<ResponseKind>,
+        response_type: Option<InquiryKind>,
         /// Raw response data for debugging
         data: Vec<u8>,
     },
@@ -57,7 +57,7 @@ impl Response {
 ///
 /// Used to indicate what kind of data parser should expect in the response payload.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ResponseKind {
+pub enum InquiryKind {
     /// Power state inquiry response (On/Off).
     Power,
     /// Pan and tilt position inquiry response.

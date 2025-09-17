@@ -15,7 +15,7 @@ use grafton_visca::TokioExecutor;
 #[tokio::test(start_paused = true)]
 async fn test_operations_work_with_default_runtime() {
     use grafton_visca::camera::{profiles::PtzOpticsG2, CameraBuilder};
-    use grafton_visca::runtime_trait::TokioRuntime;
+    use grafton_visca::runtime::TokioRuntime;
     use grafton_visca::{PanTiltControl, ZoomControl};
 
     // Create transport for integration test with paused time
@@ -54,7 +54,7 @@ async fn test_operations_work_with_default_runtime() {
 #[tokio::test(start_paused = true)]
 async fn test_operations_succeed_with_explicit_runtime() {
     use grafton_visca::camera::{profiles::PtzOpticsG2, CameraBuilder};
-    use grafton_visca::runtime_trait::TokioRuntime;
+    use grafton_visca::runtime::TokioRuntime;
     use grafton_visca::ZoomControl;
 
     let transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(vec![

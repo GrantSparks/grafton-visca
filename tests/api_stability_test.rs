@@ -261,13 +261,13 @@ fn test_async_trait_method_signatures() {
 
         fn power_on(
             &self,
-        ) -> <Self::Mode as grafton_visca::mode::Mode>::Ret<'_, Result<(), Error>> {
+        ) -> <Self::Mode as grafton_visca::mode::Mode>::Fut<'_, Result<(), Error>> {
             Box::pin(async { Ok(()) })
         }
 
         fn power_off(
             &self,
-        ) -> <Self::Mode as grafton_visca::mode::Mode>::Ret<'_, Result<(), Error>> {
+        ) -> <Self::Mode as grafton_visca::mode::Mode>::Fut<'_, Result<(), Error>> {
             Box::pin(async { Ok(()) })
         }
     }

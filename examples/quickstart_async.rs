@@ -59,7 +59,7 @@ fn main() {
 ))]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    use grafton_visca::runtime_trait::TokioRuntime;
+    use grafton_visca::runtime::TokioRuntime;
 
     use tokio::time::{sleep, Duration};
 
@@ -148,7 +148,7 @@ async fn main() -> Result<(), Error> {
 #[cfg(all(feature = "runtime-async-std", not(feature = "runtime-smol")))]
 #[async_std::main]
 async fn main() -> Result<(), Error> {
-    use grafton_visca::runtime_trait::AsyncStdRuntime;
+    use grafton_visca::runtime::AsyncStdRuntime;
 
     use async_std::task::sleep;
     use std::time::Duration;
@@ -237,7 +237,7 @@ async fn main() -> Result<(), Error> {
 // =================== SMOL RUNTIME ===================
 #[cfg(feature = "runtime-smol")]
 fn main() -> Result<(), Error> {
-    use grafton_visca::runtime_trait::SmolRuntime;
+    use grafton_visca::runtime::SmolRuntime;
 
     tracing_subscriber::fmt::init();
 

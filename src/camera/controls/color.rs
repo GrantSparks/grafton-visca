@@ -1,7 +1,7 @@
 //! Unified color adjustment implementation using Mode trait.
 
 use crate::{
-    camera::CommandClient,
+    camera::ViscaClient,
     command::color::{
         BlueGain, BlueTuningCommand, ColorTemperature, OnePushTriggerCommand, RedGain,
         RedTuningCommand,
@@ -21,50 +21,50 @@ pub trait ColorControl {
     type Mode: Mode;
 
     /// Trigger one-push white balance.
-    fn one_push_trigger(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    fn one_push_trigger(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set color temperature.
     fn set_color_temperature(
         &self,
         temp: ColorTemp,
-    ) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Reset color temperature to default value.
-    fn reset_color_temperature(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    fn reset_color_temperature(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Increase color temperature (makes image cooler/bluer).
-    fn increase_color_temperature(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    fn increase_color_temperature(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Decrease color temperature (makes image warmer/redder).
-    fn decrease_color_temperature(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
-
-    /// Set or query color temperature.
-    fn color_temperature(
-        &self,
-        temp: Option<ColorTemp>,
-    ) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    fn decrease_color_temperature(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set red gain.
-    fn set_red_gain(&self, gain: RedChannel) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    fn set_red_gain(&self, gain: RedChannel) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
-    /// Set, reset, increase or decrease red gain.
-    fn red_gain(&self, command: RedGain) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    /// Control red gain (set, reset, increase or decrease).
+    fn control_red_gain(
+        &self,
+        command: RedGain,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set blue gain.
-    fn set_blue_gain(&self, gain: BlueChannel) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    fn set_blue_gain(&self, gain: BlueChannel) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
-    /// Set, reset, increase or decrease blue gain.
-    fn blue_gain(&self, command: BlueGain) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    /// Control blue gain (set, reset, increase or decrease).
+    fn control_blue_gain(
+        &self,
+        command: BlueGain,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set red tuning.
     fn set_red_tuning(&self, tuning: RedTuning)
-        -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+        -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set blue tuning.
     fn set_blue_tuning(
         &self,
         tuning: BlueTuning,
-    ) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
 // Single unified implementation for all Camera types!
@@ -72,59 +72,52 @@ impl<M, P, Tr, Exec> ColorControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + Default,
-    Self: CommandClient<M>,
+    Self: ViscaClient<M>,
     Exec: crate::executor::Executor,
 {
     type Mode = M;
 
-    fn one_push_trigger(&self) -> M::Ret<'_, Result<(), Error>> {
-        self.send_and_complete(OnePushTriggerCommand)
+    fn one_push_trigger(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(OnePushTriggerCommand)
     }
 
-    fn set_color_temperature(&self, temp: ColorTemp) -> M::Ret<'_, Result<(), Error>> {
-        self.send_and_complete(ColorTemperature::SetTemperature(temp))
+    fn set_color_temperature(&self, temp: ColorTemp) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(ColorTemperature::SetTemperature(temp))
     }
 
-    fn reset_color_temperature(&self) -> M::Ret<'_, Result<(), Error>> {
-        self.send_and_complete(ColorTemperature::Reset)
+    fn reset_color_temperature(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(ColorTemperature::Reset)
     }
 
-    fn increase_color_temperature(&self) -> M::Ret<'_, Result<(), Error>> {
-        self.send_and_complete(ColorTemperature::Up)
+    fn increase_color_temperature(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(ColorTemperature::Up)
     }
 
-    fn decrease_color_temperature(&self) -> M::Ret<'_, Result<(), Error>> {
-        self.send_and_complete(ColorTemperature::Down)
+    fn decrease_color_temperature(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(ColorTemperature::Down)
     }
 
-    fn color_temperature(&self, temp: Option<ColorTemp>) -> M::Ret<'_, Result<(), Error>> {
-        match temp {
-            Some(t) => self.send_and_complete(ColorTemperature::SetTemperature(t)),
-            None => self.error(Error::NotSupported),
-        }
+    fn set_red_gain(&self, gain: RedChannel) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(RedGain::SetValue(gain))
     }
 
-    fn set_red_gain(&self, gain: RedChannel) -> M::Ret<'_, Result<(), Error>> {
-        self.send_and_complete(RedGain::SetValue(gain))
+    fn control_red_gain(&self, command: RedGain) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(command)
     }
 
-    fn red_gain(&self, command: RedGain) -> M::Ret<'_, Result<(), Error>> {
-        self.send_and_complete(command)
+    fn set_blue_gain(&self, gain: BlueChannel) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(BlueGain::SetValue(gain))
     }
 
-    fn set_blue_gain(&self, gain: BlueChannel) -> M::Ret<'_, Result<(), Error>> {
-        self.send_and_complete(BlueGain::SetValue(gain))
+    fn control_blue_gain(&self, command: BlueGain) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(command)
     }
 
-    fn blue_gain(&self, command: BlueGain) -> M::Ret<'_, Result<(), Error>> {
-        self.send_and_complete(command)
+    fn set_red_tuning(&self, tuning: RedTuning) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(RedTuningCommand::new(tuning))
     }
 
-    fn set_red_tuning(&self, tuning: RedTuning) -> M::Ret<'_, Result<(), Error>> {
-        self.send_and_complete(RedTuningCommand::new(tuning))
-    }
-
-    fn set_blue_tuning(&self, tuning: BlueTuning) -> M::Ret<'_, Result<(), Error>> {
-        self.send_and_complete(BlueTuningCommand::new(tuning))
+    fn set_blue_tuning(&self, tuning: BlueTuning) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(BlueTuningCommand::new(tuning))
     }
 }

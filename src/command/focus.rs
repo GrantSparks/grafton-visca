@@ -13,7 +13,7 @@
 use grafton_visca_macros::ViscaEnum;
 
 use crate::{
-    command::{encode::ViscaCommand, ResponseKind},
+    command::{encode::ViscaCommand, InquiryKind},
     error::Error,
     timeout::CommandCategory,
     types::{FocusPosition, SpeedLevel},
@@ -191,7 +191,7 @@ impl ViscaCommand for Focus {
         }
     }
 
-    fn response_kind(&self) -> Option<ResponseKind> {
+    fn response_kind(&self) -> Option<InquiryKind> {
         None
     }
 }
@@ -339,7 +339,7 @@ impl ViscaCommand for FocusLock {
             .build_into(buffer)
     }
 
-    fn response_kind(&self) -> Option<ResponseKind> {
+    fn response_kind(&self) -> Option<InquiryKind> {
         None
     }
 
@@ -396,7 +396,7 @@ impl ViscaCommand for PushAF {
             .build_into(buffer)
     }
 
-    fn response_kind(&self) -> Option<ResponseKind> {
+    fn response_kind(&self) -> Option<InquiryKind> {
         None
     }
 

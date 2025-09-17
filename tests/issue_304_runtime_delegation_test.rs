@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use grafton_visca::{
     camera::profiles::PtzOpticsG2,
-    prelude::advanced::ProtocolStyle,
+    prelude::raw::ProtocolStyle,
     testing::testkit::{
         deterministic_executor::DeterministicExecutor, helpers, ScriptedTransport, Step,
     },
@@ -186,7 +186,7 @@ fn test_inquiry_through_runtime() {
             .await
             .unwrap();
 
-        let result = camera.get_power_state().await;
+        let result = camera.power_state().await;
         assert!(result.is_ok(), "Inquiry failed: {:?}", result);
         assert!(
             result.unwrap(),

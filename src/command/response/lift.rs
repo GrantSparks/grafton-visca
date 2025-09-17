@@ -10,7 +10,7 @@ use crate::{
 
 use super::{
     decoders::{dispatch, dispatch_for},
-    types::{Response, ResponseKind},
+    types::{InquiryKind, Response},
 };
 
 /// Lift a basic protocol response to a high-level Response.
@@ -20,7 +20,7 @@ use super::{
 /// inquiry payloads when an expected type is provided.
 pub fn lift_inquiry(
     basic: &BasicResponse<'_>,
-    expected: Option<&ResponseKind>,
+    expected: Option<&InquiryKind>,
 ) -> Result<Response, Error> {
     match basic.kind {
         BasicKind::Ack => Ok(Response::CmdAck {
@@ -62,7 +62,7 @@ pub fn lift_inquiry(
 /// with profile-specific coordinate system handling when needed.
 pub fn lift_inquiry_for<P: Profile>(
     basic: &BasicResponse<'_>,
-    expected: Option<&ResponseKind>,
+    expected: Option<&InquiryKind>,
 ) -> Result<Response, Error> {
     match basic.kind {
         BasicKind::Ack => Ok(Response::CmdAck {
@@ -103,7 +103,7 @@ pub fn lift_inquiry_for<P: Profile>(
 /// directly with payload bytes rather than full frames.
 pub fn parse_inquiry_payload(
     payload: &[u8],
-    expected_type: &ResponseKind,
+    expected_type: &InquiryKind,
 ) -> Result<Response, Error> {
     use crate::command::response::payload::Payload;
     dispatch(*expected_type, Payload::new(payload))
@@ -126,7 +126,7 @@ impl Response {
     }
 
     /// Parse an inquiry response with a specific expected type.
-    pub fn parse_with_type(bytes: &[u8], response_type: &ResponseKind) -> Result<Self, Error> {
+    pub fn parse_with_type(bytes: &[u8], response_type: &InquiryKind) -> Result<Self, Error> {
         // Use the canonical decoder from protocol::response
         let basic = decode_basic(bytes).ok_or_else(|| Error::InvalidResponse {
             expected: Cow::Borrowed("Valid VISCA response"),
@@ -144,7 +144,7 @@ impl Response {
     /// unsigned-centered coordinates).
     pub fn parse_with_profile<P: Profile>(
         bytes: &[u8],
-        response_type: &ResponseKind,
+        response_type: &InquiryKind,
     ) -> Result<Self, Error> {
         // Use the canonical decoder from protocol::response
         let basic = decode_basic(bytes).ok_or_else(|| Error::InvalidResponse {

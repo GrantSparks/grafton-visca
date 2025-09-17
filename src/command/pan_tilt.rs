@@ -28,7 +28,7 @@
 //! ```
 
 use crate::{
-    command::{bytes::ConstCommandBuilder, encode::ViscaCommand, ResponseKind},
+    command::{bytes::ConstCommandBuilder, encode::ViscaCommand, InquiryKind},
     error::Error,
     timeout::CommandCategory,
     types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed},
@@ -436,7 +436,7 @@ impl ViscaCommand for PanTilt {
         }
     }
 
-    fn response_kind(&self) -> Option<ResponseKind> {
+    fn response_kind(&self) -> Option<InquiryKind> {
         None
     }
 }

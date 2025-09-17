@@ -1,7 +1,7 @@
 //! white balance control implementation using Mode trait.
 
 use crate::{
-    camera::CommandClient,
+    camera::ViscaClient,
     command::white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode},
     mode::Mode,
     Error,
@@ -20,34 +20,34 @@ pub trait WhiteBalanceControl {
     fn set_white_balance_mode(
         &self,
         mode: WhiteBalanceMode,
-    ) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set auto white balance mode.
-    fn white_balance_auto(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    fn white_balance_auto(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set indoor white balance preset (optimized for incandescent/tungsten lighting).
-    fn white_balance_indoor(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    fn white_balance_indoor(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set outdoor white balance preset (optimized for daylight).
-    fn white_balance_outdoor(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    fn white_balance_outdoor(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set one-push white balance mode (calibrate once based on current scene).
-    fn white_balance_one_push(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    fn white_balance_one_push(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set auto tracking white balance (Sony FR7 specific).
-    fn white_balance_atw(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    fn white_balance_atw(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set manual white balance mode.
-    fn white_balance_manual(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    fn white_balance_manual(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set color temperature white balance mode.
-    fn white_balance_color_temperature(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    fn white_balance_color_temperature(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set AWB sensitivity level (PtzOptics specific).
     fn set_awb_sensitivity(
         &self,
         sensitivity: AutoWhiteBalanceSensitivity,
-    ) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
 // Single unified implementation for all Camera types!
@@ -55,51 +55,51 @@ impl<M, P, Tr, Exec> WhiteBalanceControl for crate::camera::Camera<M, P, Tr, Exe
 where
     M: Mode,
     P: crate::capabilities::Profile + Default,
-    Self: CommandClient<M>,
+    Self: ViscaClient<M>,
     Exec: crate::executor::Executor,
 {
     type Mode = M;
 
-    fn set_white_balance_mode(&self, mode: WhiteBalanceMode) -> M::Ret<'_, Result<(), Error>> {
+    fn set_white_balance_mode(&self, mode: WhiteBalanceMode) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::white_balance::WhiteBalanceCommand;
         let cmd = WhiteBalanceCommand { mode };
-        self.send_and_complete(cmd)
+        self.execute(cmd)
     }
 
-    fn white_balance_auto(&self) -> M::Ret<'_, Result<(), Error>> {
+    fn white_balance_auto(&self) -> M::Fut<'_, Result<(), Error>> {
         self.set_white_balance_mode(WhiteBalanceMode::Auto)
     }
 
-    fn white_balance_indoor(&self) -> M::Ret<'_, Result<(), Error>> {
+    fn white_balance_indoor(&self) -> M::Fut<'_, Result<(), Error>> {
         self.set_white_balance_mode(WhiteBalanceMode::Indoor)
     }
 
-    fn white_balance_outdoor(&self) -> M::Ret<'_, Result<(), Error>> {
+    fn white_balance_outdoor(&self) -> M::Fut<'_, Result<(), Error>> {
         self.set_white_balance_mode(WhiteBalanceMode::Outdoor)
     }
 
-    fn white_balance_one_push(&self) -> M::Ret<'_, Result<(), Error>> {
+    fn white_balance_one_push(&self) -> M::Fut<'_, Result<(), Error>> {
         self.set_white_balance_mode(WhiteBalanceMode::OnePush)
     }
 
-    fn white_balance_atw(&self) -> M::Ret<'_, Result<(), Error>> {
+    fn white_balance_atw(&self) -> M::Fut<'_, Result<(), Error>> {
         self.set_white_balance_mode(WhiteBalanceMode::ATW)
     }
 
-    fn white_balance_manual(&self) -> M::Ret<'_, Result<(), Error>> {
+    fn white_balance_manual(&self) -> M::Fut<'_, Result<(), Error>> {
         self.set_white_balance_mode(WhiteBalanceMode::Manual)
     }
 
-    fn white_balance_color_temperature(&self) -> M::Ret<'_, Result<(), Error>> {
+    fn white_balance_color_temperature(&self) -> M::Fut<'_, Result<(), Error>> {
         self.set_white_balance_mode(WhiteBalanceMode::ColorTemperature)
     }
 
     fn set_awb_sensitivity(
         &self,
         sensitivity: AutoWhiteBalanceSensitivity,
-    ) -> M::Ret<'_, Result<(), Error>> {
+    ) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::white_balance::AWBSensitivityCommand;
         let cmd = AWBSensitivityCommand { sensitivity };
-        self.send_and_complete(cmd)
+        self.execute(cmd)
     }
 }

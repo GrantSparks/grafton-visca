@@ -178,7 +178,7 @@ mod tokio_tests {
         ]);
 
         // Build camera with explicit protocol style
-        use grafton_visca::runtime_trait::TokioRuntime;
+        use grafton_visca::runtime::TokioRuntime;
         let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
         let camera = CameraBuilder::with_executor(runtime)
             .protocol_style(ProtocolStyle::SonyEncapsulated)

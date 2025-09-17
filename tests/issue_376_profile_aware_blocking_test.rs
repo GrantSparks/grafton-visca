@@ -9,7 +9,7 @@ mod profile_aware_blocking_tests {
     use grafton_visca::{
         camera::profiles::{PtzOpticsG2, SonyBRC300},
         capabilities::ProtocolStyle,
-        command::{inquiry::PanTiltPositionInquiry, InquiryResponse},
+        command::{inquiry::PanTiltPositionInquiry, InquiryData},
         runtime::blocking_runner::BlockingRunner,
         testing::testkit::scripted_transport::{ScriptedBlockingTransport, Step},
         timeout::{CommandCategory, TimeoutConfig},
@@ -66,7 +66,7 @@ mod profile_aware_blocking_tests {
         match result {
             Ok(response) => {
                 if let grafton_visca::command::response::Response::Inquiry(
-                    InquiryResponse::PanTiltPosition { pan, tilt },
+                    InquiryData::PanTiltPosition { pan, tilt },
                 ) = response
                 {
                     // For SignedCentered, values should be interpreted as signed i16
@@ -107,7 +107,7 @@ mod profile_aware_blocking_tests {
         match result {
             Ok(response) => {
                 if let grafton_visca::command::response::Response::Inquiry(
-                    InquiryResponse::PanTiltPosition { pan, tilt },
+                    InquiryData::PanTiltPosition { pan, tilt },
                 ) = response
                 {
                     // For UnsignedCentered, 0x8000 should convert to 0 logical
@@ -158,7 +158,7 @@ mod profile_aware_blocking_tests {
             match result {
                 Ok(response) => {
                     if let grafton_visca::command::response::Response::Inquiry(
-                        InquiryResponse::PanTiltPosition { pan, tilt },
+                        InquiryData::PanTiltPosition { pan, tilt },
                     ) = response
                     {
                         assert_eq!(
@@ -210,7 +210,7 @@ mod profile_aware_blocking_tests {
         match result {
             Ok(response) => {
                 if let grafton_visca::command::response::Response::Inquiry(
-                    InquiryResponse::PanTiltPosition { pan, tilt },
+                    InquiryData::PanTiltPosition { pan, tilt },
                 ) = response
                 {
                     assert_eq!(pan, 0);

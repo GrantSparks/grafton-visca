@@ -40,8 +40,8 @@ pub fn generate_bool_parser(response_variant: &Ident, crate_path: &TokenStream) 
     quote! {
         {
             match data[0] {
-                0x02 => Ok(#crate_path::command::InquiryResponse::#response_variant { #field_name: true }),
-                0x03 => Ok(#crate_path::command::InquiryResponse::#response_variant { #field_name: false }),
+                0x02 => Ok(#crate_path::command::InquiryData::#response_variant { #field_name: true }),
+                0x03 => Ok(#crate_path::command::InquiryData::#response_variant { #field_name: false }),
                 _ => Err(#crate_path::Error::InvalidResponse {
                     expected: ::std::borrow::Cow::Borrowed("0x02 (on) or 0x03 (off)"),
                     actual: vec![data[0]],
@@ -61,28 +61,28 @@ pub fn generate_direct_byte_parser(
     match response_variant.to_string().as_str() {
         "Luminance" | "Contrast" => {
             quote! {
-                Ok(#crate_path::command::InquiryResponse::#response_variant(data[0]))
+                Ok(#crate_path::command::InquiryData::#response_variant(data[0]))
             }
         }
         "GainLimit" => {
             quote! {
-                Ok(#crate_path::command::InquiryResponse::#response_variant { limit: data[0] })
+                Ok(#crate_path::command::InquiryData::#response_variant { limit: data[0] })
             }
         }
         "NoiseReduction2D" | "NoiseReduction3D" | "DynamicRange" => {
             quote! {
-                Ok(#crate_path::command::InquiryResponse::#response_variant { level: data[0] })
+                Ok(#crate_path::command::InquiryData::#response_variant { level: data[0] })
             }
         }
         "NdFilterPreset" => {
             quote! {
-                Ok(#crate_path::command::InquiryResponse::#response_variant { preset: data[0] })
+                Ok(#crate_path::command::InquiryData::#response_variant { preset: data[0] })
             }
         }
         _ => {
             // Default to tuple variant
             quote! {
-                Ok(#crate_path::command::InquiryResponse::#response_variant(data[0]))
+                Ok(#crate_path::command::InquiryData::#response_variant(data[0]))
             }
         }
     }
@@ -100,7 +100,7 @@ pub fn generate_position_parser(response_variant: &Ident, crate_path: &TokenStre
                 | ((data[1] & 0x0F) as u16) << 8
                 | ((data[2] & 0x0F) as u16) << 4
                 | (data[3] & 0x0F) as u16;
-            Ok(#crate_path::command::InquiryResponse::#response_variant { position })
+            Ok(#crate_path::command::InquiryData::#response_variant { position })
         }
     }
 }
@@ -118,7 +118,7 @@ pub fn generate_extended_nibble_parser(
                 return Err(#crate_path::Error::InvalidResponseLength);
             }
             let value = ((data[0] & 0x0F) << 4) | (data[1] & 0x0F);
-            Ok(#crate_path::command::InquiryResponse::#response_variant {
+            Ok(#crate_path::command::InquiryData::#response_variant {
                 #field_name: value as u8,
             })
         }
@@ -134,7 +134,7 @@ pub fn generate_offset_parser(
 ) -> TokenStream {
     quote! {
         {
-            Ok(#crate_path::command::InquiryResponse::#response_variant {
+            Ok(#crate_path::command::InquiryData::#response_variant {
                 #field_name: (data[0] as i8) - #offset,
             })
         }
@@ -148,7 +148,7 @@ pub fn generate_bit_flags_parser(
 ) -> TokenStream {
     quote! {
         {
-            Ok(#crate_path::command::InquiryResponse::#response_variant {
+            Ok(#crate_path::command::InquiryData::#response_variant {
                 horizontal: (data[0] & 0x01) != 0,
                 vertical: (data[0] & 0x02) != 0,
             })
@@ -176,7 +176,7 @@ pub fn generate_mode_enum_parser(
                     expected: ::std::borrow::Cow::Owned(format!("Valid {} value", stringify!(#mode_type))),
                     actual: vec![data[0]],
                 })?;
-            Ok(#crate_path::command::InquiryResponse::#response_variant { #field_name: value })
+            Ok(#crate_path::command::InquiryData::#response_variant { #field_name: value })
         }
     }
 }
@@ -203,7 +203,7 @@ pub fn generate_pan_tilt_parser(response_variant: &Ident, crate_path: &TokenStre
                 | (data[7] & 0x0F) as u16;
             let tilt = tilt as i16;
 
-            Ok(#crate_path::command::InquiryResponse::#response_variant { pan, tilt })
+            Ok(#crate_path::command::InquiryData::#response_variant { pan, tilt })
         }
     }
 }

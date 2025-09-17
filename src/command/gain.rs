@@ -4,7 +4,7 @@
 //! including manual gain adjustment, gain limit control, and anti-flicker settings.
 
 use crate::{
-    command::{bytes::builder::ConstCommandBuilder, encode::ViscaCommand, response::ResponseKind},
+    command::{bytes::builder::ConstCommandBuilder, encode::ViscaCommand, response::InquiryKind},
     error::Error,
     timeout::CommandCategory,
     types::{GainLevel, GainLimit},
@@ -74,7 +74,7 @@ impl ViscaCommand for Gain {
         }
     }
 
-    fn response_kind(&self) -> Option<ResponseKind> {
+    fn response_kind(&self) -> Option<InquiryKind> {
         None
     }
 }

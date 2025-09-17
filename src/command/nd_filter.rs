@@ -11,7 +11,7 @@
 //! - The FR7 supports variable ND filter (2 to 7 stops, continuously variable)
 
 use crate::command::encode::ViscaCommand;
-use crate::command::ResponseKind;
+use crate::command::InquiryKind;
 use crate::timeout::CommandCategory;
 use crate::{command::bytes::constants, error::Error};
 
@@ -64,7 +64,7 @@ impl ViscaCommand for NdFilterModeCommand {
             .build_into(buffer)
     }
 
-    fn response_kind(&self) -> Option<ResponseKind> {
+    fn response_kind(&self) -> Option<InquiryKind> {
         None
     }
 
@@ -122,7 +122,7 @@ impl ViscaCommand for NdFilterValue {
             .build_into(buffer)
     }
 
-    fn response_kind(&self) -> Option<ResponseKind> {
+    fn response_kind(&self) -> Option<InquiryKind> {
         None
     }
 
@@ -225,7 +225,7 @@ impl ViscaCommand for NdFilterStepCommand {
             .build_into(buffer)
     }
 
-    fn response_kind(&self) -> Option<ResponseKind> {
+    fn response_kind(&self) -> Option<InquiryKind> {
         None
     }
 
@@ -291,7 +291,7 @@ impl ViscaCommand for AutoNdCommand {
             .build_into(buffer)
     }
 
-    fn response_kind(&self) -> Option<ResponseKind> {
+    fn response_kind(&self) -> Option<InquiryKind> {
         None
     }
 

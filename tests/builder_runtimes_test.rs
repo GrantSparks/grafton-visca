@@ -4,7 +4,7 @@
 #[test]
 fn test_tokio_builder() {
     use grafton_visca::camera::CameraBuilder;
-    use grafton_visca::runtime_trait::TokioRuntime;
+    use grafton_visca::runtime::TokioRuntime;
     // This should compile and work within a tokio runtime
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
@@ -19,7 +19,7 @@ fn test_tokio_builder() {
 #[test]
 fn test_async_std_builder() {
     use grafton_visca::camera::CameraBuilder;
-    use grafton_visca::runtime_trait::AsyncStdRuntime;
+    use grafton_visca::runtime::AsyncStdRuntime;
     // This should compile - async-std doesn't require runtime setup
     let runtime = AsyncStdRuntime::new();
     let builder = CameraBuilder::with_executor(runtime);
@@ -31,7 +31,7 @@ fn test_async_std_builder() {
 #[test]
 fn test_smol_builder() {
     use grafton_visca::camera::CameraBuilder;
-    use grafton_visca::runtime_trait::SmolRuntime;
+    use grafton_visca::runtime::SmolRuntime;
     // This should compile - smol doesn't require runtime setup
     let runtime = SmolRuntime::new();
     let builder = CameraBuilder::with_executor(runtime);
@@ -50,7 +50,7 @@ fn test_all_builders_compile() {
     use grafton_visca::camera::CameraBuilder;
 
     // Test that all builder methods exist and compile
-    use grafton_visca::runtime_trait::{AsyncStdRuntime, SmolRuntime, TokioRuntime};
+    use grafton_visca::runtime::{AsyncStdRuntime, SmolRuntime, TokioRuntime};
 
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {

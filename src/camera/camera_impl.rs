@@ -470,7 +470,7 @@ where
     pub fn send_command<'a, C>(
         &'a self,
         command: &'a C,
-    ) -> <crate::mode::Async as Mode>::Ret<'static, Result<crate::command::response::Response, Error>>
+    ) -> <crate::mode::Async as Mode>::Fut<'static, Result<crate::command::response::Response, Error>>
     where
         C: ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
         Tr: AsyncTransport + Send + Sync,
@@ -499,7 +499,7 @@ where
     pub fn send_command_typed<'a, C>(
         &'a self,
         command: &'a C,
-    ) -> <crate::mode::Async as Mode>::Ret<'static, Result<<C as ResponseParser>::Response, Error>>
+    ) -> <crate::mode::Async as Mode>::Fut<'static, Result<<C as ResponseParser>::Response, Error>>
     where
         C: ResponseParser + ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
         <C as ResponseParser>::Response: Send + 'static,
@@ -520,7 +520,7 @@ where
     pub fn send_command_with_id<'a, C>(
         &'a self,
         command: &'a C,
-    ) -> <crate::mode::Async as Mode>::Ret<
+    ) -> <crate::mode::Async as Mode>::Fut<
         'static,
         Result<(u32, crate::command::response::Response), Error>,
     >
@@ -650,7 +650,7 @@ where
     pub fn send_command<C>(
         &self,
         command: &C,
-    ) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<crate::command::response::Response, Error>>
+    ) -> <crate::mode::Blocking as Mode>::Fut<'_, Result<crate::command::response::Response, Error>>
     where
         C: ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
     {
@@ -684,7 +684,7 @@ where
     pub fn send_command_typed<C>(
         &self,
         command: &C,
-    ) -> <crate::mode::Blocking as Mode>::Ret<'_, Result<<C as ResponseParser>::Response, Error>>
+    ) -> <crate::mode::Blocking as Mode>::Fut<'_, Result<<C as ResponseParser>::Response, Error>>
     where
         C: ResponseParser + ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
         <C as ResponseParser>::Response: Send + 'static,

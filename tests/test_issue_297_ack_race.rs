@@ -11,7 +11,7 @@
 ))]
 
 use grafton_visca::camera::{profiles::PtzOpticsG2, CameraBuilder};
-use grafton_visca::runtime_trait::TokioRuntime;
+use grafton_visca::runtime::TokioRuntime;
 use grafton_visca::testing::testkit::{helpers, ScriptedTransport, Step};
 use grafton_visca::{TokioExecutor, ZoomControl};
 

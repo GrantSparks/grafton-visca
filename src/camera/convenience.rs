@@ -39,13 +39,10 @@ impl Connect {
     pub async fn open_auto_async<P, R>(
         addr: impl Into<String>,
         runtime: R,
-    ) -> Result<
-        CameraSession<crate::mode::Async, P, crate::runtime_trait::TransportHandle<R>, R>,
-        Error,
-    >
+    ) -> Result<CameraSession<crate::mode::Async, P, crate::runtime::TransportHandle<R>, R>, Error>
     where
         P: Profile + Default,
-        R: crate::runtime_trait::Runtime,
+        R: crate::runtime::Runtime,
     {
         use crate::camera::config::TransportOptions;
 
@@ -71,13 +68,10 @@ impl Connect {
     pub async fn open_tcp_async<P, R>(
         addr: impl Into<String>,
         runtime: R,
-    ) -> Result<
-        CameraSession<crate::mode::Async, P, crate::runtime_trait::TransportHandle<R>, R>,
-        Error,
-    >
+    ) -> Result<CameraSession<crate::mode::Async, P, crate::runtime::TransportHandle<R>, R>, Error>
     where
         P: Profile + Default,
-        R: crate::runtime_trait::Runtime,
+        R: crate::runtime::Runtime,
     {
         CameraConfig::<P>::new()
             .tcp()
@@ -100,13 +94,10 @@ impl Connect {
     pub async fn open_udp_async<P, R>(
         addr: impl Into<String>,
         runtime: R,
-    ) -> Result<
-        CameraSession<crate::mode::Async, P, crate::runtime_trait::TransportHandle<R>, R>,
-        Error,
-    >
+    ) -> Result<CameraSession<crate::mode::Async, P, crate::runtime::TransportHandle<R>, R>, Error>
     where
         P: Profile + Default,
-        R: crate::runtime_trait::Runtime,
+        R: crate::runtime::Runtime,
     {
         CameraConfig::<P>::new()
             .udp()
@@ -130,7 +121,7 @@ impl Connect {
     ///
     /// ```ignore
     /// use grafton_visca::camera::{Camera, profiles::PtzOpticsG2};
-    /// use grafton_visca::runtime_trait::TokioRuntime;
+    /// use grafton_visca::runtime::TokioRuntime;
     ///
     /// let runtime = TokioRuntime::from_current()?;
     /// let cam = Camera::open_serial_async::<PtzOpticsG2, _>("/dev/ttyUSB0", 9600, runtime).await?;
@@ -146,14 +137,14 @@ impl Connect {
         CameraSession<
             crate::mode::Async,
             P,
-            <R as crate::runtime_trait::RuntimeSerial>::SerialTransport,
+            <R as crate::runtime::RuntimeSerial>::SerialTransport,
             R,
         >,
         Error,
     >
     where
         P: Profile + Default,
-        R: crate::runtime_trait::Runtime + crate::runtime_trait::RuntimeSerial,
+        R: crate::runtime::Runtime + crate::runtime::RuntimeSerial,
     {
         CameraConfig::<P>::new()
             .serial(port, baud_rate)

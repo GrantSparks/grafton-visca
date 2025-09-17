@@ -4,7 +4,7 @@
 //! including white balance tuning, saturation, and hue adjustments.
 
 use crate::{
-    command::{bytes::ConstCommandBuilder, encode::ViscaCommand, response::ResponseKind},
+    command::{bytes::ConstCommandBuilder, encode::ViscaCommand, response::InquiryKind},
     error::Error,
     timeout::CommandCategory,
     types::{BlueTuning, HueLevel, RedTuning, SaturationLevel},
@@ -200,7 +200,7 @@ impl ViscaCommand for ColorTemperature {
         }
     }
 
-    fn response_kind(&self) -> Option<ResponseKind> {
+    fn response_kind(&self) -> Option<InquiryKind> {
         None
     }
 }
@@ -267,7 +267,7 @@ impl ViscaCommand for RedGain {
         }
     }
 
-    fn response_kind(&self) -> Option<ResponseKind> {
+    fn response_kind(&self) -> Option<InquiryKind> {
         None
     }
 }
@@ -337,7 +337,7 @@ impl ViscaCommand for BlueGain {
         }
     }
 
-    fn response_kind(&self) -> Option<ResponseKind> {
+    fn response_kind(&self) -> Option<InquiryKind> {
         None
     }
 }

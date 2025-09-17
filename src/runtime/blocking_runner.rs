@@ -523,7 +523,7 @@ mod tests {
                 Ok(len)
             }
 
-            fn response_kind(&self) -> Option<crate::command::response::ResponseKind> {
+            fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
                 None
             }
         }

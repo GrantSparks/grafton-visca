@@ -58,24 +58,24 @@ pub use builder::CameraBuilder;
 // Re-export movement detection types
 pub use movement::{MovementConfig, PanTiltPosition};
 
-/// Internal trait that provides mode-agnostic command client capabilities.
+/// Internal trait that provides mode-agnostic VISCA client capabilities.
 ///
 /// This trait abstracts over the differences between async and blocking modes,
 /// allowing control traits to have a single implementation that works for both.
-pub trait CommandClient<M>
+pub trait ViscaClient<M>
 where
     M: crate::mode::Mode,
 {
-    /// Send a command and expect completion.
-    fn send_and_complete<C>(&self, command: C) -> M::Ret<'_, Result<(), crate::Error>>
+    /// Execute a command and expect completion.
+    fn execute<C>(&self, command: C) -> M::Fut<'_, Result<(), crate::Error>>
     where
         C: crate::command::ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static;
 
-    /// Send a typed command and parse the response.
-    fn send_and_parse<C>(
+    /// Query with a typed command and parse the response.
+    fn query<C>(
         &self,
         command: C,
-    ) -> M::Ret<'_, Result<<C as crate::command::typed::ResponseParser>::Response, crate::Error>>
+    ) -> M::Fut<'_, Result<<C as crate::command::typed::ResponseParser>::Response, crate::Error>>
     where
         C: crate::command::typed::ResponseParser
             + crate::command::ViscaCommand
@@ -87,29 +87,29 @@ where
         <C as crate::command::typed::ResponseParser>::Response: Send + 'static;
 
     /// Return an error immediately.
-    fn error<T>(&self, error: crate::Error) -> M::Ret<'_, Result<T, crate::Error>>
+    fn error<T>(&self, error: crate::Error) -> M::Fut<'_, Result<T, crate::Error>>
     where
         T: Send + 'static;
 }
 
-// Async implementation of CommandClient
+// Async implementation of ViscaClient
 #[cfg(feature = "mode-async")]
-impl<P, Tr, Exec> CommandClient<crate::mode::Async> for Camera<crate::mode::Async, P, Tr, Exec>
+impl<P, Tr, Exec> ViscaClient<crate::mode::Async> for Camera<crate::mode::Async, P, Tr, Exec>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
     Exec: crate::executor::Executor + Send + Sync + Clone + 'static,
 {
-    fn send_and_complete<C>(
+    fn execute<C>(
         &self,
         command: C,
-    ) -> <crate::mode::Async as crate::mode::Mode>::Ret<'_, Result<(), crate::Error>>
+    ) -> <crate::mode::Async as crate::mode::Mode>::Fut<'_, Result<(), crate::Error>>
     where
         C: crate::command::ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
     {
         use crate::mode::Mode;
         let future = self.send_command(&command);
-        crate::mode::Async::ret_fut(async move {
+        crate::mode::Async::from_future(async move {
             use crate::command::response::Response;
             match future.await? {
                 Response::Completion { .. } => Ok(()),
@@ -119,10 +119,10 @@ where
         })
     }
 
-    fn send_and_parse<C>(
+    fn query<C>(
         &self,
         command: C,
-    ) -> <crate::mode::Async as crate::mode::Mode>::Ret<
+    ) -> <crate::mode::Async as crate::mode::Mode>::Fut<
         '_,
         Result<<C as crate::command::typed::ResponseParser>::Response, crate::Error>,
     >
@@ -142,26 +142,26 @@ where
     fn error<T>(
         &self,
         error: crate::Error,
-    ) -> <crate::mode::Async as crate::mode::Mode>::Ret<'_, Result<T, crate::Error>>
+    ) -> <crate::mode::Async as crate::mode::Mode>::Fut<'_, Result<T, crate::Error>>
     where
         T: Send + 'static,
     {
         use crate::mode::Mode;
-        crate::mode::Async::ret(Err(error))
+        crate::mode::Async::ready(Err(error))
     }
 }
 
-// Blocking implementation of CommandClient
+// Blocking implementation of ViscaClient
 #[cfg(not(feature = "mode-async"))]
-impl<P, Tr> CommandClient<crate::mode::Blocking> for Camera<crate::mode::Blocking, P, Tr, ()>
+impl<P, Tr> ViscaClient<crate::mode::Blocking> for Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + Send + 'static,
 {
-    fn send_and_complete<C>(
+    fn execute<C>(
         &self,
         command: C,
-    ) -> <crate::mode::Blocking as crate::mode::Mode>::Ret<'_, Result<(), crate::Error>>
+    ) -> <crate::mode::Blocking as crate::mode::Mode>::Fut<'_, Result<(), crate::Error>>
     where
         C: crate::command::ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
     {
@@ -179,10 +179,10 @@ where
         })
     }
 
-    fn send_and_parse<C>(
+    fn query<C>(
         &self,
         command: C,
-    ) -> <crate::mode::Blocking as crate::mode::Mode>::Ret<
+    ) -> <crate::mode::Blocking as crate::mode::Mode>::Fut<
         '_,
         Result<<C as crate::command::typed::ResponseParser>::Response, crate::Error>,
     >
@@ -205,11 +205,11 @@ where
     fn error<T>(
         &self,
         error: crate::Error,
-    ) -> <crate::mode::Blocking as crate::mode::Mode>::Ret<'_, Result<T, crate::Error>>
+    ) -> <crate::mode::Blocking as crate::mode::Mode>::Fut<'_, Result<T, crate::Error>>
     where
         T: Send + 'static,
     {
         use crate::mode::Mode;
-        crate::mode::Blocking::ret(Err(error))
+        crate::mode::Blocking::ready(Err(error))
     }
 }

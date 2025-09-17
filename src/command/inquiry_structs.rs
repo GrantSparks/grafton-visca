@@ -972,7 +972,7 @@ mod tests {
 pub struct TallyGreenInquiry;
 
 impl crate::command::encode::ViscaCommand for TallyGreenInquiry {
-    type Response = crate::command::InquiryResponse;
+    type Response = crate::command::InquiryData;
     const MAX_SIZE: usize = 7;
     const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
         crate::timeout::CommandCategory::Quick;
@@ -992,8 +992,8 @@ impl crate::command::encode::ViscaCommand for TallyGreenInquiry {
         builder.build_into(buffer)
     }
 
-    fn response_kind(&self) -> Option<crate::command::response::ResponseKind> {
-        Some(crate::command::response::ResponseKind::TallyGreen)
+    fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
+        Some(crate::command::response::InquiryKind::TallyGreen)
     }
 }
 
@@ -1002,9 +1002,9 @@ impl crate::command::typed::ResponseParser for TallyGreenInquiry {
 
     fn from_response(resp: crate::command::Response) -> Result<Self::Response, crate::Error> {
         match resp {
-            crate::command::Response::Inquiry(crate::command::InquiryResponse::TallyGreen {
-                on,
-            }) => Ok(on),
+            crate::command::Response::Inquiry(crate::command::InquiryData::TallyGreen { on }) => {
+                Ok(on)
+            }
             crate::command::Response::Error(e) => Err(e),
             _ => Err(crate::Error::UnexpectedResponseType),
         }

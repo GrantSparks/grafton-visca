@@ -1,7 +1,7 @@
 //! pan/tilt control implementation using Mode trait.
 
 use crate::{
-    camera::CommandClient,
+    camera::ViscaClient,
     command::pan_tilt::{PanTiltDirection, PanTiltLimitCorner},
     mode::Mode,
     types::{PanPosition, PanSpeed, SpeedLevel, TiltPosition, TiltSpeed},
@@ -19,10 +19,10 @@ pub trait PanTiltControl {
     type Mode: Mode;
 
     /// Stop all pan/tilt movement.
-    fn pan_tilt_stop(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    fn pan_tilt_stop(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Move to home position (0, 0).
-    fn pan_tilt_home(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    fn pan_tilt_home(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Move to absolute pan/tilt position in degrees.
     fn pan_tilt_absolute(
@@ -30,7 +30,7 @@ pub trait PanTiltControl {
         pan: Degrees,
         tilt: Degrees,
         speed: SpeedLevel,
-    ) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Move relative to current position in degrees.
     fn pan_tilt_relative(
@@ -38,7 +38,7 @@ pub trait PanTiltControl {
         pan: Degrees,
         tilt: Degrees,
         speed: SpeedLevel,
-    ) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Move pan/tilt in a specific direction.
     fn pan_tilt_move(
@@ -46,10 +46,10 @@ pub trait PanTiltControl {
         direction: PanTiltDirection,
         pan_speed: PanSpeed,
         tilt_speed: TiltSpeed,
-    ) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Reset pan/tilt to default position.
-    fn pan_tilt_reset(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    fn pan_tilt_reset(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set pan/tilt movement limit for a specific corner.
     fn pan_tilt_limit_set(
@@ -57,13 +57,13 @@ pub trait PanTiltControl {
         corner: PanTiltLimitCorner,
         pan: PanPosition,
         tilt: TiltPosition,
-    ) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Clear pan/tilt movement limit for a specific corner.
     fn pan_tilt_limit_clear(
         &self,
         corner: PanTiltLimitCorner,
-    ) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
 // Single unified implementation for all Camera types!
@@ -71,24 +71,24 @@ impl<M, P, Tr, Exec> PanTiltControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
     P: crate::capabilities::Profile + crate::capabilities::PanTilt + Default,
-    Self: CommandClient<M>,
+    Self: ViscaClient<M>,
     Exec: crate::executor::Executor,
 {
     type Mode = M;
 
-    fn pan_tilt_stop(&self) -> M::Ret<'_, Result<(), Error>> {
+    fn pan_tilt_stop(&self) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::pan_tilt::PanTilt;
         let cmd = PanTilt::Move {
             direction: PanTiltDirection::Stop,
             pan_speed: PanSpeed::from(SpeedLevel::Medium),
             tilt_speed: TiltSpeed::from(SpeedLevel::Medium),
         };
-        self.send_and_complete(cmd)
+        self.execute(cmd)
     }
 
-    fn pan_tilt_home(&self) -> M::Ret<'_, Result<(), Error>> {
+    fn pan_tilt_home(&self) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::pan_tilt::PanTilt;
-        self.send_and_complete(PanTilt::Home)
+        self.execute(PanTilt::Home)
     }
 
     fn pan_tilt_absolute(
@@ -96,7 +96,7 @@ where
         pan: Degrees,
         tilt: Degrees,
         speed: SpeedLevel,
-    ) -> M::Ret<'_, Result<(), Error>> {
+    ) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::pan_tilt::PanTilt;
 
         // Convert Degrees to Position and SpeedLevel to individual speeds
@@ -121,7 +121,7 @@ where
             pan_speed,
             tilt_speed,
         };
-        self.send_and_complete(cmd)
+        self.execute(cmd)
     }
 
     fn pan_tilt_relative(
@@ -129,7 +129,7 @@ where
         pan: Degrees,
         tilt: Degrees,
         speed: SpeedLevel,
-    ) -> M::Ret<'_, Result<(), Error>> {
+    ) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::pan_tilt::PanTilt;
 
         // Convert Degrees to Position and SpeedLevel to individual speeds
@@ -155,7 +155,7 @@ where
             pan_speed,
             tilt_speed,
         };
-        self.send_and_complete(cmd)
+        self.execute(cmd)
     }
 
     fn pan_tilt_move(
@@ -163,19 +163,19 @@ where
         direction: PanTiltDirection,
         pan_speed: PanSpeed,
         tilt_speed: TiltSpeed,
-    ) -> M::Ret<'_, Result<(), Error>> {
+    ) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::pan_tilt::PanTilt;
         let cmd = PanTilt::Move {
             direction,
             pan_speed,
             tilt_speed,
         };
-        self.send_and_complete(cmd)
+        self.execute(cmd)
     }
 
-    fn pan_tilt_reset(&self) -> M::Ret<'_, Result<(), Error>> {
+    fn pan_tilt_reset(&self) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::pan_tilt::PanTilt;
-        self.send_and_complete(PanTilt::Reset)
+        self.execute(PanTilt::Reset)
     }
 
     fn pan_tilt_limit_set(
@@ -183,7 +183,7 @@ where
         corner: PanTiltLimitCorner,
         pan: PanPosition,
         tilt: TiltPosition,
-    ) -> M::Ret<'_, Result<(), Error>> {
+    ) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::pan_tilt::PanTilt;
 
         // Convert logical positions to camera coordinates using profile's coordinate system
@@ -194,12 +194,12 @@ where
             pan_u16,
             tilt_u16,
         };
-        self.send_and_complete(cmd)
+        self.execute(cmd)
     }
 
-    fn pan_tilt_limit_clear(&self, corner: PanTiltLimitCorner) -> M::Ret<'_, Result<(), Error>> {
+    fn pan_tilt_limit_clear(&self, corner: PanTiltLimitCorner) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::pan_tilt::PanTilt;
         let cmd = PanTilt::LimitClear { corner };
-        self.send_and_complete(cmd)
+        self.execute(cmd)
     }
 }

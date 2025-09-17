@@ -14,21 +14,21 @@
 //!
 //! ```ignore
 //! // Tokio
-//! use grafton_visca::runtime_trait::{Runtime, TokioRuntime};
+//! use grafton_visca::runtime::{Runtime, TokioRuntime};
 //! let runtime = TokioRuntime::from_current()?;
 //! let camera = CameraBuilder::with_executor(runtime)
 //!     .open_async::<PtzOpticsG2, _>(transport)
 //!     .await?;
 //!
 //! // async-std
-//! use grafton_visca::runtime_trait::{AsyncStdRuntime, Runtime};
+//! use grafton_visca::runtime::{AsyncStdRuntime, Runtime};
 //! let runtime = AsyncStdRuntime::new();
 //! let camera = CameraBuilder::with_executor(runtime)
 //!     .open_async::<PtzOpticsG2, _>(transport)
 //!     .await?;
 //!
 //! // smol
-//! use grafton_visca::runtime_trait::{Runtime, SmolRuntime};
+//! use grafton_visca::runtime::{Runtime, SmolRuntime};
 //! let runtime = SmolRuntime::new();
 //! let camera = CameraBuilder::with_executor(runtime)
 //!     .open_async::<PtzOpticsG2, _>(transport)

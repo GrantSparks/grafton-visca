@@ -282,7 +282,7 @@ where
         fn zoom_absolute(position: crate::units::Normalized) -> ();
 
         /// Set zoom to a specific position value.
-        fn zoom_position(position: crate::types::ZoomPosition) -> ();
+        fn set_zoom_position(position: crate::types::ZoomPosition) -> ();
 
         /// Set digital zoom on or off.
         fn set_digital_zoom(enabled: bool) -> ();
@@ -692,10 +692,10 @@ where
         fn tally_off() -> ();
 
         /// Get tally status (red and green states).
-        fn get_tally_status() -> crate::command::typed::TallyStatusState;
+        fn tally_status() -> crate::command::typed::TallyStatusState;
 
         /// Get green tally status (FR7 specific).
-        fn get_green_tally_status() -> bool;
+        fn green_tally_status() -> bool;
     }
 }
 
@@ -724,20 +724,19 @@ where
         /// Decrease color temperature.
         fn decrease_color_temperature() -> ();
 
-        /// Set or query color temperature.
-        fn color_temperature(temp: Option<crate::types::ColorTemp>) -> ();
+        // Removed - redundant with set_color_temperature
 
         /// Set red gain.
         fn set_red_gain(gain: crate::types::RedChannel) -> ();
 
-        /// Control red gain.
-        fn red_gain(command: crate::command::color::RedGain) -> ();
+        /// Control red gain (set, reset, increase or decrease).
+        fn control_red_gain(command: crate::command::color::RedGain) -> ();
 
         /// Set blue gain.
         fn set_blue_gain(gain: crate::types::BlueChannel) -> ();
 
-        /// Control blue gain.
-        fn blue_gain(command: crate::command::color::BlueGain) -> ();
+        /// Control blue gain (set, reset, increase or decrease).
+        fn control_blue_gain(command: crate::command::color::BlueGain) -> ();
 
         /// Set red tuning.
         fn set_red_tuning(tuning: crate::types::RedTuning) -> ();
@@ -886,10 +885,10 @@ where
         fn set_motion_sync_preset_speed(speed: crate::command::system::MotionSyncPreset) -> ();
 
         /// Get motion sync mode.
-        fn get_motion_sync_mode() -> crate::command::system::MotionSyncMode;
+        fn motion_sync_mode() -> crate::command::system::MotionSyncMode;
 
         /// Get motion sync speed.
-        fn get_motion_sync_speed() -> crate::command::system::MotionSyncPreset;
+        fn motion_sync_speed() -> crate::command::system::MotionSyncPreset;
     }
 }
 
@@ -919,7 +918,7 @@ where
         fn set_auto_nd(enabled: bool) -> ();
 
         /// Get ND filter value.
-        fn get_nd_filter() -> u8;
+        fn nd_filter() -> u8;
     }
 }
 
@@ -934,163 +933,163 @@ where
 {
     impl_blocking_methods! {
         /// Get power state.
-        fn get_power_state() -> bool;
+        fn power_state() -> bool;
 
         /// Get zoom position.
-        fn get_zoom_position() -> crate::types::ZoomPosition;
+        fn zoom_position() -> crate::types::ZoomPosition;
 
         /// Get focus position.
-        fn get_focus_position() -> u16;
+        fn focus_position() -> u16;
 
         /// Get focus near limit.
-        fn get_focus_near_limit() -> u16;
+        fn focus_near_limit() -> u16;
 
         /// Get focus zone.
-        fn get_focus_zone() -> crate::command::focus::FocusZone;
+        fn focus_zone() -> crate::command::focus::FocusZone;
 
         /// Get exposure mode.
-        fn get_exposure_mode() -> crate::command::exposure::ExposureMode;
+        fn exposure_mode() -> crate::command::exposure::ExposureMode;
 
         /// Get exposure compensation.
-        fn get_exposure_compensation() -> i8;
+        fn exposure_compensation() -> i8;
 
         /// Get exposure compensation enabled status.
-        fn get_exposure_compensation_enabled() -> bool;
+        fn exposure_compensation_enabled() -> bool;
 
         /// Get iris value.
-        fn get_iris() -> u8;
+        fn iris() -> u8;
 
         /// Get shutter value.
-        fn get_shutter() -> u16;
+        fn shutter() -> u16;
 
         /// Get gain value.
-        fn get_gain() -> u8;
+        fn gain() -> u8;
 
         /// Get gain limit.
-        fn get_gain_limit() -> u8;
+        fn gain_limit() -> u8;
 
         /// Get white balance mode.
-        fn get_white_balance_mode() -> crate::command::white_balance::WhiteBalanceMode;
+        fn white_balance_mode() -> crate::command::white_balance::WhiteBalanceMode;
 
         /// Get red gain.
-        fn get_red_gain() -> i8;
+        fn red_gain() -> i8;
 
         /// Get blue gain.
-        fn get_blue_gain() -> i8;
+        fn blue_gain() -> i8;
 
         /// Get red tuning.
-        fn get_red_tuning() -> u8;
+        fn red_tuning() -> u8;
 
         /// Get blue tuning.
-        fn get_blue_tuning() -> u8;
+        fn blue_tuning() -> u8;
 
         /// Get color temperature.
-        fn get_color_temperature() -> u16;
+        fn color_temperature() -> u16;
 
         /// Get gamma value.
-        fn get_gamma() -> u8;
+        fn gamma() -> u8;
 
         /// Get brightness.
-        fn get_brightness() -> u16;
+        fn brightness() -> u16;
 
         /// Get sharpness mode.
-        fn get_sharpness_mode() -> crate::command::SharpnessMode;
+        fn sharpness_mode() -> crate::command::SharpnessMode;
 
         /// Get saturation.
-        fn get_saturation() -> u8;
+        fn saturation() -> u8;
 
         /// Get hue.
-        fn get_hue() -> u8;
+        fn hue() -> u8;
 
         /// Get black and white mode.
-        fn get_black_white() -> bool;
+        fn black_white() -> bool;
 
         /// Get resolution.
-        fn get_resolution() -> u8;
+        fn resolution() -> u8;
 
         /// Get picture effect.
-        fn get_picture_effect() -> u8;
+        fn picture_effect() -> u8;
 
         /// Get ND filter position.
-        fn get_nd_filter_position() -> u8;
+        fn nd_filter_position() -> u8;
 
         /// Get camera version information.
-        fn get_version() -> crate::command::typed::VersionInfo;
+        fn version() -> crate::command::typed::VersionInfo;
 
         /// Get backlight enabled status.
-        fn get_backlight_enabled() -> bool;
+        fn backlight_enabled() -> bool;
 
         /// Get image flip state.
-        fn get_image_flip() -> crate::command::FlipState;
+        fn image_flip() -> crate::command::FlipState;
 
         /// Get focus mode.
-        fn get_focus_mode() -> crate::command::focus::FocusMode;
+        fn focus_mode() -> crate::command::focus::FocusMode;
 
         /// Get menu status.
-        fn get_menu_status() -> bool;
+        fn menu_status() -> bool;
 
         /// Get tally light status.
-        fn get_tally_light_status() -> crate::command::typed::TallyStatusState;
+        fn tally_light_status() -> crate::command::typed::TallyStatusState;
 
         /// Get night/day mode.
-        fn get_night_day_mode() -> bool;
+        fn night_day_mode() -> bool;
 
         /// Get flip mode.
-        fn get_flip_mode() -> crate::command::FlipState;
+        fn flip_mode() -> crate::command::FlipState;
 
         /// Get standby enabled status.
-        fn get_standby_enabled() -> bool;
+        fn standby_enabled() -> bool;
 
         /// Get iris control status.
-        fn get_iris_control() -> bool;
+        fn iris_control() -> bool;
 
         /// Get defog level.
-        fn get_defog_level() -> u8;
+        fn defog_level() -> u8;
 
         /// Get digital PTZ enabled status.
-        fn get_digital_ptz_enabled() -> bool;
+        fn digital_ptz_enabled() -> bool;
 
         /// Get exposure compensation position.
-        fn get_exposure_compensation_position() -> u16;
+        fn exposure_compensation_position() -> u16;
 
         /// Get auto trace enabled status.
-        fn get_auto_trace_enabled() -> bool;
+        fn auto_trace_enabled() -> bool;
 
         /// Get focus unlock status.
-        fn get_focus_unlock() -> bool;
+        fn focus_unlock() -> bool;
 
         /// Get noise reduction level.
-        fn get_noise_reduction_level() -> u8;
+        fn noise_reduction_level() -> u8;
 
         /// Get 2D noise reduction level.
-        fn get_noise_reduction_2d() -> u8;
+        fn noise_reduction_2d() -> u8;
 
         /// Get 3D noise reduction level.
-        fn get_noise_reduction_3d() -> u8;
+        fn noise_reduction_3d() -> u8;
 
         /// Get broadcast domain.
-        fn get_broadcast_domain() -> u8;
+        fn broadcast_domain() -> u8;
 
         /// Get noise reduction mode.
-        fn get_noise_reduction_mode() -> crate::command::NoiseReductionMode;
+        fn noise_reduction_mode() -> crate::command::NoiseReductionMode;
 
         /// Get black and white mode.
-        fn get_black_white_mode() -> crate::command::BlackWhiteMode;
+        fn black_white_mode() -> crate::command::BlackWhiteMode;
 
         /// Get USB audio enabled status.
-        fn get_usb_audio_enabled() -> bool;
+        fn usb_audio_enabled() -> bool;
 
         /// Get two-tone mode enabled status.
-        fn get_two_tone_mode_enabled() -> bool;
+        fn two_tone_mode_enabled() -> bool;
 
         /// Get ND filter preset.
-        fn get_nd_filter_preset() -> u8;
+        fn nd_filter_preset() -> u8;
 
         /// Get digital mode enabled status.
-        fn get_digital_mode_enabled() -> bool;
+        fn digital_mode_enabled() -> bool;
 
         /// Get tally auto adjust enabled status.
-        fn get_tally_auto_adjust_enabled() -> bool;
+        fn tally_auto_adjust_enabled() -> bool;
 
         // Note: get_motion_sync_mode is implemented via MotionSyncControl
     }
@@ -1107,6 +1106,6 @@ where
 {
     impl_blocking_methods! {
         /// Get pan/tilt position.
-        fn get_pan_tilt_position() -> crate::camera::PanTiltPosition;
+        fn pan_tilt_position() -> crate::camera::PanTiltPosition;
     }
 }

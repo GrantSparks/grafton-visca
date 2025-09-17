@@ -5,16 +5,16 @@ use std::borrow::Cow;
 use super::super::payload::{Nibbles, Payload};
 use crate::{
     command::{
-        response::types::{Response, ResponseKind},
-        AutoWhiteBalanceSensitivity, InquiryResponse, WhiteBalanceMode,
+        response::types::{InquiryKind, Response},
+        AutoWhiteBalanceSensitivity, InquiryData, WhiteBalanceMode,
     },
     error::Error,
 };
 
 /// Decode color-related inquiry responses.
-pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<Response, Error>> {
+pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<Response, Error>> {
     match kind {
-        ResponseKind::WhiteBalanceMode => {
+        InquiryKind::WhiteBalanceMode => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -33,53 +33,53 @@ pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<
                     }))
                 }
             };
-            Some(Ok(Response::Inquiry(InquiryResponse::WhiteBalanceMode {
+            Some(Ok(Response::Inquiry(InquiryData::WhiteBalanceMode {
                 mode,
             })))
         }
-        ResponseKind::ColorTemperature => match Nibbles::<4>::try_from(payload) {
+        InquiryKind::ColorTemperature => match Nibbles::<4>::try_from(payload) {
             Ok(nibbles) => {
                 // Extract the color temperature from nibbles 2 and 3
                 let temperature = nibbles.u8_pair(2) as u16;
-                Some(Ok(Response::Inquiry(InquiryResponse::ColorTemperature {
+                Some(Ok(Response::Inquiry(InquiryData::ColorTemperature {
                     temperature,
                 })))
             }
             Err(e) => Some(Err(e)),
         },
-        ResponseKind::RedChannel => {
+        InquiryKind::RedChannel => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            Some(Ok(Response::Inquiry(InquiryResponse::RedChannel {
+            Some(Ok(Response::Inquiry(InquiryData::RedChannel {
                 gain: payload.as_slice()[0] as i8 - 10,
             })))
         }
-        ResponseKind::BlueChannel => {
+        InquiryKind::BlueChannel => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            Some(Ok(Response::Inquiry(InquiryResponse::BlueChannel {
+            Some(Ok(Response::Inquiry(InquiryData::BlueChannel {
                 gain: payload.as_slice()[0] as i8 - 10,
             })))
         }
-        ResponseKind::RedTuning => {
+        InquiryKind::RedTuning => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            Some(Ok(Response::Inquiry(InquiryResponse::RedTuning {
+            Some(Ok(Response::Inquiry(InquiryData::RedTuning {
                 level: payload.as_slice()[0],
             })))
         }
-        ResponseKind::BlueTuning => {
+        InquiryKind::BlueTuning => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            Some(Ok(Response::Inquiry(InquiryResponse::BlueTuning {
+            Some(Ok(Response::Inquiry(InquiryData::BlueTuning {
                 level: payload.as_slice()[0],
             })))
         }
-        ResponseKind::AutoWhiteBalanceSensitivity => {
+        InquiryKind::AutoWhiteBalanceSensitivity => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -95,7 +95,7 @@ pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<
                 }
             };
             Some(Ok(Response::Inquiry(
-                InquiryResponse::AutoWhiteBalanceSensitivity { sensitivity },
+                InquiryData::AutoWhiteBalanceSensitivity { sensitivity },
             )))
         }
         _ => None,

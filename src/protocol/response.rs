@@ -237,8 +237,8 @@ pub fn find_next_frame(buffer: &[u8]) -> Option<(Vec<u8>, &[u8])> {
 mod tests {
     use super::*;
 
-    use crate::command::response::{lift_inquiry, Response, ResponseKind};
-    use crate::command::InquiryResponse;
+    use crate::command::response::{lift_inquiry, InquiryKind, Response};
+    use crate::command::InquiryData;
 
     #[test]
     fn test_decode_ack() {
@@ -408,9 +408,9 @@ mod tests {
             payload: Payload::new(&[0x02]),
         };
         let lifted =
-            lift_inquiry(&basic, Some(&ResponseKind::Power)).expect("Failed to lift Power inquiry");
+            lift_inquiry(&basic, Some(&InquiryKind::Power)).expect("Failed to lift Power inquiry");
         match lifted {
-            Response::Inquiry(InquiryResponse::Power { on }) => assert!(on),
+            Response::Inquiry(InquiryData::Power { on }) => assert!(on),
             _ => panic!("Expected Power inquiry response"),
         }
     }

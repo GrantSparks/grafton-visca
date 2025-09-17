@@ -5,32 +5,32 @@ use std::borrow::Cow;
 use super::super::payload::Payload;
 use crate::{
     command::{
-        response::types::{Response, ResponseKind},
-        InquiryResponse,
+        response::types::{InquiryKind, Response},
+        InquiryData,
     },
     error::Error,
 };
 
 /// Decode tally-related inquiry responses.
-pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<Response, Error>> {
+pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<Response, Error>> {
     match kind {
-        ResponseKind::TallyRed => {
+        InquiryKind::TallyRed => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            Some(Ok(Response::Inquiry(InquiryResponse::TallyRed {
+            Some(Ok(Response::Inquiry(InquiryData::TallyRed {
                 on: payload.as_slice()[0] == 0x02,
             })))
         }
-        ResponseKind::TallyGreen => {
+        InquiryKind::TallyGreen => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            Some(Ok(Response::Inquiry(InquiryResponse::TallyGreen {
+            Some(Ok(Response::Inquiry(InquiryData::TallyGreen {
                 on: payload.as_slice()[0] == 0x02,
             })))
         }
-        ResponseKind::TallyStatus => {
+        InquiryKind::TallyStatus => {
             if payload.len() != 2 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -56,12 +56,12 @@ pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<
                     }))
                 }
             };
-            Some(Ok(Response::Inquiry(InquiryResponse::TallyStatus {
+            Some(Ok(Response::Inquiry(InquiryData::TallyStatus {
                 red_on,
                 green_on,
             })))
         }
-        ResponseKind::TallyAutoAdjust => {
+        InquiryKind::TallyAutoAdjust => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -76,9 +76,7 @@ pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<
                     }))
                 }
             };
-            Some(Ok(Response::Inquiry(InquiryResponse::TallyAutoAdjust {
-                on,
-            })))
+            Some(Ok(Response::Inquiry(InquiryData::TallyAutoAdjust { on })))
         }
         _ => None,
     }

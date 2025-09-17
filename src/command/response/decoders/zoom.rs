@@ -5,16 +5,16 @@ use std::borrow::Cow;
 use super::super::payload::{Nibbles4Or8, Payload};
 use crate::{
     command::{
-        response::types::{Response, ResponseKind},
-        InquiryResponse,
+        response::types::{InquiryKind, Response},
+        InquiryData,
     },
     error::Error,
 };
 
 /// Decode zoom-related inquiry responses.
-pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<Response, Error>> {
+pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<Response, Error>> {
     match kind {
-        ResponseKind::ZoomPosition => match Nibbles4Or8::try_from(payload) {
+        InquiryKind::ZoomPosition => match Nibbles4Or8::try_from(payload) {
             Ok(nibbles) => {
                 if matches!(nibbles, Nibbles4Or8::N8(_)) {
                     tracing::warn!(
@@ -22,13 +22,13 @@ pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<
                     );
                 }
                 let position = nibbles.first_u16();
-                Some(Ok(Response::Inquiry(InquiryResponse::ZoomPosition {
+                Some(Ok(Response::Inquiry(InquiryData::ZoomPosition {
                     position,
                 })))
             }
             Err(e) => Some(Err(e)),
         },
-        ResponseKind::ZoomOut => {
+        InquiryKind::ZoomOut => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -43,9 +43,9 @@ pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<
                     }))
                 }
             };
-            Some(Ok(Response::Inquiry(InquiryResponse::ZoomOut { active })))
+            Some(Ok(Response::Inquiry(InquiryData::ZoomOut { active })))
         }
-        ResponseKind::ZoomIn => {
+        InquiryKind::ZoomIn => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -60,9 +60,9 @@ pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<
                     }))
                 }
             };
-            Some(Ok(Response::Inquiry(InquiryResponse::ZoomIn { active })))
+            Some(Ok(Response::Inquiry(InquiryData::ZoomIn { active })))
         }
-        ResponseKind::ZoomTeleWide => {
+        InquiryKind::ZoomTeleWide => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
@@ -77,9 +77,7 @@ pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<
                     }))
                 }
             };
-            Some(Ok(Response::Inquiry(InquiryResponse::ZoomTeleWide {
-                tele,
-            })))
+            Some(Ok(Response::Inquiry(InquiryData::ZoomTeleWide { tele })))
         }
         _ => None,
     }

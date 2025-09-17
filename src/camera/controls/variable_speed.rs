@@ -1,8 +1,8 @@
 //! variable speed mode control implementation using Mode trait.
 
 use crate::{
-    camera::CommandClient,
-    command::{VariableSpeedMode, VariableSpeedModeCommand},
+    camera::ViscaClient,
+    command::{SetVariableSpeedMode, VariableSpeedMode},
     mode::Mode,
     Error,
 };
@@ -28,7 +28,7 @@ pub trait VariableSpeedControl {
     fn set_variable_speed_mode(
         &self,
         mode: VariableSpeedMode,
-    ) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
 // Single unified implementation for all Camera types!
@@ -36,28 +36,28 @@ impl<M, P, Tr, Exec> VariableSpeedControl for crate::camera::Camera<M, P, Tr, Ex
 where
     M: Mode,
     P: crate::capabilities::Profile + Default + crate::capabilities::VariableSpeed,
-    Self: CommandClient<M>,
+    Self: ViscaClient<M>,
     Exec: crate::executor::Executor,
 {
     type Mode = M;
 
-    fn set_variable_speed_mode(&self, mode: VariableSpeedMode) -> M::Ret<'_, Result<(), Error>> {
-        let cmd = VariableSpeedModeCommand::new(mode);
-        self.send_and_complete(cmd)
+    fn set_variable_speed_mode(&self, mode: VariableSpeedMode) -> M::Fut<'_, Result<(), Error>> {
+        let cmd = SetVariableSpeedMode::new(mode);
+        self.execute(cmd)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::command::{VariableSpeedMode, VariableSpeedModeCommand};
+    use crate::command::{SetVariableSpeedMode, VariableSpeedMode};
 
     #[test]
     fn test_variable_speed_mode_command_creation() {
         // Test that commands can be created correctly
-        let cmd = VariableSpeedModeCommand::new(VariableSpeedMode::Standard24);
+        let cmd = SetVariableSpeedMode::new(VariableSpeedMode::Standard24);
         assert!(matches!(cmd.mode, VariableSpeedMode::Standard24));
 
-        let cmd = VariableSpeedModeCommand::new(VariableSpeedMode::Fine50);
+        let cmd = SetVariableSpeedMode::new(VariableSpeedMode::Fine50);
         assert!(matches!(cmd.mode, VariableSpeedMode::Fine50));
     }
 }

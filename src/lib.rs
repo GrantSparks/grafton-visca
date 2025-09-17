@@ -144,7 +144,7 @@
 //!         .address("192.168.0.110:5678")
 //!         .connect()
 //!         .await?;
-//!     use grafton_visca::runtime_trait::{Runtime, TokioRuntime};
+//!     use grafton_visca::runtime::{Runtime, TokioRuntime};
 //!     let runtime = TokioRuntime::from_current()?;
 //!     let camera = CameraBuilder::with_executor(runtime)
 //!         .open_async::<PtzOpticsG2, _>(transport)
@@ -178,7 +178,7 @@
 //!         .address("192.168.0.110:5678")
 //!         .connect()  // Uses tokio if available, async-std otherwise
 //!         .await?;
-//!     use grafton_visca::runtime_trait::{AsyncStdRuntime, Runtime};
+//!     use grafton_visca::runtime::{AsyncStdRuntime, Runtime};
 //!     let runtime = AsyncStdRuntime::new();
 //!     let camera = CameraBuilder::with_executor(runtime)
 //!         .open_async::<PtzOpticsG2, _>(transport)
@@ -208,7 +208,7 @@
 //!             .address("192.168.0.110:5678")
 //!             .connect()  // Runtime auto-selected based on enabled features
 //!             .await?;
-//!         use grafton_visca::runtime_trait::{Runtime, SmolRuntime};
+//!         use grafton_visca::runtime::{Runtime, SmolRuntime};
 //!         let runtime = SmolRuntime::new();
 //!         let camera = CameraBuilder::with_executor(runtime)
 //!             .open_async::<PtzOpticsG2, _>(transport)
@@ -352,21 +352,21 @@
 //!
 //! ```ignore
 //! // Tokio
-//! use grafton_visca::runtime_trait::{Runtime, TokioRuntime};
+//! use grafton_visca::runtime::{Runtime, TokioRuntime};
 //! let runtime = TokioRuntime::from_current()?;
 //! let camera = CameraBuilder::with_executor(runtime)
 //!     .open_async::<PtzOpticsG2, _>(transport)
 //!     .await?;
 //!
 //! // async-std
-//! use grafton_visca::runtime_trait::{AsyncStdRuntime, Runtime};
+//! use grafton_visca::runtime::{AsyncStdRuntime, Runtime};
 //! let runtime = AsyncStdRuntime::new();
 //! let camera = CameraBuilder::with_executor(runtime)
 //!     .open_async::<PtzOpticsG2, _>(transport)
 //!     .await?;
 //!
 //! // smol
-//! use grafton_visca::runtime_trait::{Runtime, SmolRuntime};
+//! use grafton_visca::runtime::{Runtime, SmolRuntime};
 //! let runtime = SmolRuntime::new();
 //! let camera = CameraBuilder::with_executor(runtime)
 //!     .open_async::<PtzOpticsG2, _>(transport)
@@ -518,7 +518,7 @@
 //!     .open();
 //!
 //! // For async mode (default)
-//! use grafton_visca::runtime_trait::{Runtime, TokioRuntime};
+//! use grafton_visca::runtime::{Runtime, TokioRuntime};
 //! let runtime = TokioRuntime::from_current()?;
 //! let camera = CameraBuilder::with_executor(runtime)
 //!     .timeout_config(config)
@@ -648,10 +648,6 @@ pub mod runtime;
 #[cfg(feature = "mode-async")]
 pub mod runtime_adapters;
 
-/// Runtime trait for binding executor and transport connectors
-#[cfg(feature = "mode-async")]
-pub mod runtime_trait;
-
 /// Testing utilities (available with test-utils feature for deterministic testing)
 #[cfg(any(feature = "runtime-tokio", feature = "test-utils"))]
 pub mod testing;
@@ -738,13 +734,13 @@ pub use crate::executor::{ExecError, Executor};
 
 // Re-export Runtime trait and implementations
 #[cfg(all(feature = "mode-async", feature = "runtime-async-std"))]
-pub use crate::runtime_trait::AsyncStdRuntime;
+pub use crate::runtime::AsyncStdRuntime;
 #[cfg(all(feature = "mode-async", feature = "runtime-smol"))]
-pub use crate::runtime_trait::SmolRuntime;
+pub use crate::runtime::SmolRuntime;
 #[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]
-pub use crate::runtime_trait::TokioRuntime;
+pub use crate::runtime::TokioRuntime;
 #[cfg(feature = "mode-async")]
-pub use crate::runtime_trait::{Runtime, TransportHandle};
+pub use crate::runtime::{Runtime, TransportHandle};
 
 /// Camera profiles with compositional capabilities
 pub mod profiles {

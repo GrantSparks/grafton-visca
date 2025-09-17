@@ -22,7 +22,7 @@
 //! ```
 
 use crate::{
-    command::{bytes::ConstCommandBuilder, encode::ViscaCommand, ResponseKind},
+    command::{bytes::ConstCommandBuilder, encode::ViscaCommand, InquiryKind},
     error::Error,
     timeout::CommandCategory,
     types::{SpeedLevel, ZoomPosition},
@@ -160,7 +160,7 @@ impl ViscaCommand for Zoom {
         }
     }
 
-    fn response_kind(&self) -> Option<ResponseKind> {
+    fn response_kind(&self) -> Option<InquiryKind> {
         // Zoom movement commands are action commands, not inquiries.
         // They receive ACK + Completion responses like pan-tilt movements.
         // Only dedicated inquiry commands should return specific response types.
@@ -203,7 +203,7 @@ impl ViscaCommand for DigitalZoom {
         builder.build_into(buffer)
     }
 
-    fn response_kind(&self) -> Option<ResponseKind> {
+    fn response_kind(&self) -> Option<InquiryKind> {
         None
     }
 }

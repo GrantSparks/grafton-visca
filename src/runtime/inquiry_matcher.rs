@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use crate::command::response::{parse_inquiry_payload, ResponseKind};
+use crate::command::response::{parse_inquiry_payload, InquiryKind};
 
 /// Result of attempting to resolve a raw inquiry ID from payload content.
 #[derive(Debug, Clone, PartialEq)]
@@ -36,7 +36,7 @@ pub enum ResolveResult {
 /// * `ResolveResult::None` - No inquiries match the payload
 pub fn resolve_raw_inquiry_id(
     payload: &[u8],
-    in_flight: &HashMap<u32, ResponseKind>,
+    in_flight: &HashMap<u32, InquiryKind>,
 ) -> ResolveResult {
     // Try parsing the payload against each expected response type
     let mut matches = in_flight
@@ -69,8 +69,8 @@ mod tests {
     #[test]
     fn test_unique_match() {
         let mut in_flight = HashMap::new();
-        in_flight.insert(1, ResponseKind::Power);
-        in_flight.insert(2, ResponseKind::ZoomPosition);
+        in_flight.insert(1, InquiryKind::Power);
+        in_flight.insert(2, InquiryKind::ZoomPosition);
 
         // Power inquiry response: 0x90 0x50 0x02 0xFF (power on)
         let power_payload = &[0x02];
@@ -82,8 +82,8 @@ mod tests {
     #[test]
     fn test_no_match() {
         let mut in_flight = HashMap::new();
-        in_flight.insert(1, ResponseKind::Power);
-        in_flight.insert(2, ResponseKind::ZoomPosition);
+        in_flight.insert(1, InquiryKind::Power);
+        in_flight.insert(2, InquiryKind::ZoomPosition);
 
         // Invalid payload that doesn't match any expected type
         let invalid_payload = &[0xAA, 0xBB, 0xCC];
@@ -96,8 +96,8 @@ mod tests {
     fn test_ambiguous_match() {
         let mut in_flight = HashMap::new();
         // Two inquiries expecting the same response type
-        in_flight.insert(1, ResponseKind::Power);
-        in_flight.insert(2, ResponseKind::Power);
+        in_flight.insert(1, InquiryKind::Power);
+        in_flight.insert(2, InquiryKind::Power);
 
         // Power inquiry response
         let power_payload = &[0x02];
@@ -119,9 +119,9 @@ mod tests {
     #[test]
     fn test_different_length_payloads() {
         let mut in_flight = HashMap::new();
-        in_flight.insert(1, ResponseKind::Power);
-        in_flight.insert(2, ResponseKind::ZoomPosition);
-        in_flight.insert(3, ResponseKind::FocusPosition);
+        in_flight.insert(1, InquiryKind::Power);
+        in_flight.insert(2, InquiryKind::ZoomPosition);
+        in_flight.insert(3, InquiryKind::FocusPosition);
 
         // Power response has 1 byte (0x02 = on, 0x03 = off)
         let power_payload = &[0x02];
@@ -131,8 +131,8 @@ mod tests {
 
         // Test with a 4-byte payload that could match multiple types
         in_flight.clear();
-        in_flight.insert(1, ResponseKind::ZoomPosition);
-        in_flight.insert(2, ResponseKind::Shutter);
+        in_flight.insert(1, InquiryKind::ZoomPosition);
+        in_flight.insert(2, InquiryKind::Shutter);
 
         let position_payload = &[0x00, 0x00, 0x00, 0x00];
 
@@ -151,8 +151,8 @@ mod tests {
     #[test]
     fn test_ambiguous_position_inquiries() {
         let mut in_flight = HashMap::new();
-        in_flight.insert(1, ResponseKind::ZoomPosition);
-        in_flight.insert(2, ResponseKind::FocusPosition);
+        in_flight.insert(1, InquiryKind::ZoomPosition);
+        in_flight.insert(2, InquiryKind::FocusPosition);
 
         // Both zoom and focus use 4 nibbles, so this payload is ambiguous
         let position_payload = &[0x00, 0x00, 0x00, 0x00];
