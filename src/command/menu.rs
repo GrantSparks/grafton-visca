@@ -4,7 +4,12 @@
 //! allowing remote navigation and configuration. These commands are particularly useful
 //! for Sony FR7 and other cameras with comprehensive on-screen menus.
 
-use crate::{timeout::CommandCategory, visca_command};
+use std::borrow::Cow;
+
+use crate::{
+    command::bytes::ConstCommandBuilder, constants::CameraVariant, timeout::CommandCategory,
+    visca_command,
+};
 
 visca_command! {
     /// Menu display control command.
@@ -52,8 +57,6 @@ impl crate::command::encode::ViscaCommand for MenuNavigate {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, crate::Error> {
-        use crate::command::bytes::ConstCommandBuilder;
-
         let mut builder = ConstCommandBuilder::<9>::new();
         builder.push_mut(camera_id.to_address_byte());
         builder.append_mut(&[0x01, 0x06, 0x01, 0x0E, 0x0E]);
@@ -157,8 +160,6 @@ impl crate::command::encode::ViscaCommand for DirectMenuControl {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, crate::Error> {
-        use crate::command::bytes::ConstCommandBuilder;
-
         let mut builder = ConstCommandBuilder::<8>::new();
         builder.push_mut(camera_id.to_address_byte());
         builder.append_mut(&[0x01, 0x7E, 0x04, 0x72]);
@@ -171,13 +172,7 @@ impl crate::command::encode::ViscaCommand for DirectMenuControl {
         None
     }
 
-    fn validate_for_model(
-        &self,
-        model: crate::constants::CameraVariant,
-    ) -> Result<(), crate::Error> {
-        use crate::constants::CameraVariant;
-        use std::borrow::Cow;
-
+    fn validate_for_model(&self, model: CameraVariant) -> Result<(), crate::Error> {
         match model {
             CameraVariant::SonyFR7 => Ok(()),
             _ => Err(crate::Error::ModelValidation {
@@ -205,8 +200,8 @@ impl DirectMenuControl {
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use crate::command::bytes::VISCA_TERMINATOR;
-    use crate::macros::test_utils::visca_test;
+
+    use crate::{command::bytes::VISCA_TERMINATOR, macros::test_utils::visca_test};
 
     visca_test!(
         SetMenuDisplay,

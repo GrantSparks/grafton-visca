@@ -88,8 +88,6 @@ mod tests {
         assert!(PresetNumber::new(89).is_ok());
         assert!(PresetNumber::new(90).is_ok());
         assert!(PresetNumber::new(255).is_ok());
-
-        // No longer has invalid numbers since max is now 255
     }
 
     #[test]

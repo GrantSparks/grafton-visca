@@ -470,21 +470,18 @@ mod tests {
 
         assert!(
             result.is_ok(),
-            "Command {} failed to encode: {:?}",
-            name,
-            result
+            "Command {name} failed to encode: {result:?}"
         );
 
         let len = result.unwrap();
-        assert!(len > 0, "Command {} encoded to empty buffer", name);
+        assert!(len > 0, "Command {name} encoded to empty buffer");
 
         // Check that the command ends with VISCA_TERMINATOR
         assert_eq!(
             buffer[len - 1],
             VISCA_TERMINATOR,
-            "Command {} does not end with VISCA_TERMINATOR (0xFF). Last byte: 0x{:02X}",
-            name,
-            buffer[len - 1]
+            "Command {name} does not end with VISCA_TERMINATOR (0xFF). Last byte: 0x{last_byte:02X}",
+            last_byte = buffer[len - 1]
         );
 
         // Validate no double terminators
@@ -497,8 +494,7 @@ mod tests {
             }
             assert_eq!(
                 terminator_count, 1,
-                "Command {} has {} terminators, expected exactly 1",
-                name, terminator_count
+                "Command {name} has {terminator_count} terminators, expected exactly 1"
             );
         }
     }
@@ -678,14 +674,18 @@ mod tests {
             let mut buffer = [0u8; 256];
             let result = (test_case.encode)(&mut buffer);
 
-            assert!(result.is_ok(), "{} failed: {:?}", test_case.name, result);
+            assert!(
+                result.is_ok(),
+                "{test_case_name} failed: {result:?}",
+                test_case_name = test_case.name
+            );
             let len = result.unwrap();
 
             assert_eq!(
                 buffer[len - 1],
                 VISCA_TERMINATOR,
-                "{} missing terminator",
-                test_case.name
+                "{test_case_name} missing terminator",
+                test_case_name = test_case.name
             );
         }
     }

@@ -99,11 +99,13 @@ impl GainLimitCommand {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
-    use crate::command::bytes::VISCA_TERMINATOR;
-    use crate::command::encode::ViscaCommand;
-    use crate::constants::CameraVariant;
-    use crate::macros::test_utils::visca_test;
-    use crate::timeout::CommandTimeout;
+
+    use crate::{
+        command::{bytes::VISCA_TERMINATOR, encode::ViscaCommand},
+        constants::CameraVariant,
+        macros::test_utils::visca_test,
+        timeout::CommandTimeout,
+    };
 
     visca_test!(
         Gain,

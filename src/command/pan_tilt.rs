@@ -268,19 +268,8 @@ pub enum PanTilt {
 }
 
 impl PanTilt {
-    // Note: The absolute_position_degrees method was removed because it referenced
-    // an out-of-scope generic parameter. Use the camera facade methods instead:
-    //
-    // ```compile_fail
-    // use grafton_visca::command::pan_tilt::PanTilt;
-    // use grafton_visca::units::Degrees;
-    //
-    // // This would not compile - P is not in scope
-    // let cmd = PanTilt::absolute_position_degrees(
-    //     Degrees(45.0),
-    //     Degrees(30.0)
-    // );
-    // ```
+    // NOTE: The absolute_position_degrees method was removed because it referenced
+    // an out-of-scope generic parameter. Use the camera facade methods instead.
 }
 
 impl ViscaCommand for PanTilt {

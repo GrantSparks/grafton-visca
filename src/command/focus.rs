@@ -12,6 +12,8 @@
 
 use grafton_visca_macros::ViscaEnum;
 
+use std::borrow::Cow;
+
 use crate::{
     command::{encode::ViscaCommand, InquiryKind},
     error::Error,
@@ -347,7 +349,6 @@ impl ViscaCommand for FocusLock {
 
     fn validate_for_model(&self, model: crate::constants::CameraVariant) -> Result<(), Error> {
         use crate::constants::CameraVariant;
-        use std::borrow::Cow;
 
         match model {
             CameraVariant::PtzOpticsG2 | CameraVariant::PtzOpticsG3 => Ok(()),
@@ -404,7 +405,6 @@ impl ViscaCommand for PushAF {
 
     fn validate_for_model(&self, model: crate::constants::CameraVariant) -> Result<(), Error> {
         use crate::constants::CameraVariant;
-        use std::borrow::Cow;
 
         match model {
             CameraVariant::SonyFR7 => Ok(()),

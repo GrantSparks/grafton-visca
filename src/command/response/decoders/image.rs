@@ -32,7 +32,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "sharpness_mode",
-                        value: Cow::Owned(format!("{value:02X}", value = payload.as_slice()[0])),
+                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed("Unknown sharpness mode value"),
                     }))
                 }

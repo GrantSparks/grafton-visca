@@ -1,7 +1,3 @@
-// SPDX-License-Identifier: MIT OR Apache-2.0
-//
-// Copyright (c) 2024 Grafton Machine Shed <team@grafton.ai>
-
 //! Procedural macro for auto-generating CameraSession forwarding implementations
 
 use proc_macro2::TokenStream;
@@ -112,7 +108,7 @@ fn generate_forwarding_methods(methods: &[&syn::TraitItemFn]) -> TokenStream {
             }
         };
 
-        // Generate the full method with attributes (no more expect_used needed)
+        // Generate the full method with attributes
         generated_methods.push(quote! {
             #(#method_attrs)*
             #[inline]

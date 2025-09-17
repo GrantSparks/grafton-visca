@@ -182,36 +182,6 @@ pub struct BlueGainInquiry;
 // and may not work with actual cameras. They appear to be based on direct command opcodes
 // rather than actual inquiry opcodes. Commenting out until proper documentation is found.
 
-// /// Inquiry command to get the current luminance setting.
-// #[derive(ViscaInquiry, Debug, Copy, Clone)]
-// #[visca(
-//     opcode = 0x4D,
-//     subcode = 0x50,
-//     response = "Luminance",
-//     parser = "byte"
-// )]
-// pub struct LuminanceInquiry;
-
-// /// Inquiry command to get the current contrast level.
-// #[derive(ViscaInquiry, Debug, Copy, Clone)]
-// #[visca(
-//     opcode = 0x4E,
-//     subcode = 0x50,
-//     response = "Contrast",
-//     parser = "byte"
-// )]
-// pub struct ContrastInquiry;
-
-// /// Inquiry command to get the current sharpness level.
-// #[derive(ViscaInquiry, Debug, Copy, Clone)]
-// #[visca(
-//     opcode = 0x42,
-//     response = "Sharpness",
-//     parser = "custom",
-//     parse_with = "parse_middle_nibbles"
-// )]
-// pub struct SharpnessInquiry;
-
 /// Inquiry command to get the current sharpness mode on/off status.
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
@@ -388,18 +358,8 @@ pub struct FocusModeInquiry;
 )]
 pub struct MenuOpenCloseInquiry;
 
-// Inquiry command to get the auto focus on/off status.
 // NOTE: AutoFocus inquiry is not documented in VISCA specs
 // and has been disabled until proper documentation is found.
-
-// #[derive(ViscaInquiry, Debug, Copy, Clone)]
-// #[visca(
-//     opcode = 0x18,
-//     response = "AutoFocus",
-//     parser = "custom",
-//     parse_with = "parse_auto_focus"
-// )]
-// pub struct AutoFocusInquiry;
 /// Inquiry command to get the tally light status (red and green).
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
@@ -790,13 +750,6 @@ mod tests {
         MenuOpenCloseInquiry,
         constants::inquiry::MENU_OPEN_CLOSE
     );
-    // NOTE: AutoFocus inquiry is not documented in VISCA specs
-    // visca_test!(
-    //     AutoFocusInquiry,
-    //     test_auto_focus_inquiry,
-    //     AutoFocusInquiry,
-    //     constants::inquiry::AUTO_FOCUS
-    // );
     visca_test!(
         TallyStatusInquiry,
         test_tally_status_inquiry,

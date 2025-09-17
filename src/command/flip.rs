@@ -53,11 +53,14 @@ visca_command! {
     clippy::uninlined_format_args
 )]
 mod tests {
+    use crate::{
+        camera_id::CameraId,
+        command::{bytes::VISCA_TERMINATOR, encode::ViscaCommand},
+        macros::test_utils::visca_test,
+        timeout::{CommandCategory, CommandTimeout},
+    };
+
     use super::*;
-    use crate::command::bytes::VISCA_TERMINATOR;
-    use crate::macros::test_utils::visca_test;
-    use crate::timeout::CommandTimeout;
-    use crate::{command::encode::ViscaCommand, timeout::CommandCategory};
 
     visca_test!(
         ImageFlip,
@@ -122,10 +125,10 @@ mod tests {
         let cmd2 = cmd1.clone();
         // Verify commands produce same bytes
         assert_eq!(
-            cmd1.to_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd1.to_bytes(CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap(),
-            cmd2.to_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd2.to_bytes(CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap()
         );
@@ -133,7 +136,7 @@ mod tests {
         let cmd1 = ImageFlip { flip: Flip::Off };
         let cmd2 = cmd1; // Copy trait
         assert_eq!(
-            cmd2.to_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd2.to_bytes(CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap(),
             vec![0x81, 0x01, 0x04, 0x66, 0x03, VISCA_TERMINATOR]
@@ -154,10 +157,7 @@ mod tests {
     fn test_command_trait_impl() {
         // Verify ImageFlip implements ViscaCommand trait
         let cmd = ImageFlip { flip: Flip::On };
-        assert!(cmd
-            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-            .map(|b| b.to_vec())
-            .is_ok());
+        assert!(cmd.to_bytes(CameraId::CAMERA_1).map(|b| b.to_vec()).is_ok());
         assert!(cmd.response_kind().is_none());
         assert!(matches!(cmd.timeout_class(), CommandCategory::Quick));
     }
@@ -167,7 +167,7 @@ mod tests {
         // Verify the exact byte sequences match VISCA protocol
         let on_cmd = ImageFlip { flip: Flip::On };
         let on_bytes = on_cmd
-            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .to_bytes(CameraId::CAMERA_1)
             .map(|b| b.to_vec())
             .unwrap();
         assert_eq!(on_bytes[0], 0x81); // Command header
@@ -179,7 +179,7 @@ mod tests {
 
         let off_cmd = ImageFlip { flip: Flip::Off };
         let off_bytes = off_cmd
-            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .to_bytes(CameraId::CAMERA_1)
             .map(|b| b.to_vec())
             .unwrap();
         assert_eq!(off_bytes[0], 0x81); // Command header
@@ -196,10 +196,10 @@ mod tests {
         let cmd1 = ImageFlip { flip: Flip::On };
         let cmd2 = ImageFlip { flip: Flip::On };
         assert_eq!(
-            cmd1.to_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd1.to_bytes(CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap(),
-            cmd2.to_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd2.to_bytes(CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap()
         );
@@ -207,10 +207,10 @@ mod tests {
         let cmd1 = ImageFlip { flip: Flip::Off };
         let cmd2 = ImageFlip { flip: Flip::Off };
         assert_eq!(
-            cmd1.to_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd1.to_bytes(CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap(),
-            cmd2.to_bytes(crate::camera_id::CameraId::CAMERA_1)
+            cmd2.to_bytes(CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap()
         );

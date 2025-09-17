@@ -10,10 +10,18 @@
 //! - All ND filter commands - Sony FR7 specific
 //! - The FR7 supports variable ND filter (2 to 7 stops, continuously variable)
 
-use crate::command::encode::ViscaCommand;
-use crate::command::InquiryKind;
-use crate::timeout::CommandCategory;
-use crate::{command::bytes::constants, error::Error};
+use std::borrow::Cow;
+
+use crate::{
+    command::{
+        bytes::{constants, ConstCommandBuilder},
+        encode::ViscaCommand,
+        InquiryKind,
+    },
+    constants::CameraVariant,
+    error::Error,
+    timeout::CommandCategory,
+};
 
 /// ND filter mode for Sony FR7.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,8 +62,6 @@ impl ViscaCommand for NdFilterModeCommand {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::bytes::ConstCommandBuilder;
-
         ConstCommandBuilder::<7>::new()
             .append(constants::nd_filter::CONTROL_PREFIX)
             .push(u8::from(self.mode))
@@ -68,10 +74,7 @@ impl ViscaCommand for NdFilterModeCommand {
         None
     }
 
-    fn validate_for_model(&self, model: crate::constants::CameraVariant) -> Result<(), Error> {
-        use crate::constants::CameraVariant;
-        use std::borrow::Cow;
-
+    fn validate_for_model(&self, model: CameraVariant) -> Result<(), Error> {
         match model {
             CameraVariant::SonyFR7 => Ok(()),
             _ => Err(Error::ModelValidation {
@@ -112,8 +115,6 @@ impl ViscaCommand for NdFilterValue {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::bytes::ConstCommandBuilder;
-
         ConstCommandBuilder::<9>::new()
             .append(constants::nd_filter::DIRECT_PREFIX)
             .push_nibble_pair(self.value)
@@ -126,10 +127,7 @@ impl ViscaCommand for NdFilterValue {
         None
     }
 
-    fn validate_for_model(&self, model: crate::constants::CameraVariant) -> Result<(), Error> {
-        use crate::constants::CameraVariant;
-        use std::borrow::Cow;
-
+    fn validate_for_model(&self, model: CameraVariant) -> Result<(), Error> {
         match model {
             CameraVariant::SonyFR7 => Ok(()),
             _ => Err(Error::ModelValidation {
@@ -215,8 +213,6 @@ impl ViscaCommand for NdFilterStepCommand {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::bytes::ConstCommandBuilder;
-
         ConstCommandBuilder::<7>::new()
             .append(constants::nd_filter::MODE_PREFIX)
             .push(u8::from(self.direction))
@@ -229,10 +225,7 @@ impl ViscaCommand for NdFilterStepCommand {
         None
     }
 
-    fn validate_for_model(&self, model: crate::constants::CameraVariant) -> Result<(), Error> {
-        use crate::constants::CameraVariant;
-        use std::borrow::Cow;
-
+    fn validate_for_model(&self, model: CameraVariant) -> Result<(), Error> {
         match model {
             CameraVariant::SonyFR7 => Ok(()),
             _ => Err(Error::ModelValidation {
@@ -281,8 +274,6 @@ impl ViscaCommand for AutoNdCommand {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::bytes::ConstCommandBuilder;
-
         ConstCommandBuilder::<7>::new()
             .append(constants::nd_filter::LEVEL_PREFIX)
             .push(if self.enabled { 0x02 } else { 0x03 })
@@ -295,10 +286,7 @@ impl ViscaCommand for AutoNdCommand {
         None
     }
 
-    fn validate_for_model(&self, model: crate::constants::CameraVariant) -> Result<(), Error> {
-        use crate::constants::CameraVariant;
-        use std::borrow::Cow;
-
+    fn validate_for_model(&self, model: CameraVariant) -> Result<(), Error> {
         match model {
             CameraVariant::SonyFR7 => Ok(()),
             _ => Err(Error::ModelValidation {
@@ -309,9 +297,6 @@ impl ViscaCommand for AutoNdCommand {
         }
     }
 }
-
-// Remove the old macro-based implementation
-// // Old macro-based implementation removed - manual implementation above provides validate_for_model
 
 #[cfg(test)]
 #[allow(clippy::expect_used)]
