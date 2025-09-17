@@ -102,10 +102,8 @@ impl Envelope for RawVisca {
         let normalized_addr = normalize_address(visca_bytes[0], kind, self.addressing);
 
         if normalized_addr == visca_bytes[0] {
-            // No normalization needed, return as-is
             Bytes::copy_from_slice(visca_bytes)
         } else {
-            // Need to normalize the address
             let mut normalized = Vec::with_capacity(visca_bytes.len());
             normalized.push(normalized_addr);
             normalized.extend_from_slice(&visca_bytes[1..]);
@@ -146,26 +144,9 @@ impl Envelope for SonyEncapsulated {
         kind: CommandKind,
         buffer_manager: &BufferManager,
     ) -> Bytes {
-        if visca_bytes.is_empty() {
-            return Bytes::new();
-        }
-
-        let sequence = self.next_sequence();
-        let normalized_addr = normalize_address(visca_bytes[0], kind, self.addressing);
-
-        let header = match kind {
-            CommandKind::Inquiry => SonyHeader::new_inquiry(visca_bytes.len(), sequence),
-            CommandKind::Command => SonyHeader::new_command(visca_bytes.len(), sequence),
-        };
-
-        let mut envelope = buffer_manager.alloc_send_buffer();
-        envelope.reserve(SonyHeader::SIZE + visca_bytes.len());
-        envelope.extend_from_slice(&header.encode());
-        // Write normalized address
-        envelope.extend_from_slice(&[normalized_addr]);
-        // Write rest of the VISCA command
-        envelope.extend_from_slice(&visca_bytes[1..]);
-        envelope.freeze()
+        // Delegate to frame_bytes_with_meta to avoid duplication/mismatch entirely
+        self.frame_bytes_with_meta(visca_bytes, kind, buffer_manager)
+            .0
     }
 
     fn extract_response(&self, framed_bytes: &[u8]) -> Result<Bytes, Error> {
@@ -179,7 +160,6 @@ impl Envelope for SonyEncapsulated {
             )));
         }
 
-        // Parse header by reading from the Bytes
         let header_bytes = &framed[..SonyHeader::SIZE];
         let header = SonyHeader::decode(header_bytes).ok_or(Error::ParseError(Cow::Borrowed(
             "Invalid Sony header format",
@@ -195,7 +175,6 @@ impl Envelope for SonyEncapsulated {
             }
         }
 
-        // Validate length
         let expected_payload_len = framed.len() - SonyHeader::SIZE;
         if header.payload_length as usize != expected_payload_len {
             return Err(Error::ParseError(Cow::Owned(format!(
@@ -223,8 +202,22 @@ impl Envelope for SonyEncapsulated {
             return (Bytes::new(), FrameMeta { sequence: None });
         }
 
-        let sequence = self.sequence_counter.load(Ordering::Relaxed);
-        let framed = self.frame_bytes(visca_bytes, kind, buffer_manager);
+        // Allocate exactly once – this is the sequence written to the header *and* returned in meta
+        let sequence = self.sequence_counter.fetch_add(1, Ordering::Relaxed);
+
+        let normalized_addr = normalize_address(visca_bytes[0], kind, self.addressing);
+        let header = match kind {
+            CommandKind::Inquiry => SonyHeader::new_inquiry(visca_bytes.len(), sequence),
+            CommandKind::Command => SonyHeader::new_command(visca_bytes.len(), sequence),
+        };
+
+        let mut envelope = buffer_manager.alloc_send_buffer();
+        envelope.reserve(SonyHeader::SIZE + visca_bytes.len());
+        envelope.extend_from_slice(&header.encode());
+        envelope.extend_from_slice(&[normalized_addr]);
+        envelope.extend_from_slice(&visca_bytes[1..]);
+        let framed = envelope.freeze();
+
         (
             framed,
             FrameMeta {
@@ -261,11 +254,6 @@ fn normalize_address(original_addr: u8, kind: CommandKind, addressing: Addressin
 }
 
 impl SonyEncapsulated {
-    /// Get the next sequence number for Sony protocol.
-    fn next_sequence(&self) -> u32 {
-        self.sequence_counter.fetch_add(1, Ordering::Relaxed)
-    }
-
     /// Extract VISCA payload from Sony encapsulated response.
     fn sony_extract_payload(&self, framed_bytes: &[u8]) -> Result<Bytes, Error> {
         if framed_bytes.len() < SonyHeader::SIZE {
@@ -289,7 +277,6 @@ impl SonyEncapsulated {
             }
         }
 
-        // Validate length
         let expected_payload_len = framed_bytes.len() - SonyHeader::SIZE;
         if header.payload_length as usize != expected_payload_len {
             return Err(Error::ParseError(Cow::Owned(format!(
@@ -498,5 +485,92 @@ mod tests {
 
         // Sequences should be consecutive since clones share the counter
         assert_eq!(seq2, seq1 + 1);
+    }
+
+    #[test]
+    fn test_meta_header_sequence_invariance() {
+        // Test that the sequence in FrameMeta matches the sequence written to the header
+        let envelope = SonyEncapsulated::new(AddressingMode::Ip);
+        let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
+
+        // Call frame_bytes_with_meta
+        let (framed, meta) = envelope.frame_bytes_with_meta(
+            &visca_cmd,
+            CommandKind::Command,
+            &test_buffer_manager(),
+        );
+
+        // Extract sequence from the header
+        let header_sequence = u32::from_be_bytes([framed[4], framed[5], framed[6], framed[7]]);
+
+        // Assert that meta sequence matches header sequence
+        assert_eq!(meta.sequence, Some(header_sequence));
+    }
+
+    #[test]
+    fn test_concurrent_sequence_allocation() {
+        use std::sync::Arc;
+        use std::thread;
+
+        // Create a shared envelope
+        let envelope = Arc::new(SonyEncapsulated::new(AddressingMode::Ip));
+        let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
+
+        // Number of concurrent threads
+        const NUM_THREADS: usize = 10;
+        const OPS_PER_THREAD: usize = 100;
+
+        let mut handles = vec![];
+
+        for _ in 0..NUM_THREADS {
+            let envelope_clone = Arc::clone(&envelope);
+            let cmd = visca_cmd.clone();
+
+            let handle = thread::spawn(move || {
+                let mut sequences = Vec::new();
+                for _ in 0..OPS_PER_THREAD {
+                    let (framed, meta) = envelope_clone.frame_bytes_with_meta(
+                        &cmd,
+                        CommandKind::Command,
+                        &test_buffer_manager(),
+                    );
+
+                    // Extract sequence from header
+                    let header_seq =
+                        u32::from_be_bytes([framed[4], framed[5], framed[6], framed[7]]);
+
+                    // Verify meta matches header
+                    assert_eq!(
+                        meta.sequence,
+                        Some(header_seq),
+                        "Meta/header sequence mismatch"
+                    );
+
+                    sequences.push(header_seq);
+                }
+                sequences
+            });
+            handles.push(handle);
+        }
+
+        // Collect all sequences from all threads
+        let mut all_sequences = Vec::new();
+        for handle in handles {
+            let sequences = handle.join().expect("Thread should not panic");
+            all_sequences.extend(sequences);
+        }
+
+        // Verify we got the expected number of sequences
+        assert_eq!(all_sequences.len(), NUM_THREADS * OPS_PER_THREAD);
+
+        // Sort and verify all sequences are unique (no duplicates)
+        all_sequences.sort_unstable();
+        for i in 1..all_sequences.len() {
+            assert_ne!(
+                all_sequences[i],
+                all_sequences[i - 1],
+                "Found duplicate sequence numbers"
+            );
+        }
     }
 }

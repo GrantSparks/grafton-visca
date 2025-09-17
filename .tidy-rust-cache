@@ -157,7 +157,6 @@
 ./src/transport/blocking_transport.rs|ee09718e844f03dac543ce4c0d5b8f4d
 ./src/transport/buffer.rs|7421a43521ac6607e2a4c2926f16de55
 ./src/transport/builder.rs|d69c7943c1795d6e0ae16c9475ff5336
-./src/transport/envelope.rs|2380a15b2cd56d8d10c8f87f3f34367f
 ./src/transport/mod.rs|af4c8db5fec9385455ee13522f97a321
 ./src/transport/serial/config.rs|ba1e0b6a003b3ae1eb99be12dced1c8b
 ./src/transport/serial/mod.rs|139276d1c4982d12924a1a6312daa006
@@ -242,3 +241,4 @@
 ./tests/runtime_trait_test.rs|d1fec92599f211bef8b8641eb83408e0
 ./tests/wrapper_api_test.rs|8fd5a570ade1f392999a54265159d302
 ./src/command/response/decoders/power.rs|d75448b8af1df553e9a6ff226799beba
+./src/transport/envelope.rs|205bb96c94fcda3ec591832ad91b6b75
