@@ -252,7 +252,7 @@ where
     /// Open an async camera session using the configuration.
     ///
     /// This method performs all I/O operations needed to establish a connection
-    /// to the camera, including transport setup and protocol detection if configured.
+    /// to the camera, including transport setup.
     ///
     /// # Arguments
     ///
@@ -266,8 +266,7 @@ where
     ///
     /// let runtime = TokioRuntime::from_current()?;
     /// let config = CameraConfig::for::<PtzOpticsG2>()
-    ///     .address("192.168.0.110")
-    ///     .auto_protocol();
+    ///     .address("192.168.0.110");
     ///
     /// let session = config.open_async(runtime).await?;
     /// ```
@@ -407,7 +406,7 @@ where
     /// Open a blocking camera session using the configuration.
     ///
     /// This method performs all I/O operations needed to establish a connection
-    /// to the camera, including transport setup and protocol detection if configured.
+    /// to the camera, including transport setup.
     ///
     /// # Example
     ///
@@ -415,8 +414,7 @@ where
     /// use grafton_visca::camera::{CameraConfig, profiles::PtzOpticsG2};
     ///
     /// let config = CameraConfig::for::<PtzOpticsG2>()
-    ///     .address("192.168.0.110")
-    ///     .auto_protocol();
+    ///     .address("192.168.0.110");
     ///
     /// let session = config.open_blocking()?;
     /// ```

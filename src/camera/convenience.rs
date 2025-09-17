@@ -1,7 +1,7 @@
 //! One-liner convenience methods for quick camera setup.
 //!
 //! This module provides simple, one-line methods to quickly connect to cameras
-//! with auto-detection and sensible defaults.
+//! with sensible defaults.
 
 #[cfg(feature = "mode-async")]
 use crate::camera::{config::CameraConfig, CameraSession};
