@@ -111,12 +111,18 @@ impl ProtocolDetector {
     ///
     /// When a port is specified, only the valid candidate for that port is generated.
     /// When no port is specified, all three canonical combinations are tried.
+    ///
+    /// This function now correctly handles IPv6 addresses by using proper host:port parsing.
     pub fn generate_candidates(address: &str) -> Vec<DetectionCandidate> {
-        // Parse address to see if a port is specified
-        let port_specified = if let Some(colon_pos) = address.rfind(':') {
-            address[colon_pos + 1..].parse::<u16>().ok()
-        } else {
-            None
+        use crate::transport::address::HostPort;
+
+        // Parse address using IPv6-safe parsing
+        let port_specified = match HostPort::parse(address) {
+            Ok(parsed) => parsed.port(),
+            Err(_) => {
+                // If parsing fails, fall back to no port specified and try all candidates
+                None
+            }
         };
 
         let mut candidates = Vec::new();

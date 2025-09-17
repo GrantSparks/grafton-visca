@@ -151,20 +151,45 @@ where
     ///
     /// For TCP/UDP, this should be a host:port string like "192.168.0.110:5678".
     /// If no port is specified, the profile's default port will be used.
+    ///
+    /// This method properly handles IPv6 addresses with and without brackets.
+    /// Examples:
+    /// - IPv4: `"192.168.1.1"`, `"192.168.1.1:5678"`
+    /// - IPv6: `"::1"`, `"[::1]:5678"`, `"2001:db8::1"`
+    /// - Hostnames: `"localhost"`, `"camera.local:5678"`
     pub fn address(mut self, address: impl Into<String>) -> Self {
         let addr = address.into();
 
-        // Parse address and add default port if needed
-        let final_addr = if addr.contains(':') {
-            addr
-        } else {
-            // Determine default port based on current transport type
-            let default_port = match &self.transport {
-                TransportOptions::Tcp { .. } => P::DEFAULT_TCP_PORT,
-                TransportOptions::Udp { .. } => P::DEFAULT_UDP_PORT,
-                _ => P::DEFAULT_TCP_PORT,
-            };
-            format!("{addr}:{default_port}")
+        // Parse address using IPv6-safe parsing and add default port if needed
+        let final_addr = match crate::transport::address::HostPort::parse(&addr) {
+            Ok(parsed) => {
+                if parsed.port().is_some() {
+                    // Port already specified, use as-is
+                    parsed.format_socket_addr(None)
+                } else {
+                    // No port specified, add default port based on transport type
+                    let default_port = match &self.transport {
+                        TransportOptions::Tcp { .. } => P::DEFAULT_TCP_PORT,
+                        TransportOptions::Udp { .. } => P::DEFAULT_UDP_PORT,
+                        _ => P::DEFAULT_TCP_PORT,
+                    };
+                    parsed.format_socket_addr(Some(default_port))
+                }
+            }
+            Err(_) => {
+                // If parsing fails, fall back to old behavior for compatibility
+                // This handles edge cases where the input might not be a standard address
+                if addr.contains(':') {
+                    addr
+                } else {
+                    let default_port = match &self.transport {
+                        TransportOptions::Tcp { .. } => P::DEFAULT_TCP_PORT,
+                        TransportOptions::Udp { .. } => P::DEFAULT_UDP_PORT,
+                        _ => P::DEFAULT_TCP_PORT,
+                    };
+                    format!("{addr}:{default_port}")
+                }
+            }
         };
 
         // Update transport with new address, preserving transport type

@@ -429,13 +429,16 @@ where
             candidate.protocol, candidate.port, candidate.protocol_style
         );
 
-        // Build the full address
-        let address = if host.contains(':') {
-            // Host already has port, use it as-is
-            host.to_string()
-        } else {
-            // Add port from candidate
-            format!("{}:{}", host, candidate.port)
+        // Build the full address using IPv6-safe parsing
+        let address = match crate::transport::address::normalize_host_with_default_port(
+            host,
+            Some(candidate.port),
+        ) {
+            Ok(addr) => addr,
+            Err(e) => {
+                debug!("Failed to parse host '{}': {}", host, e);
+                continue;
+            }
         };
 
         // Create a per-candidate config with the correct buffer configuration
@@ -529,13 +532,16 @@ pub fn auto_connect_and_detect_blocking(
             candidate.protocol, candidate.port, candidate.protocol_style
         );
 
-        // Build the full address
-        let address = if host.contains(':') {
-            // Host already has port, use it as-is
-            host.to_string()
-        } else {
-            // Add port from candidate
-            format!("{}:{}", host, candidate.port)
+        // Build the full address using IPv6-safe parsing
+        let address = match crate::transport::address::normalize_host_with_default_port(
+            host,
+            Some(candidate.port),
+        ) {
+            Ok(addr) => addr,
+            Err(e) => {
+                debug!("Failed to parse host '{}': {}", host, e);
+                continue;
+            }
         };
 
         // Create a per-candidate config with the correct buffer configuration
