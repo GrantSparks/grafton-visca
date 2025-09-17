@@ -276,7 +276,7 @@ fn is_ipv4_address(s: &str) -> bool {
 ///
 /// # Arguments
 ///
-/// * `host` - The host string to normalize (e.g., "::1", "[::1]:5678", "192.168.1.1:5678")
+/// * `host` - The host string to normalize (e.g., `"::1"`, `"[::1]:5678"`, `"192.168.1.1:5678"`)
 /// * `default_port` - Port to use if none is specified in the host string
 ///
 /// # Examples
