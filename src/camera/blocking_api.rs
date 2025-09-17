@@ -438,8 +438,6 @@ where
         /// Set dynamic range level.
         fn set_dynamic_range(level: crate::types::DynamicRangeLevel) -> ();
 
-        // Note: set_color_temperature is implemented via ColorControl
-
         /// Set shutter speed.
         fn set_shutter_speed(speed: crate::types::ShutterSpeed) -> ();
 
@@ -1089,8 +1087,6 @@ where
 
         /// Get tally auto adjust enabled status.
         fn tally_auto_adjust_enabled() -> bool;
-
-        // Note: get_motion_sync_mode is implemented via MotionSyncControl
     }
 }
 

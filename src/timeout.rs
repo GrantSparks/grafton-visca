@@ -336,16 +336,9 @@ pub trait TimeoutManager {
     where
         F: FnOnce(&mut Self) -> Result<R, Error>,
     {
-        // Save the current timeout
         let original_timeout = self.get_read_timeout()?;
-
-        // Set the new timeout
         self.set_read_timeout(Some(timeout))?;
-
-        // Execute the function
         let result = f(self);
-
-        // Restore the original timeout
         self.set_read_timeout(original_timeout)?;
 
         result
@@ -358,16 +351,9 @@ pub trait TimeoutManager {
     where
         F: FnOnce(&mut Self) -> Result<R, Error>,
     {
-        // Save the current timeout
         let original_timeout = self.get_write_timeout()?;
-
-        // Set the new timeout
         self.set_write_timeout(Some(timeout))?;
-
-        // Execute the function
         let result = f(self);
-
-        // Restore the original timeout
         self.set_write_timeout(original_timeout)?;
 
         result

@@ -9,9 +9,13 @@
 
 #[cfg(feature = "runtime-tokio")]
 mod tokio_runtime_tests {
+    use tokio::time::timeout;
+
+    use std::time::{Duration, Instant};
+
     use grafton_visca::{
         runtime::{Runtime, TokioRuntime},
-        Error,
+        Error, Executor,
     };
 
     #[tokio::test]
@@ -23,9 +27,6 @@ mod tokio_runtime_tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_tokio_runtime_tcp_connection() {
-        use std::time::Duration;
-        use tokio::time::timeout;
-
         let runtime = TokioRuntime::from_current().unwrap();
 
         // This will fail to connect but tests the type system works
@@ -42,7 +43,6 @@ mod tokio_runtime_tests {
         // We expect either a timeout or connection error
         match result {
             Ok(inner_result) => {
-                // Connection attempt completed (likely failed)
                 assert!(inner_result.is_err());
             }
             Err(_) => {
@@ -72,7 +72,6 @@ mod tokio_runtime_tests {
     async fn test_transport_handle_type_safety() {
         use grafton_visca::runtime::TransportHandle;
         // This test verifies that TransportHandle is properly parameterized
-        // The following should compile:
         let _handle: Result<TransportHandle<TokioRuntime>, Error>;
 
         // And we can create enum variants (though we can't actually connect)
@@ -81,9 +80,6 @@ mod tokio_runtime_tests {
 
     #[tokio::test]
     async fn test_runtime_executor_delegation() {
-        use grafton_visca::Executor;
-        use std::time::Duration;
-
         let runtime = TokioRuntime::from_current().unwrap();
 
         // Test that executor methods are properly delegated
@@ -93,7 +89,7 @@ mod tokio_runtime_tests {
         assert_eq!(result.unwrap(), 42);
 
         // Test sleep delegation
-        let start = std::time::Instant::now();
+        let start = Instant::now();
         runtime.sleep(Duration::from_millis(10)).await;
         let elapsed = start.elapsed();
         assert!(elapsed >= Duration::from_millis(10));
@@ -102,14 +98,17 @@ mod tokio_runtime_tests {
 
 #[cfg(feature = "runtime-async-std")]
 mod async_std_runtime_tests {
-    use grafton_visca::runtime::{AsyncStdRuntime, Runtime};
+    use std::time::{Duration, Instant};
+
+    use grafton_visca::{
+        runtime::{AsyncStdRuntime, Runtime},
+        Executor,
+    };
 
     #[async_std::test]
     async fn test_async_std_runtime_creation() {
-        // Test creating async-std runtime
         let runtime = AsyncStdRuntime::new();
-        // Runtime should be created successfully (it's infallible)
-        let _ = runtime; // Just verify it compiles
+        let _ = runtime;
     }
 
     #[async_std::test]
@@ -124,15 +123,11 @@ mod async_std_runtime_tests {
             )
             .await;
 
-        // We expect connection to fail but the types should compile
         assert!(result.is_err());
     }
 
     #[async_std::test]
     async fn test_async_std_runtime_executor_delegation() {
-        use grafton_visca::Executor;
-        use std::time::Duration;
-
         let runtime = AsyncStdRuntime::new();
 
         // Test that executor methods are properly delegated
@@ -142,7 +137,7 @@ mod async_std_runtime_tests {
         assert_eq!(result.unwrap(), 84);
 
         // Test sleep delegation
-        let start = std::time::Instant::now();
+        let start = Instant::now();
         runtime.sleep(Duration::from_millis(10)).await;
         let elapsed = start.elapsed();
         assert!(elapsed >= Duration::from_millis(10));
@@ -162,10 +157,8 @@ mod smol_runtime_tests {
     #[test]
     fn test_smol_runtime_creation() {
         run_smol(async {
-            // Test creating smol runtime
             let runtime = SmolRuntime::new();
-            // Runtime should be created successfully (it's infallible)
-            let _ = runtime; // Just verify it compiles
+            let _ = runtime;
         });
     }
 
@@ -243,8 +236,10 @@ mod compile_time_safety_tests {
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
 async fn test_transport_handle_async_transport_impl() {
-    use grafton_visca::runtime::{TokioRuntime, TransportHandle};
-    use grafton_visca::transport::AsyncTransport;
+    use grafton_visca::{
+        runtime::{TokioRuntime, TransportHandle},
+        transport::AsyncTransport,
+    };
 
     // We can't actually create a real transport without a connection,
     // but we can verify the trait is implemented

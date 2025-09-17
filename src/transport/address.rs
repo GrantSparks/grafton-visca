@@ -3,8 +3,10 @@
 //! This module provides a unified way to resolve network addresses across
 //! different transport types, eliminating code duplication.
 
-use std::borrow::Cow;
-use std::net::{SocketAddr, ToSocketAddrs};
+use std::{
+    borrow::Cow,
+    net::{SocketAddr, ToSocketAddrs},
+};
 
 use crate::Error;
 

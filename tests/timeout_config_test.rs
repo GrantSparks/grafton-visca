@@ -2,15 +2,13 @@
 
 #[cfg(all(feature = "mode-async", feature = "test-utils"))]
 mod timeout_config_tests {
-    // External crates
+    use std::time::Duration;
+
     use grafton_visca::{
         camera::builder::CameraBuilder,
         testing::testkit::DeterministicExecutor,
         timeout::{CommandCategory, TimeoutConfig},
     };
-
-    // Standard library
-    use std::time::Duration;
 
     #[test]
     fn test_custom_timeout_config_builder() {

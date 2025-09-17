@@ -21,39 +21,27 @@ fn test_error_code_consistency() {
         match code {
             0x01 => assert!(
                 matches!(error, Error::MessageLengthError),
-                "Code 0x{:02X} should map to {}",
-                code,
-                expected_name
+                "Code 0x{code:02X} should map to {expected_name}"
             ),
             0x02 => assert!(
                 matches!(error, Error::SyntaxError),
-                "Code 0x{:02X} should map to {}",
-                code,
-                expected_name
+                "Code 0x{code:02X} should map to {expected_name}"
             ),
             0x03 => assert!(
                 matches!(error, Error::CommandBufferFull),
-                "Code 0x{:02X} should map to {}",
-                code,
-                expected_name
+                "Code 0x{code:02X} should map to {expected_name}"
             ),
             0x04 => assert!(
                 matches!(error, Error::CommandCanceled),
-                "Code 0x{:02X} should map to {}",
-                code,
-                expected_name
+                "Code 0x{code:02X} should map to {expected_name}"
             ),
             0x05 => assert!(
                 matches!(error, Error::NoSocket),
-                "Code 0x{:02X} should map to {}",
-                code,
-                expected_name
+                "Code 0x{code:02X} should map to {expected_name}"
             ),
             0x41 => assert!(
                 matches!(error, Error::CommandNotExecutable),
-                "Code 0x{:02X} should map to {}",
-                code,
-                expected_name
+                "Code 0x{code:02X} should map to {expected_name}"
             ),
             _ => panic!("Unknown test case"),
         }
@@ -73,15 +61,10 @@ fn test_error_retryability_consistency() {
     ];
 
     for error in &retryable_errors {
-        assert!(
-            error.is_retryable(),
-            "Error {:?} should be retryable",
-            error
-        );
+        assert!(error.is_retryable(), "Error {error:?} should be retryable");
         assert!(
             error.suggested_retry_delay().is_some(),
-            "Retryable error {:?} should have a suggested delay",
-            error
+            "Retryable error {error:?} should have a suggested delay"
         );
     }
 
@@ -97,13 +80,11 @@ fn test_error_retryability_consistency() {
     for error in &non_retryable_errors {
         assert!(
             !error.is_retryable(),
-            "Error {:?} should not be retryable",
-            error
+            "Error {error:?} should not be retryable"
         );
         assert!(
             error.suggested_retry_delay().is_none(),
-            "Non-retryable error {:?} should not have a suggested delay",
-            error
+            "Non-retryable error {error:?} should not have a suggested delay"
         );
     }
 }
@@ -147,24 +128,21 @@ fn test_internal_external_error_consistency() {
                 // Buffer full should always be retryable
                 assert!(
                     public_error.is_retryable(),
-                    "Error for 0x{:02X} (BufferFull) should be retryable",
-                    code
+                    "Error for 0x{code:02X} (BufferFull) should be retryable"
                 );
             }
             0x01 | 0x02 | 0x04 | 0x05 => {
                 // These should not be retryable
                 assert!(
                     !public_error.is_retryable(),
-                    "Error for 0x{:02X} should not be retryable",
-                    code
+                    "Error for 0x{code:02X} should not be retryable"
                 );
             }
             0x41 => {
                 // CommandNotExecutable is context-dependent but base error is not retryable
                 assert!(
                     !public_error.is_retryable(),
-                    "Error for 0x{:02X} (CommandNotExecutable) base should not be retryable",
-                    code
+                    "Error for 0x{code:02X} (CommandNotExecutable) base should not be retryable"
                 );
             }
             _ => {}
@@ -187,15 +165,12 @@ fn test_unknown_error_handling() {
         if code == 0x01 {
             assert!(
                 matches!(error, Error::MessageLengthError),
-                "Code 0x{:02X} should map to MessageLengthError",
-                code
+                "Code 0x{code:02X} should map to MessageLengthError"
             );
         } else if code == 0x00 || code > 0x05 && code != 0x41 {
             assert!(
                 matches!(error, Error::Unknown(c) if c == code),
-                "Code 0x{:02X} should map to Unknown(0x{:02X})",
-                code,
-                code
+                "Code 0x{code:02X} should map to Unknown(0x{code:02X})"
             );
         }
     }
@@ -216,6 +191,6 @@ fn test_error_display_messages() {
 
     for (error, expected_msg) in test_cases {
         let msg = error.to_string();
-        assert_eq!(msg, expected_msg, "Error message mismatch for {:?}", error);
+        assert_eq!(msg, expected_msg, "Error message mismatch for {error:?}");
     }
 }

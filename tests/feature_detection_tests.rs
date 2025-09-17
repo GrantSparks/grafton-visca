@@ -3,7 +3,6 @@
 //! In the mode-based Camera API, feature support is determined at compile-time
 //! through trait bounds and mode markers rather than runtime checks.
 
-// External crates
 #[cfg(feature = "mode-async")]
 use grafton_visca::{camera::AsyncCamera, transport::AsyncTransport, Executor};
 

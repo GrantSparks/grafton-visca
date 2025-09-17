@@ -5,15 +5,16 @@
 
 #![cfg(feature = "runtime-tokio")]
 
-use grafton_visca::{
-    camera::profiles::GenericVisca,
-    camera::CameraBuilder,
-    command::{exposure::ExposureMode, focus::FocusMode, white_balance::WhiteBalanceMode},
-    runtime::TokioRuntime,
-    testing::camera_simulator::ViscaCameraSimulator,
-};
+use tokio::join;
 
 use std::time::Duration;
+
+use grafton_visca::{
+    camera::{profiles::GenericVisca, CameraBuilder},
+    command::{exposure::ExposureMode, focus::FocusMode, white_balance::WhiteBalanceMode},
+    runtime::TokioRuntime,
+    testing::camera_simulator::{SimulatorBuilder, ViscaCameraSimulator},
+};
 
 /// Test basic power inquiry through the full stack
 #[tokio::test(start_paused = true)]
@@ -24,7 +25,6 @@ async fn test_power_inquiry_integration() {
         .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
-    // Socket manager is now automatically initialized on first use
 
     // Query power status
     let power_on = camera
@@ -44,7 +44,6 @@ async fn test_position_inquiries_integration() {
         .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
-    // Socket manager is now automatically initialized on first use
 
     // Test pan/tilt position inquiry
     let position = camera
@@ -106,7 +105,6 @@ async fn test_exposure_inquiries_integration() {
         .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
-    // Socket manager is now automatically initialized on first use
 
     // Test exposure mode inquiry
     let mode = camera
@@ -190,7 +188,6 @@ async fn test_white_balance_color_inquiries_integration() {
         .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
-    // Socket manager is now automatically initialized on first use
 
     // Test white balance mode inquiry
     let wb_mode = camera
@@ -224,7 +221,6 @@ async fn test_image_adjustment_inquiries_integration() {
         .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
-    // Socket manager is now automatically initialized on first use
 
     // NOTE: Sharpness and contrast inquiries are not documented in VISCA specs
     // and have been disabled until proper documentation is found.
@@ -264,7 +260,6 @@ async fn test_noise_reduction_inquiries_integration() {
         .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
-    // Socket manager is now automatically initialized on first use
 
     // Test noise reduction 2D inquiry
     let nr_2d = camera
@@ -292,7 +287,6 @@ async fn test_focus_mode_inquiries_integration() {
         .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
-    // Socket manager is now automatically initialized on first use
 
     // Test focus mode inquiry
     let focus_mode = camera
@@ -315,7 +309,6 @@ async fn test_resolution_inquiry_integration() {
         .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
-    // Socket manager is now automatically initialized on first use
 
     // Test resolution inquiry
     let resolution = camera
@@ -343,7 +336,6 @@ async fn test_concurrent_inquiries_integration() {
     // Socket manager is now automatically initialized on first use
 
     // Launch multiple inquiries concurrently
-    use tokio::join;
 
     // Create accessor once to avoid temporary issues
     let power = camera.power();
@@ -376,7 +368,6 @@ async fn test_sequential_inquiries() {
         .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
-    // Socket manager is now automatically initialized on first use
 
     // Test the failing sequence: exposure mode then exposure compensation
     let mode = camera
@@ -397,8 +388,6 @@ async fn test_sequential_inquiries() {
 /// Test inquiry timeout behavior
 #[tokio::test(start_paused = true)]
 async fn test_inquiry_timeout_behavior() {
-    use grafton_visca::testing::camera_simulator::SimulatorBuilder;
-
     // Create a simulator that delays inquiry responses
     let simulator = SimulatorBuilder::default()
         .with_command_execution_time(
@@ -412,7 +401,6 @@ async fn test_inquiry_timeout_behavior() {
         .open_async::<GenericVisca, _>(simulator)
         .await
         .unwrap();
-    // Socket manager is now automatically initialized on first use
 
     // Query should complete within reasonable time
     let result = tokio::time::timeout(Duration::from_millis(200), camera.power().state()).await;
@@ -432,7 +420,6 @@ async fn test_mixed_commands_and_inquiries() {
         .open_async::<GenericVisca, _>(simulator.clone())
         .await
         .unwrap();
-    // Socket manager is now automatically initialized on first use
 
     // Execute a preset recall command
     camera

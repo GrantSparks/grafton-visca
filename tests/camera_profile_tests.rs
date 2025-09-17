@@ -2,7 +2,6 @@
 //!
 //! This test suite validates the mode-based Camera API with profile capabilities.
 
-// External crates
 #[cfg(feature = "mode-async")]
 use grafton_visca::{
     camera::{
@@ -21,8 +20,6 @@ use grafton_visca::{
 };
 
 use grafton_visca::capabilities::*;
-
-// Compile-time profile system tests
 
 #[test]
 fn test_profile_type_aliases() {

@@ -8,17 +8,15 @@
 
 #[cfg(any(
     feature = "transport-serial-tokio",
-    all(not(feature = "mode-async"), feature = "transport-serial"),
-    test
+    all(not(feature = "mode-async"), feature = "transport-serial")
 ))]
-use tracing::{debug, trace};
-
+use tracing::warn;
 #[cfg(any(
     feature = "transport-serial-tokio",
     all(not(feature = "mode-async"), feature = "transport-serial"),
     test
 ))]
-use crate::command::bytes::VISCA_TERMINATOR;
+use tracing::{debug, trace};
 
 #[cfg(any(
     feature = "transport-serial-tokio",
@@ -28,10 +26,10 @@ use std::time::Duration;
 
 #[cfg(any(
     feature = "transport-serial-tokio",
-    all(not(feature = "mode-async"), feature = "transport-serial")
+    all(not(feature = "mode-async"), feature = "transport-serial"),
+    test
 ))]
-use tracing::warn;
-
+use crate::command::bytes::VISCA_TERMINATOR;
 #[cfg(any(
     feature = "transport-serial-tokio",
     all(not(feature = "mode-async"), feature = "transport-serial")
@@ -123,12 +121,13 @@ pub fn parse_address_set_bytes(buf: &[u8]) -> ParseOutcome {
 // Async handshake functions (feature-gated for tokio-serial)
 #[cfg(feature = "transport-serial-tokio")]
 pub mod async_handshake {
+    use bytes::BytesMut;
+
     use super::*;
     use crate::{
         executor::Executor,
         transport::async_io::{AsyncReadExt, AsyncWriteExt},
     };
-    use bytes::BytesMut;
 
     /// Send I/F Clear command to reset all devices on the bus.
     ///
@@ -216,16 +215,12 @@ pub mod async_handshake {
 
         // Simple timeout loop without nested executor timeouts
         while start.elapsed() < timeout_duration {
-            // Try to read some data
             let mut temp_buf = vec![0u8; 64];
-
-            // Do a short non-blocking read attempt
             match stream.read(&mut temp_buf).await {
                 Ok(n) if n > 0 => {
                     response_buffer.extend_from_slice(&temp_buf[..n]);
                     trace!("Address Set response: {:02X?}", &temp_buf[..n]);
 
-                    // Push data to framer
                     framer.push_slice(&temp_buf[..n])?;
 
                     // Try to extract frames and parse them
@@ -252,7 +247,6 @@ pub mod async_handshake {
                     }
                 }
                 Ok(_) => {
-                    // No data read, continue waiting
                     exec.sleep(Duration::from_millis(10)).await;
                 }
                 Err(e) => {
@@ -289,11 +283,12 @@ pub mod async_handshake {
 // Blocking handshake functions
 #[cfg(all(not(feature = "mode-async"), feature = "transport-serial"))]
 pub mod blocking_handshake {
-    use super::*;
     use std::{
         io::{Read, Write},
         time::Instant,
     };
+
+    use super::*;
 
     /// Send I/F Clear command to reset all devices on the bus (blocking).
     pub fn if_clear_blocking<S>(io: &mut S) -> Result<()>
@@ -381,7 +376,6 @@ pub mod blocking_handshake {
                     response_buffer.extend_from_slice(&temp_buf[..n]);
                     trace!("Address Set response: {:02X?}", &temp_buf[..n]);
 
-                    // Push data to framer
                     framer.push_slice(&temp_buf[..n])?;
 
                     // Try to extract frames and parse them
@@ -408,7 +402,6 @@ pub mod blocking_handshake {
                     }
                 }
                 Ok(_) => {
-                    // No data, continue waiting
                     std::thread::sleep(Duration::from_millis(10));
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {

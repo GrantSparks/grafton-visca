@@ -5,11 +5,14 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used)] // Test code is allowed to panic
 
-use crate::command::{bytes::VISCA_TERMINATOR, CommandKind};
-use crate::transport::BlockingTransport;
-use crate::Error;
 use std::io::{BufReader, Read, Write};
 use std::sync::{Arc, Mutex};
+
+use crate::command::{bytes::VISCA_TERMINATOR, CommandKind};
+use crate::protocol::framer::ProtocolFramer;
+use crate::transport::buffer::BufferConfig;
+use crate::transport::BlockingTransport;
+use crate::Error;
 
 /// Mock TCP stream that returns pre-configured data
 struct MockTcpStream {
@@ -116,9 +119,6 @@ impl BlockingTransport for MockTcp {
 
 #[test]
 fn test_back_to_back_visca_frames() {
-    use crate::protocol::framer::ProtocolFramer;
-    use crate::transport::buffer::BufferConfig;
-
     // Test data: ACK followed immediately by Completion
     // This simulates what happens when the camera sends both frames in one TCP packet
     let ack = vec![0x90, 0x41, 0xFF]; // ACK frame
@@ -177,8 +177,6 @@ fn test_multiple_back_to_back_frames() {
     let mut transport = MockTcp::new(stream);
 
     // Create a framer to test the framing logic
-    use crate::protocol::framer::ProtocolFramer;
-    use crate::transport::buffer::BufferConfig;
     let mut framer = ProtocolFramer::new_with_config(BufferConfig::default());
     let mut read_buf = vec![0u8; 256];
 
@@ -236,8 +234,6 @@ fn test_sony_encapsulated_frames_back_to_back() {
     let mut transport = MockTcp::new(stream);
 
     // Create a framer configured for Sony protocol
-    use crate::protocol::framer::ProtocolFramer;
-    use crate::transport::buffer::BufferConfig;
     let mut framer = ProtocolFramer::new_with_config(BufferConfig::for_sony_ip());
     let mut read_buf = vec![0u8; 256];
 
@@ -273,8 +269,6 @@ fn test_eof_with_complete_frame() {
     let mut transport = MockTcp::new(stream);
 
     // Create a framer to test the framing logic
-    use crate::protocol::framer::ProtocolFramer;
-    use crate::transport::buffer::BufferConfig;
     let mut framer = ProtocolFramer::new_with_config(BufferConfig::default());
     let mut read_buf = vec![0u8; 256];
 
@@ -303,9 +297,6 @@ fn test_eof_with_complete_frame() {
 
 #[test]
 fn test_eof_with_partial_frame() {
-    use crate::protocol::framer::ProtocolFramer;
-    use crate::transport::buffer::BufferConfig;
-
     // Test that EOF with partial frame is reported correctly
     let partial = vec![0x90, 0x41]; // Missing terminator
     let stream = MockTcpStream::new(partial);

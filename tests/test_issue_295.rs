@@ -2,7 +2,12 @@
 //! This verifies that TallyGreenInquiry is correctly classified as an inquiry
 //! both by its type metadata (response_type()) and by the new command_kind() method.
 
-use grafton_visca::command::inquiry::TallyGreenInquiry;
+use grafton_visca::command::{
+    encode::ViscaCommand,
+    inquiry::{PowerInquiry, TallyGreenInquiry},
+    power::PowerOn,
+    CommandKind,
+};
 
 #[test]
 fn test_tally_green_inquiry_is_detected_as_inquiry() {
@@ -37,10 +42,7 @@ fn test_tally_green_inquiry_is_detected_as_inquiry() {
 // Test that other inquiry commands work correctly with command_kind()
 #[test]
 fn test_command_kind_for_inquiries_and_commands() {
-    use grafton_visca::command::{encode::ViscaCommand, CommandKind};
-
     // Test an inquiry command
-    use grafton_visca::command::inquiry::PowerInquiry;
     let power_inquiry = PowerInquiry;
     assert!(
         matches!(power_inquiry.command_kind(), CommandKind::Inquiry),
@@ -48,7 +50,6 @@ fn test_command_kind_for_inquiries_and_commands() {
     );
 
     // Test a regular command
-    use grafton_visca::command::power::PowerOn;
     let power_on = PowerOn::new();
     assert!(
         matches!(power_on.command_kind(), CommandKind::Command),

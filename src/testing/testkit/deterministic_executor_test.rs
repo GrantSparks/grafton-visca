@@ -2,12 +2,14 @@
 
 #[cfg(test)]
 mod tests {
+    use futures_lite::future;
+
+    use std::time::Duration;
+
     use crate::testing::testkit::deterministic_executor::{
         DeterministicClock, DeterministicExecutor, DeterministicExecutorExt,
     };
     use crate::Executor;
-    use futures_lite::future;
-    use std::time::Duration;
 
     #[test]
     fn test_sleep_cleanup_in_race() {

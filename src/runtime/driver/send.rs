@@ -5,6 +5,7 @@
 
 use tracing::{debug, error};
 
+use super::SchedulerLike;
 use crate::{
     command::CommandKind,
     runtime::core::PendingCommand,
@@ -12,8 +13,6 @@ use crate::{
     visca_socket::ViscaSocket,
     Result,
 };
-
-use super::SchedulerLike;
 
 /// RAII guard for automatic rollback of send operations on failure.
 ///

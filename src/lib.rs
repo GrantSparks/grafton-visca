@@ -588,9 +588,6 @@
 //! }
 //! ```
 
-// Multiple async runtimes can now coexist - users choose which executor to use at construction time
-// This flexibility allows libraries to support multiple runtime ecosystems simultaneously
-
 // Module declarations
 mod error;
 pub(crate) mod macros;
@@ -666,46 +663,51 @@ pub mod units;
 /// Unified VISCA socket type
 pub mod visca_socket;
 
-// External crates
 pub use grafton_visca_macros::{ViscaEnum, ViscaInquiry, ViscaValue};
 
-// Local modules
 pub use crate::{
     camera::{Camera, CameraBuilder},
     camera_id::CameraId,
-    // High-level types for public API
-    command::zoom::ZoomSpeed,
+    command::{
+        exposure::ExposureMode,
+        focus::{AutoFocusSensitivity, FocusMode},
+        nd_filter::NdFilterMode,
+        pan_tilt::PanTiltLimitCorner,
+        preset::PresetNumber,
+        resolution::{PictureEffectMode, ResolutionMode},
+        system::{MotionSyncMode, MotionSyncPreset},
+        white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode},
+        zoom::ZoomSpeed,
+    },
     error::{Error, Result},
     types::{MotionSyncSpeed, PanTiltDirection, SpeedLevel},
     visca_socket::ViscaSocket,
 };
 
-// Re-export commonly used types from command module
-pub use crate::command::{
-    exposure::ExposureMode,
-    focus::{AutoFocusSensitivity, FocusMode},
-    nd_filter::NdFilterMode,
-    pan_tilt::PanTiltLimitCorner,
-    preset::PresetNumber,
-    resolution::{PictureEffectMode, ResolutionMode},
-    system::{MotionSyncMode, MotionSyncPreset},
-    white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode},
-};
-
-// Re-export the new concrete camera types
 #[cfg(not(feature = "mode-async"))]
-pub use crate::camera::BlockingCamera;
-
-// Re-export the BlockingClient wrapper for ergonomic blocking API
-#[cfg(not(feature = "mode-async"))]
-pub use crate::camera::blocking_api::BlockingClient;
+pub use crate::camera::{blocking_api::BlockingClient, BlockingCamera};
 
 #[cfg(feature = "mode-async")]
 pub use crate::camera::AsyncCamera;
 
-// Control traits are deliberately NOT exported publicly - use accessor-first API instead
-// The accessor pattern (e.g., camera.power().on()) is the blessed path for camera control
-// These are re-exported only for internal testing under doc(hidden)
+#[cfg(all(feature = "mode-async", feature = "runtime-async-std"))]
+pub use crate::executor::AsyncStdExecutor;
+#[cfg(all(feature = "mode-async", feature = "runtime-smol"))]
+pub use crate::executor::SmolExecutor;
+#[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]
+pub use crate::executor::TokioExecutor;
+#[cfg(feature = "mode-async")]
+pub use crate::executor::{ExecError, Executor};
+
+#[cfg(all(feature = "mode-async", feature = "runtime-async-std"))]
+pub use crate::runtime::AsyncStdRuntime;
+#[cfg(all(feature = "mode-async", feature = "runtime-smol"))]
+pub use crate::runtime::SmolRuntime;
+#[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]
+pub use crate::runtime::TokioRuntime;
+#[cfg(feature = "mode-async")]
+pub use crate::runtime::{Runtime, TransportHandle};
+
 #[doc(hidden)]
 pub use crate::camera::controls::{
     color::ColorControl,
@@ -725,25 +727,6 @@ pub use crate::camera::controls::{
     white_balance::WhiteBalanceControl,
     zoom::ZoomControl,
 };
-
-#[cfg(all(feature = "mode-async", feature = "runtime-async-std"))]
-pub use crate::executor::AsyncStdExecutor;
-#[cfg(all(feature = "mode-async", feature = "runtime-smol"))]
-pub use crate::executor::SmolExecutor;
-#[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]
-pub use crate::executor::TokioExecutor;
-#[cfg(feature = "mode-async")]
-pub use crate::executor::{ExecError, Executor};
-
-// Re-export Runtime trait and implementations
-#[cfg(all(feature = "mode-async", feature = "runtime-async-std"))]
-pub use crate::runtime::AsyncStdRuntime;
-#[cfg(all(feature = "mode-async", feature = "runtime-smol"))]
-pub use crate::runtime::SmolRuntime;
-#[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]
-pub use crate::runtime::TokioRuntime;
-#[cfg(feature = "mode-async")]
-pub use crate::runtime::{Runtime, TransportHandle};
 
 /// Camera profiles with compositional capabilities
 pub mod profiles {

@@ -12,12 +12,12 @@
 
 use grafton_visca_macros::ViscaEnum;
 
-use crate::command::bytes::VISCA_TERMINATOR;
-use crate::command::encode::ViscaCommand;
-use crate::command::response::InquiryKind;
-use crate::error::Error;
-use crate::timeout::CommandCategory;
-use crate::ViscaSocket;
+use crate::{
+    command::{bytes::VISCA_TERMINATOR, encode::ViscaCommand, response::InquiryKind},
+    error::Error,
+    timeout::CommandCategory,
+    ViscaSocket,
+};
 
 /// Command to set camera address (broadcast, serial only).
 ///
@@ -172,7 +172,6 @@ mod tests {
     use super::*;
     use crate::macros::test_utils::visca_test;
     use crate::timeout::CommandTimeout;
-    use crate::{command::encode::ViscaCommand, timeout::CommandCategory};
 
     visca_test!(
         AddressSetCommand,

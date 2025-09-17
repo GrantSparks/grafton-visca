@@ -6,22 +6,18 @@
 
 #![cfg(feature = "mode-async")]
 
-// External crates
+use std::marker::PhantomData;
+
 #[cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
 use grafton_visca::testing::testkit::ScriptedTransport;
-
-#[cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
-use grafton_visca::TokioExecutor;
-
 #[cfg(any(
     feature = "runtime-tokio",
     feature = "runtime-async-std",
     feature = "runtime-smol"
 ))]
 use grafton_visca::transport::Transport;
-
-// Standard library
-use std::marker::PhantomData;
+#[cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
+use grafton_visca::TokioExecutor;
 
 /// Test that the Transport builder API remains stable.
 #[test]
@@ -249,8 +245,7 @@ fn test_capability_traits_stability() {
 #[cfg(feature = "mode-async")]
 #[test]
 fn test_async_trait_method_signatures() {
-    use grafton_visca::camera::controls::power::PowerControl;
-    use grafton_visca::Error;
+    use grafton_visca::{camera::controls::power::PowerControl, Error};
     use std::future::Future;
 
     // Mock implementation to test trait signatures
@@ -289,9 +284,7 @@ fn test_async_trait_method_signatures() {
 #[test]
 fn test_transport_module_structure() {
     // Test that key transport types are publicly available
-    use grafton_visca::transport::buffer::BufferConfig;
-    use grafton_visca::transport::builder::TransportConfig;
-    use grafton_visca::transport::RetryConfig;
+    use grafton_visca::transport::{buffer::BufferConfig, builder::TransportConfig, RetryConfig};
 
     #[cfg(all(
         feature = "mode-async",

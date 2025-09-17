@@ -7,6 +7,8 @@
 
 #[cfg(feature = "test-utils")]
 mod parity_tests {
+    use std::sync::Arc;
+
     use grafton_visca::{
         camera::CameraBuilder,
         testing::testkit::{ScriptedTransport, Step},
@@ -52,8 +54,6 @@ mod parity_tests {
     #[tokio::test]
     async fn test_tokio_runtime_operations() {
         use grafton_visca::TokioExecutor;
-
-        use std::sync::Arc;
         let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
         let transport: ScriptedTransport<TokioExecutor> =
             ScriptedTransport::new(create_test_script()).with_executor(executor.clone());
@@ -84,7 +84,6 @@ mod parity_tests {
     #[test]
     fn test_async_std_runtime_operations() {
         use grafton_visca::AsyncStdExecutor;
-        use std::sync::Arc;
 
         async_std::task::block_on(async {
             let executor = Arc::new(AsyncStdExecutor::new());
@@ -118,7 +117,6 @@ mod parity_tests {
     #[test]
     fn test_smol_runtime_operations() {
         use grafton_visca::SmolExecutor;
-        use std::sync::Arc;
 
         smol::block_on(async {
             let executor = Arc::new(SmolExecutor::new());
@@ -153,7 +151,6 @@ mod parity_tests {
     #[tokio::test]
     async fn test_tokio_builder_transport_creation() {
         use grafton_visca::TokioExecutor;
-        use std::sync::Arc;
 
         let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
         let transport: ScriptedTransport<TokioExecutor> =
@@ -176,7 +173,6 @@ mod parity_tests {
     #[test]
     fn test_async_std_builder_transport_creation() {
         use grafton_visca::AsyncStdExecutor;
-        use std::sync::Arc;
 
         async_std::task::block_on(async {
             let executor = Arc::new(AsyncStdExecutor::new());
@@ -201,7 +197,6 @@ mod parity_tests {
     #[test]
     fn test_smol_builder_transport_creation() {
         use grafton_visca::SmolExecutor;
-        use std::sync::Arc;
 
         smol::block_on(async {
             let executor = Arc::new(SmolExecutor::new());
@@ -227,8 +222,6 @@ mod parity_tests {
     #[tokio::test]
     async fn test_tokio_error_handling() {
         use grafton_visca::TokioExecutor;
-
-        use std::sync::Arc;
         let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
         let transport: ScriptedTransport<TokioExecutor> =
             ScriptedTransport::new(vec![Step::OnSend {
@@ -250,7 +243,6 @@ mod parity_tests {
     #[test]
     fn test_async_std_error_handling() {
         use grafton_visca::AsyncStdExecutor;
-        use std::sync::Arc;
 
         async_std::task::block_on(async {
             let executor = Arc::new(AsyncStdExecutor::new());
@@ -275,7 +267,6 @@ mod parity_tests {
     #[test]
     fn test_smol_error_handling() {
         use grafton_visca::SmolExecutor;
-        use std::sync::Arc;
 
         smol::block_on(async {
             let executor = Arc::new(SmolExecutor::new());
@@ -304,6 +295,8 @@ mod parity_tests {
     feature = "runtime-smol"
 ))]
 mod all_runtimes_test {
+    use std::sync::Arc;
+
     use grafton_visca::{
         camera::CameraBuilder,
         testing::testkit::{ScriptedTransport, Step},
@@ -320,7 +313,6 @@ mod all_runtimes_test {
         // Test with Tokio
         let tokio_result = {
             use grafton_visca::TokioExecutor;
-            use std::sync::Arc;
             let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
             let transport: ScriptedTransport<TokioExecutor> =
                 ScriptedTransport::new(script.clone()).with_executor(executor.clone());
@@ -334,7 +326,6 @@ mod all_runtimes_test {
         // Test with async-std
         let async_std_result = {
             use grafton_visca::AsyncStdExecutor;
-            use std::sync::Arc;
             let executor = Arc::new(AsyncStdExecutor::new());
             let transport: ScriptedTransport<AsyncStdExecutor> =
                 ScriptedTransport::new(script.clone()).with_executor(executor.clone());
@@ -348,7 +339,6 @@ mod all_runtimes_test {
         // Test with smol (in a blocking context since we're already in tokio)
         let smol_result = {
             use grafton_visca::SmolExecutor;
-            use std::sync::Arc;
             let executor = Arc::new(SmolExecutor::new());
             let transport: ScriptedTransport<SmolExecutor> =
                 ScriptedTransport::new(script.clone()).with_executor(executor.clone());

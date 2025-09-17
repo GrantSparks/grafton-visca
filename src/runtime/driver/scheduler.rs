@@ -98,9 +98,10 @@ pub use blocking_impl::BlockingScheduler;
 
 #[cfg(not(feature = "mode-async"))]
 mod blocking_impl {
+    use std::time::Instant;
+
     use super::*;
     use crate::runtime::core::SchedulerCore;
-    use std::time::Instant;
 
     /// Wrapper for SchedulerCore to implement SchedulerLike.
     ///

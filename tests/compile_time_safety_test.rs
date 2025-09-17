@@ -124,17 +124,11 @@ fn test_generic_functions_with_trait_bounds() {
     ]);
     let mut generic_camera = GenericViscaCam::new_blocking(generic_transport).unwrap();
 
-    println!("Testing G2 camera...");
     assert!(basic_control(&mut g2_camera).is_ok());
 
-    println!("Testing FR7 camera...");
     let fr7_result = basic_control(&mut fr7_camera);
-    if let Err(e) = &fr7_result {
-        println!("FR7 error: {e:?}");
-    }
     assert!(fr7_result.is_ok());
 
-    println!("Testing generic camera...");
     assert!(basic_control(&mut generic_camera).is_ok());
 
     assert!(motion_sync_control(&g2_wrapper).is_ok());

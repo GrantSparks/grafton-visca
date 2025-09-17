@@ -1,7 +1,8 @@
 //! Tokio serial transport implementation using the generic async_serial module.
 
-use std::time::Duration;
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
+
+use std::time::Duration;
 
 use crate::{
     error::{Error, Result},
@@ -62,8 +63,6 @@ impl AsyncWriteExtTrait for TokioSerialAdapter {
         Ok(self.stream.flush().await?)
     }
 }
-
-// SerialConfig is now imported from the unified serial::Config
 
 /// Helper methods for creating tokio serial transports.
 impl Serial {

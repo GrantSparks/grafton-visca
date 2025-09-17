@@ -100,7 +100,6 @@ pub trait Executor: Clone + Send + Sync + 'static {
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        // Detach the join handle to run in background
         drop(self.spawn(fut));
     }
 
@@ -181,7 +180,6 @@ where
         F: Future<Output = T> + Send + 'a,
         T: Send + 'a,
     {
-        // Forward directly to avoid async block lifetime issues
         (**self).timeout(duration, fut)
     }
 
@@ -194,7 +192,6 @@ where
     where
         T: Send + 'static,
     {
-        // Forward directly to avoid async block lifetime issues
         (**self).timeout_owned(duration, fut)
     }
 
@@ -214,9 +211,9 @@ where
 // Tokio executor implementation
 #[cfg(feature = "runtime-tokio")]
 mod tokio_impl {
-    use super::*;
-
     use std::{pin::Pin, time::Duration};
+
+    use super::*;
 
     /// Tokio-based executor implementation.
     #[derive(Debug, Clone)]
@@ -252,7 +249,6 @@ mod tokio_impl {
             mut self: Pin<&mut Self>,
             cx: &mut std::task::Context<'_>,
         ) -> std::task::Poll<Self::Output> {
-            // Use Pin::as_mut() to project through the pin safely
             let join_handle = Pin::new(&mut self.0);
             match join_handle.poll(cx) {
                 std::task::Poll::Ready(Ok(value)) => std::task::Poll::Ready(Ok(value)),
@@ -378,9 +374,9 @@ pub use tokio_impl::TokioExecutor;
 // async-std executor implementation
 #[cfg(feature = "runtime-async-std")]
 mod async_std_impl {
-    use super::*;
-
     use std::{pin::Pin, time::Duration};
+
+    use super::*;
 
     /// async-std based executor implementation.
     #[derive(Debug, Clone, Copy)]
@@ -468,7 +464,6 @@ mod async_std_impl {
             F: Future + Send + 'static,
             F::Output: Send + 'static,
         {
-            // Fallback to global spawn; requires Send
             AsyncStdLocalJoin(async_std::task::spawn(fut))
         }
 
@@ -524,10 +519,9 @@ pub use async_std_impl::AsyncStdExecutor;
 // smol executor implementation
 #[cfg(feature = "runtime-smol")]
 mod smol_impl {
-    use super::*;
-    use std::pin::Pin;
+    use std::{pin::Pin, time::Duration};
 
-    use std::time::Duration;
+    use super::*;
 
     /// smol-based executor implementation.
     #[derive(Debug, Clone, Copy)]
@@ -560,7 +554,6 @@ mod smol_impl {
             self: Pin<&mut Self>,
             cx: &mut std::task::Context<'_>,
         ) -> std::task::Poll<Self::Output> {
-            // Poll the receiver future directly
             let this = self.get_mut();
             let fut = this.0.recv_async();
             futures_lite::pin!(fut);
@@ -661,14 +654,11 @@ mod smol_impl {
             T: Send + 'a,
         {
             async move {
-                // Create a timer future
                 let timer = smol::Timer::after(duration);
 
-                // Pin both futures for select
                 futures_lite::pin!(fut);
                 futures_lite::pin!(timer);
 
-                // Race the two futures
                 loop {
                     if let Some(value) = futures_lite::future::poll_once(&mut fut).await {
                         return Ok(value);
@@ -678,7 +668,6 @@ mod smol_impl {
                         return Err(Error::Timeout);
                     }
 
-                    // Yield to executor
                     futures_lite::future::yield_now().await;
                 }
             }
@@ -694,14 +683,11 @@ mod smol_impl {
             T: Send + 'static,
         {
             async move {
-                // Create a timer future
                 let timer = smol::Timer::after(duration);
 
-                // Pin both futures for select
                 futures_lite::pin!(fut);
                 futures_lite::pin!(timer);
 
-                // Race the two futures
                 loop {
                     if let Some(value) = futures_lite::future::poll_once(&mut fut).await {
                         return Ok(value);
@@ -711,7 +697,6 @@ mod smol_impl {
                         return Err(Error::Timeout);
                     }
 
-                    // Yield to executor
                     futures_lite::future::yield_now().await;
                 }
             }

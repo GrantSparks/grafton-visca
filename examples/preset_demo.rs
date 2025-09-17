@@ -85,16 +85,12 @@ fn main() -> Result<(), Error> {
 
     println!("═══ Saving Presets ═══");
     for preset in &presets {
+        println!("Setting up Preset {} - '{}'", preset.number, preset.name);
         println!(
-            "Setting up Preset {number} - '{name}'",
-            number = preset.number,
-            name = preset.name
-        );
-        println!(
-            "  Moving to: Pan={pan:.1}°, Tilt={tilt:.1}°, Zoom={zoom:.0}%",
-            pan = preset.pan.0,
-            tilt = preset.tilt.0,
-            zoom = preset.zoom.0 * 100.0
+            "  Moving to: Pan={:.1}°, Tilt={:.1}°, Zoom={:.0}%",
+            preset.pan.0,
+            preset.tilt.0,
+            preset.zoom.0 * 100.0
         );
 
         camera.pan_tilt_absolute(preset.pan, preset.tilt, SpeedLevel::Medium)?;
@@ -105,7 +101,7 @@ fn main() -> Result<(), Error> {
         // Position would be displayed here if inquiry was available
 
         camera.preset_set(PresetNumber::new(preset.number)?)?;
-        println!("  ✓ Preset {number} saved\n", number = preset.number);
+        println!("  ✓ Preset {} saved\n", preset.number);
 
         sleep(Duration::from_millis(200));
     }
@@ -120,11 +116,7 @@ fn main() -> Result<(), Error> {
     println!("Current position: (position inquiry not available)\n");
 
     for preset in &presets {
-        println!(
-            "Recalling Preset {number} - '{name}'",
-            number = preset.number,
-            name = preset.name
-        );
+        println!("Recalling Preset {} - '{}'", preset.number, preset.name);
 
         // Note: Position inquiry not implemented in this demo
 

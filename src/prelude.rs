@@ -95,20 +95,8 @@ pub mod r#async {
         GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
         SonyBRCH900, SonyEVIH100, SonyFR7,
     };
-
     // High-level camera configuration
     pub use crate::camera::MovementConfig;
-
-    // Type-safe parameter types for camera control
-    pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
-    pub use crate::units::{Degrees, Normalized, Percentage, Raw};
-
-    // Common enums for camera settings
-    pub use crate::{
-        AutoWhiteBalanceSensitivity, Error, ExposureMode, MotionSyncMode, NdFilterMode,
-        PanTiltDirection, PanTiltLimitCorner, PresetNumber, ResolutionMode, WhiteBalanceMode,
-    };
-
     // Runtime support for async operations
     #[cfg(feature = "runtime-async-std")]
     pub use crate::runtime::AsyncStdRuntime;
@@ -116,6 +104,14 @@ pub mod r#async {
     pub use crate::runtime::SmolRuntime;
     #[cfg(feature = "runtime-tokio")]
     pub use crate::runtime::TokioRuntime;
+    // Type-safe parameter types for camera control
+    pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
+    pub use crate::units::{Degrees, Normalized, Percentage, Raw};
+    // Common enums for camera settings
+    pub use crate::{
+        AutoWhiteBalanceSensitivity, Error, ExposureMode, MotionSyncMode, NdFilterMode,
+        PanTiltDirection, PanTiltLimitCorner, PresetNumber, ResolutionMode, WhiteBalanceMode,
+    };
 }
 
 /// Blocking prelude - import this for synchronous camera control.
@@ -137,14 +133,11 @@ pub mod blocking {
         GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
         SonyBRCH900, SonyEVIH100, SonyFR7,
     };
-
     // High-level camera types and configuration
     pub use crate::camera::{BlockingCamera as Camera, MovementConfig};
-
     // Type-safe parameter types for camera control
     pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
     pub use crate::units::{Degrees, Normalized, Percentage, Raw};
-
     // Common enums for camera settings
     pub use crate::{
         AutoWhiteBalanceSensitivity, Error, ExposureMode, MotionSyncMode, NdFilterMode,
@@ -152,17 +145,23 @@ pub mod blocking {
     };
 
     // Ergonomic type aliases for specific camera models
+    /// Generic VISCA camera type alias.
+    pub type GenericViscaCam<T> = Camera<GenericVisca, T>;
+
+    /// Nearus BRC-300 camera type alias.
+    pub type NearusBRC300Cam<T> = Camera<NearusBRC300, T>;
+
+    /// PtzOptics 30X camera type alias.
+    pub type PtzOptics30XCam<T> = Camera<PtzOptics30X, T>;
+
     /// PtzOptics G2 camera type alias.
     pub type PtzOpticsG2Cam<T> = Camera<PtzOpticsG2, T>;
 
     /// PtzOptics G3 camera type alias.
     pub type PtzOpticsG3Cam<T> = Camera<PtzOpticsG3, T>;
 
-    /// PtzOptics 30X camera type alias.
-    pub type PtzOptics30XCam<T> = Camera<PtzOptics30X, T>;
-
-    /// Sony FR7 camera type alias.
-    pub type SonyFR7Cam<T> = Camera<SonyFR7, T>;
+    /// Sony BRC-300 camera type alias.
+    pub type SonyBRC300Cam<T> = Camera<SonyBRC300, T>;
 
     /// Sony BRC-H900 camera type alias.
     pub type SonyBRCH900Cam<T> = Camera<SonyBRCH900, T>;
@@ -170,14 +169,8 @@ pub mod blocking {
     /// Sony EVI-H100 camera type alias.
     pub type SonyEVIH100Cam<T> = Camera<SonyEVIH100, T>;
 
-    /// Sony BRC-300 camera type alias.
-    pub type SonyBRC300Cam<T> = Camera<SonyBRC300, T>;
-
-    /// Nearus BRC-300 camera type alias.
-    pub type NearusBRC300Cam<T> = Camera<NearusBRC300, T>;
-
-    /// Generic VISCA camera type alias.
-    pub type GenericViscaCam<T> = Camera<GenericVisca, T>;
+    /// Sony FR7 camera type alias.
+    pub type SonyFR7Cam<T> = Camera<SonyFR7, T>;
 }
 
 /// Raw prelude - import this for low-level and custom control.
@@ -214,40 +207,31 @@ pub mod blocking {
 /// # }
 /// ```
 pub mod raw {
-    // Re-export camera profiles for convenience
-    pub use crate::camera::profiles::*;
-
     // Camera builder for advanced configuration
     pub use crate::camera::CameraBuilder;
-
-    // Socket management (for custom implementations)
-    pub use crate::visca_socket::ViscaSocket;
-
-    // Raw command types and encoding
-    pub use crate::command::{CommandKind, InquiryData, InquiryKind, Response, ViscaCommand};
-
+    // Re-export camera profiles for convenience
+    pub use crate::camera::profiles::*;
     // Camera ID for multi-camera setups
     pub use crate::camera_id::CameraId;
-
-    // Transport traits for custom implementations
-    #[cfg(not(feature = "mode-async"))]
-    pub use crate::transport::blocking_transport::BlockingTransport;
-    #[cfg(feature = "mode-async")]
-    pub use crate::transport::AsyncTransport;
-
+    // Raw command types and encoding
+    pub use crate::command::{CommandKind, InquiryData, InquiryKind, Response, ViscaCommand};
+    // Error types with retry logic
+    pub use crate::error::{Error, Result};
     // Runtime and executor types for async operations
     #[cfg(feature = "mode-async")]
     pub use crate::executor::Executor;
     #[cfg(feature = "mode-async")]
     pub use crate::runtime::{Runtime, TransportHandle};
-
-    // Error types with retry logic
-    pub use crate::error::{Error, Result};
-
     // Timeout configuration
     pub use crate::timeout::TimeoutConfig;
-
+    // Transport traits for custom implementations
+    #[cfg(not(feature = "mode-async"))]
+    pub use crate::transport::blocking_transport::BlockingTransport;
+    #[cfg(feature = "mode-async")]
+    pub use crate::transport::AsyncTransport;
     // All the type-safe parameter types (same as high-level)
     pub use crate::types::*;
     pub use crate::units::*;
+    // Socket management (for custom implementations)
+    pub use crate::visca_socket::ViscaSocket;
 }

@@ -60,13 +60,11 @@ pub struct BlockingRunner<P: Profile> {
 impl<P: Profile> BlockingRunner<P> {
     /// Create a new blocking runner.
     pub fn new(timeout_config: TimeoutConfig) -> Self {
-        // Use default retry config for backward compatibility
         Self::new_with_retry(timeout_config, RetryConfig::default())
     }
 
     /// Create a new blocking runner with retry configuration.
     pub fn new_with_retry(timeout_config: TimeoutConfig, retry_config: RetryConfig) -> Self {
-        // Use default buffer config
         let buffer_config = BufferConfig::default();
         Self::new_with_buffer(timeout_config, retry_config, buffer_config)
     }
@@ -77,7 +75,6 @@ impl<P: Profile> BlockingRunner<P> {
         retry_config: RetryConfig,
         buffer_config: BufferConfig,
     ) -> Self {
-        // Default to IP addressing for backward compatibility
         Self::new_with_addressing(
             timeout_config,
             retry_config,
@@ -113,7 +110,6 @@ impl<P: Profile> BlockingRunner<P> {
     ) -> Result<Response> {
         let cmd_id = self.next_id.fetch_add(1, Ordering::SeqCst);
 
-        // Create PreparedCommand for zero-copy path
         let prepared_cmd = std::sync::Arc::new(
             crate::command::encode::PreparedCommand::new(command.clone(), camera_id).map_err(
                 |e| {
@@ -123,14 +119,11 @@ impl<P: Profile> BlockingRunner<P> {
             )?,
         );
 
-        // Store response type in core for inquiries
         if let Some(rt) = prepared_cmd.response_type {
             self.core.register_inquiry_type(cmd_id, rt);
         }
 
-        // Queue the command (both commands and inquiries use the unified path)
         let now = Instant::now();
-        // Get command kind from the command itself
         let kind = prepared_cmd.kind;
         let pending_cmd = PendingCommand {
             id: cmd_id,
@@ -144,7 +137,6 @@ impl<P: Profile> BlockingRunner<P> {
 
         self.core.queue_command(pending_cmd);
 
-        // Process until command completes
         self.run_until_complete(transport, cmd_id)
     }
 
@@ -159,27 +151,21 @@ impl<P: Profile> BlockingRunner<P> {
         transport: &mut T,
         target_cmd_id: u32,
     ) -> Result<Response> {
-        // Allocate a single reusable buffer for receiving data using the configured size
         let mut read_buf = vec![0u8; self.buffer_manager.config().recv_buffer_size];
 
         loop {
             let now = Instant::now();
 
-            // Check for items to send (commands or inquiries)
             if let Some(cmd) = self.core.next_item_to_send() {
-                // Use command kind from PendingCommand
                 let kind = cmd.kind;
 
-                // Use the shared driver for sending
                 let mut scheduler = BlockingScheduler {
                     core: &mut self.core,
                     now,
                 };
 
-                // Use configurable write timeout from transport config
                 let write_timeout = transport.transport_config().write_timeout;
 
-                // Convert PendingCommand
                 let pending_cmd = PendingCommand {
                     id: cmd.id,
                     command: cmd.command.clone(),
@@ -199,29 +185,21 @@ impl<P: Profile> BlockingRunner<P> {
                     write_timeout,
                 ) {
                     debug!("Send operation failed: {:?}", e);
-                    // send_one already handled command failure via fail_after_send_error
-                    // The error returned here means send failed and command was marked as failed
-                    // Continue processing other commands
                     continue;
                 }
             }
 
-            // Check for retries
             let ready_retries = self.core.get_ready_retries(now);
             for retry in ready_retries {
-                // Use the kind preserved from the original command
                 let kind = retry.kind;
 
-                // Use the shared driver for sending retries
                 let mut scheduler = BlockingScheduler {
                     core: &mut self.core,
                     now,
                 };
 
-                // Use configurable write timeout from transport config
                 let write_timeout = transport.transport_config().write_timeout;
 
-                // Convert to PendingCommand
                 let pending_cmd = PendingCommand {
                     id: retry.id,
                     command: retry.command.clone(),
@@ -241,12 +219,8 @@ impl<P: Profile> BlockingRunner<P> {
                     write_timeout,
                 ) {
                     debug!("Send retry operation failed: {:?}", e);
-                    // send_one already handled command failure via fail_after_send_error
-                    // Send failures immediately fail the command, no further retry
                     continue;
                 }
-
-                // Core handles inquiry tracking now
                 debug!(
                     "Sent retry for {} {} (attempt {})",
                     if kind == CommandKind::Inquiry {
@@ -259,24 +233,19 @@ impl<P: Profile> BlockingRunner<P> {
                 );
             }
 
-            // Check for timeouts
             let timeout_actions = self.core.check_timeouts(now);
             for action in timeout_actions {
                 match action {
                     SchedulerAction::CommandFailed { id, error } if id == target_cmd_id => {
                         return Err(error);
                     }
-                    SchedulerAction::RetryCommand { .. } => {
-                        // Retry will be handled in next iteration
-                    }
+                    SchedulerAction::RetryCommand { .. } => {}
                     _ => {}
                 }
             }
 
-            // Try to receive a response with short timeout
             match transport.recv_into_with_timeout(&mut read_buf, Duration::from_millis(10)) {
                 Ok(0) => {
-                    // Connection closed
                     warn!("Connection closed by peer");
                     return Err(Error::ConnectionClosed {
                         reason: Some("peer closed connection".into()),
@@ -284,13 +253,11 @@ impl<P: Profile> BlockingRunner<P> {
                 }
                 Ok(n) => {
                     trace!("Received {} bytes from transport", n);
-                    // Push received bytes into the protocol-aware framer
                     if let Err(e) = self.framer.push_slice(&read_buf[..n]) {
                         warn!("Framer buffer exceeded limits: {e}");
                         continue;
                     }
 
-                    // Drain complete frames
                     for frame_result in self.framer.drain_frames() {
                         let frame = match frame_result {
                             Ok(frame) => frame,
@@ -300,7 +267,6 @@ impl<P: Profile> BlockingRunner<P> {
                             }
                         };
 
-                        // Extract payload and metadata
                         let (payload, meta) = match self.envelope.extract_with_meta(frame) {
                             Ok(result) => result,
                             Err(e) => {
@@ -309,7 +275,6 @@ impl<P: Profile> BlockingRunner<P> {
                             }
                         };
 
-                        // Parse VISCA response type using decode_basic
                         let basic = match decode_basic(&payload) {
                             Some(b) => b,
                             None => {
@@ -321,7 +286,6 @@ impl<P: Profile> BlockingRunner<P> {
                         let event = match basic.kind {
                             BasicKind::Ack => {
                                 let socket = basic.socket;
-                                // For Sony, try to use sequence to find command
                                 let cmd_id = meta
                                     .sequence
                                     .and_then(|seq| self.core.get_command_by_sequence(seq));
@@ -331,7 +295,6 @@ impl<P: Profile> BlockingRunner<P> {
                             BasicKind::Completion => {
                                 let socket = basic.socket;
 
-                                // For Sony, try to use sequence to find command
                                 let cmd_id = if let Some(sequence) = meta.sequence {
                                     self.core.get_command_by_sequence(sequence)
                                 } else {
@@ -341,9 +304,7 @@ impl<P: Profile> BlockingRunner<P> {
                                 if let Some(cmd_id) = cmd_id {
                                     if cmd_id == target_cmd_id {
                                         debug!("Command {} completed successfully", cmd_id);
-                                        // Get the expected response type from core
                                         let response_type = self.core.get_inquiry_type(cmd_id);
-                                        // Convert to Response for return with profile-aware lifting
                                         let response =
                                             lift_inquiry_for::<P>(&basic, response_type)?;
                                         return Ok(response);
@@ -351,7 +312,6 @@ impl<P: Profile> BlockingRunner<P> {
                                 }
 
                                 debug!("Received completion for socket {:?}", socket);
-                                // Get the expected response type from core
                                 let response_type =
                                     cmd_id.and_then(|id| self.core.get_inquiry_type(id));
                                 let response = lift_inquiry_for::<P>(&basic, response_type)?;
@@ -363,16 +323,11 @@ impl<P: Profile> BlockingRunner<P> {
                             }
                             BasicKind::Error(code) => {
                                 let socket = basic.socket;
-                                // For Sony, try to use sequence to find command
                                 let mut cmd_id = meta
                                     .sequence
                                     .and_then(|seq| self.core.get_command_by_sequence(seq));
 
-                                // If no cmd_id and no socket, this could be an inquiry error
-                                // Use resolve_inquiry_id to try to match it
                                 if cmd_id.is_none() && socket.is_none() {
-                                    // For error responses, we can't use content-based matching on the error code,
-                                    // but we can use FIFO from the inquiry queue
                                     cmd_id = self.core.resolve_inquiry_id(&[], meta.sequence);
                                 }
 
@@ -387,18 +342,14 @@ impl<P: Profile> BlockingRunner<P> {
                                 }
                             }
                             BasicKind::DataReply => {
-                                // Data replies are completions for inquiries
-                                // Use the core's centralized resolution
                                 let cmd_id = self.core.resolve_inquiry_id(&payload, meta.sequence);
 
-                                // Get the expected response type from core
                                 let response_type =
                                     cmd_id.and_then(|id| self.core.get_inquiry_type(id).cloned());
 
                                 if let Some(cmd_id) = cmd_id {
                                     if cmd_id == target_cmd_id {
                                         debug!("Inquiry {} completed successfully", cmd_id);
-                                        // Convert to Response for return with profile-aware lifting
                                         let response =
                                             lift_inquiry_for::<P>(&basic, response_type.as_ref())?;
                                         return Ok(response);
@@ -408,29 +359,24 @@ impl<P: Profile> BlockingRunner<P> {
                                 debug!("Received data reply (inquiry response)");
                                 let response =
                                     lift_inquiry_for::<P>(&basic, response_type.as_ref())?;
-                                // Use InquiryReply event for data replies
                                 SchedulerEvent::InquiryReply { cmd_id, response }
                             }
                             BasicKind::NetworkChange | BasicKind::Unknown => {
-                                // Other response types are ignored for now
                                 continue;
                             }
                         };
 
-                        // Process the event
                         let actions = self.core.process_event(event, now);
                         for action in actions {
                             match action {
                                 SchedulerAction::CommandComplete { id, response, .. }
                                     if id == target_cmd_id =>
                                 {
-                                    // Core handles all inquiry cleanup now
                                     return Ok(response);
                                 }
                                 SchedulerAction::CommandFailed { id, error }
                                     if id == target_cmd_id =>
                                 {
-                                    // Core handles all inquiry cleanup now
                                     return Err(error);
                                 }
                                 _ => {}
@@ -438,9 +384,7 @@ impl<P: Profile> BlockingRunner<P> {
                         }
                     }
                 }
-                Err(Error::Timeout) => {
-                    // No data available, continue
-                }
+                Err(Error::Timeout) => {}
                 Err(e) => {
                     warn!("Transport receive error: {}", e);
                     // Generate network error event
@@ -540,7 +484,6 @@ mod tests {
 
         // Verify it can be retrieved
         let next = runner.core.next_item_to_send();
-        assert!(next.is_some());
         assert!(next.is_some(), "should have command");
         if let Some(cmd) = next {
             assert_eq!(cmd.id, 1);

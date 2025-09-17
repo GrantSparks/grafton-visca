@@ -1,22 +1,14 @@
 //! Main runtime event loop for VISCA communication.
 
 use flume::{Receiver, Sender};
+use futures_lite::future;
 use tracing::{debug, error, instrument, trace, warn};
-
-/// Runtime trace logging controlled by RUNTIME_TRACE environment variable
-macro_rules! runtime_trace {
-    ($($arg:tt)*) => {
-        if std::env::var("RUNTIME_TRACE").is_ok() {
-            eprintln!("[RUNTIME_TRACE] {}", format!($($arg)*));
-        }
-    };
-}
 
 use std::{collections::HashSet, sync::Arc};
 
 use crate::{
     capabilities::Profile,
-    command::{encode::ViscaCommand, CommandKind},
+    command::{encode::ViscaCommand, system::CommandCancelCommand, CommandKind},
     error::{Error, Result},
     protocol::framer::ProtocolFramer,
     runtime::{
@@ -27,6 +19,15 @@ use crate::{
     timeout::TimeoutConfig,
     transport::{buffer::BufferManager, envelope::Envelope, AsyncTransport, RetryConfig},
 };
+
+/// Runtime trace logging controlled by RUNTIME_TRACE environment variable
+macro_rules! runtime_trace {
+    ($($arg:tt)*) => {
+        if std::env::var("RUNTIME_TRACE").is_ok() {
+            eprintln!("[RUNTIME_TRACE] {}", format!($($arg)*));
+        }
+    };
+}
 
 /// Configuration for the runtime loop.
 pub struct RuntimeLoopConfig<E: Envelope> {
@@ -125,11 +126,10 @@ pub async fn runtime_loop_with_config<
                 }
                 TxItem::Cancel { socket } => {
                     // Send cancel command
-                    use crate::command::system::CommandCancelCommand;
 
                     // Get the camera ID for the command on this socket
                     let camera_id = adapter.camera_id_for_socket(socket).unwrap_or_else(|| {
-                        warn!("No camera ID found for socket {:?}, using CAMERA_1", socket);
+                        warn!("No camera ID found for socket {socket:?}, using CAMERA_1");
                         crate::camera_id::CameraId::CAMERA_1
                     });
 
@@ -146,22 +146,17 @@ pub async fn runtime_loop_with_config<
                             .frame_bytes(&cancel_bytes, kind, &config.buffer_manager);
                     // Best effort for cancel - don't abort runtime on failure
                     if let Err(e) = transport.send(&framed).await {
-                        debug!("Failed to send cancel for socket {:?}: {e}", socket);
+                        debug!("Failed to send cancel for socket {socket:?}: {e}");
                     } else {
-                        debug!(
-                            "Sent cancel for socket {:?} with camera_id {:?}",
-                            socket, camera_id
-                        );
+                        debug!("Sent cancel for socket {socket:?} with camera_id {camera_id:?}");
                     }
                 }
                 TxItem::CancelById { id } => {
                     // Find the socket for this command and send cancel
                     if let Some(socket) = adapter.socket_for_command(id) {
-                        use crate::command::system::CommandCancelCommand;
-
                         // Get the camera ID for this specific command
                         let camera_id = adapter.camera_id_for_command(id).unwrap_or_else(|| {
-                            warn!("No camera ID found for command {}, using CAMERA_1", id);
+                            warn!("No camera ID found for command {id}, using CAMERA_1");
                             crate::camera_id::CameraId::CAMERA_1
                         });
 
@@ -179,15 +174,12 @@ pub async fn runtime_loop_with_config<
                         );
                         // Best effort for cancel - don't abort runtime on failure
                         if let Err(e) = transport.send(&framed).await {
-                            debug!("Failed to send cancel for command {}: {e}", id);
+                            debug!("Failed to send cancel for command {id}: {e}");
                         } else {
-                            debug!(
-                                "Sent cancel for command {} on socket {:?} with camera_id {:?}",
-                                id, socket, camera_id
-                            );
+                            debug!("Sent cancel for command {id} on socket {socket:?} with camera_id {camera_id:?}");
                         }
                     } else {
-                        debug!("No socket for command {} yet; queuing cancel", id);
+                        debug!("No socket for command {id} yet; queuing cancel");
                         pending_cancel_ids.insert(id);
                     }
                 }
@@ -216,8 +208,6 @@ pub async fn runtime_loop_with_config<
 
         // Use select to handle recv, tick, and shutdown operations
         let operation = {
-            use futures_lite::future;
-
             // First create the two-way race between recv and sleep
             let recv_or_sleep = future::race(
                 async {
@@ -250,7 +240,7 @@ pub async fn runtime_loop_with_config<
         runtime_trace!(
             "Race winner: {:?}",
             match &operation {
-                Operation::RecvOk(n) => format!("RecvOk({})", n),
+                Operation::RecvOk(n) => format!("RecvOk({n})"),
                 Operation::RecvErr(_) => "RecvErr".to_string(),
                 Operation::Tick => "Tick".to_string(),
                 Operation::Shutdown => "Shutdown".to_string(),
@@ -272,7 +262,7 @@ pub async fn runtime_loop_with_config<
                     });
                 }
 
-                trace!("Received {} bytes from transport", n);
+                trace!("Received {n} bytes from transport");
                 // Push received bytes into the protocol-aware framer using slice
                 if let Err(e) = protocol_framer.push_slice(&read_buf[..n]) {
                     warn!("Framer buffer exceeded limits: {e}");
@@ -335,14 +325,10 @@ pub async fn runtime_loop_with_config<
 
                     for id in ready {
                         if let Some(socket) = adapter.socket_for_command(id) {
-                            use crate::command::{
-                                encode::ViscaCommand, system::CommandCancelCommand,
-                            };
-
                             // Get the camera ID for this specific command
                             let camera_id = adapter.camera_id_for_command(id)
                                 .unwrap_or_else(|| {
-                                    warn!("No camera ID found for queued cancel command {}, using CAMERA_1", id);
+                                    warn!("No camera ID found for queued cancel command {id}, using CAMERA_1");
                                     crate::camera_id::CameraId::CAMERA_1
                                 });
 
@@ -362,12 +348,9 @@ pub async fn runtime_loop_with_config<
                             );
                             // Best effort for cancel - don't abort runtime on failure
                             if let Err(e) = transport.send(&framed).await {
-                                debug!("Failed to send queued cancel for command {}: {e}", id);
+                                debug!("Failed to send queued cancel for command {id}: {e}");
                             } else {
-                                debug!(
-                                    "Sent queued cancel for command {} on socket {:?} with camera_id {:?}",
-                                    id, socket, camera_id
-                                );
+                                debug!("Sent queued cancel for command {id} on socket {socket:?} with camera_id {camera_id:?}");
                             }
 
                             // Remove from pending set

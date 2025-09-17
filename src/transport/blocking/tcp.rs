@@ -113,8 +113,6 @@ impl Tcp {
         // All attempts failed
         Err(last_error.map(Into::into).unwrap_or_else(|| Error::Timeout))
     }
-
-    // Retry configuration is now handled at the runtime/scheduler level
 }
 
 impl HasTransportConfig for Tcp {

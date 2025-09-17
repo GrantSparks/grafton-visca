@@ -78,9 +78,9 @@ fn test_issue_275_spotlight_exact_sizing() {
         .unwrap();
     assert!(
         size <= SpotlightOn::MAX_SIZE,
-        "SpotlightOn size {} exceeds MAX_SIZE {}",
-        size,
-        SpotlightOn::MAX_SIZE
+        "SpotlightOn size {size} exceeds MAX_SIZE {max_size}",
+        size = size,
+        max_size = SpotlightOn::MAX_SIZE
     );
 
     let size = SpotlightOff::new()
@@ -88,9 +88,9 @@ fn test_issue_275_spotlight_exact_sizing() {
         .unwrap();
     assert!(
         size <= SpotlightOff::MAX_SIZE,
-        "SpotlightOff size {} exceeds MAX_SIZE {}",
-        size,
-        SpotlightOff::MAX_SIZE
+        "SpotlightOff size {size} exceeds MAX_SIZE {max_size}",
+        size = size,
+        max_size = SpotlightOff::MAX_SIZE
     );
 }
 

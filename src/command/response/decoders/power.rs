@@ -1,9 +1,11 @@
 //! Power-related response decoders.
 
-use super::super::payload::Payload;
 use crate::{
     command::{
-        response::types::{InquiryKind, Response},
+        response::{
+            payload::Payload,
+            types::{InquiryKind, Response},
+        },
         InquiryData,
     },
     error::Error,

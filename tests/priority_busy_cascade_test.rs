@@ -101,6 +101,4 @@ fn test_priority_order_during_busy_recovery() {
     assert_eq!(results[0], "Critical succeeded", "Critical should be first");
     assert_eq!(results[1], "High succeeded", "High should be second");
     assert_eq!(results[2], "Normal succeeded", "Normal should be last");
-
-    println!("✅ Successfully tested priority ordering during busy recovery concept");
 }

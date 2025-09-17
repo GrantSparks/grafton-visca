@@ -4,8 +4,10 @@
 
 use std::time::Duration;
 
-use grafton_visca::testing::testkit::deterministic_executor::ExecutorExt;
-use grafton_visca::{testing::testkit::deterministic_executor::DeterministicExecutor, Executor};
+use grafton_visca::{
+    testing::testkit::deterministic_executor::{DeterministicExecutor, ExecutorExt},
+    Executor,
+};
 
 #[test]
 fn test_deterministic_executor_with_simple_command() {

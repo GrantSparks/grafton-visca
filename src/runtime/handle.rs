@@ -280,10 +280,8 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
     pub async fn shutdown(&self) {
         // Set the shutdown flag
         self.inner.shutdown.store(true, Ordering::Relaxed);
-        eprintln!("[RuntimeHandle] Sending shutdown signal");
         // Send shutdown signal to runtime loop
         let _ = self.inner.shutdown_tx.send_async(()).await;
-        eprintln!("[RuntimeHandle] Shutdown signal sent");
     }
 
     /// Get current metrics from the runtime scheduler.
@@ -530,8 +528,8 @@ impl<P: Profile, E: crate::executor::Executor> Drop for RuntimeHandle<P, E> {
             }
         } else if std::env::var("RUNTIME_TRACE").is_ok() {
             eprintln!(
-                "[RuntimeHandle] Drop called but {} references remain, not shutting down",
-                Arc::strong_count(&self.inner)
+                "[RuntimeHandle] Drop called but {count} references remain, not shutting down",
+                count = Arc::strong_count(&self.inner)
             );
         }
 

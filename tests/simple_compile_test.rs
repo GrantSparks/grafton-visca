@@ -2,8 +2,10 @@
 
 #[cfg(feature = "mode-async")]
 use grafton_visca::{
-    camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7},
-    camera::AsyncCamera,
+    camera::{
+        profiles::{GenericVisca, PtzOpticsG2, SonyFR7},
+        AsyncCamera,
+    },
     transport::async_transport::AsyncTransport,
 };
 

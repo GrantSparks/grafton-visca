@@ -24,22 +24,17 @@ async fn test_operations_work_with_default_runtime() {
         helpers::auto_respond_step(), // pan_tilt_stop
     ]);
 
-    println!("Creating camera...");
     let runtime = TokioRuntime::from_current().unwrap();
     let camera = CameraBuilder::with_executor(runtime)
         .open_async::<PtzOpticsG2, _>(transport)
         .await
         .unwrap();
-    println!("Camera created successfully");
 
     // Advance tokio time to allow runtime to tick
     tokio::time::advance(std::time::Duration::from_millis(100)).await;
-    println!("Tokio time advanced");
 
     // Simple operations should work with explicit runtime
-    println!("Calling zoom_stop...");
     let result = camera.zoom_stop().await;
-    println!("zoom_stop completed with result: {:?}", result);
     assert!(result.is_ok(), "zoom_stop failed: {:?}", result);
 
     // Pan/tilt operations should work with default runtime

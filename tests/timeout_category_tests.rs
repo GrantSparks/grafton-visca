@@ -8,21 +8,16 @@
 
 #[cfg(all(test, feature = "runtime-tokio", feature = "test-utils"))]
 mod timeout_tests {
-    // External crates
     use grafton_visca::{
-        testing::testkit::{ScriptedTransport, Step},
+        testing::testkit::{helpers, ScriptedTransport, Step},
         transport::AsyncTransport,
         Executor, TokioExecutor,
     };
 
-    // Standard library
-    use std::sync::Arc;
+    use std::{sync::Arc, time::Duration};
 
     #[tokio::test(start_paused = true)]
     async fn test_deterministic_executor_timeout() {
-        // Standard library
-        use std::time::Duration;
-
         let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
 
         // Create a future that never completes
@@ -91,15 +86,12 @@ mod timeout_tests {
 
     #[tokio::test(start_paused = true)]
     async fn test_scripted_transport_no_response() {
-        // External crates
-        use grafton_visca::testing::testkit::helpers::errors;
-
         // Test ScriptedTransport with injected timeout error to avoid stalling
         let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
 
         // Use injected timeout error instead of expecting recv() to timeout on its own
         let mut transport = ScriptedTransport::new(vec![
-            errors::transport_timeout(), // Inject timeout error for recv()
+            helpers::errors::transport_timeout(), // Inject timeout error for recv()
         ])
         .with_executor(executor.clone());
 

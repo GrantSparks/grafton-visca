@@ -28,9 +28,9 @@ pub enum ModeWithSkip {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use std::convert::TryFrom;
+
+    use super::*;
 
     #[test]
     fn test_custom_names_in_error_messages() {

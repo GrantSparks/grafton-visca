@@ -205,10 +205,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 self.response_channels.insert(id, response_tx);
 
                 if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-                    eprintln!(
-                        "[AsyncAdapter] Submitted command id={}, stored response channel",
-                        id
-                    );
+                    eprintln!("[AsyncAdapter] Submitted command id={id}, stored response channel");
                 }
 
                 // Queue command in core
@@ -307,8 +304,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
     pub fn register_sequence(&mut self, cmd_id: u32, sequence: u32) {
         debug_assert!(
             self.core.is_command_pending(cmd_id),
-            "register_sequence called for non-pending command {}",
-            cmd_id
+            "register_sequence called for non-pending command {cmd_id}"
         );
         self.core.register_sequence(cmd_id, sequence);
     }
@@ -467,25 +463,19 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
 
                 if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
                     eprintln!(
-                        "[AsyncAdapter] CommandFailed action for id={}, error={:?}, has_channel={}",
-                        id,
-                        error,
+                        "[AsyncAdapter] CommandFailed action for id={id}, error={error:?}, has_channel={}",
                         self.response_channels.contains_key(&id)
                     );
                 }
 
                 if let Some(tx) = self.response_channels.remove(&id) {
                     if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-                        eprintln!(
-                            "[AsyncAdapter] Sending error to response channel for id={}",
-                            id
-                        );
+                        eprintln!("[AsyncAdapter] Sending error to response channel for id={id}");
                     }
                     let _ = tx.send_async(Err(error)).await;
                 } else if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
                     eprintln!(
-                        "[AsyncAdapter] No response channel found for failed command id={}",
-                        id
+                        "[AsyncAdapter] No response channel found for failed command id={id}"
                     );
                 }
             }
@@ -500,15 +490,14 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                     self.notify_timeout(id);
                 } else if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
                     eprintln!(
-                        "[AsyncAdapter] Timeout for id={} but will retry, keeping future pending",
-                        id
+                        "[AsyncAdapter] Timeout for id={id} but will retry, keeping future pending"
                     );
                 }
             }
             SchedulerAction::RetryCommand { id, delay } => {
                 self.metrics.commands_retried += 1;
 
-                debug!("Scheduling retry for command {} after {:?}", id, delay);
+                debug!("Scheduling retry for command {id} after {delay:?}");
                 // The retry will be picked up by get_ready_retries()
             }
         }
@@ -523,18 +512,12 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
             // Complete the user's future deterministically
             let _ = tx.try_send(Err(Error::Timeout));
             if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-                eprintln!(
-                    "[AsyncAdapter] Timeout: completed future with Error::Timeout (id={})",
-                    id
-                );
+                eprintln!("[AsyncAdapter] Timeout: completed future with Error::Timeout (id={id})");
             }
         } else {
             // No waiter: either already completed/cleaned up or late event
             if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-                eprintln!(
-                    "[AsyncAdapter] Timeout for id={} but no waiter; ignoring",
-                    id
-                );
+                eprintln!("[AsyncAdapter] Timeout for id={id} but no waiter; ignoring");
             }
         }
     }

@@ -105,9 +105,6 @@ impl From<TransportConfig> for UdpSocketConfig {
 #[allow(clippy::expect_used)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    // Tests removed as read_visca_frame is no longer used
-
-    // Tests for read_visca_frame removed as the function is no longer available.
     // The framing is now handled by ProtocolFramer in the runtime loop,
     // and transports only return raw bytes.
 }

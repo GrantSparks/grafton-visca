@@ -3,11 +3,9 @@
 //! This module provides the Mode trait that enables a single API surface
 //! to work in both blocking and async modes through type-state parameters.
 
-// External crates
 #[cfg(feature = "mode-async")]
 use async_lock;
 
-// Standard library
 use core::{future::Ready, pin::Pin};
 use std::future::Future;
 
@@ -171,8 +169,6 @@ impl<T> BlockingFutureExt for Ready<T> {
     fn block(self) -> T {
         // NOTE: Ready futures are immediately ready, so we can use pollster
         // which is zero-cost for already-ready futures
-        #[cfg(test)]
-        eprintln!("BlockingFutureExt::block called for Ready<T>");
         pollster::block_on(self)
     }
 }

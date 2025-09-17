@@ -13,18 +13,20 @@ use std::{
     time::Duration,
 };
 
-#[cfg(feature = "mode-async")]
-use super::deterministic_executor::ExecutorExt;
-#[cfg(feature = "mode-async")]
-use crate::transport::{builder::TransportConfig, HasTransportConfig};
 #[cfg(not(feature = "mode-async"))]
 use crate::{
     command::CommandKind,
     transport::{builder::TransportConfig, BlockingTransport, HasTransportConfig},
 };
 #[cfg(feature = "mode-async")]
-use crate::{executor::Executor, transport::AsyncTransport};
+use crate::{
+    executor::Executor,
+    transport::{builder::TransportConfig, AsyncTransport, HasTransportConfig},
+};
 use crate::{Error, Result};
+
+#[cfg(feature = "mode-async")]
+use super::deterministic_executor::ExecutorExt;
 
 /// Function type for dynamic response generation.
 pub type DynamicResponseFn = Box<dyn Fn(&[u8]) -> Vec<Vec<u8>> + Send + Sync>;
@@ -266,7 +268,6 @@ where
         let response_tx = self.response_tx.clone();
         let executor = self.executor.clone();
 
-        // Record the sent command
         sent.lock()
             .expect("ScriptedBlockingTransport mutex poisoned")
             .push(bytes_vec.clone());
@@ -294,13 +295,11 @@ where
         if let Some(step) = step {
             match step {
                 Step::OnSend { matches, responses } => {
-                    // Check if this send matches the expected pattern
                     let should_respond = matches
                         .as_ref()
                         .map_or(true, |pattern| bytes_vec.starts_with(pattern));
 
                     if should_respond {
-                        // Send responses to the channel immediately
                         for response in responses {
                             let _ = response_tx.send(Ok(response));
                         }
@@ -345,7 +344,6 @@ where
         let steps = self.steps.clone();
         let response_rx = self.response_rx.clone();
 
-        // Check for injected errors first
         {
             let mut steps_guard = steps
                 .lock()
@@ -362,7 +360,6 @@ where
             }
         }
 
-        // Wait for response using recv_async, with optional shutdown handling
         use futures_lite::future;
 
         let next = async {
@@ -389,7 +386,6 @@ where
             next.await
         }?;
 
-        // Copy response data into the provided buffer
         let len = outcome.len().min(dst.len());
         dst[..len].copy_from_slice(&outcome[..len]);
         Ok(len)
@@ -441,7 +437,6 @@ impl ScriptedBlockingTransport {
 #[cfg(not(feature = "mode-async"))]
 impl BlockingTransport for ScriptedBlockingTransport {
     fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<()> {
-        // Record the sent command
         self.sent
             .lock()
             .expect("ScriptedBlockingTransport mutex poisoned")
@@ -486,13 +481,11 @@ impl BlockingTransport for ScriptedBlockingTransport {
         if let Some(step) = step {
             match step {
                 Step::OnSend { matches, responses } => {
-                    // Check if this send matches the expected pattern
                     let should_respond = matches
                         .as_ref()
                         .map_or(true, |pattern| bytes.starts_with(pattern));
 
                     if should_respond {
-                        // Send responses to the channel immediately
                         for response in responses {
                             let _ = self.response_tx.send(Ok(response));
                         }
@@ -564,7 +557,6 @@ impl BlockingTransport for ScriptedBlockingTransport {
     }
 
     fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize> {
-        // Check for injected errors first
         {
             let mut steps = self
                 .steps
@@ -582,7 +574,6 @@ impl BlockingTransport for ScriptedBlockingTransport {
             }
         }
 
-        // Try to get a response from the channel (blocking)
         match self.response_rx.recv_timeout(Duration::from_secs(10)) {
             Ok(Ok(response)) => {
                 let len = response.len().min(dst.len());
@@ -804,14 +795,12 @@ pub mod helpers {
     /// from the incoming command and echoes it back in the responses.
     pub fn sony_auto_respond_step() -> Step {
         Step::DynamicResponse(Box::new(|sent_bytes| {
-            // Extract sequence number from the Sony header (bytes 4-7)
             let sequence = if sent_bytes.len() >= 8 {
                 u32::from_be_bytes([sent_bytes[4], sent_bytes[5], sent_bytes[6], sent_bytes[7]])
             } else {
                 0
             };
 
-            // Generate ACK and completion with matching sequence
             vec![
                 sony_ack_with_sequence(1, sequence),
                 sony_complete_with_sequence(1, sequence),
@@ -910,20 +899,16 @@ mod tests {
             responses: vec![vec![0x90, 0x41, VISCA_TERMINATOR]],
         }]);
 
-        // Send a command
         transport
             .send_with_kind(
                 &[0x81, 0x01, 0x04, 0x00, VISCA_TERMINATOR],
                 CommandKind::Command,
             )
             .unwrap();
-
-        // Should receive the scripted response
         let mut buffer = vec![0u8; 256];
         let n = transport.recv_into(&mut buffer).unwrap();
         assert_eq!(&buffer[..n], &[0x90, 0x41, VISCA_TERMINATOR]);
 
-        // Verify the command was recorded
         let sent = transport.sent();
         assert_eq!(sent.len(), 1);
         assert_eq!(sent[0], vec![0x81, 0x01, 0x04, 0x00, VISCA_TERMINATOR]);
@@ -935,15 +920,12 @@ mod tests {
     fn test_scripted_blocking_transport_no_response() {
         let mut transport = ScriptedBlockingTransport::new(vec![]);
 
-        // Send a command
         transport
             .send_with_kind(
                 &[0x81, 0x01, 0x04, 0x00, VISCA_TERMINATOR],
                 CommandKind::Command,
             )
             .unwrap();
-
-        // Should timeout since no response is scripted
         let mut buffer = vec![0u8; 256];
         let result = transport.recv_into(&mut buffer);
         assert!(matches!(result, Err(Error::Timeout)));
@@ -964,18 +946,14 @@ mod tests {
         }])
         .with_executor(executor.clone());
 
-        // Send a command
         transport
             .send(&[0x81, 0x01, 0x04, 0x00, VISCA_TERMINATOR])
             .await
             .unwrap();
-
-        // Should receive the response immediately
         let mut buffer = vec![0u8; 256];
         let n = transport.recv_into(&mut buffer).await.unwrap();
         assert_eq!(&buffer[..n], &[0x90, 0x41, VISCA_TERMINATOR]);
 
-        // Verify the command was recorded
         let sent = transport.sent();
         assert_eq!(sent.len(), 1);
         assert_eq!(sent[0], vec![0x81, 0x01, 0x04, 0x00, VISCA_TERMINATOR]);

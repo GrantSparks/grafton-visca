@@ -237,8 +237,10 @@ pub fn find_next_frame(buffer: &[u8]) -> Option<(Vec<u8>, &[u8])> {
 mod tests {
     use super::*;
 
-    use crate::command::response::{lift_inquiry, InquiryKind, Response};
-    use crate::command::InquiryData;
+    use crate::command::{
+        response::{lift_inquiry, InquiryKind, Response},
+        InquiryData,
+    };
 
     #[test]
     fn test_decode_ack() {

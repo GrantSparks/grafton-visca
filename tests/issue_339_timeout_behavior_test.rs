@@ -9,12 +9,13 @@
 
 #[cfg(feature = "runtime-tokio")]
 mod timeout_behavior_tests {
+    use std::sync::Arc;
+
     use grafton_visca::{
         camera::CameraBuilder,
         testing::testkit::{ScriptedTransport, Step},
         Error, PowerControl, TokioExecutor,
     };
-    use std::sync::Arc;
 
     /// Test that Error::Timeout injected by transport does not cause issues
     /// This simulates what happens when the nested race generates Operation::RecvErr(Error::Timeout)
@@ -210,13 +211,15 @@ mod timeout_behavior_tests {
     not(feature = "runtime-smol")
 ))]
 mod deterministic_tests {
-    use grafton_visca::testing::testkit::deterministic_executor::DeterministicExecutor;
+    use std::time::Duration;
+
     use grafton_visca::{
         camera::CameraBuilder,
-        testing::testkit::{ScriptedTransport, Step},
+        testing::testkit::{
+            deterministic_executor::DeterministicExecutor, ScriptedTransport, Step,
+        },
         Error, Executor, PowerControl,
     };
-    use std::time::Duration;
 
     /// Test with deterministic executor for precise timeout testing
     #[test]

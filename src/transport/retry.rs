@@ -5,6 +5,7 @@
 
 #[cfg(feature = "mode-async")]
 use std::future::Future;
+
 use std::time::{Duration, Instant};
 
 use super::RetryConfig;
@@ -44,12 +45,9 @@ impl DefaultRetryStrategy {
 
 impl RetryableOperation for DefaultRetryStrategy {
     fn should_retry(&self, error: &Error, attempt: u32, start_time: Instant) -> bool {
-        // Check if error is retryable
         if !error.is_retryable() {
             return false;
         }
-
-        // Check retry limits
         self.config.should_retry(attempt, start_time)
     }
 
@@ -58,7 +56,6 @@ impl RetryableOperation for DefaultRetryStrategy {
             return None;
         }
 
-        // Use error's suggested delay if available, otherwise use config
         let suggested_delay = error.suggested_retry_delay();
         Some(self.config.calculate_delay(attempt, suggested_delay))
     }
@@ -83,34 +80,27 @@ where
     let mut attempts = 0;
 
     loop {
-        // Track attempts (initial + retries)
         attempts += 1;
 
         match operation() {
             Ok(result) => return Ok(result),
             Err(error) => {
-                // Check if error is retryable
                 if !error.is_retryable() {
                     return Err(error);
                 }
 
-                // Calculate how many retries we've done (attempts - 1)
                 let retries_done = attempts - 1;
 
-                // Check if we've exceeded retry limits
                 if retries_done >= config.max_retries {
                     return Err(error);
                 }
 
-                // Check if we've exceeded max duration
                 if start_time.elapsed() >= config.max_retry_duration {
                     return Err(error);
                 }
 
-                // Calculate delay for this retry attempt
                 let delay = config.calculate_delay(retries_done, error.suggested_retry_delay());
 
-                // Wait before retrying
                 std::thread::sleep(delay);
             }
         }
@@ -144,34 +134,27 @@ where
     let mut attempts = 0;
 
     loop {
-        // Track attempts (initial + retries)
         attempts += 1;
 
         match operation().await {
             Ok(result) => return Ok(result),
             Err(error) => {
-                // Check if error is retryable
                 if !error.is_retryable() {
                     return Err(error);
                 }
 
-                // Calculate how many retries we've done (attempts - 1)
                 let retries_done = attempts - 1;
 
-                // Check if we've exceeded retry limits
                 if retries_done >= config.max_retries {
                     return Err(error);
                 }
 
-                // Check if we've exceeded max duration
                 if start_time.elapsed() >= config.max_retry_duration {
                     return Err(error);
                 }
 
-                // Calculate delay for this retry attempt
                 let delay = config.calculate_delay(retries_done, error.suggested_retry_delay());
 
-                // Wait before retrying using the executor
                 executor.sleep(delay).await;
             }
         }
@@ -348,48 +331,39 @@ where
     let mut operation = operation;
 
     loop {
-        // Check if we've exceeded the overall deadline
         if deadline.is_expired() {
             return Err(Error::Timeout);
         }
 
-        // Track attempts (initial + retries)
         attempts += 1;
 
         match operation() {
             Ok(result) => return Ok(result),
             Err(error) => {
-                // Check if error is retryable
                 if !error.is_retryable() {
                     return Err(error);
                 }
 
-                // Calculate how many retries we've done (attempts - 1)
                 let retries_done = attempts - 1;
 
-                // Check if we've exceeded retry limits
                 if retries_done >= retry_config.max_retries {
                     return Err(error);
                 }
 
-                // Check if we've exceeded the deadline or max retry duration
                 if deadline.is_expired() || start_time.elapsed() >= retry_config.max_retry_duration
                 {
                     return Err(error);
                 }
 
-                // Calculate delay for this retry attempt, limited by remaining time
                 let retry_delay =
                     retry_config.calculate_delay(retries_done, error.suggested_retry_delay());
                 let remaining_time = deadline.remaining();
                 let actual_delay = retry_delay.min(remaining_time);
 
-                // Don't wait if there's no time left
                 if actual_delay.is_zero() {
                     return Err(error);
                 }
 
-                // Wait before retrying
                 std::thread::sleep(actual_delay);
             }
         }
@@ -464,43 +438,35 @@ where
             return Err(Error::Timeout);
         }
 
-        // Track attempts (initial + retries)
         attempts += 1;
 
         match operation().await {
             Ok(result) => return Ok(result),
             Err(error) => {
-                // Check if error is retryable
                 if !error.is_retryable() {
                     return Err(error);
                 }
 
-                // Calculate how many retries we've done (attempts - 1)
                 let retries_done = attempts - 1;
 
-                // Check if we've exceeded retry limits
                 if retries_done >= retry_config.max_retries {
                     return Err(error);
                 }
 
-                // Check if we've exceeded the deadline or max retry duration
                 if deadline.is_expired() || start_time.elapsed() >= retry_config.max_retry_duration
                 {
                     return Err(error);
                 }
 
-                // Calculate delay for this retry attempt, limited by remaining time
                 let retry_delay =
                     retry_config.calculate_delay(retries_done, error.suggested_retry_delay());
                 let remaining_time = deadline.remaining();
                 let actual_delay = retry_delay.min(remaining_time);
 
-                // Don't wait if there's no time left
                 if actual_delay.is_zero() {
                     return Err(error);
                 }
 
-                // Wait before retrying using the executor
                 executor.sleep(actual_delay).await;
             }
         }
@@ -510,8 +476,10 @@ where
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
 
     use super::*;
 

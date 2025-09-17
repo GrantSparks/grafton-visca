@@ -14,7 +14,7 @@ mod blocking_tests {
         mode::BlockingFutureExt,
         prelude::blocking::*,
         testing::testkit::{helpers, ScriptedBlockingTransport},
-        Error, PanTiltControl, PowerControl, PresetsControl, ZoomControl,
+        Error, PanTiltControl, PowerControl, PresetNumber, PresetsControl, ZoomControl,
     };
 
     use crate::common::patterns;
@@ -115,8 +115,6 @@ mod blocking_tests {
         ]);
 
         let camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport).unwrap();
-
-        use grafton_visca::PresetNumber;
 
         let preset_id = PresetNumber::new(5).unwrap();
         assert!(camera.preset_set(preset_id).block().is_ok());

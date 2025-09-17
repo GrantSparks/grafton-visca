@@ -5,8 +5,10 @@
 
 #![allow(clippy::expect_used)]
 
-use tokio::sync::{broadcast, RwLock};
-use tokio::time::sleep;
+use tokio::{
+    sync::{broadcast, RwLock},
+    time::sleep,
+};
 
 use std::{
     collections::HashMap,

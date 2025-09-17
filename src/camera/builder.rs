@@ -278,7 +278,6 @@ impl std::fmt::Debug for CameraBuilderWithHandleTransport {
 }
 
 #[cfg(not(feature = "mode-async"))]
-#[cfg(not(feature = "mode-async"))]
 impl CameraBuilderWithHandleTransport {
     /// Set the camera profile.
     pub fn profile<P>(self) -> CameraBuilderWithHandleTransportAndProfile<P>
@@ -314,10 +313,6 @@ impl<P> CameraBuilderWithHandleTransportAndProfile<P>
 where
     P: Profile + Default,
 {
-    /// Override the protocol style.
-    ///
-    /// By default, the camera will use the protocol style declared by the profile.
-    /// This method allows overriding that for specific deployments.
     /// Open the camera with the configured transport.
     ///
     /// This method attaches the provided transport to create a camera instance.
@@ -358,10 +353,6 @@ impl<P> CameraBuilderWithProfile<P>
 where
     P: Profile + Default,
 {
-    /// Override the protocol style.
-    ///
-    /// By default, the camera will use the protocol style declared by the profile.
-    /// This method allows overriding that for specific deployments.
     /// Open the camera connection with the configured settings.
     ///
     /// This method explicitly connects to the camera, making it clear that

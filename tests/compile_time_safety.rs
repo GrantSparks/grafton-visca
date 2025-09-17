@@ -2,7 +2,6 @@
 
 #[cfg(feature = "mode-async")]
 use grafton_visca::camera::AsyncCamera;
-
 #[cfg(not(feature = "mode-async"))]
 use grafton_visca::BlockingCamera;
 

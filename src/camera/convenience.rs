@@ -5,6 +5,7 @@
 
 #[cfg(feature = "mode-async")]
 use crate::camera::{config::CameraConfig, CameraSession};
+
 use crate::{capabilities::Profile, error::Error};
 
 /// Convenience methods for connecting to cameras with one-liner setup.

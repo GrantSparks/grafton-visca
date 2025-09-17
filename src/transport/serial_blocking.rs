@@ -4,12 +4,13 @@
 //! supporting both RS-232 and RS-422 connections with proper
 //! Address Set and I/F Clear initialization.
 
+use tracing::trace;
+
 use std::{
     io::{Read, Write},
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tracing::trace;
 
 use crate::{
     command::CommandKind,
@@ -23,8 +24,6 @@ use crate::{
         BlockingTransport, HasTransportConfig,
     },
 };
-
-// SerialConfig is now imported from the unified serial::Config
 
 /// Serial transport implementation for blocking I/O.
 ///
@@ -96,11 +95,7 @@ impl SerialTransport {
             .map_err(|e| Error::TransportError(format!("Serial write error: {e}").into()))?;
         port.flush()
             .map_err(|e| Error::TransportError(format!("Serial flush error: {e}").into()))?;
-        trace!(
-            "Sent {len} bytes: {bytes:02X?}",
-            len = bytes.len(),
-            bytes = bytes
-        );
+        trace!("Sent {} bytes: {:02X?}", bytes.len(), bytes);
         Ok(())
     }
 }

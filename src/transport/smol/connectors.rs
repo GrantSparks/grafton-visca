@@ -1,14 +1,20 @@
 //! smol-specific implementations of unified async I/O connectors.
 
-use smol::io::{AsyncReadExt, AsyncWriteExt};
-use smol::net::{TcpStream, UdpSocket};
-
-use crate::transport::address::AddressResolver;
-use crate::transport::async_io::{
-    AsyncDatagram, AsyncReadExt as AsyncReadExtTrait, AsyncWriteExt as AsyncWriteExtTrait,
-    TcpConnectionConfig, UdpSocketConfig,
+use smol::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpStream, UdpSocket},
 };
-use crate::Error;
+
+use crate::{
+    transport::{
+        address::AddressResolver,
+        async_io::{
+            AsyncDatagram, AsyncReadExt as AsyncReadExtTrait, AsyncWriteExt as AsyncWriteExtTrait,
+            TcpConnectionConfig, UdpSocketConfig,
+        },
+    },
+    Error,
+};
 
 /// Combined TCP stream wrapper that implements both read and write traits.
 #[derive(Debug)]

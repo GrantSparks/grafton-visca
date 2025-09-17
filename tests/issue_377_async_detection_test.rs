@@ -17,6 +17,8 @@
     not(feature = "runtime-smol")
 ))]
 
+use std::time::Duration;
+
 use grafton_visca::{
     testing::testkit::{DeterministicExecutor, ScriptedTransport, Step},
     transport::{
@@ -25,7 +27,6 @@ use grafton_visca::{
     },
     Executor,
 };
-use std::time::Duration;
 
 #[test]
 fn test_async_detect_sony_encapsulated_with_deterministic_executor() {

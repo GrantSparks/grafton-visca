@@ -10,10 +10,12 @@
     feature = "test-utils"
 ))]
 
-use grafton_visca::camera::{profiles::PtzOpticsG2, CameraBuilder};
-use grafton_visca::runtime::TokioRuntime;
-use grafton_visca::testing::testkit::{helpers, ScriptedTransport, Step};
-use grafton_visca::{TokioExecutor, ZoomControl};
+use grafton_visca::{
+    camera::{profiles::PtzOpticsG2, CameraBuilder},
+    runtime::TokioRuntime,
+    testing::testkit::{helpers, ScriptedTransport, Step},
+    TokioExecutor, ZoomControl,
+};
 
 /// Test that an ACK delivered synchronously from within send() is properly handled.
 ///

@@ -90,7 +90,7 @@ pub fn parse_menu_open_close(data: &[u8]) -> Result<InquiryData, Error> {
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "menu_status",
-                value: Cow::Owned(format!("{value:02X}", value = data[0])),
+                value: Cow::Owned(format!("{:02X}", data[0])),
                 reason: Cow::Borrowed(
                     "Invalid menu status value. Expected 0x02 (closed) or 0x03 (open)",
                 ),
@@ -111,7 +111,7 @@ pub fn parse_auto_focus(data: &[u8]) -> Result<InquiryData, Error> {
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "autofocus_status",
-                value: Cow::Owned(format!("{value:02X}", value = data[0])),
+                value: Cow::Owned(format!("{:02X}", data[0])),
                 reason: Cow::Borrowed(
                     "Invalid autofocus status value. Expected 0x02 (off) or 0x03 (on)",
                 ),
@@ -132,7 +132,7 @@ pub fn parse_tally_status(data: &[u8]) -> Result<InquiryData, Error> {
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "tally_red_status",
-                value: Cow::Owned(format!("{value:02X}", value = data[0])),
+                value: Cow::Owned(format!("{:02X}", data[0])),
                 reason: Cow::Borrowed(
                     "Invalid tally status value. Expected 0x02 (off) or 0x03 (on)",
                 ),
@@ -166,7 +166,7 @@ pub fn parse_night_day_mode(data: &[u8]) -> Result<InquiryData, Error> {
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "night_day_mode",
-                value: Cow::Owned(format!("{value:02X}", value = data[0])),
+                value: Cow::Owned(format!("{:02X}", data[0])),
                 reason: Cow::Borrowed(
                     "Invalid night/day mode value. Expected 0x02 (day) or 0x03 (night)",
                 ),
@@ -201,7 +201,7 @@ pub fn parse_standby(data: &[u8]) -> Result<InquiryData, Error> {
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "standby_mode",
-                value: Cow::Owned(format!("{value:02X}", value = data[0])),
+                value: Cow::Owned(format!("{:02X}", data[0])),
                 reason: Cow::Borrowed(
                     "Invalid standby mode value. Expected 0x02 (active) or 0x03 (standby)",
                 ),
@@ -222,7 +222,7 @@ pub fn parse_tally_green(data: &[u8]) -> Result<InquiryData, Error> {
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "tally_green_status",
-                value: Cow::Owned(format!("{value:02X}", value = data[0])),
+                value: Cow::Owned(format!("{:02X}", data[0])),
                 reason: Cow::Borrowed(
                     "Invalid green tally status value. Expected 0x02 (on) or 0x03 (off)",
                 ),
@@ -259,7 +259,7 @@ pub fn parse_iris_control(data: &[u8]) -> Result<InquiryData, Error> {
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "iris_control",
-                value: Cow::Owned(format!("{value:02X}", value = data[0])),
+                value: Cow::Owned(format!("{:02X}", data[0])),
                 reason: Cow::Borrowed(
                     "Invalid iris control value. Expected 0x02 (manual) or 0x03 (auto)",
                 ),
@@ -280,7 +280,7 @@ pub fn parse_defog_mode(data: &[u8]) -> Result<InquiryData, Error> {
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "defog_mode",
-                value: Cow::Owned(format!("{value:02X}", value = data[0])),
+                value: Cow::Owned(format!("{:02X}", data[0])),
                 reason: Cow::Borrowed("Invalid defog mode value. Expected 0x02 (off) or 0x03 (on)"),
             })
         }
@@ -299,7 +299,7 @@ pub fn parse_digital_ptz(data: &[u8]) -> Result<InquiryData, Error> {
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "digital_ptz",
-                value: Cow::Owned(format!("{value:02X}", value = data[0])),
+                value: Cow::Owned(format!("{:02X}", data[0])),
                 reason: Cow::Borrowed(
                     "Invalid digital Ptz value. Expected 0x02 (off) or 0x03 (on)",
                 ),
@@ -329,7 +329,7 @@ pub fn parse_auto_wb_sensitivity(data: &[u8]) -> Result<InquiryData, Error> {
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "auto_wb_sensitivity",
-                value: Cow::Owned(format!("{value:02X}", value = data[0])),
+                value: Cow::Owned(format!("{:02X}", data[0])),
                 reason: Cow::Borrowed("Invalid auto white balance sensitivity. Expected 0x00 (Low), 0x01 (Normal), or 0x02 (High)"),
             })
         }
@@ -372,7 +372,7 @@ pub fn parse_auto_trace(data: &[u8]) -> Result<InquiryData, Error> {
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "auto_trace",
-                value: Cow::Owned(format!("{value:02X}", value = data[0])),
+                value: Cow::Owned(format!("{:02X}", data[0])),
                 reason: Cow::Borrowed("Invalid auto trace value. Expected 0x02 (off) or 0x03 (on)"),
             })
         }
@@ -391,7 +391,7 @@ pub fn parse_focus_unlock(data: &[u8]) -> Result<InquiryData, Error> {
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "focus_unlock",
-                value: Cow::Owned(format!("{value:02X}", value = data[0])),
+                value: Cow::Owned(format!("{:02X}", data[0])),
                 reason: Cow::Borrowed(
                     "Invalid focus unlock value. Expected 0x02 (locked) or 0x03 (unlocked)",
                 ),

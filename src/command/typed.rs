@@ -8,8 +8,7 @@
 //! - `PanTiltPositionInquiry` -> `crate::camera::PanTiltPosition`
 //! - `ZoomPositionInquiry` -> `u16`
 
-use crate::command::Response;
-use crate::error::Error;
+use crate::{command::Response, error::Error};
 
 // Re-export FlipState from inquiry_types since the derive macro expects it here
 pub use crate::command::inquiry_types::FlipState;
