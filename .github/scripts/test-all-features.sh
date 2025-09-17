@@ -38,37 +38,37 @@ run_test "default features" \
 run_test "no default features (blocking mode)" \
     "cargo test --no-default-features --verbose"
 
-# Test async feature (runtime-agnostic)
-run_test "async feature (runtime-agnostic)" \
-    "cargo test --no-default-features --features async --verbose"
+# Test mode-async feature (runtime-agnostic)
+run_test "mode-async feature (runtime-agnostic)" \
+    "cargo test --no-default-features --features mode-async --verbose"
 
 # Test individual runtime features
-run_test "rt-tokio runtime" \
-    "cargo test --no-default-features --features rt-tokio --verbose"
+run_test "runtime-tokio runtime" \
+    "cargo test --no-default-features --features runtime-tokio --verbose"
 
-run_test "rt-async-std runtime" \
-    "cargo test --no-default-features --features rt-async-std --verbose"
+run_test "runtime-async-std runtime" \
+    "cargo test --no-default-features --features runtime-async-std --verbose"
 
-run_test "rt-smol runtime" \
-    "cargo test --no-default-features --features rt-smol --verbose"
+run_test "runtime-smol runtime" \
+    "cargo test --no-default-features --features runtime-smol --verbose"
 
 # Test test-utils feature
 run_test "test-utils feature" \
     "cargo test --no-default-features --features test-utils --verbose"
 
 # Test runtime + test-utils combinations
-run_test "rt-tokio + test-utils" \
-    "cargo test --no-default-features --features rt-tokio,test-utils --verbose"
+run_test "runtime-tokio + test-utils" \
+    "cargo test --no-default-features --features runtime-tokio,test-utils --verbose"
 
-run_test "rt-async-std + test-utils" \
-    "cargo test --no-default-features --features rt-async-std,test-utils --verbose"
+run_test "runtime-async-std + test-utils" \
+    "cargo test --no-default-features --features runtime-async-std,test-utils --verbose"
 
-run_test "rt-smol + test-utils" \
-    "cargo test --no-default-features --features rt-smol,test-utils --verbose"
+run_test "runtime-smol + test-utils" \
+    "cargo test --no-default-features --features runtime-smol,test-utils --verbose"
 
-# Test legacy compatibility
-run_test "rt-tokio + serialport (legacy)" \
-    "cargo test --no-default-features --features rt-tokio,serialport --verbose"
+# Test transport features
+run_test "runtime-tokio + transport-serial" \
+    "cargo test --no-default-features --features runtime-tokio,transport-serial --verbose"
 
 # Test the macro crate
 run_test "grafton-visca-macros crate" \
@@ -80,11 +80,11 @@ echo -e "${YELLOW}Building examples...${NC}"
 run_test "blocking examples" \
     "cargo build --examples --no-default-features"
 
-run_test "async examples (runtime-agnostic)" \
-    "cargo build --examples --no-default-features --features async"
+run_test "mode-async examples (runtime-agnostic)" \
+    "cargo build --examples --no-default-features --features mode-async"
 
 run_test "tokio examples" \
-    "cargo build --examples --no-default-features --features rt-tokio"
+    "cargo build --examples --no-default-features --features runtime-tokio"
 
 # Summary
 echo "=========================================="
@@ -97,12 +97,12 @@ echo "Feature Matrix Coverage:"
 echo "------------------------"
 echo "✓ Default features"
 echo "✓ Blocking mode (no features)"
-echo "✓ Async (runtime-agnostic)"
+echo "✓ Mode-async (runtime-agnostic)"
 echo "✓ Tokio runtime"
 echo "✓ Async-std runtime"
 echo "✓ Smol runtime"
 echo "✓ Test utilities"
 echo "✓ Runtime + test-utils combinations"
-echo "✓ Legacy compatibility"
+echo "✓ Transport features"
 echo "✓ Macro crate"
 echo "✓ Examples compilation"

@@ -315,8 +315,8 @@ jobs:
         run: cargo miri test --no-default-features
         continue-on-error: true  # Don't fail CI if miri finds issues initially
 
-      - name: Run miri tests (async)
-        run: cargo miri test --no-default-features --features async
+      - name: Run miri tests (mode-async)
+        run: cargo miri test --no-default-features --features mode-async
         continue-on-error: true
 
       - name: Run miri tests (runtime-tokio)
@@ -363,7 +363,7 @@ jobs:
         run: |
           if [[ "${{ matrix.target }}" == "wasm32-unknown-unknown" ]]; then
             # WASM doesn't support certain features
-            cross build --target ${{ matrix.target }} --no-default-features --features async
+            cross build --target ${{ matrix.target }} --no-default-features --features mode-async
           else
             # Other targets can use full features
             cross build --target ${{ matrix.target }} --no-default-features --features runtime-tokio
@@ -496,12 +496,12 @@ jobs:
 
       - name: Run Send futures compile tests (${{ matrix.runtime }})
         run: |
-          cargo test --no-default-features --features async,${{ matrix.runtime }},test-utils \
+          cargo test --no-default-features --features ${{ matrix.runtime }},test-utils \
             --test send_futures_compile_test
 
       - name: Run API stability tests (${{ matrix.runtime }})
         run: |
-          cargo test --no-default-features --features async,${{ matrix.runtime }} \
+          cargo test --no-default-features --features ${{ matrix.runtime }} \
             --test api_stability_test
 
       - name: Test runtime coexistence (${{ matrix.runtime }})
@@ -520,7 +520,7 @@ jobs:
               ;;
           esac
 
-          if cargo check --no-default-features --features async,${{ matrix.runtime }},$other_runtime 2>/dev/null; then
+          if cargo check --no-default-features --features ${{ matrix.runtime }},$other_runtime 2>/dev/null; then
             echo "✅ Runtime coexistence working correctly for ${{ matrix.runtime }} + $other_runtime"
           else
             echo "ERROR: Multiple runtime features should be able to coexist"

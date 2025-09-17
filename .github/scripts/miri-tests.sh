@@ -58,18 +58,18 @@ echo -e "${BLUE}Testing core library (no features)${NC}"
 run_miri_test "Blocking mode (no features)" ""
 
 echo -e "${BLUE}Testing async features${NC}"
-run_miri_test "Async feature" "async"
+run_miri_test "Mode-async feature" "mode-async"
 
 echo -e "${BLUE}Testing runtime implementations${NC}"
-run_miri_test "Tokio runtime" "rt-tokio"
-run_miri_test "Async-std runtime" "rt-async-std"
-run_miri_test "Smol runtime" "rt-smol"
+run_miri_test "Tokio runtime" "runtime-tokio"
+run_miri_test "Async-std runtime" "runtime-async-std"
+run_miri_test "Smol runtime" "runtime-smol"
 
 echo -e "${BLUE}Testing utility features${NC}"
 run_miri_test "Test utilities" "test-utils"
 
 echo -e "${BLUE}Testing combined features${NC}"
-run_miri_test "Tokio + test-utils" "rt-tokio,test-utils"
+run_miri_test "Tokio + test-utils" "runtime-tokio,test-utils"
 
 # Also test specific modules that might have unsafe code
 echo -e "${BLUE}Testing specific modules for safety${NC}"
