@@ -22,7 +22,7 @@
 //!
 //! # Usage
 //!
-//! These generators are used by the InquiryCommand derive macro to automatically
+//! These generators are used by the ViscaInquiry derive macro to automatically
 //! create parser functions based on the `parser` attribute value.
 
 use proc_macro2::TokenStream;

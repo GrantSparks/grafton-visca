@@ -31,7 +31,7 @@ pub use profile_metadata::{
 pub use exposure::Exposure;
 pub use focus::Focus;
 pub use image_processing::ImageProcessing;
-pub use menu_control::{HasDirectMenuControl, MenuControl};
+pub use menu_control::{HasDirectMenuControl, MenuCapability};
 pub use motion_sync::MotionSync;
 pub use nd_filter::{NdFilter, NdFilterMode};
 pub use pan_tilt::PanTilt;
@@ -72,7 +72,7 @@ pub trait Profile:
     + ImageProcessing
     + Presets
     + Power
-    + MenuControl
+    + MenuCapability
     + Sized
     + Send
     + Sync
@@ -91,7 +91,7 @@ impl<T> Profile for T where
         + ImageProcessing
         + Presets
         + Power
-        + MenuControl
+        + MenuCapability
         + Sized
         + Send
         + Sync

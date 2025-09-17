@@ -11,7 +11,7 @@ use crate::{
     transport::{
         address::AddressResolver,
         builder::{AddressingMode, TransportConfig},
-        HasTransportConfig, SyncTransport,
+        BlockingTransport, HasTransportConfig,
     },
     Error,
 };
@@ -123,7 +123,7 @@ impl HasTransportConfig for Tcp {
     }
 }
 
-impl SyncTransport for Tcp {
+impl BlockingTransport for Tcp {
     fn send_with_kind(&mut self, data: &[u8], _kind: CommandKind) -> Result<(), Error> {
         // Send directly - retry logic is handled at the runtime/scheduler level
         self.writer.write_all(data)?;

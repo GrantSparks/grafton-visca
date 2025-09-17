@@ -2,7 +2,7 @@
 //!
 //! This module provides commands for controlling image orientation.
 
-use crate::{timeout::CommandCategory, visca_cmd};
+use crate::{timeout::CommandCategory, visca_command};
 
 /// Image flip state.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -13,7 +13,7 @@ pub enum Flip {
     Off = 0x03,
 }
 
-visca_cmd! {
+visca_command! {
         /// Command to control image flip.
     ///
     /// This command flips the image vertically (upside down).
@@ -23,7 +23,7 @@ visca_cmd! {
     category = CommandCategory::Quick;
 }
 
-visca_cmd! {
+visca_command! {
         /// Command to control horizontal flip (mirror).
     ///
     /// This command flips the image horizontally (left-right mirror).
@@ -33,7 +33,7 @@ visca_cmd! {
     category = CommandCategory::Quick;
 }
 
-visca_cmd! {
+visca_command! {
         /// Command to control image freeze.
     ///
     /// This command freezes the current image frame.

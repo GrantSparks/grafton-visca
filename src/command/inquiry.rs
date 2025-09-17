@@ -7,10 +7,10 @@
 pub use super::inquiry_structs::{
     AutoFocusSensitivityInquiry, AutoTraceInquiry, AutoWhiteBalanceSensitivityInquiry,
     BacklightInquiry, BlackWhiteInquiry, BlackWhiteModeInquiry, BlueGainInquiry, BlueTuningInquiry,
-    BrightInquiry, BroadcastDomainInquiry, ColorTemperatureInquiry, DefogLevelInquiry,
+    BrightnessInquiry, BroadcastDomainInquiry, ColorTemperatureInquiry, DefogLevelInquiry,
     DefogModeInquiry, DigitalInquiry, DigitalPtzInquiry, DynamicRangeInquiry,
     ExposureCompensationInquiry, ExposureCompensationModeInquiry,
-    ExposureCompensationPositionInquiry, ExposureModeInquiry, FlipModeInquiry, FocusModeInquiry,
+    ExposureCompensationPositionInquiry, ExposureModeInquiry, FlipStateInquiry, FocusModeInquiry,
     FocusNearLimitInquiry, FocusPositionInquiry, FocusRangeInquiry, FocusUnlockInquiry,
     FocusZoneInquiry, GainInquiry, GainLimitInquiry, GammaInquiry, HueInquiry, ImageFlipInquiry,
     IrisControlInquiry, IrisInquiry, MenuOpenCloseInquiry, MotionSyncModeInquiry,

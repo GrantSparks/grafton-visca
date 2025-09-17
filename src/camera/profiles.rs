@@ -7,7 +7,7 @@ use std::{fmt, time::Duration};
 
 use crate::{
     capabilities::{
-        CoordinateSystem, Exposure, Focus, ImageProcessing, MenuControl, MotionSync, NdFilter,
+        CoordinateSystem, Exposure, Focus, ImageProcessing, MenuCapability, MotionSync, NdFilter,
         NdFilterMode, PanTilt, Power, Presets, ProfileMetadata, ProtocolStyle, ShutterSpeed,
         VariableSpeed, WhiteBalance, Zoom,
     },
@@ -171,7 +171,7 @@ impl MotionSync for PtzOpticsG2 {
     const SUPPORTS_MOTION_SYNC: bool = true;
     const MAX_MOTION_SYNC_SPEED: u8 = 24;
 }
-impl MenuControl for PtzOpticsG2 {}
+impl MenuCapability for PtzOpticsG2 {}
 
 impl crate::capabilities::HasAutoExposure for PtzOpticsG2 {}
 impl crate::capabilities::HasBacklightCompensation for PtzOpticsG2 {}
@@ -217,7 +217,7 @@ impl Power for GenericVisca {
     const POWER_ON_TIME: Duration = Duration::from_secs(30);
     const SUPPORTS_STANDBY: bool = false;
 }
-impl MenuControl for GenericVisca {}
+impl MenuCapability for GenericVisca {}
 
 impl Exposure for GenericVisca {
     const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1C;
@@ -364,7 +364,7 @@ impl NdFilter for SonyFR7 {
     const ND_MODE: NdFilterMode = NdFilterMode::Variable;
     const ND_STEPS: Option<u8> = None;
 }
-impl MenuControl for SonyFR7 {
+impl MenuCapability for SonyFR7 {
     const SUPPORTS_DIRECT_CONTROL: bool = true;
 }
 
@@ -461,7 +461,7 @@ impl Power for SonyBRCH900 {
     const POWER_ON_TIME: Duration = Duration::from_secs(12);
     const SUPPORTS_STANDBY: bool = true;
 }
-impl MenuControl for SonyBRCH900 {}
+impl MenuCapability for SonyBRCH900 {}
 
 /// Sony EVI-H100 camera profile.
 ///
@@ -541,7 +541,7 @@ impl ImageProcessing for SonyEVIH100 {
     const SUPPORTS_3D_NR: bool = false;
 }
 
-impl MenuControl for SonyEVIH100 {}
+impl MenuCapability for SonyEVIH100 {}
 
 /// Sony BRC-300 camera profile.
 ///
@@ -622,7 +622,7 @@ impl ImageProcessing for SonyBRC300 {
     const SUPPORTS_3D_NR: bool = false;
 }
 
-impl MenuControl for SonyBRC300 {}
+impl MenuCapability for SonyBRC300 {}
 
 /// Nearus BRC-300 camera profile.
 ///
@@ -701,7 +701,7 @@ impl ImageProcessing for NearusBRC300 {
     const SUPPORTS_NOISE_REDUCTION: bool = false;
 }
 
-impl MenuControl for NearusBRC300 {}
+impl MenuCapability for NearusBRC300 {}
 
 /// PtzOptics G3 camera profile.
 ///
@@ -780,7 +780,7 @@ impl Power for PtzOpticsG3 {
     const POWER_ON_TIME: Duration = Duration::from_secs(10);
     const SUPPORTS_STANDBY: bool = true;
 }
-impl MenuControl for PtzOpticsG3 {}
+impl MenuCapability for PtzOpticsG3 {}
 
 impl MotionSync for PtzOpticsG3 {
     const SUPPORTS_MOTION_SYNC: bool = true;
@@ -864,7 +864,7 @@ impl Power for PtzOptics30X {
     const POWER_ON_TIME: Duration = Duration::from_secs(10);
     const SUPPORTS_STANDBY: bool = true;
 }
-impl MenuControl for PtzOptics30X {}
+impl MenuCapability for PtzOptics30X {}
 
 impl MotionSync for PtzOptics30X {
     const SUPPORTS_MOTION_SYNC: bool = true;

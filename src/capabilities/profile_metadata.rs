@@ -142,7 +142,7 @@ impl<T: ProfileMetadata + crate::capabilities::WhiteBalance> HasWhiteBalance for
 impl<T: ProfileMetadata + crate::capabilities::ImageProcessing> HasImageProcessing for T {}
 impl<T: ProfileMetadata + crate::capabilities::Presets> HasPresets for T {}
 impl<T: ProfileMetadata + crate::capabilities::Power> HasPower for T {}
-impl<T: ProfileMetadata + crate::capabilities::MenuControl> HasMenuControl for T {}
+impl<T: ProfileMetadata + crate::capabilities::MenuCapability> HasMenuControl for T {}
 impl<T: ProfileMetadata + crate::capabilities::MotionSync> HasMotionSync for T {}
 impl<T: ProfileMetadata + crate::capabilities::VariableSpeed> HasVariableSpeed for T {}
 impl<T: ProfileMetadata + crate::capabilities::NdFilter> HasNdFilter for T {}

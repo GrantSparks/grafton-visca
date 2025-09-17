@@ -136,7 +136,7 @@ fn test_image_flip_inquiry() {
     // Test image flip inquiry response parsing
     let payload = vec![0x90, 0x50, 0x03, 0xFF]; // Both vertical and horizontal
 
-    let result = Response::parse_with_type(&payload, &ResponseKind::ImageFlip);
+    let result = Response::parse_with_type(&payload, &ResponseKind::FlipState);
     assert!(
         result.is_ok(),
         "Failed to parse image flip response: {:?}",
@@ -144,7 +144,7 @@ fn test_image_flip_inquiry() {
     );
 
     match result.unwrap() {
-        Response::Inquiry(InquiryResponse::ImageFlip {
+        Response::Inquiry(InquiryResponse::FlipState {
             vertical,
             horizontal,
         }) => {
@@ -161,7 +161,7 @@ fn test_brightness_inquiry() {
     // Brightness uses 4 nibbles to encode position (0x0008 = 8)
     let payload = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x08, 0xFF];
 
-    let result = Response::parse_with_type(&payload, &ResponseKind::Bright);
+    let result = Response::parse_with_type(&payload, &ResponseKind::Brightness);
     assert!(
         result.is_ok(),
         "Failed to parse brightness response: {:?}",
@@ -169,7 +169,7 @@ fn test_brightness_inquiry() {
     );
 
     match result.unwrap() {
-        Response::Inquiry(InquiryResponse::Bright { position }) => {
+        Response::Inquiry(InquiryResponse::Brightness { position }) => {
             assert_eq!(position, 0x0008, "Brightness position mismatch");
         }
         _ => panic!("ViscaResponse type mismatch"),

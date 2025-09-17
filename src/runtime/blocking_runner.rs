@@ -32,7 +32,7 @@ use crate::{
         buffer::{BufferConfig, BufferManager},
         builder::AddressingMode,
         envelope::TransportEnvelope,
-        HasTransportConfig, RetryConfig, SyncTransport,
+        BlockingTransport, HasTransportConfig, RetryConfig,
     },
 };
 
@@ -115,7 +115,7 @@ impl<P: Profile> BlockingRunner<P> {
     }
 
     /// Send a command and wait for the response.
-    pub fn send_command<T: SyncTransport + HasTransportConfig>(
+    pub fn send_command<T: BlockingTransport + HasTransportConfig>(
         &mut self,
         transport: &mut T,
         command: &(impl ViscaCommand + std::fmt::Debug + Clone + 'static),
@@ -165,7 +165,7 @@ impl<P: Profile> BlockingRunner<P> {
     }
 
     /// Run the scheduler until a specific command completes.
-    fn run_until_complete<T: SyncTransport + HasTransportConfig>(
+    fn run_until_complete<T: BlockingTransport + HasTransportConfig>(
         &mut self,
         transport: &mut T,
         target_cmd_id: u32,

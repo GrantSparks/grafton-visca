@@ -5,7 +5,7 @@ use std::borrow::Cow;
 use super::super::payload::{Nibbles, Payload};
 use crate::{
     command::{
-        image::{BlackWhiteMode, NrMode, NrSpeed, SharpnessMode},
+        image::{BlackWhiteMode, NoiseReductionMode, NoiseReductionSpeed, SharpnessMode},
         response::types::{Response, ResponseKind},
         InquiryResponse,
     },
@@ -110,46 +110,38 @@ pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<
                 level,
             })))
         }
-        ResponseKind::NrMode => {
+        ResponseKind::NoiseReductionMode => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            let mode = match NrMode::try_from(payload.as_slice()[0]) {
+            let mode = match NoiseReductionMode::try_from(payload.as_slice()[0]) {
                 Ok(mode) => mode,
                 Err(e) => return Some(Err(e)),
             };
-            Some(Ok(Response::Inquiry(InquiryResponse::NrMode { mode })))
+            Some(Ok(Response::Inquiry(InquiryResponse::NoiseReductionMode {
+                mode,
+            })))
         }
-        ResponseKind::NrSpeed => {
+        ResponseKind::NoiseReductionSpeed => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            let speed = match NrSpeed::try_from(payload.as_slice()[0]) {
+            let speed = match NoiseReductionSpeed::try_from(payload.as_slice()[0]) {
                 Ok(speed) => speed,
                 Err(e) => return Some(Err(e)),
             };
-            Some(Ok(Response::Inquiry(InquiryResponse::NrSpeed { speed })))
+            Some(Ok(Response::Inquiry(
+                InquiryResponse::NoiseReductionSpeed { speed },
+            )))
         }
-        ResponseKind::ImageFlip => {
+        ResponseKind::FlipState => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
             let value = payload.as_slice()[0];
-            Some(Ok(Response::Inquiry(InquiryResponse::ImageFlip {
+            Some(Ok(Response::Inquiry(InquiryResponse::FlipState {
                 horizontal: (value & 0x01) != 0,
                 vertical: (value & 0x02) != 0,
-            })))
-        }
-        ResponseKind::FlipMode => {
-            if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
-            }
-            let mode = payload.as_slice()[0];
-            let horizontal = (mode & 0x01) != 0;
-            let vertical = (mode & 0x02) != 0;
-            Some(Ok(Response::Inquiry(InquiryResponse::FlipMode {
-                horizontal,
-                vertical,
             })))
         }
         ResponseKind::DynamicRange => {

@@ -6,7 +6,7 @@
 //!
 //! ## Consolidated Macros
 //!
-//! - `visca_cmd!` - Unified macro for commands expecting ACK/Completion responses
+//! - `visca_command!` - Unified macro for commands expecting ACK/Completion responses
 //! - `visca_bytes!`, `visca_prefix!` - Const utilities for byte sequences
 
 // str_to_command_category and str_bytes functions removed - now using typed parameters
@@ -42,7 +42,7 @@ macro_rules! visca_prefix {
 ///
 /// For simple commands with fixed bytes:
 /// ```ignore
-/// visca_cmd! {
+/// visca_command! {
 ///     /// Power on the camera
 ///     pub struct PowerOn;
 ///     bytes = [0x01, 0x04, 0x00, 0x02];
@@ -52,7 +52,7 @@ macro_rules! visca_prefix {
 ///
 /// For commands with parameters:
 /// ```ignore
-/// visca_cmd! {
+/// visca_command! {
 ///     pub struct ImageFlip { mode: Flip };
 ///     prefix = [0x01, 0x06, 0x61];
 ///     param = match mode { Flip::On => 0x02, Flip::Off => 0x03 };

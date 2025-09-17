@@ -1,178 +1,178 @@
 //! Inquiry command structs using derive macro.
 //!
-//! This module uses the InquiryCommand derive macro to generate
+//! This module uses the ViscaInquiry derive macro to generate
 //! Command implementations for all inquiry types.
 
-use grafton_visca_macros::InquiryCommand;
+use grafton_visca_macros::ViscaInquiry;
 
 // Power and System Inquiries
 
 /// Inquiry command to get the current power state of the camera.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x00,
+    opcode = 0x00,
     response = "Power",
     parser = "bool",
-    constant = "POWER"
+    bytes_const = "POWER"
 )]
 pub struct PowerInquiry;
 
 /// Inquiry command to get the camera version information.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x02,
-    sub_command = 0x00,
+    opcode = 0x02,
+    subcode = 0x00,
     response = "Version",
-    constant = "VERSION"
+    bytes_const = "VERSION"
 )]
 pub struct VersionInquiry;
 
 // Position Inquiries
 
 /// Inquiry command to get the current pan/tilt position.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x12,
-    sub_command = 0x06,
+    opcode = 0x12,
+    subcode = 0x06,
     response = "PanTiltPosition",
     parser = "pan_tilt",
-    constant = "PAN_TILT_POSITION"
+    bytes_const = "PAN_TILT_POSITION"
 )]
 pub struct PanTiltPositionInquiry;
 
 /// Inquiry command to get the current zoom position.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x47,
+    opcode = 0x47,
     response = "ZoomPosition",
     parser = "position",
-    constant = "ZOOM_POSITION"
+    bytes_const = "ZOOM_POSITION"
 )]
 pub struct ZoomPositionInquiry;
 
 /// Inquiry command to get the current focus position.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x48,
+    opcode = 0x48,
     response = "FocusPosition",
     parser = "position",
-    constant = "FOCUS_POSITION"
+    bytes_const = "FOCUS_POSITION"
 )]
 pub struct FocusPositionInquiry;
 
 // Exposure Inquiries
 
 /// Inquiry command to get the current exposure mode setting.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x39,
+    opcode = 0x39,
     response = "ExposureMode",
     parser = "mode",
-    type = "ExposureMode",
-    constant = "EXPOSURE_MODE"
+    value_type = "ExposureMode",
+    bytes_const = "EXPOSURE_MODE"
 )]
 pub struct ExposureModeInquiry;
 
 /// Inquiry command to get the current exposure compensation value.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x4E,
+    opcode = 0x4E,
     response = "ExposureCompensation",
     parser = "custom",
-    custom_fn = "parse_exposure_compensation",
-    constant = "EXPOSURE_COMPENSATION"
+    parse_with = "parse_exposure_compensation",
+    bytes_const = "EXPOSURE_COMPENSATION"
 )]
 pub struct ExposureCompensationInquiry;
 
 /// Inquiry command to get the exposure compensation mode on/off status.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x3E,
+    opcode = 0x3E,
     response = "ExposureCompensationMode",
     parser = "bool",
-    constant = "EXPOSURE_COMPENSATION_MODE"
+    bytes_const = "EXPOSURE_COMPENSATION_MODE"
 )]
 pub struct ExposureCompensationModeInquiry;
 
 /// Inquiry command to get the current iris position value.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x4B,
+    opcode = 0x4B,
     response = "Iris",
     parser = "custom",
-    custom_fn = "parse_iris_last_nibble",
-    constant = "IRIS"
+    parse_with = "parse_iris_last_nibble",
+    bytes_const = "IRIS"
 )]
 pub struct IrisInquiry;
 
 /// Inquiry command to get the current shutter speed setting.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x4A,
+    opcode = 0x4A,
     response = "Shutter",
     parser = "custom",
-    custom_fn = "parse_shutter",
-    constant = "SHUTTER"
+    parse_with = "parse_shutter",
+    bytes_const = "SHUTTER"
 )]
 pub struct ShutterInquiry;
 
 /// Inquiry command to get the current brightness adjustment value.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x4D,
-    response = "Bright",
+    opcode = 0x4D,
+    response = "Brightness",
     parser = "position",
-    constant = "BRIGHT"
+    bytes_const = "BRIGHT"
 )]
-pub struct BrightInquiry;
+pub struct BrightnessInquiry;
 
 // White Balance and Color Inquiries
 
 /// Inquiry command to get the current white balance mode.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x35,
+    opcode = 0x35,
     response = "WhiteBalanceMode",
     parser = "mode",
-    type = "WhiteBalanceMode",
-    constant = "WHITE_BALANCE_MODE"
+    value_type = "WhiteBalanceMode",
+    bytes_const = "WHITE_BALANCE_MODE"
 )]
 pub struct WhiteBalanceModeInquiry;
 
 /// Inquiry command to get the current color temperature value.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x20,
+    opcode = 0x20,
     response = "ColorTemperature",
     parser = "custom",
-    custom_fn = "parse_color_temperature",
-    constant = "COLOR_TEMPERATURE"
+    parse_with = "parse_color_temperature",
+    bytes_const = "COLOR_TEMPERATURE"
 )]
 pub struct ColorTemperatureInquiry;
 
 /// Inquiry command to get the current red gain value.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x12,
-    sub_command = 0x0A,
+    opcode = 0x12,
+    subcode = 0x0A,
     response = "RedChannel",
     parser = "offset",
     field = "gain",
     offset = 10,
-    constant = "RED_GAIN"
+    bytes_const = "RED_GAIN"
 )]
 pub struct RedGainInquiry;
 
 /// Inquiry command to get the current blue gain value.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x13,
-    sub_command = 0x0A,
+    opcode = 0x13,
+    subcode = 0x0A,
     response = "BlueChannel",
     parser = "offset",
     field = "gain",
     offset = 10,
-    constant = "BLUE_GAIN"
+    bytes_const = "BLUE_GAIN"
 )]
 pub struct BlueGainInquiry;
 
@@ -183,208 +183,208 @@ pub struct BlueGainInquiry;
 // rather than actual inquiry opcodes. Commenting out until proper documentation is found.
 
 // /// Inquiry command to get the current luminance setting.
-// #[derive(InquiryCommand, Debug, Copy, Clone)]
+// #[derive(ViscaInquiry, Debug, Copy, Clone)]
 // #[visca(
-//     command = 0x4D,
-//     sub_command = 0x50,
+//     opcode = 0x4D,
+//     subcode = 0x50,
 //     response = "Luminance",
 //     parser = "byte"
 // )]
 // pub struct LuminanceInquiry;
 
 // /// Inquiry command to get the current contrast level.
-// #[derive(InquiryCommand, Debug, Copy, Clone)]
+// #[derive(ViscaInquiry, Debug, Copy, Clone)]
 // #[visca(
-//     command = 0x4E,
-//     sub_command = 0x50,
+//     opcode = 0x4E,
+//     subcode = 0x50,
 //     response = "Contrast",
 //     parser = "byte"
 // )]
 // pub struct ContrastInquiry;
 
 // /// Inquiry command to get the current sharpness level.
-// #[derive(InquiryCommand, Debug, Copy, Clone)]
+// #[derive(ViscaInquiry, Debug, Copy, Clone)]
 // #[visca(
-//     command = 0x42,
+//     opcode = 0x42,
 //     response = "Sharpness",
 //     parser = "custom",
-//     custom_fn = "parse_middle_nibbles"
+//     parse_with = "parse_middle_nibbles"
 // )]
 // pub struct SharpnessInquiry;
 
 /// Inquiry command to get the current sharpness mode on/off status.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x05,
+    opcode = 0x05,
     response = "SharpnessMode",
     parser = "custom",
-    custom_fn = "parse_sharpness_mode",
-    constant = "SHARPNESS_MODE"
+    parse_with = "parse_sharpness_mode",
+    bytes_const = "SHARPNESS_MODE"
 )]
 pub struct SharpnessModeInquiry;
 
 /// Inquiry command to get the current color saturation level.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x49,
+    opcode = 0x49,
     response = "Saturation",
     parser = "custom",
-    custom_fn = "parse_saturation_last_nibble",
-    constant = "SATURATION"
+    parse_with = "parse_saturation_last_nibble",
+    bytes_const = "SATURATION"
 )]
 pub struct SaturationInquiry;
 
 /// Inquiry command to get the current hue adjustment value.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x4F,
+    opcode = 0x4F,
     response = "Hue",
     parser = "custom",
-    custom_fn = "parse_hue_last_nibble",
-    constant = "HUE"
+    parse_with = "parse_hue_last_nibble",
+    bytes_const = "HUE"
 )]
 pub struct HueInquiry;
 
 // Gain Inquiries
 
 /// Inquiry command to get the current gain value.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x4C,
+    opcode = 0x4C,
     response = "Gain",
     parser = "custom",
-    custom_fn = "parse_gain_last_nibble",
-    constant = "GAIN"
+    parse_with = "parse_gain_last_nibble",
+    bytes_const = "GAIN"
 )]
 pub struct GainInquiry;
 
 /// Inquiry command to get the current gain limit setting.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x2C,
+    opcode = 0x2C,
     response = "GainLimit",
     parser = "byte",
-    constant = "GAIN_LIMIT"
+    bytes_const = "GAIN_LIMIT"
 )]
 pub struct GainLimitInquiry;
 
 // Image Processing Inquiries
 
 /// Inquiry command to get the backlight compensation mode.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x33,
+    opcode = 0x33,
     response = "Backlight",
     parser = "bool",
-    constant = "BACKLIGHT"
+    bytes_const = "BACKLIGHT"
 )]
 pub struct BacklightInquiry;
 
 /// Inquiry command to get the image flip (mirror/reverse) settings.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x66,
-    response = "ImageFlip",
+    opcode = 0x66,
+    response = "FlipState",
     parser = "flags",
-    constant = "IMAGE_FLIP"
+    bytes_const = "IMAGE_FLIP"
 )]
 pub struct ImageFlipInquiry;
 
 /// Inquiry command to get the black and white mode on/off status.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x01,
+    opcode = 0x01,
     response = "BlackWhite",
     parser = "bool",
-    constant = "BLACK_WHITE"
+    bytes_const = "BLACK_WHITE"
 )]
 pub struct BlackWhiteInquiry;
 
 /// Inquiry command to get the 2D noise reduction level.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x53,
+    opcode = 0x53,
     response = "NoiseReduction2D",
     parser = "byte",
-    constant = "NOISE_REDUCTION_2D"
+    bytes_const = "NOISE_REDUCTION_2D"
 )]
 pub struct NoiseReduction2DInquiry;
 
 /// Inquiry command to get the 3D noise reduction level.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x54,
+    opcode = 0x54,
     response = "NoiseReduction3D",
     parser = "byte",
-    constant = "NOISE_REDUCTION_3D"
+    bytes_const = "NOISE_REDUCTION_3D"
 )]
 pub struct NoiseReduction3DInquiry;
 
 /// Inquiry command to get the dynamic range mode/level.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x25,
+    opcode = 0x25,
     response = "DynamicRange",
     parser = "byte",
-    constant = "DYNAMIC_RANGE"
+    bytes_const = "DYNAMIC_RANGE"
 )]
 pub struct DynamicRangeInquiry;
 
 // Focus Inquiries
 
 /// Inquiry command to get the current focus zone selection.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x3C,
+    opcode = 0x3C,
     response = "FocusZone",
     parser = "mode",
-    type = "FocusZone",
-    constant = "FOCUS_ZONE"
+    value_type = "FocusZone",
+    bytes_const = "FOCUS_ZONE"
 )]
 pub struct FocusZoneInquiry;
 
 /// Inquiry command to get the auto-focus sensitivity setting.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x58,
+    opcode = 0x58,
     response = "AutoFocusSensitivity",
     parser = "mode",
-    type = "AutoFocusSensitivity",
-    constant = "AUTO_FOCUS_SENSITIVITY"
+    value_type = "AutoFocusSensitivity",
+    bytes_const = "AUTO_FOCUS_SENSITIVITY"
 )]
 pub struct AutoFocusSensitivityInquiry;
 
 /// Inquiry command to get the focus near limit position.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x28,
+    opcode = 0x28,
     response = "FocusNearLimit",
     parser = "position",
-    constant = "FOCUS_NEAR_LIMIT"
+    bytes_const = "FOCUS_NEAR_LIMIT"
 )]
 pub struct FocusNearLimitInquiry;
 
 /// Inquiry command to get the current focus mode (Auto/Manual).
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x38,
+    opcode = 0x38,
     response = "FocusMode",
     parser = "mode",
-    type = "FocusMode",
-    constant = "FOCUS_MODE"
+    value_type = "FocusMode",
+    bytes_const = "FOCUS_MODE"
 )]
 pub struct FocusModeInquiry;
 
 // System State Inquiries
 
 /// Inquiry command to get the menu open/close status.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x06,
+    opcode = 0x06,
     response = "MenuOpenClose",
     parser = "custom",
-    custom_fn = "parse_menu_open_close",
-    constant = "MENU_OPEN_CLOSE"
+    parse_with = "parse_menu_open_close",
+    bytes_const = "MENU_OPEN_CLOSE"
 )]
 pub struct MenuOpenCloseInquiry;
 
@@ -392,365 +392,365 @@ pub struct MenuOpenCloseInquiry;
 // NOTE: AutoFocus inquiry is not documented in VISCA specs
 // and has been disabled until proper documentation is found.
 
-// #[derive(InquiryCommand, Debug, Copy, Clone)]
+// #[derive(ViscaInquiry, Debug, Copy, Clone)]
 // #[visca(
-//     command = 0x18,
+//     opcode = 0x18,
 //     response = "AutoFocus",
 //     parser = "custom",
-//     custom_fn = "parse_auto_focus"
+//     parse_with = "parse_auto_focus"
 // )]
 // pub struct AutoFocusInquiry;
 /// Inquiry command to get the tally light status (red and green).
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0xA8,
+    opcode = 0xA8,
     response = "TallyStatus",
     parser = "custom",
-    custom_fn = "parse_tally_status",
-    constant = "TALLY_STATUS"
+    parse_with = "parse_tally_status",
+    bytes_const = "TALLY_STATUS"
 )]
 pub struct TallyStatusInquiry;
 
 // The TallyGreenInquiry is manually implemented below due to its special format
 
 /// Inquiry command to get the current video resolution mode.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x63,
+    opcode = 0x63,
     response = "Resolution",
     parser = "byte",
-    constant = "RESOLUTION"
+    bytes_const = "RESOLUTION"
 )]
 pub struct ResolutionInquiry;
 
 /// Inquiry command to get the night/day mode status.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x60,
+    opcode = 0x60,
     response = "NightDayMode",
     parser = "custom",
-    custom_fn = "parse_night_day_mode",
-    constant = "NIGHT_DAY_MODE"
+    parse_with = "parse_night_day_mode",
+    bytes_const = "NIGHT_DAY_MODE"
 )]
 pub struct NightDayModeInquiry;
 
 /// Inquiry command to get the ND filter position.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x64,
+    opcode = 0x64,
     response = "NdFilter",
     parser = "custom",
-    custom_fn = "parse_nd_filter",
-    constant = "ND_FILTER"
+    parse_with = "parse_nd_filter",
+    bytes_const = "ND_FILTER"
 )]
 pub struct NdFilterInquiry;
 
 /// Inquiry command to get the current picture effect mode.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x32,
+    opcode = 0x32,
     response = "PictureEffect",
     parser = "custom",
-    custom_fn = "parse_picture_effect",
-    constant = "PICTURE_EFFECT"
+    parse_with = "parse_picture_effect",
+    bytes_const = "PICTURE_EFFECT"
 )]
 pub struct PictureEffectInquiry;
 
 /// Inquiry command to get the current flip mode (combined horizontal/vertical).
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x65,
-    response = "FlipMode",
+    opcode = 0x65,
+    response = "FlipState",
     parser = "custom",
-    custom_fn = "parse_flip_mode",
-    constant = "FLIP_MODE"
+    parse_with = "parse_flip_mode",
+    bytes_const = "FLIP_MODE"
 )]
-pub struct FlipModeInquiry;
+pub struct FlipStateInquiry;
 
 /// Inquiry command to get the standby mode status.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x70,
+    opcode = 0x70,
     response = "Standby",
     parser = "custom",
-    custom_fn = "parse_standby",
-    constant = "STANDBY"
+    parse_with = "parse_standby",
+    bytes_const = "STANDBY"
 )]
 pub struct StandbyInquiry;
 
 /// Inquiry command to get the focus range setting.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x2A,
+    opcode = 0x2A,
     response = "FocusRange",
     parser = "custom",
-    custom_fn = "parse_focus_range",
-    constant = "FOCUS_RANGE"
+    parse_with = "parse_focus_range",
+    bytes_const = "FOCUS_RANGE"
 )]
 pub struct FocusRangeInquiry;
 
 /// Inquiry command to get the iris control mode.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x2B,
+    opcode = 0x2B,
     response = "IrisControl",
     parser = "custom",
-    custom_fn = "parse_iris_control",
-    constant = "IRIS_CONTROL"
+    parse_with = "parse_iris_control",
+    bytes_const = "IRIS_CONTROL"
 )]
 pub struct IrisControlInquiry;
 
 /// Inquiry command to get the defog mode status.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x37,
+    opcode = 0x37,
     response = "DefogMode",
     parser = "custom",
-    custom_fn = "parse_defog_mode",
-    constant = "DEFOG_MODE"
+    parse_with = "parse_defog_mode",
+    bytes_const = "DEFOG_MODE"
 )]
 pub struct DefogModeInquiry;
 
 /// Inquiry command to get the defog level.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0xA0,
+    opcode = 0xA0,
     response = "DefogLevel",
     parser = "custom",
-    custom_fn = "parse_defog_level",
-    constant = "DEFOG_LEVEL"
+    parse_with = "parse_defog_level",
+    bytes_const = "DEFOG_LEVEL"
 )]
 pub struct DefogLevelInquiry;
 
 /// Inquiry command to get the digital Ptz mode status.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x6B,
+    opcode = 0x6B,
     response = "DigitalPtz",
     parser = "custom",
-    custom_fn = "parse_digital_ptz",
-    constant = "DIGITAL_PTZ"
+    parse_with = "parse_digital_ptz",
+    bytes_const = "DIGITAL_PTZ"
 )]
 pub struct DigitalPtzInquiry;
 
 // Additional Inquiries
 
 /// Inquiry command to get the auto white balance sensitivity setting.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x59,
+    opcode = 0x59,
     response = "AutoWhiteBalanceSensitivity",
     parser = "custom",
-    custom_fn = "parse_auto_wb_sensitivity",
-    constant = "AUTO_WB_SENSITIVITY"
+    parse_with = "parse_auto_wb_sensitivity",
+    bytes_const = "AUTO_WB_SENSITIVITY"
 )]
 pub struct AutoWhiteBalanceSensitivityInquiry;
 
 /// Inquiry command to get the exposure compensation position.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x4E,
+    opcode = 0x4E,
     response = "ExposureCompensationPosition",
     parser = "custom",
-    custom_fn = "parse_exposure_compensation_position",
-    constant = "EXPOSURE_COMPENSATION_POSITION"
+    parse_with = "parse_exposure_compensation_position",
+    bytes_const = "EXPOSURE_COMPENSATION_POSITION"
 )]
 pub struct ExposureCompensationPositionInquiry;
 
 /// Inquiry command to get the red channel tuning level.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x43,
+    opcode = 0x43,
     response = "RedTuning",
     parser = "custom",
-    custom_fn = "parse_red_tuning",
-    constant = "RED_TUNING"
+    parse_with = "parse_red_tuning",
+    bytes_const = "RED_TUNING"
 )]
 pub struct RedTuningInquiry;
 
 /// Inquiry command to get the blue channel tuning level.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x44,
+    opcode = 0x44,
     response = "BlueTuning",
     parser = "custom",
-    custom_fn = "parse_blue_tuning",
-    constant = "BLUE_TUNING"
+    parse_with = "parse_blue_tuning",
+    bytes_const = "BLUE_TUNING"
 )]
 pub struct BlueTuningInquiry;
 
 /// Inquiry command to get the current gamma curve setting.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x5B,
+    opcode = 0x5B,
     response = "Gamma",
     parser = "custom",
-    custom_fn = "parse_gamma",
-    constant = "GAMMA"
+    parse_with = "parse_gamma",
+    bytes_const = "GAMMA"
 )]
 pub struct GammaInquiry;
 
 /// Inquiry command to get the auto trace mode status.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x09,
-    sub_command = 0x50,
+    opcode = 0x09,
+    subcode = 0x50,
     response = "AutoTrace",
     parser = "custom",
-    custom_fn = "parse_auto_trace",
-    constant = "AUTO_TRACE"
+    parse_with = "parse_auto_trace",
+    bytes_const = "AUTO_TRACE"
 )]
 pub struct AutoTraceInquiry;
 
 /// Inquiry command to get the focus unlock state.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x08,
-    sub_command = 0x54,
+    opcode = 0x08,
+    subcode = 0x54,
     response = "FocusUnlock",
     parser = "custom",
-    custom_fn = "parse_focus_unlock",
-    constant = "FOCUS_UNLOCK"
+    parse_with = "parse_focus_unlock",
+    bytes_const = "FOCUS_UNLOCK"
 )]
 pub struct FocusUnlockInquiry;
 
 /// Inquiry command to get the current sharpness position.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x42,
+    opcode = 0x42,
     response = "SharpnessPosition",
     parser = "position",
-    constant = "SHARPNESS_POSITION"
+    bytes_const = "SHARPNESS_POSITION"
 )]
 pub struct SharpnessPositionInquiry;
 
 /// Inquiry command to get the noise reduction level.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x52,
-    response = "NrLevel",
+    opcode = 0x52,
+    response = "NoiseReductionLevel",
     parser = "byte",
-    constant = "NR_LEVEL"
+    bytes_const = "NR_LEVEL"
 )]
 pub struct NrLevelInquiry;
 
 /// Inquiry command to get the broadcast domain setting.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x75,
+    opcode = 0x75,
     response = "BroadcastDomain",
     parser = "byte",
-    constant = "BROADCAST_DOMAIN"
+    bytes_const = "BROADCAST_DOMAIN"
 )]
 pub struct BroadcastDomainInquiry;
 
 // System and Image Processing Inquiries
 
 /// Inquiry command to get the motion sync mode setting.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x56,
+    opcode = 0x56,
     response = "MotionSyncMode",
     parser = "mode",
-    type = "MotionSyncMode",
-    constant = "MOTION_SYNC_MODE"
+    value_type = "MotionSyncMode",
+    bytes_const = "MOTION_SYNC_MODE"
 )]
 pub struct MotionSyncModeInquiry;
 
 /// Inquiry command to get the motion sync speed setting.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x57,
+    opcode = 0x57,
     response = "MotionSyncPreset",
     inquiry_variant = "MotionSyncPreset",
     parser = "speed",
-    type = "MotionSyncPreset",
-    constant = "MOTION_SYNC_SPEED"
+    value_type = "MotionSyncPreset",
+    bytes_const = "MOTION_SYNC_SPEED"
 )]
 pub struct MotionSyncPresetInquiry;
 
 /// Inquiry command to get the noise reduction mode setting.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x53,
-    response = "NrMode",
+    opcode = 0x53,
+    response = "NoiseReductionMode",
     parser = "mode",
-    type = "NrMode",
-    constant = "NR_MODE"
+    value_type = "NoiseReductionMode",
+    bytes_const = "NR_MODE"
 )]
 pub struct NrModeInquiry;
 
 /// Inquiry command to get the noise reduction speed setting.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x54,
-    response = "NrSpeed",
+    opcode = 0x54,
+    response = "NoiseReductionSpeed",
     parser = "speed",
-    type = "NrSpeed",
-    constant = "NR_SPEED"
+    value_type = "NoiseReductionSpeed",
+    bytes_const = "NR_SPEED"
 )]
 pub struct NrSpeedInquiry;
 
 /// Inquiry command to get the black and white mode setting.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x73,
+    opcode = 0x73,
     response = "BlackWhiteMode",
     parser = "mode",
-    type = "BlackWhiteMode",
-    constant = "BLACK_WHITE_MODE"
+    value_type = "BlackWhiteMode",
+    bytes_const = "BLACK_WHITE_MODE"
 )]
 pub struct BlackWhiteModeInquiry;
 
 // Additional System Inquiries
 
 /// Inquiry command to get the USB audio state.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x7A,
+    opcode = 0x7A,
     response = "UsbAudio",
     parser = "bool",
-    constant = "USB_AUDIO"
+    bytes_const = "USB_AUDIO"
 )]
 pub struct UsbAudioInquiry;
 
 /// Inquiry command to get the two tone mode state.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x74,
+    opcode = 0x74,
     response = "TwoToneMode",
     parser = "bool",
-    constant = "TWO_TONE_MODE"
+    bytes_const = "TWO_TONE_MODE"
 )]
 pub struct TwoToneModeInquiry;
 
 /// Inquiry command to get the ND filter preset setting.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x66,
+    opcode = 0x66,
     response = "NdFilterPreset",
     parser = "byte",
-    constant = "ND_FILTER_PRESET"
+    bytes_const = "ND_FILTER_PRESET"
 )]
 pub struct NdFilterPresetInquiry;
 
 /// Inquiry command to get the digital mode state.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0x7B,
+    opcode = 0x7B,
     response = "Digital",
     parser = "bool",
-    constant = "DIGITAL"
+    bytes_const = "DIGITAL"
 )]
 pub struct DigitalInquiry;
 
 /// Inquiry command to get the tally auto adjust state.
-#[derive(InquiryCommand, Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    command = 0xA9,
+    opcode = 0xA9,
     response = "TallyAutoAdjust",
     parser = "bool",
-    constant = "TALLY_AUTO_ADJUST"
+    bytes_const = "TALLY_AUTO_ADJUST"
 )]
 pub struct TallyAutoAdjustInquiry;
 
@@ -834,9 +834,9 @@ mod tests {
         constants::inquiry::PICTURE_EFFECT
     );
     visca_test!(
-        FlipModeInquiry,
+        FlipStateInquiry,
         test_flip_mode_inquiry,
-        FlipModeInquiry,
+        FlipStateInquiry,
         constants::inquiry::FLIP_MODE
     );
     visca_test!(
@@ -967,7 +967,7 @@ mod tests {
 ///
 /// Note: This uses a special extended inquiry format (0x7E 0x04 0x1A 0x00)
 /// instead of the standard inquiry format, which is why it cannot use
-/// the InquiryCommand derive macro.
+/// the ViscaInquiry derive macro.
 #[derive(Debug, Copy, Clone)]
 pub struct TallyGreenInquiry;
 

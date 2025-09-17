@@ -8,7 +8,7 @@
 //!
 //! The transport layer now uses two separate traits:
 //! - **AsyncTransport** - Native async functions for zero-cost async transports
-//! - **SyncTransport** - Synchronous methods with OS-level timeout support
+//! - **BlockingTransport** - Blocking methods with OS-level timeout support
 //! - Implementations: TCP and UDP for both blocking and async
 //!
 //! ## Usage
@@ -72,15 +72,12 @@ pub mod async_transport;
 // Blocking transports are now private - use camera-first API instead
 #[cfg(not(feature = "mode-async"))]
 pub(crate) mod blocking;
+pub mod blocking_transport;
 pub mod buffer;
 pub mod builder;
-pub mod sync_transport;
 // The envelope module is now needed for both blocking and async modes
 // since async cameras now do their own protocol framing
 pub mod envelope;
-// Protocol auto-detection for VISCA cameras (EPIC task B3)
-// Core detection types are needed by both async and blocking modes
-pub mod protocol_detection;
 pub mod retry;
 // Unified serial configuration module (available with either blocking or async serial)
 #[cfg(any(feature = "transport-serial", feature = "transport-serial-tokio"))]
@@ -106,14 +103,14 @@ pub use async_transport::AsyncTransport;
 // - BlockingCamera::connect_tcp/udp()
 // - CameraBuilder::tcp/udp()
 // - Camera::<Blocking, _, _, _>::connect_tcp/udp()
-pub use builder::{NetTransportBuilder, Transport, TransportBuilderExt};
 #[cfg(feature = "mode-async")]
-pub use protocol_detection::{DetectionResult, ProtocolDetector};
+pub use crate::protocol::detect::{DetectionResult, ProtocolDetector};
+pub use builder::{NetTransportBuilder, Transport, TransportBuilderExt};
 use std::time::{Duration, Instant};
 
 #[cfg(not(feature = "mode-async"))]
-pub use sync_transport::BlockingTransportHandle;
-pub use sync_transport::{HasTransportConfig, SyncTransport};
+pub use blocking_transport::BlockingTransportHandle;
+pub use blocking_transport::{BlockingTransport, HasTransportConfig};
 
 /// Retry configuration for transport layer operations.
 ///

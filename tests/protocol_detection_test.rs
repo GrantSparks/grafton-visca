@@ -71,9 +71,9 @@ mod tokio_tests {
     async fn test_connect_auto_detects_raw_visca() {
         // Test that the protocol detector correctly identifies raw VISCA format
         // when a camera responds only to raw VISCA commands (not Sony encapsulated)
-        use grafton_visca::transport::{
-            protocol_detection::{DetectionResult, ProtocolDetector},
-            RetryConfig,
+        use grafton_visca::{
+            protocol::detect::{DetectionResult, ProtocolDetector},
+            transport::RetryConfig,
         };
 
         use std::time::Duration;

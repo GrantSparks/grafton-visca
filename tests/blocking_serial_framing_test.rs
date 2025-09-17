@@ -6,7 +6,7 @@
 #![cfg(all(not(feature = "mode-async"), feature = "serialport"))]
 
 use bytes::Bytes;
-use grafton_visca::{command::CommandKind, transport::SyncTransport, Error};
+use grafton_visca::{command::CommandKind, transport::BlockingTransport, Error};
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -192,7 +192,7 @@ impl MockSerial {
     }
 }
 
-impl SyncTransport for MockSerial {
+impl BlockingTransport for MockSerial {
     fn send_with_kind(&mut self, data: &[u8], _kind: CommandKind) -> Result<(), Error> {
         let mut port = self
             .port

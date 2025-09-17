@@ -83,7 +83,7 @@ pub enum ResponseKind {
     /// Shutter speed inquiry response.
     Shutter,
     /// Brightness inquiry response.
-    Bright,
+    Brightness,
     /// Gain inquiry response.
     Gain,
     /// Gain limit inquiry response.
@@ -116,8 +116,8 @@ pub enum ResponseKind {
     NoiseReduction2D,
     /// 3D noise reduction inquiry response.
     NoiseReduction3D,
-    /// Image flip inquiry response.
-    ImageFlip,
+    /// Flip state inquiry response.
+    FlipState,
     /// Black and white mode inquiry response.
     BlackWhite,
     /// Picture effect inquiry response.
@@ -181,11 +181,11 @@ pub enum ResponseKind {
     /// Defog mode inquiry response.
     DefogMode,
     /// Noise reduction level inquiry response.
-    NrLevel,
+    NoiseReductionLevel,
     /// Noise reduction mode inquiry response.
-    NrMode,
+    NoiseReductionMode,
     /// Noise reduction speed inquiry response.
-    NrSpeed,
+    NoiseReductionSpeed,
     /// Broadcast domain inquiry response.
     BroadcastDomain,
     /// Resolution inquiry response.
@@ -210,8 +210,6 @@ pub enum ResponseKind {
     DefogLevel,
     /// Night/day switch inquiry response.
     NightDaySwitch,
-    /// Flip mode inquiry response.
-    FlipMode,
     /// Tally status inquiry response.
     TallyStatus,
     /// Tally auto adjust inquiry response.

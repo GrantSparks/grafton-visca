@@ -22,18 +22,9 @@ pub struct TallyStatus {
     pub green_on: bool,
 }
 
-/// Image flip status.
+/// Flip state configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ImageFlipStatus {
-    /// Whether vertical flip is enabled.
-    pub vertical: bool,
-    /// Whether horizontal flip is enabled.
-    pub horizontal: bool,
-}
-
-/// Flip mode configuration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FlipMode {
+pub struct FlipState {
     /// Whether horizontal flip is enabled.
     pub horizontal: bool,
     /// Whether vertical flip is enabled.

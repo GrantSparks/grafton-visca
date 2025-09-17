@@ -6,7 +6,7 @@
 
 #![cfg(not(feature = "mode-async"))]
 
-use grafton_visca::{command::CommandKind, transport::SyncTransport, Error};
+use grafton_visca::{command::CommandKind, transport::BlockingTransport, Error};
 use std::io::{BufReader, Read, Write};
 use std::sync::{Arc, Mutex};
 
@@ -82,7 +82,7 @@ impl MockTcp {
     }
 }
 
-impl SyncTransport for MockTcp {
+impl BlockingTransport for MockTcp {
     fn send_with_kind(&mut self, data: &[u8], _kind: CommandKind) -> Result<(), Error> {
         self.writer.write_all(data)?;
         self.writer.flush()?;

@@ -237,7 +237,7 @@ pub fn parse_flip_mode(data: &[u8]) -> Result<InquiryResponse, Error> {
     let mode = data[0];
     let horizontal = (mode & 0x01) != 0;
     let vertical = (mode & 0x02) != 0;
-    Ok(InquiryResponse::FlipMode {
+    Ok(InquiryResponse::FlipState {
         horizontal,
         vertical,
     })
@@ -908,58 +908,58 @@ mod tests {
     fn test_parse_image_flip_responses() {
         // Test ImageFlip Off (0x00)
         let flip_bytes = &[0x90, 0x50, 0x00, VISCA_TERMINATOR];
-        let response = Response::parse_with_type(flip_bytes, &ResponseKind::ImageFlip);
+        let response = Response::parse_with_type(flip_bytes, &ResponseKind::FlipState);
         match response {
-            Ok(Response::Inquiry(InquiryResponse::ImageFlip {
+            Ok(Response::Inquiry(InquiryResponse::FlipState {
                 vertical,
                 horizontal,
             })) => {
                 assert!(!vertical);
                 assert!(!horizontal);
             }
-            _ => panic!("Expected ImageFlip inquiry response"),
+            _ => panic!("Expected FlipState inquiry response"),
         }
 
         // Test ImageFlip Horizontal only (0x01)
         let flip_bytes = &[0x90, 0x50, 0x01, VISCA_TERMINATOR];
-        let response = Response::parse_with_type(flip_bytes, &ResponseKind::ImageFlip);
+        let response = Response::parse_with_type(flip_bytes, &ResponseKind::FlipState);
         match response {
-            Ok(Response::Inquiry(InquiryResponse::ImageFlip {
+            Ok(Response::Inquiry(InquiryResponse::FlipState {
                 vertical,
                 horizontal,
             })) => {
                 assert!(!vertical);
                 assert!(horizontal);
             }
-            _ => panic!("Expected ImageFlip inquiry response"),
+            _ => panic!("Expected FlipState inquiry response"),
         }
 
         // Test ImageFlip Vertical only (0x02)
         let flip_bytes = &[0x90, 0x50, 0x02, VISCA_TERMINATOR];
-        let response = Response::parse_with_type(flip_bytes, &ResponseKind::ImageFlip);
+        let response = Response::parse_with_type(flip_bytes, &ResponseKind::FlipState);
         match response {
-            Ok(Response::Inquiry(InquiryResponse::ImageFlip {
+            Ok(Response::Inquiry(InquiryResponse::FlipState {
                 vertical,
                 horizontal,
             })) => {
                 assert!(vertical);
                 assert!(!horizontal);
             }
-            _ => panic!("Expected ImageFlip inquiry response"),
+            _ => panic!("Expected FlipState inquiry response"),
         }
 
         // Test ImageFlip Both (0x03)
         let flip_bytes = &[0x90, 0x50, 0x03, VISCA_TERMINATOR];
-        let response = Response::parse_with_type(flip_bytes, &ResponseKind::ImageFlip);
+        let response = Response::parse_with_type(flip_bytes, &ResponseKind::FlipState);
         match response {
-            Ok(Response::Inquiry(InquiryResponse::ImageFlip {
+            Ok(Response::Inquiry(InquiryResponse::FlipState {
                 vertical,
                 horizontal,
             })) => {
                 assert!(vertical);
                 assert!(horizontal);
             }
-            _ => panic!("Expected ImageFlip inquiry response"),
+            _ => panic!("Expected FlipState inquiry response"),
         }
     }
 

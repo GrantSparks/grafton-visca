@@ -1,7 +1,7 @@
 //! Consolidated macros for VISCA command implementation.
 //!
 //! This module provides the unified macro interface as specified in issue #397.
-//! Primary macro: `visca_cmd!` for commands.
+//! Primary macro: `visca_command!` for commands.
 
 /// Create a VISCA command that expects ACK/Completion responses.
 ///
@@ -9,7 +9,7 @@
 ///
 /// Simple command without parameters:
 /// ```ignore
-/// visca_cmd! {
+/// visca_command! {
 ///     /// Power on the camera
 ///     pub struct PowerOn;
 ///     bytes = [0x01, 0x04, 0x00, 0x02];
@@ -19,7 +19,7 @@
 ///
 /// Command with parameters:
 /// ```ignore
-/// visca_cmd! {
+/// visca_command! {
 ///     pub struct ImageFlip { mode: Flip };
 ///     prefix = [0x01, 0x06, 0x61];
 ///     param = match mode { Flip::On => 0x02, Flip::Off => 0x03 };
@@ -27,7 +27,7 @@
 /// }
 /// ```
 #[macro_export]
-macro_rules! visca_cmd {
+macro_rules! visca_command {
     // Simple command without parameters
     (
         $(#[$meta:meta])*
@@ -190,7 +190,7 @@ macro_rules! visca_cmd {
     };
 }
 
-/// Helper trait to convert various types to `Vec<u8>` for the visca_cmd! macro.
+/// Helper trait to convert various types to `Vec<u8>` for the visca_command! macro.
 pub trait ToParamBytes {
     fn to_param_bytes(self) -> Vec<u8>;
 }
@@ -213,7 +213,7 @@ impl<const N: usize> ToParamBytes for [u8; N] {
     }
 }
 
-/// Convert various types to `Vec<u8>` for use in visca_cmd! macro parameters.
+/// Convert various types to `Vec<u8>` for use in visca_command! macro parameters.
 pub fn to_param_bytes<T: ToParamBytes>(value: T) -> Vec<u8> {
     value.to_param_bytes()
 }

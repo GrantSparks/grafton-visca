@@ -60,7 +60,10 @@ where
     pub fn new(transport: Tr) -> Result<Self, Error>
     where
         P: Default,
-        Tr: crate::transport::SyncTransport + crate::transport::HasTransportConfig + Send + 'static,
+        Tr: crate::transport::BlockingTransport
+            + crate::transport::HasTransportConfig
+            + Send
+            + 'static,
     {
         Ok(Self {
             inner: Camera::<Blocking, P, Tr, ()>::new_blocking(transport)?,
@@ -74,7 +77,10 @@ where
     ) -> Result<Self, Error>
     where
         P: Default,
-        Tr: crate::transport::SyncTransport + crate::transport::HasTransportConfig + Send + 'static,
+        Tr: crate::transport::BlockingTransport
+            + crate::transport::HasTransportConfig
+            + Send
+            + 'static,
     {
         Ok(Self {
             inner: Camera::<Blocking, P, Tr, ()>::new_blocking_with_style(
@@ -110,7 +116,7 @@ where
     pub fn await_pan_tilt_idle(&mut self, timeout: std::time::Duration) -> Result<(), Error>
     where
         P: crate::capabilities::ProfileMetadata + Default,
-        Tr: crate::transport::SyncTransport + crate::transport::HasTransportConfig + 'static,
+        Tr: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + 'static,
     {
         self.inner.await_pan_tilt_idle(timeout)
     }
@@ -121,7 +127,7 @@ where
     pub fn await_zoom_idle(&mut self, timeout: std::time::Duration) -> Result<(), Error>
     where
         P: crate::capabilities::ProfileMetadata + Default,
-        Tr: crate::transport::SyncTransport + crate::transport::HasTransportConfig + 'static,
+        Tr: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + 'static,
     {
         self.inner.await_zoom_idle(timeout)
     }
@@ -145,7 +151,7 @@ where
     pub fn await_idle(&mut self, timeout: std::time::Duration) -> Result<(), Error>
     where
         P: crate::capabilities::ProfileMetadata + Default,
-        Tr: crate::transport::SyncTransport + crate::transport::HasTransportConfig + 'static,
+        Tr: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + 'static,
     {
         self.inner.await_idle(timeout)
     }
@@ -168,7 +174,7 @@ where
     /// ```
     pub fn close(self) -> Result<(), Error>
     where
-        Tr: crate::transport::SyncTransport,
+        Tr: crate::transport::BlockingTransport,
     {
         self.inner.close()
     }
@@ -594,7 +600,7 @@ where
 impl<P, Tr> BlockingClient<P, Tr>
 where
     Camera<Blocking, P, Tr, ()>: MenuControl<Mode = Blocking>,
-    P: crate::capabilities::Profile + Default + crate::capabilities::MenuControl,
+    P: crate::capabilities::Profile + Default + crate::capabilities::MenuCapability,
 {
     impl_blocking_methods! {
         /// Set menu display on/off.
@@ -615,7 +621,7 @@ where
 impl<P, Tr> BlockingClient<P, Tr>
 where
     Camera<Blocking, P, Tr, ()>: DirectMenuControl<Mode = Blocking>,
-    P: crate::capabilities::Profile + Default + crate::capabilities::MenuControl,
+    P: crate::capabilities::Profile + Default + crate::capabilities::MenuCapability,
 {
     impl_blocking_methods! {
         /// Direct menu control command.
@@ -1014,7 +1020,7 @@ where
         fn get_backlight_enabled() -> bool;
 
         /// Get image flip state.
-        fn get_image_flip() -> crate::command::typed::FlipState;
+        fn get_image_flip() -> crate::command::FlipState;
 
         /// Get focus mode.
         fn get_focus_mode() -> crate::command::focus::FocusMode;
@@ -1029,7 +1035,7 @@ where
         fn get_night_day_mode() -> bool;
 
         /// Get flip mode.
-        fn get_flip_mode() -> crate::command::typed::FlipState;
+        fn get_flip_mode() -> crate::command::FlipState;
 
         /// Get standby enabled status.
         fn get_standby_enabled() -> bool;
@@ -1065,7 +1071,7 @@ where
         fn get_broadcast_domain() -> u8;
 
         /// Get noise reduction mode.
-        fn get_noise_reduction_mode() -> crate::command::NrMode;
+        fn get_noise_reduction_mode() -> crate::command::NoiseReductionMode;
 
         /// Get black and white mode.
         fn get_black_white_mode() -> crate::command::BlackWhiteMode;

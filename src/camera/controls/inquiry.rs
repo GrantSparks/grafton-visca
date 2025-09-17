@@ -117,7 +117,7 @@ pub trait InquiryControl {
     /// Get the image flip settings (mirror/reverse).
     fn get_image_flip(
         &self,
-    ) -> <Self::Mode as Mode>::Ret<'_, Result<crate::command::typed::FlipState, Error>>;
+    ) -> <Self::Mode as Mode>::Ret<'_, Result<crate::command::FlipState, Error>>;
 
     /// Get the current focus mode (Auto/Manual).
     fn get_focus_mode(&self) -> <Self::Mode as Mode>::Ret<'_, Result<FocusMode, Error>>;
@@ -136,7 +136,7 @@ pub trait InquiryControl {
     /// Get the current flip mode (combined horizontal/vertical).
     fn get_flip_mode(
         &self,
-    ) -> <Self::Mode as Mode>::Ret<'_, Result<crate::command::typed::FlipState, Error>>;
+    ) -> <Self::Mode as Mode>::Ret<'_, Result<crate::command::FlipState, Error>>;
 
     /// Get the standby mode status.
     fn get_standby_enabled(&self) -> <Self::Mode as Mode>::Ret<'_, Result<bool, Error>>;
@@ -176,7 +176,7 @@ pub trait InquiryControl {
     /// Get the noise reduction mode setting.
     fn get_noise_reduction_mode(
         &self,
-    ) -> <Self::Mode as Mode>::Ret<'_, Result<crate::command::NrMode, Error>>;
+    ) -> <Self::Mode as Mode>::Ret<'_, Result<crate::command::NoiseReductionMode, Error>>;
 
     /// Get the black and white mode setting.
     fn get_black_white_mode(
@@ -323,8 +323,8 @@ where
     }
 
     fn get_brightness(&self) -> M::Ret<'_, Result<u16, Error>> {
-        use crate::command::inquiry_structs::BrightInquiry;
-        self.send_and_parse(BrightInquiry)
+        use crate::command::inquiry_structs::BrightnessInquiry;
+        self.send_and_parse(BrightnessInquiry)
     }
 
     fn get_sharpness_mode(&self) -> M::Ret<'_, Result<SharpnessMode, Error>> {
@@ -372,7 +372,7 @@ where
         self.send_and_parse(BacklightInquiry)
     }
 
-    fn get_image_flip(&self) -> M::Ret<'_, Result<crate::command::typed::FlipState, Error>> {
+    fn get_image_flip(&self) -> M::Ret<'_, Result<crate::command::FlipState, Error>> {
         use crate::command::inquiry_structs::ImageFlipInquiry;
         self.send_and_parse(ImageFlipInquiry)
     }
@@ -399,9 +399,9 @@ where
         self.send_and_parse(NightDayModeInquiry)
     }
 
-    fn get_flip_mode(&self) -> M::Ret<'_, Result<crate::command::typed::FlipState, Error>> {
-        use crate::command::inquiry_structs::FlipModeInquiry;
-        self.send_and_parse(FlipModeInquiry)
+    fn get_flip_mode(&self) -> M::Ret<'_, Result<crate::command::FlipState, Error>> {
+        use crate::command::inquiry_structs::FlipStateInquiry;
+        self.send_and_parse(FlipStateInquiry)
     }
 
     fn get_standby_enabled(&self) -> M::Ret<'_, Result<bool, Error>> {
@@ -459,7 +459,9 @@ where
         self.send_and_parse(BroadcastDomainInquiry)
     }
 
-    fn get_noise_reduction_mode(&self) -> M::Ret<'_, Result<crate::command::NrMode, Error>> {
+    fn get_noise_reduction_mode(
+        &self,
+    ) -> M::Ret<'_, Result<crate::command::NoiseReductionMode, Error>> {
         use crate::command::inquiry_structs::NrModeInquiry;
         self.send_and_parse(NrModeInquiry)
     }

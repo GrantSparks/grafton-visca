@@ -180,7 +180,7 @@ pub(crate) fn send_one<T, S>(
     _write_timeout: core::time::Duration,
 ) -> Result<()>
 where
-    T: crate::transport::SyncTransport,
+    T: crate::transport::BlockingTransport,
     S: SchedulerLike,
 {
     // Frame the command using the bytes path

@@ -13,7 +13,7 @@ use crate::{
     error::Error,
     timeout::CommandCategory,
     types::{ContrastLevel, LuminanceLevel, NoiseReduction2DLevel, NoiseReduction3DLevel},
-    visca_cmd,
+    visca_command,
 };
 
 /// Sharpness control modes.
@@ -27,7 +27,7 @@ pub enum SharpnessMode {
 
 /// Noise reduction modes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
-pub enum NrMode {
+pub enum NoiseReductionMode {
     /// Noise reduction disabled.
     Off = 0x02,
     /// Noise reduction enabled.
@@ -36,7 +36,7 @@ pub enum NrMode {
 
 /// Noise reduction speed settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
-pub enum NrSpeed {
+pub enum NoiseReductionSpeed {
     /// Slow noise reduction processing.
     Slow = 0x00,
     /// Normal noise reduction processing.
@@ -152,7 +152,7 @@ impl ViscaCommand for Sharpness {
     }
 }
 
-visca_cmd! {
+visca_command! {
         /// Command to set the luminance (brightness) level.
     pub struct Luminance { value: LuminanceLevel };
     prefix = [0x01, 0x04, 0xA1, 0x00, 0x00, 0x00];
@@ -167,7 +167,7 @@ impl Luminance {
     }
 }
 
-visca_cmd! {
+visca_command! {
         /// Command to set the contrast level.
     pub struct Contrast { value: ContrastLevel };
     prefix = [0x01, 0x04, 0xA2, 0x00, 0x00, 0x00];
@@ -182,7 +182,7 @@ impl Contrast {
     }
 }
 
-visca_cmd! {
+visca_command! {
         /// Backlight compensation command.
     ///
     /// Enables or disables backlight compensation, which helps properly expose
@@ -200,7 +200,7 @@ impl BacklightCommand {
     }
 }
 
-visca_cmd! {
+visca_command! {
         /// 2D Noise Reduction command.
     ///
     /// Reduces spatial noise in individual frames by analyzing and smoothing
@@ -224,7 +224,7 @@ impl NoiseReduction2D {
     }
 }
 
-visca_cmd! {
+visca_command! {
         /// 3D Noise Reduction command.
     ///
     /// Reduces temporal noise by analyzing multiple frames over time.
@@ -264,7 +264,7 @@ pub enum ImageFlipMode {
     Both,
 }
 
-visca_cmd! {
+visca_command! {
         /// Command to set the combined image flip mode.
     pub struct ImageFlipCombinedCommand { mode: ImageFlipMode };
     prefix = [0x01, 0x04, 0xA4];
@@ -284,7 +284,7 @@ impl ImageFlipCombinedCommand {
     }
 }
 
-visca_cmd! {
+visca_command! {
         /// Command to set picture effect mode.
     ///
     /// Controls various artistic effects like negative, sepia, sketch, etc.

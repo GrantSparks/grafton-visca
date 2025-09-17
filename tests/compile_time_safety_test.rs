@@ -8,14 +8,14 @@ use grafton_visca::{
     capabilities::*,
     mode::BlockingFutureExt,
     prelude::blocking::{GenericViscaCam, PtzOpticsG2Cam, SonyFR7Cam},
-    testing::testkit::{helpers, ScriptedSyncTransport},
+    testing::testkit::{helpers, ScriptedBlockingTransport},
     Error, FocusControl, PanTiltControl, PowerControl, PresetNumber, PresetsControl, ZoomControl,
 };
 
 #[cfg(feature = "test-utils")]
 #[test]
 fn test_ptzoptics_g2_capabilities() -> Result<(), Error> {
-    let transport = ScriptedSyncTransport::new(vec![
+    let transport = ScriptedBlockingTransport::new(vec![
         helpers::auto_respond_step(),
         helpers::auto_respond_step(),
         helpers::auto_respond_step(),
@@ -39,7 +39,7 @@ fn test_ptzoptics_g2_capabilities() -> Result<(), Error> {
 #[cfg(feature = "test-utils")]
 #[test]
 fn test_sony_fr7_has_nd_filter() -> Result<(), Error> {
-    let transport = ScriptedSyncTransport::new(vec![
+    let transport = ScriptedBlockingTransport::new(vec![
         helpers::sony_auto_respond_step(),
         helpers::sony_auto_respond_step(),
         helpers::sony_auto_respond_step(),
@@ -59,16 +59,16 @@ fn test_compile_time_capability_checking() {
     fn adjust_nd_filter<P, T>(_camera: &grafton_visca::BlockingCamera<P, T>) -> Result<(), Error>
     where
         P: Profile + NdFilter,
-        T: grafton_visca::transport::SyncTransport + Send + Sync + 'static,
+        T: grafton_visca::transport::BlockingTransport + Send + Sync + 'static,
     {
         Ok(())
     }
 
-    let fr7_transport = ScriptedSyncTransport::new(vec![helpers::auto_respond_step()]);
+    let fr7_transport = ScriptedBlockingTransport::new(vec![helpers::auto_respond_step()]);
     let fr7_camera = SonyFR7Cam::new_blocking(fr7_transport).unwrap();
     let fr7 = grafton_visca::BlockingCamera::from(fr7_camera);
 
-    let _g2_transport = ScriptedSyncTransport::new(vec![helpers::auto_respond_step()]);
+    let _g2_transport = ScriptedBlockingTransport::new(vec![helpers::auto_respond_step()]);
     let _g2_camera = PtzOpticsG2Cam::new_blocking(_g2_transport).unwrap();
     let _g2 = grafton_visca::BlockingCamera::from(_g2_camera);
 
@@ -83,7 +83,7 @@ fn test_generic_functions_with_trait_bounds() {
     ) -> Result<(), Error>
     where
         P: Profile + Default,
-        T: grafton_visca::transport::SyncTransport,
+        T: grafton_visca::transport::BlockingTransport,
         grafton_visca::camera::Camera<grafton_visca::mode::Blocking, P, T, ()>: PowerControl<Mode = grafton_visca::mode::Blocking>
             + ZoomControl<Mode = grafton_visca::mode::Blocking>,
     {
@@ -94,7 +94,7 @@ fn test_generic_functions_with_trait_bounds() {
     }
 
     fn motion_sync_control<P>(
-        _camera: &grafton_visca::BlockingCamera<P, ScriptedSyncTransport>,
+        _camera: &grafton_visca::BlockingCamera<P, ScriptedBlockingTransport>,
     ) -> Result<(), Error>
     where
         P: Profile + MotionSync + Default,
@@ -102,23 +102,23 @@ fn test_generic_functions_with_trait_bounds() {
         Ok(())
     }
 
-    let g2_transport = ScriptedSyncTransport::new(vec![
+    let g2_transport = ScriptedBlockingTransport::new(vec![
         helpers::auto_respond_step(),
         helpers::auto_respond_step(),
     ]);
     let mut g2_camera = PtzOpticsG2Cam::new_blocking(g2_transport).unwrap();
 
-    let g2_transport_wrapper = ScriptedSyncTransport::new(vec![helpers::auto_respond_step()]);
+    let g2_transport_wrapper = ScriptedBlockingTransport::new(vec![helpers::auto_respond_step()]);
     let g2_camera_wrapper = PtzOpticsG2Cam::new_blocking(g2_transport_wrapper).unwrap();
     let g2_wrapper = grafton_visca::BlockingCamera::from(g2_camera_wrapper);
 
-    let fr7_transport = ScriptedSyncTransport::new(vec![
+    let fr7_transport = ScriptedBlockingTransport::new(vec![
         helpers::sony_auto_respond_step(),
         helpers::sony_auto_respond_step(),
     ]);
     let mut fr7_camera = SonyFR7Cam::new_blocking(fr7_transport).unwrap();
 
-    let generic_transport = ScriptedSyncTransport::new(vec![
+    let generic_transport = ScriptedBlockingTransport::new(vec![
         helpers::auto_respond_step(),
         helpers::auto_respond_step(),
     ]);

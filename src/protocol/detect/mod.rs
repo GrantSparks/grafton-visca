@@ -322,7 +322,7 @@ impl ProtocolDetector {
     #[cfg(not(feature = "mode-async"))]
     pub fn detect_protocol_blocking<T>(&self, transport: &mut T) -> Result<DetectionResult, Error>
     where
-        T: crate::transport::SyncTransport + ?Sized,
+        T: crate::transport::BlockingTransport + ?Sized,
     {
         use tracing::{debug, info, warn};
 
@@ -379,7 +379,7 @@ impl ProtocolDetector {
         buffer_config: BufferConfig,
     ) -> Result<bool, Error>
     where
-        T: crate::transport::SyncTransport + ?Sized,
+        T: crate::transport::BlockingTransport + ?Sized,
     {
         use crate::protocol::detect::blocking_runner::detect_protocol_blocking;
 
@@ -765,7 +765,7 @@ mod tests {
     #[cfg(all(test, not(feature = "mode-async"), feature = "test-utils"))]
     #[test]
     fn test_detect_sony_blocking() {
-        use crate::testing::testkit::scripted_transport::{ScriptedSyncTransport, Step};
+        use crate::testing::testkit::scripted_transport::{ScriptedBlockingTransport, Step};
 
         // Create a script that responds with a valid VISCA version response
         // when receiving Sony encapsulated format
@@ -790,7 +790,7 @@ mod tests {
                 ], // Version response
             ],
         }];
-        let mut transport = ScriptedSyncTransport::new(steps);
+        let mut transport = ScriptedBlockingTransport::new(steps);
 
         let detector = ProtocolDetector::new();
         let result = detector.detect_protocol_blocking(&mut transport);
@@ -803,7 +803,7 @@ mod tests {
     #[cfg(all(test, not(feature = "mode-async"), feature = "test-utils"))]
     #[test]
     fn test_detect_raw_blocking() {
-        use crate::testing::testkit::scripted_transport::{ScriptedSyncTransport, Step};
+        use crate::testing::testkit::scripted_transport::{ScriptedBlockingTransport, Step};
 
         // Create a script that responds with a valid VISCA version response
         // when receiving raw VISCA format (but not Sony encapsulated)
@@ -813,7 +813,7 @@ mod tests {
                 vec![0x90, 0x50, 0x01, 0x02, 0x03, VISCA_TERMINATOR], // Version response
             ],
         }];
-        let mut transport = ScriptedSyncTransport::new(steps);
+        let mut transport = ScriptedBlockingTransport::new(steps);
 
         let detector = ProtocolDetector::new();
         let result = detector.detect_protocol_blocking(&mut transport);
@@ -826,10 +826,10 @@ mod tests {
     #[cfg(all(test, not(feature = "mode-async"), feature = "test-utils"))]
     #[test]
     fn test_no_response_detected_blocking() {
-        use crate::testing::testkit::scripted_transport::ScriptedSyncTransport;
+        use crate::testing::testkit::scripted_transport::ScriptedBlockingTransport;
 
         // Empty script - no responses configured
-        let mut transport = ScriptedSyncTransport::new(vec![]);
+        let mut transport = ScriptedBlockingTransport::new(vec![]);
 
         let detector = ProtocolDetector::new();
         let result = detector.detect_protocol_blocking(&mut transport);

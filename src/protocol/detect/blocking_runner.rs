@@ -7,7 +7,7 @@ use crate::{
     command::CommandKind,
     protocol::detect::core::{Action, DetectorCore},
     protocol::detect::DetectionResult,
-    transport::{buffer::BufferConfig, RetryConfig, SyncTransport},
+    transport::{buffer::BufferConfig, BlockingTransport, RetryConfig},
     Error,
 };
 
@@ -23,7 +23,7 @@ pub(crate) fn detect_protocol_blocking<T>(
     timeout: Duration,
 ) -> Result<DetectionResult, Error>
 where
-    T: SyncTransport + ?Sized,
+    T: BlockingTransport + ?Sized,
 {
     use tracing::debug;
 

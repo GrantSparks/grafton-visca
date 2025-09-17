@@ -11,7 +11,7 @@ use std::{future::Future, pin::Pin, sync::Arc};
 #[cfg(not(feature = "mode-async"))]
 use crate::runtime::blocking_runner::BlockingRunner;
 #[cfg(not(feature = "mode-async"))]
-use crate::transport::SyncTransport;
+use crate::transport::BlockingTransport;
 use crate::{
     camera_id::CameraId,
     capabilities::{Profile, ProtocolStyle},
@@ -33,7 +33,7 @@ use crate::{executor::Executor, transport::AsyncTransport};
 ///
 /// * `M` - Mode type (`crate::mode::Async` or `crate::mode::Blocking`)
 /// * `P` - Camera profile implementing the `Profile` trait
-/// * `Tr` - Transport implementing either `AsyncTransport` or `SyncTransport`
+/// * `Tr` - Transport implementing either `AsyncTransport` or `BlockingTransport`
 /// * `Exec` - Executor type (only used in async mode)
 ///
 /// # Examples
@@ -140,7 +140,7 @@ where
 impl<P, Tr> Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: Profile + Default,
-    Tr: SyncTransport + crate::transport::HasTransportConfig + Send + 'static,
+    Tr: BlockingTransport + crate::transport::HasTransportConfig + Send + 'static,
 {
     /// Create a new blocking camera instance using the profile's protocol style.
     pub fn new_blocking(transport: Tr) -> Result<Self, Error>
@@ -448,7 +448,7 @@ where
 impl<P, Tr> Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: Profile,
-    Tr: SyncTransport,
+    Tr: BlockingTransport,
 {
     /// Get access to the transport for blocking mode.
     #[cfg(not(feature = "mode-async"))]
@@ -646,7 +646,7 @@ where
 impl<P, Tr> Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: Profile + Default,
-    Tr: SyncTransport + crate::transport::HasTransportConfig + Send + 'static,
+    Tr: BlockingTransport + crate::transport::HasTransportConfig + Send + 'static,
 {
     /// Send a command using the mode-specific return type.
     pub fn send_command<C>(
@@ -724,7 +724,7 @@ where
 impl<P, Tr, Exec> Camera<crate::mode::Blocking, P, Tr, Exec>
 where
     P: Profile,
-    Tr: SyncTransport,
+    Tr: BlockingTransport,
 {
     /// Close the camera connection gracefully.
     ///

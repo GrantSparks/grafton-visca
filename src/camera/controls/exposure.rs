@@ -194,22 +194,22 @@ where
         &self,
         level: crate::types::BrightnessLevel,
     ) -> M::Ret<'_, Result<(), Error>> {
-        let cmd = crate::command::exposure::Bright::SetLevel(level);
+        let cmd = crate::command::exposure::Brightness::SetLevel(level);
         self.send_and_complete(cmd)
     }
 
     fn reset_brightness(&self) -> M::Ret<'_, Result<(), Error>> {
-        let cmd = crate::command::exposure::Bright::Reset;
+        let cmd = crate::command::exposure::Brightness::Reset;
         self.send_and_complete(cmd)
     }
 
     fn increase_brightness(&self) -> M::Ret<'_, Result<(), Error>> {
-        let cmd = crate::command::exposure::Bright::Up;
+        let cmd = crate::command::exposure::Brightness::Up;
         self.send_and_complete(cmd)
     }
 
     fn decrease_brightness(&self) -> M::Ret<'_, Result<(), Error>> {
-        let cmd = crate::command::exposure::Bright::Down;
+        let cmd = crate::command::exposure::Brightness::Down;
         self.send_and_complete(cmd)
     }
 
@@ -307,7 +307,7 @@ where
         &self,
         level: crate::types::BrightnessLevel,
     ) -> M::Ret<'_, Result<(), Error>> {
-        let cmd = crate::command::exposure::Bright::Direct(level);
+        let cmd = crate::command::exposure::Brightness::Direct(level);
         self.send_and_complete(cmd)
     }
 }

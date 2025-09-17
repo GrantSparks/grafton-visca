@@ -44,7 +44,7 @@ pub use self::{
     focus::*,
     image::*,
     // inquiry::*,
-    inquiry_types::{FlipMode, ImageFlipStatus, IrisControl, NightDayMode, TallyStatus, Version},
+    inquiry_types::{FlipState, IrisControl, NightDayMode, TallyStatus, Version},
     menu::*,
     // motion_sync::*,
     nd_filter::*,
@@ -165,7 +165,7 @@ pub enum InquiryResponse {
         position: u16,
     },
     /// Brightness inquiry response.
-    Bright {
+    Brightness {
         /// Brightness position (0x00=0 to 0x11=17).
         position: u16,
     },
@@ -197,11 +197,11 @@ pub enum InquiryResponse {
     },
 
     /// Image flip inquiry response.
-    ImageFlip {
-        /// Whether vertical flip is enabled.
-        vertical: bool,
+    FlipState {
         /// Whether horizontal flip is enabled.
         horizontal: bool,
+        /// Whether vertical flip is enabled.
+        vertical: bool,
     },
     /// Black and white mode inquiry response.
     BlackWhite {
@@ -284,13 +284,6 @@ pub enum InquiryResponse {
         /// Current picture effect (0x00=Off, 0x01=Negative, 0x02=B&W, etc.).
         effect: u8,
     },
-    /// Flip mode inquiry response.
-    FlipMode {
-        /// Whether horizontal flip is enabled.
-        horizontal: bool,
-        /// Whether vertical flip is enabled.
-        vertical: bool,
-    },
     /// Standby mode inquiry response.
     Standby {
         /// Whether the camera is in standby mode.
@@ -362,7 +355,7 @@ pub enum InquiryResponse {
         position: u16,
     },
     /// Noise reduction level inquiry response.
-    NrLevel(u8),
+    NoiseReductionLevel(u8),
     /// Broadcast domain inquiry response.
     BroadcastDomain(u8),
     /// Motion sync mode inquiry response.
@@ -376,14 +369,14 @@ pub enum InquiryResponse {
         speed: MotionSyncPreset,
     },
     /// Noise reduction mode inquiry response.
-    NrMode {
+    NoiseReductionMode {
         /// Current noise reduction mode setting.
-        mode: NrMode,
+        mode: NoiseReductionMode,
     },
     /// Noise reduction speed inquiry response.
-    NrSpeed {
+    NoiseReductionSpeed {
         /// Current noise reduction speed setting.
-        speed: NrSpeed,
+        speed: NoiseReductionSpeed,
     },
     /// Black and white mode inquiry response.
     BlackWhiteMode {

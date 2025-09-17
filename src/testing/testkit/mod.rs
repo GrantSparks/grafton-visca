@@ -18,7 +18,7 @@ pub use deterministic_executor::{
 #[cfg(feature = "mode-async")]
 pub use executor_selection::{TestExecutorSelector, TestExecutorType, TestExecutors};
 #[cfg(not(feature = "mode-async"))]
-pub use scripted_transport::ScriptedSyncTransport;
+pub use scripted_transport::ScriptedBlockingTransport;
 pub use scripted_transport::{helpers, Step};
 
 #[cfg(feature = "mode-async")]

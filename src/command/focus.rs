@@ -17,7 +17,7 @@ use crate::{
     error::Error,
     timeout::CommandCategory,
     types::{FocusPosition, SpeedLevel},
-    visca_cmd,
+    visca_command,
 };
 
 /// Focus mode setting.
@@ -209,7 +209,7 @@ pub enum FocusZone {
     Bottom = 0x02,
 }
 
-visca_cmd! {
+visca_command! {
         /// Command to set the focus zone.
     pub struct FocusZoneCommand {
         zone: FocusZone,
@@ -246,7 +246,7 @@ pub enum AutoFocusSensitivity {
     High = 0x02,
 }
 
-visca_cmd! {
+visca_command! {
         /// Command to set auto focus sensitivity.
     pub struct AutoFocusSensitivityCommand {
         sensitivity: AutoFocusSensitivity,
@@ -270,7 +270,7 @@ impl AutoFocusSensitivityCommand {
     }
 }
 
-visca_cmd! {
+visca_command! {
         /// Command to set the focus near limit.
     ///
     /// Sets the minimum focus distance to prevent the camera from

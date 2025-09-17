@@ -2,9 +2,9 @@
 //!
 //! This module provides commands for controlling camera power state.
 
-use crate::{timeout::CommandCategory, visca_cmd};
+use crate::{timeout::CommandCategory, visca_command};
 
-visca_cmd! {
+visca_command! {
     /// Power on command.
     pub struct PowerOn;
     bytes = [0x01, 0x04, 0x00, 0x02];
@@ -24,7 +24,7 @@ impl PowerOn {
     }
 }
 
-visca_cmd! {
+visca_command! {
     /// Power standby command.
     pub struct PowerStandby;
     bytes = [0x01, 0x04, 0x00, 0x03];

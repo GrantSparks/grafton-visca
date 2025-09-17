@@ -260,7 +260,7 @@
 //! The library provides transport traits that you can implement for any communication method:
 //!
 //! ```ignore
-//! use grafton_visca::{transport::SyncTransport, command::CommandKind, Error};
+//! use grafton_visca::{transport::BlockingTransport, command::CommandKind, Error};
 //! use bytes::Bytes;
 //! use std::time::Duration;
 //!
@@ -268,7 +268,7 @@
 //!     // Your transport state
 //! }
 //!
-//! impl SyncTransport for MyTransport {
+//! impl BlockingTransport for MyTransport {
 //!     fn send_with_kind(&mut self, data: &[u8], kind: CommandKind) -> Result<(), Error> {
 //!         // Send data over your transport with proper framing based on kind
 //!         Ok(())
@@ -671,7 +671,7 @@ pub mod units;
 pub mod visca_socket;
 
 // External crates
-pub use grafton_visca_macros::{InquiryCommand, ViscaEnum, ViscaValue};
+pub use grafton_visca_macros::{ViscaEnum, ViscaInquiry, ViscaValue};
 
 // Local modules
 pub use crate::{

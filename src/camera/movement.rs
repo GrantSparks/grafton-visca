@@ -92,14 +92,14 @@ use crate::{
 #[cfg(feature = "mode-async")]
 use crate::{executor::Executor, transport::AsyncTransport};
 #[cfg(not(feature = "mode-async"))]
-use crate::{mode::BlockingFutureExt, transport::SyncTransport};
+use crate::{mode::BlockingFutureExt, transport::BlockingTransport};
 
 // Blocking mode implementation is only available without async feature
 #[cfg(not(feature = "mode-async"))]
 impl<P, T> Camera<crate::mode::Blocking, P, T, ()>
 where
     P: Profile + ProfileMetadata + Default,
-    T: SyncTransport + crate::transport::HasTransportConfig + 'static,
+    T: BlockingTransport + crate::transport::HasTransportConfig + 'static,
 {
     /// Wait for a command completion message or idle state using the default timeout.
     ///

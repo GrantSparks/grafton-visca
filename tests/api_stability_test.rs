@@ -301,7 +301,7 @@ fn test_transport_module_structure() {
     use grafton_visca::transport::AsyncTransport;
 
     #[cfg(not(feature = "mode-async"))]
-    use grafton_visca::transport::SyncTransport;
+    use grafton_visca::transport::BlockingTransport;
 
     // Test that configuration types can be constructed
     let _retry = RetryConfig::default();
@@ -328,7 +328,7 @@ fn test_transport_module_structure() {
     #[cfg(not(feature = "mode-async"))]
     fn accepts_blocking_transport<T>(_transport: T)
     where
-        T: SyncTransport,
+        T: BlockingTransport,
     {
     }
 

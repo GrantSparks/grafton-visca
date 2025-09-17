@@ -81,10 +81,12 @@ pub(crate) fn decode(kind: ResponseKind, payload: Payload<'_>) -> Option<Result<
             let position = payload.as_slice()[3];
             Some(Ok(Response::Inquiry(InquiryResponse::Iris { position })))
         }
-        ResponseKind::Bright => match Nibbles::<4>::try_from(payload) {
+        ResponseKind::Brightness => match Nibbles::<4>::try_from(payload) {
             Ok(nibbles) => {
                 let position = nibbles.u16_quad(0);
-                Some(Ok(Response::Inquiry(InquiryResponse::Bright { position })))
+                Some(Ok(Response::Inquiry(InquiryResponse::Brightness {
+                    position,
+                })))
             }
             Err(e) => Some(Err(e)),
         },

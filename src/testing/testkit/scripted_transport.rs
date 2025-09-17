@@ -20,7 +20,7 @@ use crate::transport::{builder::TransportConfig, HasTransportConfig};
 #[cfg(not(feature = "mode-async"))]
 use crate::{
     command::CommandKind,
-    transport::{builder::TransportConfig, HasTransportConfig, SyncTransport},
+    transport::{builder::TransportConfig, BlockingTransport, HasTransportConfig},
 };
 #[cfg(feature = "mode-async")]
 use crate::{executor::Executor, transport::AsyncTransport};
@@ -178,7 +178,7 @@ impl<E> ScriptedTransport<E> {
     pub fn sent(&self) -> Vec<Vec<u8>> {
         self.sent
             .lock()
-            .expect("ScriptedSyncTransport mutex poisoned")
+            .expect("ScriptedBlockingTransport mutex poisoned")
             .clone()
     }
 
@@ -219,7 +219,9 @@ impl<E> ScriptedTransport<E> {
     {
         loop {
             let step = {
-                let mut steps_guard = steps.lock().expect("ScriptedSyncTransport mutex poisoned");
+                let mut steps_guard = steps
+                    .lock()
+                    .expect("ScriptedBlockingTransport mutex poisoned");
                 // Only process Step::After, leave others alone
                 match steps_guard.front() {
                     Some(Step::After { .. }) => steps_guard.pop_front(),
@@ -266,7 +268,7 @@ where
 
         // Record the sent command
         sent.lock()
-            .expect("ScriptedSyncTransport mutex poisoned")
+            .expect("ScriptedBlockingTransport mutex poisoned")
             .push(bytes_vec.clone());
 
         // First, drain any leading After steps
@@ -278,7 +280,9 @@ where
 
         // Only act on the *front* of the queue. Never reorder past InjectError (leave for recv*())
         let step = {
-            let mut guard = steps.lock().expect("ScriptedSyncTransport mutex poisoned");
+            let mut guard = steps
+                .lock()
+                .expect("ScriptedBlockingTransport mutex poisoned");
             match guard.front() {
                 Some(Step::InjectError(_)) => None, // leave it for recv*()
                 Some(Step::After { .. }) => None,   // already handled by process_after_steps_static
@@ -309,7 +313,7 @@ where
                     } else {
                         steps
                             .lock()
-                            .expect("ScriptedSyncTransport mutex poisoned")
+                            .expect("ScriptedBlockingTransport mutex poisoned")
                             .push_front(Step::OnSend { matches, responses });
                     }
                 }
@@ -343,7 +347,9 @@ where
 
         // Check for injected errors first
         {
-            let mut steps_guard = steps.lock().expect("ScriptedSyncTransport mutex poisoned");
+            let mut steps_guard = steps
+                .lock()
+                .expect("ScriptedBlockingTransport mutex poisoned");
             if let Some(Step::InjectError(_)) = steps_guard.front() {
                 let error = match steps_guard
                     .pop_front()
@@ -396,7 +402,7 @@ where
 /// blocking transport implementations.
 #[cfg(not(feature = "mode-async"))]
 #[derive(Clone, Debug)]
-pub struct ScriptedSyncTransport {
+pub struct ScriptedBlockingTransport {
     sent: Arc<Mutex<Vec<Vec<u8>>>>,
     steps: Arc<Mutex<VecDeque<Step>>>,
     response_tx: flume::Sender<Result<Vec<u8>>>,
@@ -405,7 +411,7 @@ pub struct ScriptedSyncTransport {
 }
 
 #[cfg(not(feature = "mode-async"))]
-impl ScriptedSyncTransport {
+impl ScriptedBlockingTransport {
     /// Create a new scripted blocking transport with the given steps.
     pub fn new(steps: impl Into<Vec<Step>>) -> Self {
         let (response_tx, response_rx) = flume::unbounded();
@@ -422,7 +428,7 @@ impl ScriptedSyncTransport {
     pub fn sent(&self) -> Vec<Vec<u8>> {
         self.sent
             .lock()
-            .expect("ScriptedSyncTransport mutex poisoned")
+            .expect("ScriptedBlockingTransport mutex poisoned")
             .clone()
     }
 
@@ -433,12 +439,12 @@ impl ScriptedSyncTransport {
 }
 
 #[cfg(not(feature = "mode-async"))]
-impl SyncTransport for ScriptedSyncTransport {
+impl BlockingTransport for ScriptedBlockingTransport {
     fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<()> {
         // Record the sent command
         self.sent
             .lock()
-            .expect("ScriptedSyncTransport mutex poisoned")
+            .expect("ScriptedBlockingTransport mutex poisoned")
             .push(bytes.to_vec());
 
         // Drain *leading* After steps first (sync flavor ignores delay)
@@ -447,7 +453,7 @@ impl SyncTransport for ScriptedSyncTransport {
                 let mut steps = self
                     .steps
                     .lock()
-                    .expect("ScriptedSyncTransport mutex poisoned");
+                    .expect("ScriptedBlockingTransport mutex poisoned");
                 match steps.front() {
                     Some(Step::After { .. }) => steps.pop_front(),
                     _ => None,
@@ -468,7 +474,7 @@ impl SyncTransport for ScriptedSyncTransport {
             let mut steps = self
                 .steps
                 .lock()
-                .expect("ScriptedSyncTransport mutex poisoned");
+                .expect("ScriptedBlockingTransport mutex poisoned");
             match steps.front() {
                 Some(Step::InjectError(_)) => None,
                 Some(Step::After { .. }) => None,
@@ -496,7 +502,7 @@ impl SyncTransport for ScriptedSyncTransport {
                                 let mut steps = self
                                     .steps
                                     .lock()
-                                    .expect("ScriptedSyncTransport mutex poisoned");
+                                    .expect("ScriptedBlockingTransport mutex poisoned");
                                 match steps.front() {
                                     Some(Step::After { .. }) => steps.pop_front(),
                                     _ => None,
@@ -514,7 +520,7 @@ impl SyncTransport for ScriptedSyncTransport {
                     } else {
                         self.steps
                             .lock()
-                            .expect("ScriptedSyncTransport mutex poisoned")
+                            .expect("ScriptedBlockingTransport mutex poisoned")
                             .push_front(Step::OnSend { matches, responses });
                     }
                 }
@@ -529,7 +535,7 @@ impl SyncTransport for ScriptedSyncTransport {
                             let mut steps = self
                                 .steps
                                 .lock()
-                                .expect("ScriptedSyncTransport mutex poisoned");
+                                .expect("ScriptedBlockingTransport mutex poisoned");
                             match steps.front() {
                                 Some(Step::After { .. }) => steps.pop_front(),
                                 _ => None,
@@ -563,7 +569,7 @@ impl SyncTransport for ScriptedSyncTransport {
             let mut steps = self
                 .steps
                 .lock()
-                .expect("ScriptedSyncTransport mutex poisoned");
+                .expect("ScriptedBlockingTransport mutex poisoned");
             if let Some(Step::InjectError(_)) = steps.front() {
                 let error = match steps
                     .pop_front()
@@ -596,7 +602,7 @@ impl SyncTransport for ScriptedSyncTransport {
 }
 
 #[cfg(not(feature = "mode-async"))]
-impl HasTransportConfig for ScriptedSyncTransport {
+impl HasTransportConfig for ScriptedBlockingTransport {
     fn transport_config(&self) -> &TransportConfig {
         &self.transport_config
     }
@@ -899,7 +905,7 @@ mod tests {
     #[cfg(not(feature = "mode-async"))]
     #[allow(clippy::unwrap_used)]
     fn test_scripted_blocking_transport_basic() {
-        let mut transport = ScriptedSyncTransport::new(vec![Step::OnSend {
+        let mut transport = ScriptedBlockingTransport::new(vec![Step::OnSend {
             matches: None,
             responses: vec![vec![0x90, 0x41, VISCA_TERMINATOR]],
         }]);
@@ -927,7 +933,7 @@ mod tests {
     #[cfg(not(feature = "mode-async"))]
     #[allow(clippy::unwrap_used)]
     fn test_scripted_blocking_transport_no_response() {
-        let mut transport = ScriptedSyncTransport::new(vec![]);
+        let mut transport = ScriptedBlockingTransport::new(vec![]);
 
         // Send a command
         transport

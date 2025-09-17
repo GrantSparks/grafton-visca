@@ -848,7 +848,7 @@ where
     }
 
     /// Get image flip settings.
-    pub fn flip(&self) -> M::Ret<'_, Result<crate::command::typed::FlipState, Error>>
+    pub fn flip(&self) -> M::Ret<'_, Result<crate::command::FlipState, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
@@ -856,7 +856,7 @@ where
     }
 
     /// Get flip mode (combined horizontal/vertical).
-    pub fn flip_mode(&self) -> M::Ret<'_, Result<crate::command::typed::FlipState, Error>>
+    pub fn flip_mode(&self) -> M::Ret<'_, Result<crate::command::FlipState, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
@@ -920,7 +920,9 @@ where
     }
 
     /// Get noise reduction mode.
-    pub fn noise_reduction_mode(&self) -> M::Ret<'_, Result<crate::command::NrMode, Error>>
+    pub fn noise_reduction_mode(
+        &self,
+    ) -> M::Ret<'_, Result<crate::command::NoiseReductionMode, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {

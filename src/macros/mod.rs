@@ -20,7 +20,7 @@
 //! These macros are used internally for implementing VISCA commands and are not part
 //! of the public API. They may change without notice:
 //!
-//! - Consolidated command generator: `visca_cmd!`
+//! - Consolidated command generator: `visca_command!`
 //! - Const utilities: `visca_bytes!`, `visca_prefix!`
 //! - Test utilities: `visca_test!`
 

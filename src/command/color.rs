@@ -8,10 +8,10 @@ use crate::{
     error::Error,
     timeout::CommandCategory,
     types::{BlueTuning, HueLevel, RedTuning, SaturationLevel},
-    visca_cmd,
+    visca_command,
 };
 
-visca_cmd! {
+visca_command! {
     /// One-Push White Balance Trigger command.
     ///
     /// Performs a one-time automatic white balance adjustment based on
@@ -35,7 +35,7 @@ impl OnePushTriggerCommand {
     }
 }
 
-visca_cmd! {
+visca_command! {
     /// Red Channel Tuning command.
     ///
     /// Fine-tunes the red channel gain for white balance adjustment.
@@ -64,7 +64,7 @@ impl RedTuningCommand {
     }
 }
 
-visca_cmd! {
+visca_command! {
     /// Blue Channel Tuning command.
     ///
     /// Fine-tunes the blue channel gain for white balance adjustment.
@@ -93,7 +93,7 @@ impl BlueTuningCommand {
     }
 }
 
-visca_cmd! {
+visca_command! {
     /// Saturation control command.
     ///
     /// Adjusts the color saturation level of the image.
@@ -114,7 +114,7 @@ impl SaturationCommand {
     }
 }
 
-visca_cmd! {
+visca_command! {
     /// Hue adjustment command.
     ///
     /// Adjusts the hue (color phase) of the image, shifting all colors

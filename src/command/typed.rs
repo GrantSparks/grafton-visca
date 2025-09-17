@@ -11,6 +11,9 @@
 use crate::command::Response;
 use crate::error::Error;
 
+// Re-export FlipState from inquiry_types since the derive macro expects it here
+pub use crate::command::inquiry_types::FlipState;
+
 /// Trait for commands that can parse responses into strongly-typed values.
 pub trait ResponseParser {
     /// Strongly-typed response for this command.
@@ -21,15 +24,6 @@ pub trait ResponseParser {
 }
 
 // Typed response structs for compound responses
-
-/// Named struct for flip state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FlipState {
-    /// Whether horizontal flip is enabled.
-    pub horizontal: bool,
-    /// Whether vertical flip is enabled.
-    pub vertical: bool,
-}
 
 /// Named struct for tally light state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,5 +47,5 @@ pub struct VersionInfo {
     pub max_socket: u8,
 }
 
-// Implementations are derived automatically by the `InquiryCommand` proc-macro
+// Implementations are derived automatically by the `ViscaInquiry` proc-macro
 // for supported inquiry types.

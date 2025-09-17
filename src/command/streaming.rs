@@ -3,9 +3,9 @@
 //! This module contains vendor-specific commands for controlling network and streaming features
 //! on PtzOptics Ndi cameras. These are not part of the baseline VISCA standard.
 
-use crate::{types::NdiQuality, visca_cmd};
+use crate::{types::NdiQuality, visca_command};
 
-visca_cmd! {
+visca_command! {
         /// Internal multicast streaming command
     pub struct MulticastStreamingInternal { enabled: bool };
     prefix = [0x0B, 0x01, 0x23];
@@ -53,7 +53,7 @@ impl crate::command::encode::ViscaCommand for MulticastStreaming {
     }
 }
 
-visca_cmd! {
+visca_command! {
         /// Internal Ndi quality command
     pub struct NdiQualityCommandInternal { quality: NdiQuality };
     prefix = [0x0B, 0x01, 0x01];

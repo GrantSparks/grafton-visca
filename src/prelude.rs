@@ -235,7 +235,7 @@ pub mod advanced {
 
     // Transport traits for custom implementations
     #[cfg(not(feature = "mode-async"))]
-    pub use crate::transport::sync_transport::SyncTransport;
+    pub use crate::transport::blocking_transport::BlockingTransport;
     #[cfg(feature = "mode-async")]
     pub use crate::transport::AsyncTransport;
 

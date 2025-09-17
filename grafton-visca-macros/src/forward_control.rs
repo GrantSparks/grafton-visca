@@ -47,7 +47,7 @@ pub fn delegate_to_session_impl(input: syn::ItemTrait) -> TokenStream {
         impl<P, Tr> #trait_name for crate::camera::CameraSession<crate::mode::Blocking, P, Tr, ()>
         where
             P: crate::capabilities::Profile,
-            Tr: crate::transport::SyncTransport
+            Tr: crate::transport::BlockingTransport
                 + crate::transport::HasTransportConfig
                 + Send
                 + 'static,

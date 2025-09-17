@@ -8,7 +8,7 @@ use crate::{
     error::Error,
     timeout::CommandCategory,
     types::{GainLevel, GainLimit},
-    visca_cmd,
+    visca_command,
 };
 
 /// Commands for controlling gain values.
@@ -79,7 +79,7 @@ impl ViscaCommand for Gain {
     }
 }
 
-visca_cmd! {
+visca_command! {
         /// Command to set the automatic gain control limit.
     pub struct GainLimitCommand { limit: GainLimit };
     prefix = [0x01, 0x04, 0x2C];

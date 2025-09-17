@@ -11,7 +11,7 @@ mod profile_aware_blocking_tests {
         capabilities::ProtocolStyle,
         command::{inquiry::PanTiltPositionInquiry, InquiryResponse},
         runtime::blocking_runner::BlockingRunner,
-        testing::testkit::scripted_transport::{ScriptedSyncTransport, Step},
+        testing::testkit::scripted_transport::{ScriptedBlockingTransport, Step},
         timeout::{CommandCategory, TimeoutConfig},
         CameraId,
     };
@@ -49,7 +49,7 @@ mod profile_aware_blocking_tests {
         // Create transport with scripted response
         // Camera coordinates: pan=0x1234, tilt=0x5678 (signed values)
         let response_frame = create_pan_tilt_response(0x1234, 0x5678);
-        let mut transport = ScriptedSyncTransport::new(vec![Step::OnSend {
+        let mut transport = ScriptedBlockingTransport::new(vec![Step::OnSend {
             matches: None,
             responses: vec![response_frame],
         }]);
@@ -90,7 +90,7 @@ mod profile_aware_blocking_tests {
         // Create transport with scripted response
         // Camera coordinates: pan=0x8000 (center), tilt=0x9000 (slightly up)
         let response_frame = create_pan_tilt_response(0x8000, 0x9000);
-        let mut transport = ScriptedSyncTransport::new(vec![Step::OnSend {
+        let mut transport = ScriptedBlockingTransport::new(vec![Step::OnSend {
             matches: None,
             responses: vec![response_frame],
         }]);
@@ -142,7 +142,7 @@ mod profile_aware_blocking_tests {
                 TimeoutConfig::default(),
             );
             let response_frame = create_pan_tilt_response(pan_cam, tilt_cam);
-            let mut transport = ScriptedSyncTransport::new(vec![Step::OnSend {
+            let mut transport = ScriptedBlockingTransport::new(vec![Step::OnSend {
                 matches: None,
                 responses: vec![response_frame],
             }]);
@@ -192,7 +192,7 @@ mod profile_aware_blocking_tests {
             BlockingRunner::<PtzOpticsG2>::new(ProtocolStyle::RawVisca, TimeoutConfig::default());
 
         // Create transport with data reply for home position (0,0)
-        let mut transport = ScriptedSyncTransport::new(vec![Step::OnSend {
+        let mut transport = ScriptedBlockingTransport::new(vec![Step::OnSend {
             matches: None,
             responses: vec![vec![
                 0x90, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF,

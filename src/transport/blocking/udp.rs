@@ -8,7 +8,7 @@ use crate::{
         address::AddressResolver,
         buffer::BufferConfig,
         builder::{AddressingMode, TransportConfig},
-        HasTransportConfig, SyncTransport,
+        BlockingTransport, HasTransportConfig,
     },
     Error,
 };
@@ -71,7 +71,7 @@ impl HasTransportConfig for Udp {
     }
 }
 
-impl SyncTransport for Udp {
+impl BlockingTransport for Udp {
     fn send_with_kind(&mut self, data: &[u8], _kind: CommandKind) -> Result<(), Error> {
         // Send directly - retry logic is handled at the runtime/scheduler level for async
         // For blocking mode, the blocking runner will handle retries

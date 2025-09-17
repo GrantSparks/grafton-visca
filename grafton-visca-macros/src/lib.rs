@@ -41,7 +41,7 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
     value_macros::derive_visca_value(input)
 }
 
-/// Derive macro for generating InquiryCommand implementations with parser support
+/// Derive macro for generating ViscaInquiry implementations with parser support
 ///
 /// This macro eliminates boilerplate by automatically generating the `Command` trait
 /// implementation with `to_bytes()`, `response_kind()`, and `command_category()` methods,
@@ -51,17 +51,17 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
 /// # Basic Usage
 ///
 /// ```rust,ignore
-/// use grafton_visca_macros::InquiryCommand;
+/// use grafton_visca_macros::ViscaInquiry;
 ///
-/// #[derive(InquiryCommand, Debug, Copy, Clone)]
+/// #[derive(ViscaInquiry, Debug, Copy, Clone)]
 /// #[visca(command = 0x00, response = "Power", inquiry_variant = "Power")]
 /// struct PowerInquiry;
 ///
-/// #[derive(InquiryCommand, Debug, Copy, Clone)]
+/// #[derive(ViscaInquiry, Debug, Copy, Clone)]
 /// #[visca(command = 0x47, response = "ZoomPosition", inquiry_variant = "ZoomPosition")]
 /// struct ZoomPositionInquiry;
 ///
-/// #[derive(InquiryCommand, Debug, Copy, Clone)]
+/// #[derive(ViscaInquiry, Debug, Copy, Clone)]
 /// #[visca(command = 0x12, sub_command = 0x06, response = "PanTiltPosition", inquiry_variant = "PanTiltPosition")]
 /// struct PanTiltPositionInquiry;
 /// ```
@@ -71,19 +71,19 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
 /// Add parser attributes to automatically generate response parsing:
 ///
 /// ```rust,ignore
-/// #[derive(InquiryCommand, Debug, Copy, Clone)]
+/// #[derive(ViscaInquiry, Debug, Copy, Clone)]
 /// #[visca(command = 0x00, response = "Power", inquiry_variant = "Power", parser = "bool")]
 /// struct PowerInquiry;
 ///
-/// #[derive(InquiryCommand, Debug, Copy, Clone)]
+/// #[derive(ViscaInquiry, Debug, Copy, Clone)]
 /// #[visca(command = 0x47, response = "ZoomPosition", inquiry_variant = "ZoomPosition", parser = "position")]
 /// struct ZoomPositionInquiry;
 ///
-/// #[derive(InquiryCommand, Debug, Copy, Clone)]
+/// #[derive(ViscaInquiry, Debug, Copy, Clone)]
 /// #[visca(command = 0xA1, response = "Luminance", inquiry_variant = "Luminance", parser = "byte")]
 /// struct LuminanceInquiry;
 ///
-/// #[derive(InquiryCommand, Debug, Copy, Clone)]
+/// #[derive(ViscaInquiry, Debug, Copy, Clone)]
 /// #[visca(command = 0x44, response = "RedGain", inquiry_variant = "RedGain", parser = "offset", field = "gain", offset = 10)]
 /// struct RedGainInquiry;
 /// ```
@@ -105,10 +105,10 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
 /// - The `response` attribute must reference existing variants in the `ResponseType` enum
 /// - The `inquiry_variant` must reference existing variants in the `InquiryCommand` enum
 /// - The struct should implement `Debug`, `Copy`, and `Clone` for full compatibility
-#[proc_macro_derive(InquiryCommand, attributes(visca))]
-pub fn derive_inquiry_command(input: TokenStream) -> TokenStream {
+#[proc_macro_derive(ViscaInquiry, attributes(visca))]
+pub fn derive_visca_inquiry(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
-    TokenStream::from(inquiry_command::derive_inquiry_command_impl(input))
+    TokenStream::from(inquiry_command::derive_visca_inquiry_impl(input))
 }
 
 /// Derive macro for automatic enum/u8 conversions in VISCA protocol

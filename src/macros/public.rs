@@ -157,7 +157,7 @@ macro_rules! impl_camera_ops {
         impl<P, T> $trait_name for $crate::camera::Camera<$crate::mode::Blocking, P, T>
         where
             P: $crate::capabilities::Profile,
-            T: $crate::transport::SyncTransport + Send + Sync + 'static,
+            T: $crate::transport::BlockingTransport + Send + Sync + 'static,
         {
             $( fn $method(&mut self $(, $param: $ptype)*) -> $ret {
                 self.$method($($param),*)

@@ -1,6 +1,6 @@
-//! Synchronous transport trait for VISCA communication.
+//! Blocking transport trait for VISCA communication.
 //!
-//! This trait provides synchronous methods for blocking transports,
+//! This trait provides blocking methods for transports,
 //! with built-in timeout support using OS-level socket timeouts.
 
 use core::time::Duration;
@@ -9,7 +9,7 @@ use crate::{command::CommandKind, transport::builder::TransportConfig, Error};
 
 /// Transport handle for blocking VISCA communication.
 ///
-/// This enum provides a typed alternative to `Box<dyn SyncTransport>` that avoids heap
+/// This enum provides a typed alternative to `Box<dyn BlockingTransport>` that avoids heap
 /// allocation and dynamic dispatch. It mirrors the design of the async `TransportHandle<R>`
 /// but for blocking transports.
 ///
@@ -37,7 +37,7 @@ pub enum BlockingTransportHandle {
 }
 
 #[cfg(not(feature = "mode-async"))]
-impl SyncTransport for BlockingTransportHandle {
+impl BlockingTransport for BlockingTransportHandle {
     fn send_with_kind(&mut self, bytes: &[u8], kind: CommandKind) -> Result<(), Error> {
         match self {
             BlockingTransportHandle::Tcp(transport) => transport.send_with_kind(bytes, kind),
@@ -88,9 +88,9 @@ impl HasTransportConfig for BlockingTransportHandle {
     }
 }
 
-/// Synchronous transport for VISCA communication.
+/// Blocking transport for VISCA communication.
 ///
-/// This trait provides synchronous methods for transports that block
+/// This trait provides blocking methods for transports that block
 /// the current thread. It includes built-in timeout support that should
 /// be implemented using OS-level socket timeouts where possible.
 ///
@@ -100,12 +100,12 @@ impl HasTransportConfig for BlockingTransportHandle {
 /// # Example
 ///
 /// ```rust,ignore
-/// use grafton_visca::transport::SyncTransport;
+/// use grafton_visca::transport::BlockingTransport;
 /// use core::time::Duration;
 ///
-/// struct MySyncTransport { /* ... */ }
+/// struct MyBlockingTransport { /* ... */ }
 ///
-/// impl SyncTransport for MySyncTransport {
+/// impl BlockingTransport for MyBlockingTransport {
 ///     fn send_with_kind(&mut self, bytes: &[u8], kind: CommandKind) -> Result<(), Error> {
 ///         // Send implementation with command kind for proper framing
 ///         Ok(())
@@ -122,8 +122,8 @@ impl HasTransportConfig for BlockingTransportHandle {
 ///     }
 /// }
 /// ```
-pub trait SyncTransport: Send {
-    /// Send raw bytes to the device with command kind (synchronous).
+pub trait BlockingTransport: Send {
+    /// Send raw bytes to the device with command kind (blocking).
     ///
     /// This method blocks until the bytes have been written to the
     /// underlying transport. The CommandKind is used for proper protocol
@@ -151,7 +151,7 @@ pub trait SyncTransport: Send {
     /// * `Err(_)` - For transport errors
     fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error>;
 
-    /// Read raw bytes with a timeout (synchronous).
+    /// Read raw bytes with a timeout (blocking).
     ///
     /// This method blocks until some data is available or the timeout expires.
     /// Implementations should use OS-level socket timeouts where possible for efficiency.

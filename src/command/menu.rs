@@ -4,9 +4,9 @@
 //! allowing remote navigation and configuration. These commands are particularly useful
 //! for Sony FR7 and other cameras with comprehensive on-screen menus.
 
-use crate::{timeout::CommandCategory, visca_cmd};
+use crate::{timeout::CommandCategory, visca_command};
 
-visca_cmd! {
+visca_command! {
     /// Menu display control command.
     ///
     /// Toggles the camera's on-screen menu display on or off.
@@ -108,7 +108,7 @@ impl From<MenuAction> for u8 {
     }
 }
 
-visca_cmd! {
+visca_command! {
     /// Menu action command for select/cancel operations.
     ///
     /// Performs menu selection (Enter) or cancellation (Back) actions.

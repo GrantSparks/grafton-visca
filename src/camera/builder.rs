@@ -39,7 +39,7 @@
 use std::sync::Arc;
 
 #[cfg(not(feature = "mode-async"))]
-use crate::transport::SyncTransport;
+use crate::transport::BlockingTransport;
 #[cfg(feature = "mode-async")]
 use crate::{
     camera::Camera, executor::Executor, mode, protocol::detect::ProtocolDetector,
@@ -686,7 +686,7 @@ impl CameraBuilder<()> {
     ) -> Result<crate::camera::Camera<crate::mode::Blocking, P, T, ()>, Error>
     where
         P: Profile + Default,
-        T: SyncTransport + crate::transport::HasTransportConfig + Send + 'static,
+        T: BlockingTransport + crate::transport::HasTransportConfig + Send + 'static,
     {
         // Use explicit override if provided, otherwise use profile default
         let protocol_style = self.protocol_style.unwrap_or(P::PROTOCOL_STYLE);

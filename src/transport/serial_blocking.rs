@@ -20,7 +20,7 @@ use crate::{
             handshake::blocking_handshake::{address_set_blocking, if_clear_blocking},
             Config as SerialConfig,
         },
-        HasTransportConfig, SyncTransport,
+        BlockingTransport, HasTransportConfig,
     },
 };
 
@@ -113,7 +113,7 @@ impl HasTransportConfig for SerialTransport {
 
 // SerialTransport keeps using &self because it has interior mutability
 // This is necessary for hardware constraints
-impl SyncTransport for SerialTransport {
+impl BlockingTransport for SerialTransport {
     fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<()> {
         // Apply write timeout
         let write_timeout = self.config.write_timeout;

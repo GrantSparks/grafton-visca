@@ -12,7 +12,7 @@ use crate::{
     types::{
         BrightnessLevel, DynamicRangeLevel, ExposureCompensationLevel, IrisLevel, ShutterSpeed,
     },
-    visca_cmd,
+    visca_command,
 };
 
 /// Camera exposure control modes.
@@ -30,7 +30,7 @@ pub enum ExposureMode {
     Bright = 0x0D,
 }
 
-visca_cmd! {
+visca_command! {
         /// Command to set the camera's exposure mode.
     ///
     /// This command allows switching between different exposure modes such as
@@ -131,7 +131,7 @@ impl ViscaCommand for ExposureCompensation {
     }
 }
 
-visca_cmd! {
+visca_command! {
         /// Commands for controlling the camera's dynamic range.
     ///
     /// Dynamic range control adjusts the camera's ability to capture detail
@@ -281,7 +281,7 @@ impl ViscaCommand for Shutter {
 
 /// Brightness control command.
 #[derive(Debug, Clone, Copy)]
-pub enum Bright {
+pub enum Brightness {
     /// Reset brightness to default.
     Reset,
     /// Increase brightness.
@@ -295,7 +295,7 @@ pub enum Bright {
     Direct(BrightnessLevel),
 }
 
-impl ViscaCommand for Bright {
+impl ViscaCommand for Brightness {
     type Response = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
@@ -348,7 +348,7 @@ impl ViscaCommand for Bright {
     }
 }
 
-visca_cmd! {
+visca_command! {
         /// Turn spotlight on (Sony models).
     ///
     /// Controls the spotlight feature which enhances exposure for specific subjects.
@@ -370,7 +370,7 @@ impl SpotlightOn {
     }
 }
 
-visca_cmd! {
+visca_command! {
         /// Turn spotlight off (Sony models).
     ///
     /// Controls the spotlight feature which enhances exposure for specific subjects.
@@ -392,7 +392,7 @@ impl SpotlightOff {
     }
 }
 
-visca_cmd! {
+visca_command! {
         /// Turn auto slow shutter on.
     ///
     /// Controls the auto slow shutter feature which automatically reduces shutter speed
@@ -416,7 +416,7 @@ impl AutoSlowShutterOn {
     }
 }
 
-visca_cmd! {
+visca_command! {
         /// Turn auto slow shutter off.
     ///
     /// Controls the auto slow shutter feature which automatically reduces shutter speed
@@ -954,7 +954,7 @@ mod tests {
     visca_test!(
         Bright,
         test_bright_reset,
-        Bright::Reset,
+        Brightness::Reset,
         &[0x81, 0x01, 0x04, 0x0D, 0x00, VISCA_TERMINATOR]
     );
 
@@ -962,7 +962,7 @@ mod tests {
     visca_test!(
         Bright,
         test_bright_up,
-        Bright::Up,
+        Brightness::Up,
         &[0x81, 0x01, 0x04, 0x0D, 0x02, VISCA_TERMINATOR]
     );
 
@@ -970,7 +970,7 @@ mod tests {
     visca_test!(
         Bright,
         test_bright_down,
-        Bright::Down,
+        Brightness::Down,
         &[0x81, 0x01, 0x04, 0x0D, 0x03, VISCA_TERMINATOR]
     );
 
@@ -978,7 +978,7 @@ mod tests {
     visca_test!(
         Bright,
         test_bright_set_level_00,
-        Bright::SetLevel(BrightnessLevel::new(0x00).unwrap()),
+        Brightness::SetLevel(BrightnessLevel::new(0x00).unwrap()),
         &[
             0x81,
             0x01,
@@ -996,7 +996,7 @@ mod tests {
     visca_test!(
         Bright,
         test_bright_set_level_08,
-        Bright::SetLevel(BrightnessLevel::new(0x08).unwrap()),
+        Brightness::SetLevel(BrightnessLevel::new(0x08).unwrap()),
         &[
             0x81,
             0x01,
@@ -1014,7 +1014,7 @@ mod tests {
     visca_test!(
         Bright,
         test_bright_set_level_10,
-        Bright::SetLevel(BrightnessLevel::new(0x10).unwrap()),
+        Brightness::SetLevel(BrightnessLevel::new(0x10).unwrap()),
         &[
             0x81,
             0x01,
@@ -1032,7 +1032,7 @@ mod tests {
     visca_test!(
         Bright,
         test_bright_set_level_11,
-        Bright::SetLevel(BrightnessLevel::new(0x11).unwrap()),
+        Brightness::SetLevel(BrightnessLevel::new(0x11).unwrap()),
         &[
             0x81,
             0x01,
@@ -1050,7 +1050,7 @@ mod tests {
     visca_test!(
         Bright,
         test_bright_direct_00,
-        Bright::Direct(BrightnessLevel::new(0x00).unwrap()),
+        Brightness::Direct(BrightnessLevel::new(0x00).unwrap()),
         &[
             0x81,
             0x01,
@@ -1068,7 +1068,7 @@ mod tests {
     visca_test!(
         Bright,
         test_bright_direct_08,
-        Bright::Direct(BrightnessLevel::new(0x08).unwrap()),
+        Brightness::Direct(BrightnessLevel::new(0x08).unwrap()),
         &[
             0x81,
             0x01,
@@ -1086,7 +1086,7 @@ mod tests {
     visca_test!(
         Bright,
         test_bright_direct_10,
-        Bright::Direct(BrightnessLevel::new(0x10).unwrap()),
+        Brightness::Direct(BrightnessLevel::new(0x10).unwrap()),
         &[
             0x81,
             0x01,
@@ -1104,7 +1104,7 @@ mod tests {
     visca_test!(
         Bright,
         test_bright_direct_11,
-        Bright::Direct(BrightnessLevel::new(0x11).unwrap()),
+        Brightness::Direct(BrightnessLevel::new(0x11).unwrap()),
         &[
             0x81,
             0x01,
@@ -1124,7 +1124,7 @@ mod tests {
         for value in 0x00..=0x11 {
             let level = BrightnessLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = Bright::SetLevel(level);
+            let cmd = Brightness::SetLevel(level);
             assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
         }
 
@@ -1132,7 +1132,7 @@ mod tests {
         // The general BrightnessLevel accepts values up to 0x11, which are all valid for G2
 
         // Non-direct commands should always be valid
-        assert!(Bright::Reset
+        assert!(Brightness::Reset
             .validate_for_model(CameraVariant::PtzOpticsG2)
             .is_ok());
     }
@@ -1161,7 +1161,7 @@ mod tests {
         );
         assert_eq!(Iris::Reset.timeout_class(), CommandCategory::Quick);
         assert_eq!(Shutter::Reset.timeout_class(), CommandCategory::Quick);
-        assert_eq!(Bright::Reset.timeout_class(), CommandCategory::Quick);
+        assert_eq!(Brightness::Reset.timeout_class(), CommandCategory::Quick);
     }
 
     #[test]
@@ -1180,7 +1180,7 @@ mod tests {
         .is_none());
         assert!(Iris::Reset.response_kind().is_none());
         assert!(Shutter::Reset.response_kind().is_none());
-        assert!(Bright::Reset.response_kind().is_none());
+        assert!(Brightness::Reset.response_kind().is_none());
     }
 
     // Test On command

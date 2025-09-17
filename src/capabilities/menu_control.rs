@@ -6,7 +6,7 @@
 /// and control via VISCA commands. Most modern VISCA cameras support basic
 /// menu control (display on/off, navigation, select/cancel), while some
 /// cameras like the Sony FR7 support advanced direct menu control.
-pub trait MenuControl {
+pub trait MenuCapability {
     /// Whether the camera supports advanced direct menu control.
     ///
     /// Sony FR7 supports additional menu control commands beyond basic navigation.
@@ -18,4 +18,4 @@ pub trait MenuControl {
 /// This trait is implemented for camera profiles that support advanced
 /// direct menu control commands beyond basic navigation. Currently,
 /// only the Sony FR7 supports this feature.
-pub trait HasDirectMenuControl: MenuControl {}
+pub trait HasDirectMenuControl: MenuCapability {}

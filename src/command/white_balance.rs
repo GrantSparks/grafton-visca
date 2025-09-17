@@ -12,7 +12,7 @@
 
 use grafton_visca_macros::ViscaEnum;
 
-use crate::visca_cmd;
+use crate::visca_command;
 
 /// White balance modes.
 ///
@@ -67,7 +67,7 @@ impl AutoWhiteBalanceSensitivity {
     }
 }
 
-visca_cmd! {
+visca_command! {
         /// Command to set the white balance mode.
     pub struct WhiteBalanceCommand { mode: WhiteBalanceMode };
     prefix = [0x01, 0x04, 0x35];
@@ -75,7 +75,7 @@ visca_cmd! {
     category = crate::timeout::CommandCategory::Quick;
 }
 
-visca_cmd! {
+visca_command! {
         /// Command to set AWB sensitivity.
     pub struct AWBSensitivityCommand { sensitivity: AutoWhiteBalanceSensitivity };
     prefix = [0x01, 0x04, 0xA9];

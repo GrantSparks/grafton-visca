@@ -2,13 +2,13 @@
 //
 // Copyright (c) 2024 Grafton Machine Shed <team@grafton.ai>
 
-//! InquiryCommand derive macro implementation with parser generation support
+//! ViscaInquiry derive macro implementation with parser generation support
 
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{DeriveInput, Ident};
 
-pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
+pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
     match &input.data {
         syn::Data::Struct(_) => {
             let struct_name = &input.ident;
@@ -23,7 +23,7 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
 
             let constant_name = attrs
                 .constant
-                .expect("visca attribute must have a 'constant' value - all inquiries must use predefined constants");
+                .expect("visca attribute must have a 'constant' or 'bytes_const' value - all inquiries must use predefined constants");
 
             // Determine crate path once for consistency
             let crate_path =
@@ -102,7 +102,7 @@ pub fn derive_inquiry_command_impl(input: DeriveInput) -> TokenStream {
 
             expanded
         }
-        _ => syn::Error::new_spanned(&input, "InquiryCommand can only be derived for structs")
+        _ => syn::Error::new_spanned(&input, "ViscaInquiry can only be derived for structs")
             .to_compile_error(),
     }
 }
@@ -139,20 +139,25 @@ fn parse_visca_attributes_from_struct(input: &DeriveInput) -> ViscaAttributes {
             for part in token_str.split(',') {
                 let part = part.trim();
 
-                if part.contains("command") && !part.contains("sub_command") {
+                if (part.contains("command") && !part.contains("sub_command"))
+                    || part.contains("opcode")
+                {
                     let value = part
                         .split('=')
                         .nth(1)
-                        .expect("command must have a value")
+                        .expect("command/opcode must have a value")
                         .trim();
                     if value.starts_with("0x") {
                         attrs.byte_value = Some(
                             u8::from_str_radix(value.trim_start_matches("0x"), 16)
-                                .expect("command must be a valid hex u8"),
+                                .expect("command/opcode must be a valid hex u8"),
                         );
                     } else {
-                        attrs.byte_value =
-                            Some(value.parse::<u8>().expect("command must be a valid u8"));
+                        attrs.byte_value = Some(
+                            value
+                                .parse::<u8>()
+                                .expect("command/opcode must be a valid u8"),
+                        );
                     }
                 } else if part.contains("response") {
                     let value = part
@@ -163,20 +168,23 @@ fn parse_visca_attributes_from_struct(input: &DeriveInput) -> ViscaAttributes {
                         .trim_matches('"');
                     // For struct attributes, response should be a simple string
                     attrs.response_kind = Some(format_ident!("{}", value));
-                } else if part.contains("sub_command") {
+                } else if part.contains("sub_command") || part.contains("subcode") {
                     let value = part
                         .split('=')
                         .nth(1)
-                        .expect("sub_command must have a value")
+                        .expect("sub_command/subcode must have a value")
                         .trim();
                     if value.starts_with("0x") {
                         attrs.subcategory = Some(
                             u8::from_str_radix(value.trim_start_matches("0x"), 16)
-                                .expect("sub_command must be a valid hex u8"),
+                                .expect("sub_command/subcode must be a valid hex u8"),
                         );
                     } else {
-                        attrs.subcategory =
-                            Some(value.parse::<u8>().expect("sub_command must be a valid u8"));
+                        attrs.subcategory = Some(
+                            value
+                                .parse::<u8>()
+                                .expect("sub_command/subcode must be a valid u8"),
+                        );
                     }
                 } else if part.contains("parser") {
                     let parser_value = part
@@ -216,31 +224,35 @@ fn parse_visca_attributes_from_struct(input: &DeriveInput) -> ViscaAttributes {
                         parser.offset =
                             Some(value.parse::<i8>().expect("offset must be a valid i8"));
                     }
-                } else if part.contains("type") && attrs.parser.is_some() {
+                } else if (part.contains("type") || part.contains("value_type"))
+                    && attrs.parser.is_some()
+                {
                     let value = part
                         .split('=')
                         .nth(1)
-                        .expect("type must have a value")
+                        .expect("type/value_type must have a value")
                         .trim()
                         .trim_matches('"');
                     if let Some(ref mut parser) = attrs.parser {
                         parser.mode_type = Some(value.to_string());
                     }
-                } else if part.contains("custom_fn") && attrs.parser.is_some() {
+                } else if (part.contains("custom_fn") || part.contains("parse_with"))
+                    && attrs.parser.is_some()
+                {
                     let value = part
                         .split('=')
                         .nth(1)
-                        .expect("custom_fn must have a value")
+                        .expect("custom_fn/parse_with must have a value")
                         .trim()
                         .trim_matches('"');
                     if let Some(ref mut parser) = attrs.parser {
                         parser.custom_fn = Some(value.to_string());
                     }
-                } else if part.contains("constant") {
+                } else if part.contains("constant") || part.contains("bytes_const") {
                     let value = part
                         .split('=')
                         .nth(1)
-                        .expect("constant must have a value")
+                        .expect("constant/bytes_const must have a value")
                         .trim()
                         .trim_matches('"');
                     attrs.constant = Some(value.to_string());
@@ -319,7 +331,7 @@ fn generate_parser_body(
                 .custom_fn
                 .as_deref()
                 .map(|s| format_ident!("{}", s))
-                .expect("custom parser requires custom_fn attribute");
+                .expect("custom parser requires custom_fn/parse_with attribute");
             quote! {
                 #crate_path::command::response::#custom_fn(data)
             }
@@ -945,6 +957,9 @@ fn generate_typed_impl(
         ("Bright", _, _) => {
             quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = u16; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::Bright{ position })=>Ok(position), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
+        ("Brightness", _, _) => {
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = u16; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::Brightness{ position })=>Ok(position), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+        }
         ("Iris", _, _) => {
             quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = u8; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::Iris{ position })=>Ok(position), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
@@ -977,6 +992,18 @@ fn generate_typed_impl(
         }
         ("FlipMode", _, _) => {
             quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = #crate_path::command::typed::FlipState; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::FlipMode{ horizontal, vertical })=>Ok(#crate_path::command::typed::FlipState{ horizontal, vertical }), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+        }
+        ("FlipState", Some("flags"), _) => {
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = #crate_path::command::typed::FlipState; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::FlipState{ vertical, horizontal })=>Ok(#crate_path::command::typed::FlipState{ horizontal, vertical }), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+        }
+        ("FlipState", Some("custom"), _) => {
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = #crate_path::command::typed::FlipState; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::FlipState{ horizontal, vertical })=>Ok(#crate_path::command::typed::FlipState{ horizontal, vertical }), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+        }
+        ("NoiseReductionLevel", Some("byte"), _) => {
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = u8; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::NoiseReductionLevel(val))=>Ok(val), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+        }
+        ("NoiseReductionMode", Some("mode"), Some("NoiseReductionMode")) => {
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = #crate_path::command::NoiseReductionMode; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::NoiseReductionMode{ mode })=>Ok(mode), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("Version", _, _) => {
             quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = #crate_path::command::typed::VersionInfo; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryResponse::Version{ vendor, model, rom_version, max_socket })=>Ok(#crate_path::command::typed::VersionInfo{ vendor, model, rom_version, max_socket }), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }

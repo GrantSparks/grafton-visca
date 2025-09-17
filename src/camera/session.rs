@@ -324,7 +324,7 @@ where
 impl<P, Tr> CameraSession<crate::mode::Blocking, P, Tr, ()>
 where
     P: Profile,
-    Tr: crate::transport::SyncTransport + crate::transport::HasTransportConfig + Send + 'static,
+    Tr: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + Send + 'static,
 {
     /// Create a new session from a camera instance.
     pub(crate) fn new(camera: Camera<crate::mode::Blocking, P, Tr, ()>) -> Self {
@@ -390,7 +390,7 @@ where
 impl<P, Tr> CameraSession<crate::mode::Blocking, P, Tr, ()>
 where
     P: Profile + crate::capabilities::ProfileMetadata + Default,
-    Tr: crate::transport::SyncTransport + crate::transport::HasTransportConfig + Send + 'static,
+    Tr: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + Send + 'static,
 {
     /// Wait for all movements to complete.
     ///
@@ -723,7 +723,7 @@ where
 impl<'a, P, Tr> RawSender<'a, crate::mode::Blocking, P, Tr, ()>
 where
     P: Profile + Default,
-    Tr: crate::transport::SyncTransport + crate::transport::HasTransportConfig + Send + 'static,
+    Tr: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + Send + 'static,
 {
     /// Send raw bytes as a VISCA command.
     pub fn send_bytes(&self, bytes: &[u8]) -> Result<(), Error> {

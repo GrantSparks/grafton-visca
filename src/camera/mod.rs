@@ -156,7 +156,7 @@ where
 impl<P, Tr> CommandClient<crate::mode::Blocking> for Camera<crate::mode::Blocking, P, Tr, ()>
 where
     P: crate::capabilities::Profile + Default,
-    Tr: crate::transport::SyncTransport + crate::transport::HasTransportConfig + Send + 'static,
+    Tr: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + Send + 'static,
 {
     fn send_and_complete<C>(
         &self,

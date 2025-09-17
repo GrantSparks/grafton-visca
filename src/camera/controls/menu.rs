@@ -71,7 +71,7 @@ pub trait DirectMenuControl: MenuControl {
 impl<M, P, Tr, Exec> MenuControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
-    P: crate::capabilities::Profile + crate::capabilities::MenuControl + Default,
+    P: crate::capabilities::Profile + crate::capabilities::MenuCapability + Default,
     Self: CommandClient<M>,
     Exec: crate::executor::Executor,
 {
@@ -97,7 +97,7 @@ where
 impl<M, P, Tr, Exec> DirectMenuControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
-    P: crate::capabilities::Profile + crate::capabilities::MenuControl + Default,
+    P: crate::capabilities::Profile + crate::capabilities::MenuCapability + Default,
     Self: CommandClient<M>,
     Exec: crate::executor::Executor,
 {

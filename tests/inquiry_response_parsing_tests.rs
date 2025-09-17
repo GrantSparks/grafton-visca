@@ -154,7 +154,7 @@ fn test_parse_backlight_inquiry() {
 fn test_parse_image_flip_inquiry() {
     // Both flips on
     let data = vec![0x90, 0x50, 0x03, 0xFF];
-    let result = Response::parse_with_type(&data, &ResponseKind::ImageFlip);
+    let result = Response::parse_with_type(&data, &ResponseKind::FlipState);
     assert!(
         result.is_ok(),
         "Failed to parse image flip response: {:?}",
@@ -162,7 +162,7 @@ fn test_parse_image_flip_inquiry() {
     );
 
     match result.unwrap() {
-        Response::Inquiry(InquiryResponse::ImageFlip {
+        Response::Inquiry(InquiryResponse::FlipState {
             vertical,
             horizontal,
         }) => {
@@ -174,7 +174,7 @@ fn test_parse_image_flip_inquiry() {
 
     // Only vertical flip
     let data = vec![0x90, 0x50, 0x02, 0xFF];
-    let result = Response::parse_with_type(&data, &ResponseKind::ImageFlip);
+    let result = Response::parse_with_type(&data, &ResponseKind::FlipState);
     assert!(
         result.is_ok(),
         "Failed to parse image flip response: {:?}",
@@ -182,7 +182,7 @@ fn test_parse_image_flip_inquiry() {
     );
 
     match result.unwrap() {
-        Response::Inquiry(InquiryResponse::ImageFlip {
+        Response::Inquiry(InquiryResponse::FlipState {
             vertical,
             horizontal,
         }) => {
@@ -196,7 +196,7 @@ fn test_parse_image_flip_inquiry() {
 #[test]
 fn test_parse_brightness_inquiry() {
     let data = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x08, 0xFF];
-    let result = Response::parse_with_type(&data, &ResponseKind::Bright);
+    let result = Response::parse_with_type(&data, &ResponseKind::Brightness);
     assert!(
         result.is_ok(),
         "Failed to parse brightness response: {:?}",
@@ -204,7 +204,7 @@ fn test_parse_brightness_inquiry() {
     );
 
     match result.unwrap() {
-        Response::Inquiry(InquiryResponse::Bright { position }) => {
+        Response::Inquiry(InquiryResponse::Brightness { position }) => {
             assert_eq!(position, 0x08, "Brightness position mismatch");
         }
         _ => panic!("Unexpected response type"),
