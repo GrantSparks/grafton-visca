@@ -26,17 +26,17 @@
     feature = "runtime-async-std",
     feature = "runtime-smol"
 ))]
-use std::env;
+use grafton_visca::{
+    camera::{profiles::PtzOpticsG2, Connect},
+    Error,
+};
 
 #[cfg(any(
     feature = "runtime-tokio",
     feature = "runtime-async-std",
     feature = "runtime-smol"
 ))]
-use grafton_visca::{
-    camera::{profiles::PtzOpticsG2, Connect},
-    Error,
-};
+use std::env;
 
 // Main function for when no runtime is selected
 #[cfg(not(any(
@@ -59,9 +59,9 @@ fn main() {
 ))]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    use tokio::time::{sleep, Duration};
-
     use grafton_visca::runtime_trait::TokioRuntime;
+
+    use tokio::time::{sleep, Duration};
 
     tracing_subscriber::fmt::init();
 
@@ -148,11 +148,10 @@ async fn main() -> Result<(), Error> {
 #[cfg(all(feature = "runtime-async-std", not(feature = "runtime-smol")))]
 #[async_std::main]
 async fn main() -> Result<(), Error> {
-    use async_std::task::sleep;
-
-    use std::time::Duration;
-
     use grafton_visca::runtime_trait::AsyncStdRuntime;
+
+    use async_std::task::sleep;
+    use std::time::Duration;
 
     tracing_subscriber::fmt::init();
 

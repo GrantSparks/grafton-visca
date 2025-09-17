@@ -125,8 +125,6 @@ fn main() -> Result<(), Error> {
     println!("✓ Zoom at 50%");
     println!();
 
-    println!();
-
     println!("═══ Focus Control ═══");
 
     println!("Setting auto focus...");
@@ -174,8 +172,6 @@ fn main() -> Result<(), Error> {
     camera.white_balance().one_push_trigger().block()?;
     println!("  ✓ One-push");
     camera.white_balance().auto().block()?;
-    println!();
-
     println!();
 
     println!("═══ Preset Management ═══");

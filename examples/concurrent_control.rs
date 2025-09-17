@@ -19,7 +19,10 @@ fn main() {
 }
 
 #[cfg(feature = "runtime-tokio")]
-use tokio::time::{sleep, Duration};
+use tokio::{
+    sync::{mpsc, Barrier},
+    time::{sleep, Duration},
+};
 
 #[cfg(feature = "runtime-tokio")]
 use std::sync::Arc;
@@ -255,8 +258,6 @@ async fn parallel_single_camera() -> Result<()> {
 async fn producer_consumer_pattern() -> Result<()> {
     println!("--- Example 3: Producer-Consumer Pattern ---");
 
-    use tokio::sync::mpsc;
-
     let runtime = TokioRuntime::from_current()?;
     let camera: Arc<
         CameraSession<Async, PtzOpticsG2, TransportHandle<TokioRuntime>, TokioRuntime>,
@@ -331,8 +332,6 @@ async fn producer_consumer_pattern() -> Result<()> {
 #[cfg(feature = "runtime-tokio")]
 async fn synchronized_movement() -> Result<()> {
     println!("--- Example 4: Synchronized Multi-Camera Movement ---");
-
-    use tokio::sync::Barrier;
 
     // Create cameras
     let camera_addrs = vec!["192.168.0.109", "192.168.0.110", "192.168.0.111"];

@@ -11,12 +11,10 @@
 //! - Async: cargo run --example builder_api --features runtime-tokio
 
 #[cfg(not(feature = "mode-async"))]
-use grafton_visca::{CameraBuilder, Result};
-
-#[cfg(not(feature = "mode-async"))]
-use grafton_visca::camera::profiles::{PtzOpticsG2, SonyBRC300, SonyFR7};
-
-// Imports are now done in each function to avoid unused import warnings
+use grafton_visca::{
+    camera::profiles::{PtzOpticsG2, SonyBRC300, SonyFR7},
+    CameraBuilder, Result,
+};
 
 #[cfg(not(feature = "mode-async"))]
 fn main() -> Result<()> {

@@ -14,13 +14,13 @@
 //! 3. Send some basic commands to verify operation
 //! 4. Display the difference in wire format between protocols
 
+use std::env;
+
 use grafton_visca::{
     camera::{profiles::GenericVisca, Connect},
     runtime_trait::TokioRuntime,
     Error,
 };
-
-use std::env;
 
 #[cfg(feature = "runtime-tokio")]
 #[tokio::main]
@@ -34,7 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nth(1)
         .unwrap_or_else(|| "192.168.0.110:5678".to_string());
 
-    println!("Target camera: {}", camera_addr);
+    println!("Target camera: {camera_addr}");
     println!("Attempting automatic protocol detection...\n");
 
     // EPIC B3: Auto-detect handshake
@@ -71,8 +71,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 session
             }
             Err(Error::ConnectionFailed { addr, source }) => {
-                println!("❌ Connection Failed to {}", addr);
-                println!("   Reason: {}", source);
+                println!("❌ Connection Failed to {addr}");
+                println!("   Reason: {source}");
                 println!("\nTroubleshooting:");
                 println!("• Verify camera is powered on and network accessible");
                 println!("• Check IP address and port are correct");
@@ -81,7 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Err(Error::ConnectionFailed { addr, source }.into());
             }
             Err(e) => {
-                println!("❌ Unexpected error: {}", e);
+                println!("❌ Unexpected error: {e}");
                 return Err(e.into());
             }
         };
@@ -93,20 +93,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Test version inquiry using accessor pattern
     match camera.system().version().await {
         Ok(version) => {
-            println!("✓ Version Inquiry: {:?}", version);
+            println!("✓ Version Inquiry: {version:?}");
         }
         Err(e) => {
-            println!("⚠ Version inquiry failed: {}", e);
+            println!("⚠ Version inquiry failed: {e}");
         }
     }
 
     // Test power inquiry using accessor pattern
     match camera.power().state().await {
         Ok(power_state) => {
-            println!("✓ Power State: {:?}", power_state);
+            println!("✓ Power State: {power_state:?}");
         }
         Err(e) => {
-            println!("⚠ Power inquiry failed: {}", e);
+            println!("⚠ Power inquiry failed: {e}");
         }
     }
 
@@ -115,7 +115,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Clean up
     if let Err(e) = camera.close().await {
-        println!("Warning: Failed to close session cleanly: {}", e);
+        println!("Warning: Failed to close session cleanly: {e}");
     }
 
     println!("\n📚 About Protocol Auto-Detection:");

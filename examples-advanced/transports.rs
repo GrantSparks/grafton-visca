@@ -14,18 +14,18 @@
 //! ```
 
 #[cfg(not(feature = "mode-async"))]
+use std::{
+    env, thread,
+    time::{Duration, Instant},
+};
+
+#[cfg(not(feature = "mode-async"))]
 use grafton_visca::{
     mode::BlockingFutureExt,
     profiles::PtzOpticsG2,
     types::SpeedLevel,
     units::{Degrees, Normalized},
     BlockingCamera, Error, PanTiltControl, ZoomControl,
-};
-
-#[cfg(not(feature = "mode-async"))]
-use std::{
-    env, thread,
-    time::{Duration, Instant},
 };
 
 #[cfg(not(feature = "mode-async"))]

@@ -101,7 +101,10 @@ async fn main() -> Result<(), Error> {
     }
 
     match state_result {
-        Ok(is_on) => println!("   ✓ Power state: {}", if is_on { "ON" } else { "OFF" }),
+        Ok(is_on) => {
+            let status = if is_on { "ON" } else { "OFF" };
+            println!("   ✓ Power state: {status}");
+        }
         Err(e) => println!("   ✗ State inquiry failed: {e}"),
     }
 
