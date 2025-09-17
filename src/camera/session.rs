@@ -6,6 +6,22 @@
 
 use std::{marker::PhantomData, time::Duration};
 
+/// Marker type for an open session state.
+#[derive(Debug, Copy, Clone)]
+pub enum Open {}
+
+/// Marker type for a closed session state.
+#[derive(Debug, Copy, Clone)]
+pub enum Closed {}
+
+/// A closed camera session that no longer provides any operations.
+///
+/// This type is returned by the `close()` method and indicates that
+/// the session has been explicitly closed. No camera operations can
+/// be performed on a closed session.
+#[derive(Debug, Copy, Clone)]
+pub struct ClosedSession;
+
 use crate::{
     camera::Camera,
     camera_id::CameraId,
@@ -65,6 +81,10 @@ impl ViscaCommand for RawCommand {
 /// (via Drop) and explicit close() methods. This ensures proper cleanup
 /// of resources regardless of how the session ends.
 ///
+/// The session uses a typestate pattern to ensure compile-time safety:
+/// - `CameraSession<..., Open>` - An active session that can be used
+/// - `CameraSession<..., Closed>` - A closed session with no operations available
+///
 /// # Example
 ///
 /// ```ignore
@@ -81,21 +101,19 @@ impl ViscaCommand for RawCommand {
 /// session.zoom().tele().await?;
 ///
 /// // Explicit close (optional - also happens on drop)
-/// session.close().await?;
+/// let _closed = session.close().await?;
 /// ```
 #[cfg(feature = "mode-async")]
-pub struct CameraSession<M, P, Tr, Exec>
+pub struct CameraSession<M, P, Tr, Exec, S = Open>
 where
     M: Mode,
     P: Profile,
     Exec: Executor,
 {
     /// The underlying camera instance.
-    camera: Option<Camera<M, P, Tr, Exec>>,
-    /// Track if we've been explicitly closed.
-    closed: bool,
+    camera: Camera<M, P, Tr, Exec>,
     /// Phantom data to ensure type parameters are used.
-    _phantom: PhantomData<(M, P, Tr, Exec)>,
+    _state: PhantomData<S>,
 }
 
 /// A camera session represents an active connection to a VISCA camera.
@@ -103,110 +121,100 @@ where
 /// This type provides both RAII (automatic cleanup on drop) and explicit
 /// close() methods for controlled shutdown. All camera control operations
 /// can be performed directly through the session.
+///
+/// The session uses a typestate pattern to ensure compile-time safety:
+/// - `CameraSession<..., Open>` - An active session that can be used
+/// - `CameraSession<..., Closed>` - A closed session with no operations available
 #[cfg(not(feature = "mode-async"))]
-pub struct CameraSession<M, P, Tr, Exec = ()>
+pub struct CameraSession<M, P, Tr, Exec = (), S = Open>
 where
     M: Mode,
     P: Profile,
 {
     /// The underlying camera instance.
-    camera: Option<Camera<M, P, Tr, Exec>>,
-    /// Track if we've been explicitly closed.
-    closed: bool,
-    _phantom: PhantomData<(M, P, Tr, Exec)>,
+    camera: Camera<M, P, Tr, Exec>,
+    /// Phantom data to ensure type parameters are used.
+    _state: PhantomData<S>,
 }
 
 #[cfg(feature = "mode-async")]
-impl<M, P, Tr, Exec> std::fmt::Debug for CameraSession<M, P, Tr, Exec>
+impl<M, P, Tr, Exec, S> std::fmt::Debug for CameraSession<M, P, Tr, Exec, S>
 where
     M: Mode,
     P: Profile,
     Exec: Executor,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let state_name = std::any::type_name::<S>()
+            .split("::")
+            .last()
+            .unwrap_or("Unknown");
         f.debug_struct("CameraSession")
-            .field("closed", &self.closed)
-            .field("has_camera", &self.camera.is_some())
+            .field("state", &state_name)
             .finish()
     }
 }
 
 #[cfg(not(feature = "mode-async"))]
-impl<M, P, Tr, Exec> std::fmt::Debug for CameraSession<M, P, Tr, Exec>
+impl<M, P, Tr, Exec, S> std::fmt::Debug for CameraSession<M, P, Tr, Exec, S>
 where
     M: Mode,
     P: Profile,
     Exec: crate::executor::Executor,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let state_name = std::any::type_name::<S>()
+            .split("::")
+            .last()
+            .unwrap_or("Unknown");
         f.debug_struct("CameraSession")
-            .field("closed", &self.closed)
+            .field("state", &state_name)
             .finish()
     }
 }
 
 #[cfg(feature = "mode-async")]
-impl<M, P, Tr, Exec> CameraSession<M, P, Tr, Exec>
+impl<M, P, Tr, Exec> CameraSession<M, P, Tr, Exec, Open>
 where
     M: Mode,
     P: Profile,
     Exec: Executor,
 {
-    /// Create a new session from a camera instance.
+    /// Create a new open session from a camera instance.
     pub(crate) fn new(camera: Camera<M, P, Tr, Exec>) -> Self {
         Self {
-            camera: Some(camera),
-            closed: false,
-            _phantom: PhantomData,
+            camera,
+            _state: PhantomData,
         }
     }
 
     /// Get a reference to the underlying camera.
-    ///
-    /// Returns None if the session has been closed.
-    pub fn camera(&self) -> Option<&Camera<M, P, Tr, Exec>> {
-        self.camera.as_ref()
+    pub fn camera(&self) -> &Camera<M, P, Tr, Exec> {
+        &self.camera
     }
 
     /// Get a mutable reference to the underlying camera.
-    ///
-    /// Returns None if the session has been closed.
-    pub fn camera_mut(&mut self) -> Option<&mut Camera<M, P, Tr, Exec>> {
-        self.camera.as_mut()
-    }
-
-    /// Check if the session has been closed.
-    pub fn is_closed(&self) -> bool {
-        self.closed
-    }
-
-    /// Take ownership of the underlying camera, leaving None in its place.
-    fn take_camera(&mut self) -> Option<Camera<M, P, Tr, Exec>> {
-        self.camera.take()
+    pub fn camera_mut(&mut self) -> &mut Camera<M, P, Tr, Exec> {
+        &mut self.camera
     }
 }
 
 // Async-specific close implementation for Runtime-based cameras
 #[cfg(feature = "mode-async")]
-impl<P, R> CameraSession<crate::mode::Async, P, crate::runtime::TransportHandle<R>, R>
+impl<P, R> CameraSession<crate::mode::Async, P, crate::runtime::TransportHandle<R>, R, Open>
 where
     P: Profile,
     R: crate::runtime::Runtime,
 {
     /// Explicitly close the camera session.
     ///
-    /// This method is idempotent - calling it multiple times is safe.
+    /// This consumes the session and returns a closed session marker.
     /// The session is also automatically closed when dropped.
-    pub async fn close(mut self) -> Result<(), Error> {
-        if self.closed {
-            return Ok(());
-        }
-
-        self.closed = true;
-        // For now, just let the camera drop - the runtime handle will clean up
-        let _ = self.take_camera();
-
-        Ok(())
+    pub async fn close(self) -> Result<ClosedSession, Error> {
+        // Simply consume self and return the closed marker
+        // The camera will be dropped when self is consumed
+        drop(self);
+        Ok(ClosedSession)
     }
 
     /// Get access to the raw command interface.
@@ -215,17 +223,17 @@ where
     /// the session's command scheduler to maintain proper sequencing.
     pub fn raw(
         &self,
-    ) -> Option<RawSender<'_, crate::mode::Async, P, crate::runtime::TransportHandle<R>, R>> {
-        self.camera.as_ref().map(|cam| RawSender {
-            camera: cam,
+    ) -> RawSender<'_, crate::mode::Async, P, crate::runtime::TransportHandle<R>, R> {
+        RawSender {
+            camera: &self.camera,
             _phantom: PhantomData,
-        })
+        }
     }
 }
 
 // Add movement detection methods for async sessions with more specific bounds
 #[cfg(feature = "mode-async")]
-impl<P, T, E> CameraSession<crate::mode::Async, P, T, E>
+impl<P, T, E> CameraSession<crate::mode::Async, P, T, E, Open>
 where
     P: Profile + crate::capabilities::ProfileMetadata + Default,
     T: crate::transport::AsyncTransport + Send + Sync + 'static,
@@ -243,11 +251,7 @@ where
     /// * `Err(Error::Timeout)` - Movement did not complete within timeout
     /// * `Err(Error::*)` - Other communication or camera errors
     pub async fn await_idle(&self, timeout: Duration) -> Result<(), Error> {
-        self.camera
-            .as_ref()
-            .ok_or_else(|| Error::InvalidState("Session is closed".into()))?
-            .await_idle(timeout)
-            .await
+        self.camera.await_idle(timeout).await
     }
 
     /// Wait for pan/tilt movement to complete.
@@ -261,11 +265,7 @@ where
     /// * `Ok(())` - Movement completed successfully
     /// * `Err(Error::Timeout)` - Movement did not complete within timeout
     pub async fn await_pan_tilt_idle(&self, timeout: Duration) -> Result<(), Error> {
-        self.camera
-            .as_ref()
-            .ok_or_else(|| Error::InvalidState("Session is closed".into()))?
-            .await_pan_tilt_idle(timeout)
-            .await
+        self.camera.await_pan_tilt_idle(timeout).await
     }
 
     /// Wait for zoom movement to complete.
@@ -279,11 +279,7 @@ where
     /// * `Ok(())` - Movement completed successfully
     /// * `Err(Error::Timeout)` - Movement did not complete within timeout
     pub async fn await_zoom_idle(&self, timeout: Duration) -> Result<(), Error> {
-        self.camera
-            .as_ref()
-            .ok_or_else(|| Error::InvalidState("Session is closed".into()))?
-            .await_zoom_idle(timeout)
-            .await
+        self.camera.await_zoom_idle(timeout).await
     }
 
     /// Wait for focus movement to complete.
@@ -297,11 +293,7 @@ where
     /// * `Ok(())` - Movement completed successfully
     /// * `Err(Error::Timeout)` - Movement did not complete within timeout
     pub async fn await_focus_idle(&self, timeout: Duration) -> Result<(), Error> {
-        self.camera
-            .as_ref()
-            .ok_or_else(|| Error::InvalidState("Session is closed".into()))?
-            .await_focus_idle(timeout)
-            .await
+        self.camera.await_focus_idle(timeout).await
     }
 
     /// Check if the camera is currently moving.
@@ -313,83 +305,61 @@ where
     /// * `Ok(false)` - Camera is idle
     /// * `Err(Error::*)` - Communication error
     pub async fn is_moving(&self) -> Result<bool, Error> {
-        self.camera
-            .as_ref()
-            .ok_or_else(|| Error::InvalidState("Session is closed".into()))?
-            .is_moving_async()
-            .await
+        self.camera.is_moving_async().await
     }
 }
 
-// Blocking-specific close implementation
+// Blocking-specific implementation for Open sessions
 #[cfg(not(feature = "mode-async"))]
-impl<P, Tr> CameraSession<crate::mode::Blocking, P, Tr, ()>
+impl<P, Tr> CameraSession<crate::mode::Blocking, P, Tr, (), Open>
 where
     P: Profile,
     Tr: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + Send + 'static,
 {
-    /// Create a new session from a camera instance.
+    /// Create a new open session from a camera instance.
     pub(crate) fn new(camera: Camera<crate::mode::Blocking, P, Tr, ()>) -> Self {
         Self {
-            camera: Some(camera),
-            closed: false,
-            _phantom: PhantomData,
+            camera,
+            _state: PhantomData,
         }
     }
 
     /// Get a reference to the underlying camera.
-    ///
-    /// Returns None if the session has been closed.
-    pub fn camera(&self) -> Option<&Camera<crate::mode::Blocking, P, Tr, ()>> {
-        self.camera.as_ref()
+    pub fn camera(&self) -> &Camera<crate::mode::Blocking, P, Tr, ()> {
+        &self.camera
     }
 
     /// Get a mutable reference to the underlying camera.
-    ///
-    /// Returns None if the session has been closed.
-    pub fn camera_mut(&mut self) -> Option<&mut Camera<crate::mode::Blocking, P, Tr, ()>> {
-        self.camera.as_mut()
-    }
-
-    /// Take ownership of the underlying camera, leaving None in its place.
-    fn take_camera(&mut self) -> Option<Camera<crate::mode::Blocking, P, Tr, ()>> {
-        self.camera.take()
+    pub fn camera_mut(&mut self) -> &mut Camera<crate::mode::Blocking, P, Tr, ()> {
+        &mut self.camera
     }
 
     /// Explicitly close the camera session.
     ///
-    /// This method is idempotent - calling it multiple times is safe.
+    /// This consumes the session and returns a closed session marker.
     /// The session is also automatically closed when dropped.
-    pub fn close(mut self) -> Result<(), Error> {
-        if self.closed {
-            return Ok(());
-        }
-
-        self.closed = true;
-        if let Some(camera) = self.take_camera() {
-            // For blocking mode, just let the camera drop
-            // The Drop impl will handle cleanup
-            drop(camera);
-        }
-
-        Ok(())
+    pub fn close(self) -> Result<ClosedSession, Error> {
+        // Simply consume self and return the closed marker
+        // The camera will be dropped when self is consumed
+        drop(self);
+        Ok(ClosedSession)
     }
 
     /// Get access to the raw command interface.
     ///
     /// This provides a way to send raw VISCA commands while still going through
     /// the session's command scheduler to maintain proper sequencing.
-    pub fn raw(&self) -> Option<RawSender<'_, crate::mode::Blocking, P, Tr, ()>> {
-        self.camera.as_ref().map(|cam| RawSender {
-            camera: cam,
+    pub fn raw(&self) -> RawSender<'_, crate::mode::Blocking, P, Tr, ()> {
+        RawSender {
+            camera: &self.camera,
             _phantom: PhantomData,
-        })
+        }
     }
 }
 
 // Add movement detection methods for blocking sessions
 #[cfg(not(feature = "mode-async"))]
-impl<P, Tr> CameraSession<crate::mode::Blocking, P, Tr, ()>
+impl<P, Tr> CameraSession<crate::mode::Blocking, P, Tr, (), Open>
 where
     P: Profile + crate::capabilities::ProfileMetadata + Default,
     Tr: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + Send + 'static,
@@ -406,10 +376,7 @@ where
     /// * `Err(Error::Timeout)` - Movement did not complete within timeout
     /// * `Err(Error::*)` - Other communication or camera errors
     pub fn await_idle(&mut self, timeout: Duration) -> Result<(), Error> {
-        self.camera
-            .as_mut()
-            .ok_or_else(|| Error::InvalidState("Session is closed".into()))?
-            .await_idle(timeout)
+        self.camera.await_idle(timeout)
     }
 
     /// Wait for pan/tilt movement to complete.
@@ -423,10 +390,7 @@ where
     /// * `Ok(())` - Movement completed successfully
     /// * `Err(Error::Timeout)` - Movement did not complete within timeout
     pub fn await_pan_tilt_idle(&mut self, timeout: Duration) -> Result<(), Error> {
-        self.camera
-            .as_mut()
-            .ok_or_else(|| Error::InvalidState("Session is closed".into()))?
-            .await_pan_tilt_idle(timeout)
+        self.camera.await_pan_tilt_idle(timeout)
     }
 
     /// Wait for zoom movement to complete.
@@ -440,10 +404,7 @@ where
     /// * `Ok(())` - Movement completed successfully
     /// * `Err(Error::Timeout)` - Movement did not complete within timeout
     pub fn await_zoom_idle(&mut self, timeout: Duration) -> Result<(), Error> {
-        self.camera
-            .as_mut()
-            .ok_or_else(|| Error::InvalidState("Session is closed".into()))?
-            .await_zoom_idle(timeout)
+        self.camera.await_zoom_idle(timeout)
     }
 
     /// Wait for focus movement to complete.
@@ -457,10 +418,7 @@ where
     /// * `Ok(())` - Movement completed successfully
     /// * `Err(Error::Timeout)` - Movement did not complete within timeout
     pub fn await_focus_idle(&mut self, timeout: Duration) -> Result<(), Error> {
-        self.camera
-            .as_mut()
-            .ok_or_else(|| Error::InvalidState("Session is closed".into()))?
-            .await_focus_idle(timeout)
+        self.camera.await_focus_idle(timeout)
     }
 
     /// Check if the camera is currently moving.
@@ -472,165 +430,93 @@ where
     /// * `Ok(false)` - Camera is idle
     /// * `Err(Error::*)` - Communication error
     pub fn is_moving(&mut self) -> Result<bool, Error> {
-        self.camera
-            .as_mut()
-            .ok_or_else(|| Error::InvalidState("Session is closed".into()))?
-            .is_moving()
+        self.camera.is_moving()
     }
 
-    // Accessor methods for blocking mode
-
     /// Access power-related controls and inquiries.
-    #[allow(clippy::expect_used)]
     pub fn power(
         &self,
     ) -> crate::camera::accessors::PowerAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
-        crate::camera::accessors::PowerAccessor::new(
-            self.camera
-                .as_ref()
-                .expect("Cannot access camera after session is closed"),
-        )
+        crate::camera::accessors::PowerAccessor::new(&self.camera)
     }
 
     /// Access zoom-related controls and inquiries.
-    #[allow(clippy::expect_used)]
     pub fn zoom(
         &self,
     ) -> crate::camera::accessors::ZoomAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
-        crate::camera::accessors::ZoomAccessor::new(
-            self.camera
-                .as_ref()
-                .expect("Cannot access camera after session is closed"),
-        )
+        crate::camera::accessors::ZoomAccessor::new(&self.camera)
     }
 
     /// Access pan/tilt-related controls and inquiries.
-    #[allow(clippy::expect_used)]
     pub fn pan_tilt(
         &self,
     ) -> crate::camera::accessors::PanTiltAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
-        crate::camera::accessors::PanTiltAccessor::new(
-            self.camera
-                .as_ref()
-                .expect("Cannot access camera after session is closed"),
-        )
+        crate::camera::accessors::PanTiltAccessor::new(&self.camera)
     }
 
     /// Access focus-related controls and inquiries.
-    #[allow(clippy::expect_used)]
     pub fn focus(
         &self,
     ) -> crate::camera::accessors::FocusAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
-        crate::camera::accessors::FocusAccessor::new(
-            self.camera
-                .as_ref()
-                .expect("Cannot access camera after session is closed"),
-        )
+        crate::camera::accessors::FocusAccessor::new(&self.camera)
     }
 
     /// Access exposure-related controls and inquiries.
-    #[allow(clippy::expect_used)]
     pub fn exposure(
         &self,
     ) -> crate::camera::accessors::ExposureAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
-        crate::camera::accessors::ExposureAccessor::new(
-            self.camera
-                .as_ref()
-                .expect("Cannot access camera after session is closed"),
-        )
+        crate::camera::accessors::ExposureAccessor::new(&self.camera)
     }
 
     /// Access white balance controls.
-    #[allow(clippy::expect_used)]
     pub fn white_balance(
         &self,
     ) -> crate::camera::accessors::WhiteBalanceAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
-        crate::camera::accessors::WhiteBalanceAccessor::new(
-            self.camera
-                .as_ref()
-                .expect("Cannot access camera after session is closed"),
-        )
+        crate::camera::accessors::WhiteBalanceAccessor::new(&self.camera)
     }
 
     /// Access menu navigation controls.
-    #[allow(clippy::expect_used)]
     pub fn menu(
         &self,
     ) -> crate::camera::accessors::MenuAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
-        crate::camera::accessors::MenuAccessor::new(
-            self.camera
-                .as_ref()
-                .expect("Cannot access camera after session is closed"),
-        )
+        crate::camera::accessors::MenuAccessor::new(&self.camera)
     }
 
     /// Access preset controls.
-    #[allow(clippy::expect_used)]
     pub fn presets(
         &self,
     ) -> crate::camera::accessors::PresetsAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
-        crate::camera::accessors::PresetsAccessor::new(
-            self.camera
-                .as_ref()
-                .expect("Cannot access camera after session is closed"),
-        )
+        crate::camera::accessors::PresetsAccessor::new(&self.camera)
     }
 
     /// Access tally light controls.
-    #[allow(clippy::expect_used)]
     pub fn tally(
         &self,
     ) -> crate::camera::accessors::TallyAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
-        crate::camera::accessors::TallyAccessor::new(
-            self.camera
-                .as_ref()
-                .expect("Cannot access camera after session is closed"),
-        )
+        crate::camera::accessors::TallyAccessor::new(&self.camera)
     }
 
     /// Access system-related controls and inquiries.
-    #[allow(clippy::expect_used)]
     pub fn system(
         &self,
     ) -> crate::camera::accessors::SystemAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
-        crate::camera::accessors::SystemAccessor::new(
-            self.camera
-                .as_ref()
-                .expect("Cannot access camera after session is closed"),
-        )
+        crate::camera::accessors::SystemAccessor::new(&self.camera)
     }
 
     /// Access image-related controls and inquiries.
-    #[allow(clippy::expect_used)]
     pub fn image(
         &self,
     ) -> crate::camera::accessors::ImageAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
-        crate::camera::accessors::ImageAccessor::new(
-            self.camera
-                .as_ref()
-                .expect("Cannot access camera after session is closed"),
-        )
+        crate::camera::accessors::ImageAccessor::new(&self.camera)
     }
 }
 
 // Implement control traits for blocking CameraSession by delegating to the camera
 // All control trait delegations are auto-generated by macros
 
-// Implement Drop for RAII cleanup
-#[cfg(feature = "mode-async")]
-impl<M, P, Tr, Exec> Drop for CameraSession<M, P, Tr, Exec>
-where
-    M: Mode,
-    P: Profile,
-    Exec: Executor,
-{
-    fn drop(&mut self) {
-        if !self.closed {
-            // Take the camera to trigger its Drop impl
-            let _ = self.take_camera();
-        }
-    }
-}
+// Drop is automatically handled by Rust - the camera field will be dropped
+// when the Open session is dropped. No explicit Drop impl needed since
+// we don't need special cleanup logic anymore.
 
 /// Raw command sender interface.
 ///
@@ -762,184 +648,84 @@ where
 // This allows using the session just like the camera for all control operations
 
 // Delegate accessor methods to the underlying camera
-// These methods are documented to panic if the session is closed, which is intentional behavior
-// for the accessor pattern. Users should check is_closed() if they need to handle this case.
+// These methods are only available for Open sessions, ensuring compile-time safety.
 #[cfg(feature = "mode-async")]
-#[allow(clippy::expect_used)]
-impl<M, P, Tr, Exec> CameraSession<M, P, Tr, Exec>
+impl<M, P, Tr, Exec> CameraSession<M, P, Tr, Exec, Open>
 where
     M: Mode,
     P: Profile,
     Exec: Executor,
 {
     /// Access power-related controls and inquiries.
-    ///
-    /// # Panics
-    /// Panics if the session has been closed.
     pub fn power(&self) -> crate::camera::accessors::PowerAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::PowerAccessor::new(
-            self.camera
-                .as_ref()
-                .expect("Cannot access camera after session is closed"),
-        )
+        crate::camera::accessors::PowerAccessor::new(&self.camera)
     }
 
     /// Access zoom-related controls and inquiries.
-    ///
-    /// # Panics
-    /// Panics if the session has been closed.
     pub fn zoom(&self) -> crate::camera::accessors::ZoomAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::ZoomAccessor::new(
-            self.camera
-                .as_ref()
-                .expect("Cannot access camera after session is closed"),
-        )
+        crate::camera::accessors::ZoomAccessor::new(&self.camera)
     }
 
     /// Access system-related controls and inquiries.
-    ///
-    /// # Panics
-    /// Panics if the session has been closed.
     pub fn system(&self) -> crate::camera::accessors::SystemAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::SystemAccessor::new(
-            self.camera
-                .as_ref()
-                .expect("Cannot access camera after session is closed"),
-        )
+        crate::camera::accessors::SystemAccessor::new(&self.camera)
     }
 
     /// Access pan/tilt-related controls and inquiries.
-    ///
-    /// # Panics
-    /// Panics if the session has been closed.
     pub fn pan_tilt(&self) -> crate::camera::accessors::PanTiltAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::PanTiltAccessor::new(
-            self.camera
-                .as_ref()
-                .expect("Cannot access camera after session is closed"),
-        )
+        crate::camera::accessors::PanTiltAccessor::new(&self.camera)
     }
 
     /// Access focus-related controls and inquiries.
-    ///
-    /// # Panics
-    /// Panics if the session has been closed.
     pub fn focus(&self) -> crate::camera::accessors::FocusAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::FocusAccessor::new(
-            self.camera
-                .as_ref()
-                .expect("Cannot access camera after session is closed"),
-        )
+        crate::camera::accessors::FocusAccessor::new(&self.camera)
     }
 
     /// Access exposure-related controls and inquiries.
-    ///
-    /// # Panics
-    /// Panics if the session has been closed.
     pub fn exposure(&self) -> crate::camera::accessors::ExposureAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::ExposureAccessor::new(
-            self.camera
-                .as_ref()
-                .expect("Cannot access camera after session is closed"),
-        )
+        crate::camera::accessors::ExposureAccessor::new(&self.camera)
     }
 
     /// Access white balance controls and inquiries.
-    ///
-    /// # Panics
-    /// Panics if the session has been closed.
     pub fn white_balance(
         &self,
     ) -> crate::camera::accessors::WhiteBalanceAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::WhiteBalanceAccessor::new(
-            self.camera
-                .as_ref()
-                .expect("Cannot access camera after session is closed"),
-        )
+        crate::camera::accessors::WhiteBalanceAccessor::new(&self.camera)
     }
 
     /// Access image processing controls and inquiries.
-    ///
-    /// # Panics
-    /// Panics if the session has been closed.
     pub fn image(&self) -> crate::camera::accessors::ImageAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::ImageAccessor::new(
-            self.camera
-                .as_ref()
-                .expect("Cannot access camera after session is closed"),
-        )
+        crate::camera::accessors::ImageAccessor::new(&self.camera)
     }
 
     /// Access preset-related controls.
-    ///
-    /// # Panics
-    /// Panics if the session has been closed.
     pub fn presets(&self) -> crate::camera::accessors::PresetsAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::PresetsAccessor::new(
-            self.camera
-                .as_ref()
-                .expect("Cannot access camera after session is closed"),
-        )
+        crate::camera::accessors::PresetsAccessor::new(&self.camera)
     }
 
     /// Access tally light controls and inquiries.
-    ///
-    /// # Panics
-    /// Panics if the session has been closed.
     pub fn tally(&self) -> crate::camera::accessors::TallyAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::TallyAccessor::new(
-            self.camera
-                .as_ref()
-                .expect("Cannot access camera after session is closed"),
-        )
+        crate::camera::accessors::TallyAccessor::new(&self.camera)
     }
 
     /// Access ND filter controls and inquiries.
-    ///
-    /// # Panics
-    /// Panics if the session has been closed.
     pub fn nd_filter(&self) -> crate::camera::accessors::NdFilterAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::NdFilterAccessor::new(
-            self.camera
-                .as_ref()
-                .expect("Cannot access camera after session is closed"),
-        )
+        crate::camera::accessors::NdFilterAccessor::new(&self.camera)
     }
 
     /// Access motion sync controls and inquiries.
-    ///
-    /// # Panics
-    /// Panics if the session has been closed.
     pub fn motion_sync(&self) -> crate::camera::accessors::MotionSyncAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::MotionSyncAccessor::new(
-            self.camera
-                .as_ref()
-                .expect("Cannot access camera after session is closed"),
-        )
+        crate::camera::accessors::MotionSyncAccessor::new(&self.camera)
     }
 
     /// Access menu controls and inquiries.
-    ///
-    /// # Panics
-    /// Panics if the session has been closed.
     pub fn menu(&self) -> crate::camera::accessors::MenuAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::MenuAccessor::new(
-            self.camera
-                .as_ref()
-                .expect("Cannot access camera after session is closed"),
-        )
+        crate::camera::accessors::MenuAccessor::new(&self.camera)
     }
 
     /// Access advanced settings inquiries.
-    ///
-    /// # Panics
-    /// Panics if the session has been closed.
     pub fn advanced(&self) -> crate::camera::accessors::AdvancedAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::AdvancedAccessor::new(
-            self.camera
-                .as_ref()
-                .expect("Cannot access camera after session is closed"),
-        )
+        crate::camera::accessors::AdvancedAccessor::new(&self.camera)
     }
 }
 
@@ -947,7 +733,7 @@ where
 // This allows using the session directly for all control operations
 
 #[cfg(feature = "mode-async")]
-impl<M, P, Tr, Exec> ViscaClient<M> for CameraSession<M, P, Tr, Exec>
+impl<M, P, Tr, Exec> ViscaClient<M> for CameraSession<M, P, Tr, Exec, Open>
 where
     M: Mode,
     P: Profile,
@@ -958,11 +744,7 @@ where
     where
         C: ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
     {
-        if let Some(camera) = &self.camera {
-            camera.execute(command)
-        } else {
-            self.error(Error::InvalidState("Session is closed".into()))
-        }
+        self.camera.execute(command)
     }
 
     fn query<C>(&self, command: C) -> M::Fut<'_, Result<<C as ResponseParser>::Response, Error>>
@@ -970,23 +752,14 @@ where
         C: ResponseParser + ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
         <C as ResponseParser>::Response: Send + 'static,
     {
-        if let Some(camera) = &self.camera {
-            camera.query(command)
-        } else {
-            self.error(Error::InvalidState("Session is closed".into()))
-        }
+        self.camera.query(command)
     }
 
     fn error<T>(&self, error: Error) -> M::Fut<'_, Result<T, Error>>
     where
         T: Send + 'static,
     {
-        if let Some(camera) = &self.camera {
-            camera.error(error)
-        } else {
-            // Return error directly using Mode::ready
-            M::ready(Err(error))
-        }
+        self.camera.error(error)
     }
 }
 

@@ -198,19 +198,18 @@ async fn parallel_single_camera() -> Result<()> {
     println!("Querying multiple states in parallel...");
 
     // Access the underlying camera for inquiry operations
-    if let Some(_cam) = camera.camera() {
-        let (power, pan_tilt, zoom, focus) = tokio::join!(
-            async { camera.power().state().await },
-            async { camera.pan_tilt().position().await },
-            async { camera.zoom().position().await },
-            async { camera.focus().position().await }
-        );
+    // The camera is always available in an Open session
+    let (power, pan_tilt, zoom, focus) = tokio::join!(
+        async { camera.power().state().await },
+        async { camera.pan_tilt().position().await },
+        async { camera.zoom().position().await },
+        async { camera.focus().position().await }
+    );
 
-        println!("Power: {power:?}");
-        println!("Pan/Tilt: {pan_tilt:?}");
-        println!("Zoom: {zoom:?}");
-        println!("Focus: {focus:?}");
-    }
+    println!("Power: {power:?}");
+    println!("Pan/Tilt: {pan_tilt:?}");
+    println!("Zoom: {zoom:?}");
+    println!("Focus: {focus:?}");
 
     println!("\nExecuting coordinated movements...");
 

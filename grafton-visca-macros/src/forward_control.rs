@@ -26,12 +26,12 @@ pub fn delegate_to_session_impl(input: syn::ItemTrait) -> TokenStream {
     let async_methods = generate_forwarding_methods(&methods);
     let blocking_methods = generate_forwarding_methods(&methods);
 
-    // Build the full implementation
+    // Build the full implementation - now with Open state constraint
     quote! {
         #input
 
         #[cfg(feature = "mode-async")]
-        impl<M, P, Tr, Exec> #trait_name for crate::camera::CameraSession<M, P, Tr, Exec>
+        impl<M, P, Tr, Exec> #trait_name for crate::camera::CameraSession<M, P, Tr, Exec, crate::camera::session::Open>
         where
             M: crate::mode::Mode,
             P: crate::capabilities::Profile,
@@ -44,7 +44,7 @@ pub fn delegate_to_session_impl(input: syn::ItemTrait) -> TokenStream {
         }
 
         #[cfg(not(feature = "mode-async"))]
-        impl<P, Tr> #trait_name for crate::camera::CameraSession<crate::mode::Blocking, P, Tr, ()>
+        impl<P, Tr> #trait_name for crate::camera::CameraSession<crate::mode::Blocking, P, Tr, (), crate::camera::session::Open>
         where
             P: crate::capabilities::Profile,
             Tr: crate::transport::BlockingTransport
@@ -91,21 +91,18 @@ fn generate_forwarding_methods(methods: &[&syn::TraitItemFn]) -> TokenStream {
             .collect();
 
         // Determine the receiver type and generate appropriate forwarding
+        // Now that we use typestate pattern, camera() and camera_mut() return direct references
         let forwarding_call = match sig.inputs.first() {
             Some(FnArg::Receiver(receiver)) => {
                 if receiver.mutability.is_some() {
                     // &mut self
                     quote! {
-                        self.camera_mut()
-                            .expect("Cannot access camera after session is closed")
-                            .#method_name(#(#param_names),*)
+                        self.camera_mut().#method_name(#(#param_names),*)
                     }
                 } else {
                     // &self
                     quote! {
-                        self.camera()
-                            .expect("Cannot access camera after session is closed")
-                            .#method_name(#(#param_names),*)
+                        self.camera().#method_name(#(#param_names),*)
                     }
                 }
             }
@@ -115,11 +112,10 @@ fn generate_forwarding_methods(methods: &[&syn::TraitItemFn]) -> TokenStream {
             }
         };
 
-        // Generate the full method with attributes
+        // Generate the full method with attributes (no more expect_used needed)
         generated_methods.push(quote! {
             #(#method_attrs)*
             #[inline]
-            #[allow(clippy::expect_used)]
             #sig {
                 #forwarding_call
             }
