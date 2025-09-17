@@ -5,134 +5,163 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.7.0] - 2025-09-18
 
-### Added
-- **Transport Builder**: Enhanced `TransportBuilder` with comprehensive connection options
-  - DNS resolution support for hostnames
-  - IPv4/IPv6 address parsing
-  - Configurable timeouts and buffer sizes
-  - Support for both blocking and async transports
-- **Async Wrapper**: New `AsyncWrapper` pattern for simplifying async transport implementations
-  - Reduces code duplication between blocking and async transports
-  - Provides consistent error handling and timeout behavior
-- **Protocol Improvements**:
-  - Streamlined runtime and protocol modules
-  - Consolidated envelope tests for better maintainability
-  - Enhanced frame parsing with better error recovery
-- **Unified Inquiry Scheduler** (#320):
-  - Inquiries now flow through the same `SchedulerCore` path as commands
-  - RAII `SendGuard` for automatic rollback on send failures in both async and blocking runners
-  - `DataReply` frames are now properly handled as completion events
-  - Added `CommandKind` field to `PendingCommand` for cleaner command type tracking
+This release represents a complete architectural transformation of the library, fundamentally reimagining how VISCA camera control should work in Rust. After hundreds of iterations and refinements since 0.6.0, we've achieved a design that prioritizes simplicity, type safety, and zero-cost abstractions.
 
-### Changed
-- **License**: Changed from Apache-2.0 to MIT OR Apache-2.0 dual license
-  - Now dual-licensed under MIT and Apache 2.0, following Rust ecosystem conventions
-  - Updated all license references across documentation and source files
-- **Transport Refactoring**: Major refactoring of transport layer
-  - Simplified `ip_raw` and `ip_sony` transport implementations
-  - Improved buffer management with cleaner abstractions
-  - Better separation of concerns between protocol layers
-- **Runtime Improvements**:
-  - Enhanced runtime module with better task scheduling
-  - Improved scheduler implementation for command prioritization
-  - More efficient handling of ACK/Completion sequences
-- **Code Quality**:
-  - Removed redundant TODO comments throughout codebase
-  - Cleaned up imports and module organization
-  - Consolidated test utilities for better reusability
-  - Simplified example code for better clarity
-- **BREAKING: Error Semantics** (#320):
-  - Send failures now fail immediately with `TransportError` instead of retrying
-  - Receive failures eventually result in `Error::Timeout` instead of `TransportError`
-  - Better error specificity while maintaining network resilience
+### 🎯 Philosophy: Camera-First API Design
 
-### Fixed
-- TCP test race condition on Windows
-- Missing `AsyncTransport` import in build_async_wrapper doctest
-- Various clippy warnings and formatting issues
-- Visibility issues in envelope and protocol modules
-- **Critical: Inquiry Handling** (#320):
-  - Fixed head-of-line blocking caused by inquiries awaiting in the event loop
-  - Fixed frame theft where inquiries could consume frames meant for commands
-  - Fixed dropped `DataReply` frames that were previously ignored
-  - Inquiries now properly participate in timeouts, retries, and metrics
+The central breakthrough in 0.7.0 is the **camera-first** approach. Instead of exposing protocol details, transport layers, or complex builders, the API now starts with what matters: the camera itself. This seemingly simple change cascades through the entire architecture, eliminating complexity at every level.
 
-### Internal
-- Reduced test suite complexity by removing redundant tests
-- Improved test organization with better helper utilities
-- Streamlined CI/CD checks for faster builds
+```rust
+// The entire connection story in one line
+let mut camera = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:52381")?;
 
-## [0.7.0] - 2025-01-18
+// Direct, intuitive control
+camera.power_on()?;
+camera.zoom_in()?;
+camera.pan_tilt_home()?;
+```
 
-### Major Architectural Improvements (Issues #226-#243)
+### 🔧 Core Architectural Changes
 
-This release introduces significant architectural improvements focused on zero-cost abstractions, better type safety, and improved network support.
+#### Unified Type System
+- Single `Camera<Profile>` type replaces complex generic hierarchies
+- `CameraSession` provides the actual connection and communication
+- Profile system enables compile-time validation without runtime overhead
+- Transport details completely hidden from public API
 
-### Breaking Changes
+#### Zero-Allocation Command Pipeline
+- Commands encoded directly into fixed-size arrays
+- No heap allocations in the hot path
+- Compile-time size calculation for all VISCA messages
+- Protocol framing happens at the last possible moment
 
-#### 🚀 Zero-Cost Async Architecture (Issue #226)
-- **BREAKING**: Complete redesign of transport traits to eliminate boxing overhead
-  - Removed GAT-based `Transport` trait
-  - Added separate `AsyncTransport` and `BlockingTransport` traits with native async functions
-  - Zero heap allocations in hot paths
-- **BREAKING**: Unified camera type with compile-time mode dispatch
-  - Single `Camera<Mode, Profile, Transport, Executor>` type
-  - `BlockingMode` and `AsyncMode` zero-size type markers
-- **BREAKING**: Camera construction changes
-  - Changed from direct construction to `CameraBuilder` pattern
-  - Explicit transport creation with transport types (`BlockingTcp`, `BlockingUdp`, etc.)
-- **BREAKING**: Method name changes for clarity
-  - `zoom_in()` → `zoom_tele_std()` (telephoto/zoom in)
-  - `zoom_out()` → `zoom_wide_std()` (wide angle/zoom out)
-  - Movement await methods: `await_pan_tilt_idle()`, `await_zoom_idle()`, `await_focus_idle()`
-- **BREAKING**: Position and speed types now require explicit construction
-  - Use `Degrees` and `Normalized` types for positions
-  - Use `PanSpeed::new()`, `TiltSpeed::new()` with numeric values
+#### Runtime-Agnostic Architecture
+- Blocking and async modes selected via feature flags (`mode-blocking`, `mode-async`)
+- No runtime required for blocking mode
+- Multiple async runtimes supported (tokio, async-std, smol) with automatic selection
+- Executor abstraction allows runtime switching without code changes
 
-#### 🔄 API Consolidation and Cleanup (Issue #222)
-- **BREAKING**: Removed duplicate setter methods from `Camera` struct:
-  - `set_nd_filter_mode()` - Use `NDFilterOps` trait methods instead
-  - `set_motion_sync_mode()` - Use `MotionSyncControl` trait methods instead
-- **BREAKING**: Changed return types for all menu control methods from `Result<Response, Error>` to `Result<(), Error>`
-  - Affects `MenuControlOps` and `DirectMenuControlOps` traits
-  - Simplifies API by returning unit type for command acknowledgments
-- **BREAKING**: Renamed module `generic_methods.rs` to `capability_introspection.rs` to better reflect its purpose
+#### Type-State Session Management
+- `CameraSession` uses type states (Open/Closed) to prevent use-after-close bugs
+- RAII pattern ensures proper resource cleanup
+- Connection lifecycle managed automatically
+- Compile-time guarantees for session validity
 
-### Added
-- **Network**: Full DNS resolution support for hostnames
-- **Network**: Consistent IPv6 support across all transports (TCP and UDP)
-- **Timeout**: ACK timeout configuration (default 75ms) for camera acknowledgments
-- **Timeout**: Fine-grained timeout control per operation category
-- **Inquiry**: Complete set of inquiry methods added to Camera struct
-  - `get_power_state()`, `get_focus_mode()`, `get_exposure_mode()`, etc.
-  - Direct methods on Camera for better ergonomics
-- **Documentation**: Comprehensive migration guide in MIGRATION.md
-- New `map_ack_to_unit()` helper function in `src/command/util.rs` for standardized response handling
-- Async facade now uses `forward_facade!` macro for consistency with blocking implementation
+### 📝 API Surface Consolidation
 
-### Changed
-- **Performance**: Eliminated all boxing in async code paths
-- **Runtime**: Runtime is no longer optional - async always requires runtime, blocking never uses it
-- **Transport**: TCP and UDP transports rewritten for zero-cost abstractions
-- Module `src/camera/generic_methods.rs` renamed to `src/camera/capability_introspection.rs`
-- Documentation updated to clarify that capability introspection methods are read-only
-- Async and blocking facades now have identical API surfaces generated from the same macro specification
+The public API has been dramatically simplified while maintaining full VISCA protocol support:
 
-### Removed
-- **Legacy**: Removed `src/async.rs` and `src/blocking.rs` modules
-- **Legacy**: Removed GAT-based `Transport` trait
-- **Legacy**: Removed boxed futures from all async implementations
+#### Before (0.6.0)
+- Multiple client types (`Client`, `AsyncClient`, `ViscaClient`)
+- Exposed transport traits and implementations
+- Complex builder patterns with many configuration options
+- Protocol details leaked into user code
 
-### Migration Guide
-See [MIGRATION.md](MIGRATION.md) for complete migration instructions from v0.6.x to v0.7.0.
+#### After (0.7.0)
+- Single `Camera` type with profile parameter
+- One-line connection methods via `Connect` trait
+- Transport and protocol completely abstracted
+- Clean separation between camera control and infrastructure
 
-Key points:
-1. Update camera construction to use `CameraBuilder` pattern
-2. Replace method calls according to the name changes (e.g., `zoom_in()` → `zoom_tele_std()`)
-3. Update position/speed types to use explicit constructors
-4. Import specific trait modules as needed for accessing control methods
+### 🚀 Major Features & Improvements
+
+#### Connection Simplicity (#403, #404)
+- `Connect` trait provides simple `open_tcp_*` and `open_udp_*` methods
+- Auto-detection of VISCA protocol variant (Sony vs Generic)
+- IPv6 support with automatic address normalization (#402)
+- DNS resolution handled transparently
+
+#### Command Architecture (#400, #405)
+- Exact-size VISCA encoding with zero allocations
+- Compile-time protocol envelope construction
+- Sony IP sequence number allocation fused into framing
+- Separate inquiry pipeline to prevent head-of-line blocking (#393)
+
+#### Profile System Enhancement
+- Camera profiles now define all model-specific constants
+- Compile-time validation of parameters against camera capabilities
+- Automatic unit conversions based on camera model
+- Profile-aware timeout configurations
+
+#### Unified Scheduler (#392)
+- Deadline-driven scheduler replaces fixed tick loop
+- Commands and inquiries share same scheduling infrastructure
+- Automatic retry handling with exponential backoff
+- Per-category timeout configuration
+
+### 🔄 Breaking Changes from 0.6.0
+
+Due to the complete architectural overhaul, this release includes extensive breaking changes. Rather than listing each change individually (there are hundreds), here's how to think about migrating:
+
+#### Connection & Setup
+```rust
+// Old (0.6.0)
+let transport = TcpTransport::new("192.168.0.110:52381")?;
+let camera = CameraBuilder::new()
+    .with_transport(transport)
+    .profile::<PtzOpticsG2>()
+    .build()?;
+
+// New (0.7.0)
+let mut camera = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:52381")?;
+```
+
+#### Feature Flags
+```rust
+// Old: Complex feature matrix
+[features]
+default = ["async", "tokio", "tcp", "udp"]
+
+// New: Simple mode selection
+[features]
+default = ["mode-blocking"]  # or ["mode-async", "tokio"]
+```
+
+#### API Access
+```rust
+// Old: Traits scattered across modules
+use grafton_visca::{ViscaZoomExt, ViscaPanTiltExt, ViscaFocusExt};
+
+// New: Everything through Camera methods
+use grafton_visca::{Camera, camera::profiles::PtzOpticsG2, camera::Connect};
+// All methods available directly on camera instance
+```
+
+#### Command Execution
+```rust
+// Old: Complex command building
+let cmd = ZoomCommand::Direct(ZoomPosition::new(0x4000)?);
+camera.send(&cmd)?;
+
+// New: Direct methods
+camera.zoom_to(0x4000)?;
+// Or with units
+camera.zoom_to(Normalized::new(0.5)?)?;
+```
+
+### 🎓 Migration Strategy
+
+Given the extensive changes, we recommend:
+
+1. **Start Fresh**: Rather than trying to update existing code incrementally, consider rewriting camera control logic using the new API
+2. **Use Examples**: The examples in `/examples` demonstrate all common patterns
+3. **Leverage Type Safety**: Let the compiler guide you - most old patterns simply won't compile
+4. **Simplify**: The new API requires significantly less code - embrace the simplicity
+
+### 📚 Technical Improvements
+
+- **Macro System** (#397, #399): Complete consolidation of internal macros, cleaner organization
+- **Naming Consistency** (#396, #398): All types and methods follow consistent naming patterns
+- **Protocol Correctness** (#389, #395): Strict VISCA compliance with proper terminator handling
+- **Test Infrastructure** (#394): Deterministic executor for reliable async testing
+- **Transport Unification** (#381, #387): Blocking and async transports share core logic
+- **Error Handling** (#382): Consistent error semantics across all transport types
+
+### 🔮 Future Direction
+
+This release establishes a stable foundation for the 1.0 release. The camera-first API design, combined with zero-cost abstractions and compile-time safety, provides the ideal balance of simplicity and power for VISCA camera control in Rust.
 
 ## [0.6.1] - 2025-01-12
 
