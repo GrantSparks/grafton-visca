@@ -1,8 +1,8 @@
-//! power control implementation using Mode trait.
+//! Power control implementation using Mode trait.
 
 use crate::{camera::ViscaClient, mode::Mode, Error};
 
-/// power operations for cameras.
+/// Power operations for cameras.
 ///
 /// This trait provides power control methods that work seamlessly for both
 /// blocking and async cameras through the Mode trait system.
@@ -18,7 +18,6 @@ pub trait PowerControl {
     fn power_off(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
-// Single unified implementation for all Camera types!
 impl<M, P, Tr, Exec> PowerControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,

@@ -14,13 +14,13 @@
 //! 3. Send some basic commands to verify operation
 //! 4. Display the difference in wire format between protocols
 
-use std::env;
-
 use grafton_visca::{
     camera::{profiles::GenericVisca, Connect},
     runtime::TokioRuntime,
     Error,
 };
+
+use std::env;
 
 #[cfg(feature = "runtime-tokio")]
 #[tokio::main]

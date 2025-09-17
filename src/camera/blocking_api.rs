@@ -724,8 +724,6 @@ where
         /// Decrease color temperature.
         fn decrease_color_temperature() -> ();
 
-        // Removed - redundant with set_color_temperature
-
         /// Set red gain.
         fn set_red_gain(gain: crate::types::RedChannel) -> ();
 

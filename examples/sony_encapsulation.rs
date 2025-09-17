@@ -128,16 +128,15 @@ fn main() -> Result<(), Error> {
 }
 
 #[cfg(feature = "runtime-tokio")]
-use tokio::time::{sleep, Duration};
-
-#[cfg(feature = "runtime-tokio")]
-use std::env;
-
-#[cfg(feature = "runtime-tokio")]
 use grafton_visca::{
     camera::profiles::SonyFR7, runtime::TokioRuntime, runtime_adapters::tokio::TcpTransport as Tcp,
     types::SpeedLevel, units::Degrees, CameraBuilder, Error,
 };
+#[cfg(feature = "runtime-tokio")]
+use tokio::time::{sleep, Duration};
+
+#[cfg(feature = "runtime-tokio")]
+use std::env;
 
 #[cfg(feature = "runtime-tokio")]
 #[tokio::main]

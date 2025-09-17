@@ -1,4 +1,4 @@
-//! white balance control implementation using Mode trait.
+//! White balance control implementation using Mode trait.
 
 use crate::{
     camera::ViscaClient,
@@ -7,7 +7,7 @@ use crate::{
     Error,
 };
 
-/// white balance operations for cameras.
+/// White balance operations for cameras.
 ///
 /// This trait provides white balance control methods that work seamlessly for both
 /// blocking and async cameras through the Mode trait system.
@@ -50,7 +50,6 @@ pub trait WhiteBalanceControl {
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
-// Single unified implementation for all Camera types!
 impl<M, P, Tr, Exec> WhiteBalanceControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,

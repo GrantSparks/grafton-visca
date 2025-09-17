@@ -1,4 +1,4 @@
-//! variable speed mode control implementation using Mode trait.
+//! Variable speed mode control implementation using Mode trait.
 
 use crate::{
     camera::ViscaClient,
@@ -7,7 +7,7 @@ use crate::{
     Error,
 };
 
-/// variable speed mode control for cameras.
+/// Variable speed mode control for cameras.
 ///
 /// This trait provides variable speed control methods that work seamlessly for both
 /// blocking and async cameras through the Mode trait system.

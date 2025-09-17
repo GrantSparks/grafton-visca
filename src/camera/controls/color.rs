@@ -11,7 +11,7 @@ use crate::{
     Error,
 };
 
-/// color operations for cameras.
+/// Color operations for cameras.
 ///
 /// This trait provides color control methods that work seamlessly for both
 /// blocking and async cameras through the Mode trait system.

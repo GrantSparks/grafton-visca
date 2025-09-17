@@ -158,12 +158,11 @@ fn main() -> grafton_visca::Result<()> {
 #[cfg(feature = "runtime-tokio")]
 #[tokio::main]
 async fn main() -> grafton_visca::Result<()> {
-    use tokio::time::Instant;
-
     use grafton_visca::{
         camera::profiles::GenericVisca, runtime::TokioRuntime,
         runtime_adapters::tokio::TcpTransport as Tcp, CameraBuilder,
     };
+    use tokio::time::Instant;
 
     tracing_subscriber::fmt::init();
 

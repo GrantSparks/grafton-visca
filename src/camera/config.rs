@@ -164,7 +164,7 @@ where
                 TransportOptions::Udp { .. } => P::DEFAULT_UDP_PORT,
                 _ => P::DEFAULT_TCP_PORT,
             };
-            format!("{}:{}", addr, default_port)
+            format!("{addr}:{default_port}")
         };
 
         // Update transport with new address, preserving transport type

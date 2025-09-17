@@ -95,10 +95,12 @@ fn main() -> grafton_visca::Result<()> {
 ))]
 #[tokio::main]
 async fn main() -> grafton_visca::Result<()> {
-    use grafton_visca::camera::profiles::{PtzOpticsG2, SonyBRC300, SonyFR7};
-    use grafton_visca::runtime::TokioRuntime;
-    use grafton_visca::runtime_adapters::tokio::{TcpTransport as Tcp, UdpTransport as Udp};
-    use grafton_visca::CameraBuilder;
+    use grafton_visca::{
+        camera::profiles::{PtzOpticsG2, SonyBRC300, SonyFR7},
+        runtime::TokioRuntime,
+        runtime_adapters::tokio::{TcpTransport as Tcp, UdpTransport as Udp},
+        CameraBuilder,
+    };
 
     tracing_subscriber::fmt::init();
 
@@ -182,9 +184,12 @@ async fn main() -> grafton_visca::Result<()> {
 #[cfg(all(feature = "runtime-async-std", not(feature = "runtime-smol")))]
 fn main() -> grafton_visca::Result<()> {
     use async_std::task;
-    use grafton_visca::camera::profiles::PtzOpticsG2;
-    use grafton_visca::runtime_adapters::async_std::{TcpTransport as Tcp, UdpTransport as Udp};
-    use grafton_visca::CameraBuilder;
+
+    use grafton_visca::{
+        camera::profiles::PtzOpticsG2,
+        runtime_adapters::async_std::{TcpTransport as Tcp, UdpTransport as Udp},
+        CameraBuilder,
+    };
 
     tracing_subscriber::fmt::init();
 
@@ -215,9 +220,11 @@ fn main() -> grafton_visca::Result<()> {
 
 #[cfg(feature = "runtime-smol")]
 fn main() -> grafton_visca::Result<()> {
-    use grafton_visca::camera::profiles::PtzOpticsG2;
-    use grafton_visca::runtime_adapters::smol::{TcpTransport as Tcp, UdpTransport as Udp};
-    use grafton_visca::CameraBuilder;
+    use grafton_visca::{
+        camera::profiles::PtzOpticsG2,
+        runtime_adapters::smol::{TcpTransport as Tcp, UdpTransport as Udp},
+        CameraBuilder,
+    };
 
     tracing_subscriber::fmt::init();
 

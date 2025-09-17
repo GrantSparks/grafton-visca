@@ -51,7 +51,7 @@ mod exposure_constants {
     ];
 }
 
-use exposure_constants::*;
+use exposure_constants::{GENERIC_VISCA_SHUTTER_SPEEDS, PTZ_OPTICS_G2_SHUTTER_SPEEDS};
 
 const PTZ_OPTICS_G2_WB_MODES: &[WhiteBalanceMode] = &[
     WhiteBalanceMode::Auto,

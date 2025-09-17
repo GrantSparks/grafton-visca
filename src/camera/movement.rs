@@ -7,6 +7,17 @@
 
 use std::time::{Duration, Instant};
 
+use super::Camera;
+use crate::{
+    capabilities::{Profile, ProfileMetadata},
+    command::inquiry::{FocusPositionInquiry, PanTiltPositionInquiry, ZoomPositionInquiry},
+    error::Error,
+};
+#[cfg(feature = "mode-async")]
+use crate::{executor::Executor, transport::AsyncTransport};
+#[cfg(not(feature = "mode-async"))]
+use crate::{mode::BlockingFutureExt, transport::BlockingTransport};
+
 /// Position data for movement detection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PanTiltPosition {
@@ -82,17 +93,6 @@ pub fn positions_equal_within_tolerance_separate(
 pub fn zoom_equal_within_tolerance(z1: u16, z2: u16, tolerance: u16) -> bool {
     (z1 as i32 - z2 as i32).abs() <= tolerance as i32
 }
-
-use super::Camera;
-use crate::{
-    capabilities::{Profile, ProfileMetadata},
-    command::inquiry::{FocusPositionInquiry, PanTiltPositionInquiry, ZoomPositionInquiry},
-    error::Error,
-};
-#[cfg(feature = "mode-async")]
-use crate::{executor::Executor, transport::AsyncTransport};
-#[cfg(not(feature = "mode-async"))]
-use crate::{mode::BlockingFutureExt, transport::BlockingTransport};
 
 // Blocking mode implementation is only available without async feature
 #[cfg(not(feature = "mode-async"))]

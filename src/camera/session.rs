@@ -6,9 +6,6 @@
 
 use std::{marker::PhantomData, time::Duration};
 
-#[cfg(feature = "mode-async")]
-use crate::camera::ViscaClient;
-
 use crate::{
     camera::Camera,
     camera_id::CameraId,
@@ -18,6 +15,9 @@ use crate::{
     mode::Mode,
     timeout::CommandCategory,
 };
+
+#[cfg(feature = "mode-async")]
+use crate::{camera::ViscaClient, executor::Executor};
 
 /// A wrapper for raw VISCA command bytes.
 #[derive(Clone, Debug)]
@@ -945,9 +945,6 @@ where
 
 // Implement control traits by delegating to the underlying camera
 // This allows using the session directly for all control operations
-
-#[cfg(feature = "mode-async")]
-use crate::executor::Executor;
 
 #[cfg(feature = "mode-async")]
 impl<M, P, Tr, Exec> ViscaClient<M> for CameraSession<M, P, Tr, Exec>
