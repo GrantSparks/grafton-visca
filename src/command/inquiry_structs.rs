@@ -74,15 +74,49 @@ pub struct FocusPositionInquiry;
 pub struct ExposureModeInquiry;
 
 /// Inquiry command to get the current exposure compensation value.
-#[derive(ViscaInquiry, Debug, Copy, Clone)]
-#[visca(
-    opcode = 0x4E,
-    response = "ExposureCompensation",
-    parser = "custom",
-    parse_with = "parse_exposure_compensation",
-    bytes_const = "EXPOSURE_COMPENSATION"
-)]
+/// Note: This inquiry is handled directly in the exposure decoder module.
+#[derive(Debug, Copy, Clone)]
 pub struct ExposureCompensationInquiry;
+
+// Manual implementation for ExposureCompensationInquiry to avoid deprecated parser
+impl crate::command::encode::ViscaCommand for ExposureCompensationInquiry {
+    type Response = crate::command::InquiryData;
+    const MAX_SIZE: usize = 7;
+    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
+        crate::timeout::CommandCategory::Quick;
+
+    fn write_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, crate::error::Error> {
+        use crate::command::bytes::ConstCommandBuilder;
+
+        let builder = ConstCommandBuilder::<7>::new()
+            .append(crate::command::bytes::constants::inquiry::EXPOSURE_COMPENSATION)
+            .with_camera_id(camera_id)
+            .terminate();
+        builder.build_into(buffer)
+    }
+
+    fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
+        Some(crate::command::response::InquiryKind::ExposureCompensation)
+    }
+}
+
+impl crate::command::typed::ResponseParser for ExposureCompensationInquiry {
+    type Response = i8;
+
+    fn from_response(resp: crate::command::Response) -> Result<Self::Response, crate::Error> {
+        match resp {
+            crate::command::Response::Inquiry(
+                crate::command::InquiryData::ExposureCompensation { value },
+            ) => Ok(value),
+            crate::command::Response::Error(e) => Err(e),
+            _ => Err(crate::Error::UnexpectedResponseType),
+        }
+    }
+}
 
 /// Inquiry command to get the exposure compensation mode on/off status.
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
@@ -106,15 +140,49 @@ pub struct ExposureCompensationModeInquiry;
 pub struct IrisInquiry;
 
 /// Inquiry command to get the current shutter speed setting.
-#[derive(ViscaInquiry, Debug, Copy, Clone)]
-#[visca(
-    opcode = 0x4A,
-    response = "Shutter",
-    parser = "custom",
-    parse_with = "parse_shutter",
-    bytes_const = "SHUTTER"
-)]
+/// Note: This inquiry is handled directly in the exposure decoder module.
+#[derive(Debug, Copy, Clone)]
 pub struct ShutterInquiry;
+
+// Manual implementation for ShutterInquiry to avoid deprecated parser
+impl crate::command::encode::ViscaCommand for ShutterInquiry {
+    type Response = crate::command::InquiryData;
+    const MAX_SIZE: usize = 7;
+    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
+        crate::timeout::CommandCategory::Quick;
+
+    fn write_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, crate::error::Error> {
+        use crate::command::bytes::ConstCommandBuilder;
+
+        let builder = ConstCommandBuilder::<7>::new()
+            .append(crate::command::bytes::constants::inquiry::SHUTTER)
+            .with_camera_id(camera_id)
+            .terminate();
+        builder.build_into(buffer)
+    }
+
+    fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
+        Some(crate::command::response::InquiryKind::Shutter)
+    }
+}
+
+impl crate::command::typed::ResponseParser for ShutterInquiry {
+    type Response = u16;
+
+    fn from_response(resp: crate::command::Response) -> Result<Self::Response, crate::Error> {
+        match resp {
+            crate::command::Response::Inquiry(crate::command::InquiryData::Shutter {
+                position,
+            }) => Ok(position),
+            crate::command::Response::Error(e) => Err(e),
+            _ => Err(crate::Error::UnexpectedResponseType),
+        }
+    }
+}
 
 /// Inquiry command to get the current brightness adjustment value.
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
@@ -140,15 +208,49 @@ pub struct BrightnessInquiry;
 pub struct WhiteBalanceModeInquiry;
 
 /// Inquiry command to get the current color temperature value.
-#[derive(ViscaInquiry, Debug, Copy, Clone)]
-#[visca(
-    opcode = 0x20,
-    response = "ColorTemperature",
-    parser = "custom",
-    parse_with = "parse_color_temperature",
-    bytes_const = "COLOR_TEMPERATURE"
-)]
+/// Note: This inquiry is handled directly in the color decoder module.
+#[derive(Debug, Copy, Clone)]
 pub struct ColorTemperatureInquiry;
+
+// Manual implementation for ColorTemperatureInquiry to avoid deprecated parser
+impl crate::command::encode::ViscaCommand for ColorTemperatureInquiry {
+    type Response = crate::command::InquiryData;
+    const MAX_SIZE: usize = 7;
+    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
+        crate::timeout::CommandCategory::Quick;
+
+    fn write_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, crate::error::Error> {
+        use crate::command::bytes::ConstCommandBuilder;
+
+        let builder = ConstCommandBuilder::<7>::new()
+            .append(crate::command::bytes::constants::inquiry::COLOR_TEMPERATURE)
+            .with_camera_id(camera_id)
+            .terminate();
+        builder.build_into(buffer)
+    }
+
+    fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
+        Some(crate::command::response::InquiryKind::ColorTemperature)
+    }
+}
+
+impl crate::command::typed::ResponseParser for ColorTemperatureInquiry {
+    type Response = u16;
+
+    fn from_response(resp: crate::command::Response) -> Result<Self::Response, crate::Error> {
+        match resp {
+            crate::command::Response::Inquiry(crate::command::InquiryData::ColorTemperature {
+                temperature,
+            }) => Ok(temperature),
+            crate::command::Response::Error(e) => Err(e),
+            _ => Err(crate::Error::UnexpectedResponseType),
+        }
+    }
+}
 
 /// Inquiry command to get the current red gain value.
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
@@ -507,15 +609,49 @@ pub struct DigitalPtzInquiry;
 pub struct AutoWhiteBalanceSensitivityInquiry;
 
 /// Inquiry command to get the exposure compensation position.
-#[derive(ViscaInquiry, Debug, Copy, Clone)]
-#[visca(
-    opcode = 0x4E,
-    response = "ExposureCompensationPosition",
-    parser = "custom",
-    parse_with = "parse_exposure_compensation_position",
-    bytes_const = "EXPOSURE_COMPENSATION_POSITION"
-)]
+/// Note: This inquiry is handled directly in the exposure decoder module.
+#[derive(Debug, Copy, Clone)]
 pub struct ExposureCompensationPositionInquiry;
+
+// Manual implementation for ExposureCompensationPositionInquiry to avoid deprecated parser
+impl crate::command::encode::ViscaCommand for ExposureCompensationPositionInquiry {
+    type Response = crate::command::InquiryData;
+    const MAX_SIZE: usize = 7;
+    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
+        crate::timeout::CommandCategory::Quick;
+
+    fn write_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, crate::error::Error> {
+        use crate::command::bytes::ConstCommandBuilder;
+
+        let builder = ConstCommandBuilder::<7>::new()
+            .append(crate::command::bytes::constants::inquiry::EXPOSURE_COMPENSATION_POSITION)
+            .with_camera_id(camera_id)
+            .terminate();
+        builder.build_into(buffer)
+    }
+
+    fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
+        Some(crate::command::response::InquiryKind::ExposureCompensationPosition)
+    }
+}
+
+impl crate::command::typed::ResponseParser for ExposureCompensationPositionInquiry {
+    type Response = u16;
+
+    fn from_response(resp: crate::command::Response) -> Result<Self::Response, crate::Error> {
+        match resp {
+            crate::command::Response::Inquiry(
+                crate::command::InquiryData::ExposureCompensationPosition { position },
+            ) => Ok(position),
+            crate::command::Response::Error(e) => Err(e),
+            _ => Err(crate::Error::UnexpectedResponseType),
+        }
+    }
+}
 
 /// Inquiry command to get the red channel tuning level.
 #[derive(ViscaInquiry, Debug, Copy, Clone)]

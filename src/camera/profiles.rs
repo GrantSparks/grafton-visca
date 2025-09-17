@@ -8,10 +8,11 @@ use std::{fmt, time::Duration};
 use crate::{
     capabilities::{
         CoordinateSystem, Exposure, Focus, ImageProcessing, MenuCapability, MotionSync, NdFilter,
-        NdFilterMode, PanTilt, Power, Presets, ProfileMetadata, ProtocolStyle, ShutterSpeed,
-        VariableSpeed, WhiteBalance, Zoom,
+        NdFilterMode, PanTilt, Power, Presets, ProfileMetadata, ShutterSpeed, VariableSpeed,
+        WhiteBalance, Zoom,
     },
     error::Error,
+    transport::envelope::{RawVisca, SonyEncapsulated},
     WhiteBalanceMode,
 };
 
@@ -97,7 +98,7 @@ pub struct PtzOpticsG2;
 impl ProfileMetadata for PtzOpticsG2 {
     const MODEL_NAME: &'static str = "PtzOptics G2";
     const DEFAULT_CAMERA_ID: u8 = 1;
-    const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::RawVisca;
+    type Envelope = RawVisca;
     const ACK_TIMEOUT: Duration = Duration::from_millis(100);
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
     const SUPPORTS_OPERATION_COMPLETE: bool = true;
@@ -189,7 +190,7 @@ pub struct GenericVisca;
 impl ProfileMetadata for GenericVisca {
     const MODEL_NAME: &'static str = "Generic VISCA Camera";
     const DEFAULT_CAMERA_ID: u8 = 1;
-    const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::RawVisca;
+    type Envelope = RawVisca;
     const ACK_TIMEOUT: Duration = Duration::from_millis(200);
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(10000);
     const DEFAULT_TCP_PORT: u16 = 5678;
@@ -281,7 +282,7 @@ pub struct SonyFR7;
 impl ProfileMetadata for SonyFR7 {
     const MODEL_NAME: &'static str = "Sony FR7";
     const DEFAULT_CAMERA_ID: u8 = 1;
-    const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::SonyEncapsulated;
+    type Envelope = SonyEncapsulated;
     const ACK_TIMEOUT: Duration = Duration::from_millis(200);
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(8000);
     const BUSY_TIMEOUT: Duration = Duration::from_millis(240);
@@ -393,7 +394,7 @@ pub struct SonyBRCH900;
 impl ProfileMetadata for SonyBRCH900 {
     const MODEL_NAME: &'static str = "Sony BRC-H900";
     const DEFAULT_CAMERA_ID: u8 = 1;
-    const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::SonyEncapsulated;
+    type Envelope = SonyEncapsulated;
     const ACK_TIMEOUT: Duration = Duration::from_millis(150);
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(6000);
     const DEFAULT_TCP_PORT: u16 = 52381;
@@ -472,7 +473,7 @@ pub struct SonyEVIH100;
 impl ProfileMetadata for SonyEVIH100 {
     const MODEL_NAME: &'static str = "Sony EVI-H100";
     const DEFAULT_CAMERA_ID: u8 = 1;
-    const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::RawVisca;
+    type Envelope = RawVisca;
     const ACK_TIMEOUT: Duration = Duration::from_millis(100);
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
     const DEFAULT_TCP_PORT: u16 = 5678;
@@ -552,7 +553,7 @@ pub struct SonyBRC300;
 impl ProfileMetadata for SonyBRC300 {
     const MODEL_NAME: &'static str = "Sony BRC-300";
     const DEFAULT_CAMERA_ID: u8 = 1;
-    const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::RawVisca;
+    type Envelope = RawVisca;
     const ACK_TIMEOUT: Duration = Duration::from_millis(100);
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
     const DEFAULT_TCP_PORT: u16 = 5678;
@@ -633,7 +634,7 @@ pub struct NearusBRC300;
 impl ProfileMetadata for NearusBRC300 {
     const MODEL_NAME: &'static str = "Nearus BRC-300";
     const DEFAULT_CAMERA_ID: u8 = 1;
-    const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::RawVisca;
+    type Envelope = RawVisca;
     const ACK_TIMEOUT: Duration = Duration::from_millis(100);
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
     const DEFAULT_TCP_PORT: u16 = 5678;
@@ -712,7 +713,7 @@ pub struct PtzOpticsG3;
 impl ProfileMetadata for PtzOpticsG3 {
     const MODEL_NAME: &'static str = "PtzOptics G3";
     const DEFAULT_CAMERA_ID: u8 = 1;
-    const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::RawVisca;
+    type Envelope = RawVisca;
     const ACK_TIMEOUT: Duration = Duration::from_millis(100);
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
     const DEFAULT_TCP_PORT: u16 = 5678;
@@ -796,7 +797,7 @@ pub struct PtzOptics30X;
 impl ProfileMetadata for PtzOptics30X {
     const MODEL_NAME: &'static str = "PtzOptics 30X";
     const DEFAULT_CAMERA_ID: u8 = 1;
-    const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::RawVisca;
+    type Envelope = RawVisca;
     const ACK_TIMEOUT: Duration = Duration::from_millis(100);
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
     const DEFAULT_TCP_PORT: u16 = 5678;
@@ -989,12 +990,6 @@ mod tests {
     #[test]
     fn test_profile_metadata() {
         assert_eq!(PtzOpticsG2::MODEL_NAME, "PtzOptics G2");
-        assert_eq!(PtzOpticsG2::PROTOCOL_STYLE, ProtocolStyle::RawVisca);
-
         assert_eq!(SonyFR7::MODEL_NAME, "Sony FR7");
-        assert!(matches!(
-            SonyFR7::PROTOCOL_STYLE,
-            ProtocolStyle::SonyEncapsulated
-        ));
     }
 }

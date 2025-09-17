@@ -4,9 +4,7 @@
 //! needed to establish a camera connection. The configuration is separate from the
 //! actual connection process, allowing for easy cloning, reuse, and modification.
 
-use crate::{
-    camera_id::CameraId, capabilities::ProtocolStyle, error::Error, timeout::TimeoutConfig,
-};
+use crate::{camera_id::CameraId, error::Error, timeout::TimeoutConfig};
 
 /// Transport configuration options.
 #[derive(Debug, Clone)]
@@ -27,11 +25,6 @@ pub enum TransportOptions {
         port: String,
         /// Baud rate (default: 9600)
         baud_rate: u32,
-    },
-    /// Auto-detect transport and protocol.
-    Auto {
-        /// Host or host:port string (e.g., "192.168.0.110")
-        address: String,
     },
     /// Custom transport provided by user.
     Custom,
@@ -59,22 +52,6 @@ impl TransportOptions {
             baud_rate,
         }
     }
-
-    /// Create auto-detect transport options.
-    pub fn auto(address: impl Into<String>) -> Self {
-        Self::Auto {
-            address: address.into(),
-        }
-    }
-}
-
-/// Protocol configuration.
-#[derive(Debug, Clone, Copy)]
-pub enum ProtocolConfig {
-    /// Use a specific protocol style.
-    Explicit(ProtocolStyle),
-    /// Automatically detect the protocol style.
-    Auto,
 }
 
 /// Pure configuration for camera connection.
@@ -89,7 +66,6 @@ pub enum ProtocolConfig {
 ///
 /// let config = CameraConfig::for::<PtzOpticsG2>()
 ///     .address("192.168.0.110")
-///     .auto_protocol()
 ///     .timeouts(TimeoutConfig::balanced());
 ///
 /// // Configuration is pure data and can be cloned
@@ -103,8 +79,6 @@ pub enum ProtocolConfig {
 pub struct CameraConfig<P> {
     /// Transport configuration.
     pub(crate) transport: TransportOptions,
-    /// Protocol configuration (explicit or auto-detect).
-    pub(crate) protocol: ProtocolConfig,
     /// Command timeout configuration.
     pub(crate) timeouts: TimeoutConfig,
     /// Retry configuration for failed commands.
@@ -127,7 +101,6 @@ where
             transport: TransportOptions::Tcp {
                 address: format!("192.168.0.100:{}", P::DEFAULT_TCP_PORT),
             },
-            protocol: ProtocolConfig::Explicit(P::PROTOCOL_STYLE),
             timeouts: TimeoutConfig::default(),
             retries: crate::transport::RetryConfig::default(),
             camera_id: CameraId::new(P::DEFAULT_CAMERA_ID).unwrap_or_default(),
@@ -239,21 +212,6 @@ where
         self
     }
 
-    /// Use explicit protocol style.
-    pub fn protocol(mut self, style: ProtocolStyle) -> Self {
-        self.protocol = ProtocolConfig::Explicit(style);
-        self
-    }
-
-    /// Enable automatic protocol detection.
-    ///
-    /// When enabled, the connection process will probe the camera to detect
-    /// whether it uses Sony encapsulated or raw VISCA protocol.
-    pub fn auto_protocol(mut self) -> Self {
-        self.protocol = ProtocolConfig::Auto;
-        self
-    }
-
     /// Set timeout configuration.
     pub fn timeouts(mut self, timeouts: TimeoutConfig) -> Self {
         self.timeouts = timeouts;
@@ -331,86 +289,41 @@ where
         use crate::runtime::TransportHandle;
         use crate::transport::builder::TransportConfig;
 
-        // Handle Auto transport option separately
-        let (transport, protocol_style) = match &self.transport {
-            TransportOptions::Auto { address } => {
-                // Use the new unified auto_connect_and_detect function
-                let (transport, detected_style) =
-                    crate::transport::builder::auto_connect_and_detect(
-                        address,
-                        TransportConfig::default(),
-                        &runtime,
-                    )
+        // Create transport based on configuration
+        let transport = match &self.transport {
+            TransportOptions::Tcp { address } => {
+                // Parse address and create TCP transport using Runtime trait
+                let tcp = runtime
+                    .connect_tcp(address, TransportConfig::default())
                     .await?;
-                (transport, detected_style)
+                TransportHandle::Tcp(tcp)
             }
-            _ => {
-                // Create transport based on configuration
-                let mut transport = match &self.transport {
-                    TransportOptions::Tcp { address } => {
-                        // Parse address and create TCP transport using Runtime trait
-                        let tcp = runtime
-                            .connect_tcp(address, TransportConfig::default())
-                            .await?;
-                        TransportHandle::Tcp(tcp)
-                    }
-                    TransportOptions::Udp { address } => {
-                        // Parse address and create UDP transport using Runtime trait
-                        let udp = runtime
-                            .connect_udp(address, TransportConfig::default())
-                            .await?;
-                        TransportHandle::Udp(udp)
-                    }
-                    TransportOptions::Serial { .. } => {
-                        // Serial requires serialport feature and RuntimeSerial implementation
-                        // Since we can't add the constraint here, we return Unsupported
-                        // Users should use the serial-specific methods like open_serial_async()
-                        return Err(Error::NotSupported);
-                    }
-                    TransportOptions::Custom => {
-                        return Err(Error::InvalidState(
-                            "Custom transport requires manual session creation".into(),
-                        ));
-                    }
-                    TransportOptions::Auto { .. } => {
-                        unreachable!("Auto case handled above")
-                    }
-                };
-
-                // Determine protocol style
-                let protocol_style = match self.protocol {
-                    ProtocolConfig::Explicit(style) => style,
-                    ProtocolConfig::Auto => {
-                        // Serial transport is handled separately via open_serial_async
-                        // This path only handles TCP/UDP, so always use detection
-                        // Use ProtocolDetector on TCP/UDP transports
-                        use crate::protocol::detect::ProtocolDetector;
-
-                        let detector = ProtocolDetector::new();
-                        let detection_result =
-                            detector.detect_protocol(&mut transport, &runtime).await?;
-
-                        detection_result.to_protocol_style().ok_or_else(|| {
-                            Error::ConnectionFailed {
-                                addr: "unknown".into(),
-                                source: std::io::Error::other("Failed to detect protocol"),
-                            }
-                        })?
-                    }
-                };
-
-                (transport, protocol_style)
+            TransportOptions::Udp { address } => {
+                // Parse address and create UDP transport using Runtime trait
+                let udp = runtime
+                    .connect_udp(address, TransportConfig::default())
+                    .await?;
+                TransportHandle::Udp(udp)
+            }
+            TransportOptions::Serial { .. } => {
+                // Serial requires serialport feature and RuntimeSerial implementation
+                // Since we can't add the constraint here, we return Unsupported
+                // Users should use the serial-specific methods like open_serial_async()
+                return Err(Error::NotSupported);
+            }
+            TransportOptions::Custom => {
+                return Err(Error::InvalidState(
+                    "Custom transport requires manual session creation".into(),
+                ));
             }
         };
 
-        // Create camera with determined protocol style
-        let mut camera =
-            crate::camera::Camera::<crate::mode::Async, P, _, _>::new_async_with_style(
-                transport,
-                runtime.clone(),
-                protocol_style,
-            )
-            .await?;
+        // Create camera using profile's envelope type
+        let mut camera = crate::camera::Camera::<crate::mode::Async, P, _, _>::new_async(
+            transport,
+            runtime.clone(),
+        )
+        .await?;
 
         // Apply configuration
         camera.set_timeout_config(self.timeouts);
@@ -464,20 +377,11 @@ where
                 // Connect using RuntimeSerial trait
                 let serial = runtime.connect_serial(serial_config).await?;
 
-                // Determine protocol style (serial always uses profile's default)
-                let protocol_style = match self.protocol {
-                    ProtocolConfig::Explicit(style) => style,
-                    ProtocolConfig::Auto => P::PROTOCOL_STYLE,
-                };
-
-                // Create camera with determined protocol style
-                let mut camera =
-                    crate::camera::Camera::<crate::mode::Async, P, _, _>::new_async_with_style(
-                        serial,
-                        runtime,
-                        protocol_style,
-                    )
-                    .await?;
+                // Create camera using profile's envelope type
+                let mut camera = crate::camera::Camera::<crate::mode::Async, P, _, _>::new_async(
+                    serial, runtime,
+                )
+                .await?;
 
                 // Apply configuration
                 camera.set_timeout_config(self.timeouts);
@@ -529,73 +433,35 @@ where
     > {
         use crate::transport::blocking::{Tcp, Udp};
 
-        // Handle Auto transport option separately
-        let (transport, protocol_style) = match &self.transport {
-            TransportOptions::Auto { address } => {
-                // Use the new unified auto_connect_and_detect_blocking function
-                let (handle, detected_style) =
-                    crate::transport::builder::auto_connect_and_detect_blocking(
-                        address,
-                        crate::transport::builder::TransportConfig::default(),
-                    )?;
-                (handle, detected_style)
+        // Create transport based on configuration
+        let transport = match &self.transport {
+            TransportOptions::Tcp { address } => {
+                // Parse address and create TCP transport
+                let tcp = Tcp::connect(address)?;
+                crate::transport::BlockingTransportHandle::Tcp(tcp)
             }
-            _ => {
-                // Create transport based on configuration
-                let mut transport = match &self.transport {
-                    TransportOptions::Tcp { address } => {
-                        // Parse address and create TCP transport
-                        let tcp = Tcp::connect(address)?;
-                        crate::transport::BlockingTransportHandle::Tcp(tcp)
-                    }
-                    TransportOptions::Udp { address } => {
-                        // Parse address and create UDP transport
-                        let udp = Udp::connect(address)?;
-                        crate::transport::BlockingTransportHandle::Udp(udp)
-                    }
-                    TransportOptions::Serial { .. } => {
-                        // Serial transport requires special handling due to it not being part of BlockingTransportHandle
-                        // This case should not be reached as serial should use open_serial_blocking() instead
-                        return Err(Error::InvalidState(
-                            "Serial transport requires open_serial_blocking() method".into(),
-                        ));
-                    }
-                    TransportOptions::Custom => {
-                        return Err(Error::InvalidState(
-                            "Custom transport requires manual session creation".into(),
-                        ));
-                    }
-                    TransportOptions::Auto { .. } => {
-                        unreachable!("Auto case handled above")
-                    }
-                };
-
-                // Determine protocol style
-                let protocol_style = match self.protocol {
-                    ProtocolConfig::Explicit(style) => style,
-                    ProtocolConfig::Auto => {
-                        // Use ProtocolDetector for TCP/UDP transports
-                        use crate::protocol::detect::ProtocolDetector;
-
-                        let detector = ProtocolDetector::new();
-                        let detection_result = detector.detect_protocol_blocking(&mut transport)?;
-
-                        detection_result
-                            .to_protocol_style()
-                            .unwrap_or(ProtocolStyle::RawVisca)
-                    }
-                };
-
-                (transport, protocol_style)
+            TransportOptions::Udp { address } => {
+                // Parse address and create UDP transport
+                let udp = Udp::connect(address)?;
+                crate::transport::BlockingTransportHandle::Udp(udp)
+            }
+            TransportOptions::Serial { .. } => {
+                // Serial transport requires special handling due to it not being part of BlockingTransportHandle
+                // This case should not be reached as serial should use open_serial_blocking() instead
+                return Err(Error::InvalidState(
+                    "Serial transport requires open_serial_blocking() method".into(),
+                ));
+            }
+            TransportOptions::Custom => {
+                return Err(Error::InvalidState(
+                    "Custom transport requires manual session creation".into(),
+                ));
             }
         };
 
-        // Create camera with determined protocol style
+        // Create camera using profile's envelope type
         let mut camera =
-            crate::camera::Camera::<crate::mode::Blocking, P, _, ()>::new_blocking_with_style(
-                transport,
-                protocol_style,
-            )?;
+            crate::camera::Camera::<crate::mode::Blocking, P, _, ()>::new_blocking(transport)?;
 
         // Apply configuration
         camera.set_timeout_config(self.timeouts);
@@ -645,17 +511,11 @@ where
                     crate::transport::serial_blocking::SerialTransport::new(serial_config)?;
                 let transport = crate::transport::BlockingTransportHandle::Serial(serial_transport);
 
-                // Determine protocol style (serial always uses profile's default)
-                let protocol_style = match self.protocol {
-                    ProtocolConfig::Explicit(style) => style,
-                    ProtocolConfig::Auto => P::PROTOCOL_STYLE,
-                };
-
-                // Create camera with determined protocol style
-                let mut camera = crate::camera::Camera::<crate::mode::Blocking, P, _, _>::new_blocking_with_style(
-                    transport,
-                    protocol_style,
-                )?;
+                // Create camera using profile's envelope type
+                let mut camera =
+                    crate::camera::Camera::<crate::mode::Blocking, P, _, _>::new_blocking(
+                        transport,
+                    )?;
 
                 // Apply configuration
                 camera.set_timeout_config(self.timeouts);

@@ -209,7 +209,6 @@ pub mod blocking {
 /// // Use the transport with camera builder
 /// let camera = CameraBuilder::from_transport(transport)
 ///     .profile::<PtzOpticsG2>()
-///     .protocol_style(ProtocolStyle::RawVisca)
 ///     .open()?;
 /// # Ok(())
 /// # }
@@ -220,9 +219,6 @@ pub mod raw {
 
     // Camera builder for advanced configuration
     pub use crate::camera::CameraBuilder;
-
-    // Protocol configuration
-    pub use crate::capabilities::ProtocolStyle;
 
     // Socket management (for custom implementations)
     pub use crate::visca_socket::ViscaSocket;

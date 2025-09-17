@@ -16,7 +16,6 @@ use std::time::Duration;
 
 use grafton_visca::{
     camera::profiles::PtzOpticsG2,
-    prelude::raw::ProtocolStyle,
     testing::testkit::{
         deterministic_executor::DeterministicExecutor, helpers, ScriptedTransport, Step,
     },
@@ -44,7 +43,6 @@ fn test_async_camera_uses_runtime() {
             grafton_visca::camera::builder::CameraBuilder::<DeterministicExecutor>::with_executor(
                 exec.clone(),
             )
-            .protocol_style(ProtocolStyle::RawVisca)
             .open_async::<PtzOpticsG2, _>(transport)
             .await
             .unwrap();
@@ -89,7 +87,6 @@ fn test_timeout_config_passed_to_runtime() {
                 exec.clone(),
             )
             .timeout_config(custom_timeout)
-            .protocol_style(ProtocolStyle::RawVisca)
             .open_async::<PtzOpticsG2, _>(transport)
             .await
             .unwrap();
@@ -132,7 +129,6 @@ fn test_command_cancellation_through_runtime() {
             grafton_visca::camera::builder::CameraBuilder::<DeterministicExecutor>::with_executor(
                 exec.clone(),
             )
-            .protocol_style(ProtocolStyle::RawVisca)
             .open_async::<PtzOpticsG2, _>(transport)
             .await
             .unwrap();
@@ -181,7 +177,6 @@ fn test_inquiry_through_runtime() {
             grafton_visca::camera::builder::CameraBuilder::<DeterministicExecutor>::with_executor(
                 exec.clone(),
             )
-            .protocol_style(ProtocolStyle::RawVisca)
             .open_async::<PtzOpticsG2, _>(transport)
             .await
             .unwrap();
@@ -218,7 +213,6 @@ fn test_transport_error_propagation() {
             grafton_visca::camera::builder::CameraBuilder::<DeterministicExecutor>::with_executor(
                 exec.clone(),
             )
-            .protocol_style(ProtocolStyle::RawVisca)
             .open_async::<PtzOpticsG2, _>(transport)
             .await
             .unwrap();

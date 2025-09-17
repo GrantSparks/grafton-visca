@@ -24,7 +24,6 @@ pub use profile_metadata::{
     HasExposureCompensation, HasFocus, HasHue, HasImageProcessing, HasLuminance, HasMenuControl,
     HasMotionSync, HasNdFilter, HasOnePushFocus, HasOnePushWhiteBalance, HasPanTilt, HasPower,
     HasPresets, HasRGBGain, HasVariableSpeed, HasWDR, HasWhiteBalance, HasZoom, ProfileMetadata,
-    ProtocolStyle,
 };
 
 // Re-export all capability traits

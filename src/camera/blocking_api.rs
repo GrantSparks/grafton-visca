@@ -92,26 +92,6 @@ where
         })
     }
 
-    /// Create a new blocking camera wrapper from a transport with explicit protocol style.
-    pub fn new_with_style(
-        transport: Tr,
-        protocol_style: crate::capabilities::ProtocolStyle,
-    ) -> Result<Self, Error>
-    where
-        P: Default,
-        Tr: crate::transport::BlockingTransport
-            + crate::transport::HasTransportConfig
-            + Send
-            + 'static,
-    {
-        Ok(Self {
-            inner: Camera::<Blocking, P, Tr, ()>::new_blocking_with_style(
-                transport,
-                protocol_style,
-            )?,
-        })
-    }
-
     /// Convert from an existing blocking camera.
     pub fn from_camera(camera: Camera<Blocking, P, Tr, ()>) -> Self {
         Self { inner: camera }

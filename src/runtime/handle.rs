@@ -9,7 +9,7 @@ use std::sync::{
 };
 
 use crate::{
-    capabilities::{Profile, ProtocolStyle},
+    capabilities::Profile,
     command::response::Response,
     error::{Error, Result},
     runtime::{
@@ -17,9 +17,7 @@ use crate::{
         core::Priority,
         loop_task::{runtime_loop_with_config, RuntimeLoopConfig},
     },
-    transport::{
-        buffer::BufferManager, envelope::TransportEnvelope, AsyncTransport, HasTransportConfig,
-    },
+    transport::{buffer::BufferManager, envelope::Envelope, AsyncTransport, HasTransportConfig},
     ViscaSocket,
 };
 
@@ -68,10 +66,9 @@ impl<P: Profile, E: crate::executor::Executor> Clone for RuntimeHandle<P, E> {
 impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
     RuntimeHandle<P, E>
 {
-    /// Create a new camera runtime with the given transport using raw VISCA protocol.
+    /// Create a new camera runtime with the given transport.
     ///
     /// This spawns a background task to handle communication with the camera.
-    /// For compatibility, this defaults to raw VISCA protocol.
     pub async fn new<T: AsyncTransport + Send + 'static>(
         transport: T,
         executor: Arc<E>,
@@ -79,10 +76,9 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
     where
         for<'a> &'a T: HasTransportConfig,
     {
-        Self::new_with_full_config(
+        Self::new_with_config(
             transport,
             executor,
-            ProtocolStyle::RawVisca,
             None,
             crate::transport::RetryConfig::default(),
         )
@@ -102,115 +98,40 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
         Self::new(transport, Arc::new(executor)).await
     }
 
-    /// Create a new camera runtime with explicit protocol style.
+    /// Create a new camera runtime with timeout config.
     ///
-    /// This allows specifying whether to use raw VISCA or Sony encapsulated protocol.
-    pub async fn new_with_style<T: AsyncTransport + Send + 'static>(
+    /// This allows specifying custom timeouts.
+    pub async fn new_with_timeout<T: AsyncTransport + Send + 'static>(
         transport: T,
         executor: Arc<E>,
-        protocol_style: ProtocolStyle,
-    ) -> Result<Self>
-    where
-        for<'a> &'a T: HasTransportConfig,
-    {
-        Self::new_with_full_config(
-            transport,
-            executor,
-            protocol_style,
-            None,
-            crate::transport::RetryConfig::default(),
-        )
-        .await
-    }
-
-    /// Create a new camera runtime with explicit protocol style and timeout config.
-    ///
-    /// This allows specifying both the protocol style and custom timeouts.
-    pub async fn new_with_style_and_timeout<T: AsyncTransport + Send + 'static>(
-        transport: T,
-        executor: Arc<E>,
-        protocol_style: ProtocolStyle,
         timeout_config: crate::timeout::TimeoutConfig,
     ) -> Result<Self>
     where
         for<'a> &'a T: HasTransportConfig,
     {
-        Self::new_with_full_config(
+        Self::new_with_config(
             transport,
             executor,
-            protocol_style,
             Some(timeout_config),
             crate::transport::RetryConfig::default(),
         )
         .await
     }
 
-    /// Create a new camera runtime with explicit protocol style, timeout config, and retry config.
-    ///
-    /// This allows specifying the protocol style, custom timeouts, and retry behavior.
-    pub async fn new_with_style_timeout_and_retry<T: AsyncTransport + Send + 'static>(
-        transport: T,
-        executor: Arc<E>,
-        protocol_style: ProtocolStyle,
-        timeout_config: crate::timeout::TimeoutConfig,
-        retry_config: crate::transport::RetryConfig,
-    ) -> Result<Self>
-    where
-        for<'a> &'a T: HasTransportConfig,
-    {
-        Self::new_with_full_config(
-            transport,
-            executor,
-            protocol_style,
-            Some(timeout_config),
-            retry_config,
-        )
-        .await
-    }
-
-    /// Auto-detect the protocol style and create a new runtime.
-    ///
-    /// This probes the camera to determine whether it uses raw VISCA or Sony encapsulated protocol.
-    pub async fn auto_detect<T: AsyncTransport + Send + 'static>(
-        mut transport: T,
-        executor: Arc<E>,
-    ) -> Result<Self>
-    where
-        for<'a> &'a T: HasTransportConfig,
-    {
-        use crate::protocol::detect::{DetectionResult, ProtocolDetector};
-
-        let detector = ProtocolDetector::new();
-        let result = detector
-            .detect_protocol(&mut transport, executor.as_ref())
-            .await?;
-
-        let protocol_style = match result {
-            DetectionResult::SonyEncapsulated => ProtocolStyle::SonyEncapsulated,
-            DetectionResult::RawVisca => ProtocolStyle::RawVisca,
-            DetectionResult::NoResponse => {
-                return Err(Error::TransportError(
-                    "No response during protocol detection".into(),
-                ));
-            }
-        };
-
-        Self::new_with_style(transport, executor, protocol_style).await
-    }
-
-    /// Create a new camera runtime with full configuration.
+    /// Create a new camera runtime with configuration.
     ///
     /// # Arguments
     /// * `transport` - The transport to use for communication
     /// * `executor` - The async executor to spawn tasks on
-    /// * `protocol_style` - The protocol style to use (Raw VISCA or Sony encapsulated)
     /// * `timeout_config` - Optional timeout configuration (defaults to TimeoutConfig::default())
     /// * `retry_config` - Retry configuration for the runtime
-    #[instrument(level = "debug", skip(transport, executor, timeout_config, retry_config), fields(protocol = ?protocol_style))]
-    pub async fn new_with_full_config<T: AsyncTransport + Send + 'static>(
+    #[instrument(
+        level = "debug",
+        skip(transport, executor, timeout_config, retry_config)
+    )]
+    pub async fn new_with_config<T: AsyncTransport + Send + 'static>(
         transport: T,
         executor: Arc<E>,
-        protocol_style: ProtocolStyle,
         timeout_config: Option<crate::timeout::TimeoutConfig>,
         retry_config: crate::transport::RetryConfig,
     ) -> Result<Self>
@@ -227,7 +148,7 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
         let tcfg = *(&transport).transport_config();
 
         // Create envelope and buffer manager for the runtime using transport's config
-        let envelope = TransportEnvelope::new_with_addressing(protocol_style, tcfg.addressing);
+        let envelope = P::Envelope::new(tcfg.addressing);
         let buffer_manager = BufferManager::new(tcfg.buffer_config);
 
         // Use provided timeout config or default
@@ -574,7 +495,7 @@ fn spawn_runtime_loop<P, T, E>(
     completions_rx: Receiver<Sender<Receiver<CompletionEvent>>>,
     shutdown_rx: Receiver<()>,
     task_executor: Arc<E>,
-    config: RuntimeLoopConfig,
+    config: RuntimeLoopConfig<P::Envelope>,
 ) where
     P: Profile + 'static,
     T: AsyncTransport + Send + 'static,

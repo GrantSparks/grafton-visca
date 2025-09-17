@@ -5,7 +5,8 @@ use std::time::Duration;
 /// Core trait that all camera profiles must implement.
 ///
 /// This trait provides essential metadata about the camera model including
-/// its name, default address, protocol style, and timing requirements.
+/// its name, default address, and timing requirements. Protocol framing is
+/// determined at compile-time through the Envelope associated type.
 pub trait ProfileMetadata {
     /// Camera model name for display/logging.
     const MODEL_NAME: &'static str;
@@ -14,8 +15,9 @@ pub trait ProfileMetadata {
     /// This is the VISCA address identifier for the camera.
     const DEFAULT_CAMERA_ID: u8;
 
-    /// Protocol style affects framing and headers.
-    const PROTOCOL_STYLE: ProtocolStyle;
+    /// Protocol envelope type for compile-time protocol selection.
+    /// This determines whether commands use raw VISCA or Sony encapsulation.
+    type Envelope: crate::transport::envelope::Envelope;
 
     /// Maximum time to wait for command acknowledgment.
     const ACK_TIMEOUT: Duration;
@@ -42,19 +44,6 @@ pub trait ProfileMetadata {
 
     /// Default UDP port for this camera profile.
     const DEFAULT_UDP_PORT: u16;
-}
-
-/// Protocol style determines how VISCA commands are framed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProtocolStyle {
-    /// Raw VISCA protocol (PtzOptics, generic cameras).
-    /// Commands are sent as-is without additional framing.
-    RawVisca,
-
-    /// Sony 8-byte encapsulated protocol with mandatory sequence numbers.
-    /// Commands are wrapped in an 8-byte header with automatic sequence tracking.
-    /// The sequence numbers are always used for proper command correlation.
-    SonyEncapsulated,
 }
 
 // Marker traits for compile-time capability detection.
@@ -165,7 +154,7 @@ mod tests {
     impl ProfileMetadata for TestCamera {
         const MODEL_NAME: &'static str = "Test Camera";
         const DEFAULT_CAMERA_ID: u8 = 1;
-        const PROTOCOL_STYLE: ProtocolStyle = ProtocolStyle::RawVisca;
+        type Envelope = crate::transport::envelope::RawVisca;
         const ACK_TIMEOUT: Duration = Duration::from_millis(100);
         const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
         const DEFAULT_TCP_PORT: u16 = 5678;
@@ -173,10 +162,13 @@ mod tests {
     }
 
     #[test]
-    fn test_protocol_style() {
-        assert_eq!(TestCamera::PROTOCOL_STYLE, ProtocolStyle::RawVisca);
+    fn test_envelope_type() {
+        // Test that we can create an envelope from the profile's associated type
+        use crate::transport::builder::AddressingMode;
+        use crate::transport::envelope::Envelope;
 
-        let sony_style = ProtocolStyle::SonyEncapsulated;
-        assert!(matches!(sony_style, ProtocolStyle::SonyEncapsulated));
+        let envelope = <TestCamera as ProfileMetadata>::Envelope::new(AddressingMode::Ip);
+        // The fact this compiles proves the envelope type is correct
+        let _envelope_clone = envelope; // Move to prove it's sized
     }
 }

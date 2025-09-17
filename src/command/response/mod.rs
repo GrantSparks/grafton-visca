@@ -10,7 +10,6 @@ pub mod types;
 
 use std::borrow::Cow;
 
-use self::payload::{Nibbles, Payload};
 use crate::{
     command::{image::SharpnessMode, AutoWhiteBalanceSensitivity, InquiryData},
     error::Error,
@@ -59,58 +58,6 @@ pub fn parse_hue_last_nibble(data: &[u8]) -> Result<InquiryData, Error> {
     Ok(InquiryData::Hue {
         hue: data[3] & 0x0F,
     })
-}
-
-/// Parse middle nibbles from payload (used for Sharpness)
-#[deprecated(note = "Use Nibbles type directly in decoders")]
-pub fn parse_middle_nibbles(data: &[u8]) -> Result<InquiryData, Error> {
-    let payload = Payload::new(data);
-    match Nibbles::<4>::try_from(payload) {
-        Ok(nibbles) => {
-            let value = nibbles.u8_pair(2);
-            Ok(InquiryData::Sharpness { value })
-        }
-        Err(e) => Err(e),
-    }
-}
-
-/// Parse exposure compensation value with offset
-#[deprecated(note = "Use Nibbles type directly in decoders")]
-pub fn parse_exposure_compensation(data: &[u8]) -> Result<InquiryData, Error> {
-    let payload = Payload::new(data);
-    match Nibbles::<4>::try_from(payload) {
-        Ok(nibbles) => {
-            let value = nibbles.u8_pair(2) as i8 - 7;
-            Ok(InquiryData::ExposureCompensation { value })
-        }
-        Err(e) => Err(e),
-    }
-}
-
-/// Parse shutter value from middle nibbles
-#[deprecated(note = "Use Nibbles type directly in decoders")]
-pub fn parse_shutter(data: &[u8]) -> Result<InquiryData, Error> {
-    let payload = Payload::new(data);
-    match Nibbles::<4>::try_from(payload) {
-        Ok(nibbles) => {
-            let position = nibbles.u8_pair(2) as u16;
-            Ok(InquiryData::Shutter { position })
-        }
-        Err(e) => Err(e),
-    }
-}
-
-/// Parse color temperature from middle nibbles
-#[deprecated(note = "Use Nibbles type directly in decoders")]
-pub fn parse_color_temperature(data: &[u8]) -> Result<InquiryData, Error> {
-    let payload = Payload::new(data);
-    match Nibbles::<4>::try_from(payload) {
-        Ok(nibbles) => {
-            let temperature = nibbles.u8_pair(2) as u16;
-            Ok(InquiryData::ColorTemperature { temperature })
-        }
-        Err(e) => Err(e),
-    }
 }
 
 /// Parse sharpness mode (0x02 = Auto, 0x03 = Manual)
@@ -388,19 +335,6 @@ pub fn parse_auto_wb_sensitivity(data: &[u8]) -> Result<InquiryData, Error> {
         }
     };
     Ok(InquiryData::AutoWhiteBalanceSensitivity { sensitivity })
-}
-
-/// Parse exposure compensation position
-#[deprecated(note = "Use Nibbles type directly in decoders")]
-pub fn parse_exposure_compensation_position(data: &[u8]) -> Result<InquiryData, Error> {
-    let payload = Payload::new(data);
-    match Nibbles::<4>::try_from(payload) {
-        Ok(nibbles) => {
-            let position = nibbles.u16_quad(0);
-            Ok(InquiryData::ExposureCompensationPosition { position })
-        }
-        Err(e) => Err(e),
-    }
 }
 
 /// Parse red tuning level

@@ -129,9 +129,6 @@ name = "sony_encapsulation"
 path = "examples-advanced/sony_encapsulation.rs"
 required-features = ["runtime-tokio"]
 
-[[example]]
-name = "protocol_auto_detection"
-required-features = ["runtime-tokio"]
 
 [[example]]
 name = "serial_async_demo"

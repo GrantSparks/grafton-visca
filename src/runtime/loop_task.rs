@@ -25,12 +25,12 @@ use crate::{
         driver::send_one,
     },
     timeout::TimeoutConfig,
-    transport::{buffer::BufferManager, envelope::TransportEnvelope, AsyncTransport, RetryConfig},
+    transport::{buffer::BufferManager, envelope::Envelope, AsyncTransport, RetryConfig},
 };
 
 /// Configuration for the runtime loop.
-pub struct RuntimeLoopConfig {
-    pub envelope: TransportEnvelope,
+pub struct RuntimeLoopConfig<E: Envelope> {
+    pub envelope: E,
     pub buffer_manager: BufferManager,
     pub timeout_config: TimeoutConfig,
     pub retry_config: RetryConfig,
@@ -55,18 +55,18 @@ pub struct RuntimeLoopConfig {
 pub async fn runtime_loop_with_config<
     P: Profile + 'static,
     T: AsyncTransport + Send + 'static,
-    E: crate::executor::Executor + Send + Sync + 'static,
+    Ex: crate::executor::Executor + Send + Sync + 'static,
 >(
     mut transport: T,
     submit_rx: Receiver<TxItem>,
     metrics_rx: Receiver<Sender<MetricsSummary>>,
     completions_rx: Receiver<Sender<Receiver<CompletionEvent>>>,
     shutdown_rx: Receiver<()>,
-    executor: Arc<E>,
-    config: RuntimeLoopConfig,
+    executor: Arc<Ex>,
+    config: RuntimeLoopConfig<P::Envelope>,
 ) -> Result<()> {
     let mut adapter =
-        AsyncAdapter::<P, E>::new(config.timeout_config, config.retry_config, executor.clone());
+        AsyncAdapter::<P, Ex>::new(config.timeout_config, config.retry_config, executor.clone());
     let mut protocol_framer = ProtocolFramer::new_with_config(config.buffer_manager.config());
     // Track cancel requests that arrived before the command was bound to a socket
     let mut pending_cancel_ids: HashSet<u32> = HashSet::new();
@@ -140,11 +140,10 @@ pub async fn runtime_loop_with_config<
                         e
                     })?;
                     let kind = CommandKind::Command;
-                    let (framed, _meta) = config.envelope.frame_bytes_into(
-                        &cancel_bytes,
-                        kind,
-                        &config.buffer_manager,
-                    );
+                    let framed =
+                        config
+                            .envelope
+                            .frame_bytes(&cancel_bytes, kind, &config.buffer_manager);
                     // Best effort for cancel - don't abort runtime on failure
                     if let Err(e) = transport.send(&framed).await {
                         debug!("Failed to send cancel for socket {:?}: {e}", socket);
@@ -173,7 +172,7 @@ pub async fn runtime_loop_with_config<
                             e
                         })?;
                         let kind = CommandKind::Command;
-                        let (framed, _meta) = config.envelope.frame_bytes_into(
+                        let framed = config.envelope.frame_bytes(
                             &cancel_bytes,
                             kind,
                             &config.buffer_manager,
@@ -290,7 +289,7 @@ pub async fn runtime_loop_with_config<
                         }
                     };
                     // Extract the VISCA payload and metadata using zero-copy method
-                    let (payload, meta) = match config.envelope.extract_with_meta_owned(frame) {
+                    let (payload, meta) = match config.envelope.extract_with_meta(frame) {
                         Ok(result) => result,
                         Err(e) => {
                             warn!("Failed to extract response from frame: {e}");
@@ -356,7 +355,7 @@ pub async fn runtime_loop_with_config<
                             })?;
 
                             let kind = CommandKind::Command;
-                            let (framed, _meta) = config.envelope.frame_bytes_into(
+                            let framed = config.envelope.frame_bytes(
                                 &cancel_bytes,
                                 kind,
                                 &config.buffer_manager,

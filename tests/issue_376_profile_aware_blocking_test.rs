@@ -8,7 +8,6 @@
 mod profile_aware_blocking_tests {
     use grafton_visca::{
         camera::profiles::{PtzOpticsG2, SonyBRC300},
-        capabilities::ProtocolStyle,
         command::{inquiry::PanTiltPositionInquiry, InquiryData},
         runtime::blocking_runner::BlockingRunner,
         testing::testkit::scripted_transport::{ScriptedBlockingTransport, Step},
@@ -43,8 +42,7 @@ mod profile_aware_blocking_tests {
     fn test_blocking_pan_tilt_decoding_signed_centered() {
         // PtzOpticsG2 uses SignedCentered coordinate system (default)
         // Camera coordinates are already in signed format
-        let mut runner =
-            BlockingRunner::<PtzOpticsG2>::new(ProtocolStyle::RawVisca, TimeoutConfig::default());
+        let mut runner = BlockingRunner::<PtzOpticsG2>::new(TimeoutConfig::default());
 
         // Create transport with scripted response
         // Camera coordinates: pan=0x1234, tilt=0x5678 (signed values)
@@ -84,8 +82,7 @@ mod profile_aware_blocking_tests {
     fn test_blocking_pan_tilt_decoding_unsigned_centered() {
         // SonyBRC300 uses UnsignedCentered coordinate system
         // Camera coordinates need conversion: 0x8000 is center (0 logical)
-        let mut runner =
-            BlockingRunner::<SonyBRC300>::new(ProtocolStyle::RawVisca, TimeoutConfig::default());
+        let mut runner = BlockingRunner::<SonyBRC300>::new(TimeoutConfig::default());
 
         // Create transport with scripted response
         // Camera coordinates: pan=0x8000 (center), tilt=0x9000 (slightly up)
@@ -137,10 +134,7 @@ mod profile_aware_blocking_tests {
 
         for (pan_cam, tilt_cam, expected_pan, expected_tilt) in test_cases {
             // Create a fresh runner for each test case to avoid state issues
-            let mut runner = BlockingRunner::<SonyBRC300>::new(
-                ProtocolStyle::RawVisca,
-                TimeoutConfig::default(),
-            );
+            let mut runner = BlockingRunner::<SonyBRC300>::new(TimeoutConfig::default());
             let response_frame = create_pan_tilt_response(pan_cam, tilt_cam);
             let mut transport = ScriptedBlockingTransport::new(vec![Step::OnSend {
                 matches: None,
@@ -188,8 +182,7 @@ mod profile_aware_blocking_tests {
         // Test that blocking runner handles completion frames correctly
         // with profile-aware decoding for subsequent data replies
 
-        let mut runner =
-            BlockingRunner::<PtzOpticsG2>::new(ProtocolStyle::RawVisca, TimeoutConfig::default());
+        let mut runner = BlockingRunner::<PtzOpticsG2>::new(TimeoutConfig::default());
 
         // Create transport with data reply for home position (0,0)
         let mut transport = ScriptedBlockingTransport::new(vec![Step::OnSend {

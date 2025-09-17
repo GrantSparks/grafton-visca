@@ -8,7 +8,7 @@ use tracing::{debug, error};
 use crate::{
     command::CommandKind,
     runtime::core::PendingCommand,
-    transport::{buffer::BufferManager, envelope::TransportEnvelope},
+    transport::{buffer::BufferManager, envelope::Envelope},
     visca_socket::ViscaSocket,
     Result,
 };
@@ -77,22 +77,24 @@ impl SendGuard {
 
 /// Async version of send_one.
 #[cfg(feature = "mode-async")]
-pub(crate) async fn send_one<T, E, S>(
+pub(crate) async fn send_one<T, Ex, S, Env>(
     transport: &mut T,
-    executor: &E,
+    executor: &Ex,
     scheduler: &mut S,
     cmd: PendingCommand,
-    envelope: &TransportEnvelope,
+    envelope: &Env,
     buffer_manager: &BufferManager,
     write_timeout: core::time::Duration,
 ) -> Result<()>
 where
     T: crate::transport::AsyncTransport,
-    E: crate::executor::Executor,
+    Ex: crate::executor::Executor,
     S: SchedulerLike,
+    Env: Envelope,
 {
     // Frame the command using the bytes path
-    let (framed, meta) = envelope.frame_bytes_into(&cmd.command.payload, cmd.kind, buffer_manager);
+    let (framed, meta) =
+        envelope.frame_bytes_with_meta(&cmd.command.payload, cmd.kind, buffer_manager);
 
     // Create guard for tracking rollback state
     let mut guard = SendGuard::new(cmd.id);
@@ -171,20 +173,22 @@ where
 
 /// Blocking version of send_one for non-async builds.
 #[cfg(not(feature = "mode-async"))]
-pub(crate) fn send_one<T, S>(
+pub(crate) fn send_one<T, S, Env>(
     transport: &mut T,
     scheduler: &mut S,
     cmd: PendingCommand,
-    envelope: &TransportEnvelope,
+    envelope: &Env,
     buffer_manager: &BufferManager,
     _write_timeout: core::time::Duration,
 ) -> Result<()>
 where
     T: crate::transport::BlockingTransport,
     S: SchedulerLike,
+    Env: Envelope,
 {
     // Frame the command using the bytes path
-    let (framed, meta) = envelope.frame_bytes_into(&cmd.command.payload, cmd.kind, buffer_manager);
+    let (framed, meta) =
+        envelope.frame_bytes_with_meta(&cmd.command.payload, cmd.kind, buffer_manager);
 
     // Create guard for tracking rollback state
     let mut guard = SendGuard::new(cmd.id);

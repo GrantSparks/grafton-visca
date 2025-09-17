@@ -30,7 +30,7 @@ pub mod blocking_api;
 pub use camera_impl::Camera;
 
 // Re-export new API types
-pub use config::{CameraConfig, ProtocolConfig, TransportOptions};
+pub use config::{CameraConfig, TransportOptions};
 pub use session::CameraSession;
 
 // Re-export convenience methods for quick connection

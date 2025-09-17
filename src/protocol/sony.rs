@@ -82,6 +82,16 @@ impl SonyHeader {
         }
     }
 
+    /// Create a new reply header with the given sequence.
+    #[cfg(test)]
+    pub const fn new_reply(payload_len: usize, sequence: u32) -> Self {
+        Self {
+            payload_type: PayloadType::ViscaReply,
+            payload_length: payload_len as u16,
+            sequence_number: sequence,
+        }
+    }
+
     /// Encode header to bytes.
     #[inline(always)]
     pub fn encode(&self) -> [u8; 8] {

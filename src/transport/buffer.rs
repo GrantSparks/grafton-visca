@@ -89,8 +89,9 @@ impl BufferConfig {
 
 /// Manager for buffer allocation and lifecycle.
 /// Available for all transport configurations.
+#[doc(hidden)]
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct BufferManager {
+pub struct BufferManager {
     config: BufferConfig,
 }
 

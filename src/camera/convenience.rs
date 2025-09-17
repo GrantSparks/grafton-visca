@@ -4,8 +4,8 @@
 //! with auto-detection and sensible defaults.
 
 #[cfg(feature = "mode-async")]
-use crate::camera::CameraSession;
-use crate::{camera::config::CameraConfig, capabilities::Profile, error::Error};
+use crate::camera::{config::CameraConfig, CameraSession};
+use crate::{capabilities::Profile, error::Error};
 
 /// Convenience methods for connecting to cameras with one-liner setup.
 #[derive(Debug, Clone, Copy)]
@@ -13,45 +13,6 @@ pub struct Connect;
 
 #[cfg(feature = "mode-async")]
 impl Connect {
-    /// Open an async camera connection with automatic protocol detection.
-    ///
-    /// This is the simplest way to connect to a camera asynchronously. It will:
-    /// 1. Try Sony encapsulated protocol on port 52381 (UDP)
-    /// 2. Try raw VISCA on port 1259 (UDP)
-    /// 3. Try raw VISCA on port 5678 (TCP)
-    ///
-    /// # Arguments
-    ///
-    /// * `addr` - The camera address (hostname or IP, port optional)
-    /// * `runtime` - The async runtime to use
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// use grafton_visca::camera::{Camera, profiles::SonyFR7};
-    ///
-    /// let cam = Camera::open_auto_async::<SonyFR7>("192.168.0.108", &tokio_runtime).await?;
-    /// cam.power().on().await?;
-    /// cam.close().await?;
-    /// ```
-    pub async fn open_auto_async<P, R>(
-        addr: impl Into<String>,
-        runtime: R,
-    ) -> Result<CameraSession<crate::mode::Async, P, crate::runtime::TransportHandle<R>, R>, Error>
-    where
-        P: Profile + Default,
-        R: crate::runtime::Runtime,
-    {
-        use crate::camera::config::TransportOptions;
-
-        let address = addr.into();
-        CameraConfig::<P>::new()
-            .transport(TransportOptions::Auto { address })
-            .auto_protocol()
-            .open_async(runtime)
-            .await
-    }
-
     /// Open a TCP async camera connection.
     ///
     /// Connects to the camera using TCP with the profile's default protocol style.
@@ -153,42 +114,6 @@ impl Connect {
 
 #[cfg(not(feature = "mode-async"))]
 impl Connect {
-    /// Open a blocking camera connection with automatic protocol detection.
-    ///
-    /// This is the simplest way to connect to a camera in blocking mode. It will:
-    /// 1. Try Sony encapsulated protocol on port 52381 (UDP)
-    /// 2. Try raw VISCA on port 1259 (UDP)
-    /// 3. Try raw VISCA on port 5678 (TCP)
-    ///
-    /// # Arguments
-    ///
-    /// * `addr` - The camera address (hostname or IP, port optional)
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// use grafton_visca::camera::{Camera, profiles::PtzOpticsG2};
-    ///
-    /// let cam = Camera::open_auto_blocking::<PtzOpticsG2>("192.168.0.110")?;
-    /// cam.power().on()?;
-    /// cam.close()?;
-    /// ```
-    pub fn open_auto_blocking<P>(
-        addr: impl Into<String>,
-    ) -> Result<crate::BlockingClient<P, crate::transport::BlockingTransportHandle>, Error>
-    where
-        P: Profile + Default,
-    {
-        use crate::camera::config::TransportOptions;
-
-        let address = addr.into();
-        let session = CameraConfig::<P>::new()
-            .transport(TransportOptions::Auto { address })
-            .auto_protocol()
-            .open_blocking()?;
-        Ok(crate::BlockingClient::from_camera(session.into_inner()))
-    }
-
     /// Open a TCP blocking camera connection.
     ///
     /// Connects to the camera using TCP with the profile's default protocol style.
@@ -209,7 +134,7 @@ impl Connect {
     {
         let tcp = crate::transport::blocking::tcp::Tcp::connect(&addr.into())?;
         let transport = crate::transport::BlockingTransportHandle::Tcp(tcp);
-        let camera = crate::camera::Camera::new_blocking_with_style(transport, P::PROTOCOL_STYLE)?;
+        let camera = crate::camera::Camera::new_blocking(transport)?;
         Ok(crate::BlockingClient::from_camera(camera))
     }
 
@@ -233,7 +158,7 @@ impl Connect {
     {
         let udp = crate::transport::blocking::udp::Udp::connect(&addr.into())?;
         let transport = crate::transport::BlockingTransportHandle::Udp(udp);
-        let camera = crate::camera::Camera::new_blocking_with_style(transport, P::PROTOCOL_STYLE)?;
+        let camera = crate::camera::Camera::new_blocking(transport)?;
         Ok(crate::BlockingClient::from_camera(camera))
     }
 

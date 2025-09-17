@@ -16,7 +16,6 @@ use std::time::Duration;
 #[cfg(feature = "runtime-tokio")]
 use grafton_visca::{
     camera::profiles::PtzOpticsG2,
-    prelude::raw::ProtocolStyle,
     testing::testkit::{ScriptedTransport, Step},
     timeout::TimeoutConfig,
     Error, ZoomControl,
@@ -52,7 +51,6 @@ async fn test_command_timeout_completes_deterministically() {
         executor.clone(),
     )
     .timeout_config(timeout_config)
-    .protocol_style(ProtocolStyle::RawVisca)
     .open_async::<PtzOpticsG2, _>(transport)
     .await
     .expect("Failed to create camera");
@@ -105,7 +103,6 @@ async fn test_multiple_timeouts_no_starvation() {
         executor.clone(),
     )
     .timeout_config(timeout_config)
-    .protocol_style(ProtocolStyle::RawVisca)
     .open_async::<PtzOpticsG2, _>(transport)
     .await
     .expect("Failed to create camera");
@@ -154,7 +151,6 @@ async fn test_shutdown_with_pending_timeouts() {
         executor.clone(),
     )
     .timeout_config(timeout_config)
-    .protocol_style(ProtocolStyle::RawVisca)
     .open_async::<PtzOpticsG2, _>(transport)
     .await
     .expect("Failed to create camera");

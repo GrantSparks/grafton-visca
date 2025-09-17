@@ -6,15 +6,11 @@
 #![cfg(feature = "runtime-tokio")]
 
 use grafton_visca::{
+    camera::profiles::GenericVisca,
     camera::CameraBuilder,
-    command::{
-        exposure::ExposureMode, focus::FocusMode, preset::PresetNumber,
-        white_balance::WhiteBalanceMode,
-    },
-    profiles::GenericVisca,
+    command::{exposure::ExposureMode, focus::FocusMode, white_balance::WhiteBalanceMode},
     runtime::TokioRuntime,
     testing::camera_simulator::ViscaCameraSimulator,
-    InquiryControl, PanTiltInquiryControl, PresetsControl,
 };
 
 use std::time::Duration;
@@ -32,7 +28,8 @@ async fn test_power_inquiry_integration() {
 
     // Query power status
     let power_on = camera
-        .power_state()
+        .power()
+        .state()
         .await
         .expect("power inquiry should succeed");
     assert!(power_on, "Camera should be powered on by default");
@@ -51,7 +48,8 @@ async fn test_position_inquiries_integration() {
 
     // Test pan/tilt position inquiry
     let position = camera
-        .pan_tilt_position()
+        .pan_tilt()
+        .position()
         .await
         .expect("pan/tilt inquiry should succeed");
     assert_eq!(
@@ -67,7 +65,8 @@ async fn test_position_inquiries_integration() {
 
     // Test zoom position inquiry
     let zoom_pos = camera
-        .zoom_position()
+        .zoom()
+        .position()
         .await
         .expect("zoom inquiry should succeed");
     assert_eq!(
@@ -78,7 +77,8 @@ async fn test_position_inquiries_integration() {
 
     // Test focus position inquiry
     let focus_pos = camera
-        .focus_position()
+        .focus()
+        .position()
         .await
         .expect("focus inquiry should succeed");
     assert_eq!(
@@ -89,7 +89,8 @@ async fn test_position_inquiries_integration() {
 
     // Test focus near limit inquiry
     let near_limit = camera
-        .focus_near_limit()
+        .focus()
+        .near_limit()
         .await
         .expect("focus near limit inquiry should succeed");
     assert_eq!(near_limit, 0x1000, "Focus near limit should be at default");
@@ -109,31 +110,39 @@ async fn test_exposure_inquiries_integration() {
 
     // Test exposure mode inquiry
     let mode = camera
-        .exposure_mode()
+        .exposure()
+        .mode()
         .await
         .expect("exposure mode inquiry should succeed");
     assert_eq!(mode, ExposureMode::Auto, "Exposure mode should be Auto");
 
     // Test exposure compensation inquiry
     let comp = camera
-        .exposure_compensation()
+        .exposure()
+        .compensation()
         .await
         .expect("exposure compensation inquiry should succeed");
     assert_eq!(comp, 0, "Exposure compensation should be 0");
 
     // Test exposure compensation mode inquiry
     let comp_enabled = camera
-        .exposure_compensation_enabled()
+        .exposure()
+        .compensation_enabled()
         .await
         .expect("exposure compensation mode inquiry should succeed");
     assert!(!comp_enabled, "Exposure compensation should be disabled");
 
     // Test iris inquiry
-    let iris = camera.iris().await.expect("iris inquiry should succeed");
+    let iris = camera
+        .exposure()
+        .iris()
+        .await
+        .expect("iris inquiry should succeed");
     assert_eq!(iris, 0x0000, "Iris should be at minimum");
 
     // Test shutter inquiry
     let shutter = camera
+        .exposure()
         .shutter()
         .await
         .expect("shutter inquiry should succeed");
@@ -141,17 +150,23 @@ async fn test_exposure_inquiries_integration() {
 
     // Test brightness inquiry
     let brightness = camera
+        .image()
         .brightness()
         .await
         .expect("brightness inquiry should succeed");
     assert_eq!(brightness, 0x07, "Brightness should be at default");
 
     // Test gain inquiry
-    let gain = camera.gain().await.expect("gain inquiry should succeed");
+    let gain = camera
+        .exposure()
+        .gain()
+        .await
+        .expect("gain inquiry should succeed");
     assert_eq!(gain, 0x00, "Gain should be at minimum");
 
     // Test gain limit inquiry
     let gain_limit = camera
+        .exposure()
         .gain_limit()
         .await
         .expect("gain limit inquiry should succeed");
@@ -159,6 +174,7 @@ async fn test_exposure_inquiries_integration() {
 
     // Test backlight inquiry
     let backlight = camera
+        .image()
         .backlight_enabled()
         .await
         .expect("backlight inquiry should succeed");
@@ -178,7 +194,8 @@ async fn test_white_balance_color_inquiries_integration() {
 
     // Test white balance mode inquiry
     let wb_mode = camera
-        .white_balance_mode()
+        .white_balance()
+        .mode()
         .await
         .expect("white balance mode inquiry should succeed");
     assert_eq!(
@@ -189,6 +206,7 @@ async fn test_white_balance_color_inquiries_integration() {
 
     // Test color temperature inquiry
     let color_temp = camera
+        .white_balance()
         .color_temperature()
         .await
         .expect("color temperature inquiry should succeed");
@@ -213,18 +231,24 @@ async fn test_image_adjustment_inquiries_integration() {
 
     // Test saturation inquiry
     let saturation = camera
+        .image()
         .saturation()
         .await
         .expect("saturation inquiry should succeed");
     assert_eq!(saturation, 0x07, "Saturation should be at default");
 
     // Test hue inquiry
-    let hue = camera.hue().await.expect("hue inquiry should succeed");
+    let hue = camera
+        .image()
+        .hue()
+        .await
+        .expect("hue inquiry should succeed");
     assert_eq!(hue, 0x07, "Hue should be at default");
 
     // Test image flip inquiry
     let flip_status = camera
-        .image_flip()
+        .image()
+        .flip()
         .await
         .expect("image flip inquiry should succeed");
     assert!(!flip_status.vertical, "Vertical flip should be off");
@@ -244,6 +268,7 @@ async fn test_noise_reduction_inquiries_integration() {
 
     // Test noise reduction 2D inquiry
     let nr_2d = camera
+        .image()
         .noise_reduction_2d()
         .await
         .expect("noise reduction 2D inquiry should succeed");
@@ -251,6 +276,7 @@ async fn test_noise_reduction_inquiries_integration() {
 
     // Test noise reduction 3D inquiry
     let nr_3d = camera
+        .image()
         .noise_reduction_3d()
         .await
         .expect("noise reduction 3D inquiry should succeed");
@@ -270,7 +296,8 @@ async fn test_focus_mode_inquiries_integration() {
 
     // Test focus mode inquiry
     let focus_mode = camera
-        .focus_mode()
+        .focus()
+        .mode()
         .await
         .expect("focus mode inquiry should succeed");
     assert_eq!(focus_mode, FocusMode::Auto, "Focus mode should be Auto");
@@ -292,6 +319,7 @@ async fn test_resolution_inquiry_integration() {
 
     // Test resolution inquiry
     let resolution = camera
+        .image()
         .resolution()
         .await
         .expect("resolution inquiry should succeed");
@@ -317,10 +345,13 @@ async fn test_concurrent_inquiries_integration() {
     // Launch multiple inquiries concurrently
     use tokio::join;
 
+    // Create accessor once to avoid temporary issues
+    let power = camera.power();
+
     let (r1, r2, r3) = join!(
-        camera.power_state(),
-        camera.power_state(), // Duplicate to test queuing
-        camera.power_state(),
+        power.state(),
+        power.state(), // Duplicate to test queuing
+        power.state(),
     );
 
     // All should complete successfully
@@ -349,13 +380,15 @@ async fn test_sequential_inquiries() {
 
     // Test the failing sequence: exposure mode then exposure compensation
     let mode = camera
-        .exposure_mode()
+        .exposure()
+        .mode()
         .await
         .expect("exposure mode inquiry should succeed");
     assert_eq!(mode, ExposureMode::Auto, "Exposure mode should be Auto");
 
     let comp = camera
-        .exposure_compensation()
+        .exposure()
+        .compensation()
         .await
         .expect("exposure compensation inquiry should succeed");
     assert_eq!(comp, 0, "Exposure compensation should be 0");
@@ -382,7 +415,7 @@ async fn test_inquiry_timeout_behavior() {
     // Socket manager is now automatically initialized on first use
 
     // Query should complete within reasonable time
-    let result = tokio::time::timeout(Duration::from_millis(200), camera.power_state()).await;
+    let result = tokio::time::timeout(Duration::from_millis(200), camera.power().state()).await;
     assert!(result.is_ok(), "Inquiry should complete within timeout");
     assert!(
         result.unwrap().is_ok(),
@@ -403,7 +436,8 @@ async fn test_mixed_commands_and_inquiries() {
 
     // Execute a preset recall command
     camera
-        .preset_recall(PresetNumber::new(1).unwrap())
+        .presets()
+        .recall(1)
         .await
         .expect("preset recall should succeed");
 
@@ -417,7 +451,8 @@ async fn test_mixed_commands_and_inquiries() {
 
     // Query zoom position while preset is potentially still executing
     let zoom_pos = camera
-        .zoom_position()
+        .zoom()
+        .position()
         .await
         .expect("zoom inquiry should succeed");
     assert_eq!(

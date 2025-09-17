@@ -103,8 +103,6 @@ pub use async_transport::AsyncTransport;
 // - BlockingCamera::connect_tcp/udp()
 // - CameraBuilder::tcp/udp()
 // - Camera::<Blocking, _, _, _>::connect_tcp/udp()
-#[cfg(feature = "mode-async")]
-pub use crate::protocol::detect::{DetectionResult, ProtocolDetector};
 pub use builder::{NetTransportBuilder, Transport, TransportBuilderExt};
 use std::time::{Duration, Instant};
 

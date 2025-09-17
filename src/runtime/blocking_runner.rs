@@ -13,7 +13,7 @@ use std::{
 
 use crate::{
     camera_id::CameraId,
-    capabilities::{Profile, ProtocolStyle},
+    capabilities::Profile,
     command::{
         response::{lift_inquiry_for, Response},
         CommandKind, ViscaCommand,
@@ -31,7 +31,7 @@ use crate::{
     transport::{
         buffer::{BufferConfig, BufferManager},
         builder::AddressingMode,
-        envelope::TransportEnvelope,
+        envelope::Envelope,
         BlockingTransport, HasTransportConfig, RetryConfig,
     },
 };
@@ -46,7 +46,7 @@ pub struct BlockingRunner<P: Profile> {
     /// The scheduler core for state management.
     core: SchedulerCore,
     /// Transport envelope for framing.
-    envelope: TransportEnvelope,
+    envelope: P::Envelope,
     /// Buffer manager for efficient memory usage.
     buffer_manager: BufferManager,
     /// Protocol framer for extracting frames from stream data.
@@ -59,36 +59,26 @@ pub struct BlockingRunner<P: Profile> {
 
 impl<P: Profile> BlockingRunner<P> {
     /// Create a new blocking runner.
-    pub fn new(style: ProtocolStyle, timeout_config: TimeoutConfig) -> Self {
+    pub fn new(timeout_config: TimeoutConfig) -> Self {
         // Use default retry config for backward compatibility
-        Self::new_with_retry(style, timeout_config, RetryConfig::default())
+        Self::new_with_retry(timeout_config, RetryConfig::default())
     }
 
     /// Create a new blocking runner with retry configuration.
-    pub fn new_with_retry(
-        style: ProtocolStyle,
-        timeout_config: TimeoutConfig,
-        retry_config: RetryConfig,
-    ) -> Self {
-        let buffer_config = if matches!(style, ProtocolStyle::SonyEncapsulated) {
-            BufferConfig::for_sony_ip()
-        } else {
-            BufferConfig::default()
-        };
-
-        Self::new_with_buffer(style, timeout_config, retry_config, buffer_config)
+    pub fn new_with_retry(timeout_config: TimeoutConfig, retry_config: RetryConfig) -> Self {
+        // Use default buffer config
+        let buffer_config = BufferConfig::default();
+        Self::new_with_buffer(timeout_config, retry_config, buffer_config)
     }
 
     /// Create a new blocking runner with full configuration including buffer config.
     pub fn new_with_buffer(
-        style: ProtocolStyle,
         timeout_config: TimeoutConfig,
         retry_config: RetryConfig,
         buffer_config: BufferConfig,
     ) -> Self {
         // Default to IP addressing for backward compatibility
         Self::new_with_addressing(
-            style,
             timeout_config,
             retry_config,
             buffer_config,
@@ -98,7 +88,6 @@ impl<P: Profile> BlockingRunner<P> {
 
     /// Create a new blocking runner with full configuration including addressing mode.
     pub fn new_with_addressing(
-        style: ProtocolStyle,
         timeout_config: TimeoutConfig,
         retry_config: RetryConfig,
         buffer_config: BufferConfig,
@@ -106,7 +95,7 @@ impl<P: Profile> BlockingRunner<P> {
     ) -> Self {
         Self {
             core: SchedulerCore::with_retry_config(timeout_config, retry_config),
-            envelope: TransportEnvelope::new_with_addressing(style, addressing),
+            envelope: P::Envelope::new(addressing),
             buffer_manager: BufferManager::new(buffer_config),
             framer: ProtocolFramer::new_with_config(buffer_config),
             next_id: AtomicU32::new(1),
@@ -312,7 +301,7 @@ impl<P: Profile> BlockingRunner<P> {
                         };
 
                         // Extract payload and metadata
-                        let (payload, meta) = match self.envelope.extract_with_meta_owned(frame) {
+                        let (payload, meta) = match self.envelope.extract_with_meta(frame) {
                             Ok(result) => result,
                             Err(e) => {
                                 warn!("Failed to extract response from frame: {e}");
@@ -482,8 +471,7 @@ mod tests {
     #[test]
     fn test_scheduler_core_creation() {
         let timeout_config = TimeoutConfig::default();
-        let runner =
-            BlockingRunner::<PtzOpticsG2>::new(ProtocolStyle::SonyEncapsulated, timeout_config);
+        let runner = BlockingRunner::<PtzOpticsG2>::new(timeout_config);
 
         // Verify the runner was created successfully
         assert!(runner.core.can_send_command());
@@ -492,9 +480,9 @@ mod tests {
     #[test]
     fn test_scheduler_core_with_raw_visca() {
         let timeout_config = TimeoutConfig::default();
-        let runner = BlockingRunner::<PtzOpticsG2>::new(ProtocolStyle::RawVisca, timeout_config);
+        let runner = BlockingRunner::<PtzOpticsG2>::new(timeout_config);
 
-        // Verify the runner was created for raw VISCA
+        // Verify the runner was created (protocol is determined by Profile type)
         assert!(runner.core.can_send_command());
     }
 
@@ -503,8 +491,7 @@ mod tests {
         use crate::command::bytes::VISCA_TERMINATOR;
 
         let timeout_config = TimeoutConfig::default();
-        let mut runner =
-            BlockingRunner::<PtzOpticsG2>::new(ProtocolStyle::SonyEncapsulated, timeout_config);
+        let mut runner = BlockingRunner::<PtzOpticsG2>::new(timeout_config);
 
         // Create a test command helper struct
         #[derive(Debug, Clone)]

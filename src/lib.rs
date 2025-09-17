@@ -703,7 +703,10 @@ pub use crate::camera::blocking_api::BlockingClient;
 #[cfg(feature = "mode-async")]
 pub use crate::camera::AsyncCamera;
 
-// Export unified camera control traits that work with both blocking and async cameras
+// Control traits are deliberately NOT exported publicly - use accessor-first API instead
+// The accessor pattern (e.g., camera.power().on()) is the blessed path for camera control
+// These are re-exported only for internal testing under doc(hidden)
+#[doc(hidden)]
 pub use crate::camera::controls::{
     color::ColorControl,
     exposure::ExposureControl,
