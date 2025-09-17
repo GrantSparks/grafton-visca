@@ -29,8 +29,7 @@ fn main() -> grafton_visca::Result<()> {
     println!("=== Camera Inquiry Quickstart (Blocking) ===\n");
 
     // Get camera IP from environment or use default
-    let ip = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.0.110".to_string());
-    let camera_addr = format!("{ip}:5678"); // Most profiles default to port 5678
+    let camera_addr = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.0.110".to_string());
 
     println!("Connecting to camera at {camera_addr}...");
     let camera = Connect::open_tcp_blocking::<GenericVisca>(camera_addr)?;
@@ -164,8 +163,7 @@ async fn main() -> grafton_visca::Result<()> {
     println!("=== Camera Inquiry Quickstart (Async/Concurrent) ===\n");
 
     // Get camera IP from environment or use default
-    let ip = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.0.110".to_string());
-    let camera_addr = format!("{ip}:5678"); // Most profiles default to port 5678
+    let camera_addr = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.0.110".to_string());
 
     println!("Connecting to camera at {camera_addr}...");
     let transport = Tcp::connect(&camera_addr).await?;

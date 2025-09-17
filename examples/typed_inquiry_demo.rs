@@ -20,7 +20,7 @@ fn main() -> Result<(), Error> {
     let _ = tracing_subscriber::fmt::try_init();
 
     // Connect using camera-first API
-    let address = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.1.100:5678".to_string());
+    let address = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.1.100".to_string());
     println!("Connecting to camera at {address}...");
 
     let camera = Connect::open_tcp_blocking::<GenericVisca>(&address)?;

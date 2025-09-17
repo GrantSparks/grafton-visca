@@ -25,8 +25,7 @@ async fn main() -> Result<(), Error> {
     tracing_subscriber::fmt::init();
 
     // Camera configuration
-    let camera_address =
-        std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.0.100:52381".to_string());
+    let camera_address = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.0.100".to_string());
 
     println!("Connecting to camera at {camera_address}...");
 

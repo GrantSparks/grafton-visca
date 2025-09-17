@@ -37,11 +37,10 @@ fn main() -> Result<(), Error> {
     println!("Connecting to camera at {camera_addr}\n");
 
     // Connect to camera using the convenience API
-    let mut camera = Connect::open_tcp_blocking::<PtzOpticsG2>(format!("{camera_addr}:5678"))
-        .map_err(|e| {
-            eprintln!("Failed to connect to camera at {camera_addr}: {e}");
-            e
-        })?;
+    let mut camera = Connect::open_tcp_blocking::<PtzOpticsG2>(&camera_addr).map_err(|e| {
+        eprintln!("Failed to connect to camera at {camera_addr}: {e}");
+        e
+    })?;
 
     println!("✅ Connected successfully!\n");
 

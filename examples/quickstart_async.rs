@@ -68,7 +68,7 @@ async fn main() -> Result<(), Error> {
     // Parse camera address from command line or use default
     let camera_addr = env::args()
         .nth(1)
-        .unwrap_or_else(|| "192.168.0.110:52381".to_string());
+        .unwrap_or_else(|| "192.168.0.110".to_string());
 
     println!("=== Async Quickstart with Tokio ===");
     println!("Connecting to camera at {camera_addr}...\n");
@@ -158,7 +158,7 @@ async fn main() -> Result<(), Error> {
     // Parse camera address from command line or use default
     let camera_addr = env::args()
         .nth(1)
-        .unwrap_or_else(|| "192.168.0.110:52381".to_string());
+        .unwrap_or_else(|| "192.168.0.110".to_string());
 
     println!("=== Async Quickstart with async-std ===");
     println!("Connecting to camera at {camera_addr}...\n");
@@ -245,7 +245,7 @@ fn main() -> Result<(), Error> {
         // Parse camera address from command line or use default
         let camera_addr = env::args()
             .nth(1)
-            .unwrap_or_else(|| "192.168.0.110:52381".to_string());
+            .unwrap_or_else(|| "192.168.0.110".to_string());
 
         println!("=== Async Quickstart with smol ===");
         println!("Connecting to camera at {camera_addr}...\n");

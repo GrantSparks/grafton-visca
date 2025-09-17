@@ -37,7 +37,7 @@ fn main() -> Result<(), Error> {
 
     let camera_addr = env::args()
         .nth(1)
-        .unwrap_or_else(|| "192.168.0.110:52381".to_string());
+        .unwrap_or_else(|| "192.168.0.110".to_string());
 
     println!("🎥 Comprehensive Camera Control Demo");
     println!("====================================");
