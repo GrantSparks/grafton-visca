@@ -18,7 +18,7 @@ use std::{env, thread::sleep, time::Duration};
 #[cfg(not(feature = "mode-async"))]
 use grafton_visca::{
     camera::{profiles::PtzOpticsG2, Connect},
-    mode::BlockingFutureExt,
+    command::preset::PresetNumber,
     types::SpeedLevel,
     units::{Degrees, Normalized},
     Error,
@@ -46,8 +46,8 @@ fn main() -> Result<(), Error> {
     println!("✅ Connected successfully!\n");
 
     println!("Moving to home position...");
-    camera.pan_tilt().home().block()?;
-    camera.zoom().absolute(Normalized(0.0)).block()?;
+    camera.pan_tilt_home()?;
+    camera.zoom_absolute(Normalized(0.0))?;
     camera.await_idle(Duration::from_secs(10))?;
     println!("✓ At home position\n");
 
@@ -97,17 +97,14 @@ fn main() -> Result<(), Error> {
             zoom = preset.zoom.0 * 100.0
         );
 
-        camera
-            .pan_tilt()
-            .absolute(preset.pan, preset.tilt, SpeedLevel::Medium)
-            .block()?;
-        camera.zoom().absolute(preset.zoom).block()?;
+        camera.pan_tilt_absolute(preset.pan, preset.tilt, SpeedLevel::Medium)?;
+        camera.zoom_absolute(preset.zoom)?;
 
         camera.await_idle(Duration::from_secs(10))?;
         // Note: Position inquiry not implemented in this demo
         // Position would be displayed here if inquiry was available
 
-        camera.presets().set(preset.number).block()?;
+        camera.preset_set(PresetNumber::new(preset.number)?)?;
         println!("  ✓ Preset {number} saved\n", number = preset.number);
 
         sleep(Duration::from_millis(200));
@@ -115,11 +112,8 @@ fn main() -> Result<(), Error> {
 
     println!("═══ Testing Preset Recall ═══");
     println!("Moving to test position (60°, -15°)...");
-    camera
-        .pan_tilt()
-        .absolute(Degrees(60.0), Degrees(-15.0), SpeedLevel::Fast)
-        .block()?;
-    camera.zoom().absolute(Normalized(0.7)).block()?;
+    camera.pan_tilt_absolute(Degrees(60.0), Degrees(-15.0), SpeedLevel::Fast)?;
+    camera.zoom_absolute(Normalized(0.7))?;
     camera.await_idle(Duration::from_secs(10))?;
 
     // Note: Position inquiry not implemented in this demo
@@ -134,7 +128,7 @@ fn main() -> Result<(), Error> {
 
         // Note: Position inquiry not implemented in this demo
 
-        camera.presets().recall(preset.number).block()?;
+        camera.preset_recall(PresetNumber::new(preset.number)?)?;
 
         camera.await_idle(Duration::from_secs(10))?;
 

@@ -12,7 +12,7 @@
 use std::time::Duration;
 
 #[cfg(not(feature = "mode-async"))]
-use grafton_visca::{camera::Connect, mode::BlockingFutureExt, profiles::GenericVisca, Error};
+use grafton_visca::{camera::Connect, profiles::GenericVisca, Error};
 
 #[cfg(not(feature = "mode-async"))]
 fn main() -> Result<(), Error> {
@@ -29,7 +29,7 @@ fn main() -> Result<(), Error> {
 
     // Power status - using high-level accessor API
     println!("Checking power status...");
-    match camera.power().state().block() {
+    match camera.power_state() {
         Ok(power_on) => {
             let status = if power_on { "ON" } else { "OFF" };
             println!("  Power: {status}");
@@ -42,7 +42,7 @@ fn main() -> Result<(), Error> {
 
     // Zoom position - using high-level accessor API
     println!("\nChecking zoom position...");
-    match camera.zoom().position().block() {
+    match camera.zoom_position() {
         Ok(zoom_pos) => {
             let raw_value = zoom_pos.value();
             let zoom_percentage = (raw_value as f32 / 0x4000 as f32) * 100.0;
@@ -59,12 +59,12 @@ fn main() -> Result<(), Error> {
 
     // Try to zoom in slightly
     println!("Zooming in...");
-    if let Err(e) = camera.zoom().tele().block() {
+    if let Err(e) = camera.zoom_tele_std() {
         println!("  Zoom command failed: {e}");
     } else {
         // Wait a moment and stop
         std::thread::sleep(Duration::from_millis(500));
-        let _ = camera.zoom().stop().block();
+        let _ = camera.zoom_stop();
         println!("  Zoom completed");
     }
 

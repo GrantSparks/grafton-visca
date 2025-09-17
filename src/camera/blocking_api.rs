@@ -211,6 +211,27 @@ where
     }
 }
 
+impl<P, Tr>
+    From<crate::camera::session::CameraSession<Blocking, P, Tr, (), crate::camera::session::Open>>
+    for BlockingClient<P, Tr>
+where
+    P: crate::capabilities::Profile,
+{
+    fn from(
+        session: crate::camera::session::CameraSession<
+            Blocking,
+            P,
+            Tr,
+            (),
+            crate::camera::session::Open,
+        >,
+    ) -> Self {
+        Self {
+            inner: session.into_inner(),
+        }
+    }
+}
+
 impl<P, Tr> Deref for BlockingClient<P, Tr>
 where
     P: crate::capabilities::Profile,

@@ -306,12 +306,11 @@ where
     }
 }
 
-// Blocking-specific implementation for Open sessions
+// Blocking-specific implementation for Open sessions (without transport bounds)
 #[cfg(not(feature = "mode-async"))]
 impl<P, Tr> CameraSession<crate::mode::Blocking, P, Tr, (), Open>
 where
     P: Profile,
-    Tr: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + Send + 'static,
 {
     /// Create a new open session from a camera instance.
     pub(crate) fn new(camera: Camera<crate::mode::Blocking, P, Tr, ()>) -> Self {
@@ -331,6 +330,19 @@ where
         &mut self.camera
     }
 
+    /// Extract the inner camera, consuming the session.
+    pub fn into_inner(self) -> Camera<crate::mode::Blocking, P, Tr, ()> {
+        self.camera
+    }
+}
+
+// Additional methods requiring transport bounds
+#[cfg(not(feature = "mode-async"))]
+impl<P, Tr> CameraSession<crate::mode::Blocking, P, Tr, (), Open>
+where
+    P: Profile,
+    Tr: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + Send + 'static,
+{
     /// Explicitly close the camera session.
     ///
     /// This consumes the session and returns a closed session marker.

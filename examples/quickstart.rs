@@ -25,8 +25,8 @@ use std::{env, thread::sleep, time::Duration};
 #[cfg(not(feature = "mode-async"))]
 use grafton_visca::{
     camera::{profiles::PtzOpticsG2, Connect},
-    mode::BlockingFutureExt,
-    types::{PanSpeed, PanTiltDirection, SpeedLevel, TiltSpeed},
+    command::{pan_tilt::PanTiltDirection, preset::PresetNumber},
+    types::{PanSpeed, SpeedLevel, TiltSpeed},
     units::{Degrees, Normalized},
     Error,
 };
@@ -57,45 +57,39 @@ fn main() -> Result<(), Error> {
     println!("═══ Basic Movement Operations ═══");
 
     println!("Moving to home position...");
-    camera.pan_tilt().home().block()?;
+    camera.pan_tilt_home()?;
     camera.await_pan_tilt_idle(Duration::from_secs(5))?;
     println!("✓ At home position");
 
     println!("Testing zoom...");
     println!("  Zooming in briefly...");
-    camera.zoom().tele().block()?;
+    camera.zoom_tele_std()?;
     sleep(Duration::from_millis(100));
-    camera.zoom().stop().block()?;
+    camera.zoom_stop()?;
     camera.await_zoom_idle(Duration::from_secs(2))?;
 
     println!("  Zooming out briefly...");
-    camera.zoom().wide().block()?;
+    camera.zoom_wide_std()?;
     sleep(Duration::from_millis(100));
-    camera.zoom().stop().block()?;
+    camera.zoom_stop()?;
     camera.await_zoom_idle(Duration::from_secs(2))?;
     println!("✓ Zoom complete");
 
     println!("Testing pan/tilt...");
     println!("  Panning right briefly...");
-    camera
-        .pan_tilt()
-        .move_direction(
-            PanTiltDirection::Right,
-            PanSpeed::new(10)?,
-            TiltSpeed::new(0)?,
-        )
-        .block()?;
+    camera.pan_tilt_move(
+        PanTiltDirection::Right,
+        PanSpeed::new(10)?,
+        TiltSpeed::new(0)?,
+    )?;
     sleep(Duration::from_millis(100));
-    camera.pan_tilt().stop().block()?;
+    camera.pan_tilt_stop()?;
     sleep(Duration::from_secs(1));
 
     println!("  Tilting up briefly...");
-    camera
-        .pan_tilt()
-        .move_direction(PanTiltDirection::Up, PanSpeed::new(0)?, TiltSpeed::new(10)?)
-        .block()?;
+    camera.pan_tilt_move(PanTiltDirection::Up, PanSpeed::new(0)?, TiltSpeed::new(10)?)?;
     sleep(Duration::from_millis(100));
-    camera.pan_tilt().stop().block()?;
+    camera.pan_tilt_stop()?;
     sleep(Duration::from_secs(1));
     println!("✓ Pan/tilt complete");
     println!();
@@ -103,24 +97,18 @@ fn main() -> Result<(), Error> {
     println!("═══ Advanced Positioning ═══");
 
     println!("Moving to absolute position (45°, 15°)...");
-    camera
-        .pan_tilt()
-        .absolute(Degrees(45.0), Degrees(15.0), SpeedLevel::Fast)
-        .block()?;
+    camera.pan_tilt_absolute(Degrees(45.0), Degrees(15.0), SpeedLevel::Fast)?;
     sleep(Duration::from_secs(3));
     println!("✓ Moved to position");
 
     println!("Moving relative (+10°, +5°)...");
-    camera
-        .pan_tilt()
-        .relative(Degrees(10.0), Degrees(5.0), SpeedLevel::Medium)
-        .block()?;
+    camera.pan_tilt_relative(Degrees(10.0), Degrees(5.0), SpeedLevel::Medium)?;
 
     sleep(Duration::from_secs(2));
     println!("✓ Relative movement complete");
 
     println!("Setting zoom to 50%...");
-    camera.zoom().absolute(Normalized(0.5)).block()?;
+    camera.zoom_absolute(Normalized(0.5))?;
     sleep(Duration::from_secs(2));
     println!("✓ Zoom at 50%");
     println!();
@@ -128,102 +116,93 @@ fn main() -> Result<(), Error> {
     println!("═══ Focus Control ═══");
 
     println!("Setting auto focus...");
-    camera.focus().auto().block()?;
+    camera.focus_auto()?;
     println!("✓ Auto focus enabled");
 
     println!("Testing manual focus...");
-    camera.focus().manual().block()?;
-    camera.focus().near(SpeedLevel::Medium).block()?;
+    camera.focus_manual()?;
+    camera.focus_near(SpeedLevel::Medium)?;
     sleep(Duration::from_millis(100));
-    camera.focus().stop().block()?;
+    camera.focus_stop()?;
     sleep(Duration::from_secs(1));
 
-    camera.focus().far(SpeedLevel::Medium).block()?;
+    camera.focus_far(SpeedLevel::Medium)?;
     sleep(Duration::from_millis(100));
-    camera.focus().stop().block()?;
+    camera.focus_stop()?;
     sleep(Duration::from_secs(1));
     println!("✓ Manual focus complete");
 
     println!("Triggering one-push auto focus...");
-    camera.focus().one_push().block()?;
+    camera.focus_one_push()?;
     sleep(Duration::from_secs(2));
     println!("✓ One-push focus complete");
-    camera.focus().auto().block()?;
+    camera.focus_auto()?;
     println!();
 
     println!("═══ Exposure & White Balance ═══");
 
     println!("Testing exposure modes...");
-    camera.exposure().auto().block()?;
+    camera.exposure_auto()?;
     println!("  ✓ Auto exposure");
-    camera.exposure().manual().block()?;
+    camera.exposure_manual()?;
     println!("  ✓ Manual exposure");
-    camera.exposure().shutter_priority().block()?;
+    camera.exposure_shutter_priority()?;
     println!("  ✓ Shutter priority");
-    camera.exposure().auto().block()?;
+    camera.exposure_auto()?;
 
     println!("Testing white balance modes...");
-    camera.white_balance().auto().block()?;
+    camera.white_balance_auto()?;
     println!("  ✓ Auto white balance");
-    camera.white_balance().indoor().block()?;
+    camera.white_balance_indoor()?;
     println!("  ✓ Indoor");
-    camera.white_balance().outdoor().block()?;
+    camera.white_balance_outdoor()?;
     println!("  ✓ Outdoor");
-    camera.white_balance().one_push_trigger().block()?;
+    camera.one_push_trigger()?;
     println!("  ✓ One-push");
-    camera.white_balance().auto().block()?;
+    camera.white_balance_auto()?;
     println!();
 
     println!("═══ Preset Management ═══");
 
     println!("Saving preset positions...");
 
-    camera
-        .pan_tilt()
-        .absolute(Degrees(0.0), Degrees(0.0), SpeedLevel::Medium)
-        .block()?;
-    camera.zoom().absolute(Normalized(0.0)).block()?;
+    camera.pan_tilt_absolute(Degrees(0.0), Degrees(0.0), SpeedLevel::Medium)?;
+    camera.zoom_absolute(Normalized(0.0))?;
     sleep(Duration::from_secs(3));
-    camera.presets().set(1).block()?;
+    camera.preset_set(PresetNumber::new(1)?)?;
     println!("  ✓ Preset 1 (Wide Overview) saved");
 
-    camera
-        .pan_tilt()
-        .absolute(Degrees(45.0), Degrees(-10.0), SpeedLevel::Medium)
-        .block()?;
-    camera.zoom().absolute(Normalized(0.3)).block()?;
+    camera.pan_tilt_absolute(Degrees(45.0), Degrees(-10.0), SpeedLevel::Medium)?;
+    camera.zoom_absolute(Normalized(0.3))?;
     sleep(Duration::from_secs(3));
-    camera.presets().set(2).block()?;
+    camera.preset_set(PresetNumber::new(2)?)?;
     println!("  ✓ Preset 2 (Right View) saved");
 
-    camera
-        .pan_tilt()
-        .absolute(Degrees(-45.0), Degrees(-10.0), SpeedLevel::Medium)
-        .block()?;
-    camera.zoom().absolute(Normalized(0.3)).block()?;
+    camera.pan_tilt_absolute(Degrees(-45.0), Degrees(-10.0), SpeedLevel::Medium)?;
+    camera.zoom_absolute(Normalized(0.3))?;
     sleep(Duration::from_secs(3));
-    camera.presets().set(3).block()?;
+    camera.preset_set(PresetNumber::new(3)?)?;
     println!("  ✓ Preset 3 (Left View) saved");
 
     println!("Testing preset recall...");
     for i in 1..=3 {
         println!("  Recalling Preset {i}...");
-        camera.presets().recall(i).block()?;
+        camera.preset_recall(PresetNumber::new(i)?)?;
         sleep(Duration::from_secs(3));
     }
     println!("✓ Preset recall complete");
 
     println!("Clearing Preset 3...");
-    camera.presets().reset(3).block()?;
+    camera.preset_reset(PresetNumber::new(3)?)?;
     println!("✓ Preset 3 cleared");
     println!();
 
     println!("═══ Finishing Demo ═══");
     println!("Restoring camera to home position...");
 
-    camera.pan_tilt().home().block()?;
+    camera.pan_tilt_home()?;
     sleep(Duration::from_secs(3));
-    camera.zoom().absolute(Normalized(0.0)).block()?;
+    camera.zoom_absolute(Normalized(0.0))?;
     sleep(Duration::from_secs(2));
     println!("✓ Camera at home position");
 

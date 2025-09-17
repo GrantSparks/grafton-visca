@@ -18,12 +18,6 @@
 ./src/capabilities/white_balance.rs|6dbe4b89e317f542f73bf9a7cae3ae6d
 ./src/capabilities/zoom.rs|e22794abb1b790a667650b92da5b2624
 ./src/command/resolution.rs|7aba062a67c7046ed488ca2c83c40cb2
-./src/command/response/decoders/power.rs|fb0c44b058f91c8684cd96f467762825
-./src/command/response/decoders/system.rs|53e7db64930993b5617b28c4a4b9be3c
-./src/command/response/decoders/tally.rs|1f80140c77b6949c32397fc8d5343c98
-./src/command/response/decoders/zoom.rs|3f24af4b501aa8c8516e11c8a02447ff
-./src/command/response/lift.rs|3af45a1bec749ebe492164639a1d443e
-./src/command/response/mod.rs|67445e2501c9a76f60149ce2cff12378
 ./examples-advanced/transport_builder_demo.rs|77ffc8768962d246e930a4490bf50d86
 ./examples-advanced/transports.rs|4cf849963fd1e5d62732b83932818e20
 ./examples/preset_demo.rs|a55f9c7c6ed0e57b26eba2592cca8432
@@ -47,7 +41,6 @@
 ./src/camera/blocking_api.rs|8c65e9606b469662827717fd0cbeb3d6
 ./src/camera/builder.rs|dfca3a06716a4a0f90bd1925b39d2afa
 ./src/camera/camera_impl.rs|1c0659fea54532ebfb32fd67a718b1b5
-./src/camera/config.rs|402226011233c5da5ab107de707a798e
 ./src/camera/controls/color.rs|98706f79ae85063f0d5c10204a9e7f73
 ./src/camera/controls/exposure.rs|4b0ff92e10e55ebdeb6702bf80f57c04
 ./src/camera/controls/focus.rs|654267ebca0b71a55f3efe78cfe645de
@@ -69,7 +62,6 @@
 ./src/camera/mod.rs|ca9da55dee316a6027a0a6928682d315
 ./src/camera/movement.rs|6323bdd830404a7d1b7f1813963d3b01
 ./src/camera/profiles.rs|230068ff19e91e18cf845e4a5e64e966
-./src/camera/session.rs|b16cf169baec394a990b1a2010af51d3
 ./src/capabilities/menu_control.rs|62eb6f35b6a40d8c55d4f1a9336e3b99
 ./src/capabilities/mod.rs|11f9adab1d760c6660284a033c0cfb98
 ./src/capabilities/profile_metadata.rs|a623e343b2556a86b87e31fedca173e0
@@ -80,7 +72,6 @@
 ./src/command/encode.rs|84586f4de0602575024e89c4239c7cd7
 ./src/command/exposure.rs|dd876616bd12d6dcd044cc329ce15db5
 ./examples/concurrent_control.rs|586c2ac66ef468d497170870ac481240
-./grafton-visca-macros/src/forward_control.rs|a9a14052b49937245ae4e34217613bad
 ./src/command/flip.rs|8e7ecfaed4f1c1057d8cf6162706cd23
 ./src/command/focus.rs|f87acf81b9aed73c7e604f3d98a6fcf4
 ./src/command/gain.rs|ebd2374a4da5a8bc33d26bcf527f7b0e
@@ -97,7 +88,16 @@
 ./src/command/preset.rs|d45e67859a6ab7d92c7e23ebd4eaca0c
 ./src/command/response/decoders/color.rs|4db6c32610fad0dee561256b432c853c
 ./src/command/response/decoders/exposure.rs|a207d425379c3b87f2f3fbff02e9491a
-./src/command/response/decoders/focus.rs|2a668ccd36aad9f7d258945a9ee7b573
 ./src/command/response/decoders/image.rs|9f7955b4efa4a024912ec178fc4d2b9a
 ./src/command/response/decoders/mod.rs|2f50d87e7635a94d03d841ac0003410f
 ./src/command/response/decoders/pan_tilt.rs|305bf22e65deab695035322787a6ecb9
+./grafton-visca-macros/src/forward_control.rs|21dad668c32aefb9177011bd11ef3489
+./src/camera/config.rs|2c66ed2fb8ae68fdb0df33dd01621665
+./src/camera/session.rs|b6a82f9a7ab89078c6e3e6fa7219f917
+./src/command/response/decoders/focus.rs|d876da1b94ebba552db35334aa1516d7
+./src/command/response/decoders/power.rs|92cc15e22c7d599b5883c8feb5eb8a06
+./src/command/response/decoders/system.rs|cd04588ca3fa4a9b4bb617a8beb9696f
+./src/command/response/decoders/tally.rs|67aff4026f32566c5ee86bed547fcf0f
+./src/command/response/decoders/zoom.rs|50655344aadf290a15c490a336b36ae6
+./src/command/response/lift.rs|cf75eb3d9533b93bf04805d68c2fa73a
+./src/command/response/mod.rs|f0466619f29f25b4761ea512ca03fc0d

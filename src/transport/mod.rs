@@ -110,6 +110,8 @@ use std::time::{Duration, Instant};
 
 #[cfg(not(feature = "mode-async"))]
 pub use blocking_transport::BlockingTransportHandle;
+// BlockingTransport and HasTransportConfig are exposed for compatibility
+// but the recommended approach is to use the camera-first API instead
 pub use blocking_transport::{BlockingTransport, HasTransportConfig};
 
 /// Retry configuration for transport layer operations.

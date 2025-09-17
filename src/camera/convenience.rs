@@ -3,11 +3,9 @@
 //! This module provides simple, one-line methods to quickly connect to cameras
 //! with auto-detection and sensible defaults.
 
-use crate::{
-    camera::{config::CameraConfig, session::CameraSession},
-    capabilities::Profile,
-    error::Error,
-};
+#[cfg(feature = "mode-async")]
+use crate::camera::CameraSession;
+use crate::{camera::config::CameraConfig, capabilities::Profile, error::Error};
 
 /// Convenience methods for connecting to cameras with one-liner setup.
 #[derive(Debug, Clone, Copy)]
@@ -177,20 +175,18 @@ impl Connect {
     /// ```
     pub fn open_auto_blocking<P>(
         addr: impl Into<String>,
-    ) -> Result<
-        CameraSession<crate::mode::Blocking, P, crate::transport::BlockingTransportHandle, ()>,
-        Error,
-    >
+    ) -> Result<crate::BlockingClient<P, crate::transport::BlockingTransportHandle>, Error>
     where
         P: Profile + Default,
     {
         use crate::camera::config::TransportOptions;
 
         let address = addr.into();
-        CameraConfig::<P>::new()
+        let session = CameraConfig::<P>::new()
             .transport(TransportOptions::Auto { address })
             .auto_protocol()
-            .open_blocking()
+            .open_blocking()?;
+        Ok(crate::BlockingClient::from_camera(session.into_inner()))
     }
 
     /// Open a TCP blocking camera connection.
@@ -207,17 +203,14 @@ impl Connect {
     /// ```
     pub fn open_tcp_blocking<P>(
         addr: impl Into<String>,
-    ) -> Result<
-        CameraSession<crate::mode::Blocking, P, crate::transport::BlockingTransportHandle, ()>,
-        Error,
-    >
+    ) -> Result<crate::BlockingClient<P, crate::transport::BlockingTransportHandle>, Error>
     where
         P: Profile + Default,
     {
         let tcp = crate::transport::blocking::tcp::Tcp::connect(&addr.into())?;
         let transport = crate::transport::BlockingTransportHandle::Tcp(tcp);
         let camera = crate::camera::Camera::new_blocking_with_style(transport, P::PROTOCOL_STYLE)?;
-        Ok(CameraSession::new(camera))
+        Ok(crate::BlockingClient::from_camera(camera))
     }
 
     /// Open a UDP blocking camera connection.
@@ -234,17 +227,14 @@ impl Connect {
     /// ```
     pub fn open_udp_blocking<P>(
         addr: impl Into<String>,
-    ) -> Result<
-        CameraSession<crate::mode::Blocking, P, crate::transport::BlockingTransportHandle, ()>,
-        Error,
-    >
+    ) -> Result<crate::BlockingClient<P, crate::transport::BlockingTransportHandle>, Error>
     where
         P: Profile + Default,
     {
         let udp = crate::transport::blocking::udp::Udp::connect(&addr.into())?;
         let transport = crate::transport::BlockingTransportHandle::Udp(udp);
         let camera = crate::camera::Camera::new_blocking_with_style(transport, P::PROTOCOL_STYLE)?;
-        Ok(CameraSession::new(camera))
+        Ok(crate::BlockingClient::from_camera(camera))
     }
 
     /// Open a serial blocking camera connection.
@@ -269,15 +259,13 @@ impl Connect {
     pub fn open_serial_blocking<P>(
         port: impl Into<String>,
         baud_rate: u32,
-    ) -> Result<
-        CameraSession<crate::mode::Blocking, P, crate::transport::BlockingTransportHandle, ()>,
-        Error,
-    >
+    ) -> Result<crate::BlockingClient<P, crate::transport::BlockingTransportHandle>, Error>
     where
         P: Profile + Default,
     {
-        CameraConfig::<P>::new()
+        let session = CameraConfig::<P>::new()
             .serial(port, baud_rate)
-            .open_serial_blocking()
+            .open_serial_blocking()?;
+        Ok(crate::BlockingClient::from_camera(session.into_inner()))
     }
 }

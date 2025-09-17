@@ -9,3 +9,6 @@ pub mod udp;
 // Re-exports
 pub use tcp::Tcp;
 pub use udp::Udp;
+
+#[cfg(test)]
+mod tests;

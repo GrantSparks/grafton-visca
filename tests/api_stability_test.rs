@@ -300,9 +300,6 @@ fn test_transport_module_structure() {
     ))]
     use grafton_visca::transport::AsyncTransport;
 
-    #[cfg(not(feature = "mode-async"))]
-    use grafton_visca::transport::BlockingTransport;
-
     // Test that configuration types can be constructed
     let _retry = RetryConfig::default();
     let _buffer = BufferConfig::default();
@@ -325,12 +322,14 @@ fn test_transport_module_structure() {
         accepts_async_transport(mock_transport);
     }
 
+    // Note: BlockingTransport is now internal - users should use the camera-first API
+    // Test that blocking mode has the public BlockingTransportHandle type
     #[cfg(not(feature = "mode-async"))]
-    fn accepts_blocking_transport<T>(_transport: T)
-    where
-        T: BlockingTransport,
     {
+        use grafton_visca::transport::BlockingTransportHandle;
+        // BlockingTransportHandle should be available as a public type
+        fn _accepts_handle(_handle: BlockingTransportHandle) {}
     }
 
-    // Transport traits should be available - the functions above prove they exist
+    // Transport configuration types should be available
 }

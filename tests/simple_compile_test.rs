@@ -8,7 +8,7 @@ use grafton_visca::{
 };
 
 #[cfg(not(feature = "mode-async"))]
-use grafton_visca::{transport::BlockingTransport, BlockingCamera};
+use grafton_visca::BlockingClient;
 
 use grafton_visca::capabilities::{NdFilter, Profile};
 
@@ -41,10 +41,9 @@ fn test_compile_time_safety() {
     }
 
     #[cfg(not(feature = "mode-async"))]
-    fn _use_nd_filter_blocking<P, T>(_camera: &BlockingCamera<P, T>)
+    fn _use_nd_filter_blocking<P, T>(_camera: &BlockingClient<P, T>)
     where
         P: Profile + NdFilter,
-        T: BlockingTransport + Send + Sync + 'static,
     {
     }
 
@@ -58,10 +57,9 @@ fn test_compile_time_safety() {
     }
 
     #[cfg(not(feature = "mode-async"))]
-    fn _use_basic_features_blocking<P, T>(_camera: &BlockingCamera<P, T>)
+    fn _use_basic_features_blocking<P, T>(_camera: &BlockingClient<P, T>)
     where
         P: Profile,
-        T: BlockingTransport + Send + Sync + 'static,
     {
     }
 }
@@ -81,10 +79,9 @@ fn test_mode_specific_apis() {
 
     #[cfg(not(feature = "mode-async"))]
     {
-        fn _blocking_only<P, T>(_camera: &BlockingCamera<P, T>)
+        fn _blocking_only<P, T>(_camera: &BlockingClient<P, T>)
         where
             P: Profile,
-            T: BlockingTransport,
         {
         }
     }

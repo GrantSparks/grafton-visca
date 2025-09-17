@@ -40,7 +40,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "TallyStatus red",
-                        value: Cow::Owned(format!("0x{value:02X}", value = payload.as_slice()[0])),
+                        value: Cow::Owned(format!("0x{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed("Expected 0x02 (off) or 0x03 (on)"),
                     }))
                 }
@@ -51,7 +51,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "TallyStatus green",
-                        value: Cow::Owned(format!("0x{value:02X}", value = payload.as_slice()[1])),
+                        value: Cow::Owned(format!("0x{:02X}", payload.as_slice()[1])),
                         reason: Cow::Borrowed("Expected 0x02 (off) or 0x03 (on)"),
                     }))
                 }
@@ -71,7 +71,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "TallyAutoAdjust status",
-                        value: Cow::Owned(format!("0x{value:02X}", value = payload.as_slice()[0])),
+                        value: Cow::Owned(format!("0x{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed("Expected 0x02 (off) or 0x03 (on)"),
                     }))
                 }

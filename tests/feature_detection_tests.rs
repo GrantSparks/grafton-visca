@@ -8,7 +8,7 @@
 use grafton_visca::{camera::AsyncCamera, transport::AsyncTransport, Executor};
 
 #[cfg(not(feature = "mode-async"))]
-use grafton_visca::{transport::BlockingTransport, BlockingCamera};
+use grafton_visca::{transport::BlockingTransportHandle, BlockingClient};
 
 use grafton_visca::{
     capabilities::{MotionSync, NdFilter, Profile, VariableSpeed},
@@ -33,10 +33,11 @@ fn test_nd_filter_compile_time_safety() {
 
     // Blocking version - functions that require ND filter support
     #[cfg(not(feature = "mode-async"))]
-    fn _set_nd_filter_blocking<P, T>(_camera: &BlockingCamera<P, T>, _position: NdFilterPosition)
-    where
+    fn _set_nd_filter_blocking<P>(
+        _camera: &BlockingClient<P, BlockingTransportHandle>,
+        _position: NdFilterPosition,
+    ) where
         P: Profile + NdFilter,
-        T: BlockingTransport + Send + Sync + 'static,
     {
         // This function can only be called with cameras that have ND filter
         // The trait bound P: NdFilter enforces this at compile time
@@ -62,12 +63,11 @@ fn test_motion_sync_compile_time_safety() {
 
     // Blocking version - functions that require motion sync support
     #[cfg(not(feature = "mode-async"))]
-    fn _enable_motion_sync_blocking<P, T>(
-        _camera: &BlockingCamera<P, T>,
+    fn _enable_motion_sync_blocking<P>(
+        _camera: &BlockingClient<P, BlockingTransportHandle>,
         _mode: grafton_visca::command::MotionSyncMode,
     ) where
         P: Profile + MotionSync,
-        T: BlockingTransport + Send + Sync + 'static,
     {
         // Only cameras with MotionSync can compile this function
     }
@@ -92,12 +92,11 @@ fn test_variable_speed_compile_time_safety() {
 
     // Blocking version - functions that require variable speed support
     #[cfg(not(feature = "mode-async"))]
-    fn _set_variable_speed_mode_blocking<P, T>(
-        _camera: &BlockingCamera<P, T>,
+    fn _set_variable_speed_mode_blocking<P>(
+        _camera: &BlockingClient<P, BlockingTransportHandle>,
         _mode: grafton_visca::command::VariableSpeedMode,
     ) where
         P: Profile + VariableSpeed,
-        T: BlockingTransport + Send + Sync + 'static,
     {
         // Only cameras with VariableSpeed can compile this function
     }
@@ -130,10 +129,9 @@ fn test_basic_features_available_to_all() {
 
     #[cfg(not(feature = "mode-async"))]
     {
-        fn _basic_operations_blocking<P, T>(_camera: &BlockingCamera<P, T>)
+        fn _basic_operations_blocking<P>(_camera: &BlockingClient<P, BlockingTransportHandle>)
         where
             P: Profile,
-            T: BlockingTransport + Send + Sync + 'static,
         {
             // All cameras can use basic operations
         }
@@ -191,10 +189,7 @@ fn test_profile_specific_compile_time_checks() {
     #[cfg(not(feature = "mode-async"))]
     {
         // Same checks for blocking mode
-        fn _sony_fr7_features_blocking<T>(_camera: &BlockingCamera<SonyFR7, T>)
-        where
-            T: BlockingTransport + Send + Sync + 'static,
-        {
+        fn _sony_fr7_features_blocking(_camera: &BlockingClient<SonyFR7, BlockingTransportHandle>) {
             fn requires_nd<P: NdFilter>() {}
             fn requires_var_speed<P: VariableSpeed>() {}
 
@@ -202,19 +197,17 @@ fn test_profile_specific_compile_time_checks() {
             requires_var_speed::<SonyFR7>();
         }
 
-        fn _ptzoptics_g2_features_blocking<T>(_camera: &BlockingCamera<PtzOpticsG2, T>)
-        where
-            T: BlockingTransport + Send + Sync + 'static,
-        {
+        fn _ptzoptics_g2_features_blocking(
+            _camera: &BlockingClient<PtzOpticsG2, BlockingTransportHandle>,
+        ) {
             fn requires_motion_sync<P: MotionSync>() {}
 
             requires_motion_sync::<PtzOpticsG2>();
         }
 
-        fn _generic_visca_features_blocking<T>(_camera: &BlockingCamera<GenericVisca, T>)
-        where
-            T: BlockingTransport + Send + Sync + 'static,
-        {
+        fn _generic_visca_features_blocking(
+            _camera: &BlockingClient<GenericVisca, BlockingTransportHandle>,
+        ) {
             fn requires_profile<P: Profile>() {}
 
             requires_profile::<GenericVisca>();
@@ -249,11 +242,10 @@ fn test_mode_transport_consistency() {
 
     #[cfg(not(feature = "mode-async"))]
     {
-        // This compiles: BlockingMode with BlockingTransport
-        fn _correct_blocking<P, T>(_camera: &BlockingCamera<P, T>)
+        // This compiles: BlockingMode with BlockingTransportHandle
+        fn _correct_blocking<P>(_camera: &BlockingClient<P, BlockingTransportHandle>)
         where
             P: Profile,
-            T: BlockingTransport,
         {
             // Correct pairing
         }

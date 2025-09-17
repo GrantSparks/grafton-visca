@@ -22,7 +22,7 @@
 // Blocking implementation
 #[cfg(not(feature = "mode-async"))]
 fn main() -> grafton_visca::Result<()> {
-    use grafton_visca::{camera::profiles::GenericVisca, mode::BlockingFutureExt, CameraBuilder};
+    use grafton_visca::camera::{profiles::GenericVisca, Connect};
 
     tracing_subscriber::fmt::init();
 
@@ -33,15 +33,10 @@ fn main() -> grafton_visca::Result<()> {
     let camera_addr = format!("{ip}:5678"); // Most profiles default to port 5678
 
     println!("Connecting to camera at {camera_addr}...");
-    let camera = CameraBuilder::tcp(&camera_addr)
-        .profile::<GenericVisca>() // Use GenericVisca for broadest compatibility
-        // For specific cameras, you can use:
-        // .profile::<PtzOpticsG2>() // PTZOptics cameras
-        // .profile::<SonyEviD70>() // Sony EVI-D70
-        .open()?;
+    let camera = Connect::open_tcp_blocking::<GenericVisca>(camera_addr)?;
 
     println!("\n--- System Information ---");
-    match camera.power().state().block() {
+    match camera.power_state() {
         Ok(is_on) => {
             let state = if is_on { "ON" } else { "OFF" };
             println!("Power: {state}");
@@ -49,18 +44,18 @@ fn main() -> grafton_visca::Result<()> {
         Err(e) => println!("Power: Failed - {e}"),
     }
 
-    match camera.system().version().block() {
+    match camera.version() {
         Ok(version) => println!("Version: {version:?}"),
         Err(e) => println!("Version: Failed - {e}"),
     }
 
-    match camera.image().resolution().block() {
+    match camera.resolution() {
         Ok(res) => println!("Resolution: {res:?}"),
         Err(e) => println!("Resolution: Failed - {e}"),
     }
 
     println!("\n--- Position ---");
-    match camera.pan_tilt().position().block() {
+    match camera.pan_tilt_position() {
         Ok(pos) => {
             println!("Pan: {:?}", pos.pan);
             println!("Tilt: {:?}", pos.tilt);
@@ -69,7 +64,7 @@ fn main() -> grafton_visca::Result<()> {
         Err(e) => println!("Pan/Tilt: Failed - {e}"),
     }
 
-    match camera.zoom().position().block() {
+    match camera.zoom_position() {
         Ok(zoom) => {
             println!("Zoom: {:?}", zoom);
             // Note: The inner value is not publicly accessible,
@@ -79,71 +74,71 @@ fn main() -> grafton_visca::Result<()> {
     }
 
     println!("\n--- Focus ---");
-    match camera.focus().mode().block() {
+    match camera.focus_mode() {
         Ok(mode) => println!("Focus Mode: {mode:?}"),
         Err(e) => println!("Focus Mode: Failed - {e}"),
     }
 
-    match camera.focus().position().block() {
+    match camera.focus_position() {
         Ok(focus) => println!("Focus Position: {:?}", focus),
         Err(e) => println!("Focus Position: Failed - {e}"),
     }
 
     println!("\n--- Exposure ---");
-    match camera.exposure().mode().block() {
+    match camera.exposure_mode() {
         Ok(mode) => println!("Exposure Mode: {mode:?}"),
         Err(e) => println!("Exposure Mode: Failed - {e}"),
     }
 
-    match camera.exposure().iris().block() {
+    match camera.iris() {
         Ok(iris) => println!("Iris: {:?}", iris),
         Err(e) => println!("Iris: Failed - {e}"),
     }
 
-    match camera.exposure().shutter().block() {
+    match camera.shutter() {
         Ok(speed) => println!("Shutter: {:?}", speed),
         Err(e) => println!("Shutter: Failed - {e}"),
     }
 
-    match camera.exposure().gain().block() {
+    match camera.gain() {
         Ok(gain) => println!("Gain: {:?}", gain),
         Err(e) => println!("Gain: Failed - {e}"),
     }
 
     println!("\n--- White Balance ---");
-    match camera.white_balance().mode().block() {
+    match camera.white_balance_mode() {
         Ok(mode) => println!("WB Mode: {mode:?}"),
         Err(e) => println!("WB Mode: Failed - {e}"),
     }
 
-    match camera.white_balance().color_temperature().block() {
+    match camera.color_temperature() {
         Ok(temp) => println!("Color Temperature: {temp}K"),
         Err(e) => println!("Color Temperature: Failed - {e}"),
     }
 
     println!("\n--- Image Adjustments ---");
-    match camera.image().saturation().block() {
+    match camera.saturation() {
         Ok(val) => println!("Saturation: {:?}", val),
         Err(e) => println!("Saturation: Failed - {e}"),
     }
 
-    match camera.image().hue().block() {
+    match camera.hue() {
         Ok(val) => println!("Hue: {:?}", val),
         Err(e) => println!("Hue: Failed - {e}"),
     }
 
-    match camera.image().flip().block() {
+    match camera.image_flip() {
         Ok(mode) => println!("Image Flip: {mode:?}"),
         Err(e) => println!("Image Flip: Failed - {e}"),
     }
 
     println!("\n--- Noise Reduction ---");
-    match camera.image().noise_reduction_2d().block() {
+    match camera.noise_reduction_2d() {
         Ok(level) => println!("2D NR Level: {level:?}"),
         Err(e) => println!("2D NR: Failed - {e}"),
     }
 
-    match camera.image().noise_reduction_3d().block() {
+    match camera.noise_reduction_3d() {
         Ok(level) => println!("3D NR Level: {level:?}"),
         Err(e) => println!("3D NR: Failed - {e}"),
     }

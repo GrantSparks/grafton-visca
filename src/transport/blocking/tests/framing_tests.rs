@@ -2,11 +2,12 @@
 //!
 //! This test addresses issue #357 where the blocking transports were dropping
 //! frames when multiple VISCA frames arrived in a single TCP read.
-//! Now tests that the blocking runner's framing logic correctly handles this.
 
-#![cfg(not(feature = "mode-async"))]
+#![allow(clippy::expect_used, clippy::unwrap_used)] // Test code is allowed to panic
 
-use grafton_visca::{command::CommandKind, transport::BlockingTransport, Error};
+use crate::command::CommandKind;
+use crate::transport::BlockingTransport;
+use crate::Error;
 use std::io::{BufReader, Read, Write};
 use std::sync::{Arc, Mutex};
 
@@ -115,8 +116,8 @@ impl BlockingTransport for MockTcp {
 
 #[test]
 fn test_back_to_back_visca_frames() {
-    use grafton_visca::protocol::framer::ProtocolFramer;
-    use grafton_visca::transport::buffer::BufferConfig;
+    use crate::protocol::framer::ProtocolFramer;
+    use crate::transport::buffer::BufferConfig;
 
     // Test data: ACK followed immediately by Completion
     // This simulates what happens when the camera sends both frames in one TCP packet
@@ -176,8 +177,8 @@ fn test_multiple_back_to_back_frames() {
     let mut transport = MockTcp::new(stream);
 
     // Create a framer to test the framing logic
-    use grafton_visca::protocol::framer::ProtocolFramer;
-    use grafton_visca::transport::buffer::BufferConfig;
+    use crate::protocol::framer::ProtocolFramer;
+    use crate::transport::buffer::BufferConfig;
     let mut framer = ProtocolFramer::new_with_config(BufferConfig::default());
     let mut read_buf = vec![0u8; 256];
 
@@ -235,8 +236,8 @@ fn test_sony_encapsulated_frames_back_to_back() {
     let mut transport = MockTcp::new(stream);
 
     // Create a framer configured for Sony protocol
-    use grafton_visca::protocol::framer::ProtocolFramer;
-    use grafton_visca::transport::buffer::BufferConfig;
+    use crate::protocol::framer::ProtocolFramer;
+    use crate::transport::buffer::BufferConfig;
     let mut framer = ProtocolFramer::new_with_config(BufferConfig::for_sony_ip());
     let mut read_buf = vec![0u8; 256];
 
@@ -272,8 +273,8 @@ fn test_eof_with_complete_frame() {
     let mut transport = MockTcp::new(stream);
 
     // Create a framer to test the framing logic
-    use grafton_visca::protocol::framer::ProtocolFramer;
-    use grafton_visca::transport::buffer::BufferConfig;
+    use crate::protocol::framer::ProtocolFramer;
+    use crate::transport::buffer::BufferConfig;
     let mut framer = ProtocolFramer::new_with_config(BufferConfig::default());
     let mut read_buf = vec![0u8; 256];
 
@@ -302,8 +303,8 @@ fn test_eof_with_complete_frame() {
 
 #[test]
 fn test_eof_with_partial_frame() {
-    use grafton_visca::protocol::framer::ProtocolFramer;
-    use grafton_visca::transport::buffer::BufferConfig;
+    use crate::protocol::framer::ProtocolFramer;
+    use crate::transport::buffer::BufferConfig;
 
     // Test that EOF with partial frame is reported correctly
     let partial = vec![0x90, 0x41]; // Missing terminator

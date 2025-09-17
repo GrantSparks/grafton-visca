@@ -94,6 +94,7 @@ path = "examples-advanced/transports.rs"
 
 [[example]]
 name = "builder_api"
+path = "examples-advanced/builder_api.rs"
 
 [[example]]
 name = "inquiry_quickstart"
@@ -104,6 +105,7 @@ required-features = ["runtime-tokio"]
 
 [[example]]
 name = "error_handling"
+path = "examples-advanced/error_handling.rs"
 required-features = ["runtime-tokio"]
 
 [[example]]
@@ -124,6 +126,7 @@ required-features = ["mode-async"]
 
 [[example]]
 name = "sony_encapsulation"
+path = "examples-advanced/sony_encapsulation.rs"
 required-features = ["runtime-tokio"]
 
 [[example]]
