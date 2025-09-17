@@ -5,7 +5,7 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used)] // Test code is allowed to panic
 
-use crate::command::CommandKind;
+use crate::command::{bytes::VISCA_TERMINATOR, CommandKind};
 use crate::transport::BlockingTransport;
 use crate::Error;
 use std::io::{BufReader, Read, Write};
@@ -268,7 +268,7 @@ fn test_sony_encapsulated_frames_back_to_back() {
 #[test]
 fn test_eof_with_complete_frame() {
     // Test that a complete frame followed by EOF is handled correctly
-    let frame = [0x90, 0x41, 0xFF];
+    let frame = [0x90, 0x41, VISCA_TERMINATOR];
     let stream = MockTcpStream::new(frame.to_vec());
     let mut transport = MockTcp::new(stream);
 
