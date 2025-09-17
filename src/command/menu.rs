@@ -17,6 +17,7 @@ visca_command! {
     };
     prefix = [0x01, 0x06, 0x06];
     param = if *on { 0x02 } else { 0x03 };
+    max_param_size = 1;
     category = CommandCategory::Quick;
 }
 
@@ -119,6 +120,7 @@ visca_command! {
     };
     prefix = [0x01, 0x06, 0x06];
     param = u8::from(*action);
+    max_param_size = 1;
     category = CommandCategory::Quick;
 }
 

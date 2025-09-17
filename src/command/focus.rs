@@ -223,6 +223,7 @@ visca_command! {
         };
         vec![zone_byte]
     };
+    max_param_size = 1;
     category = CommandCategory::Quick;
 }
 
@@ -260,6 +261,7 @@ visca_command! {
         };
         vec![sens_byte]
     };
+    max_param_size = 1;
     category = CommandCategory::Quick;
 }
 

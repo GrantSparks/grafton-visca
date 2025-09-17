@@ -72,6 +72,7 @@ visca_command! {
     pub struct WhiteBalanceCommand { mode: WhiteBalanceMode };
     prefix = [0x01, 0x04, 0x35];
     param = *mode as u8;
+    max_param_size = 1;
     category = crate::timeout::CommandCategory::Quick;
 }
 
@@ -80,6 +81,7 @@ visca_command! {
     pub struct AWBSensitivityCommand { sensitivity: AutoWhiteBalanceSensitivity };
     prefix = [0x01, 0x04, 0xA9];
     param = sensitivity.to_command_byte();
+    max_param_size = 1;
     category = crate::timeout::CommandCategory::Quick;
 }
 

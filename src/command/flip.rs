@@ -20,6 +20,7 @@ visca_command! {
     pub struct ImageFlip { flip: Flip };
     prefix = [0x01, 0x04, 0x66];
     param = match flip { Flip::On => 0x02, Flip::Off => 0x03 };
+    max_param_size = 1;
     category = CommandCategory::Quick;
 }
 
@@ -30,6 +31,7 @@ visca_command! {
     pub struct HorizontalFlip { on: bool };
     prefix = [0x01, 0x04, 0x61];
     param = if *on { 0x02 } else { 0x03 };
+    max_param_size = 1;
     category = CommandCategory::Quick;
 }
 
@@ -40,6 +42,7 @@ visca_command! {
     pub struct ImageFreeze { on: bool };
     prefix = [0x01, 0x04, 0x62];
     param = if *on { 0x02 } else { 0x03 };
+    max_param_size = 1;
     category = CommandCategory::Quick;
 }
 

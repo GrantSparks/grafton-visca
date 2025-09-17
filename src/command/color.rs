@@ -104,6 +104,7 @@ visca_command! {
     };
     prefix = [0x01, 0x04, 0x49, 0x00, 0x00, 0x00];
     param = level.value();
+    max_param_size = 1;
     category = CommandCategory::Quick;
 }
 
@@ -125,6 +126,7 @@ visca_command! {
     };
     prefix = [0x01, 0x04, 0x4F, 0x00, 0x00, 0x00];
     param = level.value();
+    max_param_size = 1;
     category = CommandCategory::Quick;
 }
 

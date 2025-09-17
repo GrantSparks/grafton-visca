@@ -40,6 +40,7 @@ visca_command! {
     };
     prefix = [0x01, 0x04, 0x39];
     param = *mode as u8;
+    max_param_size = 1;
     category = CommandCategory::Quick;
 }
 
@@ -143,6 +144,7 @@ visca_command! {
     };
     prefix = [0x01, 0x04, 0x25, 0x00, 0x00, 0x00];
     param = level.value();
+    max_param_size = 1;
     category = CommandCategory::Quick;
 }
 

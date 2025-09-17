@@ -142,6 +142,16 @@ pub trait ViscaCommand: Send + Sync {
     /// which uses the default timeout duration.
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Custom;
 
+    /// Exact encoded byte length for *this instance* (default: MAX_SIZE).
+    ///
+    /// This method enables exact-size buffer allocation, avoiding over-allocation
+    /// when the actual encoded size is smaller than MAX_SIZE. Commands with
+    /// variable-length parameters should override this to return the precise size.
+    #[inline]
+    fn encoded_size(&self) -> usize {
+        Self::MAX_SIZE
+    }
+
     /// Writes the command into the provided buffer.
     ///
     /// This is the primary method for zero-allocation encoding. The buffer must
@@ -197,6 +207,8 @@ pub trait ViscaCommand: Send + Sync {
     /// optimal for runtime usage where commands are sent through queues and retried,
     /// avoiding extra allocations and copies.
     ///
+    /// Uses `encoded_size()` for exact-size allocation, avoiding over-allocation.
+    ///
     /// # Arguments
     ///
     /// * `camera_id` - The camera ID to address the command to
@@ -206,9 +218,10 @@ pub trait ViscaCommand: Send + Sync {
     /// * `Error::InvalidParameter` if the command contains invalid parameters
     /// * `Error::InvalidRequest` if command structure validation fails
     fn to_bytes(&self, camera_id: CameraId) -> Result<Bytes, Error> {
-        let mut buf = bytes::BytesMut::with_capacity(Self::MAX_SIZE);
+        let need = self.encoded_size();
+        let mut buf = bytes::BytesMut::with_capacity(need);
         // Give write_into a full mutable slice
-        buf.resize(Self::MAX_SIZE, 0);
+        buf.resize(need, 0);
 
         let len = self.write_into(camera_id, &mut buf)?;
 

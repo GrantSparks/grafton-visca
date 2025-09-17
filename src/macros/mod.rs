@@ -34,6 +34,9 @@ pub(crate) mod support;
 // Consolidated macros module
 pub(crate) mod consolidated;
 
+// Zero-allocation parameter handling
+pub(crate) mod param;
+
 // Test utilities
 #[cfg(test)]
 pub(crate) mod test_utils;

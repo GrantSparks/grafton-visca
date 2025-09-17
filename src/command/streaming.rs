@@ -10,6 +10,7 @@ visca_command! {
     pub struct MulticastStreamingInternal { enabled: bool };
     prefix = [0x0B, 0x01, 0x23];
     param = if *enabled { 0x01 } else { 0x02 };
+    max_param_size = 1;
     category = crate::timeout::CommandCategory::Network;
 }
 
@@ -63,6 +64,7 @@ visca_command! {
         NdiQuality::Low => 0x03,
         NdiQuality::Off => 0x04,
     };
+    max_param_size = 1;
     category = crate::timeout::CommandCategory::Network;
 }
 

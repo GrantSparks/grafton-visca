@@ -84,6 +84,7 @@ visca_command! {
     pub struct GainLimitCommand { limit: GainLimit };
     prefix = [0x01, 0x04, 0x2C];
     param = limit.value();
+    max_param_size = 1;
     category = CommandCategory::Quick;
 }
 

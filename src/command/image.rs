@@ -157,6 +157,7 @@ visca_command! {
     pub struct Luminance { value: LuminanceLevel };
     prefix = [0x01, 0x04, 0xA1, 0x00, 0x00, 0x00];
     param = value.value();
+    max_param_size = 1;
     category = CommandCategory::Quick;
 }
 
@@ -172,6 +173,7 @@ visca_command! {
     pub struct Contrast { value: ContrastLevel };
     prefix = [0x01, 0x04, 0xA2, 0x00, 0x00, 0x00];
     param = value.value();
+    max_param_size = 1;
     category = CommandCategory::Quick;
 }
 
@@ -190,6 +192,7 @@ visca_command! {
     pub struct BacklightCommand { enabled: bool };
     prefix = [0x01, 0x04, 0x33];
     param = if *enabled { 0x02 } else { 0x03 };
+    max_param_size = 1;
     category = CommandCategory::Quick;
 }
 
@@ -209,6 +212,7 @@ visca_command! {
     pub struct NoiseReduction2D { level: Option<NoiseReduction2DLevel> };
     prefix = [0x01, 0x04, 0x53];
     param = match level { None => 0x00, Some(l) => l.value() };
+    max_param_size = 1;
     category = CommandCategory::Custom;
 }
 
@@ -233,6 +237,7 @@ visca_command! {
     pub struct NoiseReduction3D { level: Option<NoiseReduction3DLevel> };
     prefix = [0x01, 0x04, 0x54];
     param = match level { None => 0x00, Some(l) => l.value() };
+    max_param_size = 1;
     category = CommandCategory::Custom;
 }
 
@@ -274,6 +279,7 @@ visca_command! {
         ImageFlipMode::Vertical => 0x02,
         ImageFlipMode::Both => 0x03,
     };
+    max_param_size = 1;
     category = CommandCategory::Custom;
 }
 
@@ -292,6 +298,7 @@ visca_command! {
     pub struct PictureEffectCommand { mode: PictureEffectMode };
     prefix = [0x01, 0x04, 0x63];
     param = mode.as_byte();
+    max_param_size = 1;
     category = CommandCategory::Quick;
 }
 
