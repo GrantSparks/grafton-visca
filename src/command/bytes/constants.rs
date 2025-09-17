@@ -297,7 +297,6 @@ pub mod tally {
 ///
 /// Note: These constants serve as the authoritative byte sequences for VISCA inquiry commands.
 /// Currently used by tests to validate macro-generated code and by tally commands in production.
-/// TODO: Refactor ViscaInquiry macro to use these constants as single source of truth.
 pub mod inquiry {
     use super::*;
 
