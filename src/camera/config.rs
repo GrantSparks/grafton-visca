@@ -434,13 +434,33 @@ where
         // Create transport based on configuration
         let transport = match &self.transport {
             TransportOptions::Tcp { address } => {
-                // Parse address and create TCP transport
-                let tcp = Tcp::connect(address)?;
+                // Parse address and add default port if needed
+                let addr_with_port =
+                    if let Ok(parsed) = crate::transport::address::HostPort::parse(address) {
+                        if parsed.port().is_none() {
+                            parsed.format_socket_addr(Some(P::DEFAULT_TCP_PORT))
+                        } else {
+                            address.clone()
+                        }
+                    } else {
+                        address.clone()
+                    };
+                let tcp = Tcp::connect(&addr_with_port)?;
                 crate::transport::BlockingTransportHandle::Tcp(tcp)
             }
             TransportOptions::Udp { address } => {
-                // Parse address and create UDP transport
-                let udp = Udp::connect(address)?;
+                // Parse address and add default port if needed
+                let addr_with_port =
+                    if let Ok(parsed) = crate::transport::address::HostPort::parse(address) {
+                        if parsed.port().is_none() {
+                            parsed.format_socket_addr(Some(P::DEFAULT_UDP_PORT))
+                        } else {
+                            address.clone()
+                        }
+                    } else {
+                        address.clone()
+                    };
+                let udp = Udp::connect(&addr_with_port)?;
                 crate::transport::BlockingTransportHandle::Udp(udp)
             }
             TransportOptions::Serial { .. } => {

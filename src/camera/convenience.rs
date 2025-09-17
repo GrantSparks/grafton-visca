@@ -18,12 +18,19 @@ impl Connect {
     ///
     /// Connects to the camera using TCP with the profile's default protocol style.
     ///
+    /// Note: The async runtime implementation handles adding the profile's
+    /// DEFAULT_TCP_PORT if no port is specified in the address.
+    ///
     /// # Example
     ///
     /// ```ignore
     /// use grafton_visca::camera::{Camera, profiles::PtzOpticsG2};
     ///
+    /// // With explicit port
     /// let cam = Camera::open_tcp_async::<PtzOpticsG2>("192.168.0.110:5678", &tokio_runtime).await?;
+    ///
+    /// // Without port - runtime adds PtzOpticsG2::DEFAULT_TCP_PORT (5678)
+    /// let cam = Camera::open_tcp_async::<PtzOpticsG2>("192.168.0.110", &tokio_runtime).await?;
     /// ```
     pub async fn open_tcp_async<P, R>(
         addr: impl Into<String>,
@@ -44,12 +51,19 @@ impl Connect {
     ///
     /// Connects to the camera using UDP with the profile's default protocol style.
     ///
+    /// Note: The async runtime implementation handles adding the profile's
+    /// DEFAULT_UDP_PORT if no port is specified in the address.
+    ///
     /// # Example
     ///
     /// ```ignore
     /// use grafton_visca::camera::{Camera, profiles::GenericVisca};
     ///
+    /// // With explicit port
     /// let cam = Camera::open_udp_async::<GenericVisca>("192.168.0.110:1259", &tokio_runtime).await?;
+    ///
+    /// // Without port - runtime adds GenericVisca::DEFAULT_UDP_PORT (1259)
+    /// let cam = Camera::open_udp_async::<GenericVisca>("192.168.0.110", &tokio_runtime).await?;
     /// ```
     pub async fn open_udp_async<P, R>(
         addr: impl Into<String>,
@@ -120,12 +134,18 @@ impl Connect {
     /// Connects to the camera using TCP with the profile's default protocol style.
     /// Returns a camera using BlockingTransportHandle for zero-cost operation.
     ///
+    /// If no port is specified in the address, the profile's DEFAULT_TCP_PORT will be used.
+    ///
     /// # Example
     ///
     /// ```ignore
     /// use grafton_visca::camera::{Camera, profiles::PtzOpticsG2};
     ///
+    /// // With explicit port
     /// let cam = Camera::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?;
+    ///
+    /// // Without port - uses PtzOpticsG2::DEFAULT_TCP_PORT (5678)
+    /// let cam = Camera::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
     /// ```
     pub fn open_tcp_blocking<P>(
         addr: impl Into<String>,
@@ -133,7 +153,22 @@ impl Connect {
     where
         P: Profile + Default,
     {
-        let tcp = crate::transport::blocking::tcp::Tcp::connect(&addr.into())?;
+        let addr = addr.into();
+
+        // Parse the address to check if it has a port
+        let addr_with_port = if let Ok(parsed) = crate::transport::address::HostPort::parse(&addr) {
+            // If no port specified, use the profile's default TCP port
+            if parsed.port().is_none() {
+                parsed.format_socket_addr(Some(P::DEFAULT_TCP_PORT))
+            } else {
+                addr
+            }
+        } else {
+            // If parsing fails, just pass it through - let the connection fail with proper error
+            addr
+        };
+
+        let tcp = crate::transport::blocking::tcp::Tcp::connect(&addr_with_port)?;
         let transport = crate::transport::BlockingTransportHandle::Tcp(tcp);
         let camera = crate::camera::Camera::new_blocking(transport)?;
         Ok(crate::BlockingClient::from_camera(camera))
@@ -144,12 +179,18 @@ impl Connect {
     /// Connects to the camera using UDP with the profile's default protocol style.
     /// Returns a camera using BlockingTransportHandle for zero-cost operation.
     ///
+    /// If no port is specified in the address, the profile's DEFAULT_UDP_PORT will be used.
+    ///
     /// # Example
     ///
     /// ```ignore
     /// use grafton_visca::camera::{Camera, profiles::GenericVisca};
     ///
+    /// // With explicit port
     /// let cam = Camera::open_udp_blocking::<GenericVisca>("192.168.0.110:1259")?;
+    ///
+    /// // Without port - uses GenericVisca::DEFAULT_UDP_PORT (1259)
+    /// let cam = Camera::open_udp_blocking::<GenericVisca>("192.168.0.110")?;
     /// ```
     pub fn open_udp_blocking<P>(
         addr: impl Into<String>,
@@ -157,7 +198,22 @@ impl Connect {
     where
         P: Profile + Default,
     {
-        let udp = crate::transport::blocking::udp::Udp::connect(&addr.into())?;
+        let addr = addr.into();
+
+        // Parse the address to check if it has a port
+        let addr_with_port = if let Ok(parsed) = crate::transport::address::HostPort::parse(&addr) {
+            // If no port specified, use the profile's default UDP port
+            if parsed.port().is_none() {
+                parsed.format_socket_addr(Some(P::DEFAULT_UDP_PORT))
+            } else {
+                addr
+            }
+        } else {
+            // If parsing fails, just pass it through - let the connection fail with proper error
+            addr
+        };
+
+        let udp = crate::transport::blocking::udp::Udp::connect(&addr_with_port)?;
         let transport = crate::transport::BlockingTransportHandle::Udp(udp);
         let camera = crate::camera::Camera::new_blocking(transport)?;
         Ok(crate::BlockingClient::from_camera(camera))
