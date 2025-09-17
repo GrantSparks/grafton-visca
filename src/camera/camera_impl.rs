@@ -8,10 +8,6 @@ use core::marker::PhantomData;
 #[cfg(feature = "mode-async")]
 use std::{future::Future, pin::Pin, sync::Arc};
 
-#[cfg(not(feature = "mode-async"))]
-use crate::runtime::blocking_runner::BlockingRunner;
-#[cfg(not(feature = "mode-async"))]
-use crate::transport::BlockingTransport;
 use crate::{
     camera_id::CameraId,
     capabilities::{Profile, ProtocolStyle},
@@ -22,6 +18,8 @@ use crate::{
 };
 #[cfg(feature = "mode-async")]
 use crate::{executor::Executor, transport::AsyncTransport};
+#[cfg(not(feature = "mode-async"))]
+use crate::{runtime::blocking_runner::BlockingRunner, transport::BlockingTransport};
 
 /// Camera client that works in both blocking and async modes.
 ///

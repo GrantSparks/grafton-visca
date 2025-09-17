@@ -4,12 +4,34 @@
 //! converts the `Ready<T>` futures to direct `Result<T, E>` values, restoring
 //! traditional blocking ergonomics while maintaining the unified Mode-generic design.
 
+use std::ops::Deref;
+
 use crate::{
-    camera::Camera,
+    camera::{
+        controls::{
+            color::ColorControl,
+            exposure::{ExposureCompensationControl, ExposureControl},
+            focus::FocusControl,
+            image_processing::ImageProcessingControl,
+            inquiry::{InquiryControl, PanTiltInquiryControl},
+            menu::{DirectMenuControl, MenuControl},
+            motion_sync::MotionSyncControl,
+            nd_filter::NdFilterControl,
+            pan_tilt::PanTiltControl,
+            power::PowerControl,
+            presets::PresetsControl,
+            streaming::StreamingControl,
+            system::SystemControl,
+            tally::TallyControl,
+            variable_speed::VariableSpeedControl,
+            white_balance::WhiteBalanceControl,
+            zoom::ZoomControl,
+        },
+        Camera,
+    },
     mode::{Blocking, BlockingFutureExt},
     Error,
 };
-use std::ops::Deref;
 
 /// Zero-cost wrapper for blocking cameras providing direct method access.
 ///
@@ -230,27 +252,6 @@ macro_rules! impl_blocking_methods {
         )+
     };
 }
-
-// Import all control traits
-use crate::camera::controls::{
-    color::ColorControl,
-    exposure::{ExposureCompensationControl, ExposureControl},
-    focus::FocusControl,
-    image_processing::ImageProcessingControl,
-    inquiry::{InquiryControl, PanTiltInquiryControl},
-    menu::{DirectMenuControl, MenuControl},
-    motion_sync::MotionSyncControl,
-    nd_filter::NdFilterControl,
-    pan_tilt::PanTiltControl,
-    power::PowerControl,
-    presets::PresetsControl,
-    streaming::StreamingControl,
-    system::SystemControl,
-    tally::TallyControl,
-    variable_speed::VariableSpeedControl,
-    white_balance::WhiteBalanceControl,
-    zoom::ZoomControl,
-};
 
 // ============================================================================
 // ZoomControl implementation

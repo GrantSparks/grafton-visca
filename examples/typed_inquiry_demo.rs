@@ -9,9 +9,10 @@
 //! ```
 
 #[cfg(not(feature = "mode-async"))]
-use grafton_visca::{camera::Connect, mode::BlockingFutureExt, profiles::GenericVisca, Error};
-#[cfg(not(feature = "mode-async"))]
 use std::time::Duration;
+
+#[cfg(not(feature = "mode-async"))]
+use grafton_visca::{camera::Connect, mode::BlockingFutureExt, profiles::GenericVisca, Error};
 
 #[cfg(not(feature = "mode-async"))]
 fn main() -> Result<(), Error> {
@@ -45,7 +46,7 @@ fn main() -> Result<(), Error> {
         Ok(zoom_pos) => {
             let raw_value = zoom_pos.value();
             let zoom_percentage = (raw_value as f32 / 0x4000 as f32) * 100.0;
-            println!("  Zoom: 0x{:04X} ({:.1}%)", raw_value, zoom_percentage);
+            println!("  Zoom: 0x{raw_value:04X} ({zoom_percentage:.1}%)");
         }
         Err(e) => println!("  Zoom inquiry failed: {e}"),
     }

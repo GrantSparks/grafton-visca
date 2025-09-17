@@ -5,8 +5,6 @@
 //!
 //! Instead of using `camera.get_power_state()`, users can use `camera.power().state()`.
 
-use crate::executor::Executor;
-
 use crate::{
     camera::{
         controls::{
@@ -26,6 +24,7 @@ use crate::{
         Camera, CommandClient,
     },
     capabilities::Profile,
+    executor::Executor,
     mode::Mode,
     Error,
 };
