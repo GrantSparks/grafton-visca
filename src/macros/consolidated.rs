@@ -190,7 +190,7 @@ macro_rules! visca_cmd {
     };
 }
 
-/// Helper trait to convert various types to Vec<u8> for the visca_cmd! macro.
+/// Helper trait to convert various types to `Vec<u8>` for the visca_cmd! macro.
 pub trait ToParamBytes {
     fn to_param_bytes(self) -> Vec<u8>;
 }
@@ -213,7 +213,7 @@ impl<const N: usize> ToParamBytes for [u8; N] {
     }
 }
 
-/// Convert various types to Vec<u8> for use in visca_cmd! macro parameters.
+/// Convert various types to `Vec<u8>` for use in visca_cmd! macro parameters.
 pub fn to_param_bytes<T: ToParamBytes>(value: T) -> Vec<u8> {
     value.to_param_bytes()
 }
