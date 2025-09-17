@@ -10,117 +10,254 @@
 //! - Green tally light (`GreenOn`, `GreenOff`) - Sony FR7 specific
 //! - Flash/solid modes (`Flash`, `On`, `Off`) - PtzOptics specific
 
-use crate::{
-    command::{bytes::builder::ConstCommandBuilder, encode::ViscaCommand, ResponseKind},
-    error::Error,
-    macros::internal::*,
-    timeout::CommandCategory,
-};
+use crate::{timeout::CommandCategory, visca_cmd};
 
-visca_command! {
-    /// Tally light control commands.
-    ///
-    /// Controls the tally light indicators on compatible cameras.
-    /// Not all cameras support all tally light features.
-    category = CommandCategory::Quick,
-    max_size = 8, // TALLY_PREFIX (6 bytes) + 1 data + 1 terminator = 8
-    enum Tally {
-        /// Turn red tally light on
-        RedOn => {
-            Ok(ConstCommandBuilder::<8>::new()
-                .append(crate::command::bytes::constants::tally::TALLY_PREFIX)
-                .append(&[0x02]))
-        },
-        /// Turn red tally light off
-        RedOff => {
-            Ok(ConstCommandBuilder::<8>::new()
-                .append(crate::command::bytes::constants::tally::TALLY_PREFIX)
-                .append(&[0x03]))
-        },
-        /// Set tally brightness to low
-        BrightLo => {
-            Ok(ConstCommandBuilder::<8>::new()
-                .append(crate::command::bytes::constants::tally::TALLY_BRIGHT_PREFIX)
-                .append(&[0x04]))
-        },
-        /// Set tally brightness to high
-        BrightHi => {
-            Ok(ConstCommandBuilder::<8>::new()
-                .append(crate::command::bytes::constants::tally::TALLY_BRIGHT_PREFIX)
-                .append(&[0x05]))
-        },
-        /// Turn green tally light on (FR7 specific)
-        GreenOn => {
-            Ok(ConstCommandBuilder::<8>::new()
-                .append(crate::command::bytes::constants::tally::TALLY_GREEN_PREFIX)
-                .append(&[0x02]))
-        },
-        /// Turn green tally light off (FR7 specific)
-        GreenOff => {
-            Ok(ConstCommandBuilder::<8>::new()
-                .append(crate::command::bytes::constants::tally::TALLY_GREEN_PREFIX)
-                .append(&[0x03]))
-        },
-        /// Set tally to flash mode (PtzOptics specific)
-        Flash => {
-            Ok(ConstCommandBuilder::<8>::new()
-                .append(crate::command::bytes::constants::tally::TALLY_PTZO_PREFIX)
-                .append(&[0x01]))
-        },
-        /// Set tally to solid on (PtzOptics specific)
-        On => {
-            Ok(ConstCommandBuilder::<8>::new()
-                .append(crate::command::bytes::constants::tally::TALLY_PTZO_PREFIX)
-                .append(&[0x02]))
-        },
-        /// Turn tally off (PtzOptics specific)
-        Off => {
-            Ok(ConstCommandBuilder::<8>::new()
-                .append(crate::command::bytes::constants::tally::TALLY_PTZO_PREFIX)
-                .append(&[0x03]))
-        },
+visca_cmd! {
+        /// Turn red tally light on.
+    pub struct TallyRedOn;
+    bytes = [0x01, 0x7E, 0x01, 0x0A, 0x00, 0x02];
+    category = CommandCategory::Quick;
+}
+
+visca_cmd! {
+        /// Turn red tally light off.
+    pub struct TallyRedOff;
+    bytes = [0x01, 0x7E, 0x01, 0x0A, 0x00, 0x03];
+    category = CommandCategory::Quick;
+}
+
+visca_cmd! {
+        /// Set tally brightness to low.
+    pub struct TallyBrightLo;
+    bytes = [0x01, 0x7E, 0x01, 0x0A, 0x01, 0x04];
+    category = CommandCategory::Quick;
+}
+
+visca_cmd! {
+        /// Set tally brightness to high.
+    pub struct TallyBrightHi;
+    bytes = [0x01, 0x7E, 0x01, 0x0A, 0x01, 0x05];
+    category = CommandCategory::Quick;
+}
+
+visca_cmd! {
+        /// Turn green tally light on (FR7 specific).
+    pub struct TallyGreenOn;
+    bytes = [0x01, 0x7E, 0x04, 0x1A, 0x00, 0x02];
+    category = CommandCategory::Quick;
+}
+
+visca_cmd! {
+        /// Turn green tally light off (FR7 specific).
+    pub struct TallyGreenOff;
+    bytes = [0x01, 0x7E, 0x04, 0x1A, 0x00, 0x03];
+    category = CommandCategory::Quick;
+}
+
+visca_cmd! {
+        /// Set tally to flash mode (PtzOptics specific).
+    pub struct TallyFlash;
+    bytes = [0x0A, 0x02, 0x02, 0x01];
+    category = CommandCategory::Quick;
+}
+
+visca_cmd! {
+        /// Set tally to solid on (PtzOptics specific).
+    pub struct TallyOn;
+    bytes = [0x0A, 0x02, 0x02, 0x02];
+    category = CommandCategory::Quick;
+}
+
+visca_cmd! {
+        /// Turn tally off (PtzOptics specific).
+    pub struct TallyOff;
+    bytes = [0x0A, 0x02, 0x02, 0x03];
+    category = CommandCategory::Quick;
+}
+
+impl Default for TallyRedOn {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
-/// Tally inquiry commands.
-///
-/// Queries the current state of tally lights.
-#[derive(Debug, Copy, Clone)]
-pub enum TallyInquiry {
-    /// Query red tally light state
-    Red,
-    /// Query green tally light state (FR7 specific)
-    Green,
+impl TallyRedOn {
+    /// Create a new red tally on command.
+    pub fn new() -> Self {
+        TallyRedOn
+    }
 }
 
-impl ViscaCommand for TallyInquiry {
-    type Response = ();
-    const MAX_SIZE: usize = 7;
-    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
-
-    fn write_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        use crate::command::bytes::constants;
-
-        match self {
-            Self::Red => ConstCommandBuilder::<7>::from_prefix(constants::inquiry::TALLY_STATUS)
-                .with_camera_id(camera_id)
-                .terminate()
-                .build_into(buffer),
-            Self::Green => ConstCommandBuilder::<7>::from_prefix(constants::inquiry::TALLY_GREEN)
-                .with_camera_id(camera_id)
-                .terminate()
-                .build_into(buffer),
-        }
+impl Default for TallyRedOff {
+    fn default() -> Self {
+        Self::new()
     }
+}
 
-    fn response_kind(&self) -> Option<ResponseKind> {
-        Some(match self {
-            Self::Red => ResponseKind::TallyRed,
-            Self::Green => ResponseKind::TallyGreen,
-        })
+impl TallyRedOff {
+    /// Create a new red tally off command.
+    pub fn new() -> Self {
+        TallyRedOff
     }
+}
+
+impl Default for TallyBrightLo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TallyBrightLo {
+    /// Create a new tally low brightness command.
+    pub fn new() -> Self {
+        TallyBrightLo
+    }
+}
+
+impl Default for TallyBrightHi {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TallyBrightHi {
+    /// Create a new tally high brightness command.
+    pub fn new() -> Self {
+        TallyBrightHi
+    }
+}
+
+impl Default for TallyGreenOn {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TallyGreenOn {
+    /// Create a new green tally on command.
+    pub fn new() -> Self {
+        TallyGreenOn
+    }
+}
+
+impl Default for TallyGreenOff {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TallyGreenOff {
+    /// Create a new green tally off command.
+    pub fn new() -> Self {
+        TallyGreenOff
+    }
+}
+
+impl Default for TallyFlash {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TallyFlash {
+    /// Create a new tally flash command.
+    pub fn new() -> Self {
+        TallyFlash
+    }
+}
+
+impl Default for TallyOn {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TallyOn {
+    /// Create a new tally on command.
+    pub fn new() -> Self {
+        TallyOn
+    }
+}
+
+impl Default for TallyOff {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TallyOff {
+    /// Create a new tally off command.
+    pub fn new() -> Self {
+        TallyOff
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::command::bytes::VISCA_TERMINATOR;
+    use crate::macros::test_utils::visca_test;
+
+    visca_test!(
+        TallyRedOn,
+        test_red_on,
+        TallyRedOn::new(),
+        &[0x81, 0x01, 0x7E, 0x01, 0x0A, 0x00, 0x02, VISCA_TERMINATOR]
+    );
+
+    visca_test!(
+        TallyRedOff,
+        test_red_off,
+        TallyRedOff::new(),
+        &[0x81, 0x01, 0x7E, 0x01, 0x0A, 0x00, 0x03, VISCA_TERMINATOR]
+    );
+
+    visca_test!(
+        TallyBrightLo,
+        test_bright_lo,
+        TallyBrightLo::new(),
+        &[0x81, 0x01, 0x7E, 0x01, 0x0A, 0x01, 0x04, VISCA_TERMINATOR]
+    );
+
+    visca_test!(
+        TallyBrightHi,
+        test_bright_hi,
+        TallyBrightHi::new(),
+        &[0x81, 0x01, 0x7E, 0x01, 0x0A, 0x01, 0x05, VISCA_TERMINATOR]
+    );
+
+    visca_test!(
+        TallyGreenOn,
+        test_green_on,
+        TallyGreenOn::new(),
+        &[0x81, 0x01, 0x7E, 0x04, 0x1A, 0x00, 0x02, VISCA_TERMINATOR]
+    );
+
+    visca_test!(
+        TallyGreenOff,
+        test_green_off,
+        TallyGreenOff::new(),
+        &[0x81, 0x01, 0x7E, 0x04, 0x1A, 0x00, 0x03, VISCA_TERMINATOR]
+    );
+
+    visca_test!(
+        TallyFlash,
+        test_flash,
+        TallyFlash::new(),
+        &[0x81, 0x0A, 0x02, 0x02, 0x01, VISCA_TERMINATOR]
+    );
+
+    visca_test!(
+        TallyOn,
+        test_on,
+        TallyOn::new(),
+        &[0x81, 0x0A, 0x02, 0x02, 0x02, VISCA_TERMINATOR]
+    );
+
+    visca_test!(
+        TallyOff,
+        test_off,
+        TallyOff::new(),
+        &[0x81, 0x0A, 0x02, 0x02, 0x03, VISCA_TERMINATOR]
+    );
 }

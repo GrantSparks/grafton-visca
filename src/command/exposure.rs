@@ -6,13 +6,13 @@
 use grafton_visca_macros::ViscaEnum;
 
 use crate::{
-    command::{bytes::constants, encode::ViscaCommand, response::ResponseKind},
+    command::{encode::ViscaCommand, response::ResponseKind},
     error::Error,
-    macros::internal::*,
     timeout::CommandCategory,
     types::{
         BrightnessLevel, DynamicRangeLevel, ExposureCompensationLevel, IrisLevel, ShutterSpeed,
     },
+    visca_cmd,
 };
 
 /// Camera exposure control modes.
@@ -30,17 +30,24 @@ pub enum ExposureMode {
     Bright = 0x0D,
 }
 
-visca_param_command! {
-    /// Command to set the camera's exposure mode.
+visca_cmd! {
+        /// Command to set the camera's exposure mode.
     ///
     /// This command allows switching between different exposure modes such as
     /// auto, manual, shutter priority, iris priority, or brightness priority.
-    pub(crate) struct ExposureCommand {
+    pub struct ExposureCommand {
         mode: ExposureMode,
+    };
+    prefix = [0x01, 0x04, 0x39];
+    param = *mode as u8;
+    category = CommandCategory::Quick;
+}
+
+impl ExposureCommand {
+    /// Create a new exposure command.
+    pub fn new(mode: ExposureMode) -> Self {
+        Self { mode }
     }
-    prefix = constants::exposure::MODE_PREFIX;
-    param_byte = *mode as u8;
-    timeout = Quick;
 }
 
 /// Exposure compensation commands.
@@ -124,27 +131,23 @@ impl ViscaCommand for ExposureCompensation {
     }
 }
 
-visca_builder! {
-    /// Commands for controlling the camera's dynamic range.
+visca_cmd! {
+        /// Commands for controlling the camera's dynamic range.
     ///
     /// Dynamic range control adjusts the camera's ability to capture detail
     /// in both bright and dark areas of a scene simultaneously. Higher values
     /// increase the dynamic range, allowing better detail retention in scenes
     /// with high contrast.
     pub struct DynamicRange {
-        /// Dynamic range level (0-8).
         level: DynamicRangeLevel,
-    }
-    builder<9> => |builder, level| {
-        builder
-            .append(constants::exposure::DYNAMIC_RANGE_PREFIX)
-            .push(level.value())
-    }
-    timeout = Quick;
+    };
+    prefix = [0x01, 0x04, 0x25, 0x00, 0x00, 0x00];
+    param = level.value();
+    category = CommandCategory::Quick;
 }
 
 impl DynamicRange {
-    /// Set dynamic range to a specific level (0-8).
+    /// Create a new dynamic range command.
     pub fn new(level: DynamicRangeLevel) -> Self {
         Self { level }
     }
@@ -345,49 +348,95 @@ impl ViscaCommand for Bright {
     }
 }
 
-visca_command! {
-    /// Spotlight command (Sony models).
+visca_cmd! {
+        /// Turn spotlight on (Sony models).
     ///
     /// Controls the spotlight feature which enhances exposure for specific subjects.
-    category = CommandCategory::Quick,
-    max_size = 6, // SPOTLIGHT_PREFIX (4 bytes) + 1 data + 1 terminator = 6
-    enum Spotlight {
-        /// Turn spotlight on
-        On => {
-            Ok(ConstCommandBuilder::<6>::new()
-                .append(constants::exposure::SPOTLIGHT_PREFIX)
-                .append(&[0x02]))
-        },
-        /// Turn spotlight off
-        Off => {
-            Ok(ConstCommandBuilder::<6>::new()
-                .append(constants::exposure::SPOTLIGHT_PREFIX)
-                .append(&[0x03]))
-        },
+    pub struct SpotlightOn;
+    bytes = [0x01, 0x04, 0x3A, 0x02];
+    category = CommandCategory::Quick;
+}
+
+impl Default for SpotlightOn {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
-visca_command! {
-    /// Auto Slow Shutter command.
+impl SpotlightOn {
+    /// Create a new spotlight on command.
+    pub fn new() -> Self {
+        SpotlightOn
+    }
+}
+
+visca_cmd! {
+        /// Turn spotlight off (Sony models).
+    ///
+    /// Controls the spotlight feature which enhances exposure for specific subjects.
+    pub struct SpotlightOff;
+    bytes = [0x01, 0x04, 0x3A, 0x03];
+    category = CommandCategory::Quick;
+}
+
+impl Default for SpotlightOff {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SpotlightOff {
+    /// Create a new spotlight off command.
+    pub fn new() -> Self {
+        SpotlightOff
+    }
+}
+
+visca_cmd! {
+        /// Turn auto slow shutter on.
     ///
     /// Controls the auto slow shutter feature which automatically reduces shutter speed
     /// in low light conditions to maintain proper exposure. This feature is supported
     /// on Sony cameras and FR7, but PtzOptics only supports it via HTTP API.
-    category = CommandCategory::Quick,
-    max_size = 6, // SPOT_AE_PREFIX (4 bytes) + 1 data + 1 terminator = 6
-    enum AutoSlowShutter {
-        /// Turn auto slow shutter on
-        On => {
-            Ok(ConstCommandBuilder::<6>::new()
-                .append(constants::exposure::SPOT_AE_PREFIX)
-                .append(&[0x02]))
-        },
-        /// Turn auto slow shutter off
-        Off => {
-            Ok(ConstCommandBuilder::<6>::new()
-                .append(constants::exposure::SPOT_AE_PREFIX)
-                .append(&[0x03]))
-        },
+    pub struct AutoSlowShutterOn;
+    bytes = [0x01, 0x04, 0x5A, 0x02];
+    category = CommandCategory::Quick;
+}
+
+impl Default for AutoSlowShutterOn {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AutoSlowShutterOn {
+    /// Create a new auto slow shutter on command.
+    pub fn new() -> Self {
+        AutoSlowShutterOn
+    }
+}
+
+visca_cmd! {
+        /// Turn auto slow shutter off.
+    ///
+    /// Controls the auto slow shutter feature which automatically reduces shutter speed
+    /// in low light conditions to maintain proper exposure. This feature is supported
+    /// on Sony cameras and FR7, but PtzOptics only supports it via HTTP API.
+    pub struct AutoSlowShutterOff;
+    bytes = [0x01, 0x04, 0x5A, 0x03];
+    category = CommandCategory::Quick;
+}
+
+impl Default for AutoSlowShutterOff {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AutoSlowShutterOff {
+    /// Create a new auto slow shutter off command.
+    pub fn new() -> Self {
+        AutoSlowShutterOff
     }
 }
 
@@ -1136,17 +1185,17 @@ mod tests {
 
     // Test On command
     visca_test!(
-        AutoSlowShutter,
+        AutoSlowShutterOn,
         test_auto_slow_shutter_on,
-        AutoSlowShutter::On,
+        AutoSlowShutterOn::new(),
         &[0x81, 0x01, 0x04, 0x5A, 0x02, VISCA_TERMINATOR]
     );
 
     // Test Off command
     visca_test!(
-        AutoSlowShutter,
+        AutoSlowShutterOff,
         test_auto_slow_shutter_off,
-        AutoSlowShutter::Off,
+        AutoSlowShutterOff::new(),
         &[0x81, 0x01, 0x04, 0x5A, 0x03, VISCA_TERMINATOR]
     );
 }

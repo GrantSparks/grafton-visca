@@ -29,12 +29,12 @@ where
     type Mode = M;
 
     fn power_on(&self) -> M::Ret<'_, Result<(), Error>> {
-        use crate::command::power::Power;
-        self.send_and_complete(Power::On)
+        use crate::command::power::PowerOn;
+        self.send_and_complete(PowerOn::new())
     }
 
     fn power_off(&self) -> M::Ret<'_, Result<(), Error>> {
-        use crate::command::power::Power;
-        self.send_and_complete(Power::Standby)
+        use crate::command::power::PowerStandby;
+        self.send_and_complete(PowerStandby::new())
     }
 }

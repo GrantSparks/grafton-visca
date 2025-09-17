@@ -4,7 +4,10 @@ use crate::{
     camera::CommandClient,
     command::{
         inquiry_structs::{TallyAutoAdjustInquiry, TallyGreenInquiry, TallyStatusInquiry},
-        tally::Tally,
+        tally::{
+            TallyBrightHi, TallyBrightLo, TallyFlash, TallyGreenOff, TallyGreenOn, TallyOff,
+            TallyOn, TallyRedOff, TallyRedOn,
+        },
     },
     mode::Mode,
     Error,
@@ -77,39 +80,39 @@ where
     type Mode = M;
 
     fn tally_red_on(&self) -> M::Ret<'_, Result<(), Error>> {
-        self.send_and_complete(Tally::RedOn)
+        self.send_and_complete(TallyRedOn::new())
     }
 
     fn tally_red_off(&self) -> M::Ret<'_, Result<(), Error>> {
-        self.send_and_complete(Tally::RedOff)
+        self.send_and_complete(TallyRedOff::new())
     }
 
     fn tally_bright_lo(&self) -> M::Ret<'_, Result<(), Error>> {
-        self.send_and_complete(Tally::BrightLo)
+        self.send_and_complete(TallyBrightLo::new())
     }
 
     fn tally_bright_hi(&self) -> M::Ret<'_, Result<(), Error>> {
-        self.send_and_complete(Tally::BrightHi)
+        self.send_and_complete(TallyBrightHi::new())
     }
 
     fn tally_green_on(&self) -> M::Ret<'_, Result<(), Error>> {
-        self.send_and_complete(Tally::GreenOn)
+        self.send_and_complete(TallyGreenOn::new())
     }
 
     fn tally_green_off(&self) -> M::Ret<'_, Result<(), Error>> {
-        self.send_and_complete(Tally::GreenOff)
+        self.send_and_complete(TallyGreenOff::new())
     }
 
     fn tally_flash(&self) -> M::Ret<'_, Result<(), Error>> {
-        self.send_and_complete(Tally::Flash)
+        self.send_and_complete(TallyFlash::new())
     }
 
     fn tally_on(&self) -> M::Ret<'_, Result<(), Error>> {
-        self.send_and_complete(Tally::On)
+        self.send_and_complete(TallyOn::new())
     }
 
     fn tally_off(&self) -> M::Ret<'_, Result<(), Error>> {
-        self.send_and_complete(Tally::Off)
+        self.send_and_complete(TallyOff::new())
     }
 
     fn get_tally_status(

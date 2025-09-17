@@ -12,29 +12,96 @@
 
 use grafton_visca_macros::ViscaEnum;
 
-use crate::command::bytes::{constants, VISCA_TERMINATOR};
-use crate::macros::internal::*;
+use crate::command::bytes::VISCA_TERMINATOR;
+use crate::command::encode::ViscaCommand;
+use crate::command::response::ResponseKind;
+use crate::error::Error;
+use crate::timeout::CommandCategory;
 use crate::ViscaSocket;
 
-visca_const_command! {
-    /// Command to set camera address (broadcast, serial only).
-    ///
-    /// This is used during initial setup of VISCA cameras on a serial bus.
-    /// Note: This is a broadcast command that affects all cameras on the bus.
-    ///
-    pub(crate) struct AddressSetCommand;
-    bytes_terminated = [0x88, 0x30, 0x01, VISCA_TERMINATOR];
-    timeout = Quick;
+/// Command to set camera address (broadcast, serial only).
+///
+/// This is used during initial setup of VISCA cameras on a serial bus.
+/// Note: This is a broadcast command that affects all cameras on the bus.
+#[derive(Debug, Copy, Clone)]
+pub(crate) struct AddressSetCommand;
+
+impl AddressSetCommand {
+    /// Create a new address set command.
+    pub fn new() -> Self {
+        AddressSetCommand
+    }
 }
 
-visca_const_command! {
-    /// Command to clear the interface (broadcast, serial only).
-    ///
-    /// This resets the command buffer and clears any pending commands.
-    /// Note: This is a broadcast command that affects all cameras on the bus.
-    pub(crate) struct InterfaceClearCommand;
-    bytes_terminated = [0x88, 0x01, 0x00, 0x01, VISCA_TERMINATOR];
-    timeout = Quick;
+impl ViscaCommand for AddressSetCommand {
+    type Response = ();
+    const MAX_SIZE: usize = 4;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+
+    fn write_into(
+        &self,
+        _camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
+        if buffer.len() < 4 {
+            return Err(Error::BufferTooSmall {
+                required: 4,
+                actual: buffer.len(),
+            });
+        }
+        buffer[0] = 0x88;
+        buffer[1] = 0x30;
+        buffer[2] = 0x01;
+        buffer[3] = VISCA_TERMINATOR;
+        Ok(4)
+    }
+
+    fn response_kind(&self) -> Option<ResponseKind> {
+        None
+    }
+}
+
+/// Command to clear the interface (broadcast, serial only).
+///
+/// This resets the command buffer and clears any pending commands.
+/// Note: This is a broadcast command that affects all cameras on the bus.
+#[derive(Debug, Copy, Clone)]
+pub(crate) struct InterfaceClearCommand;
+
+impl InterfaceClearCommand {
+    /// Create a new interface clear command.
+    pub fn new() -> Self {
+        InterfaceClearCommand
+    }
+}
+
+impl ViscaCommand for InterfaceClearCommand {
+    type Response = ();
+    const MAX_SIZE: usize = 5;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+
+    fn write_into(
+        &self,
+        _camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
+        if buffer.len() < 5 {
+            return Err(Error::BufferTooSmall {
+                required: 5,
+                actual: buffer.len(),
+            });
+        }
+        buffer[0] = 0x88;
+        buffer[1] = 0x01;
+        buffer[2] = 0x00;
+        buffer[3] = 0x01;
+        buffer[4] = VISCA_TERMINATOR;
+        Ok(5)
+    }
+
+    fn response_kind(&self) -> Option<ResponseKind> {
+        None
+    }
 }
 
 /// Motion sync modes for coordinated camera movement.
@@ -57,16 +124,39 @@ pub enum MotionSyncPreset {
     Fast = 0x02,
 }
 
-visca_param_command! {
-    /// Command to cancel pending commands on a specific socket.
-    ///
-    /// This cancels any in-progress commands on the specified socket.
-    pub(crate) struct CommandCancelCommand {
-        socket: ViscaSocket,
+/// Command to cancel pending commands on a specific socket.
+///
+/// This cancels any in-progress commands on the specified socket.
+#[derive(Debug, Copy, Clone)]
+pub(crate) struct CommandCancelCommand {
+    socket: ViscaSocket,
+}
+
+impl ViscaCommand for CommandCancelCommand {
+    type Response = ();
+    const MAX_SIZE: usize = 3;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+
+    fn write_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
+        if buffer.len() < 3 {
+            return Err(Error::BufferTooSmall {
+                required: 3,
+                actual: buffer.len(),
+            });
+        }
+        buffer[0] = camera_id.to_address_byte();
+        buffer[1] = self.socket.as_cancel_byte();
+        buffer[2] = VISCA_TERMINATOR;
+        Ok(3)
     }
-    prefix = constants::system_cmd::CANCEL_PREFIX;
-    param_byte = socket.as_cancel_byte();
-    timeout = Quick;
+
+    fn response_kind(&self) -> Option<ResponseKind> {
+        None
+    }
 }
 
 impl CommandCancelCommand {

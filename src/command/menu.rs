@@ -4,18 +4,26 @@
 //! allowing remote navigation and configuration. These commands are particularly useful
 //! for Sony FR7 and other cameras with comprehensive on-screen menus.
 
-use crate::{command::bytes::constants, macros::internal::*};
+use crate::{timeout::CommandCategory, visca_cmd};
 
-visca_bool_command! {
+visca_cmd! {
     /// Menu display control command.
     ///
     /// Toggles the camera's on-screen menu display on or off.
     ///
     /// VISCA format: `81 01 06 06 0p FF` where p = 2 (On) or 3 (Off)
-    struct MenuDisplayCommand {
-        prefix: constants::menu::TOGGLE_PREFIX,
-        on: 0x02,
-        off: 0x03,
+    pub struct MenuDisplayCommand {
+        on: bool,
+    };
+    prefix = [0x01, 0x06, 0x06];
+    param = if *on { 0x02 } else { 0x03 };
+    category = CommandCategory::Quick;
+}
+
+impl MenuDisplayCommand {
+    /// Create a new menu display command.
+    pub fn new(on: bool) -> Self {
+        Self { on }
     }
 }
 
@@ -32,28 +40,47 @@ pub enum MenuDirection {
     Right,
 }
 
-visca_builder! {
-    /// Menu navigation command for cursor movement.
-    ///
-    /// Moves the menu cursor in the specified direction.
-    ///
-    /// VISCA format: `81 01 06 01 VV WW XX YY FF` where:
-    /// - VV = Pan speed (0x0E for menu)
-    /// - WW = Tilt speed (0x0E for menu)
-    /// - XX YY = Direction codes
-    pub struct MenuNavigate {
-        direction: MenuDirection,
+// Manual implementation for MenuNavigate due to complex direction mapping
+impl crate::command::encode::ViscaCommand for MenuNavigate {
+    type Response = ();
+    const MAX_SIZE: usize = 9;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+
+    fn write_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, crate::Error> {
+        use crate::command::bytes::ConstCommandBuilder;
+
+        let mut builder = ConstCommandBuilder::<9>::new();
+        builder.push_mut(camera_id.to_address_byte());
+        builder.append_mut(&[0x01, 0x06, 0x01, 0x0E, 0x0E]);
+        match self.direction {
+            MenuDirection::Up => builder.append_mut(&[0x03, 0x01]),
+            MenuDirection::Down => builder.append_mut(&[0x03, 0x02]),
+            MenuDirection::Left => builder.append_mut(&[0x01, 0x03]),
+            MenuDirection::Right => builder.append_mut(&[0x02, 0x03]),
+        };
+        builder.terminate().build_into(buffer)
     }
-    builder<9> => |builder, direction| {
-        let builder = builder.append(constants::menu::NAVIGATE_PREFIX);
-        match *direction {
-            MenuDirection::Up => builder.push(0x03).push(0x01),
-            MenuDirection::Down => builder.push(0x03).push(0x02),
-            MenuDirection::Left => builder.push(0x01).push(0x03),
-            MenuDirection::Right => builder.push(0x02).push(0x03),
-        }
+
+    fn response_kind(&self) -> Option<crate::command::ResponseKind> {
+        None
     }
-    timeout = Quick;
+}
+
+/// Menu navigation command for cursor movement.
+///
+/// Moves the menu cursor in the specified direction.
+///
+/// VISCA format: `81 01 06 01 VV WW XX YY FF` where:
+/// - VV = Pan speed (0x0E for menu)
+/// - WW = Tilt speed (0x0E for menu)
+/// - XX YY = Direction codes
+#[derive(Debug, Clone, Copy)]
+pub struct MenuNavigate {
+    direction: MenuDirection,
 }
 
 impl MenuNavigate {
@@ -81,7 +108,7 @@ impl From<MenuAction> for u8 {
     }
 }
 
-visca_param_command! {
+visca_cmd! {
     /// Menu action command for select/cancel operations.
     ///
     /// Performs menu selection (Enter) or cancellation (Back) actions.
@@ -89,10 +116,10 @@ visca_param_command! {
     /// VISCA format: `81 01 06 06 0p FF` where p = 5 (Select) or 4 (Cancel)
     pub struct MenuActionCommand {
         action: MenuAction,
-    }
-    prefix = constants::menu::TOGGLE_PREFIX;
-    param_byte = u8::from(*action);
-    timeout = Quick;
+    };
+    prefix = [0x01, 0x06, 0x06];
+    param = u8::from(*action);
+    category = CommandCategory::Quick;
 }
 
 impl MenuActionCommand {
@@ -121,8 +148,7 @@ pub struct DirectMenuControl {
 impl crate::command::encode::ViscaCommand for DirectMenuControl {
     type Response = ();
     const MAX_SIZE: usize = 8;
-    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
-        crate::timeout::CommandCategory::Quick;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn write_into(
         &self,
@@ -131,12 +157,12 @@ impl crate::command::encode::ViscaCommand for DirectMenuControl {
     ) -> Result<usize, crate::Error> {
         use crate::command::bytes::ConstCommandBuilder;
 
-        ConstCommandBuilder::<8>::from_prefix(constants::menu::SETTINGS_PREFIX)
-            .with_camera_id(camera_id)
-            .push(self.control1)
-            .push(self.control2)
-            .terminate()
-            .build_into(buffer)
+        let mut builder = ConstCommandBuilder::<8>::new();
+        builder.push_mut(camera_id.to_address_byte());
+        builder.append_mut(&[0x01, 0x7E, 0x04, 0x72]);
+        builder.push_mut(self.control1);
+        builder.push_mut(self.control2);
+        builder.terminate().build_into(buffer)
     }
 
     fn response_kind(&self) -> Option<crate::command::ResponseKind> {

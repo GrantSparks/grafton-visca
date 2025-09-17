@@ -284,22 +284,22 @@ where
     }
 
     fn enable_spotlight(&self) -> M::Ret<'_, Result<(), Error>> {
-        let cmd = crate::command::exposure::Spotlight::On;
+        let cmd = crate::command::exposure::SpotlightOn::new();
         self.send_and_complete(cmd)
     }
 
     fn disable_spotlight(&self) -> M::Ret<'_, Result<(), Error>> {
-        let cmd = crate::command::exposure::Spotlight::Off;
+        let cmd = crate::command::exposure::SpotlightOff::new();
         self.send_and_complete(cmd)
     }
 
     fn enable_auto_slow_shutter(&self) -> M::Ret<'_, Result<(), Error>> {
-        let cmd = crate::command::exposure::AutoSlowShutter::On;
+        let cmd = crate::command::exposure::AutoSlowShutterOn::new();
         self.send_and_complete(cmd)
     }
 
     fn disable_auto_slow_shutter(&self) -> M::Ret<'_, Result<(), Error>> {
-        let cmd = crate::command::exposure::AutoSlowShutter::Off;
+        let cmd = crate::command::exposure::AutoSlowShutterOff::new();
         self.send_and_complete(cmd)
     }
 

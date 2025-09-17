@@ -9,71 +9,89 @@
 
 use grafton_visca::{
     camera_id::CameraId,
-    command::{encode::ViscaCommand, exposure::Spotlight, tally::Tally},
+    command::{
+        encode::ViscaCommand,
+        exposure::{SpotlightOff, SpotlightOn},
+        tally::{
+            TallyBrightHi, TallyBrightLo, TallyFlash, TallyGreenOff, TallyGreenOn, TallyOff,
+            TallyOn, TallyRedOff, TallyRedOn,
+        },
+    },
 };
 
 #[test]
 fn test_issue_275_tally_exact_sizing() {
     let camera_id = CameraId::new(1).unwrap();
 
-    // Tally should have MAX_SIZE = 8 (not 32)
+    // All Tally commands should have MAX_SIZE = 8 (not 32)
     assert_eq!(
-        Tally::MAX_SIZE,
+        TallyRedOn::MAX_SIZE,
         8,
-        "Tally MAX_SIZE should be 8, not hard-coded 32"
+        "TallyRedOn MAX_SIZE should be 8, not hard-coded 32"
     );
 
-    // Test that all variants can encode within MAX_SIZE
-    let variants = [
-        Tally::RedOn,
-        Tally::RedOff,
-        Tally::BrightLo,
-        Tally::BrightHi,
-        Tally::GreenOn,
-        Tally::GreenOff,
-        Tally::Flash,
-        Tally::On,
-        Tally::Off,
-    ];
+    // Test individual Tally command structs
+    let mut buffer = vec![0u8; TallyRedOn::MAX_SIZE];
+    let size = TallyRedOn.write_into(camera_id, &mut buffer).unwrap();
+    assert!(size <= TallyRedOn::MAX_SIZE);
 
-    for variant in variants {
-        let mut buffer = vec![0u8; Tally::MAX_SIZE];
-        let size = variant.write_into(camera_id, &mut buffer).unwrap();
-        assert!(
-            size <= Tally::MAX_SIZE,
-            "Tally::{:?} size {} exceeds MAX_SIZE {}",
-            variant,
-            size,
-            Tally::MAX_SIZE
-        );
-    }
+    let size = TallyRedOff.write_into(camera_id, &mut buffer).unwrap();
+    assert!(size <= TallyRedOff::MAX_SIZE);
+
+    let size = TallyBrightLo.write_into(camera_id, &mut buffer).unwrap();
+    assert!(size <= TallyBrightLo::MAX_SIZE);
+
+    let size = TallyBrightHi.write_into(camera_id, &mut buffer).unwrap();
+    assert!(size <= TallyBrightHi::MAX_SIZE);
+
+    let size = TallyGreenOn.write_into(camera_id, &mut buffer).unwrap();
+    assert!(size <= TallyGreenOn::MAX_SIZE);
+
+    let size = TallyGreenOff.write_into(camera_id, &mut buffer).unwrap();
+    assert!(size <= TallyGreenOff::MAX_SIZE);
+
+    let size = TallyFlash.write_into(camera_id, &mut buffer).unwrap();
+    assert!(size <= TallyFlash::MAX_SIZE);
+
+    let size = TallyOn.write_into(camera_id, &mut buffer).unwrap();
+    assert!(size <= TallyOn::MAX_SIZE);
+
+    let size = TallyOff.write_into(camera_id, &mut buffer).unwrap();
+    assert!(size <= TallyOff::MAX_SIZE);
 }
 
 #[test]
 fn test_issue_275_spotlight_exact_sizing() {
     let camera_id = CameraId::new(1).unwrap();
 
-    // Spotlight should have MAX_SIZE = 6 (not 32)
+    // SpotlightOn should have MAX_SIZE = 6 (not 32)
     assert_eq!(
-        Spotlight::MAX_SIZE,
+        SpotlightOn::MAX_SIZE,
         6,
-        "Spotlight MAX_SIZE should be 6, not hard-coded 32"
+        "SpotlightOn MAX_SIZE should be 6, not hard-coded 32"
     );
 
-    // Test that all variants can encode within MAX_SIZE
-    let variants = [Spotlight::On, Spotlight::Off];
+    // Test individual Spotlight command structs
+    let mut buffer = vec![0u8; SpotlightOn::MAX_SIZE];
+    let size = SpotlightOn::new()
+        .write_into(camera_id, &mut buffer)
+        .unwrap();
+    assert!(
+        size <= SpotlightOn::MAX_SIZE,
+        "SpotlightOn size {} exceeds MAX_SIZE {}",
+        size,
+        SpotlightOn::MAX_SIZE
+    );
 
-    for variant in variants {
-        let mut buffer = vec![0u8; Spotlight::MAX_SIZE];
-        let size = variant.write_into(camera_id, &mut buffer).unwrap();
-        assert!(
-            size <= Spotlight::MAX_SIZE,
-            "Spotlight::{:?} size {} exceeds MAX_SIZE {}",
-            variant,
-            size,
-            Spotlight::MAX_SIZE
-        );
-    }
+    let size = SpotlightOff::new()
+        .write_into(camera_id, &mut buffer)
+        .unwrap();
+    assert!(
+        size <= SpotlightOff::MAX_SIZE,
+        "SpotlightOff size {} exceeds MAX_SIZE {}",
+        size,
+        SpotlightOff::MAX_SIZE
+    );
 }
 
 #[test]
@@ -83,11 +101,11 @@ fn test_issue_275_try_into_vec_allocation() {
 
     let camera_id = CameraId::new(1).unwrap();
 
-    let tally = Tally::RedOn;
+    let tally = TallyRedOn;
     let tally_bytes = tally.to_bytes(camera_id).unwrap();
     let tally_vec = tally_bytes.to_vec();
     assert!(
-        tally_vec.len() <= Tally::MAX_SIZE,
+        tally_vec.len() <= TallyRedOn::MAX_SIZE,
         "try_into_vec should not exceed MAX_SIZE"
     );
     assert!(
@@ -95,11 +113,11 @@ fn test_issue_275_try_into_vec_allocation() {
         "Command should produce non-empty output"
     );
 
-    let spotlight = Spotlight::On;
+    let spotlight = SpotlightOn::new();
     let spotlight_bytes = spotlight.to_bytes(camera_id).unwrap();
     let spotlight_vec = spotlight_bytes.to_vec();
     assert!(
-        spotlight_vec.len() <= Spotlight::MAX_SIZE,
+        spotlight_vec.len() <= SpotlightOn::MAX_SIZE,
         "try_into_vec should not exceed MAX_SIZE"
     );
     assert!(
@@ -113,28 +131,28 @@ fn test_issue_275_no_hard_coded_sizes() {
     // This test verifies that we're not using the old hard-coded sizes
 
     // Before Issue #275: Tally was hard-coded to MAX_SIZE = 32
-    // After Issue #275: Tally should be exactly 8 bytes
+    // After Issue #275: TallyRedOn should be exactly 8 bytes
     assert_ne!(
-        Tally::MAX_SIZE,
+        TallyRedOn::MAX_SIZE,
         32,
-        "Tally should not use hard-coded MAX_SIZE = 32"
+        "TallyRedOn should not use hard-coded MAX_SIZE = 32"
     );
     assert_ne!(
-        Tally::MAX_SIZE,
+        TallyRedOn::MAX_SIZE,
         16,
-        "Tally should not use hard-coded MAX_SIZE = 16"
+        "TallyRedOn should not use hard-coded MAX_SIZE = 16"
     );
 
     // Before Issue #275: Spotlight was hard-coded to MAX_SIZE = 32
-    // After Issue #275: Spotlight should be exactly 6 bytes
+    // After Issue #275: SpotlightOn should be exactly 6 bytes
     assert_ne!(
-        Spotlight::MAX_SIZE,
+        SpotlightOn::MAX_SIZE,
         32,
-        "Spotlight should not use hard-coded MAX_SIZE = 32"
+        "SpotlightOn should not use hard-coded MAX_SIZE = 32"
     );
     assert_ne!(
-        Spotlight::MAX_SIZE,
+        SpotlightOn::MAX_SIZE,
         16,
-        "Spotlight should not use hard-coded MAX_SIZE = 16"
+        "SpotlightOn should not use hard-coded MAX_SIZE = 16"
     );
 }

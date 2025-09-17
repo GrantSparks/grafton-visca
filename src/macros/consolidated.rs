@@ -1,7 +1,7 @@
 //! Consolidated macros for VISCA command implementation.
 //!
 //! This module provides the unified macro interface as specified in issue #397.
-//! Two primary macros: `visca_cmd!` for commands and `visca_inquiry!` for inquiries.
+//! Primary macro: `visca_cmd!` for commands.
 
 /// Create a VISCA command that expects ACK/Completion responses.
 ///
@@ -67,7 +67,68 @@ macro_rules! visca_cmd {
         }
     };
 
-    // Command with parameters
+    // Command with parameters and explicit max_param_size
+    (
+        $(#[$meta:meta])*
+        pub struct $name:ident { $($field:ident : $ftype:ty),* $(,)? };
+        prefix = [$($byte:expr),* $(,)?];
+        param = $param_expr:expr;
+        max_param_size = $max_param_size:expr;
+        category = $category:expr;
+    ) => {
+        $(#[$meta])*
+        #[derive(Debug, Copy, Clone)]
+        pub struct $name {
+            $(/// The parameter value.
+            pub $field: $ftype,)*
+        }
+
+        impl $crate::command::encode::ViscaCommand for $name {
+            type Response = ();
+            const MAX_SIZE: usize = 1 + [$($byte),*].len() + $max_param_size + 1;
+            const TIMEOUT_CATEGORY: $crate::timeout::CommandCategory = $category;
+
+            fn write_into(&self, camera_id: $crate::camera_id::CameraId, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
+
+
+                const PREFIX: &[u8] = &[$($byte),*];
+
+                // Destructure self for use in param expression
+                let Self { $($field),* } = self;
+
+                // Evaluate the param expression and convert to Vec<u8>
+                let param_bytes: Vec<u8> = $crate::macros::consolidated::to_param_bytes($param_expr);
+
+                let total_len = 1 + PREFIX.len() + param_bytes.len() + 1; // camera_id + prefix + params + terminator
+
+                if buffer.len() < total_len {
+                    return Err($crate::Error::BufferTooSmall {
+                        required: total_len,
+                        actual: buffer.len()
+                    });
+                }
+
+                let mut pos = 0;
+                buffer[pos] = camera_id.to_address_byte();
+                pos += 1;
+
+                buffer[pos..pos+PREFIX.len()].copy_from_slice(PREFIX);
+                pos += PREFIX.len();
+
+                buffer[pos..pos+param_bytes.len()].copy_from_slice(&param_bytes);
+                pos += param_bytes.len();
+
+                buffer[pos] = $crate::command::bytes::VISCA_TERMINATOR;
+                Ok(pos + 1)
+            }
+
+            fn response_kind(&self) -> Option<$crate::command::ResponseKind> {
+                None
+            }
+        }
+    };
+
+    // Command with parameters (without explicit max_param_size, default to 1)
     (
         $(#[$meta:meta])*
         pub struct $name:ident { $($field:ident : $ftype:ty),* $(,)? };
@@ -78,24 +139,26 @@ macro_rules! visca_cmd {
         $(#[$meta])*
         #[derive(Debug, Copy, Clone)]
         pub struct $name {
-            $(pub $field: $ftype,)*
+            $(/// The parameter value.
+            pub $field: $ftype,)*
         }
 
         impl $crate::command::encode::ViscaCommand for $name {
             type Response = ();
-            const MAX_SIZE: usize = 16; // Conservative estimate for parameterized commands
+            // Default to 1 byte for simple parameters
+            const MAX_SIZE: usize = 1 + [$($byte),*].len() + 1 + 1;
             const TIMEOUT_CATEGORY: $crate::timeout::CommandCategory = $category;
 
             fn write_into(&self, camera_id: $crate::camera_id::CameraId, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
-                use $crate::command::bytes::ConstCommandBuilder;
+
 
                 const PREFIX: &[u8] = &[$($byte),*];
 
                 // Destructure self for use in param expression
                 let Self { $($field),* } = self;
 
-                // Evaluate the param expression
-                let param_bytes: Vec<u8> = $param_expr;
+                // Evaluate the param expression and convert to Vec<u8>
+                let param_bytes: Vec<u8> = $crate::macros::consolidated::to_param_bytes($param_expr);
 
                 let total_len = 1 + PREFIX.len() + param_bytes.len() + 1; // camera_id + prefix + params + terminator
 
@@ -127,185 +190,30 @@ macro_rules! visca_cmd {
     };
 }
 
-/// Create a VISCA inquiry that expects a data response.
-///
-/// # Examples
-///
-/// ```ignore
-/// visca_inquiry! {
-///     /// Current zoom position
-///     pub struct ZoomPosition;
-///     prefix = [0x09, 0x04, 0x47];
-///     returns = ResponseKind::ZoomPosition;
-///     category = CommandCategory::Quick;
-/// }
-/// ```
-#[macro_export]
-macro_rules! visca_inquiry {
-    (
-        $(#[$meta:meta])*
-        pub struct $name:ident;
-        prefix = [$($byte:expr),* $(,)?];
-        returns = $response:expr;
-        category = $category:expr;
-    ) => {
-        $(#[$meta])*
-        #[derive(Debug, Copy, Clone)]
-        pub struct $name;
-
-        impl $crate::command::encode::ViscaCommand for $name {
-            type Response = ();
-            const MAX_SIZE: usize = { [$($byte),*].len() + 2 }; // +2 for camera_id and terminator
-            const TIMEOUT_CATEGORY: $crate::timeout::CommandCategory = $category;
-
-            fn write_into(&self, camera_id: $crate::camera_id::CameraId, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
-                const PREFIX: &[u8] = &[$($byte),*];
-                let len = PREFIX.len() + 2;
-
-                if buffer.len() < len {
-                    return Err($crate::Error::BufferTooSmall {
-                        required: len,
-                        actual: buffer.len()
-                    });
-                }
-
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1..1+PREFIX.len()].copy_from_slice(PREFIX);
-                buffer[len-1] = $crate::command::bytes::VISCA_TERMINATOR;
-                Ok(len)
-            }
-
-            fn response_kind(&self) -> Option<$crate::command::ResponseKind> {
-                Some($response)
-            }
-        }
-    };
-
-    // Inquiry with parameters
-    (
-        $(#[$meta:meta])*
-        pub struct $name:ident { $($field:ident : $ftype:ty),* $(,)? };
-        prefix = [$($byte:expr),* $(,)?];
-        param = $param_expr:expr;
-        returns = $response:expr;
-        category = $category:expr;
-    ) => {
-        $(#[$meta])*
-        #[derive(Debug, Copy, Clone)]
-        pub struct $name {
-            $(pub $field: $ftype,)*
-        }
-
-        impl $crate::command::encode::ViscaCommand for $name {
-            type Response = ();
-            const MAX_SIZE: usize = 16; // Conservative estimate
-            const TIMEOUT_CATEGORY: $crate::timeout::CommandCategory = $category;
-
-            fn write_into(&self, camera_id: $crate::camera_id::CameraId, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
-                const PREFIX: &[u8] = &[$($byte),*];
-
-                // Destructure self for use in param expression
-                let Self { $($field),* } = self;
-
-                // Evaluate the param expression
-                let param_bytes: Vec<u8> = $param_expr;
-
-                let total_len = 1 + PREFIX.len() + param_bytes.len() + 1; // camera_id + prefix + params + terminator
-
-                if buffer.len() < total_len {
-                    return Err($crate::Error::BufferTooSmall {
-                        required: total_len,
-                        actual: buffer.len()
-                    });
-                }
-
-                let mut pos = 0;
-                buffer[pos] = camera_id.to_address_byte();
-                pos += 1;
-
-                buffer[pos..pos+PREFIX.len()].copy_from_slice(PREFIX);
-                pos += PREFIX.len();
-
-                buffer[pos..pos+param_bytes.len()].copy_from_slice(&param_bytes);
-                pos += param_bytes.len();
-
-                buffer[pos] = $crate::command::bytes::VISCA_TERMINATOR;
-                Ok(pos + 1)
-            }
-
-            fn response_kind(&self) -> Option<$crate::command::ResponseKind> {
-                Some($response)
-            }
-        }
-    };
+/// Helper trait to convert various types to Vec<u8> for the visca_cmd! macro.
+pub trait ToParamBytes {
+    fn to_param_bytes(self) -> Vec<u8>;
 }
 
-/// Create a type with range validation.
-///
-/// This macro was renamed from `visca_bounded_param!` to better reflect
-/// that it creates a type, not just a parameter.
-///
-/// # Examples
-///
-/// ```ignore
-/// visca_range_type! {
-///     /// Focus speed from 0-7
-///     pub struct FocusSpeed(u8, 0..=7);
-/// }
-/// ```
-#[macro_export]
-macro_rules! visca_range_type {
-    (
-        $(#[$meta:meta])*
-        pub struct $name:ident($inner:ty, $min:literal..=$max:literal);
-    ) => {
-        $(#[$meta])*
-        #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-        pub struct $name($inner);
+impl ToParamBytes for u8 {
+    fn to_param_bytes(self) -> Vec<u8> {
+        vec![self]
+    }
+}
 
-        impl $name {
-            /// The minimum valid value
-            pub const MIN: $inner = $min;
-            /// The maximum valid value
-            pub const MAX: $inner = $max;
+impl ToParamBytes for Vec<u8> {
+    fn to_param_bytes(self) -> Vec<u8> {
+        self
+    }
+}
 
-            /// Create a new instance with range validation
-            pub fn new(value: $inner) -> Result<Self, $crate::Error> {
-                if value < Self::MIN || value > Self::MAX {
-                    Err($crate::Error::InvalidParameter(
-                        format!(
-                            concat!(stringify!($name), " value {} out of range [{}, {}]"),
-                            value, Self::MIN, Self::MAX
-                        ).into()
-                    ))
-                } else {
-                    Ok(Self(value))
-                }
-            }
+impl<const N: usize> ToParamBytes for [u8; N] {
+    fn to_param_bytes(self) -> Vec<u8> {
+        self.to_vec()
+    }
+}
 
-            /// Create without validation (unsafe)
-            pub const fn new_unchecked(value: $inner) -> Self {
-                Self(value)
-            }
-
-            /// Get the inner value
-            pub const fn value(&self) -> $inner {
-                self.0
-            }
-        }
-
-        impl TryFrom<$inner> for $name {
-            type Error = $crate::Error;
-
-            fn try_from(value: $inner) -> Result<Self, Self::Error> {
-                Self::new(value)
-            }
-        }
-
-        impl From<$name> for $inner {
-            fn from(val: $name) -> Self {
-                val.0
-            }
-        }
-    };
+/// Convert various types to Vec<u8> for use in visca_cmd! macro parameters.
+pub fn to_param_bytes<T: ToParamBytes>(value: T) -> Vec<u8> {
+    value.to_param_bytes()
 }

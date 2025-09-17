@@ -12,7 +12,7 @@
 
 use grafton_visca_macros::ViscaEnum;
 
-use crate::{command::bytes::constants, macros::internal::*};
+use crate::visca_cmd;
 
 /// White balance modes.
 ///
@@ -67,29 +67,31 @@ impl AutoWhiteBalanceSensitivity {
     }
 }
 
-visca_param_command! {
-    /// Command to set the white balance mode.
-    pub(crate) struct WhiteBalanceCommand {
-        mode: WhiteBalanceMode,
-    }
-    prefix = constants::white_balance::MODE_PREFIX;
-    param_byte = *mode as u8;
-    timeout = Quick;
+visca_cmd! {
+        /// Command to set the white balance mode.
+    pub struct WhiteBalanceCommand { mode: WhiteBalanceMode };
+    prefix = [0x01, 0x04, 0x35];
+    param = *mode as u8;
+    category = crate::timeout::CommandCategory::Quick;
 }
 
-visca_param_command! {
-    /// Command to set AWB sensitivity.
-    pub(crate) struct AWBSensitivityCommand {
-        sensitivity: AutoWhiteBalanceSensitivity,
+visca_cmd! {
+        /// Command to set AWB sensitivity.
+    pub struct AWBSensitivityCommand { sensitivity: AutoWhiteBalanceSensitivity };
+    prefix = [0x01, 0x04, 0xA9];
+    param = sensitivity.to_command_byte();
+    category = crate::timeout::CommandCategory::Quick;
+}
+
+impl WhiteBalanceCommand {
+    /// Create a new white balance command.
+    pub fn new(mode: WhiteBalanceMode) -> Self {
+        Self { mode }
     }
-    prefix = constants::white_balance::AWB_SENSITIVITY_PREFIX;
-    param_byte = sensitivity.to_command_byte();
-    timeout = Quick;
 }
 
 impl AWBSensitivityCommand {
     /// Create a new AWB sensitivity command.
-    #[cfg(test)]
     pub fn new(sensitivity: AutoWhiteBalanceSensitivity) -> Self {
         Self { sensitivity }
     }

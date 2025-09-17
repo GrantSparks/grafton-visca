@@ -15,9 +15,9 @@ use grafton_visca_macros::ViscaEnum;
 use crate::{
     command::{encode::ViscaCommand, ResponseKind},
     error::Error,
-    macros::internal::*,
     timeout::CommandCategory,
     types::{FocusPosition, SpeedLevel},
+    visca_cmd,
 };
 
 /// Focus mode setting.
@@ -209,24 +209,28 @@ pub enum FocusZone {
     Bottom = 0x02,
 }
 
-visca_builder! {
-    /// Command to set the focus zone.
-    pub(crate) struct FocusZoneCommand {
-        /// The focus zone to select.
+visca_cmd! {
+        /// Command to set the focus zone.
+    pub struct FocusZoneCommand {
         zone: FocusZone,
-    }
-    builder<6> => |builder, zone| {
+    };
+    prefix = [0x01, 0x04, 0xAA];
+    param = {
         let zone_byte = match *zone {
             FocusZone::Top => 0x00,
             FocusZone::Center => 0x01,
             FocusZone::Bottom => 0x02,
         };
-        builder
-            .append(crate::command::bytes::constants::focus::ZONE_PREFIX)
-            .push(zone_byte)
-        // Terminator is added automatically by the macro
+        vec![zone_byte]
+    };
+    category = CommandCategory::Quick;
+}
+
+impl FocusZoneCommand {
+    /// Create a new focus zone command.
+    pub fn new(zone: FocusZone) -> Self {
+        Self { zone }
     }
-    timeout = Quick;
 }
 
 /// Auto Focus Sensitivity levels.
@@ -242,42 +246,57 @@ pub enum AutoFocusSensitivity {
     High = 0x02,
 }
 
-visca_builder! {
-    /// Command to set auto focus sensitivity.
-    pub(crate) struct AutoFocusSensitivityCommand {
-        /// The sensitivity level to set.
+visca_cmd! {
+        /// Command to set auto focus sensitivity.
+    pub struct AutoFocusSensitivityCommand {
         sensitivity: AutoFocusSensitivity,
-    }
-    builder<6> => |builder, sensitivity| {
+    };
+    prefix = [0x01, 0x04, 0x58];
+    param = {
         let sens_byte = match *sensitivity {
             AutoFocusSensitivity::High => 0x02,
             AutoFocusSensitivity::Normal => 0x01,
             AutoFocusSensitivity::Low => 0x00,
         };
-        builder
-            .append(crate::command::bytes::constants::focus::AF_SENSITIVITY_PREFIX)
-            .push(sens_byte)
-        // Terminator is added automatically by the macro
-    }
-    timeout = Quick;
+        vec![sens_byte]
+    };
+    category = CommandCategory::Quick;
 }
 
-visca_builder! {
-    /// Command to set the focus near limit.
+impl AutoFocusSensitivityCommand {
+    /// Create a new auto focus sensitivity command.
+    pub fn new(sensitivity: AutoFocusSensitivity) -> Self {
+        Self { sensitivity }
+    }
+}
+
+visca_cmd! {
+        /// Command to set the focus near limit.
     ///
     /// Sets the minimum focus distance to prevent the camera from
     /// focusing on objects too close to the lens.
-    pub(crate) struct FocusNearLimitCommand {
-        /// The focus position limit.
+    pub struct FocusNearLimitCommand {
         position: FocusPosition,
+    };
+    prefix = [0x01, 0x04, 0x28];
+    param = {
+        let value = position.value();
+        vec![
+            ((value >> 12) & 0x0F) as u8,
+            ((value >> 8) & 0x0F) as u8,
+            ((value >> 4) & 0x0F) as u8,
+            (value & 0x0F) as u8,
+        ]
+    };
+    max_param_size = 4;
+    category = CommandCategory::Quick;
+}
+
+impl FocusNearLimitCommand {
+    /// Create a new focus near limit command.
+    pub fn new(position: FocusPosition) -> Self {
+        Self { position }
     }
-    builder<9> => |builder, position| {
-        builder
-            .append(crate::command::bytes::constants::focus::NEAR_LIMIT_PREFIX)
-            .push_visca_u16(position.value())
-        // Terminator is added automatically by the macro
-    }
-    timeout = Quick;
 }
 
 /// Focus Lock command.

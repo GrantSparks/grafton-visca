@@ -20,8 +20,7 @@
 //! These macros are used internally for implementing VISCA commands and are not part
 //! of the public API. They may change without notice:
 //!
-//! - Command generators: `visca_command!`, `visca_bool_command!`, `visca_builder!`,
-//!   `visca_param_command!`, `visca_const_command!`
+//! - Consolidated command generator: `visca_cmd!`
 //! - Const utilities: `visca_bytes!`, `visca_prefix!`
 //! - Test utilities: `visca_test!`
 
@@ -30,6 +29,9 @@ pub mod public;
 
 // Internal implementation macros - not exported
 pub(crate) mod internal;
+
+// Consolidated macros module
+pub(crate) mod consolidated;
 
 // Test utilities
 #[cfg(test)]

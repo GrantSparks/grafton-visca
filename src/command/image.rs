@@ -9,13 +9,11 @@ use grafton_visca_macros::ViscaEnum;
 use std::borrow::Cow;
 
 use crate::{
-    command::{
-        bytes::constants, encode::ViscaCommand, resolution::PictureEffectMode, ResponseKind,
-    },
+    command::{encode::ViscaCommand, resolution::PictureEffectMode, ResponseKind},
     error::Error,
-    macros::internal::*,
     timeout::CommandCategory,
     types::{ContrastLevel, LuminanceLevel, NoiseReduction2DLevel, NoiseReduction3DLevel},
+    visca_cmd,
 };
 
 /// Sharpness control modes.
@@ -154,18 +152,12 @@ impl ViscaCommand for Sharpness {
     }
 }
 
-visca_builder! {
-    /// Command to set the luminance (brightness) level.
-    pub struct Luminance {
-        /// The luminance level to set.
-        value: LuminanceLevel,
-    }
-    builder<9> => |builder, value| {
-        builder
-            .append(constants::image::LUMINANCE_PREFIX)
-            .push(value.value())
-    }
-    timeout = Quick;
+visca_cmd! {
+        /// Command to set the luminance (brightness) level.
+    pub struct Luminance { value: LuminanceLevel };
+    prefix = [0x01, 0x04, 0xA1, 0x00, 0x00, 0x00];
+    param = value.value();
+    category = CommandCategory::Quick;
 }
 
 impl Luminance {
@@ -175,18 +167,12 @@ impl Luminance {
     }
 }
 
-visca_builder! {
-    /// Command to set the contrast level.
-    pub struct Contrast {
-        /// The contrast level to set.
-        value: ContrastLevel,
-    }
-    builder<9> => |builder, value| {
-        builder
-            .append(constants::image::CONTRAST_PREFIX)
-            .push(value.value())
-    }
-    timeout = Quick;
+visca_cmd! {
+        /// Command to set the contrast level.
+    pub struct Contrast { value: ContrastLevel };
+    prefix = [0x01, 0x04, 0xA2, 0x00, 0x00, 0x00];
+    param = value.value();
+    category = CommandCategory::Quick;
 }
 
 impl Contrast {
@@ -196,63 +182,69 @@ impl Contrast {
     }
 }
 
-visca_bool_command! {
-    /// Backlight compensation command.
+visca_cmd! {
+        /// Backlight compensation command.
     ///
     /// Enables or disables backlight compensation, which helps properly expose
     /// subjects that are backlit (have a bright light source behind them).
-    struct BacklightCommand {
-        prefix: constants::image::BACKLIGHT_PREFIX,
-        on: 0x02,
-        off: 0x03,
+    pub struct BacklightCommand { enabled: bool };
+    prefix = [0x01, 0x04, 0x33];
+    param = if *enabled { 0x02 } else { 0x03 };
+    category = CommandCategory::Quick;
+}
+
+impl BacklightCommand {
+    /// Create a new backlight compensation command.
+    pub fn new(enabled: bool) -> Self {
+        Self { enabled }
     }
 }
 
-visca_command! {
-    /// 2D Noise Reduction command.
+visca_cmd! {
+        /// 2D Noise Reduction command.
     ///
     /// Reduces spatial noise in individual frames by analyzing and smoothing
     /// pixel variations. Higher levels provide more noise reduction but may
     /// reduce fine detail.
-    category = CommandCategory::Custom,
-    max_size = 6, // NOISE_REDUCTION_2D_PREFIX (4 bytes) + 1 data + 1 terminator = 6
-    enum NoiseReduction2D {
-        /// Disable 2D noise reduction.
-        Off => {
-            Ok(ConstCommandBuilder::<6>::new()
-                .append(constants::image::NOISE_REDUCTION_2D_PREFIX)
-                .push(0x00))
-        },
-        /// Set 2D noise reduction level.
-        Level(level: NoiseReduction2DLevel) => {
-            Ok(ConstCommandBuilder::<6>::new()
-                .append(constants::image::NOISE_REDUCTION_2D_PREFIX)
-                .push(level.value()))
-        }
+    pub struct NoiseReduction2D { level: Option<NoiseReduction2DLevel> };
+    prefix = [0x01, 0x04, 0x53];
+    param = match level { None => 0x00, Some(l) => l.value() };
+    category = CommandCategory::Custom;
+}
+
+impl NoiseReduction2D {
+    /// Disable 2D noise reduction.
+    pub const fn off() -> Self {
+        Self { level: None }
+    }
+
+    /// Set 2D noise reduction to a specific level.
+    pub const fn with_level(level: NoiseReduction2DLevel) -> Self {
+        Self { level: Some(level) }
     }
 }
 
-visca_command! {
-    /// 3D Noise Reduction command.
+visca_cmd! {
+        /// 3D Noise Reduction command.
     ///
     /// Reduces temporal noise by analyzing multiple frames over time.
     /// This is effective for reducing noise in video streams while preserving
     /// motion detail. Higher levels provide more noise reduction.
-    category = CommandCategory::Custom,
-    max_size = 6, // NOISE_REDUCTION_3D_PREFIX (4 bytes) + 1 data + 1 terminator = 6
-    enum NoiseReduction3D {
-        /// Disable 3D noise reduction.
-        Off => {
-            Ok(ConstCommandBuilder::<6>::new()
-                .append(constants::image::NOISE_REDUCTION_3D_PREFIX)
-                .push(0x00))
-        },
-        /// Set 3D noise reduction level.
-        Level(level: NoiseReduction3DLevel) => {
-            Ok(ConstCommandBuilder::<6>::new()
-                .append(constants::image::NOISE_REDUCTION_3D_PREFIX)
-                .push(level.value()))
-        }
+    pub struct NoiseReduction3D { level: Option<NoiseReduction3DLevel> };
+    prefix = [0x01, 0x04, 0x54];
+    param = match level { None => 0x00, Some(l) => l.value() };
+    category = CommandCategory::Custom;
+}
+
+impl NoiseReduction3D {
+    /// Disable 3D noise reduction.
+    pub const fn off() -> Self {
+        Self { level: None }
+    }
+
+    /// Set 3D noise reduction to a specific level.
+    pub const fn with_level(level: NoiseReduction3DLevel) -> Self {
+        Self { level: Some(level) }
     }
 }
 
@@ -272,19 +264,17 @@ pub enum ImageFlipMode {
     Both,
 }
 
-visca_param_command! {
-    /// Command to set the combined image flip mode.
-    pub(crate) struct ImageFlipCombinedCommand {
-        mode: ImageFlipMode,
-    }
-    prefix = constants::image::FLIP_COMBINED_PREFIX;
-    param_byte = match mode {
+visca_cmd! {
+        /// Command to set the combined image flip mode.
+    pub struct ImageFlipCombinedCommand { mode: ImageFlipMode };
+    prefix = [0x01, 0x04, 0xA4];
+    param = match mode {
         ImageFlipMode::Off => 0x00,
         ImageFlipMode::Horizontal => 0x01,
         ImageFlipMode::Vertical => 0x02,
         ImageFlipMode::Both => 0x03,
     };
-    timeout = Custom;
+    category = CommandCategory::Custom;
 }
 
 impl ImageFlipCombinedCommand {
@@ -294,17 +284,15 @@ impl ImageFlipCombinedCommand {
     }
 }
 
-visca_param_command! {
-    /// Command to set picture effect mode.
+visca_cmd! {
+        /// Command to set picture effect mode.
     ///
     /// Controls various artistic effects like negative, sepia, sketch, etc.
     /// Note that not all effects are supported on all camera models.
-    pub(crate) struct PictureEffectCommand {
-        mode: PictureEffectMode,
-    }
-    prefix = constants::image::PICTURE_EFFECT_PREFIX;
-    param_byte = mode.as_byte();
-    timeout = Quick;
+    pub struct PictureEffectCommand { mode: PictureEffectMode };
+    prefix = [0x01, 0x04, 0x63];
+    param = mode.as_byte();
+    category = CommandCategory::Quick;
 }
 
 #[cfg(test)]
@@ -346,34 +334,34 @@ mod tests {
     visca_test!(
         NoiseReduction2D,
         test_noise_reduction_2d_off,
-        NoiseReduction2D::Off,
+        NoiseReduction2D::off(),
         &[0x81, 0x01, 0x04, 0x53, 0x00, VISCA_TERMINATOR]
     );
 
     visca_test!(
         NoiseReduction2D,
         test_noise_reduction_2d_level_1,
-        NoiseReduction2D::Level(NoiseReduction2DLevel::new(1).unwrap()),
+        NoiseReduction2D::with_level(NoiseReduction2DLevel::new(1).unwrap()),
         &[0x81, 0x01, 0x04, 0x53, 0x01, VISCA_TERMINATOR]
     );
 
     visca_test!(
         NoiseReduction2D,
         test_noise_reduction_2d_level_3,
-        NoiseReduction2D::Level(NoiseReduction2DLevel::new(3).unwrap()),
+        NoiseReduction2D::with_level(NoiseReduction2DLevel::new(3).unwrap()),
         &[0x81, 0x01, 0x04, 0x53, 0x03, VISCA_TERMINATOR]
     );
 
     visca_test!(
         NoiseReduction2D,
         test_noise_reduction_2d_level_5,
-        NoiseReduction2D::Level(NoiseReduction2DLevel::new(5).unwrap()),
+        NoiseReduction2D::with_level(NoiseReduction2DLevel::new(5).unwrap()),
         &[0x81, 0x01, 0x04, 0x53, 0x05, VISCA_TERMINATOR]
     );
 
     #[test]
     fn test_noise_reduction_2d_properties() {
-        let cmd = NoiseReduction2D::Off;
+        let cmd = NoiseReduction2D::off();
         assert!(cmd.response_kind().is_none());
         assert!(matches!(cmd.timeout_class(), CommandCategory::Custom));
     }
@@ -381,34 +369,34 @@ mod tests {
     visca_test!(
         NoiseReduction3D,
         test_noise_reduction_3d_off,
-        NoiseReduction3D::Off,
+        NoiseReduction3D::off(),
         &[0x81, 0x01, 0x04, 0x54, 0x00, VISCA_TERMINATOR]
     );
 
     visca_test!(
         NoiseReduction3D,
         test_noise_reduction_3d_level_1,
-        NoiseReduction3D::Level(NoiseReduction3DLevel::new(1).unwrap()),
+        NoiseReduction3D::with_level(NoiseReduction3DLevel::new(1).unwrap()),
         &[0x81, 0x01, 0x04, 0x54, 0x01, VISCA_TERMINATOR]
     );
 
     visca_test!(
         NoiseReduction3D,
         test_noise_reduction_3d_level_4,
-        NoiseReduction3D::Level(NoiseReduction3DLevel::new(4).unwrap()),
+        NoiseReduction3D::with_level(NoiseReduction3DLevel::new(4).unwrap()),
         &[0x81, 0x01, 0x04, 0x54, 0x04, VISCA_TERMINATOR]
     );
 
     visca_test!(
         NoiseReduction3D,
         test_noise_reduction_3d_level_8,
-        NoiseReduction3D::Level(NoiseReduction3DLevel::new(8).unwrap()),
+        NoiseReduction3D::with_level(NoiseReduction3DLevel::new(8).unwrap()),
         &[0x81, 0x01, 0x04, 0x54, 0x08, VISCA_TERMINATOR]
     );
 
     #[test]
     fn test_noise_reduction_3d_properties() {
-        let cmd = NoiseReduction3D::Off;
+        let cmd = NoiseReduction3D::off();
         assert!(cmd.response_kind().is_none());
         assert!(matches!(cmd.timeout_class(), CommandCategory::Custom));
     }
@@ -453,8 +441,8 @@ mod tests {
         // Test Debug trait
         let cmds: Vec<Box<dyn std::fmt::Debug>> = vec![
             Box::new(BacklightCommand::new(true)),
-            Box::new(NoiseReduction2D::Off),
-            Box::new(NoiseReduction3D::Off),
+            Box::new(NoiseReduction2D::off()),
+            Box::new(NoiseReduction3D::off()),
             Box::new(ImageFlipCombinedCommand::new(ImageFlipMode::Off)),
         ];
 
@@ -493,8 +481,8 @@ mod tests {
     fn test_response_type_none() {
         // Verify all commands return None for response_type
         assert!(BacklightCommand::new(true).response_kind().is_none());
-        assert!(NoiseReduction2D::Off.response_kind().is_none());
-        assert!(NoiseReduction3D::Off.response_kind().is_none());
+        assert!(NoiseReduction2D::off().response_kind().is_none());
+        assert!(NoiseReduction3D::off().response_kind().is_none());
         assert!(ImageFlipCombinedCommand::new(ImageFlipMode::Off)
             .response_kind()
             .is_none());
@@ -537,8 +525,8 @@ mod tests {
         );
 
         let level = NoiseReduction2DLevel::new(3).unwrap();
-        let cmd1 = NoiseReduction2D::Level(level);
-        let cmd2 = NoiseReduction2D::Level(level);
+        let cmd1 = NoiseReduction2D::with_level(level);
+        let cmd2 = NoiseReduction2D::with_level(level);
         assert_eq!(
             cmd1.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
@@ -550,48 +538,40 @@ mod tests {
     }
 
     #[test]
-    fn test_noise_reduction_2d_enum_variants() {
-        // Test that enum variants work correctly
-        match NoiseReduction2D::Off {
-            NoiseReduction2D::Off => {}
-            NoiseReduction2D::Level(_) => panic!("Expected Off variant"),
-        }
+    fn test_noise_reduction_2d_struct_creation() {
+        // Test off creation
+        let off_cmd = NoiseReduction2D::off();
+        assert!(off_cmd.level.is_none());
 
+        // Test with level creation
         let level = NoiseReduction2DLevel::new(3).unwrap();
-        match NoiseReduction2D::Level(level) {
-            NoiseReduction2D::Level(l) => assert_eq!(l.value(), 3),
-            NoiseReduction2D::Off => panic!("Expected Level variant"),
-        }
+        let level_cmd = NoiseReduction2D::with_level(level);
+        assert_eq!(level_cmd.level.unwrap().value(), 3);
     }
 
     #[test]
-    fn test_noise_reduction_3d_enum_variants() {
-        // Test that enum variants work correctly
-        match NoiseReduction3D::Off {
-            NoiseReduction3D::Off => {}
-            NoiseReduction3D::Level(_) => panic!("Expected Off variant"),
-        }
+    fn test_noise_reduction_3d_struct_creation() {
+        // Test off creation
+        let off_cmd = NoiseReduction3D::off();
+        assert!(off_cmd.level.is_none());
 
+        // Test with level creation
         let level = NoiseReduction3DLevel::new(5).unwrap();
-        match NoiseReduction3D::Level(level) {
-            NoiseReduction3D::Level(l) => assert_eq!(l.value(), 5),
-            NoiseReduction3D::Off => panic!("Expected Level variant"),
-        }
+        let level_cmd = NoiseReduction3D::with_level(level);
+        assert_eq!(level_cmd.level.unwrap().value(), 5);
     }
 
     #[test]
     fn test_command_categories() {
-        use crate::command::encode::ViscaCommand;
-
         // Test that BacklightCommand and BlackWhiteCommand use Quick category
         let cmd = BacklightCommand::new(true);
         assert!(matches!(cmd.timeout_class(), CommandCategory::Quick));
 
         // Test that noise reduction and flip commands use Custom category
-        let cmd = NoiseReduction2D::Off;
+        let cmd = NoiseReduction2D::off();
         assert!(matches!(cmd.timeout_class(), CommandCategory::Custom));
 
-        let cmd = NoiseReduction3D::Off;
+        let cmd = NoiseReduction3D::off();
         assert!(matches!(cmd.timeout_class(), CommandCategory::Custom));
 
         let cmd = ImageFlipCombinedCommand::new(ImageFlipMode::Off);

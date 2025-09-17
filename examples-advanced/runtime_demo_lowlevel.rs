@@ -18,7 +18,7 @@ use std::sync::Arc;
 use grafton_visca::{
     camera::profiles::GenericVisca,
     camera_id::CameraId,
-    command::{power::Power, zoom::Zoom, InquiryResponse, Response},
+    command::{power::PowerOn, zoom::Zoom, InquiryResponse, Response},
     runtime::{Priority, RuntimeHandle},
     TokioExecutor,
 };
@@ -42,7 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Power on the camera
     println!("\n1. Sending power on command...");
-    let power_on = Power::On;
+    let power_on = PowerOn::new();
     let response = runtime
         .send_command(&power_on, CameraId::default(), Some(Priority::High))
         .await?;

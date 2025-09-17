@@ -709,15 +709,15 @@ mod tests {
 
     #[test]
     fn test_command_timeout_classification() {
-        use crate::command::power::Power;
+        use crate::command::power::{PowerOn, PowerStandby};
         use crate::timeout::{CommandCategory, CommandTimeout};
 
         // Test that power commands have the correct timeout class
-        let power_on = Power::On;
+        let power_on = PowerOn::new();
         assert_eq!(power_on.timeout_class(), CommandCategory::Quick);
 
         // Verify timeout class matches the expected value
-        let power_standby = Power::Standby;
+        let power_standby = PowerStandby::new();
         assert_eq!(power_standby.timeout_class(), CommandCategory::Quick);
     }
 
@@ -757,7 +757,7 @@ mod tests {
 
     #[test]
     fn test_command_with_timeout_policy() {
-        use crate::command::power::Power;
+        use crate::command::power::PowerOn;
         use crate::timeout::{TimeoutConfig, TimeoutPolicy};
         use std::time::Duration;
 
@@ -774,7 +774,7 @@ mod tests {
         };
         let timeout_policy = TimeoutPolicy::new(timeout_config);
 
-        let power_command = Power::On;
+        let power_command = PowerOn::new();
         let counter = Arc::new(AtomicUsize::new(0));
         let counter_clone = counter.clone();
 
@@ -854,7 +854,7 @@ mod tests {
 
     #[test]
     fn test_retry_executor_with_command() {
-        use crate::command::power::Power;
+        use crate::command::power::PowerOn;
         use crate::timeout::{TimeoutConfig, TimeoutPolicy};
         use std::time::Duration;
 
@@ -872,7 +872,7 @@ mod tests {
         };
         let timeout_policy = TimeoutPolicy::new(timeout_config);
 
-        let power_command = Power::On;
+        let power_command = PowerOn::new();
         let counter = Arc::new(AtomicUsize::new(0));
         let counter_clone = counter.clone();
 
@@ -895,12 +895,12 @@ mod tests {
     #[test]
     fn test_different_command_categories_have_different_timeouts() {
         use crate::command::{
-            power::Power, preset::PresetAction, preset::PresetCommand, preset::PresetNumber,
+            power::PowerOn, preset::PresetAction, preset::PresetCommand, preset::PresetNumber,
         };
         use crate::timeout::{CommandCategory, CommandTimeout};
 
         // Test different command categories
-        let power_cmd = Power::On;
+        let power_cmd = PowerOn::new();
         assert_eq!(power_cmd.timeout_class(), CommandCategory::Quick);
 
         // Create a preset command (should be Preset category)

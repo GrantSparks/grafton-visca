@@ -34,13 +34,17 @@ pub enum Step {
     /// Respond immediately when the next send occurs.
     /// If `matches` is provided, only respond if the sent bytes start with those bytes.
     OnSend {
+        /// Optional bytes to match against sent data
         matches: Option<Vec<u8>>,
+        /// Responses to send when matched
         responses: Vec<Vec<u8>>,
     },
 
     /// Schedule responses after a virtual delay (uses the provided Executor in async mode).
     After {
+        /// Delay before sending responses
         delay: Duration,
+        /// Responses to send after delay
         responses: Vec<Vec<u8>>,
     },
 
@@ -825,6 +829,7 @@ pub mod helpers {
         use super::{Step, VISCA_TERMINATOR};
         use crate::Error;
 
+        /// Generate a syntax error response
         pub fn syntax_error(_socket: u8) -> Step {
             // Syntax errors come without ACK, so they don't have socket assignment
             // Per VISCA spec, immediate errors use 0x60 without socket bits
@@ -834,6 +839,7 @@ pub mod helpers {
             }
         }
 
+        /// Generate a command buffer full error response
         pub fn command_buffer_full(socket: u8) -> Step {
             Step::OnSend {
                 matches: None,
@@ -841,6 +847,7 @@ pub mod helpers {
             }
         }
 
+        /// Generate a command canceled response
         pub fn command_canceled(socket: u8) -> Step {
             Step::OnSend {
                 matches: None,
@@ -848,6 +855,7 @@ pub mod helpers {
             }
         }
 
+        /// Generate a no socket available error response
         pub fn no_socket() -> Step {
             Step::OnSend {
                 matches: None,
@@ -855,10 +863,12 @@ pub mod helpers {
             }
         }
 
+        /// Generate a transport timeout error
         pub fn transport_timeout() -> Step {
             Step::InjectError(Error::Timeout)
         }
 
+        /// Generate a connection lost error
         pub fn connection_lost() -> Step {
             Step::InjectError(Error::ConnectionClosed {
                 reason: Some("Test connection lost".into()),

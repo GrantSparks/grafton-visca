@@ -48,10 +48,10 @@ fn test_command_kind_for_inquiries_and_commands() {
     );
 
     // Test a regular command
-    use grafton_visca::command::power::Power;
-    let power_on = Power::On;
+    use grafton_visca::command::power::PowerOn;
+    let power_on = PowerOn::new();
     assert!(
         matches!(power_on.command_kind(), CommandKind::Command),
-        "Power::On should be CommandKind::Command"
+        "PowerOn should be CommandKind::Command"
     );
 }

@@ -2,8 +2,7 @@
 //!
 //! This module provides commands for controlling image orientation.
 
-use crate::macros::internal::*;
-use crate::timeout::CommandCategory;
+use crate::{timeout::CommandCategory, visca_cmd};
 
 /// Image flip state.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -14,137 +13,34 @@ pub enum Flip {
     Off = 0x03,
 }
 
-// Legacy command enum - maintained for backwards compatibility
-visca_command! {
-    /// Command to control image flip.
-    ///
-    /// This command flips the image vertically (upside down).
-    category = CommandCategory::Quick,
-    max_size = 6, // PREFIX (4 bytes) + 1 data + 1 terminator = 6
-    enum ImageFlip {
-        /// Enable image flip.
-        On => {
-            Ok(ConstCommandBuilder::<6>::new()
-                .append(crate::command::bytes::constants::flip::PREFIX)
-                .push(0x02))
-        },
-        /// Disable image flip.
-        Off => {
-            Ok(ConstCommandBuilder::<6>::new()
-                .append(crate::command::bytes::constants::flip::PREFIX)
-                .push(0x03))
-        },
-    }
-}
-
-impl ImageFlip {
-    /// Create a new image flip command.
-    pub fn new(flip: Flip) -> Self {
-        match flip {
-            Flip::On => Self::On,
-            Flip::Off => Self::Off,
-        }
-    }
-}
-
-// New consolidated macro example - demonstrating the new API
 visca_cmd! {
-    /// Command to control image flip using new consolidated macro.
+        /// Command to control image flip.
     ///
     /// This command flips the image vertically (upside down).
-    pub struct ImageFlipNew { mode: Flip };
+    pub struct ImageFlip { flip: Flip };
     prefix = [0x01, 0x04, 0x66];
-    param = match mode { Flip::On => 0x02, Flip::Off => 0x03 };
+    param = match flip { Flip::On => 0x02, Flip::Off => 0x03 };
     category = CommandCategory::Quick;
 }
 
-impl ImageFlipNew {
-    /// Create a new image flip command using the new API.
-    pub fn new(flip: Flip) -> Self {
-        Self { mode: flip }
-    }
-}
-
-/// Horizontal flip (mirror) state.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum HorizontalFlip {
-    /// Enable horizontal flip (mirror).
-    On = 0x02,
-    /// Disable horizontal flip (mirror).
-    Off = 0x03,
-}
-
-visca_command! {
-    /// Command to control horizontal flip (mirror).
+visca_cmd! {
+        /// Command to control horizontal flip (mirror).
     ///
     /// This command flips the image horizontally (left-right mirror).
-    category = CommandCategory::Quick,
-    max_size = 6, // HFLIP_PREFIX (4 bytes) + 1 data + 1 terminator = 6
-    enum HorizontalFlipCommand {
-        /// Enable horizontal flip (mirror).
-        On => {
-            Ok(ConstCommandBuilder::<6>::new()
-                .append(crate::command::bytes::constants::flip::HFLIP_PREFIX)
-                .push(0x02))
-        },
-        /// Disable horizontal flip (mirror).
-        Off => {
-            Ok(ConstCommandBuilder::<6>::new()
-                .append(crate::command::bytes::constants::flip::HFLIP_PREFIX)
-                .push(0x03))
-        },
-    }
+    pub struct HorizontalFlip { on: bool };
+    prefix = [0x01, 0x04, 0x61];
+    param = if *on { 0x02 } else { 0x03 };
+    category = CommandCategory::Quick;
 }
 
-impl HorizontalFlipCommand {
-    /// Create a new horizontal flip command.
-    pub fn new(flip: HorizontalFlip) -> Self {
-        match flip {
-            HorizontalFlip::On => Self::On,
-            HorizontalFlip::Off => Self::Off,
-        }
-    }
-}
-
-/// Image freeze state.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Freeze {
-    /// Enable image freeze.
-    On = 0x02,
-    /// Disable image freeze.
-    Off = 0x03,
-}
-
-visca_command! {
-    /// Command to control image freeze.
+visca_cmd! {
+        /// Command to control image freeze.
     ///
     /// This command freezes the current image frame.
-    category = CommandCategory::Quick,
-    max_size = 6, // FREEZE_PREFIX (4 bytes) + 1 data + 1 terminator = 6
-    enum ImageFreezeCommand {
-        /// Enable image freeze.
-        On => {
-            Ok(ConstCommandBuilder::<6>::new()
-                .append(crate::command::bytes::constants::flip::FREEZE_PREFIX)
-                .push(0x02))
-        },
-        /// Disable image freeze.
-        Off => {
-            Ok(ConstCommandBuilder::<6>::new()
-                .append(crate::command::bytes::constants::flip::FREEZE_PREFIX)
-                .push(0x03))
-        },
-    }
-}
-
-impl ImageFreezeCommand {
-    /// Create a new image freeze command.
-    pub fn new(freeze: Freeze) -> Self {
-        match freeze {
-            Freeze::On => Self::On,
-            Freeze::Off => Self::Off,
-        }
-    }
+    pub struct ImageFreeze { on: bool };
+    prefix = [0x01, 0x04, 0x62];
+    param = if *on { 0x02 } else { 0x03 };
+    category = CommandCategory::Quick;
 }
 
 #[cfg(test)]
@@ -163,14 +59,14 @@ mod tests {
     visca_test!(
         ImageFlip,
         test_flip_on_command,
-        ImageFlip::new(Flip::On),
+        ImageFlip { flip: Flip::On },
         &[0x81, 0x01, 0x04, 0x66, 0x02, VISCA_TERMINATOR]
     );
 
     visca_test!(
         ImageFlip,
         test_flip_off_command,
-        ImageFlip::new(Flip::Off),
+        ImageFlip { flip: Flip::Off },
         &[0x81, 0x01, 0x04, 0x66, 0x03, VISCA_TERMINATOR]
     );
 
@@ -208,19 +104,18 @@ mod tests {
 
     #[test]
     fn test_image_flip_command_debug() {
-        let cmd = ImageFlip::new(Flip::On);
+        let cmd = ImageFlip { flip: Flip::On };
         let debug_str = format!("{cmd:?}");
-        // With the macro-generated enum, debug output will be "On" or "Off"
-        assert!(debug_str == "On" || debug_str.contains("On"));
+        assert!(debug_str.contains("On"));
 
-        let cmd = ImageFlip::new(Flip::Off);
+        let cmd = ImageFlip { flip: Flip::Off };
         let debug_str = format!("{cmd:?}");
-        assert!(debug_str == "Off" || debug_str.contains("Off"));
+        assert!(debug_str.contains("Off"));
     }
 
     #[test]
     fn test_image_flip_command_clone() {
-        let cmd1 = ImageFlip::new(Flip::On);
+        let cmd1 = ImageFlip { flip: Flip::On };
         let cmd2 = cmd1.clone();
         // Verify commands produce same bytes
         assert_eq!(
@@ -232,7 +127,7 @@ mod tests {
                 .unwrap()
         );
 
-        let cmd1 = ImageFlip::new(Flip::Off);
+        let cmd1 = ImageFlip { flip: Flip::Off };
         let cmd2 = cmd1; // Copy trait
         assert_eq!(
             cmd2.to_bytes(crate::camera_id::CameraId::CAMERA_1)
@@ -245,17 +140,17 @@ mod tests {
     #[test]
     fn test_response_type_none() {
         // Flip commands don't expect a response beyond ACK/completion
-        let cmd_on = ImageFlip::new(Flip::On);
+        let cmd_on = ImageFlip { flip: Flip::On };
         assert!(cmd_on.response_kind().is_none());
 
-        let cmd_off = ImageFlip::new(Flip::Off);
+        let cmd_off = ImageFlip { flip: Flip::Off };
         assert!(cmd_off.response_kind().is_none());
     }
 
     #[test]
     fn test_command_trait_impl() {
         // Verify ImageFlip implements ViscaCommand trait
-        let cmd = ImageFlip::new(Flip::On);
+        let cmd = ImageFlip { flip: Flip::On };
         assert!(cmd
             .to_bytes(crate::camera_id::CameraId::CAMERA_1)
             .map(|b| b.to_vec())
@@ -267,7 +162,7 @@ mod tests {
     #[test]
     fn test_byte_sequence_correctness() {
         // Verify the exact byte sequences match VISCA protocol
-        let on_cmd = ImageFlip::new(Flip::On);
+        let on_cmd = ImageFlip { flip: Flip::On };
         let on_bytes = on_cmd
             .to_bytes(crate::camera_id::CameraId::CAMERA_1)
             .map(|b| b.to_vec())
@@ -279,7 +174,7 @@ mod tests {
         assert_eq!(on_bytes[4], 0x02); // On value
         assert_eq!(on_bytes[5], 0xFF); // Terminator
 
-        let off_cmd = ImageFlip::new(Flip::Off);
+        let off_cmd = ImageFlip { flip: Flip::Off };
         let off_bytes = off_cmd
             .to_bytes(crate::camera_id::CameraId::CAMERA_1)
             .map(|b| b.to_vec())
@@ -292,35 +187,11 @@ mod tests {
         assert_eq!(off_bytes[5], 0xFF); // Terminator
     }
 
-    // New macro tests
-    #[test]
-    fn test_image_flip_new_commands() {
-        let on_cmd = ImageFlipNew::new(Flip::On);
-        let on_bytes = on_cmd
-            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-            .map(|b| b.to_vec())
-            .unwrap();
-        assert_eq!(
-            on_bytes,
-            vec![0x81, 0x01, 0x04, 0x66, 0x02, VISCA_TERMINATOR]
-        );
-
-        let off_cmd = ImageFlipNew::new(Flip::Off);
-        let off_bytes = off_cmd
-            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-            .map(|b| b.to_vec())
-            .unwrap();
-        assert_eq!(
-            off_bytes,
-            vec![0x81, 0x01, 0x04, 0x66, 0x03, VISCA_TERMINATOR]
-        );
-    }
-
     #[test]
     fn test_command_consistency() {
         // Test that creating commands with the same flip state produces identical bytes
-        let cmd1 = ImageFlip::new(Flip::On);
-        let cmd2 = ImageFlip::new(Flip::On);
+        let cmd1 = ImageFlip { flip: Flip::On };
+        let cmd2 = ImageFlip { flip: Flip::On };
         assert_eq!(
             cmd1.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
@@ -330,8 +201,8 @@ mod tests {
                 .unwrap()
         );
 
-        let cmd1 = ImageFlip::new(Flip::Off);
-        let cmd2 = ImageFlip::new(Flip::Off);
+        let cmd1 = ImageFlip { flip: Flip::Off };
+        let cmd2 = ImageFlip { flip: Flip::Off };
         assert_eq!(
             cmd1.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())

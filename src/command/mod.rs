@@ -512,9 +512,9 @@ mod tests {
 
     #[test]
     fn test_power_commands_have_terminator() {
-        use crate::command::power::Power;
-        assert_command_has_terminator(Power::On, "PowerOn");
-        assert_command_has_terminator(Power::Standby, "PowerOff");
+        use crate::command::power::{PowerOn, PowerStandby};
+        assert_command_has_terminator(PowerOn::new(), "PowerOn");
+        assert_command_has_terminator(PowerStandby::new(), "PowerStandby");
     }
 
     #[test]
@@ -649,7 +649,7 @@ mod tests {
     fn test_all_command_categories_terminate() {
         use crate::command::focus::Focus;
         use crate::command::pan_tilt::PanTilt;
-        use crate::command::power::Power;
+        use crate::command::power::PowerOn;
         use crate::command::zoom::Zoom;
 
         // Test commands from different categories to ensure
@@ -665,7 +665,7 @@ mod tests {
         let test_cases = vec![
             TestCase {
                 name: "Quick command (Power)",
-                encode: Box::new(|buf| Power::On.write_into(CameraId::CAMERA_1, buf)),
+                encode: Box::new(|buf| PowerOn::new().write_into(CameraId::CAMERA_1, buf)),
             },
             TestCase {
                 name: "Movement command (PanTilt)",

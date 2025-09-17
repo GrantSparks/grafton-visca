@@ -4,38 +4,46 @@
 //! including white balance tuning, saturation, and hue adjustments.
 
 use crate::{
-    command::{
-        bytes::{ConstCommandBuilder, VISCA_TERMINATOR},
-        encode::ViscaCommand,
-        response::ResponseKind,
-    },
+    command::{bytes::ConstCommandBuilder, encode::ViscaCommand, response::ResponseKind},
     error::Error,
-    macros::internal::*,
     timeout::CommandCategory,
     types::{BlueTuning, HueLevel, RedTuning, SaturationLevel},
+    visca_cmd,
 };
 
-visca_const_command! {
+visca_cmd! {
     /// One-Push White Balance Trigger command.
     ///
     /// Performs a one-time automatic white balance adjustment based on
     /// the current scene. The camera will analyze the image and set the
     /// white balance to achieve neutral colors.
-    pub(crate) struct OnePushTriggerCommand;
-    bytes_terminated = [0x81, 0x01, 0x04, 0x10, 0x05, VISCA_TERMINATOR];
-    timeout = Quick;
+    pub struct OnePushTriggerCommand;
+    bytes = [0x01, 0x04, 0x10, 0x05];
+    category = CommandCategory::Quick;
 }
 
-visca_builder! {
+impl Default for OnePushTriggerCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl OnePushTriggerCommand {
+    /// Create a new one-push trigger command.
+    pub fn new() -> Self {
+        OnePushTriggerCommand
+    }
+}
+
+visca_cmd! {
     /// Red Channel Tuning command.
     ///
     /// Fine-tunes the red channel gain for white balance adjustment.
     /// This is typically used after setting a base white balance mode
     /// to make small corrections.
-    pub(crate) struct RedTuningCommand {
-        level: RedTuning,
-    }
-    builder<9> => |builder, level| {
+    pub struct RedTuningCommand { level: RedTuning };
+    prefix = [0x01, 0x04, 0x43, 0x00, 0x00];
+    param = {
         // Convert -10..+10 to 0x00..0x14 (0x00 = -10, 0x0A = 0, 0x14 = +10)
         let level_value = level.value();
         let level_offset = level_value + 10;
@@ -43,13 +51,10 @@ visca_builder! {
         // SAFETY: level_offset is guaranteed to be 0..=20 after validation
         #[allow(clippy::cast_sign_loss)]
         let encoded = level_offset as u8;
-
-        builder
-            .append(crate::command::bytes::constants::color::RED_GAIN_DIRECT_PREFIX)
-            .push(0x00)
-            .push(encoded)
-    }
-    timeout = Quick;
+        vec![0x00, encoded]
+    };
+    max_param_size = 2;
+    category = CommandCategory::Quick;
 }
 
 impl RedTuningCommand {
@@ -59,16 +64,15 @@ impl RedTuningCommand {
     }
 }
 
-visca_builder! {
+visca_cmd! {
     /// Blue Channel Tuning command.
     ///
     /// Fine-tunes the blue channel gain for white balance adjustment.
     /// This is typically used after setting a base white balance mode
     /// to make small corrections.
-    pub(crate) struct BlueTuningCommand {
-        level: BlueTuning,
-    }
-    builder<9> => |builder, level| {
+    pub struct BlueTuningCommand { level: BlueTuning };
+    prefix = [0x01, 0x04, 0x44, 0x00, 0x00];
+    param = {
         // Convert -10..+10 to 0x00..0x14 (0x00 = -10, 0x0A = 0, 0x14 = +10)
         let level_value = level.value();
         let level_offset = level_value + 10;
@@ -76,13 +80,10 @@ visca_builder! {
         // SAFETY: level_offset is guaranteed to be 0..=20 after validation
         #[allow(clippy::cast_sign_loss)]
         let encoded = level_offset as u8;
-
-        builder
-            .append(crate::command::bytes::constants::color::BLUE_GAIN_DIRECT_PREFIX)
-            .push(0x00)
-            .push(encoded)
-    }
-    timeout = Quick;
+        vec![0x00, encoded]
+    };
+    max_param_size = 2;
+    category = CommandCategory::Quick;
 }
 
 impl BlueTuningCommand {
@@ -92,22 +93,18 @@ impl BlueTuningCommand {
     }
 }
 
-visca_builder! {
+visca_cmd! {
     /// Saturation control command.
     ///
     /// Adjusts the color saturation level of the image.
     /// Lower values produce more muted colors, while higher values
     /// produce more vivid colors.
-    pub(crate) struct SaturationCommand {
-        /// The saturation level to set.
-        level: SaturationLevel,
-    }
-    builder<9> => |builder, level| {
-        builder
-            .append(crate::command::bytes::constants::color::SATURATION_PREFIX)
-            .push(level.value())
-    }
-    timeout = Quick;
+    pub struct SaturationCommand {
+        level: SaturationLevel
+    };
+    prefix = [0x01, 0x04, 0x49, 0x00, 0x00, 0x00];
+    param = level.value();
+    category = CommandCategory::Quick;
 }
 
 impl SaturationCommand {
@@ -117,22 +114,18 @@ impl SaturationCommand {
     }
 }
 
-visca_builder! {
+visca_cmd! {
     /// Hue adjustment command.
     ///
     /// Adjusts the hue (color phase) of the image, shifting all colors
     /// around the color wheel. This can be used to correct color casts
     /// or create artistic effects.
-    pub(crate) struct HueCommand {
-        /// The hue level to set.
-        level: HueLevel,
-    }
-    builder<9> => |builder, level| {
-        builder
-            .append(crate::command::bytes::constants::color::HUE_PREFIX)
-            .push(level.value())
-    }
-    timeout = Quick;
+    pub struct HueCommand {
+        level: HueLevel
+    };
+    prefix = [0x01, 0x04, 0x4F, 0x00, 0x00, 0x00];
+    param = level.value();
+    category = CommandCategory::Quick;
 }
 
 impl HueCommand {
@@ -357,6 +350,7 @@ impl ViscaCommand for BlueGain {
 )]
 mod tests {
     use super::*;
+    use crate::command::bytes::VISCA_TERMINATOR;
     use crate::command::encode::ViscaCommand;
     use crate::constants::CameraVariant;
     use crate::macros::test_utils::visca_test;

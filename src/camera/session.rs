@@ -746,13 +746,7 @@ where
     /// Send a typed VISCA command.
     pub fn send_command<C>(&self, command: C) -> Result<<C as ResponseParser>::Response, Error>
     where
-        C: crate::command::typed::ResponseParser
-            + ViscaCommand
-            + Send
-            + Sync
-            + Clone
-            + std::fmt::Debug
-            + 'static,
+        C: ResponseParser + ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
         <C as ResponseParser>::Response: Send + 'static,
     {
         use crate::mode::BlockingFutureExt;

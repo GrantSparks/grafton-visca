@@ -6,9 +6,9 @@
 use crate::{
     command::{bytes::builder::ConstCommandBuilder, encode::ViscaCommand, response::ResponseKind},
     error::Error,
-    macros::internal::*,
     timeout::CommandCategory,
     types::{GainLevel, GainLimit},
+    visca_cmd,
 };
 
 /// Commands for controlling gain values.
@@ -79,18 +79,12 @@ impl ViscaCommand for Gain {
     }
 }
 
-visca_builder! {
-    /// Command to set the automatic gain control limit.
-    pub struct GainLimitCommand {
-        /// The gain limit to set.
-        limit: GainLimit,
-    }
-    builder<6> => |builder, limit| {
-        builder
-            .append(crate::command::bytes::constants::gain::GAIN_LIMIT_PREFIX)
-            .push(limit.value())
-    }
-    timeout = Quick;
+visca_cmd! {
+        /// Command to set the automatic gain control limit.
+    pub struct GainLimitCommand { limit: GainLimit };
+    prefix = [0x01, 0x04, 0x2C];
+    param = limit.value();
+    category = CommandCategory::Quick;
 }
 
 impl GainLimitCommand {

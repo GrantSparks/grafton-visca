@@ -918,8 +918,9 @@ where
     }
 }
 
-// Convenience extension trait for Arc<DeterministicExecutor>
+/// Convenience extension trait for Arc<DeterministicExecutor>
 pub trait DeterministicExecutorExt {
+    /// Execute a future in the background and block until it completes
     fn block_on_bg<F, T>(&self, fut: F) -> T
     where
         F: Future<Output = T> + Send + 'static,

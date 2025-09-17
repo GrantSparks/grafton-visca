@@ -3,17 +3,14 @@
 //! This module contains vendor-specific commands for controlling network and streaming features
 //! on PtzOptics Ndi cameras. These are not part of the baseline VISCA standard.
 
-use crate::{macros::internal::*, types::NdiQuality};
+use crate::{types::NdiQuality, visca_cmd};
 
-visca_bool_command! {
-    /// Internal multicast streaming command
-    struct MulticastStreamingInternal {
-        prefix: crate::command::bytes::constants::streaming::MULTICAST_PREFIX,
-        on: 0x01,
-        off: 0x02,
-        address: 0x81,
-        response: None,
-    }
+visca_cmd! {
+        /// Internal multicast streaming command
+    pub struct MulticastStreamingInternal { enabled: bool };
+    prefix = [0x0B, 0x01, 0x23];
+    param = if *enabled { 0x01 } else { 0x02 };
+    category = crate::timeout::CommandCategory::Network;
 }
 
 /// Multicast streaming control for PtzOptics Ndi cameras
@@ -30,15 +27,15 @@ pub enum MulticastStreaming {
 impl From<MulticastStreaming> for MulticastStreamingInternal {
     fn from(value: MulticastStreaming) -> Self {
         match value {
-            MulticastStreaming::On => MulticastStreamingInternal::new(true),
-            MulticastStreaming::Off => MulticastStreamingInternal::new(false),
+            MulticastStreaming::On => MulticastStreamingInternal { enabled: true },
+            MulticastStreaming::Off => MulticastStreamingInternal { enabled: false },
         }
     }
 }
 
 impl crate::command::encode::ViscaCommand for MulticastStreaming {
     type Response = ();
-    const MAX_SIZE: usize = MulticastStreamingInternal::MAX_SIZE;
+    const MAX_SIZE: usize = 8; // Conservative estimate
     const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
         crate::timeout::CommandCategory::Network;
 
@@ -52,25 +49,21 @@ impl crate::command::encode::ViscaCommand for MulticastStreaming {
     }
 
     fn response_kind(&self) -> Option<crate::command::ResponseKind> {
-        MulticastStreamingInternal::new(true).response_kind()
+        MulticastStreamingInternal { enabled: true }.response_kind()
     }
 }
 
-visca_param_command! {
-    /// Internal Ndi quality command
-    struct NdiQualityCommandInternal {
-        quality: NdiQuality,
-    }
-    prefix = crate::command::bytes::constants::streaming::NDI_QUALITY_PREFIX;
-    param_byte = match quality {
+visca_cmd! {
+        /// Internal Ndi quality command
+    pub struct NdiQualityCommandInternal { quality: NdiQuality };
+    prefix = [0x0B, 0x01, 0x01];
+    param = match *quality {
         NdiQuality::High => 0x01,
         NdiQuality::Medium => 0x02,
         NdiQuality::Low => 0x03,
         NdiQuality::Off => 0x04,
     };
-    timeout = Network;
-    address = 0x81;
-    response = None;
+    category = crate::timeout::CommandCategory::Network;
 }
 
 /// Ndi streaming quality control command
@@ -84,7 +77,7 @@ pub struct NdiQualityCommand {
 
 impl crate::command::encode::ViscaCommand for NdiQualityCommand {
     type Response = ();
-    const MAX_SIZE: usize = NdiQualityCommandInternal::MAX_SIZE;
+    const MAX_SIZE: usize = 8; // Conservative estimate
     const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
         crate::timeout::CommandCategory::Network;
 

@@ -134,26 +134,26 @@ where
     type Mode = M;
 
     fn enable_flip(&self) -> M::Ret<'_, Result<(), Error>> {
-        let cmd = crate::command::flip::ImageFlip::new(crate::command::flip::Flip::On);
+        let cmd = crate::command::flip::ImageFlip {
+            flip: crate::command::flip::Flip::On,
+        };
         self.send_and_complete(cmd)
     }
 
     fn disable_flip(&self) -> M::Ret<'_, Result<(), Error>> {
-        let cmd = crate::command::flip::ImageFlip::new(crate::command::flip::Flip::Off);
+        let cmd = crate::command::flip::ImageFlip {
+            flip: crate::command::flip::Flip::Off,
+        };
         self.send_and_complete(cmd)
     }
 
     fn enable_horizontal_flip(&self) -> M::Ret<'_, Result<(), Error>> {
-        let cmd = crate::command::flip::HorizontalFlipCommand::new(
-            crate::command::flip::HorizontalFlip::On,
-        );
+        let cmd = crate::command::flip::HorizontalFlip { on: true };
         self.send_and_complete(cmd)
     }
 
     fn disable_horizontal_flip(&self) -> M::Ret<'_, Result<(), Error>> {
-        let cmd = crate::command::flip::HorizontalFlipCommand::new(
-            crate::command::flip::HorizontalFlip::Off,
-        );
+        let cmd = crate::command::flip::HorizontalFlip { on: false };
         self.send_and_complete(cmd)
     }
 
@@ -207,12 +207,12 @@ where
         &self,
         level: NoiseReduction2DLevel,
     ) -> M::Ret<'_, Result<(), Error>> {
-        let cmd = crate::command::image::NoiseReduction2D::Level(level);
+        let cmd = crate::command::image::NoiseReduction2D::with_level(level);
         self.send_and_complete(cmd)
     }
 
     fn disable_noise_reduction_2d(&self) -> M::Ret<'_, Result<(), Error>> {
-        let cmd = crate::command::image::NoiseReduction2D::Off;
+        let cmd = crate::command::image::NoiseReduction2D::off();
         self.send_and_complete(cmd)
     }
 
@@ -220,12 +220,12 @@ where
         &self,
         level: NoiseReduction3DLevel,
     ) -> M::Ret<'_, Result<(), Error>> {
-        let cmd = crate::command::image::NoiseReduction3D::Level(level);
+        let cmd = crate::command::image::NoiseReduction3D::with_level(level);
         self.send_and_complete(cmd)
     }
 
     fn disable_noise_reduction_3d(&self) -> M::Ret<'_, Result<(), Error>> {
-        let cmd = crate::command::image::NoiseReduction3D::Off;
+        let cmd = crate::command::image::NoiseReduction3D::off();
         self.send_and_complete(cmd)
     }
 
@@ -242,12 +242,12 @@ where
     }
 
     fn enable_freeze(&self) -> M::Ret<'_, Result<(), Error>> {
-        let cmd = crate::command::flip::ImageFreezeCommand::new(crate::command::flip::Freeze::On);
+        let cmd = crate::command::flip::ImageFreeze { on: true };
         self.send_and_complete(cmd)
     }
 
     fn disable_freeze(&self) -> M::Ret<'_, Result<(), Error>> {
-        let cmd = crate::command::flip::ImageFreezeCommand::new(crate::command::flip::Freeze::Off);
+        let cmd = crate::command::flip::ImageFreeze { on: false };
         self.send_and_complete(cmd)
     }
 

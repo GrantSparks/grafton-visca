@@ -32,12 +32,19 @@ enum SocketState {
 /// Command type categorization for execution timing
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CommandType {
+    /// Preset memory operations
     Preset,
+    /// Pan/tilt movement commands
     PanTilt,
+    /// Zoom control commands
     Zoom,
+    /// Focus control commands
     Focus,
+    /// Inquiry/query commands
     Inquiry,
+    /// Power control commands
     Power,
+    /// All other command types
     Other,
 }
 
@@ -168,6 +175,7 @@ struct SimulatorInner {
     camera_state: RwLock<CameraState>,
 }
 
+/// Configuration for the VISCA camera simulator
 #[derive(Debug, Clone)]
 pub struct SimulatorConfig {
     // Timing configuration
