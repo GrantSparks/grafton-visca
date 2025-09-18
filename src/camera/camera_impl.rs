@@ -360,7 +360,22 @@ where
     /// camera.close()?;
     /// ```
     pub fn open_tcp(addr: impl Into<String>) -> Result<Self, Error> {
-        let tcp = crate::transport::blocking::tcp::Tcp::connect(&addr.into())?;
+        let addr = addr.into();
+
+        // Parse the address to check if it has a port
+        let addr_with_port = if let Ok(parsed) = crate::transport::address::HostPort::parse(&addr) {
+            // If no port specified, use the profile's default TCP port
+            if parsed.port().is_none() {
+                parsed.format_socket_addr(Some(P::DEFAULT_TCP_PORT))
+            } else {
+                addr
+            }
+        } else {
+            // If parsing fails, just pass it through - let the connection fail with proper error
+            addr
+        };
+
+        let tcp = crate::transport::blocking::tcp::Tcp::connect(&addr_with_port)?;
         let transport = crate::transport::BlockingTransportHandle::Tcp(tcp);
         Self::new_blocking(transport)
     }
@@ -382,7 +397,22 @@ where
     /// camera.close()?;
     /// ```
     pub fn open_udp(addr: impl Into<String>) -> Result<Self, Error> {
-        let udp = crate::transport::blocking::udp::Udp::connect(&addr.into())?;
+        let addr = addr.into();
+
+        // Parse the address to check if it has a port
+        let addr_with_port = if let Ok(parsed) = crate::transport::address::HostPort::parse(&addr) {
+            // If no port specified, use the profile's default UDP port
+            if parsed.port().is_none() {
+                parsed.format_socket_addr(Some(P::DEFAULT_UDP_PORT))
+            } else {
+                addr
+            }
+        } else {
+            // If parsing fails, just pass it through - let the connection fail with proper error
+            addr
+        };
+
+        let udp = crate::transport::blocking::udp::Udp::connect(&addr_with_port)?;
         let transport = crate::transport::BlockingTransportHandle::Udp(udp);
         Self::new_blocking(transport)
     }

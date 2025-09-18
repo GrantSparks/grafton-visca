@@ -368,13 +368,31 @@ where
     pub fn open(
         self,
     ) -> Result<crate::BlockingCamera<P, crate::transport::BlockingTransportHandle>, Error> {
+        // Parse the address to check if it has a port
+        let addr_with_port =
+            if let Ok(parsed) = crate::transport::address::HostPort::parse(&self.address) {
+                // If no port specified, use the profile's default port
+                if parsed.port().is_none() {
+                    let default_port = match self.transport_type {
+                        TransportType::Tcp => P::DEFAULT_TCP_PORT,
+                        TransportType::Udp => P::DEFAULT_UDP_PORT,
+                    };
+                    parsed.format_socket_addr(Some(default_port))
+                } else {
+                    self.address.clone()
+                }
+            } else {
+                // If parsing fails, just pass it through - let the connection fail with proper error
+                self.address.clone()
+            };
+
         let transport = match self.transport_type {
             TransportType::Tcp => {
-                let tcp = crate::transport::blocking::tcp::Tcp::connect(&self.address)?;
+                let tcp = crate::transport::blocking::tcp::Tcp::connect(&addr_with_port)?;
                 crate::transport::BlockingTransportHandle::Tcp(tcp)
             }
             TransportType::Udp => {
-                let udp = crate::transport::blocking::udp::Udp::connect(&self.address)?;
+                let udp = crate::transport::blocking::udp::Udp::connect(&addr_with_port)?;
                 crate::transport::BlockingTransportHandle::Udp(udp)
             }
         };

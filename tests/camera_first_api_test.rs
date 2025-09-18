@@ -17,7 +17,7 @@ fn test_blocking_camera_tcp_connect() {
     assert!(result.is_err(), "Invalid address should fail");
 
     // Test with a proper address format (will fail to connect but proves API exists)
-    let result = BlockingCamera::<GenericVisca, _>::open_tcp("192.168.1.100:5678");
+    let result = BlockingCamera::<GenericVisca, _>::open_tcp("192.168.1.100");
     assert!(
         result.is_err(),
         "Connection to non-existent camera should fail"
@@ -33,7 +33,7 @@ fn test_blocking_camera_udp_connect() {
 
     // Note: UDP "connects" don't fail for non-existent hosts since UDP is connectionless
     // Just verify the API exists and can create a camera instance
-    let result = BlockingCamera::<GenericVisca, _>::open_udp("192.168.1.100:52381");
+    let result = BlockingCamera::<GenericVisca, _>::open_udp("192.168.1.100");
     assert!(
         result.is_ok(),
         "UDP should succeed even for non-existent camera (connectionless)"
@@ -44,7 +44,7 @@ fn test_blocking_camera_udp_connect() {
 #[cfg(not(feature = "mode-async"))]
 fn test_camera_builder_tcp() {
     // Test that CameraBuilder::tcp exists and the builder pattern works
-    let result = CameraBuilder::tcp("192.168.1.100:5678")
+    let result = CameraBuilder::tcp("192.168.1.100")
         .profile::<GenericVisca>()
         .open();
 
@@ -58,7 +58,7 @@ fn test_camera_builder_tcp() {
 #[cfg(not(feature = "mode-async"))]
 fn test_camera_builder_udp() {
     // Test that CameraBuilder::udp exists and the builder pattern works
-    let result = CameraBuilder::udp("192.168.1.100:52381")
+    let result = CameraBuilder::udp("192.168.1.100")
         .profile::<GenericVisca>()
         .open();
 

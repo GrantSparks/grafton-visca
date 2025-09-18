@@ -112,7 +112,7 @@
 //!
 //! fn main() -> Result<(), Error> {
 //!     // Create camera using convenience Connect helper
-//!     let camera = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?;
+//!     let camera = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
 //!
 //!     // Use accessor-style API
 //!     camera.power().on()?;
@@ -137,7 +137,7 @@
 //!     // Create camera using Connect helper with runtime
 //!     let runtime = TokioRuntime::from_current()?;
 //!     let camera = Connect::open_tcp_async::<PtzOpticsG2, _>(
-//!         "192.168.0.110:5678",
+//!         "192.168.0.110",
 //!         runtime
 //!     ).await?;
 //!

@@ -25,10 +25,10 @@ fn main() -> Result<()> {
     println!("=== CameraBuilder API Demo (Blocking) ===\n");
 
     println!("--- Example 1: Simple TCP with Default Port ---");
-    let _camera = CameraBuilder::tcp("192.168.0.110:5678")
+    let _camera = CameraBuilder::tcp("192.168.0.110")
         .profile::<PtzOpticsG2>()
         .open()?;
-    println!("✓ Created PTZOptics G2 camera on TCP port 5678");
+    println!("✓ Created PTZOptics G2 camera on default TCP port");
 
     println!("\n--- Example 2: TCP with Custom Port ---");
     let _camera = CameraBuilder::tcp("192.168.0.110:52381")
@@ -37,24 +37,24 @@ fn main() -> Result<()> {
     println!("✓ Created camera with custom port 52381");
 
     println!("\n--- Example 3: UDP Transport ---");
-    let _camera = CameraBuilder::udp("192.168.0.110:1259")
+    let _camera = CameraBuilder::udp("192.168.0.110")
         .profile::<PtzOpticsG2>()
         .open()?;
-    println!("✓ Created camera on UDP port 1259");
+    println!("✓ Created camera on default UDP port");
 
     println!("\n--- Example 4: Camera Profiles ---");
 
-    let _generic = CameraBuilder::tcp("192.168.0.110:5678")
+    let _generic = CameraBuilder::tcp("192.168.0.110")
         .profile::<PtzOpticsG2>()
         .open()?;
     println!("✓ PTZOptics G2 camera (used as generic example)");
 
-    let _sony_brc = CameraBuilder::tcp("192.168.0.109:52381")
+    let _sony_brc = CameraBuilder::tcp("192.168.0.109")
         .profile::<SonyBRC300>()
         .open()?;
     println!("✓ Sony BRC-300 camera (encapsulated protocol)");
 
-    let _sony_fr7 = CameraBuilder::tcp("192.168.0.108:5678")
+    let _sony_fr7 = CameraBuilder::tcp("192.168.0.108")
         .profile::<SonyFR7>()
         .open()?;
     println!("✓ Sony FR7 camera (ND filter support)");
@@ -107,7 +107,7 @@ async fn main() -> grafton_visca::Result<()> {
     println!("=== CameraBuilder API Demo (Async) ===\n");
 
     println!("--- Example 1: Tokio TCP ---");
-    let transport = Tcp::connect("192.168.0.110:5678").await?;
+    let transport = Tcp::connect("192.168.0.110").await?;
     let runtime = TokioRuntime::from_current()?;
     let _camera = CameraBuilder::with_executor(runtime)
         .open_async::<PtzOpticsG2, _>(transport)
@@ -115,7 +115,7 @@ async fn main() -> grafton_visca::Result<()> {
     println!("✓ Created async TCP camera with tokio");
 
     println!("\n--- Example 2: Tokio UDP ---");
-    let transport = Udp::connect("192.168.0.110:1259").await?;
+    let transport = Udp::connect("192.168.0.110").await?;
     let runtime = TokioRuntime::from_current()?;
     let _camera = CameraBuilder::with_executor(runtime)
         .open_async::<PtzOpticsG2, _>(transport)
@@ -137,9 +137,9 @@ async fn main() -> grafton_visca::Result<()> {
     }
 
     let (cam1, cam2, cam3) = join!(
-        create_camera::<PtzOpticsG2>("192.168.0.110:5678"),
-        create_camera::<SonyBRC300>("192.168.0.111:52381"),
-        create_camera::<SonyFR7>("192.168.0.112:5678")
+        create_camera::<PtzOpticsG2>("192.168.0.110"),
+        create_camera::<SonyBRC300>("192.168.0.111"),
+        create_camera::<SonyFR7>("192.168.0.112")
     );
 
     let mut created = 0;
@@ -197,7 +197,7 @@ fn main() -> grafton_visca::Result<()> {
 
     task::block_on(async {
         println!("--- Example 1: async-std TCP ---");
-        let transport = Tcp::connect("192.168.0.110:5678").await?;
+        let transport = Tcp::connect("192.168.0.110").await?;
         let runtime = grafton_visca::runtime::AsyncStdRuntime::new();
         let _camera = CameraBuilder::with_executor(runtime)
             .open_async::<PtzOpticsG2, _>(transport)
@@ -205,7 +205,7 @@ fn main() -> grafton_visca::Result<()> {
         println!("✓ Created async TCP camera with async-std");
 
         println!("\n--- Example 2: async-std UDP ---");
-        let transport = Udp::connect("192.168.0.110:1259").await?;
+        let transport = Udp::connect("192.168.0.110").await?;
         let runtime = grafton_visca::runtime::AsyncStdRuntime::new();
         let _camera = CameraBuilder::with_executor(runtime)
             .open_async::<PtzOpticsG2, _>(transport)
@@ -232,7 +232,7 @@ fn main() -> grafton_visca::Result<()> {
 
     smol::block_on(async {
         println!("--- Example 1: smol TCP ---");
-        let transport = Tcp::connect("192.168.0.110:5678").await?;
+        let transport = Tcp::connect("192.168.0.110").await?;
         let runtime = grafton_visca::runtime::SmolRuntime::new();
         let _camera = CameraBuilder::with_executor(runtime)
             .open_async::<PtzOpticsG2, _>(transport)
@@ -240,7 +240,7 @@ fn main() -> grafton_visca::Result<()> {
         println!("✓ Created async TCP camera with smol");
 
         println!("\n--- Example 2: smol UDP ---");
-        let transport = Udp::connect("192.168.0.110:1259").await?;
+        let transport = Udp::connect("192.168.0.110").await?;
         let runtime = grafton_visca::runtime::SmolRuntime::new();
         let _camera = CameraBuilder::with_executor(runtime)
             .open_async::<PtzOpticsG2, _>(transport)

@@ -95,7 +95,7 @@ fn test_camera_creates_configured_udp_camera() {
 #[test]
 fn test_camera_builder_configuration() {
     // We can verify the camera builder accepts configuration methods
-    let builder = CameraBuilder::tcp("192.168.0.110:5678").profile::<PtzOpticsG2>();
+    let builder = CameraBuilder::tcp("192.168.0.110").profile::<PtzOpticsG2>();
 
     // The fact that this compiles verifies the methods exist and work
     // Note: We don't call build() to avoid connection attempts in unit tests
@@ -170,9 +170,9 @@ fn test_camera_retry_behavior() {
 #[test]
 fn test_camera_builder_transport_types() {
     // We can verify that both TCP and UDP camera builders work
-    let _udp_builder = CameraBuilder::udp("192.168.0.110:1259").profile::<PtzOpticsG2>();
+    let _udp_builder = CameraBuilder::udp("192.168.0.110").profile::<PtzOpticsG2>();
 
-    let _tcp_builder = CameraBuilder::tcp("192.168.0.110:5678").profile::<PtzOpticsG2>();
+    let _tcp_builder = CameraBuilder::tcp("192.168.0.110").profile::<PtzOpticsG2>();
 
     // The fact that these compile verifies the camera-first API supports both transports
 }
@@ -184,7 +184,7 @@ fn test_camera_builder_validation() {
     // This test verifies the fluent API requires proper configuration
 
     // Valid configuration should compile
-    let _valid_builder = CameraBuilder::tcp("127.0.0.1:5678").profile::<PtzOpticsG2>();
+    let _valid_builder = CameraBuilder::tcp("127.0.0.1").profile::<PtzOpticsG2>();
 
     // Invalid address should be caught at connection time
     let invalid_result = BlockingCamera::<PtzOpticsG2, _>::open_tcp("invalid:address:format");
@@ -197,8 +197,8 @@ fn test_camera_direct_connection_methods() {
     // Test that direct connection methods work without addresses
     // (they will fail to connect, but should compile and create the right error)
 
-    let tcp_result = BlockingCamera::<PtzOpticsG2, _>::open_tcp("127.0.0.1:99999");
-    let udp_result = BlockingCamera::<PtzOpticsG2, _>::open_udp("127.0.0.1:99999");
+    let tcp_result = BlockingCamera::<PtzOpticsG2, _>::open_tcp("127.0.0.1:65535");
+    let udp_result = BlockingCamera::<PtzOpticsG2, _>::open_udp("127.0.0.1:65535");
 
     // Both should fail gracefully (connection refused or timeout)
     assert!(
@@ -215,12 +215,12 @@ fn test_camera_direct_connection_methods() {
 #[test]
 fn test_complete_camera_configuration_flow() {
     // Create a fully configured camera builder - this tests that all methods compile and chain properly
-    let _builder = CameraBuilder::tcp("127.0.0.1:12345").profile::<PtzOpticsG2>();
+    let _builder = CameraBuilder::tcp("127.0.0.1").profile::<PtzOpticsG2>();
 
     // The fact that this compiles with method chaining verifies the fluent API works
     // The camera-first API provides a simpler, more focused interface than the transport builder
 
     // Test that both direct connection and builder pattern work
-    let _direct_result = BlockingCamera::<PtzOpticsG2, _>::open_tcp("127.0.0.1:99999");
+    let _direct_result = BlockingCamera::<PtzOpticsG2, _>::open_tcp("127.0.0.1:65535");
     // Will fail to connect, but should compile successfully
 }
