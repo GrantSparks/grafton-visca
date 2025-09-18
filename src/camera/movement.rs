@@ -189,6 +189,14 @@ where
                 config.timeout
             );
         }
+
+        // Initial delay to let movement start
+        std::thread::sleep(Duration::from_millis(100));
+
+        // Progressive polling intervals: start fast, then slow down
+        let mut poll_interval = Duration::from_millis(100);
+        let max_interval = Duration::from_millis(500);
+
         loop {
             if start.elapsed() > config.timeout {
                 return Err(Error::Timeout);
@@ -207,7 +215,8 @@ where
                 }
             };
 
-            std::thread::sleep(Duration::from_millis(50));
+            // Wait with progressive backoff
+            std::thread::sleep(poll_interval);
 
             let pos2_response = self.send_command(&PanTiltPositionInquiry).block()?;
             let (pos2_pan, pos2_tilt) = match pos2_response {
@@ -224,6 +233,11 @@ where
             // Check if position is stable (not moving)
             if (pos1_pan - pos2_pan).abs() <= 2 && (pos1_tilt - pos2_tilt).abs() <= 2 {
                 return Ok(());
+            }
+
+            // Increase polling interval up to maximum
+            if poll_interval < max_interval {
+                poll_interval = (poll_interval * 3 / 2).min(max_interval);
             }
         }
     }
@@ -524,6 +538,14 @@ where
                 config.timeout
             );
         }
+
+        // Initial delay to let movement start
+        self.sleep(Duration::from_millis(100)).await;
+
+        // Progressive polling intervals: start fast, then slow down
+        let mut poll_interval = Duration::from_millis(100);
+        let max_interval = Duration::from_millis(500);
+
         loop {
             if start.elapsed() > config.timeout {
                 return Err(Error::Timeout);
@@ -542,7 +564,8 @@ where
                 }
             };
 
-            self.sleep(Duration::from_millis(50)).await;
+            // Wait with progressive backoff
+            self.sleep(poll_interval).await;
 
             let pos2_response = self.send_command(&PanTiltPositionInquiry).await?;
             let (pos2_pan, pos2_tilt) = match pos2_response {
@@ -559,6 +582,11 @@ where
             // Check if position is stable (not moving)
             if (pos1_pan - pos2_pan).abs() <= 2 && (pos1_tilt - pos2_tilt).abs() <= 2 {
                 return Ok(());
+            }
+
+            // Increase polling interval up to maximum
+            if poll_interval < max_interval {
+                poll_interval = (poll_interval * 3 / 2).min(max_interval);
             }
         }
     }
