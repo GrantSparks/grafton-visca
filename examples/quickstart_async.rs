@@ -78,18 +78,21 @@ async fn main() -> Result<(), Error> {
     let camera = Connect::open_tcp_async::<PtzOpticsG2, _>(&camera_addr, runtime).await?;
     println!("✓ Connected successfully");
 
-    // Power on the camera
+    // Power management - check state first
     println!("\n--- Power Management ---");
-    println!("Powering on...");
-    camera.power().on().await?;
-
-    // Wait a moment for power-on to complete
-    sleep(Duration::from_secs(2)).await;
-
-    // Check power state
     let is_on = camera.power().state().await?;
-    let power_status = if is_on { "ON" } else { "OFF" };
-    println!("Power state: {power_status}");
+    if !is_on {
+        println!("Camera is off, powering on...");
+        camera.power().on().await?;
+        // Wait for power-on to complete
+        sleep(Duration::from_secs(2)).await;
+        // Verify power is on
+        let is_on = camera.power().state().await?;
+        let power_status = if is_on { "ON" } else { "OFF" };
+        println!("Power state: {power_status}");
+    } else {
+        println!("Camera is already powered ON");
+    }
 
     // PTZ operations using accessors
     println!("\n--- PTZ Operations ---");
@@ -170,18 +173,21 @@ async fn main() -> Result<(), Error> {
     let camera = Connect::open_tcp_async::<PtzOpticsG2, _>(&camera_addr, runtime).await?;
     println!("✓ Connected successfully");
 
-    // Power on the camera
+    // Power management - check state first
     println!("\n--- Power Management ---");
-    println!("Powering on...");
-    camera.power().on().await?;
-
-    // Wait a moment for power-on to complete
-    sleep(Duration::from_secs(2)).await;
-
-    // Check power state
     let is_on = camera.power().state().await?;
-    let power_status = if is_on { "ON" } else { "OFF" };
-    println!("Power state: {power_status}");
+    if !is_on {
+        println!("Camera is off, powering on...");
+        camera.power().on().await?;
+        // Wait for power-on to complete
+        sleep(Duration::from_secs(2)).await;
+        // Verify power is on
+        let is_on = camera.power().state().await?;
+        let power_status = if is_on { "ON" } else { "OFF" };
+        println!("Power state: {power_status}");
+    } else {
+        println!("Camera is already powered ON");
+    }
 
     // PTZ operations using accessors
     println!("\n--- PTZ Operations ---");
@@ -258,18 +264,21 @@ fn main() -> Result<(), Error> {
         let camera = Connect::open_tcp_async::<PtzOpticsG2, _>(&camera_addr, runtime).await?;
         println!("✓ Connected successfully");
 
-        // Power on the camera
+        // Power management - check state first
         println!("\n--- Power Management ---");
-        println!("Powering on...");
-        camera.power().on().await?;
-
-        // Wait a moment for power-on to complete
-        smol::Timer::after(std::time::Duration::from_secs(2)).await;
-
-        // Check power state
         let is_on = camera.power().state().await?;
-        let power_status = if is_on { "ON" } else { "OFF" };
-        println!("Power state: {power_status}");
+        if !is_on {
+            println!("Camera is off, powering on...");
+            camera.power().on().await?;
+            // Wait for power-on to complete
+            smol::Timer::after(std::time::Duration::from_secs(2)).await;
+            // Verify power is on
+            let is_on = camera.power().state().await?;
+            let power_status = if is_on { "ON" } else { "OFF" };
+            println!("Power state: {power_status}");
+        } else {
+            println!("Camera is already powered ON");
+        }
 
         // PTZ operations using accessors
         println!("\n--- PTZ Operations ---");
