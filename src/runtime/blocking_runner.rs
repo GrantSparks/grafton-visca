@@ -342,7 +342,9 @@ impl<P: Profile> BlockingRunner<P> {
                                 }
                             }
                             BasicKind::DataReply => {
-                                let cmd_id = self.core.resolve_inquiry_id(&payload, meta.sequence);
+                                let cmd_id = self
+                                    .core
+                                    .resolve_inquiry_id(basic.payload.as_slice(), meta.sequence);
 
                                 let response_type =
                                     cmd_id.and_then(|id| self.core.get_inquiry_type(id).cloned());
