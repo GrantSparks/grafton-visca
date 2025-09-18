@@ -105,23 +105,22 @@
 //! ### Blocking Example
 //! ```ignore
 //! use grafton_visca::{
-//!     Camera, Error,
+//!     blocking_api::BlockingClient,
+//!     camera::Connect,
 //!     camera::profiles::PtzOpticsG2,
-//!     transport::{NetTransportBuilder, Transport},
-//!     // Import unified traits that work for both blocking and async
-//!     PowerControl, ZoomControl,
+//!     Error,
 //! };
 //!
 //! fn main() -> Result<(), Error> {
-//!     // Create camera using unified API
-//!     let transport = Transport::tcp()
-//!         .address("192.168.0.110:5678")
-//!         .open()?;
-//!     let mut camera = Camera::<PtzOpticsG2, _>::new(transport);
+//!     // Create camera using convenience Connect helper
+//!     let camera = BlockingClient::wrap(
+//!         Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?
+//!     );
 //!
-//!     // Send commands with unified API - same traits work for async mode
-//!     camera.power_on()?;
-//!     camera.zoom_tele_std()?;
+//!     // Use accessor-style API - no .block() needed with BlockingClient
+//!     camera.power().on()?;
+//!     camera.zoom().tele()?;
+//!     camera.pan_tilt().home()?;
 //!
 //!     Ok(())
 //! }
@@ -130,29 +129,28 @@
 //! ### Async Example with Multi-Runtime Support
 //! ```ignore
 //! use grafton_visca::{
-//!     CameraBuilder, Error,
+//!     camera::Connect,
 //!     camera::profiles::PtzOpticsG2,
-//!     transport::Transport,
-//!     // Same unified traits work for async mode too
-//!     PowerControl, ZoomControl,
+//!     runtime::{Runtime, TokioRuntime},
+//!     Error,
 //! };
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Error> {
-//!     // Create camera with uniform Transport API (runtime auto-selected)
-//!     let transport = Transport::tcp()
-//!         .address("192.168.0.110:5678")
-//!         .connect()
-//!         .await?;
-//!     use grafton_visca::runtime::{Runtime, TokioRuntime};
+//!     // Create camera using Connect helper with runtime
 //!     let runtime = TokioRuntime::from_current()?;
-//!     let camera = CameraBuilder::with_executor(runtime)
-//!         .open_async::<PtzOpticsG2, _>(transport)
-//!         .await?;
+//!     let camera = Connect::open_tcp_async::<PtzOpticsG2, _>(
+//!         "192.168.0.110:5678",
+//!         runtime
+//!     ).await?;
 //!
-//!     // Same unified API, just add .await - no separate async traits needed
-//!     camera.power_on().await?;
-//!     camera.zoom_tele_std().await?;
+//!     // Use accessor-style API with async
+//!     camera.power().on().await?;
+//!     camera.zoom().tele().await?;
+//!     camera.pan_tilt().home().await?;
+//!
+//!     // Wait for movements to complete
+//!     camera.await_idle().await?;
 //!
 //!     Ok(())
 //! }
@@ -184,9 +182,9 @@
 //!         .open_async::<PtzOpticsG2, _>(transport)
 //!         .await?;
 //!
-//!     // Same unified API across all runtimes
-//!     camera.power_on().await?;
-//!     camera.zoom_tele_std().await?;
+//!     // Use accessor-style API across all runtimes
+//!     camera.power().on().await?;
+//!     camera.zoom().tele().await?;
 //!
 //!     Ok(())
 //! }
@@ -214,10 +212,10 @@
 //!             .open_async::<PtzOpticsG2, _>(transport)
 //!             .await?;
 //!
-//!         // All 17 unified traits work consistently across runtimes
-//!         camera.power_on().await?;
-//!         camera.pan_tilt_home().await?;
-//!         camera.zoom_tele_std().await?;
+//!         // Use accessor-style API consistently across runtimes
+//!         camera.power().on().await?;
+//!         camera.pan_tilt().home().await?;
+//!         camera.zoom().tele().await?;
 //!
 //!         Ok(())
 //!     })

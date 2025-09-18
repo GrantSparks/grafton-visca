@@ -169,6 +169,11 @@ where
         self.execute(cmd)
     }
 
+    /// Set the sharpness mode.
+    ///
+    /// **Note:** This operation is currently not supported and will always return
+    /// `Error::NotSupported`. The SharpnessMode command is not documented in the
+    /// standard VISCA protocol specification and may be a proprietary extension.
     fn set_sharpness_mode(
         &self,
         _mode: crate::command::SharpnessMode,

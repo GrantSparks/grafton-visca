@@ -3,7 +3,7 @@
 //! This module provides read-only methods to inspect camera capabilities at runtime.
 //! These methods are only available when the camera profile implements specific
 //! optional capability traits. The actual control methods for these capabilities
-//! are provided by their respective trait modules in `src/camera/methods/`.
+//! are provided by their respective trait modules in `src/camera/controls/`.
 
 use crate::capabilities::{MotionSync, NdFilter, NdFilterMode as CapabilityNdFilterMode, Profile};
 

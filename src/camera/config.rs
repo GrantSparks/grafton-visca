@@ -63,17 +63,26 @@ impl TransportOptions {
 ///
 /// ```ignore
 /// use grafton_visca::camera::{CameraConfig, profiles::PtzOpticsG2};
+/// use grafton_visca::timeout::TimeoutConfig;
+/// use grafton_visca::runtime::TokioRuntime;
 ///
-/// let config = CameraConfig::for::<PtzOpticsG2>()
+/// let config = CameraConfig::<PtzOpticsG2>::new()
 ///     .address("192.168.0.110")
 ///     .timeouts(TimeoutConfig::balanced());
 ///
 /// // Configuration is pure data and can be cloned
 /// let config2 = config.clone();
 ///
-/// // Open connections using the configuration
-/// let camera1 = config.open_async(&runtime).await?;
+/// // Open async connection using the configuration
+/// let runtime = TokioRuntime::from_current()?;
+/// let camera1 = config.open_async(runtime).await?;
+///
+/// // Open blocking connection using the configuration
 /// let camera2 = config2.open_blocking()?;
+///
+/// // Use accessor-style API
+/// camera1.power().on().await?;
+/// camera2.power().on()?;
 /// ```
 #[derive(Debug, Clone)]
 pub struct CameraConfig<P> {

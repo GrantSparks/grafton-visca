@@ -13,12 +13,20 @@
 //! # Example
 //!
 //! ```ignore
+//! use grafton_visca::camera::profiles::PtzOpticsG2;
+//! use grafton_visca::CameraBuilder;
+//!
 //! // Tokio
 //! use grafton_visca::runtime::{Runtime, TokioRuntime};
 //! let runtime = TokioRuntime::from_current()?;
 //! let camera = CameraBuilder::with_executor(runtime)
 //!     .open_async::<PtzOpticsG2, _>(transport)
 //!     .await?;
+//!
+//! // Use accessor-style API
+//! camera.power().on().await?;
+//! camera.zoom().tele().await?;
+//! camera.await_idle().await?;
 //!
 //! // async-std
 //! use grafton_visca::runtime::{AsyncStdRuntime, Runtime};

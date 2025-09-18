@@ -1,15 +1,16 @@
 //! Camera module with Send-safe, profile-centric VISCA API.
 //!
-//! This module provides a single, unified camera implementation that works in both
+//! This module provides a unified Camera<M, P, Tr, Exec> type that works in both
 //! async and blocking modes through the Mode trait system. All mode-specific behavior
 //! is resolved at compile time for zero runtime overhead.
 //!
-//! The unified design ensures Send-safe futures and eliminates the complexity of
-//! separate AsyncCamera/BlockingCamera types.
+//! The unified design ensures Send-safe futures and consistent API across both modes.
 //!
-//! Use the type aliases for cleaner syntax:
-//! - `AsyncCamera<P, Tr, Exec>` for async cameras with runtime-specific executors
-//! - `BlockingCamera<P, Tr>` for blocking cameras
+//! # Type Parameters
+//! - `M`: Mode (Async or Blocking)
+//! - `P`: Camera profile implementing the Profile trait
+//! - `Tr`: Transport type (TCP, UDP, or Serial)
+//! - `Exec`: Runtime executor (for async mode)
 
 pub mod accessors;
 pub mod builder;

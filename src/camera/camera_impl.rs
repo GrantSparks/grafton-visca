@@ -1,8 +1,7 @@
 //! Camera implementation using Mode trait for async/blocking operations.
 //!
-//! This module provides a single Camera type that works with both blocking and async
-//! operations through the Mode trait system, eliminating the need for separate
-//! AsyncCamera and BlockingCamera types.
+//! This module provides a unified Camera<M, P, Tr, Exec> type that works with both
+//! blocking and async operations through the Mode trait system.
 
 use core::marker::PhantomData;
 #[cfg(feature = "mode-async")]
@@ -357,7 +356,7 @@ where
     /// use grafton_visca::mode::BlockingFutureExt;
     ///
     /// let camera = Camera::open_tcp::<PtzOpticsG2>("192.168.0.110:5678")?;
-    /// camera.power().on().block()?;
+    /// camera.power().on()?;  // Direct Result<(), Error> with BlockingClient
     /// camera.close()?;
     /// ```
     pub fn open_tcp(addr: impl Into<String>) -> Result<Self, Error> {
@@ -379,7 +378,7 @@ where
     /// use grafton_visca::mode::BlockingFutureExt;
     ///
     /// let camera = Camera::open_udp::<GenericVisca>("192.168.0.110:1259")?;
-    /// camera.power().on().block()?;
+    /// camera.power().on()?;  // Direct Result<(), Error> with BlockingClient
     /// camera.close()?;
     /// ```
     pub fn open_udp(addr: impl Into<String>) -> Result<Self, Error> {

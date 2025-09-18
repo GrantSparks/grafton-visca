@@ -21,5 +21,5 @@ pub mod variable_speed;
 pub mod white_balance;
 pub mod zoom;
 
-// Note: Methods are implemented directly on AsyncCamera and BlockingCamera types
+// Note: Methods are implemented on Camera<M, P, Tr, Exec> type
 // through the individual control traits defined in each module.

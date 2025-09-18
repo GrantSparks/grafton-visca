@@ -251,6 +251,11 @@ where
         self.execute(cmd)
     }
 
+    /// Set the color temperature.
+    ///
+    /// **Note:** This operation is currently not supported and will always return
+    /// `Error::NotSupported`. Setting color temperature requires sending multiple
+    /// commands sequentially, which is not yet implemented.
     fn set_color_temperature(
         &self,
         _temp: crate::types::ColorTemp,
