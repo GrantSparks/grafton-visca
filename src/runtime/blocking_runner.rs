@@ -328,7 +328,10 @@ impl<P: Profile> BlockingRunner<P> {
                                     .and_then(|seq| self.core.get_command_by_sequence(seq));
 
                                 if cmd_id.is_none() && socket.is_none() {
-                                    cmd_id = self.core.resolve_inquiry_id(&[], meta.sequence);
+                                    use crate::command::response::payload::Payload;
+                                    cmd_id = self
+                                        .core
+                                        .resolve_inquiry_id(Payload::new(&[]), meta.sequence);
                                 }
 
                                 debug!(
@@ -342,9 +345,8 @@ impl<P: Profile> BlockingRunner<P> {
                                 }
                             }
                             BasicKind::DataReply => {
-                                let cmd_id = self
-                                    .core
-                                    .resolve_inquiry_id(basic.payload.as_slice(), meta.sequence);
+                                let cmd_id =
+                                    self.core.resolve_inquiry_id(basic.payload, meta.sequence);
 
                                 let response_type =
                                     cmd_id.and_then(|id| self.core.get_inquiry_type(id).cloned());

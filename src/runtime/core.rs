@@ -923,7 +923,11 @@ impl SchedulerCore {
     /// Given optional Sony sequence and a VISCA payload, resolve the cmd_id using:
     /// (a) Sony sequence maps, (b) content-based matcher for Raw VISCA,
     /// else (c) FIFO front of inquiries_order.
-    pub fn resolve_inquiry_id(&self, payload: &[u8], sequence: Option<u32>) -> Option<u32> {
+    pub fn resolve_inquiry_id(
+        &self,
+        payload: crate::command::response::payload::Payload<'_>,
+        sequence: Option<u32>,
+    ) -> Option<u32> {
         // First try sequence-based resolution if available
         if let Some(seq) = sequence {
             if let Some(cmd_id) = self.get_command_by_sequence(seq) {
@@ -948,7 +952,7 @@ impl SchedulerCore {
             .filter_map(|(id, response_type)| {
                 // Use the existing zero-allocation parser
                 // If parsing succeeds, this inquiry type matches the payload
-                if parse_inquiry_payload(payload, response_type).is_ok() {
+                if parse_inquiry_payload(payload.as_slice(), response_type).is_ok() {
                     Some(*id)
                 } else {
                     None

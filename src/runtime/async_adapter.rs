@@ -382,7 +382,8 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 if cmd_id.is_none() && basic.socket.is_none() {
                     // For error responses, we can't use content-based matching on the error code,
                     // but we can use FIFO from the inquiry queue
-                    cmd_id = self.core.resolve_inquiry_id(&[], sequence);
+                    use crate::command::response::payload::Payload;
+                    cmd_id = self.core.resolve_inquiry_id(Payload::new(&[]), sequence);
                 }
 
                 SchedulerEvent::Error {
@@ -394,9 +395,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
             BasicKind::DataReply => {
                 // Data replies are completions for inquiries
                 // Use the core's centralized resolution
-                let cmd_id = self
-                    .core
-                    .resolve_inquiry_id(basic.payload.as_slice(), sequence);
+                let cmd_id = self.core.resolve_inquiry_id(basic.payload, sequence);
 
                 // Get the expected response type from core
                 let response_type = cmd_id.and_then(|id| self.core.get_inquiry_type(id));
