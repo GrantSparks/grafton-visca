@@ -13,6 +13,8 @@ use std::{
     time::Duration,
 };
 
+#[cfg(feature = "mode-async")]
+use super::deterministic_executor::ExecutorExt;
 #[cfg(not(feature = "mode-async"))]
 use crate::{
     command::CommandKind,
@@ -24,9 +26,6 @@ use crate::{
     transport::{builder::TransportConfig, AsyncTransport, HasTransportConfig},
 };
 use crate::{Error, Result};
-
-#[cfg(feature = "mode-async")]
-use super::deterministic_executor::ExecutorExt;
 
 /// Function type for dynamic response generation.
 pub type DynamicResponseFn = Box<dyn Fn(&[u8]) -> Vec<Vec<u8>> + Send + Sync>;
@@ -885,8 +884,8 @@ impl<E> HasTransportConfig for ScriptedTransport<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command::bytes::VISCA_TERMINATOR;
 
+    use crate::command::bytes::VISCA_TERMINATOR;
     #[cfg(feature = "mode-async")]
     use crate::testing::testkit::DeterministicExecutor;
 

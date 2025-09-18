@@ -4,7 +4,10 @@
 //! protocol responses and splitting frame buffers. It eliminates duplication between
 //! async and sync paths while preserving socket awareness and type safety.
 
-use crate::{command::bytes::VISCA_TERMINATOR, command::response::payload::Payload, ViscaSocket};
+use crate::{
+    command::{bytes::VISCA_TERMINATOR, response::payload::Payload},
+    ViscaSocket,
+};
 
 /// Basic VISCA response kind.
 ///

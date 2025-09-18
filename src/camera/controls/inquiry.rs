@@ -15,14 +15,11 @@
 //! The implementation uses the Mode trait to provide both blocking and async APIs
 //! from a single unified codebase.
 
-use crate::{
-    camera::ViscaClient,
-    command::{
-        system::MotionSyncMode, ExposureMode, FocusMode, FocusZone, SharpnessMode, WhiteBalanceMode,
-    },
-    mode::Mode,
-    Error,
-};
+use crate::camera::ViscaClient;
+use crate::command::system::MotionSyncMode;
+use crate::command::{ExposureMode, FocusMode, FocusZone, SharpnessMode, WhiteBalanceMode};
+use crate::mode::Mode;
+use crate::Error;
 
 /// Inquiry operations for PTZ cameras.
 ///

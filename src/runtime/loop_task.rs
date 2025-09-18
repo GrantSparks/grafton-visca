@@ -89,7 +89,6 @@ pub async fn runtime_loop_with_config<
             Shutdown,
         }
 
-        // Add runtime trace at loop start
         runtime_trace!(
             "Loop iteration start - pending_ack: {}, can_send: {}, now: {:?}",
             adapter.pending_ack_count(),
@@ -101,7 +100,6 @@ pub async fn runtime_loop_with_config<
         if let Ok(item) = submit_rx.try_recv() {
             match item {
                 TxItem::Command { .. } | TxItem::Inquiry { .. } => {
-                    // Submit command or inquiry to adapter
                     adapter.submit(item);
 
                     // Try to send immediately if possible
@@ -125,8 +123,6 @@ pub async fn runtime_loop_with_config<
                     }
                 }
                 TxItem::Cancel { socket } => {
-                    // Send cancel command
-
                     // Get the camera ID for the command on this socket
                     let camera_id = adapter.camera_id_for_socket(socket).unwrap_or_else(|| {
                         warn!("No camera ID found for socket {socket:?}, using CAMERA_1");
@@ -134,7 +130,6 @@ pub async fn runtime_loop_with_config<
                     });
 
                     let cancel_cmd = CommandCancelCommand::new(socket);
-                    // Encode directly to bytes
                     let cancel_bytes = cancel_cmd.to_bytes(camera_id).map_err(|e| {
                         error!("Failed to encode cancel command: {e}");
                         e
@@ -144,7 +139,6 @@ pub async fn runtime_loop_with_config<
                         config
                             .envelope
                             .frame_bytes(&cancel_bytes, kind, &config.buffer_manager);
-                    // Best effort for cancel - don't abort runtime on failure
                     if let Err(e) = transport.send(&framed).await {
                         debug!("Failed to send cancel for socket {socket:?}: {e}");
                     } else {
@@ -161,7 +155,6 @@ pub async fn runtime_loop_with_config<
                         });
 
                         let cancel_cmd = CommandCancelCommand::new(socket);
-                        // Encode directly to bytes
                         let cancel_bytes = cancel_cmd.to_bytes(camera_id).map_err(|e| {
                             error!("Failed to encode cancel command: {e}");
                             e
@@ -172,7 +165,6 @@ pub async fn runtime_loop_with_config<
                             kind,
                             &config.buffer_manager,
                         );
-                        // Best effort for cancel - don't abort runtime on failure
                         if let Err(e) = transport.send(&framed).await {
                             debug!("Failed to send cancel for command {id}: {e}");
                         } else {
@@ -333,8 +325,6 @@ pub async fn runtime_loop_with_config<
                                 });
 
                             let cancel_cmd = CommandCancelCommand::new(socket);
-
-                            // Encode with the actual camera ID
                             let cancel_bytes = cancel_cmd.to_bytes(camera_id).map_err(|e| {
                                 error!("Failed to encode queued cancel command: {e}");
                                 e
@@ -346,14 +336,12 @@ pub async fn runtime_loop_with_config<
                                 kind,
                                 &config.buffer_manager,
                             );
-                            // Best effort for cancel - don't abort runtime on failure
                             if let Err(e) = transport.send(&framed).await {
                                 debug!("Failed to send queued cancel for command {id}: {e}");
                             } else {
                                 debug!("Sent queued cancel for command {id} on socket {socket:?} with camera_id {camera_id:?}");
                             }
 
-                            // Remove from pending set
                             pending_cancel_ids.remove(&id);
                         }
                     }

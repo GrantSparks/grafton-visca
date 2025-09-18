@@ -5,14 +5,17 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used)] // Test code is allowed to panic
 
-use std::io::{BufReader, Read, Write};
-use std::sync::{Arc, Mutex};
+use std::{
+    io::{BufReader, Read, Write},
+    sync::{Arc, Mutex},
+};
 
-use crate::command::{bytes::VISCA_TERMINATOR, CommandKind};
-use crate::protocol::framer::ProtocolFramer;
-use crate::transport::buffer::BufferConfig;
-use crate::transport::BlockingTransport;
-use crate::Error;
+use crate::{
+    command::{bytes::VISCA_TERMINATOR, CommandKind},
+    protocol::framer::ProtocolFramer,
+    transport::{buffer::BufferConfig, BlockingTransport},
+    Error,
+};
 
 /// Mock TCP stream that returns pre-configured data
 struct MockTcpStream {

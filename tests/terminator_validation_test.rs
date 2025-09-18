@@ -4,12 +4,13 @@
 //! 1. No hardcoded 0xFF values exist in the codebase
 //! 2. The terminator safety mechanisms are in place
 
+use std::{fs, path::Path};
+
 /// Test that the no-hardcoded-terminator test exists and works
 #[test]
 fn test_no_hardcoded_terminator_test_exists() {
     // This verifies that the no_hardcoded_terminator_test.rs file exists
     // and is part of the test suite. The actual scanning is done by that test.
-    use std::path::Path;
 
     let test_file = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
@@ -24,9 +25,6 @@ fn test_no_hardcoded_terminator_test_exists() {
 /// Test that the type-safe example exists
 #[test]
 fn test_type_safe_example_exists() {
-    use std::fs;
-    use std::path::Path;
-
     let example = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("examples-advanced")
         .join("type_safe_commands.rs");
@@ -51,9 +49,6 @@ fn test_type_safe_example_exists() {
 /// Test that contributing guidelines include safety practices
 #[test]
 fn test_contributing_guidelines_include_safety() {
-    use std::fs;
-    use std::path::Path;
-
     let contributing = Path::new(env!("CARGO_MANIFEST_DIR")).join("CONTRIBUTING.md");
 
     assert!(contributing.exists(), "CONTRIBUTING.md should exist");

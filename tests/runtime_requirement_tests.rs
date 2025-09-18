@@ -6,10 +6,10 @@
 #![cfg(feature = "mode-async")]
 
 #[cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
-use grafton_visca::testing::testkit::{helpers, ScriptedTransport};
-
-#[cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
-use grafton_visca::TokioExecutor;
+use grafton_visca::{
+    testing::testkit::{helpers, ScriptedTransport},
+    TokioExecutor,
+};
 
 #[cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
 #[tokio::test(start_paused = true)]

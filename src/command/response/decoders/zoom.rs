@@ -38,7 +38,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "ZoomOut status",
-                        value: Cow::Owned(format!("0x{:02X}", payload.as_slice()[0])),
+                        value: Cow::Owned(format!("0x{byte:02X}", byte = payload.as_slice()[0])),
                         reason: Cow::Borrowed("Expected 0x02 (inactive) or 0x03 (active)"),
                     }))
                 }
@@ -55,7 +55,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "ZoomIn status",
-                        value: Cow::Owned(format!("0x{:02X}", payload.as_slice()[0])),
+                        value: Cow::Owned(format!("0x{byte:02X}", byte = payload.as_slice()[0])),
                         reason: Cow::Borrowed("Expected 0x02 (inactive) or 0x03 (active)"),
                     }))
                 }
@@ -72,7 +72,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "ZoomTeleWide status",
-                        value: Cow::Owned(format!("0x{:02X}", payload.as_slice()[0])),
+                        value: Cow::Owned(format!("0x{byte:02X}", byte = payload.as_slice()[0])),
                         reason: Cow::Borrowed("Expected 0x02 (wide) or 0x03 (tele)"),
                     }))
                 }

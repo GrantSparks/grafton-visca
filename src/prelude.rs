@@ -90,13 +90,22 @@
 /// ```
 #[cfg(feature = "mode-async")]
 pub mod r#async {
+    // Common enums for camera settings
+    pub use crate::{
+        AutoWhiteBalanceSensitivity, Error, ExposureMode, MotionSyncMode, NdFilterMode,
+        PanTiltDirection, PanTiltLimitCorner, PresetNumber, ResolutionMode, WhiteBalanceMode,
+    };
+    // High-level camera configuration
+    pub use crate::camera::MovementConfig;
     // Camera profiles - these are the primary way to configure camera behavior
     pub use crate::camera::profiles::{
         GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
         SonyBRCH900, SonyEVIH100, SonyFR7,
     };
-    // High-level camera configuration
-    pub use crate::camera::MovementConfig;
+    // Type-safe parameter types for camera control
+    pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
+    pub use crate::units::{Degrees, Normalized, Percentage, Raw};
+
     // Runtime support for async operations
     #[cfg(feature = "runtime-async-std")]
     pub use crate::runtime::AsyncStdRuntime;
@@ -104,14 +113,6 @@ pub mod r#async {
     pub use crate::runtime::SmolRuntime;
     #[cfg(feature = "runtime-tokio")]
     pub use crate::runtime::TokioRuntime;
-    // Type-safe parameter types for camera control
-    pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
-    pub use crate::units::{Degrees, Normalized, Percentage, Raw};
-    // Common enums for camera settings
-    pub use crate::{
-        AutoWhiteBalanceSensitivity, Error, ExposureMode, MotionSyncMode, NdFilterMode,
-        PanTiltDirection, PanTiltLimitCorner, PresetNumber, ResolutionMode, WhiteBalanceMode,
-    };
 }
 
 /// Blocking prelude - import this for synchronous camera control.
@@ -128,21 +129,21 @@ pub mod r#async {
 /// ```
 #[cfg(not(feature = "mode-async"))]
 pub mod blocking {
-    // Camera profiles - these are the primary way to configure camera behavior
-    pub use crate::camera::profiles::{
-        GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
-        SonyBRCH900, SonyEVIH100, SonyFR7,
-    };
-    // High-level camera types and configuration
-    pub use crate::camera::{BlockingCamera as Camera, MovementConfig};
-    // Type-safe parameter types for camera control
-    pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
-    pub use crate::units::{Degrees, Normalized, Percentage, Raw};
     // Common enums for camera settings
     pub use crate::{
         AutoWhiteBalanceSensitivity, Error, ExposureMode, MotionSyncMode, NdFilterMode,
         PanTiltDirection, PanTiltLimitCorner, PresetNumber, ResolutionMode, WhiteBalanceMode,
     };
+    // High-level camera types and configuration
+    pub use crate::camera::{BlockingCamera as Camera, MovementConfig};
+    // Camera profiles - these are the primary way to configure camera behavior
+    pub use crate::camera::profiles::{
+        GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
+        SonyBRCH900, SonyEVIH100, SonyFR7,
+    };
+    // Type-safe parameter types for camera control
+    pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
+    pub use crate::units::{Degrees, Normalized, Percentage, Raw};
 
     // Ergonomic type aliases for specific camera models
     /// Generic VISCA camera type alias.
@@ -217,21 +218,23 @@ pub mod raw {
     pub use crate::command::{CommandKind, InquiryData, InquiryKind, Response, ViscaCommand};
     // Error types with retry logic
     pub use crate::error::{Error, Result};
-    // Runtime and executor types for async operations
-    #[cfg(feature = "mode-async")]
-    pub use crate::executor::Executor;
-    #[cfg(feature = "mode-async")]
-    pub use crate::runtime::{Runtime, TransportHandle};
     // Timeout configuration
     pub use crate::timeout::TimeoutConfig;
-    // Transport traits for custom implementations
-    #[cfg(not(feature = "mode-async"))]
-    pub use crate::transport::blocking_transport::BlockingTransport;
-    #[cfg(feature = "mode-async")]
-    pub use crate::transport::AsyncTransport;
     // All the type-safe parameter types (same as high-level)
     pub use crate::types::*;
     pub use crate::units::*;
     // Socket management (for custom implementations)
     pub use crate::visca_socket::ViscaSocket;
+
+    // Runtime and executor types for async operations
+    #[cfg(feature = "mode-async")]
+    pub use crate::executor::Executor;
+    #[cfg(feature = "mode-async")]
+    pub use crate::runtime::{Runtime, TransportHandle};
+
+    // Transport traits for custom implementations
+    #[cfg(not(feature = "mode-async"))]
+    pub use crate::transport::blocking_transport::BlockingTransport;
+    #[cfg(feature = "mode-async")]
+    pub use crate::transport::AsyncTransport;
 }

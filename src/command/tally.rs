@@ -194,9 +194,9 @@ impl TallyOff {
 
 #[cfg(test)]
 mod tests {
+    use crate::{command::bytes::VISCA_TERMINATOR, macros::test_utils::visca_test};
+
     use super::*;
-    use crate::command::bytes::VISCA_TERMINATOR;
-    use crate::macros::test_utils::visca_test;
 
     visca_test!(
         TallyRedOn,

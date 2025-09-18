@@ -50,7 +50,10 @@ fn main() -> Result<(), Error> {
     println!("Checking power status...");
     match camera.power().state() {
         Ok(is_on) => {
-            println!("  Power is: {}", if is_on { "ON" } else { "OFF" });
+            println!(
+                "  Power is: {power_state}",
+                power_state = if is_on { "ON" } else { "OFF" }
+            );
             if !is_on {
                 println!("  Turning camera ON...");
                 camera.power().on()?;
@@ -58,7 +61,7 @@ fn main() -> Result<(), Error> {
                 println!("  Camera powered on successfully");
             }
         }
-        Err(e) => println!("  Could not check power: {}", e),
+        Err(e) => println!("  Could not check power: {e}"),
     }
     println!();
 
@@ -67,18 +70,19 @@ fn main() -> Result<(), Error> {
     match camera.pan_tilt().position() {
         Ok(position) => {
             println!(
-                "  Current position: Pan={}, Tilt={}",
-                position.pan, position.tilt
+                "  Current position: Pan={pan}, Tilt={tilt}",
+                pan = position.pan,
+                tilt = position.tilt
             );
         }
-        Err(e) => println!("  Could not get position: {}", e),
+        Err(e) => println!("  Could not get position: {e}"),
     }
 
     match camera.zoom().position() {
         Ok(zoom) => {
-            println!("  Current zoom: {:?}", zoom);
+            println!("  Current zoom: {zoom:?}");
         }
-        Err(e) => println!("  Could not get zoom: {}", e),
+        Err(e) => println!("  Could not get zoom: {e}"),
     }
     println!();
 
@@ -173,7 +177,10 @@ async fn main() -> Result<(), Error> {
     println!("Checking power status...");
     match camera.power().state().await {
         Ok(is_on) => {
-            println!("  Power is: {}", if is_on { "ON" } else { "OFF" });
+            println!(
+                "  Power is: {power_state}",
+                power_state = if is_on { "ON" } else { "OFF" }
+            );
             if !is_on {
                 println!("  Turning camera ON...");
                 camera.power().on().await?;
@@ -181,7 +188,7 @@ async fn main() -> Result<(), Error> {
                 println!("  Camera powered on successfully");
             }
         }
-        Err(e) => println!("  Could not check power: {}", e),
+        Err(e) => println!("  Could not check power: {e}"),
     }
     println!();
 
@@ -190,18 +197,19 @@ async fn main() -> Result<(), Error> {
     match camera.pan_tilt().position().await {
         Ok(position) => {
             println!(
-                "  Current position: Pan={}, Tilt={}",
-                position.pan, position.tilt
+                "  Current position: Pan={pan}, Tilt={tilt}",
+                pan = position.pan,
+                tilt = position.tilt
             );
         }
-        Err(e) => println!("  Could not get position: {}", e),
+        Err(e) => println!("  Could not get position: {e}"),
     }
 
     match camera.zoom().position().await {
         Ok(zoom) => {
-            println!("  Current zoom: {:?}", zoom);
+            println!("  Current zoom: {zoom:?}");
         }
-        Err(e) => println!("  Could not get zoom: {}", e),
+        Err(e) => println!("  Could not get zoom: {e}"),
     }
     println!();
 

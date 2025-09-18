@@ -15,14 +15,14 @@
 ))]
 
 use grafton_visca::{
-    camera::CameraBuilder,
+    camera::{profiles::PtzOpticsG2, CameraBuilder},
     camera_id::CameraId,
     command::zoom::Zoom,
     testing::testkit::{
         scripted_transport::{ScriptedTransport, Step},
         DeterministicExecutor,
     },
-    Executor, ViscaSocket,
+    Error, Executor, ViscaSocket,
 };
 
 /// Test that cancel commands use the correct camera ID for the command being cancelled
@@ -53,8 +53,6 @@ fn test_cancel_uses_correct_camera_id() {
     let executor_clone = executor.clone();
 
     executor.clone().block_on(async move {
-        use grafton_visca::camera::profiles::PtzOpticsG2;
-
         // Build camera with custom camera ID 4
         let camera = CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone.clone())
             .camera_id(CameraId::new(4).unwrap())
@@ -72,7 +70,6 @@ fn test_cancel_uses_correct_camera_id() {
         camera.cancel(cmd_id).await.expect("Failed to cancel");
 
         // The command should be cancelled
-        use grafton_visca::Error;
         let result = future.await;
         assert!(
             matches!(result, Err(Error::CommandCanceled)),
@@ -123,8 +120,6 @@ fn test_multiple_cameras_cancel_with_own_ids() {
     let executor_clone = executor.clone();
 
     executor.clone().block_on(async move {
-        use grafton_visca::camera::profiles::PtzOpticsG2;
-
         // Create first camera with ID 2
         let camera1 = CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone.clone())
             .camera_id(CameraId::new(2).unwrap())
@@ -161,7 +156,6 @@ fn test_multiple_cameras_cancel_with_own_ids() {
             .expect("Failed to cancel camera 2");
 
         // Both commands should be cancelled
-        use grafton_visca::Error;
         let result1 = future1.await;
         let result2 = future2.await;
 
@@ -210,8 +204,6 @@ fn test_cancel_socket_uses_correct_camera_id() {
     let executor_clone = executor.clone();
 
     executor.clone().block_on(async move {
-        use grafton_visca::camera::profiles::PtzOpticsG2;
-
         // Build camera with camera ID 5
         let camera = CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone.clone())
             .camera_id(CameraId::new(5).unwrap())
@@ -238,7 +230,6 @@ fn test_cancel_socket_uses_correct_camera_id() {
             .expect("Failed to cancel socket");
 
         // Command should be cancelled
-        use grafton_visca::Error;
         let result = future.await;
         assert!(
             matches!(result, Err(Error::CommandCanceled)),

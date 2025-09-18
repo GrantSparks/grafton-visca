@@ -108,7 +108,7 @@ async fn main() -> Result<(), Error> {
     }
 
     match position_result {
-        Ok(pos) => println!("   ✓ Zoom position: {:?}", pos),
+        Ok(pos) => println!("   ✓ Zoom position: {pos:?}"),
         Err(e) => println!("   ✗ Position inquiry failed: {e}"),
     }
 
@@ -121,7 +121,7 @@ async fn main() -> Result<(), Error> {
     // System information
     println!("   Getting system version...");
     match camera.system().version().await {
-        Ok(version) => println!("   ✓ System version: {:?}", version),
+        Ok(version) => println!("   ✓ System version: {version:?}"),
         Err(e) => println!("   ✗ Version inquiry failed: {e}"),
     }
 

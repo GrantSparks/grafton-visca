@@ -501,13 +501,13 @@ fn spawn_runtime_loop<P, T, E>(
 {
     executor.spawn_bg(async move {
         let _ = runtime_loop_with_config::<P, T, E>(
-            transport,      // moved
-            submit_rx,      // moved
-            metrics_rx,     // moved
-            completions_rx, // moved
-            shutdown_rx,    // moved
-            task_executor,  // moved Arc<E>
-            config,         // plain data
+            transport,
+            submit_rx,
+            metrics_rx,
+            completions_rx,
+            shutdown_rx,
+            task_executor,
+            config,
         )
         .await;
     });
@@ -518,19 +518,8 @@ impl<P: Profile, E: crate::executor::Executor> Drop for RuntimeHandle<P, E> {
         // Only send shutdown signal if this is the last reference
         if Arc::strong_count(&self.inner) == 1 {
             tracing::trace!("RuntimeHandle::drop -> last reference, sending shutdown");
-            if std::env::var("RUNTIME_TRACE").is_ok() {
-                eprintln!("[RuntimeHandle] Drop called on last reference, sending shutdown signal");
-            }
             let _ = self.inner.shutdown_tx.send(());
             self.inner.shutdown.store(true, Ordering::Relaxed);
-            if std::env::var("RUNTIME_TRACE").is_ok() {
-                eprintln!("[RuntimeHandle] Shutdown signal sent via Drop");
-            }
-        } else if std::env::var("RUNTIME_TRACE").is_ok() {
-            eprintln!(
-                "[RuntimeHandle] Drop called but {count} references remain, not shutting down",
-                count = Arc::strong_count(&self.inner)
-            );
         }
 
         // Note: flume channels don't have a disconnect() method

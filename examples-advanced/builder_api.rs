@@ -18,8 +18,6 @@ use grafton_visca::{
 
 #[cfg(not(feature = "mode-async"))]
 fn main() -> Result<()> {
-    // Direct transport types are no longer available - use CameraBuilder instead
-
     tracing_subscriber::fmt::init();
 
     println!("=== CameraBuilder API Demo (Blocking) ===\n");
@@ -95,6 +93,8 @@ fn main() -> grafton_visca::Result<()> {
 ))]
 #[tokio::main]
 async fn main() -> grafton_visca::Result<()> {
+    use tokio::join;
+
     use grafton_visca::{
         camera::profiles::{PtzOpticsG2, SonyBRC300, SonyFR7},
         runtime::TokioRuntime,
@@ -123,7 +123,6 @@ async fn main() -> grafton_visca::Result<()> {
     println!("✓ Created async UDP camera with tokio");
 
     println!("\n--- Example 3: Concurrent Creation ---");
-    use tokio::join;
 
     async fn create_camera<P: grafton_visca::capabilities::Profile + Default>(
         addr: &str,
@@ -152,7 +151,7 @@ async fn main() -> grafton_visca::Result<()> {
     if cam3.is_ok() {
         created += 1;
     }
-    println!("✓ Created {created}/3 cameras concurrently");
+    println!("✓ Created {}/3 cameras concurrently", created);
 
     println!("\n--- Example 4: Connection Error Handling ---");
     match Tcp::connect("invalid.host:5678").await {
@@ -163,10 +162,10 @@ async fn main() -> grafton_visca::Result<()> {
                 .await
             {
                 Ok(_) => println!("Unexpected success"),
-                Err(e) => println!("✓ Handled camera build error: {e}"),
+                Err(e) => println!("✓ Handled camera build error: {}", e),
             }
         }
-        Err(e) => println!("✓ Handled connection error: {e}"),
+        Err(e) => println!("✓ Handled connection error: {}", e),
     }
 
     println!("\n--- Example 5: Async Benefits ---");

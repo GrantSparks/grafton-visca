@@ -1,14 +1,20 @@
 //! async-std-specific implementations of unified async I/O connectors.
 
-use async_std::io::prelude::*;
-use async_std::net::{TcpStream, UdpSocket};
-
-use crate::transport::address::AddressResolver;
-use crate::transport::async_io::{
-    AsyncDatagram, AsyncReadExt as AsyncReadExtTrait, AsyncWriteExt as AsyncWriteExtTrait,
-    TcpConnectionConfig, UdpSocketConfig,
+use async_std::{
+    io::prelude::*,
+    net::{TcpStream, UdpSocket},
 };
-use crate::Error;
+
+use crate::{
+    transport::{
+        address::AddressResolver,
+        async_io::{
+            AsyncDatagram, AsyncReadExt as AsyncReadExtTrait, AsyncWriteExt as AsyncWriteExtTrait,
+            TcpConnectionConfig, UdpSocketConfig,
+        },
+    },
+    Error,
+};
 
 /// Combined TCP stream wrapper that implements both read and write traits.
 #[derive(Debug)]

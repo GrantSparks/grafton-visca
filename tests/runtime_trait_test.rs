@@ -183,8 +183,9 @@ mod smol_runtime_tests {
     #[test]
     fn test_smol_runtime_executor_delegation() {
         run_smol(async {
-            use grafton_visca::Executor;
             use std::time::Duration;
+
+            use grafton_visca::Executor;
 
             let runtime = SmolRuntime::new();
 

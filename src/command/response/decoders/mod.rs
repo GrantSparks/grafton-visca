@@ -10,11 +10,12 @@ mod system;
 mod tally;
 mod zoom;
 
+use crate::{capabilities::Profile, error::Error};
+
 use super::{
     payload::Payload,
     types::{InquiryKind, Response},
 };
-use crate::{capabilities::Profile, error::Error};
 
 /// Try each domain decoder until one claims the ResponseKind.
 ///

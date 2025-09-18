@@ -122,7 +122,6 @@ fn test_command_cancellation_through_runtime() {
     ])
     .with_executor(executor.clone());
 
-    // Create camera
     let exec = executor.clone();
     executor.block_on(async move {
         let camera =
@@ -170,7 +169,6 @@ fn test_inquiry_through_runtime() {
         }])
         .with_executor(executor.clone());
 
-    // Create camera
     let exec = executor.clone();
     executor.block_on(async move {
         let camera =
@@ -206,7 +204,6 @@ fn test_transport_error_propagation() {
         }])
         .with_executor(executor.clone());
 
-    // Create camera
     let exec = executor.clone();
     executor.block_on(async move {
         let camera =

@@ -32,7 +32,7 @@ pub trait AsyncTransport: Send {
     /// Send raw bytes to the device.
     ///
     /// This method sends the provided bytes over the transport and returns
-    /// when the bytes have been written to the underlying transport. TODO: Fix this to be async fn when return type notation is stable in Rust.
+    /// when the bytes have been written to the underlying transport.
     fn send(&mut self, bytes: &[u8]) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Receive raw bytes from the device into the provided buffer.
@@ -44,7 +44,6 @@ pub trait AsyncTransport: Send {
     ///
     /// Returns `Ok(0)` when the connection is closed.
     /// Stream-based transports should return `Err(Error::ConnectionClosed)` when encountering EOF.
-    /// TODO: Fix this to be async fn when return type notation is stable in Rust.
     fn recv_into<'a>(
         &'a mut self,
         dst: &'a mut [u8],

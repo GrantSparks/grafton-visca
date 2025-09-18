@@ -14,7 +14,12 @@
 //! The implementation uses the Mode trait to provide both blocking and async APIs
 //! from a single unified codebase.
 
-use crate::{camera::ViscaClient, command::preset::PresetNumber, mode::Mode, Error};
+use crate::{
+    camera::ViscaClient,
+    command::preset::{PresetAction, PresetCommand, PresetNumber},
+    mode::Mode,
+    Error,
+};
 
 /// Preset operations for PTZ cameras.
 ///
@@ -123,7 +128,6 @@ where
     type Mode = M;
 
     fn preset_recall(&self, preset: PresetNumber) -> M::Fut<'_, Result<(), Error>> {
-        use crate::command::preset::{PresetAction, PresetCommand};
         let cmd = PresetCommand {
             action: PresetAction::Recall,
             preset_number: preset,
@@ -132,7 +136,6 @@ where
     }
 
     fn preset_set(&self, preset: PresetNumber) -> M::Fut<'_, Result<(), Error>> {
-        use crate::command::preset::{PresetAction, PresetCommand};
         let cmd = PresetCommand {
             action: PresetAction::Set,
             preset_number: preset,
@@ -141,7 +144,6 @@ where
     }
 
     fn preset_reset(&self, preset: PresetNumber) -> M::Fut<'_, Result<(), Error>> {
-        use crate::command::preset::{PresetAction, PresetCommand};
         let cmd = PresetCommand {
             action: PresetAction::Reset,
             preset_number: preset,

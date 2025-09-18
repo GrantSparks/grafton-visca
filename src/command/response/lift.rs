@@ -2,15 +2,14 @@
 
 use std::borrow::Cow;
 
+use super::{
+    decoders::{dispatch, dispatch_for},
+    types::{InquiryKind, Response},
+};
 use crate::{
     capabilities::Profile,
     error::Error,
     protocol::response::{decode_basic, BasicKind, BasicResponse},
-};
-
-use super::{
-    decoders::{dispatch, dispatch_for},
-    types::{InquiryKind, Response},
 };
 
 /// Lift a basic protocol response to a high-level Response.

@@ -59,8 +59,9 @@ fn main() {
 ))]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    use grafton_visca::runtime::TokioRuntime;
     use tokio::time::{sleep, Duration};
+
+    use grafton_visca::runtime::TokioRuntime;
 
     tracing_subscriber::fmt::init();
 
@@ -149,9 +150,10 @@ async fn main() -> Result<(), Error> {
 #[async_std::main]
 async fn main() -> Result<(), Error> {
     use async_std::task::sleep;
-    use grafton_visca::runtime::AsyncStdRuntime;
 
     use std::time::Duration;
+
+    use grafton_visca::runtime::AsyncStdRuntime;
 
     tracing_subscriber::fmt::init();
 

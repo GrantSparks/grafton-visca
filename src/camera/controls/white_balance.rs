@@ -16,7 +16,9 @@
 
 use crate::{
     camera::ViscaClient,
-    command::white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode},
+    command::white_balance::{
+        AWBSensitivityCommand, AutoWhiteBalanceSensitivity, WhiteBalanceCommand, WhiteBalanceMode,
+    },
     mode::Mode,
     Error,
 };
@@ -165,7 +167,6 @@ where
     type Mode = M;
 
     fn set_white_balance_mode(&self, mode: WhiteBalanceMode) -> M::Fut<'_, Result<(), Error>> {
-        use crate::command::white_balance::WhiteBalanceCommand;
         let cmd = WhiteBalanceCommand { mode };
         self.execute(cmd)
     }
@@ -202,7 +203,6 @@ where
         &self,
         sensitivity: AutoWhiteBalanceSensitivity,
     ) -> M::Fut<'_, Result<(), Error>> {
-        use crate::command::white_balance::AWBSensitivityCommand;
         let cmd = AWBSensitivityCommand { sensitivity };
         self.execute(cmd)
     }

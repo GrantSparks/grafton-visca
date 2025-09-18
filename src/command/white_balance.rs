@@ -103,10 +103,12 @@ impl AWBSensitivityCommand {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
-    use crate::command::bytes::VISCA_TERMINATOR;
-    use crate::command::encode::ViscaCommand;
-    use crate::macros::test_utils::visca_test;
-    use crate::timeout::{CommandCategory, CommandTimeout};
+
+    use crate::{
+        command::{bytes::VISCA_TERMINATOR, encode::ViscaCommand},
+        macros::test_utils::visca_test,
+        timeout::{CommandCategory, CommandTimeout},
+    };
 
     #[test]
     fn test_white_balance_mode_values() {

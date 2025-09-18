@@ -26,16 +26,10 @@ mod tests {
         // PtzOpticsG2 default UDP port is 1259
         let result = BlockingCamera::<PtzOpticsG2, _>::open_udp("192.168.1.100");
         // UDP is connectionless, so this should succeed even for non-existent addresses
-        if let Err(e) = &result {
-            println!("UDP error for PtzOpticsG2: {:?}", e);
-        }
         assert!(result.is_ok());
 
         // GenericVisca also uses default UDP port 1259
         let result = BlockingCamera::<GenericVisca, _>::open_udp("192.168.1.101");
-        if let Err(e) = &result {
-            println!("UDP error for GenericVisca: {:?}", e);
-        }
         assert!(result.is_ok());
     }
 

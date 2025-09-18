@@ -75,10 +75,11 @@ impl ViscaCommand for PresetCommand {
 #[cfg(test)]
 #[allow(clippy::panic)]
 mod tests {
+    use crate::{
+        command::bytes::VISCA_TERMINATOR, macros::test_utils::visca_test, timeout::CommandTimeout,
+    };
+
     use super::*;
-    use crate::command::bytes::VISCA_TERMINATOR;
-    use crate::macros::test_utils::visca_test;
-    use crate::timeout::CommandTimeout;
 
     #[test]
     fn test_preset_number_new() {

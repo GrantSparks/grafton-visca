@@ -130,7 +130,6 @@ mod tests {
 
     #[test]
     fn test_gain_command_set_value() {
-        // Test various gain values
         let test_values = vec![0x00, 0x01, 0x03, 0x05, 0x07];
         for value in test_values {
             let gain =
@@ -159,7 +158,6 @@ mod tests {
 
     #[test]
     fn test_gain_command_g2_validation() {
-        // Test valid G2 gain values (0x00-0x07)
         for value in 0x00..=0x07 {
             let gain =
                 GainLevel::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
@@ -170,7 +168,6 @@ mod tests {
         // Gain itself is limited to 0x00-0x07, which are all valid for G2
         // So all valid Gain instances should pass G2 validation
 
-        // Non-direct commands should always be valid
         assert!(Gain::Reset
             .validate_for_model(CameraVariant::PtzOpticsG2)
             .is_ok());
@@ -184,7 +181,6 @@ mod tests {
 
     #[test]
     fn test_gain_limit_command() {
-        // Test various gain limit values
         let test_values = vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07];
         for value in test_values {
             let limit =
@@ -201,7 +197,6 @@ mod tests {
 
     #[test]
     fn test_command_categories() {
-        // All gain commands should be Quick category
         assert_eq!(Gain::Reset.timeout_class(), CommandCategory::Quick);
         assert_eq!(Gain::Up.timeout_class(), CommandCategory::Quick);
         assert_eq!(Gain::Down.timeout_class(), CommandCategory::Quick);
@@ -223,7 +218,6 @@ mod tests {
 
     #[test]
     fn test_response_types() {
-        // All gain commands should return None for response_type
         assert!(Gain::Reset.response_kind().is_none());
         assert!(Gain::Up.response_kind().is_none());
         assert!(Gain::Down.response_kind().is_none());
@@ -241,7 +235,6 @@ mod tests {
 
     #[test]
     fn test_gain_command_debug() {
-        // Test Debug trait implementation
         let cmd = Gain::Reset;
         let debug_str = format!("{cmd:?}");
         assert!(debug_str.contains("Reset"));

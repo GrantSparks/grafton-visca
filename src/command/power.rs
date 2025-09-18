@@ -46,9 +46,10 @@ impl PowerStandby {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::command::bytes::VISCA_TERMINATOR;
     use crate::macros::test_utils::visca_test;
+
+    use super::*;
 
     visca_test!(
         PowerOn,

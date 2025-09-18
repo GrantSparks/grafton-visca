@@ -159,7 +159,6 @@ impl Default for CameraState {
     }
 }
 
-// Manual Debug implementation for SimulatorInner
 struct SimulatorInner {
     // Socket management
     socket_states: RwLock<[SocketState; 2]>,

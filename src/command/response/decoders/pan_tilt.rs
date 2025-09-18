@@ -1,5 +1,6 @@
 //! Pan/Tilt-related response decoders.
 
+use super::super::payload::{Nibbles, Payload};
 use crate::{
     capabilities::{PanTilt, Profile},
     command::{
@@ -8,8 +9,6 @@ use crate::{
     },
     error::Error,
 };
-
-use super::super::payload::{Nibbles, Payload};
 
 /// Decode pan/tilt-related inquiry responses.
 pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<Response, Error>> {

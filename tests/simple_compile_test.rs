@@ -1,5 +1,7 @@
 //! Simple test to verify compilation succeeds with generic Camera implementation.
 
+use grafton_visca::capabilities::{NdFilter, Profile};
+
 #[cfg(feature = "mode-async")]
 use grafton_visca::{
     camera::{
@@ -11,8 +13,6 @@ use grafton_visca::{
 
 #[cfg(not(feature = "mode-async"))]
 use grafton_visca::BlockingClient;
-
-use grafton_visca::capabilities::{NdFilter, Profile};
 
 #[test]
 fn test_compilation_succeeds() {

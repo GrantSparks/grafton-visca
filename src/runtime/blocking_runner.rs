@@ -113,7 +113,7 @@ impl<P: Profile> BlockingRunner<P> {
         let prepared_cmd = std::sync::Arc::new(
             crate::command::encode::PreparedCommand::new(command.clone(), camera_id).map_err(
                 |e| {
-                    tracing::error!("Failed to prepare command: {:?}", e);
+                    tracing::error!("Failed to prepare command: {e:?}");
                     e
                 },
             )?,
@@ -184,7 +184,7 @@ impl<P: Profile> BlockingRunner<P> {
                     &self.buffer_manager,
                     write_timeout,
                 ) {
-                    debug!("Send operation failed: {:?}", e);
+                    debug!("Send operation failed: {e:?}");
                     continue;
                 }
             }
@@ -218,18 +218,18 @@ impl<P: Profile> BlockingRunner<P> {
                     &self.buffer_manager,
                     write_timeout,
                 ) {
-                    debug!("Send retry operation failed: {:?}", e);
+                    debug!("Send retry operation failed: {e:?}");
                     continue;
                 }
                 debug!(
-                    "Sent retry for {} {} (attempt {})",
+                    "Sent retry for {} {retry_id} (attempt {attempt})",
                     if kind == CommandKind::Inquiry {
                         "inquiry"
                     } else {
                         "command"
                     },
-                    retry.id,
-                    retry.attempt
+                    retry_id = retry.id,
+                    attempt = retry.attempt
                 );
             }
 
@@ -252,7 +252,7 @@ impl<P: Profile> BlockingRunner<P> {
                     });
                 }
                 Ok(n) => {
-                    trace!("Received {} bytes from transport", n);
+                    trace!("Received {n} bytes from transport");
                     if let Err(e) = self.framer.push_slice(&read_buf[..n]) {
                         warn!("Framer buffer exceeded limits: {e}");
                         continue;
@@ -278,7 +278,7 @@ impl<P: Profile> BlockingRunner<P> {
                         let basic = match decode_basic(&payload) {
                             Some(b) => b,
                             None => {
-                                warn!("Failed to decode VISCA frame: {:02X?}", payload);
+                                warn!("Failed to decode VISCA frame: {payload:02X?}");
                                 continue;
                             }
                         };
@@ -289,7 +289,7 @@ impl<P: Profile> BlockingRunner<P> {
                                 let cmd_id = meta
                                     .sequence
                                     .and_then(|seq| self.core.get_command_by_sequence(seq));
-                                debug!("Received ACK for socket {:?}, cmd_id {:?}", socket, cmd_id);
+                                debug!("Received ACK for socket {socket:?}, cmd_id {cmd_id:?}");
                                 SchedulerEvent::Ack { socket, cmd_id }
                             }
                             BasicKind::Completion => {
@@ -303,7 +303,7 @@ impl<P: Profile> BlockingRunner<P> {
 
                                 if let Some(cmd_id) = cmd_id {
                                     if cmd_id == target_cmd_id {
-                                        debug!("Command {} completed successfully", cmd_id);
+                                        debug!("Command {cmd_id} completed successfully");
                                         let response_type = self.core.get_inquiry_type(cmd_id);
                                         let response =
                                             lift_inquiry_for::<P>(&basic, response_type)?;
@@ -311,7 +311,7 @@ impl<P: Profile> BlockingRunner<P> {
                                     }
                                 }
 
-                                debug!("Received completion for socket {:?}", socket);
+                                debug!("Received completion for socket {socket:?}");
                                 let response_type =
                                     cmd_id.and_then(|id| self.core.get_inquiry_type(id));
                                 let response = lift_inquiry_for::<P>(&basic, response_type)?;
@@ -335,8 +335,7 @@ impl<P: Profile> BlockingRunner<P> {
                                 }
 
                                 debug!(
-                                    "Received error 0x{:02X} for socket {:?}, cmd_id {:?}",
-                                    code, socket, cmd_id
+                                    "Received error 0x{code:02X} for socket {socket:?}, cmd_id {cmd_id:?}"
                                 );
                                 SchedulerEvent::Error {
                                     socket,
@@ -353,7 +352,7 @@ impl<P: Profile> BlockingRunner<P> {
 
                                 if let Some(cmd_id) = cmd_id {
                                     if cmd_id == target_cmd_id {
-                                        debug!("Inquiry {} completed successfully", cmd_id);
+                                        debug!("Inquiry {cmd_id} completed successfully");
                                         let response =
                                             lift_inquiry_for::<P>(&basic, response_type.as_ref())?;
                                         return Ok(response);
@@ -390,7 +389,7 @@ impl<P: Profile> BlockingRunner<P> {
                 }
                 Err(Error::Timeout) => {}
                 Err(e) => {
-                    warn!("Transport receive error: {}", e);
+                    warn!("Transport receive error: {e}");
                     // Generate network error event
                     let actions = self
                         .core

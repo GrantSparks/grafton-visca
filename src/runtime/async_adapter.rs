@@ -204,10 +204,6 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 // Store response channel
                 self.response_channels.insert(id, response_tx);
 
-                if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-                    eprintln!("[AsyncAdapter] Submitted command id={id}, stored response channel");
-                }
-
                 // Queue command in core
                 let now = self.executor.now();
                 let pending_cmd = PendingCommand {
@@ -460,22 +456,8 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
 
                 // Core handles all inquiry cleanup now
 
-                if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-                    eprintln!(
-                        "[AsyncAdapter] CommandFailed action for id={id}, error={error:?}, has_channel={}",
-                        self.response_channels.contains_key(&id)
-                    );
-                }
-
                 if let Some(tx) = self.response_channels.remove(&id) {
-                    if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-                        eprintln!("[AsyncAdapter] Sending error to response channel for id={id}");
-                    }
                     let _ = tx.send_async(Err(error)).await;
-                } else if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-                    eprintln!(
-                        "[AsyncAdapter] No response channel found for failed command id={id}"
-                    );
                 }
             }
             SchedulerAction::Timeout {
@@ -487,10 +469,6 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 // Only notify the waiting future if no retries are left
                 if !will_retry {
                     self.notify_timeout(id);
-                } else if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-                    eprintln!(
-                        "[AsyncAdapter] Timeout for id={id} but will retry, keeping future pending"
-                    );
                 }
             }
             SchedulerAction::RetryCommand { id, delay } => {
@@ -510,14 +488,6 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
         if let Some(tx) = self.response_channels.remove(&id) {
             // Complete the user's future deterministically
             let _ = tx.try_send(Err(Error::Timeout));
-            if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-                eprintln!("[AsyncAdapter] Timeout: completed future with Error::Timeout (id={id})");
-            }
-        } else {
-            // No waiter: either already completed/cleaned up or late event
-            if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-                eprintln!("[AsyncAdapter] Timeout for id={id} but no waiter; ignoring");
-            }
         }
     }
 

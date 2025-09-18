@@ -56,75 +56,55 @@
 //! # }
 //! ```
 
+use std::time::{Duration, Instant};
+
 pub mod address;
-// Unified async I/O helpers for reducing code duplication across runtimes
-// Only needed when we have at least one runtime
 #[cfg(any(
     feature = "runtime-tokio",
     feature = "runtime-async-std",
     feature = "runtime-smol"
 ))]
 pub(crate) mod async_io;
-// Generic async transport implementations (require runtime for BufferManager methods)
 #[cfg(feature = "transport-serial-tokio")]
 pub(crate) mod async_serial;
+#[cfg(all(feature = "mode-async", feature = "runtime-async-std"))]
+pub(crate) mod async_std;
 #[cfg(any(
     feature = "runtime-tokio",
     feature = "runtime-async-std",
     feature = "runtime-smol"
 ))]
 pub(crate) mod async_tcp;
+#[cfg(feature = "mode-async")]
+pub mod async_transport;
 #[cfg(any(
     feature = "runtime-tokio",
     feature = "runtime-async-std",
     feature = "runtime-smol"
 ))]
 pub(crate) mod async_udp;
-// Async transport trait and runtime-specific transports are only public with `async`
-#[cfg(feature = "mode-async")]
-pub mod async_transport;
-// Blocking transports are now private - use camera-first API instead
 #[cfg(not(feature = "mode-async"))]
 pub(crate) mod blocking;
 pub mod blocking_transport;
 pub mod buffer;
 pub mod builder;
-// The envelope module is now needed for both blocking and async modes
-// since async cameras now do their own protocol framing
 pub mod envelope;
 pub mod retry;
-// Unified serial configuration module (available with either blocking or async serial)
 #[cfg(any(feature = "transport-serial", feature = "transport-serial-tokio"))]
 pub mod serial;
-// Old blocking serial transport (being phased out in favor of unified approach)
 #[cfg(all(not(feature = "mode-async"), feature = "transport-serial"))]
 pub(crate) mod serial_blocking;
-
-// Runtime-specific transport implementations are feature-gated extensions
-// They should be accessed through the runtime_adapters module
+#[cfg(all(feature = "mode-async", feature = "runtime-smol"))]
+pub(crate) mod smol;
 #[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]
 pub(crate) mod tokio;
 
-#[cfg(all(feature = "mode-async", feature = "runtime-async-std"))]
-pub(crate) mod async_std;
-
-#[cfg(all(feature = "mode-async", feature = "runtime-smol"))]
-pub(crate) mod smol;
-
 #[cfg(feature = "mode-async")]
 pub use async_transport::AsyncTransport;
-// Direct transport types are no longer exported - use camera-first API instead:
-// - BlockingCamera::connect_tcp/udp()
-// - CameraBuilder::tcp/udp()
-// - Camera::<Blocking, _, _, _>::connect_tcp/udp()
-pub use builder::{NetTransportBuilder, Transport, TransportBuilderExt};
-use std::time::{Duration, Instant};
-
 #[cfg(not(feature = "mode-async"))]
 pub use blocking_transport::BlockingTransportHandle;
-// BlockingTransport and HasTransportConfig are exposed for compatibility
-// but the recommended approach is to use the camera-first API instead
 pub use blocking_transport::{BlockingTransport, HasTransportConfig};
+pub use builder::{NetTransportBuilder, Transport, TransportBuilderExt};
 
 /// Retry configuration for transport layer operations.
 ///

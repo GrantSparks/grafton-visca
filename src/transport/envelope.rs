@@ -178,8 +178,8 @@ impl Envelope for SonyEncapsulated {
         let expected_payload_len = framed.len() - SonyHeader::SIZE;
         if header.payload_length as usize != expected_payload_len {
             return Err(Error::ParseError(Cow::Owned(format!(
-                "Sony header length mismatch: header says {}, actual payload is {}",
-                header.payload_length, expected_payload_len
+                "Sony header length mismatch: header says {header_length}, actual payload is {expected_payload_len}",
+                header_length = header.payload_length
             ))));
         }
 
@@ -254,7 +254,6 @@ fn normalize_address(original_addr: u8, kind: CommandKind, addressing: Addressin
 }
 
 impl SonyEncapsulated {
-    /// Extract VISCA payload from Sony encapsulated response.
     fn sony_extract_payload(&self, framed_bytes: &[u8]) -> Result<Bytes, Error> {
         if framed_bytes.len() < SonyHeader::SIZE {
             return Err(Error::ParseError(Cow::Borrowed(
@@ -262,7 +261,6 @@ impl SonyEncapsulated {
             )));
         }
 
-        // Parse header using the unified implementation
         let header = SonyHeader::decode(framed_bytes).ok_or(Error::ParseError(Cow::Borrowed(
             "Invalid Sony header format",
         )))?;
@@ -280,8 +278,8 @@ impl SonyEncapsulated {
         let expected_payload_len = framed_bytes.len() - SonyHeader::SIZE;
         if header.payload_length as usize != expected_payload_len {
             return Err(Error::ParseError(Cow::Owned(format!(
-                "Sony header length mismatch: header says {}, actual payload is {}",
-                header.payload_length, expected_payload_len
+                "Sony header length mismatch: header says {header_length}, actual payload is {expected_payload_len}",
+                header_length = header.payload_length
             ))));
         }
 

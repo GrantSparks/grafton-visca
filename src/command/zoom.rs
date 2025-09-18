@@ -100,8 +100,6 @@ pub enum Zoom {
     Position(ZoomPosition),
 }
 
-impl Zoom {}
-
 impl ViscaCommand for Zoom {
     type Response = ();
     const MAX_SIZE: usize = 10;

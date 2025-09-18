@@ -4,8 +4,6 @@
 //! including backlight compensation, noise reduction, image flip, picture effects,
 //! brightness (luminance), contrast, and sharpness adjustments.
 
-use grafton_visca_macros::ViscaEnum;
-
 use std::borrow::Cow;
 
 use crate::{
@@ -15,6 +13,7 @@ use crate::{
     types::{ContrastLevel, LuminanceLevel, NoiseReduction2DLevel, NoiseReduction3DLevel},
     visca_command,
 };
+use grafton_visca_macros::ViscaEnum;
 
 /// Sharpness control modes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
@@ -652,7 +651,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x63, 0x05, VISCA_TERMINATOR]
     );
 
-    // Test Mosaic effect
     visca_test!(
         PictureEffectCommand,
         test_picture_effect_mosaic,
@@ -671,9 +669,6 @@ mod tests {
         assert!(matches!(cmd.timeout_class(), CommandCategory::Quick));
     }
 
-    // Tests from image_adjustment.rs
-
-    // Test Auto mode
     visca_test!(
         Sharpness,
         test_sharpness_mode_auto,
@@ -681,7 +676,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x05, 0x02, VISCA_TERMINATOR]
     );
 
-    // Test Manual mode
     visca_test!(
         Sharpness,
         test_sharpness_mode_manual,
@@ -703,23 +697,18 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x02, 0x00, VISCA_TERMINATOR]
     );
 
-    // Test Up
     visca_test!(
         Sharpness,
         test_sharpness_up,
         Sharpness::Up,
         &[0x81, 0x01, 0x04, 0x02, 0x02, VISCA_TERMINATOR]
     );
-
-    // Test Down
     visca_test!(
         Sharpness,
         test_sharpness_down,
         Sharpness::Down,
         &[0x81, 0x01, 0x04, 0x02, 0x03, VISCA_TERMINATOR]
     );
-
-    // Test sharpness level 0
     visca_test!(
         Sharpness,
         test_sharpness_level_0,
@@ -737,7 +726,6 @@ mod tests {
         ]
     );
 
-    // Test sharpness level 5
     visca_test!(
         Sharpness,
         test_sharpness_level_5,
@@ -754,8 +742,6 @@ mod tests {
             VISCA_TERMINATOR
         ]
     );
-
-    // Test sharpness level 11
     visca_test!(
         Sharpness,
         test_sharpness_level_11,
@@ -798,7 +784,6 @@ mod tests {
         assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
     }
 
-    // Test luminance level 0
     visca_test!(
         Luminance,
         test_luminance_level_0,
@@ -816,7 +801,6 @@ mod tests {
         ]
     );
 
-    // Test luminance level 7
     visca_test!(
         Luminance,
         test_luminance_level_7,
@@ -834,7 +818,6 @@ mod tests {
         ]
     );
 
-    // Test luminance level 14
     visca_test!(
         Luminance,
         test_luminance_level_14,
@@ -875,7 +858,6 @@ mod tests {
         // The LuminanceLevel type itself enforces the valid range
     }
 
-    // Test contrast level 0
     visca_test!(
         Contrast,
         test_contrast_level_0,
@@ -893,7 +875,6 @@ mod tests {
         ]
     );
 
-    // Test contrast level 7
     visca_test!(
         Contrast,
         test_contrast_level_7,
@@ -911,7 +892,6 @@ mod tests {
         ]
     );
 
-    // Test contrast level 14
     visca_test!(
         Contrast,
         test_contrast_level_14,

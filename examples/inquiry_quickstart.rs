@@ -236,10 +236,10 @@ async fn main() -> grafton_visca::Result<()> {
     // Display results
     println!("--- System Information ---");
     match power {
-        Ok(is_on) => println!(
-            "Power: {power_state}",
-            power_state = if is_on { "ON" } else { "OFF" }
-        ),
+        Ok(is_on) => {
+            let power_state = if is_on { "ON" } else { "OFF" };
+            println!("Power: {power_state}");
+        }
         Err(e) => println!("Power: Failed - {e}"),
     }
     if let Ok(ver) = version {

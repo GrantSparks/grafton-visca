@@ -250,8 +250,9 @@ fn test_async_detect_race_semantics() {
 
 #[cfg(feature = "runtime-tokio")]
 mod tokio_runtime_tests {
-    use super::*;
     use grafton_visca::TokioExecutor;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_async_detect_with_real_tokio_executor() {
@@ -281,8 +282,9 @@ mod tokio_runtime_tests {
 
 #[cfg(feature = "runtime-async-std")]
 mod async_std_runtime_tests {
-    use super::*;
     use grafton_visca::AsyncStdExecutor;
+
+    use super::*;
 
     #[async_std::test]
     async fn test_async_detect_with_real_async_std_executor() {

@@ -1,14 +1,20 @@
 //! Tokio-specific implementations of unified async I/O connectors.
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{TcpStream, UdpSocket};
-
-use crate::transport::address::AddressResolver;
-use crate::transport::async_io::{
-    AsyncDatagram, AsyncReadExt as AsyncReadExtTrait, AsyncWriteExt as AsyncWriteExtTrait,
-    TcpConnectionConfig, UdpSocketConfig,
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt, BufReader},
+    net::{TcpStream, UdpSocket},
 };
-use crate::Error;
+
+use crate::{
+    transport::{
+        address::AddressResolver,
+        async_io::{
+            AsyncDatagram, AsyncReadExt as AsyncReadExtTrait, AsyncWriteExt as AsyncWriteExtTrait,
+            TcpConnectionConfig, UdpSocketConfig,
+        },
+    },
+    Error,
+};
 
 /// Wrapper around tokio's BufReader to implement our AsyncReadExt trait.
 #[derive(Debug)]

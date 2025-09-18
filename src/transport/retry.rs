@@ -5,7 +5,6 @@
 
 #[cfg(feature = "mode-async")]
 use std::future::Future;
-
 use std::time::{Duration, Instant};
 
 use super::RetryConfig;
