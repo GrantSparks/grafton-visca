@@ -1,44 +1,106 @@
-//! zoom control implementation using Mode trait.
+//! Zoom control implementation for PTZ cameras.
+//!
+//! This module provides comprehensive zoom control functionality including:
+//! - Standard speed zoom operations (tele/wide)
+//! - Variable speed zoom control with fine-grained speed levels
+//! - Absolute zoom positioning with normalized values
+//! - Digital zoom enable/disable for extended zoom range
+//!
+//! The implementation uses the Mode trait to provide both blocking and async APIs
+//! from a single unified codebase.
 
 use crate::{camera::ViscaClient, command::zoom::ZoomSpeed, mode::Mode, units::Normalized, Error};
 
-/// zoom operations for cameras.
+/// Zoom operations for PTZ cameras.
 ///
-/// This trait provides zoom control methods that work seamlessly for both
+/// This trait provides comprehensive zoom control methods that work seamlessly for both
 /// blocking and async cameras through the Mode trait system.
+///
+/// # Examples
+///
+/// ## Blocking mode
+/// ```ignore
+/// camera.zoom_tele_std()?;  // Start zooming in
+/// thread::sleep(Duration::from_secs(1));
+/// camera.zoom_stop()?;  // Stop zooming
+/// ```
+///
+/// ## Async mode
+/// ```ignore
+/// camera.zoom_tele_std().await?;  // Start zooming in
+/// sleep(Duration::from_secs(1)).await;
+/// camera.zoom_stop().await?;  // Stop zooming
+/// ```
 #[grafton_visca_macros::delegate_to_session]
 pub trait ZoomControl {
     /// The mode type for this camera (Async or Blocking).
     type Mode: Mode;
 
-    /// Stop zooming.
+    /// Stop any zoom operation currently in progress.
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn zoom_stop(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
-    /// Start zooming in at standard speed.
+    /// Start zooming in (telephoto direction) at standard speed.
+    ///
+    /// The zoom will continue until `zoom_stop()` is called or the maximum zoom is reached.
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn zoom_tele_std(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
-    /// Start zooming out at standard speed.
+    /// Start zooming out (wide angle direction) at standard speed.
+    ///
+    /// The zoom will continue until `zoom_stop()` is called or the minimum zoom is reached.
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn zoom_wide_std(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
-    /// Start zooming in at variable speed.
+    /// Start zooming in at a specified variable speed.
+    ///
+    /// # Arguments
+    /// * `speed` - Zoom speed (0-7, where 0 is slowest and 7 is fastest)
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn zoom_tele_variable(
         &self,
         speed: ZoomSpeed,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
-    /// Start zooming out at variable speed.
+    /// Start zooming out at a specified variable speed.
+    ///
+    /// # Arguments
+    /// * `speed` - Zoom speed (0-7, where 0 is slowest and 7 is fastest)
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn zoom_wide_variable(
         &self,
         speed: ZoomSpeed,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
-    /// Set zoom to absolute position (0.0 = wide, 1.0 = full tele).
+    /// Set zoom to an absolute normalized position.
+    ///
+    /// # Arguments
+    /// * `position` - Normalized position (0.0 = wide, 1.0 = full telephoto)
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn zoom_absolute(
         &self,
         position: Normalized,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
-    /// Set zoom to a specific position value.
+    /// Set zoom to a specific raw position value.
+    ///
+    /// # Arguments
+    /// * `position` - Raw zoom position value (camera-specific range)
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn set_zoom_position(
         &self,
         position: crate::types::ZoomPosition,

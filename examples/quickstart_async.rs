@@ -26,17 +26,17 @@
     feature = "runtime-async-std",
     feature = "runtime-smol"
 ))]
-use std::env;
+use grafton_visca::{
+    camera::{profiles::PtzOpticsG2, Connect},
+    Error,
+};
 
 #[cfg(any(
     feature = "runtime-tokio",
     feature = "runtime-async-std",
     feature = "runtime-smol"
 ))]
-use grafton_visca::{
-    camera::{profiles::PtzOpticsG2, Connect},
-    Error,
-};
+use std::env;
 
 // Main function for when no runtime is selected
 #[cfg(not(any(
@@ -60,7 +60,6 @@ fn main() {
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     use grafton_visca::runtime::TokioRuntime;
-
     use tokio::time::{sleep, Duration};
 
     tracing_subscriber::fmt::init();
@@ -88,7 +87,8 @@ async fn main() -> Result<(), Error> {
 
     // Check power state
     let is_on = camera.power().state().await?;
-    println!("Power state: {}", if is_on { "ON" } else { "OFF" });
+    let power_status = if is_on { "ON" } else { "OFF" };
+    println!("Power state: {power_status}");
 
     // PTZ operations using accessors
     println!("\n--- PTZ Operations ---");
@@ -148,9 +148,9 @@ async fn main() -> Result<(), Error> {
 #[cfg(all(feature = "runtime-async-std", not(feature = "runtime-smol")))]
 #[async_std::main]
 async fn main() -> Result<(), Error> {
+    use async_std::task::sleep;
     use grafton_visca::runtime::AsyncStdRuntime;
 
-    use async_std::task::sleep;
     use std::time::Duration;
 
     tracing_subscriber::fmt::init();
@@ -178,7 +178,8 @@ async fn main() -> Result<(), Error> {
 
     // Check power state
     let is_on = camera.power().state().await?;
-    println!("Power state: {}", if is_on { "ON" } else { "OFF" });
+    let power_status = if is_on { "ON" } else { "OFF" };
+    println!("Power state: {power_status}");
 
     // PTZ operations using accessors
     println!("\n--- PTZ Operations ---");
@@ -265,7 +266,8 @@ fn main() -> Result<(), Error> {
 
         // Check power state
         let is_on = camera.power().state().await?;
-        println!("Power state: {}", if is_on { "ON" } else { "OFF" });
+        let power_status = if is_on { "ON" } else { "OFF" };
+        println!("Power state: {power_status}");
 
         // PTZ operations using accessors
         println!("\n--- PTZ Operations ---");

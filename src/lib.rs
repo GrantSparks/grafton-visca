@@ -30,7 +30,7 @@
 //!
 //! ## Features
 //!
-//! - **Unified API Architecture**: Single consistent interface with 17 traits covering 130+ methods
+//! - **Unified API Architecture**: Single consistent interface across blocking and async modes
 //! - **Type-Safe Camera Profiles**: Compile-time validation with camera-specific profiles
 //! - **Feature-Gated Methods**: Choose blocking or async at compile time with zero runtime overhead
 //! - **Multi-Runtime Support**: Tokio, async-std, smol can coexist with priority-based selection
@@ -281,10 +281,10 @@
 //! }
 //! ```
 //!
-//! Example transport implementations are provided in the `examples/` directory:
-//! - `tcp_transport.rs` - TCP/IP transport with session management
-//! - `udp_transport.rs` - UDP/IP transport
-//! - `custom_transport_example.rs` - Mock and wrapper transports
+//! Example transport implementations are demonstrated in:
+//! - `examples/quickstart.rs` - TCP/IP transport with blocking API
+//! - `examples/quickstart_async.rs` - TCP/IP transport with async API
+//! - `examples-advanced/transports.rs` - Custom and advanced transport examples
 //!
 //! ## Async Support
 //!
@@ -293,10 +293,13 @@
 //!
 //! ### Feature Flags
 //!
-//! - `async` - Enables async support without any specific runtime. You must provide your own runtime.
-//! - `runtime-tokio` - Enables async with built-in Tokio runtime support (implies `async`).
-//! - `runtime-async-std` - Enables async with built-in async-std runtime support (implies `async`).
-//! - `runtime-smol` - Enables async with built-in smol runtime support (implies `async`).
+//! - `mode-async` - Enables async support without any specific runtime. You must provide your own runtime.
+//! - `mode-blocking` - Explicit feature flag for blocking mode (blocking is always available, this is for feature detection).
+//! - `runtime-tokio` - Enables async with built-in Tokio runtime support (implies `mode-async`).
+//! - `runtime-async-std` - Enables async with built-in async-std runtime support (implies `mode-async`).
+//! - `runtime-smol` - Enables async with built-in smol runtime support (implies `mode-async`).
+//! - `transport-serial` - Enables serial port support for blocking mode.
+//! - `transport-serial-tokio` - Enables serial port support with Tokio (implies `runtime-tokio`).
 //! - `test-utils` - Testing utilities including ScriptedTransport and DeterministicExecutor (not for production).
 //!
 //! **Multiple Runtime Support**: As of version 0.7.0, runtime features can be enabled simultaneously.
@@ -456,8 +459,8 @@
 //!   - When no features are enabled, only blocking types are available
 //!   - Zero async runtime overhead or dependencies
 //!
-//! - **Async mode** (`async` feature): Native async implementation
-//!   - When `async` feature is enabled, blocking types are NOT exported
+//! - **Async mode** (`mode-async` feature): Native async implementation
+//!   - When `mode-async` feature is enabled, blocking types are NOT exported
 //!   - Provides true async I/O without blocking thread pools
 //!   - REQUIRES runtime configuration (see Async Support section above)
 //!

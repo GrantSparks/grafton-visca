@@ -1,4 +1,14 @@
-//! pan/tilt control implementation using Mode trait.
+//! Pan/Tilt control implementation for PTZ cameras.
+//!
+//! This module provides comprehensive pan/tilt control functionality including:
+//! - Absolute and relative positioning in degrees
+//! - Variable speed movement control
+//! - Home position management
+//! - Movement limit configuration
+//! - Multi-directional movement with independent pan/tilt speeds
+//!
+//! The implementation uses the Mode trait to provide both blocking and async APIs
+//! from a single unified codebase.
 
 use crate::{
     camera::ViscaClient,
@@ -9,22 +19,64 @@ use crate::{
     Error,
 };
 
-/// pan/tilt operations for cameras.
+/// Pan/Tilt operations for PTZ cameras.
 ///
-/// This trait provides pan/tilt control methods that work seamlessly for both
+/// This trait provides comprehensive pan/tilt control methods that work seamlessly for both
 /// blocking and async cameras through the Mode trait system.
+///
+/// # Coordinate System
+///
+/// - Pan: Horizontal rotation (left/right)
+///   - Positive values = right
+///   - Negative values = left
+///   - Range varies by camera model (typically ±170°)
+///
+/// - Tilt: Vertical rotation (up/down)
+///   - Positive values = up
+///   - Negative values = down
+///   - Range varies by camera model (typically -30° to +90°)
+///
+/// # Examples
+///
+/// ## Blocking mode
+/// ```ignore
+/// camera.pan_tilt_home()?;  // Move to home position
+/// camera.pan_tilt_absolute(Degrees(45.0), Degrees(15.0), SpeedLevel::Fast)?;
+/// ```
+///
+/// ## Async mode
+/// ```ignore
+/// camera.pan_tilt_home().await?;  // Move to home position
+/// camera.pan_tilt_absolute(Degrees(45.0), Degrees(15.0), SpeedLevel::Fast).await?;
+/// ```
 #[grafton_visca_macros::delegate_to_session]
 pub trait PanTiltControl {
     /// The mode type for this camera (Async or Blocking).
     type Mode: Mode;
 
-    /// Stop all pan/tilt movement.
+    /// Stop all pan/tilt movement immediately.
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn pan_tilt_stop(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
-    /// Move to home position (0, 0).
+    /// Move to the home position (pan=0°, tilt=0°).
+    ///
+    /// The movement speed is determined by the camera's default settings.
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn pan_tilt_home(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
-    /// Move to absolute pan/tilt position in degrees.
+    /// Move to an absolute pan/tilt position in degrees.
+    ///
+    /// # Arguments
+    /// * `pan` - Target pan position in degrees
+    /// * `tilt` - Target tilt position in degrees
+    /// * `speed` - Movement speed (Slow, Medium, Fast)
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn pan_tilt_absolute(
         &self,
         pan: Degrees,
@@ -32,7 +84,15 @@ pub trait PanTiltControl {
         speed: SpeedLevel,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
-    /// Move relative to current position in degrees.
+    /// Move relative to the current position in degrees.
+    ///
+    /// # Arguments
+    /// * `pan` - Pan offset in degrees (positive=right, negative=left)
+    /// * `tilt` - Tilt offset in degrees (positive=up, negative=down)
+    /// * `speed` - Movement speed (Slow, Medium, Fast)
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn pan_tilt_relative(
         &self,
         pan: Degrees,
@@ -40,7 +100,17 @@ pub trait PanTiltControl {
         speed: SpeedLevel,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
-    /// Move pan/tilt in a specific direction.
+    /// Start continuous movement in a specific direction.
+    ///
+    /// The camera will continue moving until `pan_tilt_stop()` is called or a limit is reached.
+    ///
+    /// # Arguments
+    /// * `direction` - Direction of movement (Up, Down, Left, Right, UpLeft, UpRight, DownLeft, DownRight, Stop)
+    /// * `pan_speed` - Pan speed (0-24, camera-specific range)
+    /// * `tilt_speed` - Tilt speed (0-20, camera-specific range)
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn pan_tilt_move(
         &self,
         direction: PanTiltDirection,
@@ -48,10 +118,26 @@ pub trait PanTiltControl {
         tilt_speed: TiltSpeed,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
-    /// Reset pan/tilt to default position.
+    /// Reset pan/tilt mechanism to factory defaults.
+    ///
+    /// This recalibrates the pan/tilt motors and may take several seconds.
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn pan_tilt_reset(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
-    /// Set pan/tilt movement limit for a specific corner.
+    /// Set a pan/tilt movement limit for a specific corner.
+    ///
+    /// Limits define the allowed movement range. When two corners are set,
+    /// the camera movement is restricted to the rectangular area between them.
+    ///
+    /// # Arguments
+    /// * `corner` - Which corner to set (UpRight or DownLeft)
+    /// * `pan` - Pan position for the limit
+    /// * `tilt` - Tilt position for the limit
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn pan_tilt_limit_set(
         &self,
         corner: PanTiltLimitCorner,
@@ -59,7 +145,13 @@ pub trait PanTiltControl {
         tilt: TiltPosition,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
-    /// Clear pan/tilt movement limit for a specific corner.
+    /// Clear a pan/tilt movement limit for a specific corner.
+    ///
+    /// # Arguments
+    /// * `corner` - Which corner limit to clear (UpRight or DownLeft)
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn pan_tilt_limit_clear(
         &self,
         corner: PanTiltLimitCorner,

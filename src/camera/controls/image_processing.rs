@@ -1,4 +1,19 @@
-//! image processing control implementation using Mode trait.
+//! Image processing control implementation for PTZ cameras.
+//!
+//! This module provides comprehensive image processing and enhancement functionality including:
+//! - Image orientation control (flip, mirror, rotation)
+//! - Visual quality adjustments (contrast, sharpness, saturation, hue)
+//! - Noise reduction for improved image quality
+//! - Special effects and picture modes
+//! - Image freeze for static display
+//! - Color mode switching (color/black & white)
+//! - Luminance (brightness) control
+//!
+//! These controls allow fine-tuning of the camera's image output to achieve
+//! the desired visual quality for different environments and use cases.
+//!
+//! The implementation uses the Mode trait to provide both blocking and async APIs
+//! from a single unified codebase.
 
 use crate::{
     camera::ViscaClient,
@@ -11,112 +26,312 @@ use crate::{
     Error,
 };
 
-/// image processing operations for cameras.
+/// Image processing operations for PTZ cameras.
 ///
-/// This trait provides image processing control methods that work seamlessly for both
+/// This trait provides comprehensive image processing control methods that work seamlessly for both
 /// blocking and async cameras through the Mode trait system.
+///
+/// # Image Quality Controls
+///
+/// - **Contrast**: Adjusts the difference between light and dark areas
+/// - **Sharpness**: Controls edge enhancement for image clarity
+/// - **Saturation**: Adjusts color intensity and vividness
+/// - **Hue**: Shifts the overall color tone of the image
+/// - **Luminance**: Controls overall brightness level
+///
+/// # Noise Reduction
+///
+/// - **2D Noise Reduction**: Reduces noise within individual frames
+/// - **3D Noise Reduction**: Reduces noise across multiple frames (temporal)
+///
+/// # Image Orientation
+///
+/// - **Flip**: Vertical image inversion
+/// - **Mirror**: Horizontal image reflection
+/// - **Combined**: Both horizontal and vertical flipping
+///
+/// # Examples
+///
+/// ## Blocking mode
+/// ```ignore
+/// camera.set_contrast(ContrastLevel::new(5)?)?;  // Adjust contrast
+/// camera.enable_horizontal_flip()?;  // Mirror image
+/// camera.set_noise_reduction_2d(NoiseReduction2DLevel::new(3)?)?;  // Reduce noise
+/// ```
+///
+/// ## Async mode
+/// ```ignore
+/// camera.set_contrast(ContrastLevel::new(5)?).await?;  // Adjust contrast
+/// camera.enable_horizontal_flip().await?;  // Mirror image
+/// camera.set_noise_reduction_2d(NoiseReduction2DLevel::new(3)?).await?;  // Reduce noise
+/// ```
 #[grafton_visca_macros::delegate_to_session]
 pub trait ImageProcessingControl {
     /// The mode type for this camera (Async or Blocking).
     type Mode: Mode;
 
     /// Enable image flip.
+    ///
+    /// Flips the image vertically (upside down). This is useful when the camera
+    /// is mounted in an inverted position.
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn enable_flip(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Disable image flip.
+    ///
+    /// Returns the image to normal (right-side up) orientation.
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn disable_flip(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Enable horizontal flip (mirror).
+    ///
+    /// Mirrors the image horizontally (left-right reversal). This creates
+    /// a mirror effect where left and right are swapped.
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn enable_horizontal_flip(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Disable horizontal flip (mirror).
+    ///
+    /// Returns the image to normal (non-mirrored) orientation.
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn disable_horizontal_flip(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set contrast level.
+    ///
+    /// Adjusts the difference between light and dark areas in the image.
+    /// Higher values increase contrast (more dramatic differences),
+    /// lower values decrease contrast (flatter appearance).
+    ///
+    /// # Parameters
+    /// - `level`: The contrast level to set
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn set_contrast(
         &self,
         level: ContrastLevel,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set sharpness level.
+    ///
+    /// Controls edge enhancement to make the image appear sharper or softer.
+    /// Higher values increase sharpness (more edge enhancement),
+    /// lower values decrease sharpness (softer appearance).
+    ///
+    /// # Parameters
+    /// - `level`: The sharpness level to set
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn set_sharpness(
         &self,
         level: SharpnessLevel,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set sharpness mode (auto or manual).
+    ///
+    /// **Note:** This operation is currently not supported.
+    ///
+    /// # Parameters
+    /// - `mode`: The sharpness mode to set
+    ///
+    /// # Errors
+    /// Always returns `Error::NotSupported` as this feature is not implemented.
     fn set_sharpness_mode(
         &self,
         mode: crate::command::SharpnessMode,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Reset sharpness to default.
+    ///
+    /// Resets the sharpness level to the camera's default setting.
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn reset_sharpness(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Increase sharpness by one step.
+    ///
+    /// Increases edge enhancement by one increment, making the image sharper.
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn increase_sharpness(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Decrease sharpness by one step.
+    ///
+    /// Decreases edge enhancement by one increment, making the image softer.
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn decrease_sharpness(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set saturation level.
+    ///
+    /// Adjusts the intensity and vividness of colors in the image.
+    /// Higher values make colors more vibrant, lower values make them more muted.
+    ///
+    /// # Parameters
+    /// - `level`: The saturation level to set
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn set_saturation(
         &self,
         level: SaturationLevel,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set hue level.
+    ///
+    /// Shifts the overall color tone of the image. This can be used to
+    /// correct color casts or create artistic color effects.
+    ///
+    /// # Parameters
+    /// - `level`: The hue level to set
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn set_hue(&self, level: HueLevel) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set noise reduction 2D level.
+    ///
+    /// Enables spatial noise reduction that processes individual frames
+    /// to reduce grain and artifacts. Higher levels provide more noise
+    /// reduction but may reduce fine detail.
+    ///
+    /// # Parameters
+    /// - `level`: The 2D noise reduction level to set
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn set_noise_reduction_2d(
         &self,
         level: NoiseReduction2DLevel,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Disable noise reduction 2D.
+    ///
+    /// Turns off spatial noise reduction, which may result in more grain
+    /// but preserves maximum image detail.
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn disable_noise_reduction_2d(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set noise reduction 3D level.
+    ///
+    /// Enables temporal noise reduction that compares multiple frames
+    /// to reduce noise. This is more effective than 2D reduction but
+    /// may cause motion artifacts with fast movement.
+    ///
+    /// # Parameters
+    /// - `level`: The 3D noise reduction level to set
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn set_noise_reduction_3d(
         &self,
         level: NoiseReduction3DLevel,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Disable noise reduction 3D.
+    ///
+    /// Turns off temporal noise reduction, eliminating potential motion
+    /// artifacts but allowing more noise in the image.
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn disable_noise_reduction_3d(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set image flip mode (combined horizontal and vertical).
+    ///
+    /// Sets both horizontal and vertical flip states simultaneously using
+    /// a single command. This is more efficient than setting each direction separately.
+    ///
+    /// # Parameters
+    /// - `mode`: The combined flip mode to set
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn set_image_flip(
         &self,
         mode: ImageFlipMode,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set luminance (brightness) level.
+    ///
+    /// Adjusts the overall brightness of the image output without
+    /// affecting exposure settings. This is different from exposure
+    /// brightness as it's applied in post-processing.
+    ///
+    /// # Parameters
+    /// - `level`: The luminance level to set
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn set_luminance(
         &self,
         level: LuminanceLevel,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Enable image freeze.
-    /// Freezes the camera's video output on the last frame.
+    ///
+    /// Freezes the camera's video output on the last frame. This is useful
+    /// for maintaining a static image during camera movement or configuration.
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn enable_freeze(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Disable image freeze.
-    /// Resumes normal video output.
+    ///
+    /// Resumes normal live video output after being frozen.
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn disable_freeze(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Enable black and white mode.
+    ///
     /// Switches the camera output to monochrome (black and white).
+    /// This can be useful for artistic effects or in low-light situations
+    /// where color information is not important.
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn enable_black_white(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Disable black and white mode.
-    /// Switches the camera output to color mode.
+    ///
+    /// Switches the camera output back to full color mode.
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
     fn disable_black_white(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set picture effect mode.
+    ///
     /// Controls various artistic effects like negative, sepia, sketch, etc.
-    /// Note that not all effects are supported on all camera models.
+    /// The available effects vary by camera model and may include options
+    /// like pastel, mosaic, or other creative filters.
+    ///
+    /// # Parameters
+    /// - `mode`: The picture effect mode to apply
+    ///
+    /// # Note
+    /// Not all effects are supported on all camera models. Check your
+    /// camera documentation for supported effect modes.
+    ///
+    /// # Errors
+    /// Returns an error if the effect is not supported or the command fails.
     fn set_picture_effect(
         &self,
         mode: PictureEffectMode,
