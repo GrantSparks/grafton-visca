@@ -8,28 +8,29 @@ Procedural macros for the grafton-visca crate, providing derive macros to elimin
 
 ## Overview
 
-This crate provides three derive macros that work together to create type-safe, efficient VISCA protocol implementations:
+This crate provides four macros that work together to create type-safe, efficient VISCA protocol implementations:
 
-- **`InquiryCommand`** - Generate inquiry command implementations
+- **`ViscaInquiry`** - Generate inquiry command implementations with parser support
 - **`ViscaEnum`** - Automatic enum/u8 conversions for protocol values
 - **`ViscaValue`** - Value wrapper types with VISCA encoding
+- **`delegate_to_session`** - Auto-generate CameraSession forwarding implementations
 
-## InquiryCommand
+## ViscaInquiry
 
 Generates complete `Command` trait implementations for inquiry commands, including response parsing.
 
 ### Basic Usage
 
 ```rust
-use grafton_visca_macros::InquiryCommand;
+use grafton_visca_macros::ViscaInquiry;
 
-#[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x00, response = "Power", parser = "bool")]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
+#[visca(command = 0x00, response = "Power", inquiry_variant = "Power", parser = "bool")]
 pub struct PowerInquiry;
 
 // For commands with subcategories:
-#[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x12, sub_command = 0x06, response = "PanTiltPosition", parser = "pan_tilt")]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
+#[visca(command = 0x12, sub_command = 0x06, response = "PanTiltPosition", inquiry_variant = "PanTiltPosition", parser = "pan_tilt")]
 pub struct PanTiltPositionInquiry;
 ```
 
@@ -38,8 +39,10 @@ pub struct PanTiltPositionInquiry;
 The macro generates:
 - `Command` trait implementation
 - `to_bytes()` method returning VISCA command bytes
-- `response_type()` method returning expected `ResponseType`
+- `response_kind()` method returning expected `ResponseType`
+- `command_category()` method returning the category
 - `parse_response()` method when parser is specified
+- `From` conversion to the `InquiryCommand` enum
 
 ### Parser Types
 
@@ -119,12 +122,34 @@ The macro generates methods for:
 - Validation of value ranges
 - VISCA protocol encoding
 
+## delegate_to_session
+
+Attribute macro for auto-generating CameraSession forwarding implementations.
+
+### Usage
+
+```rust
+use grafton_visca_macros::delegate_to_session;
+
+#[delegate_to_session]
+pub trait ZoomControl {
+    type Mode: Mode;
+
+    fn zoom_stop(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    fn zoom_tele_std(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    // ... more methods
+}
+```
+
+The macro generates forwarding implementations that delegate from `CameraSession` to the inner `Camera` instance with proper error handling.
+
 ## Integration with grafton-visca
 
 These macros are re-exported by the main grafton-visca crate:
 
 ```rust
-use grafton_visca::{InquiryCommand, ViscaEnum, ViscaValue};
+use grafton_visca::{ViscaInquiry, ViscaEnum, ViscaValue};
+use grafton_visca::camera::delegate_to_session;
 ```
 
 ## Benefits
@@ -141,7 +166,7 @@ use grafton_visca::{InquiryCommand, ViscaEnum, ViscaValue};
 ### Example Inquiry and Enum
 
 ```rust
-use grafton_visca_macros::{InquiryCommand, ViscaEnum};
+use grafton_visca_macros::{ViscaInquiry, ViscaEnum};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
 pub enum ExposureMode {
@@ -151,8 +176,8 @@ pub enum ExposureMode {
     Iris = 0x0B,
 }
 
-#[derive(InquiryCommand, Debug, Copy, Clone)]
-#[visca(command = 0x39, response = "ExposureMode", parser = "mode")]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
+#[visca(command = 0x39, response = "ExposureMode", inquiry_variant = "ExposureMode", parser = "mode")]
 pub struct ExposureModeInquiry;
 ```
 
@@ -179,8 +204,9 @@ impl ZoomPosition {
 
 ## Requirements
 
-- Rust 1.70 or later (for const trait implementations)
-- The `response` attribute in `InquiryCommand` must reference existing `ResponseType` variants
+- Rust 1.80 or later
+- The `response` attribute in `ViscaInquiry` must reference existing `ResponseType` variants
+- The `inquiry_variant` attribute must reference existing `InquiryCommand` enum variants
 - Enums using `ViscaEnum` must have explicit discriminant values
 - All discriminant values must be unique and valid u8 values (0-255)
 
