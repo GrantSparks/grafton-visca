@@ -8,6 +8,7 @@
 use crate::{
     camera::{
         controls::{
+            color::ColorControl,
             exposure::ExposureControl,
             focus::FocusControl,
             inquiry::{InquiryControl, PanTiltInquiryControl},
@@ -763,9 +764,9 @@ where
     /// Trigger one-push white balance.
     pub fn one_push_trigger(&self) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>: WhiteBalanceControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: ColorControl<Mode = M>,
     {
-        self.camera.white_balance_one_push()
+        self.camera.one_push_trigger()
     }
 }
 

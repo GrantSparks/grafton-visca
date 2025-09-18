@@ -1080,18 +1080,32 @@ impl SchedulerCore {
             } => {
                 let error = ViscaError::from_byte(code);
 
-                // Prefer cmd_id from sequence mapping
+                // Resolve which command this error belongs to.
+                // Priority:
+                //  1) Explicit cmd_id (Sony sequence map)
+                //  2) If a socket nibble is present and already mapped, use that
+                //  3) If NO socket nibble: prefer an inflight inquiry (front of FIFO)
+                //  4) Otherwise: pick the MOST RECENT pending-ACK command (immediate errors correlate in time)
                 let resolved_cmd_id = if let Some(id) = cmd_id {
                     Some(id)
-                } else if let Some(socket) = socket {
-                    self.find_command_on_socket(socket)
+                } else if let Some(sock) = socket {
+                    // Some cameras emit 90 6y EE without a prior ACK; the socket nibble may not be reliable.
+                    self.find_command_on_socket(sock).or_else(|| {
+                        // Fall back to most-recent pending ACK when no command is actually allocated to that socket.
+                        self.pending_ack
+                            .iter()
+                            .max_by_key(|(_, (_, _, _, sent_time, _))| *sent_time)
+                            .map(|(id, _)| *id)
+                    })
                 } else {
-                    // For error responses without socket assignment (e.g., immediate syntax errors),
-                    // check the pending_ack queue for the most recent command
-                    self.pending_ack
-                        .iter()
-                        .min_by_key(|(_, (_, _, _, sent_time, _))| *sent_time)
-                        .map(|(id, _)| *id)
+                    // y == 0 case (inquiry errors and some syntax errors). If an inquiry is in flight,
+                    // attribute the error to the oldest inflight inquiry. Otherwise, use temporal correlation.
+                    self.inquiries_order.front().copied().or_else(|| {
+                        self.pending_ack
+                            .iter()
+                            .max_by_key(|(_, (_, _, _, sent_time, _))| *sent_time)
+                            .map(|(id, _)| *id)
+                    })
                 };
 
                 if let Some(cmd_id) = resolved_cmd_id {
@@ -1128,6 +1142,11 @@ impl SchedulerCore {
                             error: Error::from_code(code),
                         });
                     }
+                } else {
+                    // As a last resort, never drop protocol errors on the floor:
+                    // if nothing is pending, still surface the error for visibility.
+                    // (No state to clean in this rare path.)
+                    warn!("Unattributed VISCA error 0x{:02X} received; no pending commands or inquiries to fail", code);
                 }
             }
             SchedulerEvent::NetworkError(error) => {
@@ -1806,6 +1825,7 @@ mod tests {
     use crate::CameraId;
     use bytes::Bytes;
     use std::sync::Arc;
+    use std::time::Duration;
 
     // Helper structs for different test command categories
     #[derive(Debug, Clone)]
@@ -3911,5 +3931,131 @@ mod tests {
         let item4 = core.next_item_to_send().unwrap();
         assert_eq!(item4.id, 1);
         assert_eq!(item4.priority, Priority::Low);
+    }
+
+    #[test]
+    fn test_immediate_error_without_ack_maps_to_most_recent_pending_command() {
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = RetryConfig::default();
+        let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+        let now = Instant::now();
+
+        // Create two pending ACK commands; the second one is the most recent
+        let camera_id = CameraId::CAMERA_1;
+        let cmd1 = Arc::new(PreparedCommand {
+            payload: Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]),
+            kind: CommandKind::Command,
+            category: CommandCategory::Movement,
+            response_type: None,
+        });
+        let cmd2 = Arc::new(PreparedCommand {
+            payload: Bytes::from(vec![0x81, 0x01, 0x04, 0x10, 0x05, VISCA_TERMINATOR]), // One Push Trigger
+            kind: CommandKind::Command,
+            category: CommandCategory::Quick,
+            response_type: None,
+        });
+
+        core.register_pending_ack(
+            1,
+            cmd1,
+            Priority::Normal,
+            CommandCategory::Movement,
+            camera_id,
+            CommandKind::Command,
+            now,
+        );
+        core.register_pending_ack(
+            2,
+            cmd2,
+            Priority::Normal,
+            CommandCategory::Quick,
+            camera_id,
+            CommandKind::Command,
+            now + Duration::from_millis(1),
+        );
+
+        // Simulate: camera returns 90 6y 41 FF (Not Executable) without a prior ACK
+        let event = SchedulerEvent::Error {
+            socket: Some(ViscaSocket::S2),
+            cmd_id: None,
+            code: 0x41,
+        };
+        let actions = core.process_event(event, now + Duration::from_millis(2));
+
+        // The *most recent* pending command (id=2) should be failed immediately with 0x41
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            SchedulerAction::CommandFailed { id, error } => {
+                assert_eq!(*id, 2, "Newest pending command must be attributed");
+                assert!(matches!(error, Error::CommandNotExecutable));
+            }
+            _ => panic!("Expected CommandFailed for id=2"),
+        }
+        // And it must be removed from pending_ack
+        assert!(!core.is_command_pending(2));
+        assert!(core.is_command_pending(1));
+    }
+
+    #[test]
+    fn test_error_without_socket_prefers_inflight_inquiry() {
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = RetryConfig::default();
+        let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+        let now = Instant::now();
+        let camera_id = CameraId::CAMERA_1;
+
+        // Start an inquiry (front of FIFO)
+        let inq = Arc::new(PreparedCommand {
+            payload: Bytes::from(vec![0x81, 0x09, 0x04, 0x35, VISCA_TERMINATOR]), // WB Mode Inquiry
+            kind: CommandKind::Inquiry,
+            category: CommandCategory::Quick,
+            response_type: Some(InquiryKind::Power), // any kind
+        });
+        core.start_inquiry(
+            42,
+            inq,
+            Priority::Normal,
+            CommandCategory::Quick,
+            camera_id,
+            CommandKind::Inquiry,
+            now,
+        );
+
+        // Also have a pending ACK command in the background
+        let cmd = Arc::new(PreparedCommand {
+            payload: Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]),
+            kind: CommandKind::Command,
+            category: CommandCategory::Movement,
+            response_type: None,
+        });
+        core.register_pending_ack(
+            99,
+            cmd,
+            Priority::Normal,
+            CommandCategory::Movement,
+            camera_id,
+            CommandKind::Command,
+            now,
+        );
+
+        // Simulate an inquiry-style error: 90 60 EE FF (y=0 -> no socket field)
+        let event = SchedulerEvent::Error {
+            socket: None,
+            cmd_id: None,
+            code: 0x41,
+        };
+        let actions = core.process_event(event, now + Duration::from_millis(1));
+
+        // It must fail the inflight inquiry (id=42), not the command
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            SchedulerAction::CommandFailed { id, error } => {
+                assert_eq!(*id, 42);
+                assert!(matches!(error, Error::CommandNotExecutable));
+            }
+            _ => panic!("Expected CommandFailed for inquiry id=42"),
+        }
+        // Confirm the command is still pending
+        assert!(core.is_command_pending(99));
     }
 }

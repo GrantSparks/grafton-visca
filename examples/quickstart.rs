@@ -157,8 +157,11 @@ fn main() -> Result<(), Error> {
     println!("  ✓ Indoor");
     camera.white_balance_outdoor()?;
     println!("  ✓ Outdoor");
+    // Set to OnePush mode first before triggering
+    camera.white_balance_one_push()?;
+    println!("  ✓ OnePush mode");
     camera.one_push_trigger()?;
-    println!("  ✓ One-push");
+    println!("  ✓ One-push triggered");
     camera.white_balance_auto()?;
     println!();
 
