@@ -585,7 +585,7 @@ jobs:
     name: Package Check
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    if: github.event_name != 'pull_request' && !(github.event_name == 'push' && startsWith(github.ref, 'refs/heads/feature/')) && !startsWith(github.ref, 'refs/tags/')
+    if: github.event_name != 'pull_request' && !(github.event_name == 'push' && startsWith(github.ref, 'refs/heads/feature/'))
     steps:
       - uses: actions/checkout@v4
 
@@ -611,9 +611,10 @@ jobs:
       - name: Check package (release tags only)
         if: startsWith(github.ref, 'refs/tags/')
         run: |
-          echo "Running full package check for release tag..."
+          echo "Running package check for release tag..."
+          # Only check the macros crate can be packaged
+          # The main crate check happens in the publish job after macros is published
           cargo package -p grafton-visca-macros --no-verify
-          cargo package --no-verify
 
       # Build validation for non-releases
       - name: Build validation (non-release)
