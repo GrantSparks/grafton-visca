@@ -3,10 +3,10 @@
 [![Crates.io](https://img.shields.io/crates/v/grafton-visca.svg)](https://crates.io/crates/grafton-visca)
 [![Documentation](https://docs.rs/grafton-visca/badge.svg)](https://docs.rs/grafton-visca)
 [![License](https://img.shields.io/crates/l/grafton-visca.svg)](LICENSE)
-[![CI](https://github.com/GrantSparks/grafton-visca/actions/workflows/ci.yml/badge.svg)](https://github.com/GrantSparks/grafton-visca/actions)
+[![CI](https://github.com/GrantSparks/grafton-visca/actions/workflows/ci.yml/badge.svg)](https://github.com/GrantSparks/grafton-visca/actions/workflows/ci.yml)
 
-**Pure Rust VISCA control for PTZ cameras, with a unified blocking/async API and multi‑runtime support (Tokio, async‑std, smol).**
-Designed for broadcasters/streamers and systems integrators who need production‑worthy control of VISCA compatible cameras over IP (and serial).
+**Pure Rust VISCA control for PTZ cameras with a unified blocking/async API and multi‑runtime adapters (Tokio, async‑std, smol).**
+For broadcasters/streamers, AV integrators, and Rust developers who need production‑grade, type‑safe VISCA control over IP or serial.
 
 ---
 
@@ -19,9 +19,12 @@ Designed for broadcasters/streamers and systems integrators who need production�
 * [Quick Start](#quick-start)
 
   * [Blocking](#blocking)
-  * [Async (Tokio), plus other runtimes](#async-tokio-plus-other-runtimes)
+  * [Async (Tokio); notes for async‑std/smol](#async-tokio-notes-for-async-stdsmol)
   * [Multi‑runtime coexistence](#multi-runtime-coexistence)
 * [Usage Patterns](#usage-patterns)
+
+  * [Simple / blessed path](#1-simple--blessed-path)
+  * [Advanced (BYO transport / builder)](#2-advanced-byo-transport--builder)
 * [Camera Profiles & Capabilities](#camera-profiles--capabilities)
 * [API Design: Accessor Pattern](#api-design-accessor-pattern)
 * [Timeouts & Error Handling](#timeouts--error-handling)
@@ -41,73 +44,73 @@ Designed for broadcasters/streamers and systems integrators who need production�
 
 ## Why this crate
 
-* **Unified API:** One API surface works for both blocking and async (no separate “\*\_async” traits). Accessors like `camera.power().on()` compile in both modes; blocking returns `Result`, async returns a `Future<Output = Result>`.
-* **Multi‑runtime async:** First‑class adapters for Tokio, async‑std, and smol. You pass a runtime handle to async open helpers/builders.
-* **Type‑safe camera profiles:** Profiles carry protocol “envelope” choice (e.g., Sony encapsulation) and default ports at compile time.
-* **Multiple transports:** TCP, UDP, and serial (blocking and async‑Tokio serial), plus BYO custom transport via traits.
-* **Time‑tested API:** Builder and one‑liner `Connect::open_*` helpers; explicit `close()`; doc’d error/retry/timeout categories.
-* **MSRV & clean gating:** Blocking is the default (no features). Async is opt‑in via feature flags; the public API surface changes accordingly. MSRV is 1.80.0.
+* **Unified API (blocking and async):** A single `Camera<M, P, Tr, Exec>` type with mode‑generic accessors; futures are `Send` in async mode. The design is documented in `camera/mod.rs`.&#x20;
+* **Multi‑runtime async:** Pluggable executors for Tokio, async‑std, and smol; you enable one or more runtime adapters via features and pass an executor to `open_*_async`. The runtime adapters live under `src/executor`, e.g. `TokioExecutor`.&#x20;
+* **Type‑safe camera profiles:** Profiles compile in protocol envelope (Raw VISCA vs Sony encapsulation) and defaults (ports/behaviors). Accessors/controls are provided based on capabilities.&#x20;
+* **Transports:** TCP/UDP (blocking and async) plus serial (blocking and async‑Tokio). Serial adds VISCA I/F Clear and Address Set orchestration in the transport.&#x20;
+* **Ergonomics:** One‑line `Connect::open_*` helpers, a builder for advanced configuration, and a blocking wrapper with direct `Result` returns.&#x20;
 
 ---
 
 ## Installation
 
-> **Default = blocking only** (no async deps). Enable a runtime to use async.
+> **Default = blocking only.** Async is opt‑in by features.
+
+**Blocking only (default):**
 
 ```toml
-# Blocking only (default feature set = none)
 [dependencies]
 grafton-visca = "0.7"
-````
-
-```toml
-# Async, runtime-agnostic core (enables async APIs; pick a runtime next)
-[dependencies]
-grafton-visca = { version = "0.7", features = ["mode-async"] }
 ```
 
+**Async core + runtime (Tokio shown):**
+
 ```toml
-# Async with a specific runtime (Tokio/async-std/smol)
 [dependencies]
-grafton-visca = { version = "0.7", features = ["runtime-tokio"] }
+grafton-visca = { version = "0.7", features = ["mode-async", "runtime-tokio"] }
 tokio = { version = "1", features = ["full"] }
-# OR
-grafton-visca = { version = "0.7", features = ["runtime-async-std"] }
+```
+
+**Async with async‑std or smol:**
+
+```toml
+# async-std
+grafton-visca = { version = "0.7", features = ["mode-async", "runtime-async-std"] }
 async-std = { version = "1", features = ["attributes"] }
-# OR
-grafton-visca = { version = "0.7", features = ["runtime-smol"] }
+
+# smol
+grafton-visca = { version = "0.7", features = ["mode-async", "runtime-smol"] }
 smol = "1"
 ```
 
+**Serial (blocking):**
+
 ```toml
-# Serial (blocking)
-[dependencies]
 grafton-visca = { version = "0.7", features = ["transport-serial"] }
 ```
 
+**Serial (async, Tokio):**
+
 ```toml
-# Serial (async, Tokio)
-[dependencies]
-grafton-visca = { version = "0.7", features = ["runtime-tokio", "transport-serial-tokio"] }
+grafton-visca = { version = "0.7", features = ["mode-async", "runtime-tokio", "transport-serial-tokio"] }
 tokio = { version = "1", features = ["full"] }
 ```
 
-All feature names above match the crate’s `Cargo.toml`. Defaults are empty; there is no implicit async.
+Feature names and defaults are defined in `Cargo.toml` (`default = []`, `mode-async`, `runtime-*`, `transport-serial`, `transport-serial-tokio`, etc.).&#x20;
 
 ### Feature flags
 
-| Feature                  | Default? | Unlocks                            | Affects API? | Notes                                                                                                        |
-| ------------------------ | -------: | ---------------------------------- | :----------: | ------------------------------------------------------------------------------------------------------------ |
-| `mode-async`             |       No | Async stack and types              |    **Yes**   | Enables async camera/session APIs; used by all `runtime-*` features.                                         |
-| `mode-blocking`          |      Yes | Feature detection only             |      No      | Blocking is available by default when `mode-async` is **not** enabled. |
-| `runtime-tokio`          |       No | Tokio runtime adapter              |      No      | Implies `mode-async`. Provides `TokioRuntime` and async serial via `transport-serial-tokio`.                 |
-| `runtime-async-std`      |       No | async‑std runtime adapter          |      No      | Implies `mode-async`. Provides `AsyncStdRuntime`.                                                            |
-| `runtime-smol`           |       No | smol runtime adapter               |      No      | Implies `mode-async`. Provides `SmolRuntime`.                                                                |
-| `transport-serial`       |       No | **Blocking** serial transport      |      No      | Uses `serialport` (blocking).                                                                                |
-| `transport-serial-tokio` |       No | **Async (Tokio)** serial transport |      No      | Requires `runtime-tokio`; uses `tokio-serial`.                                                               |
-| `test-utils`             |       No | Internal test helpers              |      No      | For the repo’s tests/dev only.                                                                               |
+| Feature                  | Default? | Unlocks                            | Affects API? | Notes                                          |
+| ------------------------ | :------: | ---------------------------------- | :----------: | ---------------------------------------------- |
+| `mode-async`             |    No    | Async mode, async camera/session   |    **Yes**   | Required by all `runtime-*` and async serial.  |
+| `runtime-tokio`          |    No    | Tokio transport adapters/executor  |      No      | Implies `mode-async`.                          |
+| `runtime-async-std`      |    No    | async‑std adapters/executor        |      No      | Implies `mode-async`.                          |
+| `runtime-smol`           |    No    | smol adapters/executor             |      No      | Implies `mode-async`.                          |
+| `transport-serial`       |    No    | **Blocking** serial transport      |      No      | RS‑232/422; I/F Clear & Address Set options.   |
+| `transport-serial-tokio` |    No    | **Async (Tokio)** serial transport |      No      | Requires `mode-async` + `runtime-tokio`.       |
+| `test-utils`             |    No    | Internal test helpers              |      No      | Dev/test only.                                 |
 
-> **Canonicals:** Serial feature names are `transport-serial` (blocking) and `transport-serial-tokio` (async). Use these exact spellings.
+> **Canonical serial flags:** use `transport-serial` (blocking) or `transport-serial-tokio` (async). These exact names appear in `Cargo.toml`.&#x20;
 
 ---
 
@@ -115,48 +118,66 @@ All feature names above match the crate’s `Cargo.toml`. Defaults are empty; th
 
 ### Blocking
 
-The **one‑liner** path uses the `Connect` helpers. Accessors are unified and **do not** require trait imports.
+The blocking API exposes a convenience wrapper that returns `Result` directly (no trait imports). Use the **blessed path** helpers:
 
 ```rust
-use grafton_visca::camera::{profiles::PtzOpticsG2, Connect};
+use grafton_visca::camera::Connect;
+use grafton_visca::profiles::PtzOpticsG2; // or GenericVisca
 
 fn main() -> Result<(), grafton_visca::Error> {
-    let mut cam = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
-    cam.power().on()?;
-    cam.zoom().tele()?;
-    let pos = cam.pan_tilt().position()?; // inquiry
-    println!("PT pos: {:?}", pos);
-    cam.close()?; // explicit cleanup (optional; Drop also closes)
+    // port omitted -> profile default is used
+    let mut cam = Connect::open_udp_blocking::<PtzOpticsG2>("192.168.0.110")?;
+    // high-level blocking helpers:
+    cam.power_on()?;
+    cam.zoom_tele_std()?;
+    let pos = cam.pan_tilt_position()?;
+    println!("PT position: {:?}", pos);
+    cam.close()?;
     Ok(())
 }
 ```
 
-* `Connect::open_tcp_blocking::<P>(addr)` returns a blocking client/session configured with the profile’s default protocol envelope.
-* Accessors like `.power()` / `.zoom()` are available on the session; in blocking mode each call returns `Result`.
+* `Connect::open_udp_blocking::<P>(addr)` is provided in `camera::convenience`. A similar helper exists for serial: `open_serial_blocking::<P>(port, baud)`.&#x20;
+* The blocking wrapper’s helpers (`power_on`, `zoom_tele_std`, `pan_tilt_position`, etc.) are implemented under `camera::blocking_api`.&#x20;
 
-### Async (Tokio), plus other runtimes
+> Prefer TCP for reliability; UDP is supported for environments that require it.
 
-Pick a runtime feature and pass its handle to `open_*_async`.
+### Async (Tokio); notes for async‑std/smol
+
+Enable `mode-async` and your runtime feature. Pass an executor to the async open helpers:
 
 ```rust
-use grafton_visca::camera::{profiles::PtzOpticsG2, Connect};
-use grafton_visca::runtime::TokioRuntime;
+use grafton_visca::camera::{Connect, CameraBuilder};
+use grafton_visca::profiles::GenericVisca;
+use grafton_visca::executor::TokioExecutor;
 
 #[tokio::main]
 async fn main() -> Result<(), grafton_visca::Error> {
-    let rt = TokioRuntime::from_current()?;
-    let cam = Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110", rt).await?;
-    cam.power().on().await?;
-    cam.zoom().tele().await?;
+    // One-liner helper (TCP/UDP are available)
+    let exec = TokioExecutor::from_current()?; // runtime adapter
+    let cam = CameraBuilder::with_executor(exec)
+        .open_async::<GenericVisca, _>(grafton_visca::transport::tokio::Tcp::connect("192.168.0.110").await?)
+        .await?; // camera session
+
+    // Accessors are mode-unified
+    cam.power().power_on().await?;
+    let pos = cam.pan_tilt().pan_tilt_position().await?;
+    println!("PT position: {:?}", pos);
+
     cam.close().await?;
     Ok(())
 }
 ```
 
-* `Connect::open_tcp_async::<P, R>(addr, runtime)` is generic over profile and runtime. Use `TokioRuntime`, `AsyncStdRuntime`, or `SmolRuntime`.
-* See `examples/quickstart_async.rs` for the same pattern under each runtime feature.
+* The async builder entrypoint is `CameraBuilder::with_executor(...) .open_async::<Profile, _>(transport).await`.&#x20;
+* Async control methods are available via accessors (e.g., `cam.power().power_on().await?`) and match the unified control traits.&#x20;
+* The session exposes `close().await` in async mode.&#x20;
 
-> **Serial (async)**: `Connect::open_serial_async::<P, _>(port, baud, runtime).await` (requires `transport-serial-tokio` and `runtime-tokio`).
+For async‑std or smol, enable `runtime-async-std` or `runtime-smol` and use the corresponding executor adapter (the pattern is the same). The crate supports enabling **multiple** runtime adapters at once; you choose at call‑site which one to pass. This is documented in the transport layer and examples.
+
+### Multi‑runtime coexistence
+
+As of the current version, you can enable more than one `runtime-*` feature at the same time; the user picks an executor at runtime (via the adapter type’s `from_current()` or constructor) when calling `open_*_async`.
 
 ---
 
@@ -164,79 +185,74 @@ async fn main() -> Result<(), grafton_visca::Error> {
 
 ### 1) Simple / blessed path
 
-* **Blocking:** `Connect::open_tcp_blocking::<Profile>(addr)` or `::open_udp_blocking(addr)`.
-* **Async:** `Connect::open_tcp_async::<Profile, Runtime>(addr, runtime).await` or `::open_udp_async(addr, runtime).await`.
+* **Blocking:** `Connect::open_udp_blocking::<Profile>(addr)` / `Connect::open_serial_blocking::<Profile>(port, baud)` return the ergonomic blocking wrapper.&#x20;
+* **Async:** `CameraBuilder::with_executor(exec).open_async::<Profile, _>(transport).await` (see Quick Start).&#x20;
 
-### 2) Advanced (BYO transport / builder knobs)
+> Both modes expose `close()`/`close().await` on the camera/session. The docs and examples consistently use **`close`**, not `shutdown`.&#x20;
 
-Build a transport, then open via the camera builder:
+### 2) Advanced (BYO transport / builder)
+
+Build a transport with fine‑grained options, then open the camera:
 
 ```rust
-use grafton_visca::transport::Transport;
-use grafton_visca::camera::{profiles::PtzOpticsG2, CameraBuilder};
+use grafton_visca::camera::{CameraBuilder, TransportOptions};
+use grafton_visca::profiles::PtzOpticsG2;
 use std::time::Duration;
 
-// Blocking transport builder
-let transport = Transport::tcp()
-    .address("192.168.0.110:5678")
-    .connect_timeout(Duration::from_secs(10))
-    .tcp_nodelay(true)
-    .build_blocking()?;
-
-// Attach to a camera with a specific profile
-let camera = CameraBuilder::from_transport_handle(transport)
-    .profile::<PtzOpticsG2>()
-    .open()?; // explicit connect
+// Blocking transport builder (TCP), with knobs:
+let transport = grafton_visca::transport::blocking::Tcp::connect("192.168.0.110:5678")?;
+let mut cam = CameraBuilder::new()
+    .timeouts(Default::default())
+    .transport(TransportOptions::TcpBlocking(transport))
+    .open_blocking::<PtzOpticsG2>()?;
+cam.close()?;
 ```
 
-The builder exposes TCP/UDP selectors (`CameraBuilder::tcp/udp`), `profile::<P>()`, and `open()` / `open_async()` entry points.
-
-> **Naming consistency:** This crate uses **`open_*`** (not `connect_*`) and **`close()`** (not `shutdown()`) on sessions/clients. Async `close()` is `await`‑able.
+Transport configuration provides connect/read/write timeouts, retry policy, buffer sizing, addressing mode (IP vs serial), and `tcp_nodelay`. See `transport/builder.rs`.
 
 ---
 
 ## Camera Profiles & Capabilities
 
-Profiles embed default ports and protocol envelope selection:
+Profiles define protocol envelope and default ports; most raw VISCA profiles default to TCP **5678** / UDP **1259**, while Sony encapsulation profiles default to **52381**. The Sony default port appears in the Sony transport/envelope logic and simulator fixtures.&#x20;
 
-| Profile        | Envelope           | Default TCP | Default UDP | Notable capabilities                                 |
-| -------------- | ------------------ | ----------: | ----------: | ---------------------------------------------------- |
-| `GenericVisca` | Raw VISCA          |        5678 |        1259 | Conservative baseline for VISCA cameras.             |
-| `PtzOpticsG2`  | Raw VISCA          |        5678 |        1259 | PTZ, presets, exposure, WB, focus; **no ND filter**. |
-| `PtzOpticsG3`  | Raw VISCA          |        5678 |        1259 | Expanded PTZOptics set; **no ND filter**.            |
-| `PtzOptics30X` | Raw VISCA          |        5678 |        1259 | 30x optical zoom profile; **no ND filter**.          |
-| `SonyFR7`      | Sony encapsulation |       52381 |       52381 | ND filter, direct menu, variable speed.              |
-| `SonyBRCH900`  | Sony encapsulation |       52381 |       52381 | Sony professional profile (encapsulation).           |
-| `SonyBRC300`   | Raw VISCA          |        5678 |        1259 | Legacy BRC‑300 behavior; raw VISCA.                  |
-| `NearusBRC300` | Raw VISCA          |        5678 |        1259 | Nearus variant of BRC‑300 behavior.                  |
-| `SonyEVIH100`  | Raw VISCA          |        5678 |        1259 | EVI‑H100 series; raw VISCA.                          |
+| Profile (module)     | Envelope           | Default TCP | Default UDP | Notes / capabilities               |
+| -------------------- | ------------------ | ----------: | ----------: | ---------------------------------- |
+| `GenericVisca`       | Raw VISCA          |        5678 |        1259 | Conservative baseline.             |
+| `PtzOpticsG2/G3/30X` | Raw VISCA          |        5678 |        1259 | PTZ, presets, exposure, WB, focus. |
+| `SonyBRC300`         | Raw VISCA          |        5678 |        1259 | Legacy Sony (raw).                 |
+| `NearusBRC300`       | Raw VISCA          |        5678 |        1259 | Nearus variant.                    |
+| `SonyEVIH100`        | Raw VISCA          |        5678 |        1259 | Sony EVI‑series (raw).             |
+| `SonyBRCH900`        | Sony encapsulation |       52381 |       52381 | Sony network encapsulation.        |
+| `SonyFR7`            | Sony encapsulation |       52381 |       52381 | ND filter / direct menu controls.  |
 
-> The envelope (raw vs Sony encapsulation) is compile‑time via the profile. You can override/detect at runtime with `CameraConfig` (see [Usage Patterns](#usage-patterns)).
+Profiles and control modules are enumerated under `src/camera/controls` and `src/camera/profiles`.&#x20;
 
-**Control traits:** The public API exposes **20** control traits (accessed via accessors; no explicit trait imports required in normal use):
-
-`PowerControl`, `ZoomControl`, `PanTiltControl`, `FocusControl`, `ExposureControl`, `WhiteBalanceControl`, `ColorControl`, `ImageProcessingControl`, `VariableSpeedControl`, `PresetsControl`, `InquiryControl`, `PanTiltInquiryControl`, `SystemControl`, `StreamingControl`, `TallyControl`, `NdFilterControl`, `MotionSyncControl`, `MenuControl`, `DirectMenuControl`, `ExposureCompensationControl`.
+> **ND filter availability:** ND filter controls are compiled only for profiles that support them (e.g., Sony FR7). The ND control module is separate, and inquiry/command types are gated via capability traits.&#x20;
 
 ---
 
 ## API Design: Accessor Pattern
 
-Use discoverable accessors—IDE autocomplete shows what your profile supports.
+Use accessors from the camera/session; they are mode‑generic and don’t require trait imports:
 
 ```rust
 // Blocking
-let power = cam.power().state()?;
-let zoom  = cam.zoom().position()?;
-cam.pan_tilt().home()?;
-let version = cam.system().version()?;
+let powered = cam.power_state()?;                  // inquiry helper
+cam.power_on()?;                                   // command helper
+let zoom = cam.zoom_position()?;                   // inquiry helper
+let _ = cam.pan_tilt_home()?;                      // command helper
 
-// Async
-let is_on  = cam.power().state().await?;
-let _      = cam.zoom().tele().await?;
+// Async (equivalent accessors)
+let _ = cam.power().power_on().await?;
+let pos = cam.pan_tilt().pan_tilt_position().await?;
+let v   = cam.system().version().await?;
 ```
 
-* Accessors exist on `CameraSession`/`Camera` and return objects that carry the mode/profile types; the trait impls live on those accessor types, so **no trait imports** are required for normal use.
-* Methods are profile‑validated. E.g., `NdFilterControl` accessor compiles only for profiles that support ND filter (e.g., `SonyFR7`).
+* Inquiry/command traits (e.g., `PowerControl`, `PanTiltControl`, `InquiryControl`) are implemented once over the unified camera type via delegation macros, so the accessors compile in both modes. &#x20;
+* Inquiry accessors include `power_state`, `zoom_position`, `pan_tilt_position`, etc. (see `controls/inquiry.rs`).&#x20;
+
+**How many control traits?** The public API currently exposes **22 control traits** (including capability/marker traits like `HasMenuControl` and `HasDirectMenuControl`).&#x20;
 
 ---
 
@@ -244,30 +260,29 @@ let _      = cam.zoom().tele().await?;
 
 ### Timeout categories
 
-Configure per‑category timeouts via `TimeoutConfig`:
+Timeouts are grouped by command category (acknowledgment, quick commands, pan/tilt movement, preset ops, etc.). They’re configured via `TimeoutConfig` and applied in the runtime/transport. See the timeout builder and command metadata (e.g., timeouts on inquiries).&#x20;
 
 ```rust
-use grafton_visca::camera::CameraBuilder;
-use grafton_visca::timeout::TimeoutConfig;
 use std::time::Duration;
+use grafton_visca::timeout::TimeoutConfig;
 
 let timeouts = TimeoutConfig::builder()
     .ack_timeout(Duration::from_millis(300))
     .quick_commands(Duration::from_secs(3))
     .movement_commands(Duration::from_secs(20))
     .preset_operations(Duration::from_secs(60))
-    .build(); // names per current API
+    .build();
 ```
 
-Attach to cameras via the builder (`timeout_config(...)`). Blocking uses `CameraBuilder::new()...build_blocking`, async uses `CameraBuilder::with_executor(...).open_async`.
+(Names reflect the categories used in command metadata; see typed inquiry definitions referencing `CommandCategory::Quick`.)&#x20;
 
 ### Retries & errors
 
-Error values include helpers for recovery:
+Errors include helpers for retry decisions and suggested delays (used by tests and transport fixtures). In scripted transports you’ll see injected timeouts and connection loss mapped to error variants.&#x20;
 
 ```rust
 loop {
-    match cam.zoom().absolute(grafton_visca::units::Normalized(0.5)) {
+    match cam.zoom_absolute(grafton_visca::types::ZoomPosition::MIN) {
         Ok(_) => break,
         Err(e) if e.is_retryable() => {
             if let Some(delay) = e.suggested_retry_delay() {
@@ -279,28 +294,23 @@ loop {
 }
 ```
 
-* `Error::is_retryable()` and `Error::suggested_retry_delay()` exist and are used in the repo’s tests.
-* UDP connects are connectionless by design; timeouts can differ vs TCP. The builder exposes retry/backoff knobs at the transport layer.
+(Use async `sleep` with the runtime’s executor in async mode.)
 
 ---
 
 ## Transports & Protocols
 
-**Transports:** TCP, UDP, Serial, and custom.
+* **TCP/UDP (blocking & async):** Provided under transport modules for each runtime. The camera talks VISCA framed either as **raw VISCA** or as **Sony encapsulation**, chosen by the profile.&#x20;
+* **Serial (RS‑232/422):** Blocking serial (`transport-serial`) and async serial for Tokio (`transport-serial-tokio`). Serial does I/F Clear and Address Set during connection if requested (configurable). &#x20;
 
-* **TCP/UDP (blocking):** `Connect::open_tcp_blocking`, `Connect::open_udp_blocking`, or via `CameraBuilder::tcp/udp(...).open()`.
-* **TCP/UDP (async):** `Connect::open_tcp_async(..., runtime).await`, `Connect::open_udp_async(..., runtime).await`, or builder `.open_async(runtime)`.
-* **Serial (blocking):** `CameraConfig::<P>::new().serial(port, baud).open_serial_blocking()`. (Enable `transport-serial`.)
-* **Serial (async, Tokio):** `Connect::open_serial_async::<P, _>(port, baud, TokioRuntime).await`. (Enable `runtime-tokio` + `transport-serial-tokio`.)
-
-**Protocol envelopes:** Profiles set the default—**Raw VISCA** vs **Sony encapsulation**—and you can request **auto‑detection** via `CameraConfig::<P>::auto_protocol()`.
+Sony encapsulation uses a sequence‑numbered header (port **52381**), verified with concurrency tests ensuring unique sequence allocation.&#x20;
 
 ---
 
 ## Concurrency & Thread Safety
 
-* The async camera/session uses an executor handle and is designed for concurrent command futures (e.g., `tokio::join!` in examples). The Accessor pattern supports binding multiple accessors and awaiting concurrently.
-* The blocking client performs synchronous I/O; use one per thread or guard concurrent calls. A `TransportBusy`/timeout error indicates overlapping use on the same transport. (See error variants in `error.rs`.)
+The camera is designed for **concurrent async control** (e.g., join multiple inquiries); the unified API produces **Send‑safe futures** (documented in the camera module).&#x20;
+The blocking client performs synchronous I/O; avoid overlapping blocking calls on one instance from multiple threads.
 
 ---
 
@@ -308,48 +318,37 @@ loop {
 
 ```mermaid
 flowchart TB
-    A[Unified Camera API<br/>CameraSession / Accessors] --> B[Executor & Runtime Adapters<br/>Tokio / async-std / smol]
-    B --> C[Protocol Layer<br/>Raw VISCA / Sony encapsulation]
-    C --> D[Transport Layer<br/>TCP / UDP / Serial / Custom]
-    A --- E[Profiles<br/>Default ports & envelope at compile time]
+  A[Camera<M,P,Tr,Exec><br/>Session & Accessors] --> B[Executor adapters<br/>Tokio / async-std / smol]
+  B --> C[Protocol envelope<br/>Raw VISCA / Sony encapsulation]
+  C --> D[Transports<br/>TCP / UDP / Serial]
+  A --- E[Profiles<br/>ports & capabilities]
 
-    style A fill:#eef,stroke:#99f
-    style B fill:#efe,stroke:#9c9
-    style C fill:#ffe,stroke:#cc9
-    style D fill:#fee,stroke:#f99
-    style E fill:#eef,stroke:#99f
+  style A fill:#eef,stroke:#88f
+  style B fill:#efe,stroke:#8c8
+  style C fill:#ffe,stroke:#cc9
+  style D fill:#fee,stroke:#f99
+  style E fill:#eef,stroke:#88f
 ```
 
-* Accessors are implemented atop mode‑generic `Camera<M, P, Tr, Exec>`; the executor & transport are generic type params.
-* Envelopes (raw/sony) are compile‑time via the **profile’s** associated `Envelope` type.
+Source layout (`camera/mod.rs`, `transport/*`, `camera/controls/*`, `camera/profiles/*`).&#x20;
 
 ---
 
 ## Examples
 
-All examples are in this repo and compile with the features listed.
+Examples compile under the listed features; see `Cargo.toml` `[[example]]` entries.&#x20;
 
-**Basic**
-
-| Example             | Path                           | Run with                                                                                                  |
-| ------------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| Blocking quickstart | `examples/quickstart.rs`       | `cargo run --example quickstart` (no features)                                                            |
-| Async quickstart    | `examples/quickstart_async.rs` | `cargo run --example quickstart_async --features runtime-tokio` (or `runtime-async-std` / `runtime-smol`) |
-| Presets (blocking)  | `examples/preset_demo.rs`      | `cargo run --example preset_demo`                                                                         |
-
-**Advanced**
-
-| Example                        | Path                                         | Features                                  |
-| ------------------------------ | -------------------------------------------- | ----------------------------------------- |
-| Transports overview            | `examples-advanced/transports.rs`            | (blocking)                                |
-| Builder API (blocking)         | `examples-advanced/builder_api.rs`           | (blocking)                                |
-| Error handling (Tokio)         | `examples-advanced/error_handling.rs`        | `runtime-tokio`                           |
-| Runtime demo (Tokio accessors) | `examples/runtime_demo.rs`                   | `runtime-tokio`                           |
-| Type‑safe commands             | `examples-advanced/type_safe_commands.rs`    | (blocking)                                |
-| Runtime demo (low‑level)       | `examples-advanced/runtime_demo_lowlevel.rs` | `mode-async`, `runtime-tokio`             |
-| Runtime‑agnostic patterns      | `examples/runtime_agnostic.rs`               | `mode-async`                              |
-| Sony encapsulation             | `examples-advanced/sony_encapsulation.rs`    | `runtime-tokio`                           |
-| Serial (async, Tokio)          | `examples/serial_async_demo.rs`              | `runtime-tokio`, `transport-serial-tokio` |
+| Example                    | Path                                      | How to run                                                                                            |
+| -------------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Blocking quickstart        | `examples/quickstart.rs`                  | `cargo run --example quickstart`                                                                      |
+| Inquiry quickstart (Tokio) | `examples/inquiry_quickstart.rs`          | `cargo run --example inquiry_quickstart --features "mode-async,runtime-tokio"`                        |
+| Runtime demo (low‑level)   | `examples/runtime_demo_lowlevel.rs`       | `cargo run --example runtime_demo_lowlevel --features "mode-async,runtime-tokio"`                     |
+| Runtime‑agnostic patterns  | `examples/runtime_agnostic.rs`            | `cargo run --example runtime_agnostic --features "mode-async"`                                        |
+| Builder API (blocking)     | `examples-advanced/builder_api.rs`        | `cargo run --example builder_api`                                                                     |
+| Transports overview        | `examples-advanced/transports.rs`         | `cargo run --example transports`                                                                      |
+| Error handling (Tokio)     | `examples-advanced/error_handling.rs`     | `cargo run --example error_handling --features "mode-async,runtime-tokio"`                            |
+| Sony encapsulation         | `examples-advanced/sony_encapsulation.rs` | `cargo run --example sony_encapsulation --features "mode-async,runtime-tokio"`                        |
+| Serial (async, Tokio)      | `examples/serial_async_demo.rs`           | `cargo run --example serial_async_demo --features "mode-async,runtime-tokio,transport-serial-tokio"`  |
 
 ---
 
@@ -358,71 +357,61 @@ All examples are in this repo and compile with the features listed.
 Common invocations:
 
 ```bash
-# Blocking API only (default)
+# Blocking only (default)
 cargo test
 
-# Async (Tokio)
-cargo test --features runtime-tokio
+# Async with Tokio
+cargo test --features "mode-async,runtime-tokio"
 
-# Async (async-std)
-cargo test --features runtime-async-std
+# Async with async-std
+cargo test --features "mode-async,runtime-async-std"
 
-# Async (smol)
-cargo test --features runtime-smol
+# Async with smol
+cargo test --features "mode-async,runtime-smol"
 
 # Serial (blocking)
-cargo test --features transport-serial
+cargo test --features "transport-serial"
 
 # Serial (async, Tokio)
-cargo test --features "runtime-tokio,transport-serial-tokio"
-
-# All examples compile checks (Tokio)
-cargo run --example quickstart_async --features runtime-tokio -- --help
+cargo test --features "mode-async,runtime-tokio,transport-serial-tokio"
 ```
 
-The repo includes dedicated tests to ensure the camera‑first API, connect helpers, and UDP semantics work as expected (e.g., UDP “connect” success even to non‑existent hosts).
-
-> **Counts:** The crate defines **20 control traits** (listed above). The command surface is broad (pan/tilt/zoom, exposure, WB, focus, presets, menu, system, streaming, ND, tally, etc.), but because commands are defined across many modules and via macros, we intentionally **do not hard‑code a numeric command count** here; see `src/command/` for the authoritative list.
+> **Current test surface:** The repo contains **437** `#[test]` functions plus **186** macro‑generated tests (e.g., protocol/encoding fixtures), for \~**623** unit tests (scan of the source tree). The scripted transport also injects timeouts/errors used in tests.&#x20;
 
 ---
 
 ## Performance Notes
 
-* **Zero‑cost futures:** Async transport uses RPITIT (`async fn` in traits with `impl Trait`) to avoid boxing.
-* **Pre‑validated profiles & envelopes:** Compile‑time envelope selection and profile‑specific validation avoid runtime conditionals.
-* **Configurable buffering & retries:** Transport builder exposes connect timeouts, `tcp_nodelay`, and retry/backoff; UDP special‑cases are covered in tests.
+* **Send‑safe, zero‑cost futures** for async accessors over a single unified camera type.&#x20;
+* **Configurable buffering/retries** via transport config: connect/read/write timeouts, retry policy, and `tcp_nodelay`.
+* **Efficient framing/envelope**: Sony encapsulation sequence numbers are verified for uniqueness under concurrency.&#x20;
 
 ---
 
 ## Troubleshooting / FAQ
 
-* **“This example requires blocking/async…”**
-  Examples gate on features. The quickstart files print guidance if you run under the wrong mode.
-* **`InvalidState("No executor configured")` (async)**
-  Ensure you passed a runtime to the builder or used `Connect::open_*_async` with a runtime handle.
-* **Camera busy / contention**
-  Use `Error::is_retryable()` and `suggested_retry_delay()` to back off and retry. Avoid overlapping blocking calls on the same client.
-* **UDP gotchas**
-  “Connect” doesn’t validate remote reachability; timeouts are expected when no peer replies. Prefer TCP unless you need UDP semantics.
-* **Wrong port**
-  Use the profile defaults: PTZOptics/raw VISCA typically TCP **5678** / UDP **1259**; Sony encapsulation typically **52381**.
-* **Serial addressing**
-  Use `CameraConfig::<P>::serial(port, baud)` and the serial `open_*` helpers. For async serial you must be on Tokio.
+* **“It compiles but nothing happens on UDP!”** UDP is connectionless; lack of replies will surface as timeouts. Prefer TCP unless UDP is required.
+* **“Which port do I use?”** If you omit the port, helpers use the profile’s default (raw VISCA: TCP **5678** / UDP **1259**; Sony encapsulation: **52381**).&#x20;
+* **“Async example says no executor/runtime.”** Ensure you enabled `mode-async` and a `runtime-*` feature and pass the executor adapter to `open_*_async`.&#x20;
+* **“Serial doesn’t connect.”** Confirm port, permissions, and baud; async serial requires `mode-async + runtime-tokio + transport-serial-tokio`. The example prints targeted guidance.&#x20;
+* **“Camera busy / buffer full.”** Use a retry loop; errors include retryability and suggested delay (see scripted transport error injection for mapping).&#x20;
 
-> **Safety:** PTZ motion physically moves hardware. Ensure a safe operating area and clearances before issuing movement commands.
+> **Safety:** PTZ motion physically moves hardware. Ensure clearances and a safe operating area before issuing movement commands.
 
 ---
 
 ## Compatibility
 
-* **MSRV:** Rust **1.80.0** (declared in `Cargo.toml`).
-* **Operating systems:** The crate builds in blocking mode by default; async and serial support depend on the enabled features and their upstream crates. Repository CI ensures that the project builds on Linux, macOS, and Windows.
+* **MSRV:** Rust **1.80.0** (`rust-version = "1.80"` in `Cargo.toml`).&#x20;
+* **OS:** Builds on Linux/macOS/Windows; CI covers these OSes. (See GitHub Actions workflow.)
+  [CI badge → workflow](https://github.com/GrantSparks/grafton-visca/actions/workflows/ci.yml)
 
 ---
 
 ## Contributing
 
-Contributions are welcome! Please see **CONTRIBUTING.md** for guidelines.
+Contributions are welcome! Please see **CONTRIBUTING.md** (standard formatting/lints apply).
+The crate uses feature gating to keep default builds lean; please keep examples runnable across modes.
 
 ---
 
@@ -442,5 +431,5 @@ Unless you explicitly state otherwise, any contribution intentionally submitted 
 ## Resources
 
 * **API docs:** [https://docs.rs/grafton-visca](https://docs.rs/grafton-visca)
-* **Examples:** `examples/` and `examples-advanced/` (see [Examples](#examples))
-* **Issues:** GitHub issues for this repo
+* **Examples:** see `examples/` and `examples-advanced/` in this repo (table above).&#x20;
+* **Issues:** [https://github.com/GrantSparks/grafton-visca/issues](https://github.com/GrantSparks/grafton-visca/issues)
