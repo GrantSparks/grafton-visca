@@ -649,11 +649,15 @@ jobs:
     steps:
       - name: Check if all jobs succeeded
         run: |
+          # Check for failures (but ignore skipped jobs)
           if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
             echo "One or more required jobs failed"
             exit 1
+          elif [[ "${{ contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "One or more required jobs were cancelled"
+            exit 1
           else
-            echo "All required jobs passed successfully"
+            echo "All required jobs passed or were skipped successfully"
           fi
 
   # Publish job
