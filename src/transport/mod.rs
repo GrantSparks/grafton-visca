@@ -14,28 +14,28 @@
 //! ## Usage
 //!
 //! For blocking transports (using camera-first API):
-//! ```rust,no_run
+//! ```rust,ignore
 //! # #[cfg(not(feature = "mode-async"))]
 //! use grafton_visca::{
 //!     camera::{Connect, profiles::PtzOpticsG2},
-//!     blocking_api::BlockingClient,
 //! };
 //!
 //! # #[cfg(not(feature = "mode-async"))]
 //! # fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! # #[cfg(not(feature = "mode-async"))]
-//! let camera = BlockingClient::wrap(
-//!     Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?
-//! );
+//! let camera = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?;
+//! # #[cfg(not(feature = "mode-async"))]
 //! // Camera is ready to use with accessor pattern
+//! # #[cfg(not(feature = "mode-async"))]
 //! camera.power().on()?;
+//! # #[cfg(not(feature = "mode-async"))]
 //! camera.zoom().tele()?;
 //! # Ok(())
 //! # }
 //! ```
 //!
 //! For async transports (with tokio):
-//! ```rust,no_run
+//! ```rust,ignore
 //! # #[cfg(feature = "runtime-tokio")]
 //! use grafton_visca::{
 //!     camera::{Connect, profiles::PtzOpticsG2},

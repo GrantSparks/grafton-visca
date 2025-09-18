@@ -105,7 +105,6 @@
 //! ### Blocking Example
 //! ```ignore
 //! use grafton_visca::{
-//!     blocking_api::BlockingClient,
 //!     camera::Connect,
 //!     camera::profiles::PtzOpticsG2,
 //!     Error,
@@ -113,11 +112,9 @@
 //!
 //! fn main() -> Result<(), Error> {
 //!     // Create camera using convenience Connect helper
-//!     let camera = BlockingClient::wrap(
-//!         Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?
-//!     );
+//!     let camera = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?;
 //!
-//!     // Use accessor-style API - no .block() needed with BlockingClient
+//!     // Use accessor-style API
 //!     camera.power().on()?;
 //!     camera.zoom().tele()?;
 //!     camera.pan_tilt().home()?;
