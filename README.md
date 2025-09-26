@@ -10,6 +10,14 @@ For broadcasters/streamers, AV integrators, and Rust developers who need product
 
 ---
 
+Pre-release warning: This crate is in **pre-release** status.&#x20;  Our design goal is to stabilize the API and feature set by **1.0.0**.&#x20; Breaking changes, even considerable, may occur until then.
+
+This crate has been tested only with PTZOptics brand cameras.  Other VISCA‑compliant cameras may work but are untested. Please report issues or submit PRs if you have access to other models.  We can only support what we can test.  In particular, the Sony encapsulation profile has not been tested with physical hardware.  Serial transport support is theoretical only; we current have no serial‑capable hardware to test with but encourage you to give our implementation a try and contribute.
+
+These warnings will be removed when we reach **1.0.0**, or modified as additional hardware is tested.
+
+---
+
 ## Table of contents
 
 * [Why this crate](#why-this-crate)
