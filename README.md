@@ -10,11 +10,35 @@ For broadcasters/streamers, AV integrators, and Rust developers who need product
 
 ---
 
-Pre-release warning: This crate is in **pre-release** status.&#x20;  Our design goal is to stabilize the API and feature set by **1.0.0**.&#x20; Breaking changes, even considerable, may occur until then.
+## ⚠️ Pre-Release Notice
 
-This crate has been tested only with PTZOptics brand cameras.  Other VISCA‑compliant cameras may work but are untested. Please report issues or submit PRs if you have access to other models.  We can only support what we can test.  In particular, the Sony encapsulation profile has not been tested with physical hardware.  Serial transport support is theoretical only; we current have no serial‑capable hardware to test with but encourage you to give our implementation a try and contribute.
+> **This crate is currently in pre-release status (< 1.0.0)**
+>
+> Breaking changes may occur until we reach stable API at version **1.0.0**
 
-These warnings will be removed when we reach **1.0.0**, or modified as additional hardware is tested.
+### Hardware Compatibility
+
+#### ✅ Tested
+- **PTZOptics cameras** - Fully tested and supported
+
+#### ⚡ Experimental Support
+- **Other VISCA-compliant cameras** - May work but untested
+- **Sony encapsulation profile** - No hardware verification yet
+- **Serial transport** - Theoretical implementation, awaiting hardware testing
+
+### How You Can Help
+
+We can only support what we can test. If you have access to:
+- Different VISCA camera models
+- Serial-capable hardware
+- Sony profile equipment
+
+Please:
+- 🐛 [Report issues](https://github.com/GrantSparks/grafton-visca/issues)
+- 🔧 [Submit pull requests](https://github.com/GrantSparks/grafton-visca/pulls)
+- 📝 Share your test results
+
+*This notice will be updated as we verify additional hardware and removed upon reaching v1.0.0*
 
 ---
 
