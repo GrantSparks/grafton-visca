@@ -314,10 +314,11 @@ where
                 TransportHandle::Udp(udp)
             }
             TransportOptions::Serial { .. } => {
-                // Serial requires serialport feature and RuntimeSerial implementation
-                // Since we can't add the constraint here, we return Unsupported
-                // Users should use the serial-specific methods like open_serial_async()
-                return Err(Error::NotSupported);
+                // Serial transport must use open_serial_async() method which has RuntimeSerial bound
+                return Err(Error::InvalidState(
+                    "Serial transport requires open_serial_async() method for proper trait bounds"
+                        .into(),
+                ));
             }
             TransportOptions::Custom => {
                 return Err(Error::InvalidState(
@@ -345,7 +346,11 @@ where
 
     /// Open an async serial camera session using the configuration.
     ///
-    /// This method is generic over any runtime that implements `RuntimeSerial`.
+    /// This method requires a runtime that implements `RuntimeSerial` and returns
+    /// a session using the unified `TransportHandle` type, allowing downstream users
+    /// to implement traits uniformly across all transport types.
+    ///
+    /// Currently, serial transport is only supported for the Tokio runtime.
     ///
     /// # Example
     ///
@@ -359,7 +364,7 @@ where
     ///
     /// let session = config.open_serial_async(runtime).await?;
     /// ```
-    #[cfg(all(feature = "mode-async", feature = "transport-serial-tokio"))]
+    #[cfg(feature = "transport-serial-tokio")]
     pub async fn open_serial_async<R>(
         &self,
         runtime: R,
@@ -367,14 +372,17 @@ where
         crate::camera::session::CameraSession<
             crate::mode::Async,
             P,
-            <R as crate::runtime::RuntimeSerial>::SerialTransport,
+            crate::runtime::TransportHandle<R>,
             R,
         >,
         Error,
     >
     where
-        R: crate::runtime::Runtime + crate::runtime::RuntimeSerial,
+        R: crate::runtime::Runtime
+            + crate::runtime::RuntimeSerial<SerialTransport = crate::transport::tokio::serial::Serial>,
     {
+        use crate::runtime::TransportHandle;
+
         match &self.transport {
             TransportOptions::Serial { port, baud_rate } => {
                 // Create serial config from transport options
@@ -384,10 +392,12 @@ where
 
                 // Connect using RuntimeSerial trait
                 let serial = runtime.connect_serial(serial_config).await?;
+                let transport = TransportHandle::Serial(serial);
 
                 // Create camera using profile's envelope type
                 let mut camera = crate::camera::Camera::<crate::mode::Async, P, _, _>::new_async(
-                    serial, runtime,
+                    transport,
+                    runtime.clone(),
                 )
                 .await?;
 

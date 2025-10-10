@@ -106,18 +106,11 @@ impl Connect {
         port: impl Into<String>,
         baud_rate: u32,
         runtime: R,
-    ) -> Result<
-        CameraSession<
-            crate::mode::Async,
-            P,
-            <R as crate::runtime::RuntimeSerial>::SerialTransport,
-            R,
-        >,
-        Error,
-    >
+    ) -> Result<CameraSession<crate::mode::Async, P, crate::runtime::TransportHandle<R>, R>, Error>
     where
         P: Profile + Default,
-        R: crate::runtime::Runtime + crate::runtime::RuntimeSerial,
+        R: crate::runtime::Runtime
+            + crate::runtime::RuntimeSerial<SerialTransport = crate::transport::tokio::serial::Serial>,
     {
         CameraConfig::<P>::new()
             .serial(port, baud_rate)
