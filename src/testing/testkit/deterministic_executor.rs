@@ -672,6 +672,45 @@ where
     }
 }
 
+/// Detachment handle for DeterministicExecutor tasks.
+///
+/// This handle ensures that when it is dropped, the underlying task is explicitly
+/// detached from the executor, allowing it to continue running independently.
+/// This is necessary because async-executor's Task type cancels the task when
+/// dropped unless explicitly detached.
+///
+/// The handle works by storing a type-erased cloned reference to the Task,
+/// which it detaches when dropped. This ensures the task continues running
+/// even after both the join handle and detachment handle are dropped.
+pub struct DetachmentHandle {
+    detach_fn: Box<dyn FnOnce() + Send>,
+}
+
+impl DetachmentHandle {
+    fn new<T: Send + 'static>(task: async_executor::Task<T>) -> Self {
+        Self {
+            detach_fn: Box::new(move || {
+                task.detach();
+            }),
+        }
+    }
+}
+
+impl Drop for DetachmentHandle {
+    fn drop(&mut self) {
+        // Take the detach function and call it
+        // We need to replace it with a no-op to satisfy the type system
+        let detach_fn = std::mem::replace(&mut self.detach_fn, Box::new(|| {}));
+        detach_fn();
+    }
+}
+
+impl std::fmt::Debug for DetachmentHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DetachmentHandle").finish()
+    }
+}
+
 /// Handle for controlling the virtual clock in tests.
 ///
 /// This allows tests to advance time deterministically and observe the effects
@@ -727,12 +766,37 @@ impl Executor for DeterministicExecutor {
     where
         T: 'static;
 
-    fn spawn<F>(&self, fut: F) -> Self::Join<F::Output>
+    type Detach = DetachmentHandle;
+
+    fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        DetJoin(self.executor.spawn(fut))
+        // We need to spawn the future twice: once for the join handle and once for detachment
+        // This is necessary because async_executor::Task doesn't implement Clone
+        // To avoid running the future twice, we use a channel to share the result
+        let (result_tx, result_rx) = flume::bounded(1);
+
+        // Spawn the actual task
+        let task = self.executor.spawn(async move {
+            let result = fut.await;
+            let _ = result_tx.send_async(result).await;
+            // Return a dummy value for the detachment task
+        });
+
+        // Create a wrapper task for the join handle that reads from the channel
+        let join_task = self.executor.spawn(async move {
+            result_rx
+                .recv_async()
+                .await
+                .expect("Result channel closed unexpectedly")
+        });
+
+        // Create detachment handle that holds the actual task
+        let detach_handle = DetachmentHandle::new(task);
+
+        (DetJoin(join_task), detach_handle)
     }
 
     fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
@@ -802,18 +866,6 @@ impl Executor for DeterministicExecutor {
 
     fn now(&self) -> Instant {
         self.clock.now()
-    }
-
-    // Override spawn_bg to properly detach the task.
-    // The default implementation drops the join handle returned by spawn(),
-    // but for DeterministicExecutor, that wrapper owns the underlying Task
-    // and dropping it cancels the task. We must detach it instead.
-    fn spawn_bg<F>(&self, fut: F)
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        self.executor.spawn(fut).detach();
     }
 }
 

@@ -51,13 +51,35 @@ pub trait Executor: Clone + Send + Sync + 'static {
     where
         T: 'static;
 
-    /// Spawn a future as a background task.
+    /// Type indicating whether tasks require explicit detachment.
     ///
-    /// Returns a join handle that can be used to await the task's completion.
-    fn spawn<F>(&self, fut: F) -> Self::Join<F::Output>
+    /// Set to `()` if dropping the join handle detaches the task (e.g., Tokio),
+    /// or a detachment token type otherwise (e.g., DeterministicExecutor).
+    type Detach: Send + 'static;
+
+    /// Spawn a future and return both join handle and optional detachment token.
+    ///
+    /// The detachment token ensures that tasks spawned for fire-and-forget
+    /// operation will continue running even when both the join handle and
+    /// detachment token are dropped. Executors where dropping the join handle
+    /// is sufficient for detachment should return `()` as the detachment token.
+    fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static;
+
+    /// Spawn a future as a background task.
+    ///
+    /// Returns a join handle that can be used to await the task's completion.
+    /// This is a convenience wrapper around `spawn_with_detach` that discards
+    /// the detachment token.
+    fn spawn<F>(&self, fut: F) -> Self::Join<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        self.spawn_with_detach(fut).0
+    }
 
     /// Spawn a future on the current thread (local task).
     ///
@@ -94,13 +116,18 @@ pub trait Executor: Clone + Send + Sync + 'static {
 
     /// Spawn a background task and detach the join handle.
     ///
-    /// Provided default method so executors can override if needed.
+    /// This method guarantees that the task will continue running independently
+    /// after being spawned, regardless of the executor's join handle semantics.
+    /// The implementation uses `spawn_with_detach` to ensure proper detachment
+    /// across all executor types.
     fn spawn_bg<F>(&self, fut: F)
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        drop(self.spawn(fut));
+        let (handle, detach_token) = self.spawn_with_detach(fut);
+        drop(handle);
+        drop(detach_token);
     }
 
     /// Get the current time according to this executor.
@@ -145,12 +172,14 @@ where
     where
         T: 'static;
 
-    fn spawn<F>(&self, fut: F) -> Self::Join<F::Output>
+    type Detach = <E as Executor>::Detach;
+
+    fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        (**self).spawn(fut)
+        (**self).spawn_with_detach(fut)
     }
 
     fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
@@ -193,14 +222,6 @@ where
         T: Send + 'static,
     {
         (**self).timeout_owned(duration, fut)
-    }
-
-    fn spawn_bg<F>(&self, fut: F)
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        (**self).spawn_bg(fut)
     }
 
     fn now(&self) -> Instant {
@@ -297,12 +318,14 @@ mod tokio_impl {
         where
             T: 'static;
 
-        fn spawn<F>(&self, fut: F) -> Self::Join<F::Output>
+        type Detach = ();
+
+        fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
         where
             F: Future + Send + 'static,
             F::Output: Send + 'static,
         {
-            TokioJoin(self.handle.spawn(fut))
+            (TokioJoin(self.handle.spawn(fut)), ())
         }
 
         fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
@@ -451,12 +474,14 @@ mod async_std_impl {
         where
             T: 'static;
 
-        fn spawn<F>(&self, fut: F) -> Self::Join<F::Output>
+        type Detach = ();
+
+        fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
         where
             F: Future + Send + 'static,
             F::Output: Send + 'static,
         {
-            AsyncStdJoin(async_std::task::spawn(fut))
+            (AsyncStdJoin(async_std::task::spawn(fut)), ())
         }
 
         fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
@@ -606,7 +631,9 @@ mod smol_impl {
         where
             T: 'static;
 
-        fn spawn<F>(&self, fut: F) -> Self::Join<F::Output>
+        type Detach = ();
+
+        fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
         where
             F: Future + Send + 'static,
             F::Output: Send + 'static,
@@ -616,7 +643,7 @@ mod smol_impl {
                 let _ = tx.send_async(fut.await).await;
             })
             .detach();
-            SmolJoin(rx)
+            (SmolJoin(rx), ())
         }
 
         fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>

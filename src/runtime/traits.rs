@@ -208,12 +208,14 @@ mod tokio_impl {
         where
             T: 'static;
 
-        fn spawn<F>(&self, fut: F) -> Self::Join<F::Output>
+        type Detach = <TokioExecutor as Executor>::Detach;
+
+        fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
         where
             F: Future + Send + 'static,
             F::Output: Send + 'static,
         {
-            self.executor.spawn(fut)
+            self.executor.spawn_with_detach(fut)
         }
 
         fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
@@ -363,12 +365,14 @@ mod async_std_impl {
         where
             T: 'static;
 
-        fn spawn<F>(&self, fut: F) -> Self::Join<F::Output>
+        type Detach = <AsyncStdExecutor as Executor>::Detach;
+
+        fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
         where
             F: Future + Send + 'static,
             F::Output: Send + 'static,
         {
-            self.executor.spawn(fut)
+            self.executor.spawn_with_detach(fut)
         }
 
         fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
@@ -504,12 +508,14 @@ mod smol_impl {
         where
             T: 'static;
 
-        fn spawn<F>(&self, fut: F) -> Self::Join<F::Output>
+        type Detach = <SmolExecutor as Executor>::Detach;
+
+        fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
         where
             F: Future + Send + 'static,
             F::Output: Send + 'static,
         {
-            self.executor.spawn(fut)
+            self.executor.spawn_with_detach(fut)
         }
 
         fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>

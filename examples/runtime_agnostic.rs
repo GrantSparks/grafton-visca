@@ -56,24 +56,27 @@ fn main() {
         where
             T: 'static;
 
-        fn spawn<F>(&self, future: F) -> Self::Join<F::Output>
+        type Detach = ();
+
+        fn spawn_with_detach<F>(&self, future: F) -> (Self::Join<F::Output>, Self::Detach)
         where
             F: Future + Send + 'static,
             F::Output: Send + 'static,
         {
             // Example: If using async-std, you would do:
             // let handle = async_std::task::spawn(future);
-            // Box::pin(async move {
-            //     Ok(handle.await)
-            // })
+            // (Box::pin(async move { Ok(handle.await) }), ())
 
             // For this demo, we return a stub
             drop(future);
-            Box::pin(async {
-                Err(grafton_visca::ExecError::TaskFailed(
-                    "Demo executor - implement spawn() for your runtime".into(),
-                ))
-            })
+            (
+                Box::pin(async {
+                    Err(grafton_visca::ExecError::TaskFailed(
+                        "Demo executor - implement spawn_with_detach() for your runtime".into(),
+                    ))
+                }),
+                (),
+            )
         }
 
         fn spawn_local<F>(&self, future: F) -> Self::LocalJoin<F::Output>
