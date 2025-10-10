@@ -1,6 +1,6 @@
 use thiserror::Error as ThisError;
 
-use std::{borrow::Cow, convert::Infallible, io, time::Duration};
+use std::{borrow::Cow, convert::Infallible, io, sync::Arc, time::Duration};
 
 /// Custom result type for VISCA operations.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -67,7 +67,7 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 ///     Ok(())
 /// }
 /// ```
-#[derive(ThisError, Debug)]
+#[derive(ThisError, Debug, Clone)]
 pub enum Error {
     /// Failed to establish connection to the camera.
     #[error("Connection failed to {addr}: {source}")]
@@ -75,7 +75,7 @@ pub enum Error {
         /// The address that failed to connect.
         addr: Cow<'static, str>,
         /// The underlying IO error.
-        source: io::Error,
+        source: Arc<io::Error>,
     },
 
     /// Connection to the camera was closed.
@@ -149,7 +149,7 @@ pub enum Error {
 
     /// Underlying IO error from network operations.
     #[error("IO error: {0}")]
-    Io(#[from] io::Error),
+    Io(Arc<io::Error>),
 
     /// VISCA protocol syntax error (0x02): Command format is incorrect or parameters are illegal.
     #[error("Syntax error in VISCA command")]
@@ -479,6 +479,12 @@ impl Error {
     }
 }
 
+impl From<io::Error> for Error {
+    fn from(err: io::Error) -> Self {
+        Self::Io(Arc::new(err))
+    }
+}
+
 impl From<nom::Err<nom::error::Error<&[u8]>>> for Error {
     fn from(err: nom::Err<nom::error::Error<&[u8]>>) -> Self {
         Self::ParseError(Cow::Owned(err.to_string()))
@@ -711,5 +717,38 @@ mod tests {
                 "Non-retryable error should not have suggested delay: {error}"
             );
         }
+    }
+
+    #[test]
+    fn test_error_implements_clone() {
+        // Test that Error implements Clone for various variants
+        let error1 = Error::CameraBusy;
+        let error2 = error1.clone();
+        assert!(matches!(error2, Error::CameraBusy));
+
+        let error3 = Error::ConnectionFailed {
+            addr: Cow::Borrowed("192.168.1.100:5678"),
+            source: Arc::new(io::Error::other("test error")),
+        };
+        let error4 = error3.clone();
+        assert!(matches!(error4, Error::ConnectionFailed { .. }));
+
+        let error5 = Error::Io(Arc::new(io::Error::other("test io error")));
+        let error6 = error5.clone();
+        assert!(matches!(error6, Error::Io(_)));
+
+        let error7 = Error::InvalidParameter {
+            parameter: "test",
+            value: Cow::Borrowed("value"),
+            reason: Cow::Borrowed("reason"),
+        };
+        let error8 = error7.clone();
+        assert!(matches!(
+            error8,
+            Error::InvalidParameter {
+                parameter: "test",
+                ..
+            }
+        ));
     }
 }

@@ -142,7 +142,7 @@ impl BlockingTransport for SerialTransport {
                 trace!("Read {} bytes from serial port", n);
                 Ok(n)
             }
-            Err(e) => Err(Error::Io(e)),
+            Err(e) => Err(e.into()),
         }
     }
 
@@ -168,7 +168,7 @@ impl BlockingTransport for SerialTransport {
             {
                 Err(Error::Timeout)
             }
-            Err(io_err) => Err(Error::Io(io_err)),
+            Err(io_err) => Err(io_err.into()),
         };
 
         // Restore original timeout

@@ -2,7 +2,7 @@
 
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use crate::{
     error::{Error, Result},
@@ -78,7 +78,9 @@ impl Serial {
             .open_native_async()
             .map_err(|e| Error::ConnectionFailed {
                 addr: config.port.clone().into(),
-                source: std::io::Error::other(format!("Failed to open serial port: {e}")),
+                source: Arc::new(std::io::Error::other(format!(
+                    "Failed to open serial port: {e}"
+                ))),
             })?;
 
         #[cfg(not(unix))]
@@ -87,13 +89,15 @@ impl Serial {
             .open_native_async()
             .map_err(|e| Error::ConnectionFailed {
                 addr: config.port.clone().into(),
-                source: std::io::Error::other(format!("Failed to open serial port: {e}")),
+                source: Arc::new(std::io::Error::other(format!(
+                    "Failed to open serial port: {e}"
+                ))),
             })?;
 
         // Configure port settings
         #[cfg(unix)]
         port.set_exclusive(false)
-            .map_err(|e| Error::Io(std::io::Error::other(e)))?;
+            .map_err(|e| Error::Io(Arc::new(std::io::Error::other(e))))?;
 
         let mut adapter = TokioSerialAdapter::new(port);
 

@@ -106,7 +106,7 @@ impl BlockingTransport for MockTcp {
                 })
             }
             Ok(n) => Ok(n),
-            Err(e) => Err(Error::Io(e)),
+            Err(e) => Err(e.into()),
         }
     }
 

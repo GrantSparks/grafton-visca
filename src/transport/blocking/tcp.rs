@@ -139,7 +139,7 @@ impl BlockingTransport for Tcp {
                 })
             }
             Ok(n) => Ok(n),
-            Err(e) => Err(Error::Io(e)),
+            Err(e) => Err(e.into()),
         }
     }
 
@@ -169,7 +169,7 @@ impl BlockingTransport for Tcp {
             {
                 Err(Error::Timeout)
             }
-            Err(io_err) => Err(Error::Io(io_err)),
+            Err(io_err) => Err(io_err.into()),
         };
 
         // Restore the original timeout
