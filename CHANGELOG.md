@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2025-10-10
+
+### Added
+- Serial transport support with `TransportHandle::Serial` variant for uniform trait implementation
+- Warning messages for unsupported hardware configurations
+
+### Changed
+- Improved `Error` type with `Clone` implementation for better error handling
+- Enhanced runtime-agnostic spawn background abstraction with `spawn_with_detach` function
+- Standardized import organization and code formatting across the codebase
+- Improved layout consistency
+
+### Fixed
+- Runtime-agnostic background task spawning now properly handles detached tasks
+
 ## [0.7.0] - 2025-09-18
 
 This release represents a complete architectural transformation of the library, fundamentally reimagining how VISCA camera control should work in Rust. After hundreds of iterations and refinements since 0.6.0, we've achieved a design that prioritizes simplicity, type safety, and zero-cost abstractions.
