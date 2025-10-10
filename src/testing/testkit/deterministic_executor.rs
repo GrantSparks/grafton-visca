@@ -26,10 +26,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{executor::Executor, Error};
-
 #[cfg(feature = "runtime-tokio")]
 use crate::executor::TokioExecutor;
+use crate::{executor::Executor, Error};
 
 /// Extension trait for executor background task semantics in test utilities.
 ///
@@ -1014,10 +1013,12 @@ impl DeterministicExecutorExt for Arc<DeterministicExecutor> {
 
 #[cfg(all(test, feature = "test-utils"))]
 mod tests {
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    use std::time::Duration;
-
     use super::*;
+
+    use std::{
+        sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+        time::Duration,
+    };
 
     #[test]
     fn test_virtual_clock_advance() {

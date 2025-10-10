@@ -6,6 +6,8 @@
 
 use crate::{camera_id::CameraId, error::Error, timeout::TimeoutConfig};
 
+use std::marker::PhantomData;
+
 /// Transport configuration options.
 #[derive(Debug, Clone)]
 pub enum TransportOptions {
@@ -95,7 +97,7 @@ pub struct CameraConfig<P> {
     /// Camera VISCA address (usually 1).
     pub(crate) camera_id: CameraId,
     /// Profile marker.
-    pub(crate) _phantom: std::marker::PhantomData<P>,
+    pub(crate) _phantom: PhantomData<P>,
 }
 
 impl<P> CameraConfig<P>
@@ -113,7 +115,7 @@ where
             timeouts: TimeoutConfig::default(),
             retries: crate::transport::RetryConfig::default(),
             camera_id: CameraId::new(P::DEFAULT_CAMERA_ID).unwrap_or_default(),
-            _phantom: std::marker::PhantomData,
+            _phantom: PhantomData,
         }
     }
 

@@ -26,17 +26,17 @@
     feature = "runtime-async-std",
     feature = "runtime-smol"
 ))]
-use grafton_visca::{
-    camera::{profiles::PtzOpticsG2, Connect},
-    Error,
-};
+use std::env;
 
 #[cfg(any(
     feature = "runtime-tokio",
     feature = "runtime-async-std",
     feature = "runtime-smol"
 ))]
-use std::env;
+use grafton_visca::{
+    camera::{profiles::PtzOpticsG2, Connect},
+    Error,
+};
 
 // Main function for when no runtime is selected
 #[cfg(not(any(

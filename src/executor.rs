@@ -232,9 +232,9 @@ where
 // Tokio executor implementation
 #[cfg(feature = "runtime-tokio")]
 mod tokio_impl {
-    use std::{pin::Pin, time::Duration};
-
     use super::*;
+
+    use std::{pin::Pin, time::Duration};
 
     /// Tokio-based executor implementation.
     #[derive(Debug, Clone)]
@@ -397,9 +397,9 @@ pub use tokio_impl::TokioExecutor;
 // async-std executor implementation
 #[cfg(feature = "runtime-async-std")]
 mod async_std_impl {
-    use std::{pin::Pin, time::Duration};
-
     use super::*;
+
+    use std::{pin::Pin, time::Duration};
 
     /// async-std based executor implementation.
     #[derive(Debug, Clone, Copy)]
@@ -544,9 +544,9 @@ pub use async_std_impl::AsyncStdExecutor;
 // smol executor implementation
 #[cfg(feature = "runtime-smol")]
 mod smol_impl {
-    use std::{pin::Pin, time::Duration};
-
     use super::*;
+
+    use std::{pin::Pin, time::Duration};
 
     /// smol-based executor implementation.
     #[derive(Debug, Clone, Copy)]

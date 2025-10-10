@@ -27,7 +27,6 @@ fn test_busy_cascade_across_priorities() {
         results
     });
 
-    // Verify priority ordering concept is demonstrated
     assert_eq!(
         result,
         vec!["Critical", "High", "Normal"],
@@ -57,7 +56,6 @@ fn test_busy_with_max_retries() {
         }
     });
 
-    // Command should fail after max retries
     assert!(result.is_err(), "Should fail after exhausting retries");
     assert_eq!(
         result.unwrap_err(),
@@ -96,7 +94,6 @@ fn test_priority_order_during_busy_recovery() {
         results
     });
 
-    // All commands should succeed with proper priority ordering
     assert_eq!(results.len(), 3, "Should process all commands");
     assert_eq!(results[0], "Critical succeeded", "Critical should be first");
     assert_eq!(results[1], "High succeeded", "High should be second");
