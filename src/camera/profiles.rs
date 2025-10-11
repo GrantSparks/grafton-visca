@@ -943,6 +943,212 @@ pub enum G2Gain {
     Gain24dB = 8,
 }
 
+/// Serializable camera profile identifier.
+///
+/// This enum provides a serializable way to identify camera profiles for use in
+/// configuration files, APIs, and RPC interfaces. Unlike the zero-sized profile
+/// marker types (`PtzOpticsG2`, `SonyFR7`, etc.), this enum can be serialized
+/// and deserialized with serde.
+///
+/// # Example
+///
+/// ```
+/// # #[cfg(feature = "serde")] {
+/// use grafton_visca::camera::profiles::ProfileId;
+///
+/// // Serialize to JSON
+/// let profile = ProfileId::PtzOpticsG2;
+/// let json = serde_json::to_string(&profile).unwrap();
+/// assert_eq!(json, "\"ptz-optics-g2\"");
+///
+/// // Deserialize from JSON
+/// let profile: ProfileId = serde_json::from_str("\"sony-fr7\"").unwrap();
+/// assert_eq!(profile, ProfileId::SonyFr7);
+/// # }
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
+pub enum ProfileId {
+    /// PtzOptics G2 series cameras
+    PtzOpticsG2,
+    /// PtzOptics G3 series cameras
+    PtzOpticsG3,
+    /// PtzOptics 30X cameras
+    #[cfg_attr(feature = "serde", serde(rename = "ptzoptics-30x"))]
+    PtzOptics30X,
+    /// Sony FR7 camera
+    SonyFr7,
+    /// Sony BRC-H900 camera
+    #[cfg_attr(feature = "serde", serde(rename = "sony-brch900"))]
+    SonyBrcH900,
+    /// Sony EVI-H100 camera
+    #[cfg_attr(feature = "serde", serde(rename = "sony-evih100"))]
+    SonyEviH100,
+    /// Sony BRC-300 camera
+    #[cfg_attr(feature = "serde", serde(rename = "sony-brc300"))]
+    SonyBrc300,
+    /// Nearus BRC-300 camera
+    #[cfg_attr(feature = "serde", serde(rename = "nearus-brc300"))]
+    NearusBrc300,
+    /// Generic VISCA-compatible camera
+    #[default]
+    GenericVisca,
+}
+
+impl ProfileId {
+    /// Returns the human-readable display name for this profile.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use grafton_visca::camera::profiles::ProfileId;
+    ///
+    /// let profile = ProfileId::PtzOpticsG2;
+    /// assert_eq!(profile.display_name(), "PtzOptics G2");
+    /// ```
+    pub const fn display_name(&self) -> &'static str {
+        match self {
+            ProfileId::PtzOpticsG2 => PtzOpticsG2::MODEL_NAME,
+            ProfileId::PtzOpticsG3 => PtzOpticsG3::MODEL_NAME,
+            ProfileId::PtzOptics30X => PtzOptics30X::MODEL_NAME,
+            ProfileId::SonyFr7 => SonyFR7::MODEL_NAME,
+            ProfileId::SonyBrcH900 => SonyBRCH900::MODEL_NAME,
+            ProfileId::SonyEviH100 => SonyEVIH100::MODEL_NAME,
+            ProfileId::SonyBrc300 => SonyBRC300::MODEL_NAME,
+            ProfileId::NearusBrc300 => NearusBRC300::MODEL_NAME,
+            ProfileId::GenericVisca => GenericVisca::MODEL_NAME,
+        }
+    }
+
+    /// Returns the default TCP port for this profile.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use grafton_visca::camera::profiles::ProfileId;
+    ///
+    /// let profile = ProfileId::PtzOpticsG2;
+    /// assert_eq!(profile.default_tcp_port(), 5678);
+    ///
+    /// let sony = ProfileId::SonyFr7;
+    /// assert_eq!(sony.default_tcp_port(), 52381);
+    /// ```
+    pub const fn default_tcp_port(&self) -> u16 {
+        match self {
+            ProfileId::PtzOpticsG2 => PtzOpticsG2::DEFAULT_TCP_PORT,
+            ProfileId::PtzOpticsG3 => PtzOpticsG3::DEFAULT_TCP_PORT,
+            ProfileId::PtzOptics30X => PtzOptics30X::DEFAULT_TCP_PORT,
+            ProfileId::SonyFr7 => SonyFR7::DEFAULT_TCP_PORT,
+            ProfileId::SonyBrcH900 => SonyBRCH900::DEFAULT_TCP_PORT,
+            ProfileId::SonyEviH100 => SonyEVIH100::DEFAULT_TCP_PORT,
+            ProfileId::SonyBrc300 => SonyBRC300::DEFAULT_TCP_PORT,
+            ProfileId::NearusBrc300 => NearusBRC300::DEFAULT_TCP_PORT,
+            ProfileId::GenericVisca => GenericVisca::DEFAULT_TCP_PORT,
+        }
+    }
+
+    /// Returns the default UDP port for this profile.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use grafton_visca::camera::profiles::ProfileId;
+    ///
+    /// let profile = ProfileId::PtzOpticsG2;
+    /// assert_eq!(profile.default_udp_port(), 1259);
+    ///
+    /// let sony = ProfileId::SonyFr7;
+    /// assert_eq!(sony.default_udp_port(), 52381);
+    /// ```
+    pub const fn default_udp_port(&self) -> u16 {
+        match self {
+            ProfileId::PtzOpticsG2 => PtzOpticsG2::DEFAULT_UDP_PORT,
+            ProfileId::PtzOpticsG3 => PtzOpticsG3::DEFAULT_UDP_PORT,
+            ProfileId::PtzOptics30X => PtzOptics30X::DEFAULT_UDP_PORT,
+            ProfileId::SonyFr7 => SonyFR7::DEFAULT_UDP_PORT,
+            ProfileId::SonyBrcH900 => SonyBRCH900::DEFAULT_UDP_PORT,
+            ProfileId::SonyEviH100 => SonyEVIH100::DEFAULT_UDP_PORT,
+            ProfileId::SonyBrc300 => SonyBRC300::DEFAULT_UDP_PORT,
+            ProfileId::NearusBrc300 => NearusBRC300::DEFAULT_UDP_PORT,
+            ProfileId::GenericVisca => GenericVisca::DEFAULT_UDP_PORT,
+        }
+    }
+
+    /// Returns the default camera ID for this profile.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use grafton_visca::camera::profiles::ProfileId;
+    ///
+    /// let profile = ProfileId::PtzOpticsG2;
+    /// assert_eq!(profile.default_camera_id(), 1);
+    /// ```
+    pub const fn default_camera_id(&self) -> u8 {
+        match self {
+            ProfileId::PtzOpticsG2 => PtzOpticsG2::DEFAULT_CAMERA_ID,
+            ProfileId::PtzOpticsG3 => PtzOpticsG3::DEFAULT_CAMERA_ID,
+            ProfileId::PtzOptics30X => PtzOptics30X::DEFAULT_CAMERA_ID,
+            ProfileId::SonyFr7 => SonyFR7::DEFAULT_CAMERA_ID,
+            ProfileId::SonyBrcH900 => SonyBRCH900::DEFAULT_CAMERA_ID,
+            ProfileId::SonyEviH100 => SonyEVIH100::DEFAULT_CAMERA_ID,
+            ProfileId::SonyBrc300 => SonyBRC300::DEFAULT_CAMERA_ID,
+            ProfileId::NearusBrc300 => NearusBRC300::DEFAULT_CAMERA_ID,
+            ProfileId::GenericVisca => GenericVisca::DEFAULT_CAMERA_ID,
+        }
+    }
+
+    /// Returns whether this profile uses Sony encapsulation.
+    ///
+    /// Sony cameras (FR7, BRC-H900) use a special encapsulation format,
+    /// while others use raw VISCA.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use grafton_visca::camera::profiles::ProfileId;
+    ///
+    /// assert!(!ProfileId::PtzOpticsG2.uses_sony_encapsulation());
+    /// assert!(ProfileId::SonyFr7.uses_sony_encapsulation());
+    /// ```
+    pub const fn uses_sony_encapsulation(&self) -> bool {
+        matches!(self, ProfileId::SonyFr7 | ProfileId::SonyBrcH900)
+    }
+
+    /// Returns all available profile IDs.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use grafton_visca::camera::profiles::ProfileId;
+    ///
+    /// let profiles = ProfileId::all();
+    /// assert_eq!(profiles.len(), 9);
+    /// assert!(profiles.contains(&ProfileId::PtzOpticsG2));
+    /// ```
+    pub const fn all() -> &'static [ProfileId] {
+        &[
+            ProfileId::PtzOpticsG2,
+            ProfileId::PtzOpticsG3,
+            ProfileId::PtzOptics30X,
+            ProfileId::SonyFr7,
+            ProfileId::SonyBrcH900,
+            ProfileId::SonyEviH100,
+            ProfileId::SonyBrc300,
+            ProfileId::NearusBrc300,
+            ProfileId::GenericVisca,
+        ]
+    }
+}
+
+impl fmt::Display for ProfileId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.display_name())
+    }
+}
+
 impl fmt::Display for G2Gain {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let db = match self {

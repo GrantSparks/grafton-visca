@@ -75,6 +75,30 @@
 //! # }
 //! ```
 //!
+//! ### Configuration Types with Serialization
+//!
+//! Camera configuration types also support serialization, making it easy to save and load
+//! camera setups from configuration files or APIs:
+//!
+//! ```rust
+//! # #[cfg(feature = "serde")] {
+//! use grafton_visca::camera::config::TransportOptions;
+//! use grafton_visca::camera::profiles::ProfileId;
+//!
+//! // Serialize camera profile
+//! let profile = ProfileId::PtzOpticsG2;
+//! let json = serde_json::to_string(&profile).unwrap();
+//! assert_eq!(json, "\"ptz-optics-g2\"");
+//!
+//! // Serialize transport configuration
+//! let transport = TransportOptions::Tcp {
+//!     address: "192.168.0.110:5678".to_string(),
+//! };
+//! let json = serde_json::to_string(&transport).unwrap();
+//! // Can be loaded from config files, environment variables, etc.
+//! # }
+//! ```
+//!
 //! With `schemars` feature, you can also generate JSON schemas for API documentation:
 //!
 //! ```rust
@@ -792,5 +816,8 @@ pub mod visca_socket;
 
 /// Camera profiles with compositional capabilities
 pub mod profiles {
-    pub use crate::camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7};
+    pub use crate::camera::profiles::{
+        GenericVisca, NearusBRC300, ProfileId, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
+        SonyBRCH900, SonyEVIH100, SonyFR7,
+    };
 }
