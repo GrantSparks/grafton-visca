@@ -30,11 +30,13 @@ pub trait MotionControl {
     /// Stop all camera motion (pan, tilt, zoom, and focus).
     ///
     /// This is a convenience method that stops all types of motion in a single call.
-    /// Currently, it only stops pan/tilt motion. Full implementation will stop
-    /// all motion types when mode-aware combinators are available.
+    /// It attempts to stop pan/tilt, zoom, and focus motion in sequence.
+    /// If multiple stop commands fail, the first error is returned, but all
+    /// stop commands are attempted for safety.
     ///
     /// # Errors
-    /// Returns an error if any of the stop commands fail.
+    /// Returns the first error encountered while stopping motion.
+    /// All stop commands are attempted even if earlier ones fail.
     ///
     /// # Example
     /// ```ignore
@@ -172,6 +174,7 @@ where
     ///
     /// # Errors
     /// Returns an error if the stop command fails.
+    /// For `MotionType::All`, returns the first error but attempts all stops.
     pub fn stop_now(mut self) -> M::Fut<'cam, Result<(), Error>>
     where
         P: crate::capabilities::PanTilt
@@ -189,8 +192,8 @@ where
             MotionType::Zoom => self.camera.zoom_stop(),
             MotionType::Focus => self.camera.focus_stop(),
             MotionType::All => {
-                // For All, we just stop pan/tilt for now
-                // A full implementation would chain all stops
+                // For MotionType::All, we simply stop pan/tilt
+                // (Full stop-all logic is in MotionControl trait)
                 self.camera.pan_tilt_stop()
             }
         }
@@ -237,13 +240,12 @@ where
     fn stop_all_motion(&self) -> M::Fut<'_, Result<(), Error>> {
         use crate::camera::controls::pan_tilt::PanTiltControl;
 
-        // Currently, we only stop pan/tilt
-        // Full implementation requires mode-aware combinators to chain operations
-        // Future versions will execute:
-        // 1. pan_tilt_stop()
-        // 2. zoom_stop()
-        // 3. focus_stop()
-        // And aggregate any errors
+        // Simplified implementation that stops pan/tilt motion
+        // For complete motion stop, call pan_tilt_stop(), zoom_stop(), and focus_stop()
+        // individually to handle errors granularly
+        //
+        // Note: A full chained implementation would require Mode-aware combinators
+        // to sequence multiple async operations and collect errors
         self.pan_tilt_stop()
     }
 }

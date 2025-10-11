@@ -9,6 +9,9 @@
 /// at the type level. It's useful for creating custom parameter types that
 /// work seamlessly with the VISCA command system.
 ///
+/// The generated types automatically include `serde` and `schemars` support
+/// when the respective features are enabled.
+///
 /// # Example
 /// ```
 /// use grafton_visca::visca_range_type;
@@ -45,6 +48,7 @@
 /// - `TryFrom<T>` for convenient conversions
 /// - `From<YourType> for T` to extract the inner value
 /// - Common derives: `Debug`, `Copy`, `Clone`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`
+/// - When enabled: `serde::Serialize`, `serde::Deserialize`, `schemars::JsonSchema`
 #[macro_export]
 macro_rules! visca_range_type {
     (
@@ -56,6 +60,8 @@ macro_rules! visca_range_type {
     ) => {
         $(#[$meta])*
         #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+        #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+        #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
         pub struct $name($inner);
 
         impl $name {

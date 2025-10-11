@@ -22,6 +22,8 @@ pub struct ViscaUnits<T>(pub T);
 
 /// Normalized position (0.0 to 1.0 or -1.0 to 1.0).
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Normalized<T = f32>(pub T);
 
 /// Percentage value (0.0 to 100.0).

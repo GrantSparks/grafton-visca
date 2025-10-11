@@ -5,6 +5,54 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+#### MotionControl Trait Enhancement
+- Added `stop_all_motion()` method to `MotionControl` trait for convenient single-call motion stopping
+- Method calls `pan_tilt_stop()` internally with clear documentation
+- Available for all camera types through the control trait
+
+#### Diagnostics Trait Export
+- Exported `Diagnostics` trait in prelude for easier access
+- Users can now access `probe()`, `ping()`, and `measure_latency()` without explicit trait imports
+- Improves discoverability of diagnostic functionality
+
+#### Inquiry Conversions Enhancement
+- Enhanced documentation and examples for `inquiry_conversions` module
+- `PanTiltPositionRaw::as_degrees()` provides accurate degree conversion from raw VISCA values
+- Proper handling of asymmetric pan/tilt ranges (Pan: -170° to +170°, Tilt: -30° to +90°)
+
+### Changed
+
+#### Dependency Updates
+- Upgraded `schemars` dependency from 0.8 to 1.0 for JSON schema generation
+- Ensures compatibility with latest ecosystem tools
+
+### Impact on Downstream Projects
+
+The serialization improvements in 0.8.0 combined with these enhancements enable significant boilerplate reduction in downstream projects:
+
+- **Wrapper type elimination**: visca-mcp eliminated ~139 lines of wrapper types by using grafton-visca types directly
+  - Removed `Normalized01` wrapper (~71 lines) - now uses `Normalized<f32>` directly
+  - Removed `PresetId` wrapper (~68 lines) - now uses `PresetNumber` directly
+- **Cleaner API**: No more manual serde implementations or bridge TryFrom implementations
+- **Type safety**: Maintained compile-time validation while reducing code
+
+Example migration:
+```rust
+// Before: Custom wrapper types
+pub struct Normalized01(f32);
+impl Serialize for Normalized01 { /* ... */ }
+impl Deserialize for Normalized01 { /* ... */ }
+// ~71 lines total
+
+// After: Direct usage with serde feature
+use grafton_visca::units::Normalized;
+// 1 line, full serialization support included
+```
+
 ## 0.8.0
 
 This release completes a focus is on eliminating downstream boilerplate, providing first-class timeout and cancellation support, and unifying the API across all transport types.
