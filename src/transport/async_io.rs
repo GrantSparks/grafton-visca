@@ -67,6 +67,8 @@ pub struct TcpConnectionConfig {
     pub nodelay: Option<bool>,
     /// Time-to-live for packets
     pub ttl: Option<u32>,
+    /// Connection timeout duration
+    pub connect_timeout: std::time::Duration,
 }
 
 impl Default for TcpConnectionConfig {
@@ -74,6 +76,7 @@ impl Default for TcpConnectionConfig {
         Self {
             nodelay: Some(true), // Default to low latency
             ttl: None,
+            connect_timeout: std::time::Duration::from_secs(5),
         }
     }
 }
@@ -83,20 +86,35 @@ impl From<TransportConfig> for TcpConnectionConfig {
         Self {
             nodelay: config.tcp_nodelay,
             ttl: config.ttl,
+            connect_timeout: config.connect_timeout,
         }
     }
 }
 
 /// Configuration for UDP socket behavior.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct UdpSocketConfig {
     /// Time-to-live for packets
     pub ttl: Option<u32>,
+    /// Connection timeout duration
+    pub connect_timeout: std::time::Duration,
+}
+
+impl Default for UdpSocketConfig {
+    fn default() -> Self {
+        Self {
+            ttl: None,
+            connect_timeout: std::time::Duration::from_secs(5),
+        }
+    }
 }
 
 impl From<TransportConfig> for UdpSocketConfig {
     fn from(config: TransportConfig) -> Self {
-        Self { ttl: config.ttl }
+        Self {
+            ttl: config.ttl,
+            connect_timeout: config.connect_timeout,
+        }
     }
 }
 

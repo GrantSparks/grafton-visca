@@ -86,8 +86,10 @@ pub async fn connect_tcp(
     address: &str,
     config: TcpConnectionConfig,
 ) -> Result<TokioTcpStream, Error> {
-    // Connect without timeout - timeout is now handled at the Runtime trait level
-    let stream = TcpStream::connect(address).await?;
+    // Connect with timeout
+    let stream = tokio::time::timeout(config.connect_timeout, TcpStream::connect(address))
+        .await
+        .map_err(|_| Error::Timeout)??;
 
     // Apply socket configuration
     if let Some(nodelay) = config.nodelay {
@@ -111,15 +113,26 @@ pub async fn connect_tcp(
 
 /// Create a configured UDP socket using unified helpers.
 pub async fn connect_udp(address: &str, config: UdpSocketConfig) -> Result<UdpSocket, Error> {
-    // Use the common address resolver
-    let resolver = AddressResolver::new();
-    let target_addr = resolver.resolve_first(address)?;
+    // Perform async DNS resolution with timeout
+    let target_addr =
+        tokio::time::timeout(config.connect_timeout, tokio::net::lookup_host(address))
+            .await
+            .map_err(|_| Error::Timeout)??
+            .next()
+            .ok_or_else(|| Error::InvalidAddress {
+                reason: "No addresses resolved".into(),
+            })?;
 
     // Bind to the appropriate unspecified address based on target family
+    let resolver = AddressResolver::new();
     let bind_addr = resolver.bind_address_for(&target_addr);
 
     let socket = UdpSocket::bind(bind_addr).await?;
-    socket.connect(target_addr).await?;
+
+    // Connect with timeout
+    tokio::time::timeout(config.connect_timeout, socket.connect(target_addr))
+        .await
+        .map_err(|_| Error::Timeout)??;
 
     // Apply socket configuration
     if let Some(ttl) = config.ttl {

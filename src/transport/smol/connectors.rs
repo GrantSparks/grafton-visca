@@ -1,5 +1,7 @@
 //! smol-specific implementations of unified async I/O connectors.
 
+use async_io::Timer;
+use futures_lite::future::race;
 use smol::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpStream, UdpSocket},
@@ -53,8 +55,12 @@ pub async fn connect_tcp(
     address: &str,
     config: TcpConnectionConfig,
 ) -> Result<SmolTcpStream, Error> {
-    // Connect without timeout - timeout is now handled at the Runtime trait level
-    let stream = TcpStream::connect(address).await?;
+    // Connect with timeout using race pattern
+    let stream = race(async { Ok(TcpStream::connect(address).await?) }, async {
+        Timer::after(config.connect_timeout).await;
+        Err(Error::Timeout)
+    })
+    .await?;
 
     // Apply socket configuration
     if let Some(nodelay) = config.nodelay {
@@ -72,15 +78,47 @@ pub async fn connect_tcp(
 
 /// Create a configured UDP socket using unified helpers.
 pub async fn connect_udp(address: &str, config: UdpSocketConfig) -> Result<UdpSocket, Error> {
-    // Use the common address resolver
-    let resolver = AddressResolver::new();
-    let target_addr = resolver.resolve_first(address)?;
+    // Perform DNS resolution with timeout using unblock (smol doesn't have native async DNS)
+    let address_owned = address.to_string();
+    let target_addr = race(
+        async {
+            smol::unblock(move || {
+                use std::net::ToSocketAddrs;
+                address_owned
+                    .to_socket_addrs()
+                    .map_err(Error::from)?
+                    .next()
+                    .ok_or_else(|| Error::InvalidAddress {
+                        reason: "No addresses resolved".into(),
+                    })
+            })
+            .await
+        },
+        async {
+            Timer::after(config.connect_timeout).await;
+            Err(Error::Timeout)
+        },
+    )
+    .await?;
 
     // Bind to the appropriate unspecified address based on target family
+    let resolver = AddressResolver::new();
     let bind_addr = resolver.bind_address_for(&target_addr);
 
     let socket = UdpSocket::bind(bind_addr).await?;
-    socket.connect(target_addr).await?;
+
+    // Connect with timeout
+    race(
+        async {
+            socket.connect(target_addr).await?;
+            Ok(())
+        },
+        async {
+            Timer::after(config.connect_timeout).await;
+            Err(Error::Timeout)
+        },
+    )
+    .await?;
 
     // Apply socket options
     if let Some(ttl) = config.ttl {

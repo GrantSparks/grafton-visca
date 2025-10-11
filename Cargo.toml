@@ -34,7 +34,7 @@ mode-blocking = []  # Blocking mode is always available, this is for explicit fe
 # Runtime features (each implies mode-async)
 runtime-tokio = ["mode-async", "dep:tokio"]
 runtime-async-std = ["mode-async", "dep:async-std"]
-runtime-smol = ["mode-async", "dep:smol", "dep:async-executor"]
+runtime-smol = ["mode-async", "dep:smol", "dep:async-executor", "dep:async-io"]
 
 # Transport features
 transport-serial = ["dep:serialport"]
@@ -77,6 +77,7 @@ pollster = "0.4"
 async-std = { version = "1.12", features = ["unstable", "attributes"], optional = true }
 smol = { version = "2.0", optional = true }
 async-lock = { version = "3.0", optional = true }
+async-io = { version = "2.3", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1.47", features = ["full", "test-util"] }
