@@ -4,9 +4,9 @@
 //! needed to establish a camera connection. The configuration is separate from the
 //! actual connection process, allowing for easy cloning, reuse, and modification.
 
-use crate::{camera_id::CameraId, error::Error, timeout::TimeoutConfig};
-
 use std::marker::PhantomData;
+
+use crate::{camera_id::CameraId, error::Error, timeout::TimeoutConfig};
 
 /// Transport configuration options.
 #[derive(Debug, Clone)]
