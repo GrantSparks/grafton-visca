@@ -5,6 +5,425 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.8.0
+
+This release completes a focus is on eliminating downstream boilerplate, providing first-class timeout and cancellation support, and unifying the API across all transport types.
+
+### 🎯 Philosophy: Runtime-Agnostic Modernization
+
+The central achievement is adding powerful ergonomic features that previously required custom downstream wrappers. The library now ships with feature-gated serialization, intuitive unit conversions, first-class timeout/cancellation support, diagnostic utilities, and uniform transport handling—all without forcing users into a specific async runtime.
+
+### 🚀 Major Features & Improvements
+
+#### Serialization & Schema Support
+All public value types now support optional serialization through feature-gated `serde` and `schemars` derives:
+
+```toml
+[dependencies]
+grafton-visca = { version = "0.8", features = ["serde", "schemars"] }
+```
+
+With these features enabled, you can serialize/deserialize all value types directly and generate JSON schemas for API documentation, eliminating the need for downstream wrapper types.
+
+#### Ergonomic Type Conversions
+- **From<f64> for numeric types**: `Degrees`, `Normalized`, and other numeric types accept `f64` directly, eliminating manual casts
+- **Published MIN/MAX constants**: All range types expose validation bounds (e.g., `PanSpeed::MIN`, `PanSpeed::MAX`)
+- **Validated constructors**: All parameter types provide `new()` methods with clear error messages including valid ranges
+- **Model-aware validation**: New `new_for_model()` constructors validate against specific camera capabilities
+
+```rust
+// Old (0.7.1): Manual casting
+camera.pan_tilt_absolute(Degrees(45.0 as f32), Degrees(15.0 as f32), SpeedLevel::Fast)?;
+
+// New (0.8.0): Natural f64 usage
+camera.pan_tilt_absolute(Degrees(45.0), Degrees(15.0), SpeedLevel::Fast)?;
+
+// Model-aware validation
+let speed = PanSpeed::new_for_model(20, CameraVariant::PtzOpticsG2)?;
+```
+
+#### Inquiry Conversions
+New `inquiry_conversions` module provides helpers for converting raw VISCA values to user-friendly formats:
+
+```rust
+use grafton_visca::{
+    inquiry_conversions::{PanTiltPositionRaw, PanTiltPositionDeg, ZoomDomain, Normalized},
+    ZoomPositionExt,
+};
+
+// Convert raw pan/tilt to degrees
+let raw = PanTiltPositionRaw::new(1224, 648);
+let deg = raw.as_degrees();  // ~85° pan, ~45° tilt
+
+// Domain-aware zoom normalization
+let zoom_pos = camera.inquiry().zoom_position().await?;
+let optical_norm = zoom_pos.normalize(ZoomDomain::Optical);  // 0.0-1.0 for optical range
+let full_norm = zoom_pos.normalize(ZoomDomain::OpticalPlusDigital);  // 0.0-1.0 for full range
+
+// Create zoom position from normalized value
+let zoom = zoom_from_normalized(Normalized(0.5), ZoomDomain::Optical)?;
+camera.zoom_absolute(zoom)?;
+```
+
+Types added:
+- `PanTiltPositionRaw` / `PanTiltPositionDeg` - Raw and degree-based position representations
+- `ZoomDomain` - Enum for Optical vs OpticalPlusDigital normalization
+- `Normalized` - Type-safe wrapper for 0.0-1.0 values
+- `ZoomPositionExt` trait - Domain-aware normalization methods
+
+#### Coarse Speed Mapping
+Canonical mapping from user-friendly speed levels to device-specific values:
+
+```rust
+use grafton_visca::types::Coarse;
+
+// Old (0.7.1): Custom mapping tables in application code
+let zoom_speed = match user_speed {
+    UserSpeed::Slow => ZoomSpeed::new(2)?,
+    UserSpeed::Medium => ZoomSpeed::new(4)?,
+    UserSpeed::Fast => ZoomSpeed::new(6)?,
+    // ...
+};
+
+// New (0.8.0): Built-in canonical mapping
+let zoom_speed = ZoomSpeed::from_coarse(Coarse::Fast);  // → 6
+let pan_speed = PanSpeed::from_coarse(Coarse::Medium);  // → 12
+let tilt_speed = TiltSpeed::from_coarse(Coarse::Slow);  // → 5
+```
+
+`Coarse` is a type alias for `SpeedLevel` with five intuitive levels: Slowest, Slow, Medium, Fast, Fastest.
+
+#### Diagnostics & Health Checks
+New `diagnostics` module provides tools for camera health monitoring:
+
+```rust
+use grafton_visca::diagnostics::Diagnostics;
+
+// Probe camera for connectivity and latency
+let report = camera.probe().await?;
+if report.is_healthy() {
+    println!("Camera responsive, RTT: {:?}", report.rtt);
+}
+
+// Simple ping check
+if camera.ping().await? {
+    println!("Camera is online");
+}
+
+// Measure average latency
+let latency = camera.measure_latency(5).await?;
+println!("Average RTT: {:?}", latency);
+```
+
+Types added:
+- `ProbeReport` - Health check results with RTT and transport status
+- `Diagnostics` trait - Methods for `probe()`, `ping()`, and `measure_latency()`
+
+#### Runtime-Agnostic CommandOptions
+First-class timeout and cancellation support without runtime-specific dependencies:
+
+```rust
+use grafton_visca::{CommandOptions, CancellationToken};
+use core::time::Duration;
+
+// Old (0.7.1): Application-level timeout wrappers
+tokio::time::timeout(Duration::from_millis(250), camera.zoom_tele(None)).await??;
+
+// New (0.8.0): Built-in timeout support
+camera.zoom_tele(None, CommandOptions::default().with_timeout_ms(250)).await?;
+
+// Cancellation support (runtime-agnostic)
+struct MyToken;
+impl CancellationToken for MyToken {
+    fn cancelled<'a>(&'a self) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+        // Runtime-specific implementation
+    }
+}
+
+let token = MyToken;
+let opts = CommandOptions::default()
+    .with_timeout(Duration::from_secs(5))
+    .with_cancel(&token);
+
+camera.pan_tilt_absolute(Degrees(45.0), Degrees(0.0), SpeedLevel::Fast, opts).await?;
+```
+
+**Note**: While `CommandOptions` is designed and the types are in place, integration into all camera control methods is still in progress. Some methods may not yet accept `CommandOptions` parameters.
+
+#### Connection Timeout Enforcement (#417)
+Async connectors now properly enforce `connect_timeout` and use non-blocking DNS resolution:
+
+```rust
+use grafton_visca::transport::TransportConfig;
+use std::time::Duration;
+
+let config = TransportConfig::default()
+    .with_connect_timeout(Duration::from_millis(500));
+
+// Old (0.7.1): connect_timeout was ignored in async, blocking DNS
+// New (0.8.0): Timeout enforced, async DNS used
+let transport = Transport::tcp()
+    .address("192.168.0.110:5678")
+    .config(config)
+    .connect().await?;  // Times out after 500ms if unreachable
+```
+
+Changes per runtime:
+- **Tokio**: Uses `tokio::time::timeout()` and `tokio::net::lookup_host()`
+- **async-std**: Uses `async_std::future::timeout()` and `async_std::net::ToSocketAddrs`
+- **smol**: Uses `async_io::Timer` with `futures_lite::future::race()` and `smol::unblock()` for DNS
+
+#### Uniform Transport Support (#415)
+Serial transport now integrated into `TransportHandle` enum, enabling uniform trait implementations:
+
+```rust
+// Old (0.7.1): Serial used separate type, preventing uniform trait implementations
+pub enum TransportHandle<R: Runtime> {
+    Udp(UdpTransport<R>),
+    Tcp(TcpTransport<R>),
+}
+
+// New (0.8.0): All transports unified
+pub enum TransportHandle<R: Runtime> {
+    Udp(UdpTransport<R>),
+    Tcp(TcpTransport<R>),
+    #[cfg(feature = "transport-serial-*")]
+    Serial(<R as RuntimeSerial>::SerialTransport),
+}
+```
+
+This enables downstream libraries to implement traits uniformly across all transport types without trait coherence conflicts.
+
+#### Enhanced Error Types
+Richer error information with retry hints:
+
+```rust
+match camera.send_command(cmd).await {
+    Err(e) => {
+        println!("Error kind: {:?}", e.kind());
+        if e.is_retryable() {
+            if let Some(delay) = e.suggested_retry_delay() {
+                sleep(delay).await;
+                // retry...
+            }
+        }
+    }
+    Ok(_) => {}
+}
+```
+
+New `ErrorKind` variants and methods provide machine-actionable error classification for robust retry logic.
+
+### 📝 API Changes & Migration Guide
+
+#### Import Changes
+
+Most user-facing APIs remain unchanged. The primary additions are new modules:
+
+```rust
+// New modules (0.8.0)
+use grafton_visca::{
+    inquiry_conversions::{Normalized, PanTiltPositionRaw, PanTiltPositionDeg, ZoomDomain},
+    diagnostics::{Diagnostics, ProbeReport},
+    CommandOptions, CancellationToken, NoCancel,
+    types::Coarse,
+};
+```
+
+#### Type Construction
+
+```rust
+// Old (0.7.1): Manual casting from f64
+camera.pan_tilt_absolute(
+    Degrees(45.0 as f32),
+    Degrees(15.0 as f32),
+    SpeedLevel::Fast
+)?;
+
+// New (0.8.0): Direct f64 usage
+camera.pan_tilt_absolute(
+    Degrees(45.0),
+    Degrees(15.0),
+    SpeedLevel::Fast
+)?;
+
+// New (0.8.0): Model-aware validation
+let pan = PanPosition::new_for_model(2000, CameraVariant::PtzOpticsG2)?;
+```
+
+#### Speed Mapping
+
+```rust
+// Old (0.7.1): Custom mapping in application
+fn map_to_zoom_speed(level: UISpeed) -> ZoomSpeed {
+    match level {
+        UISpeed::Slow => ZoomSpeed::new(2).unwrap(),
+        UISpeed::Medium => ZoomSpeed::new(4).unwrap(),
+        UISpeed::Fast => ZoomSpeed::new(6).unwrap(),
+    }
+}
+
+// New (0.8.0): Use built-in Coarse mapping
+let speed = ZoomSpeed::from_coarse(Coarse::Medium);  // → 4
+```
+
+#### Inquiry Result Handling
+
+```rust
+// Old (0.7.1): Manual conversion
+let raw_pos = camera.inquiry().pan_tilt_position().await?;
+let deg_pan = (raw_pos.pan as f32) * 170.0 / 2448.0;
+let deg_tilt = /* complex asymmetric formula */;
+
+// New (0.8.0): Built-in conversions
+let raw_pos = camera.inquiry().pan_tilt_position().await?;
+let deg_pos = raw_pos.as_degrees();
+println!("Pan: {}°, Tilt: {}°", deg_pos.pan.0, deg_pos.tilt.0);
+
+// Or with profile-specific adjustments
+let deg_pos = raw_pos.as_degrees_with_profile(&profile);
+```
+
+#### Zoom Normalization
+
+```rust
+// Old (0.7.1): Manual normalization with hard-coded constants
+let zoom_pos = camera.inquiry().zoom_position().await?;
+let normalized_optical = (zoom_pos.value() as f32) / 0x4000 as f32;
+let normalized_full = (zoom_pos.value() as f32) / 0x7000 as f32;
+
+// New (0.8.0): Domain-aware normalization
+use grafton_visca::ZoomPositionExt;
+
+let zoom_pos = camera.inquiry().zoom_position().await?;
+let optical_norm = zoom_pos.normalize(ZoomDomain::Optical);  // 0.0-1.0
+let full_norm = zoom_pos.normalize(ZoomDomain::OpticalPlusDigital);  // 0.0-1.0
+
+// Set zoom from normalized value
+camera.zoom_absolute(
+    zoom_from_normalized(Normalized(0.5), ZoomDomain::Optical)?
+).await?;
+```
+
+#### Health Checks
+
+```rust
+// Old (0.7.1): Custom probe using arbitrary inquiry
+async fn check_camera(camera: &Camera) -> bool {
+    tokio::time::timeout(
+        Duration::from_millis(100),
+        camera.inquiry().zoom_position()
+    ).await.is_ok()
+}
+
+// New (0.8.0): Dedicated diagnostics
+use grafton_visca::diagnostics::Diagnostics;
+
+let report = camera.probe().await?;
+if report.is_healthy() {
+    println!("RTT: {:?}", report.rtt);
+}
+```
+
+#### Serialization (New Feature)
+
+```rust
+// Enable in Cargo.toml
+// grafton-visca = { version = "0.8", features = ["serde", "schemars"] }
+
+use grafton_visca::types::PanSpeed;
+
+// Serialize to JSON
+let speed = PanSpeed::new(12)?;
+let json = serde_json::to_string(&speed)?;
+assert_eq!(json, "12");
+
+// Deserialize from JSON
+let speed: PanSpeed = serde_json::from_str("15")?;
+assert_eq!(speed.value(), 15);
+
+// Generate JSON schema with schemars
+let schema = schemars::schema_for!(PanSpeed);
+```
+
+### 🔄 Breaking Changes
+
+#### Transport Handle (Minor)
+If you were pattern matching on `TransportHandle`, add the new `Serial` variant:
+
+```rust
+// Old (0.7.1)
+match transport {
+    TransportHandle::Udp(t) => { /* ... */ }
+    TransportHandle::Tcp(t) => { /* ... */ }
+}
+
+// New (0.8.0)
+match transport {
+    TransportHandle::Udp(t) => { /* ... */ }
+    TransportHandle::Tcp(t) => { /* ... */ }
+    #[cfg(any(feature = "transport-serial", feature = "transport-serial-tokio"))]
+    TransportHandle::Serial(t) => { /* ... */ }
+}
+```
+
+#### Error Matching (Minor)
+`ErrorKind` is now `#[non_exhaustive]`, so wildcard patterns are required:
+
+```rust
+// Old (0.7.1): Could exhaustively match
+match error.kind() {
+    ErrorKind::Timeout => { /* ... */ }
+    ErrorKind::Cancelled => { /* ... */ }
+    // Could list all variants
+}
+
+// New (0.8.0): Must include wildcard
+match error.kind() {
+    ErrorKind::Timeout => { /* ... */ }
+    ErrorKind::Cancelled => { /* ... */ }
+    _ => { /* ... */ }  // Required
+}
+```
+
+### 🎓 Migration Strategy
+
+**To adopt new features:**
+
+1. **Opt into serialization**:
+   ```toml
+   grafton-visca = { version = "0.8", features = ["serde", "schemars"] }
+   ```
+
+2. **Replace custom conversion code** with built-in helpers from `inquiry_conversions`
+
+3. **Replace custom speed mapping** with `Coarse` and `from_coarse()` methods
+
+4. **Replace custom health checks** with the `Diagnostics` trait
+
+5. **Remove f32 casts** when constructing `Degrees` and similar types
+
+6. **Add `CommandOptions` parameters** (when fully integrated) for timeout/cancellation support
+
+### 📚 Technical Improvements
+
+- **Runtime-neutral design**: All new features work across tokio, async-std, and smol
+- **Zero-cost abstractions**: Type-safe wrappers with no runtime overhead
+- **Consistent validation**: All types expose MIN/MAX constants and validated constructors
+- **Non-exhaustive enums**: Future-proof API with `#[non_exhaustive]` on key enums
+- **Comprehensive testing**: Golden vectors for conversions, domain normalization, and edge cases
+- **Improved documentation**: All new types include examples and usage notes
+
+### 🔮 Future Direction
+
+Version 0.8.0 represents a major API evolution before 1.0. The focus has shifted from architectural changes to stability, robustness, and ergonomics. The runtime-agnostic foundation is complete, serialization support is in place, and the API surface is clean and minimal. Upcoming releases will focus on:
+
+- Completing `CommandOptions` integration across all control methods
+- Profile auto-detection and capability discovery
+- Optional normalized zoom helpers for all camera control methods
+- Documentation and migration guide refinements
+- Stability and bug fixes toward 1.0
+
 ## [0.7.1] - 2025-10-10
 
 ### Added
