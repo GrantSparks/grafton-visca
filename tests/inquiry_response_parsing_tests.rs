@@ -406,6 +406,187 @@ fn test_parse_hue_inquiry() {
 }
 
 #[test]
+fn test_parse_auto_white_balance_sensitivity_inquiry() {
+    use grafton_visca::command::AutoWhiteBalanceSensitivity;
+
+    // Test High sensitivity (0x00)
+    let data = vec![0x90, 0x50, 0x00, 0xFF];
+    let result = Response::parse_with_type(&data, &InquiryKind::AutoWhiteBalanceSensitivity);
+    assert!(
+        result.is_ok(),
+        "Failed to parse AWB sensitivity High response: {:?}",
+        result
+    );
+
+    match result.unwrap() {
+        Response::Inquiry(InquiryData::AutoWhiteBalanceSensitivity { sensitivity }) => {
+            assert_eq!(
+                sensitivity,
+                AutoWhiteBalanceSensitivity::High,
+                "Should be High sensitivity"
+            );
+        }
+        _ => panic!("Unexpected response type"),
+    }
+
+    // Test Normal sensitivity (0x01)
+    let data = vec![0x90, 0x50, 0x01, 0xFF];
+    let result = Response::parse_with_type(&data, &InquiryKind::AutoWhiteBalanceSensitivity);
+    assert!(
+        result.is_ok(),
+        "Failed to parse AWB sensitivity Normal response: {:?}",
+        result
+    );
+
+    match result.unwrap() {
+        Response::Inquiry(InquiryData::AutoWhiteBalanceSensitivity { sensitivity }) => {
+            assert_eq!(
+                sensitivity,
+                AutoWhiteBalanceSensitivity::Normal,
+                "Should be Normal sensitivity"
+            );
+        }
+        _ => panic!("Unexpected response type"),
+    }
+
+    // Test Low sensitivity (0x02)
+    let data = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = Response::parse_with_type(&data, &InquiryKind::AutoWhiteBalanceSensitivity);
+    assert!(
+        result.is_ok(),
+        "Failed to parse AWB sensitivity Low response: {:?}",
+        result
+    );
+
+    match result.unwrap() {
+        Response::Inquiry(InquiryData::AutoWhiteBalanceSensitivity { sensitivity }) => {
+            assert_eq!(
+                sensitivity,
+                AutoWhiteBalanceSensitivity::Low,
+                "Should be Low sensitivity"
+            );
+        }
+        _ => panic!("Unexpected response type"),
+    }
+
+    // Test invalid value
+    let data = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = Response::parse_with_type(&data, &InquiryKind::AutoWhiteBalanceSensitivity);
+    assert!(
+        result.is_err(),
+        "Should fail with invalid AWB sensitivity value"
+    );
+}
+
+#[test]
+fn test_parse_tally_red_inquiry() {
+    // Tally Red On (baseline VISCA)
+    let data = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = Response::parse_with_type(&data, &InquiryKind::TallyRed);
+    assert!(
+        result.is_ok(),
+        "Failed to parse tally red on response: {:?}",
+        result
+    );
+
+    match result.unwrap() {
+        Response::Inquiry(InquiryData::TallyRed { on }) => {
+            assert!(on, "Tally red should be on");
+        }
+        _ => panic!("Unexpected response type"),
+    }
+
+    // Tally Red Off
+    let data = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = Response::parse_with_type(&data, &InquiryKind::TallyRed);
+    assert!(
+        result.is_ok(),
+        "Failed to parse tally red off response: {:?}",
+        result
+    );
+
+    match result.unwrap() {
+        Response::Inquiry(InquiryData::TallyRed { on }) => {
+            assert!(!on, "Tally red should be off");
+        }
+        _ => panic!("Unexpected response type"),
+    }
+}
+
+#[test]
+fn test_parse_tally_green_inquiry() {
+    // Tally Green On (Sony FR7)
+    let data = vec![0x90, 0x50, 0x02, 0xFF];
+    let result = Response::parse_with_type(&data, &InquiryKind::TallyGreen);
+    assert!(
+        result.is_ok(),
+        "Failed to parse tally green on response: {:?}",
+        result
+    );
+
+    match result.unwrap() {
+        Response::Inquiry(InquiryData::TallyGreen { on }) => {
+            assert!(on, "Tally green should be on");
+        }
+        _ => panic!("Unexpected response type"),
+    }
+
+    // Tally Green Off
+    let data = vec![0x90, 0x50, 0x03, 0xFF];
+    let result = Response::parse_with_type(&data, &InquiryKind::TallyGreen);
+    assert!(
+        result.is_ok(),
+        "Failed to parse tally green off response: {:?}",
+        result
+    );
+
+    match result.unwrap() {
+        Response::Inquiry(InquiryData::TallyGreen { on }) => {
+            assert!(!on, "Tally green should be off");
+        }
+        _ => panic!("Unexpected response type"),
+    }
+}
+
+#[test]
+fn test_parse_tally_status_inquiry() {
+    // Combined Tally Status (PTZOptics vendor extension)
+    // Red off (0x02), Green on (0x03)
+    let data = vec![0x90, 0x50, 0x02, 0x03, 0xFF];
+    let result = Response::parse_with_type(&data, &InquiryKind::TallyStatus);
+    assert!(
+        result.is_ok(),
+        "Failed to parse tally status response: {:?}",
+        result
+    );
+
+    match result.unwrap() {
+        Response::Inquiry(InquiryData::TallyStatus { red_on, green_on }) => {
+            assert!(!red_on, "Red tally should be off");
+            assert!(green_on, "Green tally should be on");
+        }
+        _ => panic!("Unexpected response type"),
+    }
+
+    // Both on (0x03, 0x03)
+    let data = vec![0x90, 0x50, 0x03, 0x03, 0xFF];
+    let result = Response::parse_with_type(&data, &InquiryKind::TallyStatus);
+    assert!(
+        result.is_ok(),
+        "Failed to parse tally status both on: {:?}",
+        result
+    );
+
+    match result.unwrap() {
+        Response::Inquiry(InquiryData::TallyStatus { red_on, green_on }) => {
+            assert!(red_on, "Red tally should be on");
+            assert!(green_on, "Green tally should be on");
+        }
+        _ => panic!("Unexpected response type"),
+    }
+}
+
+#[test]
 fn test_error_handling() {
     // Test missing terminator
     let data = vec![0x90, 0x50, 0x02];

@@ -1,4 +1,22 @@
 //! Pan/Tilt-related response decoders.
+//!
+//! # VISCA Pan/Tilt Position Specification
+//!
+//! Per the VISCA specification, pan/tilt position inquiries return **two 16-bit values**
+//! encoded as 8 nibbles (bytes with values 0x00-0x0F):
+//! - Response format: `90 50 0w 0x 0y 0z 0p 0q 0r 0s FF`
+//! - Pan position: `(w << 12) | (x << 8) | (y << 4) | z`
+//! - Tilt position: `(p << 12) | (q << 8) | (r << 4) | s`
+//!
+//! ## Coordinate System Encoding
+//!
+//! Different camera models use different coordinate encodings:
+//! - **Signed (two's complement)**: Values like `0xFFFF` represent negative positions
+//! - **Unsigned centered**: Values centered around `0x8000` (e.g., `0x8000` = center)
+//!
+//! This library provides profile-aware decoding via `CoordinateSystem` to abstract
+//! these differences. The `decode_for<P: Profile>()` function automatically converts
+//! camera-native coordinates to logical signed i16 values based on the profile.
 
 use super::super::payload::{Nibbles, Payload};
 use crate::{
@@ -10,7 +28,11 @@ use crate::{
     error::Error,
 };
 
-/// Decode pan/tilt-related inquiry responses.
+/// Decode pan/tilt-related inquiry responses without profile awareness.
+///
+/// This decoder interprets pan/tilt positions as signed 16-bit values.
+/// For profile-aware decoding that respects camera-specific coordinate systems,
+/// use `decode_for<P>()` instead.
 pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<Response, Error>> {
     match kind {
         InquiryKind::PanTiltPosition => {

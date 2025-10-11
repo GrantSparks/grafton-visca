@@ -43,27 +43,28 @@ pub enum WhiteBalanceMode {
 /// Controls how aggressively the automatic white balance algorithm
 /// adjusts to changing lighting conditions.
 ///
-/// Note: The byte values differ between inquiry responses and commands:
-/// - In inquiry responses: Low=0x00, Normal=0x01, High=0x02
-/// - In commands: High=0x00, Normal=0x01, Low=0x02
+/// Per the VISCA specification (command 0x81 0x01 0x04 0xA9):
+/// - High = 0x00
+/// - Normal = 0x01
+/// - Low = 0x02
+///
+/// Both commands and inquiry responses use the same byte values.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum AutoWhiteBalanceSensitivity {
-    /// Low sensitivity - slower, more stable adjustments.
-    Low = 0x00,
+    /// High sensitivity - faster adjustments to changing conditions.
+    High = 0x00,
     /// Normal sensitivity - balanced adjustment speed.
     Normal = 0x01,
-    /// High sensitivity - faster adjustments to changing conditions.
-    High = 0x02,
+    /// Low sensitivity - slower, more stable adjustments.
+    Low = 0x02,
 }
 
 impl AutoWhiteBalanceSensitivity {
-    /// Convert to command byte value (reversed from inquiry values).
+    /// Convert to command byte value.
+    ///
+    /// Returns the VISCA byte representation: High=0x00, Normal=0x01, Low=0x02.
     pub fn to_command_byte(self) -> u8 {
-        match self {
-            Self::High => 0x00,
-            Self::Normal => 0x01,
-            Self::Low => 0x02,
-        }
+        self as u8
     }
 }
 

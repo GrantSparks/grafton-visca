@@ -462,7 +462,12 @@ pub struct MenuOpenCloseInquiry;
 
 // NOTE: AutoFocus inquiry is not documented in VISCA specs
 // and has been disabled until proper documentation is found.
-/// Inquiry command to get the tally light status (red and green).
+
+/// Inquiry command to get combined tally light status (red and green).
+///
+/// **Vendor-Specific**: This is a PTZOptics extension, not part of baseline VISCA.
+/// Returns a 2-byte packed response with red and green tally states.
+/// For baseline VISCA compliance, use `TallyRedInquiry` and `TallyGreenInquiry` separately.
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
     opcode = 0xA8,
@@ -887,16 +892,22 @@ mod tests {
         constants::inquiry::MENU_OPEN_CLOSE
     );
     visca_test!(
-        TallyStatusInquiry,
-        test_tally_status_inquiry,
-        TallyStatusInquiry,
-        constants::inquiry::TALLY_STATUS
+        TallyRedInquiry,
+        test_tally_red_inquiry,
+        TallyRedInquiry,
+        constants::inquiry::TALLY_RED
     );
     visca_test!(
         TallyGreenInquiry,
         test_tally_green_inquiry,
         TallyGreenInquiry,
         constants::inquiry::TALLY_GREEN
+    );
+    visca_test!(
+        TallyStatusInquiry,
+        test_tally_status_inquiry,
+        TallyStatusInquiry,
+        constants::inquiry::TALLY_STATUS
     );
     visca_test!(
         ResolutionInquiry,
@@ -1050,8 +1061,58 @@ mod tests {
     );
 }
 
-// Manual implementation for TallyGreenInquiry due to special format
-/// Inquiry command to get the green tally light status (FR7 only).
+// Manual implementations for tally inquiries due to special format
+
+/// Inquiry command to get the red tally light status (baseline VISCA).
+/// Returns 0x02 for On, 0x03 for Off.
+///
+/// Note: This uses a special extended inquiry format (0x7E 0x01 0x0A 0x00)
+/// instead of the standard inquiry format, which is why it cannot use
+/// the ViscaInquiry derive macro.
+#[derive(Debug, Copy, Clone)]
+pub struct TallyRedInquiry;
+
+impl crate::command::encode::ViscaCommand for TallyRedInquiry {
+    type Response = crate::command::InquiryData;
+    const MAX_SIZE: usize = 8;
+    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
+        crate::timeout::CommandCategory::Quick;
+
+    fn write_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, crate::error::Error> {
+        use crate::command::bytes::ConstCommandBuilder;
+
+        // Special format for red tally inquiry
+        let builder = ConstCommandBuilder::<8>::new()
+            .append(crate::command::bytes::constants::inquiry::TALLY_RED)
+            .with_camera_id(camera_id)
+            .terminate();
+        builder.build_into(buffer)
+    }
+
+    fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
+        Some(crate::command::response::InquiryKind::TallyRed)
+    }
+}
+
+impl crate::command::typed::ResponseParser for TallyRedInquiry {
+    type Response = bool;
+
+    fn from_response(resp: crate::command::Response) -> Result<Self::Response, crate::Error> {
+        match resp {
+            crate::command::Response::Inquiry(crate::command::InquiryData::TallyRed { on }) => {
+                Ok(on)
+            }
+            crate::command::Response::Error(e) => Err(e),
+            _ => Err(crate::Error::UnexpectedResponseType),
+        }
+    }
+}
+
+/// Inquiry command to get the green tally light status (Sony FR7 specific).
 /// Returns 0x02 for On, 0x03 for Off.
 ///
 /// Note: This uses a special extended inquiry format (0x7E 0x04 0x1A 0x00)

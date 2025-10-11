@@ -84,8 +84,9 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
                 return Some(Err(Error::InvalidResponseLength));
             }
             let sensitivity = match payload.as_slice()[0] {
-                0x00 => AutoWhiteBalanceSensitivity::Low,
-                0x01 => AutoWhiteBalanceSensitivity::High,
+                0x00 => AutoWhiteBalanceSensitivity::High,
+                0x01 => AutoWhiteBalanceSensitivity::Normal,
+                0x02 => AutoWhiteBalanceSensitivity::Low,
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "auto_white_balance_sensitivity",

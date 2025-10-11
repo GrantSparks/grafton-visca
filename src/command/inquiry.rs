@@ -19,6 +19,6 @@ pub use super::inquiry_structs::{
     NrSpeedInquiry, PanTiltPositionInquiry, PictureEffectInquiry, PowerInquiry, RedGainInquiry,
     RedTuningInquiry, ResolutionInquiry, SaturationInquiry, SharpnessModeInquiry,
     SharpnessPositionInquiry, ShutterInquiry, StandbyInquiry, TallyAutoAdjustInquiry,
-    TallyGreenInquiry, TallyStatusInquiry, TwoToneModeInquiry, UsbAudioInquiry, VersionInquiry,
-    WhiteBalanceModeInquiry, ZoomPositionInquiry,
+    TallyGreenInquiry, TallyRedInquiry, TallyStatusInquiry, TwoToneModeInquiry, UsbAudioInquiry,
+    VersionInquiry, WhiteBalanceModeInquiry, ZoomPositionInquiry,
 };

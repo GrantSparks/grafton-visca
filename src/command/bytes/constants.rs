@@ -321,11 +321,22 @@ pub mod inquiry {
     pub const MENU_OPEN_CLOSE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x06];
 
     // Tally inquiries
-    /// Tally light status inquiry.
-    pub const TALLY_STATUS: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0xA8];
+    /// Red tally light status inquiry (baseline VISCA).
+    ///
+    /// Returns 0x02 for On, 0x03 for Off.
+    pub const TALLY_RED: &[u8] = visca_bytes![0x81, 0x09, 0x7E, 0x01, 0x0A, 0x00];
 
-    /// Green tally status inquiry (Sony FR7).
+    /// Green tally status inquiry (Sony FR7 specific).
+    ///
+    /// Returns 0x02 for On, 0x03 for Off.
     pub const TALLY_GREEN: &[u8] = visca_bytes![0x81, 0x09, 0x7E, 0x04, 0x1A, 0x00];
+
+    /// Combined tally status inquiry (PTZOptics vendor extension).
+    ///
+    /// **Vendor-Specific**: This is a PTZOptics extension, not part of baseline VISCA.
+    /// Returns a 2-byte packed response with red and green tally states.
+    /// For baseline VISCA compliance, use `TALLY_RED` and `TALLY_GREEN` separately.
+    pub const TALLY_STATUS: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0xA8];
 
     // Image and video settings inquiries
     /// Resolution inquiry.
