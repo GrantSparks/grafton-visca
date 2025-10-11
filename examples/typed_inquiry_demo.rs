@@ -59,7 +59,7 @@ fn main() -> Result<(), Error> {
 
     // Try to zoom in slightly
     println!("Zooming in...");
-    if let Err(e) = camera.zoom_tele_std() {
+    if let Err(e) = camera.zoom_tele(None) {
         println!("  Zoom command failed: {e}");
     } else {
         // Wait a moment and stop

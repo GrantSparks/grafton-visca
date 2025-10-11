@@ -35,7 +35,7 @@ pub use config::{CameraConfig, TransportOptions};
 pub use session::CameraSession;
 
 // Re-export convenience methods for quick connection
-pub use convenience::Connect;
+pub use convenience::{Connect, ConnectBuilder};
 
 // Type aliases for easier usage
 /// Async camera type alias for easier usage.

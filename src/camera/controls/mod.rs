@@ -9,6 +9,7 @@ pub mod focus;
 pub mod image_processing;
 pub mod inquiry;
 pub mod menu;
+pub mod motion;
 pub mod motion_sync;
 pub mod nd_filter;
 pub mod pan_tilt;

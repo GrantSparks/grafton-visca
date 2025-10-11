@@ -110,7 +110,7 @@ async fn test_multiple_timeouts_no_starvation() {
     // Send multiple commands that will timeout
     // Create both futures - they will both be submitted when awaited
     let result1_future = camera.zoom_stop();
-    let result2_future = camera.zoom_tele_std();
+    let result2_future = camera.zoom_tele(None);
 
     // Use join to run them concurrently
     let (result1, result2) = futures_lite::future::zip(result1_future, result2_future).await;

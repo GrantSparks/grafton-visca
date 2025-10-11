@@ -267,17 +267,13 @@ where
         /// Stop zoom movement.
         fn zoom_stop() -> ();
 
-        /// Start zooming in at standard speed.
-        fn zoom_tele_std() -> ();
+        /// Start zooming in with optional speed control.
+        /// When `speed` is `None`, uses standard zoom speed.
+        fn zoom_tele(speed: Option<crate::ZoomSpeed>) -> ();
 
-        /// Start zooming out at standard speed.
-        fn zoom_wide_std() -> ();
-
-        /// Start zooming in at variable speed.
-        fn zoom_tele_variable(speed: crate::command::zoom::ZoomSpeed) -> ();
-
-        /// Start zooming out at variable speed.
-        fn zoom_wide_variable(speed: crate::command::zoom::ZoomSpeed) -> ();
+        /// Start zooming out with optional speed control.
+        /// When `speed` is `None`, uses standard zoom speed.
+        fn zoom_wide(speed: Option<crate::ZoomSpeed>) -> ();
 
         /// Set zoom to absolute position (0.0 = wide, 1.0 = full tele).
         fn zoom_absolute(position: crate::units::Normalized) -> ();

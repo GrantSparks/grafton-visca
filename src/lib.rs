@@ -43,6 +43,50 @@
 //! - **Configurable Timeouts**: Per-category timeout configuration for different command types
 //! - **Command Cancellation**: Cancel specific commands or entire socket operations
 //! - **Async Completion Tracking**: Wait for camera movements to complete with await methods
+//! - **Serialization Support**: Optional serde/schemars integration for all value types
+//!
+//! ## Serialization Support
+//!
+//! All public value types support optional serialization through feature-gated `serde` and `schemars` derives:
+//!
+//! ```toml
+//! [dependencies]
+//! grafton-visca = { version = "*", features = ["serde", "schemars"] }
+//! ```
+//!
+//! With these features enabled, you can serialize/deserialize all value types directly:
+//!
+//! ```rust
+//! # #[cfg(feature = "serde")] {
+//! use grafton_visca::types::{PanSpeed, ZoomPosition, SpeedLevel};
+//!
+//! // Serialize to JSON
+//! let speed = PanSpeed::new(12).unwrap();
+//! let json = serde_json::to_string(&speed).unwrap();
+//! assert_eq!(json, "12");
+//!
+//! // Deserialize from JSON
+//! let speed: PanSpeed = serde_json::from_str("15").unwrap();
+//! assert_eq!(speed.value(), 15);
+//!
+//! // Works with enums too
+//! let level = SpeedLevel::Medium;
+//! let json = serde_json::to_string(&level).unwrap();
+//! assert_eq!(json, "\"Medium\"");
+//! # }
+//! ```
+//!
+//! With `schemars` feature, you can also generate JSON schemas for API documentation:
+//!
+//! ```rust
+//! # #[cfg(all(feature = "serde", feature = "schemars"))] {
+//! use grafton_visca::types::PanSpeed;
+//! use schemars::schema_for;
+//!
+//! let schema = schema_for!(PanSpeed);
+//! // Use schema for API documentation, validation, etc.
+//! # }
+//! ```
 //!
 //! ## Model-Aware Parameter Validation
 //!
@@ -52,11 +96,22 @@
 //! ### Type-Safe Parameters with Conservative Defaults
 //! All parameter types provide conservative VISCA-compliant ranges by default:
 //! ```ignore
-//! use grafton_visca::types::{PanSpeed, ZoomPosition};
+//! use grafton_visca::types::{PanSpeed, ZoomPosition, ZoomSpeed};
 //!
-//! // Conservative VISCA ranges work with any camera
-//! let speed = PanSpeed::new(15)?;  // Valid: 0-24 (VISCA max)
-//! let zoom = ZoomPosition::new(0x4000)?;  // Valid: 0x0000-0xFFFF
+//! // All range types expose MIN/MAX constants for validation
+//! assert_eq!(PanSpeed::MIN.value(), 0);
+//! assert_eq!(PanSpeed::MAX.value(), 24);
+//!
+//! // Validated constructors provide clear error messages
+//! let speed = PanSpeed::new(15)?;  // Valid: 0-24
+//! match PanSpeed::new(30) {
+//!     Err(e) => println!("{}", e), // "PanSpeed must be between 0 and 24"
+//!     _ => {}
+//! }
+//!
+//! // Speed types work seamlessly with SpeedLevel enum
+//! let zoom = ZoomSpeed::from(SpeedLevel::Fast); // Automatic conversion
+//! assert_eq!(zoom.value(), 6); // Fast = 6 for zoom
 //! ```
 //!
 //! ### Model-Specific Validation
@@ -587,6 +642,7 @@
 //! ```
 
 // Module declarations
+mod command_options;
 mod error;
 pub(crate) mod macros;
 
@@ -626,6 +682,9 @@ pub mod command;
 /// Constants for VISCA protocol including default ports
 pub mod constants;
 
+/// Diagnostics and health check utilities
+pub mod diagnostics;
+
 pub mod mode;
 
 pub mod prelude;
@@ -658,6 +717,9 @@ pub mod types;
 /// Semantic unit types for intuitive API usage
 pub mod units;
 
+/// Inquiry conversion utilities for raw to user-friendly values
+pub mod inquiry_conversions;
+
 /// Unified VISCA socket type
 pub mod visca_socket;
 
@@ -675,10 +737,14 @@ pub use crate::{
         resolution::{PictureEffectMode, ResolutionMode},
         system::{MotionSyncMode, MotionSyncPreset},
         white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode},
-        zoom::ZoomSpeed,
     },
-    error::{Error, Result},
-    types::{MotionSyncSpeed, PanTiltDirection, SpeedLevel},
+    command_options::{CancellationToken, CommandOptions, NoCancel, NoOpts},
+    error::{Error, ErrorKind, Result},
+    inquiry_conversions::{
+        zoom_from_normalized, Normalized, PanTiltPositionDeg, PanTiltPositionRaw, ZoomDomain,
+        ZoomPositionExt,
+    },
+    types::{Coarse, FocusSpeed, MotionSyncSpeed, PanTiltDirection, SpeedLevel, ZoomSpeed},
     visca_socket::ViscaSocket,
 };
 
@@ -714,6 +780,7 @@ pub use crate::camera::controls::{
     image_processing::ImageProcessingControl,
     inquiry::{InquiryControl, PanTiltInquiryControl},
     menu::{DirectMenuControl, MenuControl},
+    motion::{MotionControl, MotionGuard},
     nd_filter::NdFilterControl,
     pan_tilt::PanTiltControl,
     power::PowerControl,

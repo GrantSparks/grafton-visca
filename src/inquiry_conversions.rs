@@ -1,0 +1,359 @@
+//! Inquiry conversion utilities for converting raw VISCA values to user-friendly formats.
+//!
+//! This module provides helpers for converting raw inquiry responses (raw VISCA values)
+//! to more intuitive representations like degrees and normalized values, as part of the
+//! runtime-agnostic modernization of `grafton-visca`.
+
+use crate::{
+    camera::PanTiltPosition,
+    types::{PanPosition, TiltPosition, ZoomPosition},
+    units::Degrees,
+};
+
+/// Represents a pan/tilt position in raw VISCA units.
+///
+/// This is the format returned directly from camera inquiries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct PanTiltPositionRaw {
+    /// Pan position in raw VISCA units (-2448 to +2448).
+    pub pan: i16,
+    /// Tilt position in raw VISCA units (-432 to +1296).
+    pub tilt: i16,
+}
+
+impl PanTiltPositionRaw {
+    /// Creates a new raw pan/tilt position.
+    pub const fn new(pan: i16, tilt: i16) -> Self {
+        Self { pan, tilt }
+    }
+
+    /// Converts raw pan/tilt position to degrees.
+    ///
+    /// Uses the standard VISCA conversion formulas:
+    /// - Pan: -170° to +170° mapped from -2448 to +2448
+    /// - Tilt: -30° to +90° mapped from -432 to +1296
+    ///
+    /// # Example
+    /// ```ignore
+    /// let raw_pos = PanTiltPositionRaw::new(1224, 648);
+    /// let deg_pos = raw_pos.as_degrees();
+    /// // deg_pos.pan ≈ 85°, deg_pos.tilt ≈ 45°
+    /// ```
+    pub fn as_degrees(&self) -> PanTiltPositionDeg {
+        // Use the existing conversion methods from PanPosition and TiltPosition
+        let pan_pos = PanPosition::new(self.pan).unwrap_or(PanPosition::CENTER);
+        let tilt_pos = TiltPosition::new(self.tilt).unwrap_or(TiltPosition::CENTER);
+
+        PanTiltPositionDeg {
+            pan: Degrees(pan_pos.to_degrees()),
+            tilt: Degrees(tilt_pos.to_degrees()),
+        }
+    }
+
+    /// Converts raw pan/tilt position to degrees with profile-specific adjustments.
+    ///
+    /// Some camera profiles may have different conversion factors or ranges.
+    /// This method allows for profile-aware conversion.
+    ///
+    /// # Parameters
+    /// - `profile`: The camera profile to use for conversion
+    ///
+    /// # Note
+    /// Currently uses standard VISCA conversion. Profile-specific adjustments
+    /// will be added as needed for different camera models.
+    pub fn as_degrees_with_profile<P: crate::capabilities::Profile>(
+        &self,
+        _profile: &P,
+    ) -> PanTiltPositionDeg {
+        // For now, use standard conversion
+        // In future, profiles can override conversion factors
+        self.as_degrees()
+    }
+}
+
+impl From<PanTiltPosition> for PanTiltPositionRaw {
+    fn from(pos: PanTiltPosition) -> Self {
+        Self {
+            pan: pos.pan,
+            tilt: pos.tilt,
+        }
+    }
+}
+
+/// Represents a pan/tilt position in degrees.
+///
+/// This is the user-friendly representation after converting from raw VISCA units.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct PanTiltPositionDeg {
+    /// Pan position in degrees (-170° to +170°).
+    pub pan: Degrees<f32>,
+    /// Tilt position in degrees (-30° to +90°).
+    pub tilt: Degrees<f32>,
+}
+
+impl PanTiltPositionDeg {
+    /// Creates a new pan/tilt position in degrees.
+    pub const fn new(pan: Degrees<f32>, tilt: Degrees<f32>) -> Self {
+        Self { pan, tilt }
+    }
+
+    /// Converts degrees position to raw VISCA units.
+    ///
+    /// # Errors
+    /// Returns an error if the degree values are outside valid ranges.
+    pub fn to_raw(&self) -> Result<PanTiltPositionRaw, crate::Error> {
+        let pan_pos = PanPosition::from_degrees(self.pan.0)?;
+        let tilt_pos = TiltPosition::from_degrees(self.tilt.0)?;
+
+        Ok(PanTiltPositionRaw {
+            pan: pan_pos.value(),
+            tilt: tilt_pos.value(),
+        })
+    }
+}
+
+/// Zoom domain for normalization.
+///
+/// Determines how zoom values are normalized to 0.0-1.0 range.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum ZoomDomain {
+    /// Optical zoom only (0x0000-0x4000).
+    ///
+    /// Normalizes across the optical zoom range only.
+    /// Maximum zoom is limited to the optical telephoto end.
+    Optical,
+    /// Combined optical and digital zoom (0x0000-0x7000).
+    ///
+    /// Normalizes across the full zoom range including digital zoom.
+    /// Not all cameras support digital zoom.
+    OpticalPlusDigital,
+}
+
+/// Normalized value between 0.0 and 1.0.
+///
+/// Used for representing positions and levels as percentages.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct Normalized(pub f32);
+
+impl Normalized {
+    /// Creates a new normalized value with validation.
+    ///
+    /// # Errors
+    /// Returns an error if the value is outside 0.0-1.0 range.
+    pub fn new(value: f32) -> Result<Self, crate::Error> {
+        use std::borrow::Cow;
+
+        if !(0.0..=1.0).contains(&value) {
+            return Err(crate::Error::InvalidParameter {
+                parameter: "normalized",
+                value: Cow::Owned(value.to_string()),
+                reason: Cow::Borrowed("Value must be between 0.0 and 1.0"),
+            });
+        }
+        Ok(Self(value))
+    }
+
+    /// Gets the inner value (0.0-1.0).
+    pub fn value(&self) -> f32 {
+        self.0
+    }
+
+    /// Converts to percentage (0-100).
+    pub fn to_percentage(&self) -> u8 {
+        (self.0 * 100.0).round() as u8
+    }
+}
+
+impl TryFrom<f32> for Normalized {
+    type Error = crate::Error;
+
+    fn try_from(value: f32) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+/// Extension trait for ZoomPosition to add domain-aware normalization.
+pub trait ZoomPositionExt {
+    /// Normalizes the zoom position to 0.0-1.0 range based on the specified domain.
+    ///
+    /// # Parameters
+    /// - `domain`: Determines whether to normalize against optical or full zoom range
+    ///
+    /// # Returns
+    /// A normalized value where:
+    /// - 0.0 = wide end (0x0000)
+    /// - 1.0 = telephoto end (0x4000 for Optical, 0x7000 for OpticalPlusDigital)
+    fn normalize(&self, domain: ZoomDomain) -> Normalized;
+
+    /// Creates a zoom position from a normalized value (0.0-1.0).
+    ///
+    /// # Parameters
+    /// - `normalized`: Value between 0.0 and 1.0
+    /// - `domain`: Determines the zoom range to map to
+    ///
+    /// # Errors
+    /// Returns an error if the normalized value is outside 0.0-1.0 range.
+    fn from_normalized(
+        normalized: Normalized,
+        domain: ZoomDomain,
+    ) -> Result<ZoomPosition, crate::Error>;
+}
+
+impl ZoomPositionExt for ZoomPosition {
+    fn normalize(&self, domain: ZoomDomain) -> Normalized {
+        let max = match domain {
+            ZoomDomain::Optical => ZoomPosition::MAX_OPTICAL.value(),
+            ZoomDomain::OpticalPlusDigital => ZoomPosition::MAX_DIGITAL.value(),
+        };
+
+        let normalized = (self.value() as f32) / (max as f32);
+        // Clamp to 0.0-1.0 to handle any edge cases
+        Normalized(normalized.clamp(0.0, 1.0))
+    }
+
+    fn from_normalized(
+        normalized: Normalized,
+        domain: ZoomDomain,
+    ) -> Result<ZoomPosition, crate::Error> {
+        zoom_from_normalized(normalized, domain)
+    }
+}
+
+impl ZoomPositionExt for () {
+    fn normalize(&self, _domain: ZoomDomain) -> Normalized {
+        Normalized(0.0)
+    }
+
+    fn from_normalized(
+        normalized: Normalized,
+        domain: ZoomDomain,
+    ) -> Result<ZoomPosition, crate::Error> {
+        zoom_from_normalized(normalized, domain)
+    }
+}
+
+/// Helper function to create a ZoomPosition from normalized value.
+pub fn zoom_from_normalized(
+    normalized: Normalized,
+    domain: ZoomDomain,
+) -> Result<ZoomPosition, crate::Error> {
+    let max = match domain {
+        ZoomDomain::Optical => ZoomPosition::MAX_OPTICAL.value(),
+        ZoomDomain::OpticalPlusDigital => ZoomPosition::MAX_DIGITAL.value(),
+    };
+
+    let raw_value = (normalized.value() * max as f32).round() as u16;
+    ZoomPosition::new(raw_value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pan_tilt_raw_to_degrees() {
+        // Test center position
+        let raw = PanTiltPositionRaw::new(0, 0);
+        let deg = raw.as_degrees();
+        assert_eq!(deg.pan.0, 0.0);
+        assert_eq!(deg.tilt.0, 0.0);
+
+        // Test maximum pan right (+170°)
+        let raw = PanTiltPositionRaw::new(2448, 0);
+        let deg = raw.as_degrees();
+        assert!((deg.pan.0 - 170.0).abs() < 0.1);
+
+        // Test maximum pan left (-170°)
+        let raw = PanTiltPositionRaw::new(-2448, 0);
+        let deg = raw.as_degrees();
+        assert!((deg.pan.0 + 170.0).abs() < 0.1);
+
+        // Test maximum tilt down (+90°)
+        let raw = PanTiltPositionRaw::new(0, 1296);
+        let deg = raw.as_degrees();
+        assert!((deg.tilt.0 - 90.0).abs() < 0.1);
+
+        // Test maximum tilt up (-30°)
+        let raw = PanTiltPositionRaw::new(0, -432);
+        let deg = raw.as_degrees();
+        assert!((deg.tilt.0 + 30.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_pan_tilt_deg_to_raw() -> Result<(), crate::Error> {
+        // Test roundtrip conversion
+        let deg = PanTiltPositionDeg::new(Degrees(45.0), Degrees(30.0));
+        let raw = deg.to_raw()?;
+        let deg2 = raw.as_degrees();
+
+        assert!((deg.pan.0 - deg2.pan.0).abs() < 1.0);
+        assert!((deg.tilt.0 - deg2.tilt.0).abs() < 1.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_zoom_normalization() -> Result<(), crate::Error> {
+        // Test wide end
+        let zoom = ZoomPosition::new(0x0000)?;
+        assert_eq!(zoom.normalize(ZoomDomain::Optical).value(), 0.0);
+        assert_eq!(zoom.normalize(ZoomDomain::OpticalPlusDigital).value(), 0.0);
+
+        // Test optical telephoto end
+        let zoom = ZoomPosition::MAX_OPTICAL;
+        assert_eq!(zoom.normalize(ZoomDomain::Optical).value(), 1.0);
+        assert!((zoom.normalize(ZoomDomain::OpticalPlusDigital).value() - 0.571).abs() < 0.01);
+
+        // Test digital telephoto end
+        let zoom = ZoomPosition::MAX_DIGITAL;
+        assert!(zoom.normalize(ZoomDomain::Optical).value() >= 1.0); // Clamped to 1.0
+        assert_eq!(zoom.normalize(ZoomDomain::OpticalPlusDigital).value(), 1.0);
+
+        // Test middle position
+        let zoom = ZoomPosition::new(0x2000)?;
+        assert_eq!(zoom.normalize(ZoomDomain::Optical).value(), 0.5);
+        assert!((zoom.normalize(ZoomDomain::OpticalPlusDigital).value() - 0.286).abs() < 0.01);
+        Ok(())
+    }
+
+    #[test]
+    fn test_zoom_from_normalized() -> Result<(), crate::Error> {
+        // Test optical domain
+        let norm = Normalized::new(0.5)?;
+        let zoom = zoom_from_normalized(norm, ZoomDomain::Optical)?;
+        assert_eq!(zoom.value(), 0x2000);
+
+        // Test digital domain
+        let norm = Normalized::new(1.0)?;
+        let zoom = zoom_from_normalized(norm, ZoomDomain::OpticalPlusDigital)?;
+        assert_eq!(zoom.value(), 0x7000);
+
+        // Test edge cases
+        let norm = Normalized::new(0.0)?;
+        let zoom = zoom_from_normalized(norm, ZoomDomain::Optical)?;
+        assert_eq!(zoom.value(), 0x0000);
+        Ok(())
+    }
+
+    #[test]
+    fn test_normalized_validation() -> Result<(), crate::Error> {
+        assert!(Normalized::new(0.0).is_ok());
+        assert!(Normalized::new(0.5).is_ok());
+        assert!(Normalized::new(1.0).is_ok());
+
+        assert!(Normalized::new(-0.1).is_err());
+        assert!(Normalized::new(1.1).is_err());
+
+        let norm = Normalized::new(0.75)?;
+        assert_eq!(norm.to_percentage(), 75);
+        Ok(())
+    }
+}

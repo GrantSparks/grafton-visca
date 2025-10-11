@@ -26,8 +26,8 @@ fn test_blocking_wrapper_api() {
         T: BlockingTransport + HasTransportConfig + Send + Sync + 'static,
     {
         camera.zoom_stop()?;
-        camera.zoom_tele_std()?;
-        camera.zoom_wide_std()?;
+        camera.zoom_tele(None)?;
+        camera.zoom_wide(None)?;
         camera.zoom_absolute(Normalized(0.5))?;
         Ok(())
     }

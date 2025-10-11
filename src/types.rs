@@ -6,6 +6,8 @@ use crate::{error::Error, units::Percentage, ViscaValue};
 
 /// Gain level value for direct gain control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[visca_value(
     valid_values = "[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07]",
     display_format = "hex",
@@ -16,6 +18,8 @@ pub struct GainLevel(u8);
 
 /// Gain limit value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[visca_value(
     valid_values = "[0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xA, 0xB, 0xC, 0xD, 0xE, 0xF]",
     display_format = "hex",
@@ -26,11 +30,15 @@ pub struct GainLimit(u8);
 
 /// 2D noise reduction level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[visca_value(min = "1", max = "5", display_prefix = "2D NR Level")]
 pub struct NoiseReduction2DLevel(u8);
 
 /// 3D noise reduction level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[visca_value(min = "1", max = "8", display_prefix = "3D NR Level")]
 pub struct NoiseReduction3DLevel(u8);
 
@@ -50,6 +58,8 @@ pub trait IntoIrisLevel {
 
 /// Iris level for direct iris control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[visca_value(
     valid_values = "[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C]",
     display_format = "hex",
@@ -89,6 +99,8 @@ impl From<FStop> for IrisLevel {
 
 /// Shutter speed value for direct shutter control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[visca_value(
     valid_values = "[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11]",
     display_format = "hex",
@@ -99,6 +111,8 @@ pub struct ShutterSpeed(u16);
 
 /// Brightness level for direct brightness control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[visca_value(
     valid_values = "[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11]",
     display_format = "hex",
@@ -109,6 +123,8 @@ pub struct BrightnessLevel(u16);
 
 /// Sharpness level for direct sharpness control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[visca_value(
     valid_values = "[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B]",
     display_prefix = "Sharpness",
@@ -118,6 +134,8 @@ pub struct SharpnessLevel(u8);
 
 /// Luminance level for brightness adjustment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[visca_value(
     valid_values = "[0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xA, 0xB, 0xC, 0xD, 0xE]",
     display_prefix = "Luminance",
@@ -127,6 +145,8 @@ pub struct LuminanceLevel(u8);
 
 /// Contrast level for contrast adjustment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[visca_value(
     valid_values = "[0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xA, 0xB, 0xC, 0xD, 0xE]",
     display_prefix = "Contrast",
@@ -136,6 +156,8 @@ pub struct ContrastLevel(u8);
 
 /// Dynamic range level for wide dynamic range control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[visca_value(
     valid_values = "[0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8]",
     display_prefix = "Dynamic Range",
@@ -147,6 +169,8 @@ pub struct DynamicRangeLevel(u8);
 ///
 /// Valid range: -7 to +7.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ExposureCompensationLevel(i8);
 
 impl ExposureCompensationLevel {
@@ -270,6 +294,8 @@ speed_enum! {
     /// Provides predefined speed combinations that work well across different
     /// camera movement types (pan, tilt, zoom, focus) based on VISCA protocol ranges.
     /// The variants range from `Slowest` (most precise) to `Fastest` (maximum speed).
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+    #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
     pub enum SpeedLevel {
         /// Slowest speed - most precise movements (pan: 1, tilt: 1, zoom: 0, focus: 0)
         Slowest => { pan: 1, tilt: 1, zoom: 0, focus: 0 },
@@ -346,6 +372,8 @@ fstop_enum! {
     /// Standard VISCA F-stop values from `Closed` (no light) to `F1_8` (widest opening).
     /// These correspond to typical camera aperture settings. Lower numbers mean wider
     /// aperture (more light).
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+    #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
     pub enum FStop {
         /// Iris completely closed - no light passes through
         Closed => 0x00,
@@ -383,6 +411,8 @@ fstop_enum! {
 /// the `Off` variant cannot be used with noise reduction commands as VISCA
 /// requires a minimum level (level 1 = minimal).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum NoiseReductionStrength {
     /// Disable noise reduction (not supported by VISCA - use Minimal instead).
     Off,
@@ -463,6 +493,8 @@ impl TryFrom<NoiseReductionStrength> for NoiseReduction3DLevel {
 /// Controls the bandwidth and quality of Ndi HX video streaming.
 /// This is a vendor-specific feature for PtzOptics Ndi cameras.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum NdiQuality {
     /// High quality Ndi streaming (highest bandwidth)
     High,
@@ -476,6 +508,8 @@ pub enum NdiQuality {
 
 /// Zoom position value for direct zoom control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[visca_value(
     min = "0x0000",
     max = "0x7000",
@@ -514,6 +548,8 @@ impl ZoomPosition {
 
 /// Focus position value for direct focus control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[visca_value(
     min = "0x1000",
     max = "0xF000",
@@ -576,6 +612,8 @@ impl_normalized_conversion!(FocusPosition, MIN, MAX);
 
 /// Color temperature value for white balance control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[visca_value(
     min = "0x00",
     max = "0x37",
@@ -612,6 +650,8 @@ impl ColorTemp {
 
 /// Red gain value for white balance adjustment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[visca_value(
     min = "0x00",
     max = "0xFF",
@@ -622,6 +662,8 @@ pub struct RedChannel(u8);
 
 /// Blue gain value for white balance adjustment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[visca_value(
     min = "0x00",
     max = "0xFF",
@@ -632,6 +674,8 @@ pub struct BlueChannel(u8);
 
 /// Saturation level for color adjustment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[visca_value(min = "0x00", max = "0x0E", display_prefix = "Saturation")]
 pub struct SaturationLevel(u8);
 
@@ -761,11 +805,15 @@ impl SharpnessLevel {
 
 /// Hue level for color adjustment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[visca_value(min = "0x00", max = "0x0E", display_prefix = "Hue")]
 pub struct HueLevel(u8);
 
 /// Red tuning value for fine white balance adjustment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[visca_value(min = "-10", max = "10", display_prefix = "Red Tuning")]
 pub struct RedTuning(i8);
 
@@ -776,6 +824,8 @@ impl RedTuning {
 
 /// Blue tuning value for fine white balance adjustment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[visca_value(min = "-10", max = "10", display_prefix = "Blue Tuning")]
 pub struct BlueTuning(i8);
 
@@ -786,6 +836,8 @@ impl BlueTuning {
 
 /// Pan position value for horizontal camera positioning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[visca_value(min = "-2448", max = "2448", display_prefix = "Pan")]
 pub struct PanPosition(i16);
 
@@ -839,6 +891,8 @@ impl TryFrom<f32> for PanPosition {
 
 /// Tilt position value for vertical camera positioning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[visca_value(min = "-432", max = "1296", display_prefix = "Tilt")]
 pub struct TiltPosition(i16);
 
@@ -903,6 +957,8 @@ impl TryFrom<f32> for TiltPosition {
 
 /// Pan speed value for horizontal camera movement speed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[visca_value(min = "0x00", max = "0x18", display_prefix = "Pan Speed")]
 pub struct PanSpeed(u8);
 
@@ -935,8 +991,32 @@ impl From<SpeedLevel> for PanSpeed {
     }
 }
 
+impl PanSpeed {
+    /// Create a PanSpeed from a coarse speed level.
+    ///
+    /// This provides a convenient mapping from user-friendly speed levels
+    /// to device-specific pan speed values:
+    /// - Slowest → 1
+    /// - Slow → 6
+    /// - Medium → 12
+    /// - Fast → 18
+    /// - Fastest → 24
+    ///
+    /// # Example
+    /// ```ignore
+    /// let speed = PanSpeed::from_coarse(Coarse::Medium);
+    /// assert_eq!(speed.value(), 12);
+    /// ```
+    #[inline]
+    pub fn from_coarse(coarse: Coarse) -> Self {
+        Self::from(coarse)
+    }
+}
+
 /// Tilt speed value for vertical camera movement speed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[visca_value(min = "0x00", max = "0x14", display_prefix = "Tilt Speed")]
 pub struct TiltSpeed(u8);
 
@@ -969,12 +1049,199 @@ impl From<SpeedLevel> for TiltSpeed {
     }
 }
 
+impl TiltSpeed {
+    /// Create a TiltSpeed from a coarse speed level.
+    ///
+    /// This provides a convenient mapping from user-friendly speed levels
+    /// to device-specific tilt speed values:
+    /// - Slowest → 1
+    /// - Slow → 5
+    /// - Medium → 10
+    /// - Fast → 15
+    /// - Fastest → 20
+    ///
+    /// # Example
+    /// ```ignore
+    /// let speed = TiltSpeed::from_coarse(Coarse::Fast);
+    /// assert_eq!(speed.value(), 15);
+    /// ```
+    #[inline]
+    pub fn from_coarse(coarse: Coarse) -> Self {
+        Self::from(coarse)
+    }
+}
+
+/// Zoom speed value for camera zoom control.
+///
+/// Valid range: 0 to 7, where 0 is the slowest and 7 is the fastest.
+/// This type provides the standard zoom speed control for VISCA cameras.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[visca_value(min = "0x00", max = "0x07", display_prefix = "Zoom Speed")]
+pub struct ZoomSpeed(u8);
+
+impl ZoomSpeed {
+    /// Zero zoom speed (stopped).
+    pub const ZERO: Self = Self(0x00);
+
+    /// Creates a zoom speed with model-specific validation.
+    ///
+    /// This constructor validates the speed against the specific camera model's
+    /// zoom speed limits. Different camera models may have different maximum
+    /// speed capabilities.
+    ///
+    /// # Errors
+    /// Returns an error if the speed exceeds the model's maximum zoom speed.
+    pub fn new_for_model(
+        value: u8,
+        _model: crate::constants::CameraVariant,
+    ) -> Result<Self, Error> {
+        // For now, use the same validation for all models
+        // In the future, this could check model-specific limits
+        crate::constants::validate_zoom_speed(value)?;
+        Self::new(value)
+    }
+
+    /// Creates a zoom speed without validation.
+    ///
+    /// # Safety
+    /// The caller must ensure that the value is within the valid range (0-7).
+    /// This is intended for internal use where the value is already validated.
+    #[doc(hidden)]
+    pub const fn new_unchecked(value: u8) -> Self {
+        debug_assert!(value <= 7, "ZoomSpeed value must be <= 7");
+        Self(value)
+    }
+}
+
+impl From<SpeedLevel> for ZoomSpeed {
+    fn from(level: SpeedLevel) -> Self {
+        Self(level.to_zoom_speed())
+    }
+}
+
+/// Type alias for coarse speed levels to improve API discoverability.
+///
+/// `Coarse` is an alias for `SpeedLevel` that provides intuitive speed control
+/// with five granularity levels: Slowest, Slow, Medium, Fast, and Fastest.
+///
+/// This type can be converted to device-specific speed values using the `From` trait:
+/// - `ZoomSpeed::from(Coarse::Fast)` → ZoomSpeed(6)
+/// - `PanSpeed::from(Coarse::Medium)` → PanSpeed(12)
+/// - `TiltSpeed::from(Coarse::Slow)` → TiltSpeed(5)
+///
+/// # Example
+/// ```ignore
+/// use grafton_visca::types::{Coarse, ZoomSpeed};
+///
+/// // Using coarse speed for zoom
+/// let zoom_speed = ZoomSpeed::from(Coarse::Fast);
+/// camera.zoom_tele(Some(zoom_speed))?;
+///
+/// // Direct conversion
+/// camera.zoom_wide(Some(Coarse::Slow.into()))?;
+/// ```
+pub type Coarse = SpeedLevel;
+
+impl ZoomSpeed {
+    /// Create a ZoomSpeed from a coarse speed level.
+    ///
+    /// This provides a convenient mapping from user-friendly speed levels
+    /// to device-specific zoom speed values:
+    /// - Slowest → 0
+    /// - Slow → 2
+    /// - Medium → 4
+    /// - Fast → 6
+    /// - Fastest → 7
+    ///
+    /// # Example
+    /// ```ignore
+    /// let speed = ZoomSpeed::from_coarse(Coarse::Fast);
+    /// assert_eq!(speed.value(), 6);
+    /// ```
+    #[inline]
+    pub fn from_coarse(coarse: Coarse) -> Self {
+        Self::from(coarse)
+    }
+}
+
+/// Focus speed value for camera focus control.
+///
+/// Valid range: 0 to 7, where 0 is the slowest and 7 is the fastest.
+/// This type provides the standard focus speed control for VISCA cameras.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[visca_value(min = "0x00", max = "0x07", display_prefix = "Focus Speed")]
+pub struct FocusSpeed(u8);
+
+impl FocusSpeed {
+    /// Zero focus speed (stopped).
+    pub const ZERO: Self = Self(0x00);
+
+    /// Creates a focus speed with model-specific validation.
+    ///
+    /// This constructor validates the speed against the specific camera model's
+    /// focus speed limits. Different camera models may have different maximum
+    /// speed capabilities.
+    ///
+    /// # Errors
+    /// Returns an error if the speed exceeds the model's maximum focus speed.
+    pub fn new_for_model(
+        value: u8,
+        _model: crate::constants::CameraVariant,
+    ) -> Result<Self, Error> {
+        // For now, use the same validation for all models
+        // In the future, this could check model-specific limits
+        if value > Self::MAX.value() {
+            return Err(Error::ParameterOutOfRange {
+                parameter: "focus_speed",
+                value: i32::from(value),
+                min: i32::from(Self::MIN.value()),
+                max: i32::from(Self::MAX.value()),
+            });
+        }
+        Self::new(value)
+    }
+}
+
+impl From<SpeedLevel> for FocusSpeed {
+    fn from(level: SpeedLevel) -> Self {
+        Self(level.to_focus_speed())
+    }
+}
+
+impl FocusSpeed {
+    /// Create a FocusSpeed from a coarse speed level.
+    ///
+    /// This provides a convenient mapping from user-friendly speed levels
+    /// to device-specific focus speed values:
+    /// - Slowest → 0
+    /// - Slow → 2
+    /// - Medium → 4
+    /// - Fast → 6
+    /// - Fastest → 7
+    ///
+    /// # Example
+    /// ```ignore
+    /// let speed = FocusSpeed::from_coarse(Coarse::Slow);
+    /// assert_eq!(speed.value(), 2);
+    /// ```
+    #[inline]
+    pub fn from_coarse(coarse: Coarse) -> Self {
+        Self::from(coarse)
+    }
+}
+
 /// Direction for pan/tilt movement.
 ///
 /// High-level type for specifying camera movement direction.
 /// This type is part of the public API and avoids exposing the low-level
 /// command module types to users.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum PanTiltDirection {
     /// Move camera upward (tilt up).
     Up,
@@ -1018,6 +1285,8 @@ impl From<PanTiltDirection> for crate::command::pan_tilt::PanTiltDirection {
 /// Used with PtzOptics cameras to control the speed of synchronized
 /// pan, tilt, and zoom movements during preset recalls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[visca_value(min = "0x01", max = "0x18", display_prefix = "Motion Sync Speed")]
 pub struct MotionSyncSpeed(u8);
 

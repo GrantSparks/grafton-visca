@@ -9,7 +9,7 @@
 //! The implementation uses the Mode trait to provide both blocking and async APIs
 //! from a single unified codebase.
 
-use crate::{camera::ViscaClient, command::zoom::ZoomSpeed, mode::Mode, units::Normalized, Error};
+use crate::{camera::ViscaClient, mode::Mode, types::ZoomSpeed, units::Normalized, Error};
 
 /// Zoom operations for PTZ cameras.
 ///
@@ -20,16 +20,24 @@ use crate::{camera::ViscaClient, command::zoom::ZoomSpeed, mode::Mode, units::No
 ///
 /// ## Blocking mode
 /// ```ignore
-/// camera.zoom_tele_std()?;  // Start zooming in
+/// // Zoom in with standard speed
+/// camera.zoom_tele(None)?;
 /// thread::sleep(Duration::from_secs(1));
-/// camera.zoom_stop()?;  // Stop zooming
+/// camera.zoom_stop()?;
+///
+/// // Zoom out with specific speed
+/// camera.zoom_wide(Some(ZoomSpeed::new(5)?))?;
 /// ```
 ///
 /// ## Async mode
 /// ```ignore
-/// camera.zoom_tele_std().await?;  // Start zooming in
+/// // Zoom in with standard speed
+/// camera.zoom_tele(None).await?;
 /// sleep(Duration::from_secs(1)).await;
-/// camera.zoom_stop().await?;  // Stop zooming
+/// camera.zoom_stop().await?;
+///
+/// // Zoom out with specific speed
+/// camera.zoom_wide(Some(ZoomSpeed::new(5)?)).await?;
 /// ```
 #[grafton_visca_macros::delegate_to_session]
 pub trait ZoomControl {
@@ -42,44 +50,56 @@ pub trait ZoomControl {
     /// Returns an error if the command fails to send or receive a response.
     fn zoom_stop(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
-    /// Start zooming in (telephoto direction) at standard speed.
+    /// Start zooming in (telephoto direction) with optional speed control.
+    ///
+    /// When `speed` is `None`, uses standard zoom speed. When `Some(speed)` is provided,
+    /// uses variable speed zoom with the specified speed (0-7).
     ///
     /// The zoom will continue until `zoom_stop()` is called or the maximum zoom is reached.
     ///
+    /// # Arguments
+    /// * `speed` - Optional zoom speed (0-7). If None, uses standard speed.
+    ///
+    /// # Examples
+    /// ```ignore
+    /// // Standard speed
+    /// camera.zoom_tele(None)?;
+    ///
+    /// // Variable speed
+    /// camera.zoom_tele(Some(ZoomSpeed::new(5)?))?;
+    /// ```
+    ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn zoom_tele_std(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn zoom_tele(
+        &self,
+        speed: Option<ZoomSpeed>,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
-    /// Start zooming out (wide angle direction) at standard speed.
+    /// Start zooming out (wide angle direction) with optional speed control.
+    ///
+    /// When `speed` is `None`, uses standard zoom speed. When `Some(speed)` is provided,
+    /// uses variable speed zoom with the specified speed (0-7).
     ///
     /// The zoom will continue until `zoom_stop()` is called or the minimum zoom is reached.
     ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn zoom_wide_std(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
-    /// Start zooming in at a specified variable speed.
-    ///
     /// # Arguments
-    /// * `speed` - Zoom speed (0-7, where 0 is slowest and 7 is fastest)
+    /// * `speed` - Optional zoom speed (0-7). If None, uses standard speed.
+    ///
+    /// # Examples
+    /// ```ignore
+    /// // Standard speed
+    /// camera.zoom_wide(None)?;
+    ///
+    /// // Variable speed
+    /// camera.zoom_wide(Some(ZoomSpeed::new(3)?))?;
+    /// ```
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn zoom_tele_variable(
+    fn zoom_wide(
         &self,
-        speed: ZoomSpeed,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
-    /// Start zooming out at a specified variable speed.
-    ///
-    /// # Arguments
-    /// * `speed` - Zoom speed (0-7, where 0 is slowest and 7 is fastest)
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn zoom_wide_variable(
-        &self,
-        speed: ZoomSpeed,
+        speed: Option<ZoomSpeed>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set zoom to an absolute normalized position.
@@ -113,6 +133,43 @@ pub trait ZoomControl {
     /// # Arguments
     /// * `enabled` - true to enable digital zoom, false to disable
     fn set_digital_zoom(&self, enabled: bool) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+
+    /// Set zoom to an absolute normalized position with domain awareness.
+    ///
+    /// This method provides domain-aware zoom control, allowing you to specify
+    /// whether the normalized position should map to the optical zoom range only
+    /// or include digital zoom as well.
+    ///
+    /// # Arguments
+    /// * `position` - Normalized position (0.0 = wide, 1.0 = full telephoto for the domain)
+    /// * `domain` - The zoom domain to use (Optical or OpticalPlusDigital)
+    ///
+    /// # Examples
+    /// ```ignore
+    /// use grafton_visca::{ZoomDomain, Normalized};
+    ///
+    /// // Set to 50% of optical zoom range
+    /// camera.zoom_absolute_normalized(
+    ///     Normalized::new(0.5)?,
+    ///     ZoomDomain::Optical
+    /// )?;
+    ///
+    /// // Set to 75% of full zoom range (including digital)
+    /// camera.zoom_absolute_normalized(
+    ///     Normalized::new(0.75)?,
+    ///     ZoomDomain::OpticalPlusDigital
+    /// )?;
+    /// ```
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - The camera doesn't support digital zoom and OpticalPlusDigital domain is specified
+    /// - The command fails to send or receive a response
+    fn zoom_absolute_normalized(
+        &self,
+        position: crate::Normalized,
+        domain: crate::ZoomDomain,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
 // Single unified implementation for all Camera types!
@@ -130,24 +187,20 @@ where
         self.execute(Zoom::Stop)
     }
 
-    fn zoom_tele_std(&self) -> M::Fut<'_, Result<(), Error>> {
+    fn zoom_tele(&self, speed: Option<ZoomSpeed>) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::zoom::Zoom;
-        self.execute(Zoom::TeleStd)
+        match speed {
+            None => self.execute(Zoom::TeleStd),
+            Some(s) => self.execute(Zoom::TeleVariable(s)),
+        }
     }
 
-    fn zoom_wide_std(&self) -> M::Fut<'_, Result<(), Error>> {
+    fn zoom_wide(&self, speed: Option<ZoomSpeed>) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::zoom::Zoom;
-        self.execute(Zoom::WideStd)
-    }
-
-    fn zoom_tele_variable(&self, speed: ZoomSpeed) -> M::Fut<'_, Result<(), Error>> {
-        use crate::command::zoom::Zoom;
-        self.execute(Zoom::TeleVariable(speed))
-    }
-
-    fn zoom_wide_variable(&self, speed: ZoomSpeed) -> M::Fut<'_, Result<(), Error>> {
-        use crate::command::zoom::Zoom;
-        self.execute(Zoom::WideVariable(speed))
+        match speed {
+            None => self.execute(Zoom::WideStd),
+            Some(s) => self.execute(Zoom::WideVariable(s)),
+        }
     }
 
     fn zoom_absolute(&self, position: Normalized) -> M::Fut<'_, Result<(), Error>> {
@@ -169,5 +222,26 @@ where
     fn set_digital_zoom(&self, enabled: bool) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::zoom::DigitalZoom;
         self.execute(DigitalZoom::new(enabled))
+    }
+
+    fn zoom_absolute_normalized(
+        &self,
+        position: crate::Normalized,
+        domain: crate::ZoomDomain,
+    ) -> M::Fut<'_, Result<(), Error>> {
+        use crate::{command::zoom::Zoom, ZoomPositionExt};
+
+        // Check if digital zoom is supported when OpticalPlusDigital is requested
+        if domain == crate::ZoomDomain::OpticalPlusDigital && P::DIGITAL_ZOOM_MAX.is_none() {
+            return self.error(Error::FeatureNotSupported {
+                feature: "Digital zoom",
+            });
+        }
+
+        // Convert normalized position to zoom position based on domain
+        match crate::types::ZoomPosition::from_normalized(position, domain) {
+            Ok(zoom_pos) => self.execute(Zoom::Position(zoom_pos)),
+            Err(e) => self.error(e),
+        }
     }
 }

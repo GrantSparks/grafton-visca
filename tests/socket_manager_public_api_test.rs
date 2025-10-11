@@ -76,7 +76,7 @@ mod tokio_tests {
             .unwrap();
 
         // Test zoom commands (deterministic timing with virtual clock)
-        let result = camera.zoom_tele_std().await;
+        let result = camera.zoom_tele(None).await;
         assert!(
             result.is_ok(),
             "Zoom in command should succeed: {:?}",
@@ -91,7 +91,7 @@ mod tokio_tests {
         );
 
         // Test another simple operation
-        let result = camera.zoom_wide_std().await;
+        let result = camera.zoom_wide(None).await;
         assert!(result.is_ok(), "Zoom out should succeed: {:?}", result);
 
         // Verify multiple commands were sent
@@ -114,8 +114,8 @@ mod tokio_tests {
 
         // Send commands sequentially with deterministic timing
         // This tests that socket manager can queue and handle multiple commands
-        let r1 = camera.zoom_tele_std().await;
-        let r2 = camera.zoom_wide_std().await;
+        let r1 = camera.zoom_tele(None).await;
+        let r2 = camera.zoom_wide(None).await;
 
         // Verify both commands succeeded
         assert!(r1.is_ok(), "First command should succeed: {:?}", r1);

@@ -63,13 +63,13 @@ fn main() -> Result<(), Error> {
 
     println!("Testing zoom...");
     println!("  Zooming in briefly...");
-    camera.zoom_tele_std()?;
+    camera.zoom_tele(None)?;
     sleep(Duration::from_secs(1));
     camera.zoom_stop()?;
     camera.await_zoom_idle(Duration::from_secs(2))?;
 
     println!("  Zooming out briefly...");
-    camera.zoom_wide_std()?;
+    camera.zoom_wide(None)?;
     sleep(Duration::from_secs(1));
     camera.zoom_stop()?;
     camera.await_zoom_idle(Duration::from_secs(2))?;

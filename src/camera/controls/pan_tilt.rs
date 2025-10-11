@@ -41,13 +41,15 @@ use crate::{
 /// ## Blocking mode
 /// ```ignore
 /// camera.pan_tilt_home()?;  // Move to home position
-/// camera.pan_tilt_absolute(Degrees(45.0), Degrees(15.0), SpeedLevel::Fast)?;
+/// camera.pan_tilt_absolute(45.0_f64, 15.0_f64, SpeedLevel::Fast)?;  // f64 values work!
+/// camera.pan_tilt_absolute(Degrees(45.0), Degrees(15.0), SpeedLevel::Fast)?;  // Or explicit Degrees
 /// ```
 ///
 /// ## Async mode
 /// ```ignore
 /// camera.pan_tilt_home().await?;  // Move to home position
-/// camera.pan_tilt_absolute(Degrees(45.0), Degrees(15.0), SpeedLevel::Fast).await?;
+/// camera.pan_tilt_absolute(45.0_f64, 15.0_f64, SpeedLevel::Fast).await?;  // f64 values work!
+/// camera.pan_tilt_absolute(Degrees(45.0), Degrees(15.0), SpeedLevel::Fast).await?;  // Or explicit Degrees
 /// ```
 #[grafton_visca_macros::delegate_to_session]
 pub trait PanTiltControl {
@@ -71,32 +73,32 @@ pub trait PanTiltControl {
     /// Move to an absolute pan/tilt position in degrees.
     ///
     /// # Arguments
-    /// * `pan` - Target pan position in degrees
-    /// * `tilt` - Target tilt position in degrees
+    /// * `pan` - Target pan position in degrees (accepts f32 or f64)
+    /// * `tilt` - Target tilt position in degrees (accepts f32 or f64)
     /// * `speed` - Movement speed (Slow, Medium, Fast)
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
     fn pan_tilt_absolute(
         &self,
-        pan: Degrees,
-        tilt: Degrees,
+        pan: impl Into<Degrees>,
+        tilt: impl Into<Degrees>,
         speed: SpeedLevel,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Move relative to the current position in degrees.
     ///
     /// # Arguments
-    /// * `pan` - Pan offset in degrees (positive=right, negative=left)
-    /// * `tilt` - Tilt offset in degrees (positive=up, negative=down)
+    /// * `pan` - Pan offset in degrees (positive=right, negative=left, accepts f32 or f64)
+    /// * `tilt` - Tilt offset in degrees (positive=up, negative=down, accepts f32 or f64)
     /// * `speed` - Movement speed (Slow, Medium, Fast)
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
     fn pan_tilt_relative(
         &self,
-        pan: Degrees,
-        tilt: Degrees,
+        pan: impl Into<Degrees>,
+        tilt: impl Into<Degrees>,
         speed: SpeedLevel,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
@@ -185,18 +187,22 @@ where
 
     fn pan_tilt_absolute(
         &self,
-        pan: Degrees,
-        tilt: Degrees,
+        pan: impl Into<Degrees>,
+        tilt: impl Into<Degrees>,
         speed: SpeedLevel,
     ) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::pan_tilt::PanTilt;
 
+        // Convert inputs to Degrees
+        let pan_deg = pan.into();
+        let tilt_deg = tilt.into();
+
         // Convert Degrees to Position and SpeedLevel to individual speeds
-        let pan_pos = match PanPosition::from_degrees(pan.0) {
+        let pan_pos = match PanPosition::from_degrees(pan_deg.0) {
             Ok(pos) => pos,
             Err(e) => return self.error(e),
         };
-        let tilt_pos = match TiltPosition::from_degrees(tilt.0) {
+        let tilt_pos = match TiltPosition::from_degrees(tilt_deg.0) {
             Ok(pos) => pos,
             Err(e) => return self.error(e),
         };
@@ -218,18 +224,22 @@ where
 
     fn pan_tilt_relative(
         &self,
-        pan: Degrees,
-        tilt: Degrees,
+        pan: impl Into<Degrees>,
+        tilt: impl Into<Degrees>,
         speed: SpeedLevel,
     ) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::pan_tilt::PanTilt;
 
+        // Convert inputs to Degrees
+        let pan_deg = pan.into();
+        let tilt_deg = tilt.into();
+
         // Convert Degrees to Position and SpeedLevel to individual speeds
-        let pan_pos = match PanPosition::from_degrees(pan.0) {
+        let pan_pos = match PanPosition::from_degrees(pan_deg.0) {
             Ok(pos) => pos,
             Err(e) => return self.error(e),
         };
-        let tilt_pos = match TiltPosition::from_degrees(tilt.0) {
+        let tilt_pos = match TiltPosition::from_degrees(tilt_deg.0) {
             Ok(pos) => pos,
             Err(e) => return self.error(e),
         };

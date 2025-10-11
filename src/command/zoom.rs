@@ -25,55 +25,8 @@ use crate::{
     command::{bytes::ConstCommandBuilder, encode::ViscaCommand, InquiryKind},
     error::Error,
     timeout::CommandCategory,
-    types::{SpeedLevel, ZoomPosition},
+    types::{ZoomPosition, ZoomSpeed},
 };
-
-crate::visca_range_type! {
-    /// Variable zoom speed.
-    ///
-    /// Valid range: 0 to 7 where 0 is the slowest and 7 is the fastest.
-    ZoomSpeed: u8 {
-        min: 0,
-        max: 7
-    }
-}
-
-impl ZoomSpeed {
-    /// Creates a zoom speed with model-specific validation.
-    ///
-    /// This constructor validates the speed against the specific camera model's
-    /// zoom speed limits. Different camera models may have different maximum
-    /// speed capabilities.
-    ///
-    /// # Errors
-    /// Returns an error if the speed exceeds the model's maximum zoom speed.
-    pub fn new_for_model(
-        value: u8,
-        _model: crate::constants::CameraVariant,
-    ) -> Result<Self, Error> {
-        // For now, use the same validation for all models
-        // In the future, this could check model-specific limits
-        crate::constants::validate_zoom_speed(value)?;
-        Self::new(value)
-    }
-
-    /// Creates a zoom speed without validation.
-    ///
-    /// # Safety
-    /// The caller must ensure that the value is within the valid range (0-7).
-    /// This is intended for internal use where the value is already validated.
-    #[doc(hidden)]
-    pub const fn new_unchecked(value: u8) -> Self {
-        debug_assert!(value <= 7, "ZoomSpeed value must be <= 7");
-        Self(value)
-    }
-}
-
-impl From<SpeedLevel> for ZoomSpeed {
-    fn from(level: SpeedLevel) -> Self {
-        Self(level.to_zoom_speed())
-    }
-}
 
 /// Zoom control commands.
 ///
@@ -135,7 +88,7 @@ impl ViscaCommand for Zoom {
                 // Tele variable: 81 01 04 07 2p FF where p is speed
                 let builder = ConstCommandBuilder::<6>::from_prefix(zoom::VARIABLE_PREFIX)
                     .with_camera_id(camera_id)
-                    .push(0x20 | (speed.0 & 0x0F))
+                    .push(0x20 | (speed.value() & 0x0F))
                     .terminate();
                 builder.build_into(buffer)
             }
@@ -143,7 +96,7 @@ impl ViscaCommand for Zoom {
                 // Wide variable: 81 01 04 07 3p FF where p is speed
                 let builder = ConstCommandBuilder::<6>::from_prefix(zoom::VARIABLE_PREFIX)
                     .with_camera_id(camera_id)
-                    .push(0x30 | (speed.0 & 0x0F))
+                    .push(0x30 | (speed.value() & 0x0F))
                     .terminate();
                 builder.build_into(buffer)
             }

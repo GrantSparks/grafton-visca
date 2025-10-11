@@ -122,7 +122,7 @@ where
     where
         Camera<M, P, Tr, Exec>: ZoomControl<Mode = M>,
     {
-        self.camera.zoom_tele_std()
+        self.camera.zoom_tele(None)
     }
 
     /// Zoom to wide (zoom out).
@@ -130,7 +130,7 @@ where
     where
         Camera<M, P, Tr, Exec>: ZoomControl<Mode = M>,
     {
-        self.camera.zoom_wide_std()
+        self.camera.zoom_wide(None)
     }
 
     /// Stop zoom movement.
@@ -158,9 +158,9 @@ where
     pub fn tele_variable<S>(&self, speed: S) -> M::Fut<'_, Result<(), Error>>
     where
         Camera<M, P, Tr, Exec>: ZoomControl<Mode = M>,
-        S: Into<crate::command::zoom::ZoomSpeed>,
+        S: Into<crate::ZoomSpeed>,
     {
-        self.camera.zoom_tele_variable(speed.into())
+        self.camera.zoom_tele(Some(speed.into()))
     }
 
     /// Zoom to wide (zoom out) with variable speed.
@@ -169,9 +169,9 @@ where
     pub fn wide_variable<S>(&self, speed: S) -> M::Fut<'_, Result<(), Error>>
     where
         Camera<M, P, Tr, Exec>: ZoomControl<Mode = M>,
-        S: Into<crate::command::zoom::ZoomSpeed>,
+        S: Into<crate::ZoomSpeed>,
     {
-        self.camera.zoom_wide_variable(speed.into())
+        self.camera.zoom_wide(Some(speed.into()))
     }
 
     /// Set zoom to absolute position (0.0 = wide, 1.0 = full tele).

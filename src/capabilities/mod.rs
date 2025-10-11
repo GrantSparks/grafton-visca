@@ -48,6 +48,10 @@ pub use types::*;
 mod validation;
 pub use validation::ValidationError;
 
+// Structured capabilities response
+mod discovery;
+pub use discovery::Capabilities;
+
 /// Super-trait that encompasses all camera capabilities.
 ///
 /// This trait allows a single generic bound to ensure a type has all the

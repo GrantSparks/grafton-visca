@@ -75,10 +75,10 @@ mod blocking_tests {
         let stop_result = camera.zoom_stop().block();
         assert!(stop_result.is_ok(), "zoom_stop failed: {stop_result:?}");
 
-        let in_result = camera.zoom_tele_std().block();
+        let in_result = camera.zoom_tele(None).block();
         assert!(in_result.is_ok(), "zoom_in failed: {in_result:?}");
 
-        let out_result = camera.zoom_wide_std().block();
+        let out_result = camera.zoom_wide(None).block();
         assert!(out_result.is_ok(), "zoom_out failed: {out_result:?}");
 
         let history = transport.sent();
@@ -97,7 +97,7 @@ mod blocking_tests {
 
         let camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport).unwrap();
 
-        let result = camera.zoom_tele_std().block();
+        let result = camera.zoom_tele(None).block();
         assert!(result.is_ok(), "zoom_in failed: {result:?}");
     }
 

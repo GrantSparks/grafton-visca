@@ -12,6 +12,8 @@ use crate::{
 
 /// Position in degrees.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Degrees<T = f32>(pub T);
 
 /// Position in VISCA protocol units.
@@ -74,6 +76,28 @@ impl From<f32> for Degrees<f32> {
 impl From<f64> for Degrees<f64> {
     fn from(value: f64) -> Self {
         Self(value)
+    }
+}
+
+impl From<f64> for Degrees<f32> {
+    /// Creates a `Degrees<f32>` from an `f64` value.
+    ///
+    /// # Note on Precision
+    /// This conversion performs a lossy cast from `f64` to `f32`.
+    /// Precision may be lost during the conversion, but this is typically
+    /// acceptable for camera positioning applications where the physical
+    /// resolution of the motors is the limiting factor rather than
+    /// floating-point precision.
+    ///
+    /// # Example
+    /// ```
+    /// use grafton_visca::units::Degrees;
+    ///
+    /// let degrees: Degrees = Degrees::from(45.123456789_f64);
+    /// // The value is now stored as f32 internally
+    /// ```
+    fn from(value: f64) -> Self {
+        Self(value as f32)
     }
 }
 

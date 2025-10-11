@@ -191,6 +191,29 @@ where
         self.timeout_config = timeout_config;
     }
 
+    /// Get the camera's capabilities.
+    ///
+    /// Returns a structured representation of all camera capabilities extracted
+    /// from the compile-time profile traits. This is cached after initialization
+    /// for efficient access.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let camera = Camera::open_tcp::<PtzOpticsG2>("192.168.0.10")?;
+    /// let caps = camera.capabilities();
+    ///
+    /// println!("Model: {}", caps.model_name);
+    /// println!("Pan range: {:?}°", caps.pan_range_degrees);
+    /// println!("Zoom range: 0x{:04X}", caps.zoom_range_optical.end());
+    ///
+    /// if caps.has_digital_zoom {
+    ///     println!("Digital zoom supported");
+    /// }
+    /// ```
+    pub fn capabilities(&self) -> crate::capabilities::Capabilities {
+        crate::capabilities::Capabilities::from_profile::<P>()
+    }
+
     // Accessor methods for noun-based control trait access
 
     /// Access power-related controls and inquiries.
@@ -275,6 +298,29 @@ where
         if let Ok(mut runner) = self.blocking_runner.try_borrow_mut() {
             runner.update_timeout_config(timeout_config);
         }
+    }
+
+    /// Get the camera's capabilities.
+    ///
+    /// Returns a structured representation of all camera capabilities extracted
+    /// from the compile-time profile traits. This is cached after initialization
+    /// for efficient access.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let camera = Camera::open_tcp::<PtzOpticsG2>("192.168.0.10")?;
+    /// let caps = camera.capabilities();
+    ///
+    /// println!("Model: {}", caps.model_name);
+    /// println!("Pan range: {:?}°", caps.pan_range_degrees);
+    /// println!("Zoom range: 0x{:04X}", caps.zoom_range_optical.end());
+    ///
+    /// if caps.has_digital_zoom {
+    ///     println!("Digital zoom supported");
+    /// }
+    /// ```
+    pub fn capabilities(&self) -> crate::capabilities::Capabilities {
+        crate::capabilities::Capabilities::from_profile::<P>()
     }
 
     // Accessor methods for noun-based control trait access

@@ -47,25 +47,15 @@ impl ZoomControl for MockCamera {
     ) -> <Self::Mode as grafton_visca::mode::Mode>::Fut<'_, Result<(), grafton_visca::Error>> {
         Box::pin(async { Ok(()) })
     }
-    fn zoom_tele_std(
+    fn zoom_tele(
         &self,
+        _speed: Option<grafton_visca::types::ZoomSpeed>,
     ) -> <Self::Mode as grafton_visca::mode::Mode>::Fut<'_, Result<(), grafton_visca::Error>> {
         Box::pin(async { Ok(()) })
     }
-    fn zoom_wide_std(
+    fn zoom_wide(
         &self,
-    ) -> <Self::Mode as grafton_visca::mode::Mode>::Fut<'_, Result<(), grafton_visca::Error>> {
-        Box::pin(async { Ok(()) })
-    }
-    fn zoom_tele_variable(
-        &self,
-        _speed: grafton_visca::command::zoom::ZoomSpeed,
-    ) -> <Self::Mode as grafton_visca::mode::Mode>::Fut<'_, Result<(), grafton_visca::Error>> {
-        Box::pin(async { Ok(()) })
-    }
-    fn zoom_wide_variable(
-        &self,
-        _speed: grafton_visca::command::zoom::ZoomSpeed,
+        _speed: Option<grafton_visca::types::ZoomSpeed>,
     ) -> <Self::Mode as grafton_visca::mode::Mode>::Fut<'_, Result<(), grafton_visca::Error>> {
         Box::pin(async { Ok(()) })
     }
@@ -87,6 +77,13 @@ impl ZoomControl for MockCamera {
     ) -> <Self::Mode as grafton_visca::mode::Mode>::Fut<'_, Result<(), grafton_visca::Error>> {
         Box::pin(async { Ok(()) })
     }
+    fn zoom_absolute_normalized(
+        &self,
+        _position: grafton_visca::Normalized,
+        _domain: grafton_visca::inquiry_conversions::ZoomDomain,
+    ) -> <Self::Mode as grafton_visca::mode::Mode>::Fut<'_, Result<(), grafton_visca::Error>> {
+        Box::pin(async { Ok(()) })
+    }
 }
 
 #[test]
@@ -104,14 +101,10 @@ fn test_zoom_control_futures_are_send() {
 
     // Test that all ZoomControl futures are Send
     assert_send(camera.zoom_stop());
-    assert_send(camera.zoom_tele_std());
-    assert_send(camera.zoom_wide_std());
-    assert_send(
-        camera.zoom_tele_variable(grafton_visca::command::zoom::ZoomSpeed::new(1).unwrap()),
-    );
-    assert_send(
-        camera.zoom_wide_variable(grafton_visca::command::zoom::ZoomSpeed::new(1).unwrap()),
-    );
+    assert_send(camera.zoom_tele(None));
+    assert_send(camera.zoom_wide(None));
+    assert_send(camera.zoom_tele(Some(grafton_visca::types::ZoomSpeed::new(1).unwrap())));
+    assert_send(camera.zoom_wide(Some(grafton_visca::types::ZoomSpeed::new(1).unwrap())));
     assert_send(camera.zoom_absolute(grafton_visca::units::Normalized::new(0.5)));
     assert_send(camera.set_zoom_position(grafton_visca::types::ZoomPosition::new(0x4000).unwrap()));
 }
@@ -132,7 +125,7 @@ fn test_trait_object_send_compatibility() {
 
     // Test that control trait futures work with Send bounds
     requires_send_future(camera.power_on());
-    requires_send_future(camera.zoom_tele_std());
+    requires_send_future(camera.zoom_tele(None));
 }
 
 /// Test spawning futures across threads to verify Send bounds work in practice.
@@ -146,7 +139,7 @@ async fn test_spawn_futures_across_threads() {
 
     let zoom_task = tokio::spawn(async {
         let camera = MockCamera;
-        camera.zoom_tele_std().await
+        camera.zoom_tele(None).await
     });
 
     // All tasks should complete successfully

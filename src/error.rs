@@ -5,6 +5,61 @@ use std::{borrow::Cow, convert::Infallible, io, sync::Arc, time::Duration};
 /// Custom result type for VISCA operations.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
+/// Categorized error kinds for structured error handling.
+///
+/// This enum provides a high-level categorization of errors to enable
+/// consistent retry logic and error handling across the library.
+///
+/// # Example
+/// ```rust
+/// use grafton_visca::{Error, ErrorKind};
+///
+/// fn handle_error(error: Error) {
+///     match error.kind() {
+///         ErrorKind::Timeout => println!("Operation timed out"),
+///         ErrorKind::Cancelled => println!("Operation was cancelled"),
+///         ErrorKind::BufferFull => println!("Camera buffer full, retry later"),
+///         _ => println!("Other error: {}", error),
+///     }
+/// }
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ErrorKind {
+    /// Operation timed out before completion.
+    Timeout,
+
+    /// Operation was cancelled by user request.
+    Cancelled,
+
+    /// Camera's command buffer is full (retryable).
+    BufferFull,
+
+    /// Command cannot be executed in current state.
+    NotExecutable,
+
+    /// Connection was closed or lost.
+    IoClosed,
+
+    /// Connection was refused.
+    IoRefused,
+
+    /// Protocol-level error (malformed response, etc.).
+    Protocol,
+
+    /// Feature or command not supported by camera.
+    Unsupported,
+
+    /// Invalid parameter or out of range value.
+    InvalidParameter,
+
+    /// Camera is busy processing another command.
+    Busy,
+
+    /// Other unspecified error.
+    Other,
+}
+
 /// VISCA protocol error type.
 ///
 /// Provides comprehensive error handling for all VISCA operations.
@@ -363,6 +418,39 @@ pub enum Error {
 }
 
 impl Error {
+    /// Get the kind of this error for categorized handling.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use grafton_visca::{Error, ErrorKind};
+    ///
+    /// let error = Error::Timeout;
+    /// assert_eq!(error.kind(), ErrorKind::Timeout);
+    /// ```
+    #[must_use]
+    pub fn kind(&self) -> ErrorKind {
+        match self {
+            Self::Timeout | Self::CommandTimeout { .. } => ErrorKind::Timeout,
+            Self::CommandCanceled => ErrorKind::Cancelled,
+            Self::CommandBufferFull => ErrorKind::BufferFull,
+            Self::CommandNotExecutable => ErrorKind::NotExecutable,
+            Self::ConnectionClosed { .. } | Self::NoResponse => ErrorKind::IoClosed,
+            Self::ConnectionFailed { .. } => ErrorKind::IoRefused,
+            Self::InvalidResponseFormat
+            | Self::InvalidResponseLength
+            | Self::UnexpectedResponseType
+            | Self::ParseError { .. }
+            | Self::MessageLengthError => ErrorKind::Protocol,
+            Self::FeatureNotSupported { .. } | Self::NotSupported => ErrorKind::Unsupported,
+            Self::InvalidParameter { .. }
+            | Self::InvalidPreset { .. }
+            | Self::ParameterOutOfRange { .. }
+            | Self::SyntaxError => ErrorKind::InvalidParameter,
+            Self::CameraBusy | Self::CameraMoving { .. } => ErrorKind::Busy,
+            _ => ErrorKind::Other,
+        }
+    }
+
     /// Map internal/detailed error variants to public API errors.
     /// This provides a simpler error interface for end users while preserving
     /// internal detail for debugging.
@@ -426,16 +514,11 @@ impl Error {
     /// }
     /// ```
     #[must_use]
-    pub const fn is_retryable(&self) -> bool {
+    pub fn is_retryable(&self) -> bool {
         matches!(
-            self,
-            Self::CameraBusy
-                | Self::CommandPending
-                | Self::CameraMoving { .. }
-                | Self::CommandTimeout { .. }
-                | Self::CommandBufferFull
-                | Self::Timeout
-        )
+            self.kind(),
+            ErrorKind::Timeout | ErrorKind::BufferFull | ErrorKind::Busy
+        ) || matches!(self, Self::CommandPending | Self::CameraMoving { .. })
     }
 
     /// Get a suggested retry delay for retryable errors.
