@@ -70,7 +70,6 @@ pub trait WhiteBalanceControl {
     fn set_white_balance_mode(
         &self,
         mode: WhiteBalanceMode,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set auto white balance mode.
@@ -80,10 +79,7 @@ pub trait WhiteBalanceControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn white_balance_auto(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn white_balance_auto(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set indoor white balance preset.
     ///
@@ -93,10 +89,7 @@ pub trait WhiteBalanceControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn white_balance_indoor(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn white_balance_indoor(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set outdoor white balance preset.
     ///
@@ -106,10 +99,7 @@ pub trait WhiteBalanceControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn white_balance_outdoor(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn white_balance_outdoor(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set one-push white balance mode.
     ///
@@ -119,10 +109,7 @@ pub trait WhiteBalanceControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn white_balance_one_push(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn white_balance_one_push(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set auto tracking white balance (ATW).
     ///
@@ -132,10 +119,7 @@ pub trait WhiteBalanceControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn white_balance_atw(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn white_balance_atw(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set manual white balance mode.
     ///
@@ -145,10 +129,7 @@ pub trait WhiteBalanceControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn white_balance_manual(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn white_balance_manual(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set color temperature white balance mode.
     ///
@@ -157,10 +138,7 @@ pub trait WhiteBalanceControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn white_balance_color_temperature(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn white_balance_color_temperature(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set auto white balance sensitivity level.
     ///
@@ -176,7 +154,6 @@ pub trait WhiteBalanceControl {
     fn set_awb_sensitivity(
         &self,
         sensitivity: AutoWhiteBalanceSensitivity,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
@@ -189,64 +166,44 @@ where
 {
     type Mode = M;
 
-    fn set_white_balance_mode(
-        &self,
-        mode: WhiteBalanceMode,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn set_white_balance_mode(&self, mode: WhiteBalanceMode) -> M::Fut<'_, Result<(), Error>> {
         let cmd = WhiteBalanceCommand { mode };
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn white_balance_auto(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
-        self.set_white_balance_mode(WhiteBalanceMode::Auto, opts)
+    fn white_balance_auto(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.set_white_balance_mode(WhiteBalanceMode::Auto)
     }
 
-    fn white_balance_indoor(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
-        self.set_white_balance_mode(WhiteBalanceMode::Indoor, opts)
+    fn white_balance_indoor(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.set_white_balance_mode(WhiteBalanceMode::Indoor)
     }
 
-    fn white_balance_outdoor(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
-        self.set_white_balance_mode(WhiteBalanceMode::Outdoor, opts)
+    fn white_balance_outdoor(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.set_white_balance_mode(WhiteBalanceMode::Outdoor)
     }
 
-    fn white_balance_one_push(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
-        self.set_white_balance_mode(WhiteBalanceMode::OnePush, opts)
+    fn white_balance_one_push(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.set_white_balance_mode(WhiteBalanceMode::OnePush)
     }
 
-    fn white_balance_atw(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
-        self.set_white_balance_mode(WhiteBalanceMode::ATW, opts)
+    fn white_balance_atw(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.set_white_balance_mode(WhiteBalanceMode::ATW)
     }
 
-    fn white_balance_manual(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
-        self.set_white_balance_mode(WhiteBalanceMode::Manual, opts)
+    fn white_balance_manual(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.set_white_balance_mode(WhiteBalanceMode::Manual)
     }
 
-    fn white_balance_color_temperature(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
-        self.set_white_balance_mode(WhiteBalanceMode::ColorTemperature, opts)
+    fn white_balance_color_temperature(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.set_white_balance_mode(WhiteBalanceMode::ColorTemperature)
     }
 
     fn set_awb_sensitivity(
         &self,
         sensitivity: AutoWhiteBalanceSensitivity,
-        opts: crate::CommandOptions<'_>,
     ) -> M::Fut<'_, Result<(), Error>> {
         let cmd = AWBSensitivityCommand { sensitivity };
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 }

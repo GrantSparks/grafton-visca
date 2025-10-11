@@ -56,7 +56,7 @@ fn main() -> Result<(), Error> {
             );
             if !is_on {
                 println!("  Turning camera ON...");
-                camera.power().on(grafton_visca::CommandOptions::default())?;
+                camera.power().on()?;
                 sleep(Duration::from_secs(3));
                 println!("  Camera powered on successfully");
             }
@@ -90,30 +90,30 @@ fn main() -> Result<(), Error> {
     println!("═══ Testing Movement Commands ═══\n");
 
     println!("Moving to home position...");
-    camera.pan_tilt().home(grafton_visca::CommandOptions::default())?;
+    camera.pan_tilt().home()?;
     camera.await_idle(Duration::from_secs(10))?;
     println!("  ✓ Moved to home position");
 
     println!("Testing pan/tilt movement...");
     camera
         .pan_tilt()
-        .absolute(Degrees(30.0), Degrees(10.0), SpeedLevel::Fast, grafton_visca::CommandOptions::default())?;
+        .absolute(Degrees(30.0), Degrees(10.0), SpeedLevel::Fast)?;
     camera.await_idle(Duration::from_secs(10))?;
     println!("  ✓ Moved to Pan=30°, Tilt=10°");
 
     println!("Testing zoom...");
-    camera.zoom().tele_variable(ZoomSpeed::try_from(4)?, grafton_visca::CommandOptions::default())?;
+    camera.zoom().tele_variable(ZoomSpeed::try_from(4)?)?;
     sleep(Duration::from_millis(500));
-    camera.zoom().stop(grafton_visca::CommandOptions::default())?;
+    camera.zoom().stop()?;
     camera.await_idle(Duration::from_secs(10))?;
     println!("  ✓ Zoomed in");
 
     // Return to home
     println!("\nReturning to home position...");
-    camera.pan_tilt().home(grafton_visca::CommandOptions::default())?;
-    camera.zoom().wide_variable(ZoomSpeed::try_from(4)?, grafton_visca::CommandOptions::default())?;
+    camera.pan_tilt().home()?;
+    camera.zoom().wide_variable(ZoomSpeed::try_from(4)?)?;
     sleep(Duration::from_millis(500));
-    camera.zoom().stop(grafton_visca::CommandOptions::default())?;
+    camera.zoom().stop()?;
     camera.await_idle(Duration::from_secs(10))?;
     println!("  ✓ Returned to home");
 
@@ -183,7 +183,7 @@ async fn main() -> Result<(), Error> {
             );
             if !is_on {
                 println!("  Turning camera ON...");
-                camera.power().on(grafton_visca::CommandOptions::default()).await?;
+                camera.power().on().await?;
                 sleep(Duration::from_secs(3)).await;
                 println!("  Camera powered on successfully");
             }
@@ -217,22 +217,22 @@ async fn main() -> Result<(), Error> {
     println!("═══ Testing Movement Commands ═══\n");
 
     println!("Moving to home position...");
-    camera.pan_tilt().home(grafton_visca::CommandOptions::default()).await?;
+    camera.pan_tilt().home().await?;
     camera.await_idle(Duration::from_secs(10)).await?;
     println!("  ✓ Moved to home position");
 
     println!("Testing pan/tilt movement...");
     camera
         .pan_tilt()
-        .absolute(Degrees(30.0), Degrees(10.0), SpeedLevel::Fast, grafton_visca::CommandOptions::default())
+        .absolute(Degrees(30.0), Degrees(10.0), SpeedLevel::Fast)
         .await?;
     camera.await_idle(Duration::from_secs(10)).await?;
     println!("  ✓ Moved to Pan=30°, Tilt=10°");
 
     println!("Testing zoom...");
-    camera.zoom().tele(grafton_visca::CommandOptions::default()).await?;
+    camera.zoom().tele().await?;
     sleep(Duration::from_millis(500)).await;
-    camera.zoom().stop(grafton_visca::CommandOptions::default()).await?;
+    camera.zoom().stop().await?;
     camera.await_idle(Duration::from_secs(10)).await?;
     println!("  ✓ Zoomed in");
 
@@ -241,13 +241,13 @@ async fn main() -> Result<(), Error> {
     println!("Executing pan and zoom simultaneously...");
 
     let pan_tilt = camera.pan_tilt();
-    let pan_tilt_future = pan_tilt.absolute(Degrees(0.0), Degrees(0.0), SpeedLevel::Fast, grafton_visca::CommandOptions::default());
+    let pan_tilt_future = pan_tilt.absolute(Degrees(0.0), Degrees(0.0), SpeedLevel::Fast);
 
     let zoom = camera.zoom();
     let zoom_future = async move {
-        zoom.wide(grafton_visca::CommandOptions::default()).await?;
+        zoom.wide().await?;
         sleep(Duration::from_millis(500)).await;
-        zoom.stop(grafton_visca::CommandOptions::default()).await
+        zoom.stop().await
     };
 
     let (pan_result, zoom_result): (Result<(), Error>, Result<(), Error>) =

@@ -66,10 +66,7 @@ pub trait SystemControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or if the addressing process fails.
-    fn trigger_address_assignment(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn trigger_address_assignment(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Clear interface (reset communication).
     ///
@@ -79,10 +76,7 @@ pub trait SystemControl {
     ///
     /// # Errors
     /// Returns an error if the interface clear command fails to send.
-    fn interface_clear(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn interface_clear(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Cancel command on specific socket.
     ///
@@ -99,7 +93,6 @@ pub trait SystemControl {
     fn cancel_command(
         &self,
         socket: ViscaSocket,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
@@ -113,30 +106,23 @@ where
 {
     type Mode = M;
 
-    fn trigger_address_assignment(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn trigger_address_assignment(&self) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::system::AddressSetCommand;
         let cmd = AddressSetCommand::new();
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn interface_clear(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+    fn interface_clear(&self) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::system::InterfaceClearCommand;
         let cmd = InterfaceClearCommand::new();
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn cancel_command(
-        &self,
-        socket: ViscaSocket,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn cancel_command(&self, socket: ViscaSocket) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::system::CommandCancelCommand;
         let cmd = CommandCancelCommand::new(socket);
         // For now, just use send_and_complete - the error handling can be added later
         // TODO: Add custom error handling for NoSocket and CommandCanceled cases
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 }

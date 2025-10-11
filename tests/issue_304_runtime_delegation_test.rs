@@ -47,9 +47,7 @@ fn test_async_camera_uses_runtime() {
             .await
             .unwrap();
 
-        let result = camera
-            .zoom_stop(grafton_visca::CommandOptions::default())
-            .await;
+        let result = camera.zoom_stop().await;
         assert!(result.is_ok(), "Command failed: {:?}", result);
         drop(camera);
     });
@@ -94,9 +92,7 @@ fn test_timeout_config_passed_to_runtime() {
             .unwrap();
 
         // Execute a command to verify the runtime is working with the custom timeout
-        let result = camera
-            .zoom_stop(grafton_visca::CommandOptions::default())
-            .await;
+        let result = camera.zoom_stop().await;
         assert!(result.is_ok(), "Command failed: {:?}", result);
 
         // Success - the custom timeout config was accepted and the runtime works correctly
@@ -183,9 +179,7 @@ fn test_inquiry_through_runtime() {
             .await
             .unwrap();
 
-        let result = camera
-            .power_state(grafton_visca::CommandOptions::default())
-            .await;
+        let result = camera.power_state().await;
         assert!(result.is_ok(), "Inquiry failed: {:?}", result);
         assert!(
             result.unwrap(),
@@ -220,9 +214,7 @@ fn test_transport_error_propagation() {
             .await
             .unwrap();
 
-        let result = camera
-            .zoom_stop(grafton_visca::CommandOptions::default())
-            .await;
+        let result = camera.zoom_stop().await;
         assert!(result.is_err(), "Command should have failed");
         // The error response validates that the runtime properly handles errors
         drop(camera);

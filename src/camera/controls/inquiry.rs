@@ -67,10 +67,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn power_state(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
+    fn power_state(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
 
     /// Get the current zoom position.
     ///
@@ -81,7 +78,6 @@ pub trait InquiryControl {
     /// Returns an error if the inquiry fails or times out.
     fn zoom_position(
         &self,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::ZoomPosition, Error>>;
 
     /// Get the current focus position.
@@ -91,10 +87,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn focus_position(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<u16, Error>>;
+    fn focus_position(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u16, Error>>;
 
     /// Get the focus near limit position.
     ///
@@ -103,10 +96,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn focus_near_limit(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<u16, Error>>;
+    fn focus_near_limit(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u16, Error>>;
 
     /// Get the current focus zone.
     ///
@@ -114,10 +104,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn focus_zone(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<FocusZone, Error>>;
+    fn focus_zone(&self) -> <Self::Mode as Mode>::Fut<'_, Result<FocusZone, Error>>;
 
     /// Get the current exposure mode.
     ///
@@ -125,10 +112,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn exposure_mode(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<ExposureMode, Error>>;
+    fn exposure_mode(&self) -> <Self::Mode as Mode>::Fut<'_, Result<ExposureMode, Error>>;
 
     /// Get the exposure compensation value.
     ///
@@ -137,10 +121,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn exposure_compensation(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<i8, Error>>;
+    fn exposure_compensation(&self) -> <Self::Mode as Mode>::Fut<'_, Result<i8, Error>>;
 
     /// Check if exposure compensation is enabled.
     ///
@@ -152,10 +133,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn exposure_compensation_enabled(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
+    fn exposure_compensation_enabled(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
 
     /// Get the current iris value.
     ///
@@ -164,10 +142,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn iris(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn iris(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
 
     /// Get the current shutter speed.
     ///
@@ -176,10 +151,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn shutter(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<u16, Error>>;
+    fn shutter(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u16, Error>>;
 
     /// Get the current gain value.
     ///
@@ -188,10 +160,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn gain(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn gain(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
 
     /// Get the gain limit value.
     ///
@@ -200,10 +169,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn gain_limit(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn gain_limit(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
 
     /// Get the white balance mode.
     ///
@@ -211,10 +177,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn white_balance_mode(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<WhiteBalanceMode, Error>>;
+    fn white_balance_mode(&self) -> <Self::Mode as Mode>::Fut<'_, Result<WhiteBalanceMode, Error>>;
 
     /// Get the current red gain.
     ///
@@ -223,10 +186,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn red_gain(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<i8, Error>>;
+    fn red_gain(&self) -> <Self::Mode as Mode>::Fut<'_, Result<i8, Error>>;
 
     /// Get the current blue gain.
     ///
@@ -235,10 +195,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn blue_gain(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<i8, Error>>;
+    fn blue_gain(&self) -> <Self::Mode as Mode>::Fut<'_, Result<i8, Error>>;
 
     /// Get the red tuning value.
     ///
@@ -247,10 +204,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn red_tuning(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn red_tuning(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
 
     /// Get the blue tuning value.
     ///
@@ -259,10 +213,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn blue_tuning(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn blue_tuning(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
 
     /// Get the current color temperature in Kelvin.
     ///
@@ -271,10 +222,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn color_temperature(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<u16, Error>>;
+    fn color_temperature(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u16, Error>>;
 
     /// Get the gamma level.
     ///
@@ -283,10 +231,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn gamma(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn gamma(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
 
     /// Get the brightness level.
     ///
@@ -295,10 +240,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn brightness(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<u16, Error>>;
+    fn brightness(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u16, Error>>;
 
     /// Get the sharpness mode.
     ///
@@ -306,10 +248,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn sharpness_mode(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<SharpnessMode, Error>>;
+    fn sharpness_mode(&self) -> <Self::Mode as Mode>::Fut<'_, Result<SharpnessMode, Error>>;
 
     /// Get the saturation level.
     ///
@@ -318,10 +257,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn saturation(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn saturation(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
 
     /// Get the hue setting.
     ///
@@ -330,10 +266,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn hue(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn hue(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
 
     /// Check if black and white mode is enabled.
     ///
@@ -346,10 +279,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn black_white(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
+    fn black_white(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
 
     /// Get the current video resolution mode.
     ///
@@ -358,10 +288,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn resolution(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn resolution(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
 
     /// Get the current picture effect mode.
     ///
@@ -369,10 +296,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn picture_effect(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn picture_effect(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
 
     /// Get the current ND filter position.
     ///
@@ -381,10 +305,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails, times out, or is not supported.
-    fn nd_filter_position(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn nd_filter_position(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
 
     /// Get the camera version information.
     ///
@@ -395,7 +316,6 @@ pub trait InquiryControl {
     /// Returns an error if the inquiry fails or times out.
     fn version(
         &self,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::typed::VersionInfo, Error>>;
 
     /// Check if backlight compensation is enabled.
@@ -409,10 +329,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn backlight_enabled(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
+    fn backlight_enabled(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
 
     /// Get the image flip settings.
     ///
@@ -421,10 +338,8 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn image_flip(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::FlipState, Error>>;
+    fn image_flip(&self)
+        -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::FlipState, Error>>;
 
     /// Get the current focus mode.
     ///
@@ -432,10 +347,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn focus_mode(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<FocusMode, Error>>;
+    fn focus_mode(&self) -> <Self::Mode as Mode>::Fut<'_, Result<FocusMode, Error>>;
 
     /// Get the menu open/close status.
     ///
@@ -447,10 +359,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn menu_status(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
+    fn menu_status(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
 
     /// Get the tally light status.
     ///
@@ -461,7 +370,6 @@ pub trait InquiryControl {
     /// Returns an error if the inquiry fails or times out.
     fn tally_light_status(
         &self,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::typed::TallyStatusState, Error>>;
 
     /// Get the night/day mode status.
@@ -475,10 +383,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn night_day_mode(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
+    fn night_day_mode(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
 
     /// Get the current flip mode (combined horizontal/vertical).
     ///
@@ -487,10 +392,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn flip_mode(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::FlipState, Error>>;
+    fn flip_mode(&self) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::FlipState, Error>>;
 
     /// Get the standby mode status.
     ///
@@ -502,10 +404,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn standby_enabled(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
+    fn standby_enabled(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
 
     /// Get the iris control mode.
     ///
@@ -517,10 +416,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn iris_control(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
+    fn iris_control(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
 
     /// Get the defog level.
     ///
@@ -529,10 +425,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn defog_level(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn defog_level(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
 
     /// Get the digital PTZ mode status.
     ///
@@ -545,10 +438,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn digital_ptz_enabled(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
+    fn digital_ptz_enabled(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
 
     /// Get the exposure compensation position.
     ///
@@ -557,10 +447,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn exposure_compensation_position(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<u16, Error>>;
+    fn exposure_compensation_position(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u16, Error>>;
 
     /// Get the auto trace mode status.
     ///
@@ -573,10 +460,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn auto_trace_enabled(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
+    fn auto_trace_enabled(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
 
     /// Get the focus unlock state.
     ///
@@ -589,10 +473,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn focus_unlock(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
+    fn focus_unlock(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
 
     /// Get the noise reduction level.
     ///
@@ -600,10 +481,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn noise_reduction_level(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn noise_reduction_level(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
 
     /// Get the noise reduction 2D level.
     ///
@@ -612,10 +490,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn noise_reduction_2d(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn noise_reduction_2d(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
 
     /// Get the noise reduction 3D level.
     ///
@@ -624,10 +499,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn noise_reduction_3d(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn noise_reduction_3d(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
 
     /// Get the broadcast domain setting.
     ///
@@ -636,10 +508,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn broadcast_domain(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn broadcast_domain(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
 
     /// Get the noise reduction mode setting.
     ///
@@ -650,7 +519,6 @@ pub trait InquiryControl {
     /// Returns an error if the inquiry fails or times out.
     fn noise_reduction_mode(
         &self,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::NoiseReductionMode, Error>>;
 
     /// Get the black and white mode setting.
@@ -662,7 +530,6 @@ pub trait InquiryControl {
     /// Returns an error if the inquiry fails or times out.
     fn black_white_mode(
         &self,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::BlackWhiteMode, Error>>;
 
     /// Get the USB audio state.
@@ -676,10 +543,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn usb_audio_enabled(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
+    fn usb_audio_enabled(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
 
     /// Get the two tone mode state.
     ///
@@ -692,10 +556,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn two_tone_mode_enabled(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
+    fn two_tone_mode_enabled(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
 
     /// Get the ND filter preset setting.
     ///
@@ -704,10 +565,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn nd_filter_preset(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn nd_filter_preset(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
 
     /// Get the digital mode state.
     ///
@@ -720,10 +578,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn digital_mode_enabled(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
+    fn digital_mode_enabled(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
 
     /// Get the tally auto adjust state.
     ///
@@ -736,10 +591,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn tally_auto_adjust_enabled(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
+    fn tally_auto_adjust_enabled(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
 
     /// Get the motion sync mode setting.
     ///
@@ -748,10 +600,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn motion_sync_mode(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<MotionSyncMode, Error>>;
+    fn motion_sync_mode(&self) -> <Self::Mode as Mode>::Fut<'_, Result<MotionSyncMode, Error>>;
 }
 
 /// Pan/tilt-specific inquiry operations for cameras.
@@ -786,7 +635,6 @@ pub trait PanTiltInquiryControl {
     /// Returns an error if the inquiry fails or times out.
     fn pan_tilt_position(
         &self,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::camera::PanTiltPosition, Error>>;
 }
 
@@ -800,340 +648,278 @@ where
 {
     type Mode = M;
 
-    fn power_state(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<bool, Error>> {
+    fn power_state(&self) -> M::Fut<'_, Result<bool, Error>> {
         use crate::command::inquiry_structs::PowerInquiry;
-        self.query_with_opts(PowerInquiry, opts)
+        self.query(PowerInquiry)
     }
 
-    fn zoom_position(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<crate::types::ZoomPosition, Error>> {
+    fn zoom_position(&self) -> M::Fut<'_, Result<crate::types::ZoomPosition, Error>> {
         use crate::command::inquiry_structs::ZoomPositionInquiry;
-        self.query_with_opts(ZoomPositionInquiry, opts)
+        self.query(ZoomPositionInquiry)
     }
 
-    fn focus_position(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<u16, Error>> {
+    fn focus_position(&self) -> M::Fut<'_, Result<u16, Error>> {
         use crate::command::inquiry_structs::FocusPositionInquiry;
-        self.query_with_opts(FocusPositionInquiry, opts)
+        self.query(FocusPositionInquiry)
     }
 
-    fn focus_near_limit(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<u16, Error>> {
+    fn focus_near_limit(&self) -> M::Fut<'_, Result<u16, Error>> {
         use crate::command::inquiry_structs::FocusNearLimitInquiry;
-        self.query_with_opts(FocusNearLimitInquiry, opts)
+        self.query(FocusNearLimitInquiry)
     }
 
-    fn focus_zone(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<FocusZone, Error>> {
+    fn focus_zone(&self) -> M::Fut<'_, Result<FocusZone, Error>> {
         use crate::command::inquiry_structs::FocusZoneInquiry;
-        self.query_with_opts(FocusZoneInquiry, opts)
+        self.query(FocusZoneInquiry)
     }
 
-    fn exposure_mode(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<ExposureMode, Error>> {
+    fn exposure_mode(&self) -> M::Fut<'_, Result<ExposureMode, Error>> {
         use crate::command::inquiry_structs::ExposureModeInquiry;
-        self.query_with_opts(ExposureModeInquiry, opts)
+        self.query(ExposureModeInquiry)
     }
 
-    fn exposure_compensation(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<i8, Error>> {
+    fn exposure_compensation(&self) -> M::Fut<'_, Result<i8, Error>> {
         use crate::command::inquiry_structs::ExposureCompensationInquiry;
-        self.query_with_opts(ExposureCompensationInquiry, opts)
+        self.query(ExposureCompensationInquiry)
     }
 
-    fn exposure_compensation_enabled(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<bool, Error>> {
+    fn exposure_compensation_enabled(&self) -> M::Fut<'_, Result<bool, Error>> {
         use crate::command::inquiry_structs::ExposureCompensationModeInquiry;
-        self.query_with_opts(ExposureCompensationModeInquiry, opts)
+        self.query(ExposureCompensationModeInquiry)
     }
 
-    fn iris(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<u8, Error>> {
+    fn iris(&self) -> M::Fut<'_, Result<u8, Error>> {
         use crate::command::inquiry_structs::IrisInquiry;
-        self.query_with_opts(IrisInquiry, opts)
+        self.query(IrisInquiry)
     }
 
-    fn shutter(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<u16, Error>> {
+    fn shutter(&self) -> M::Fut<'_, Result<u16, Error>> {
         use crate::command::inquiry_structs::ShutterInquiry;
-        self.query_with_opts(ShutterInquiry, opts)
+        self.query(ShutterInquiry)
     }
 
-    fn gain(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<u8, Error>> {
+    fn gain(&self) -> M::Fut<'_, Result<u8, Error>> {
         use crate::command::inquiry_structs::GainInquiry;
-        self.query_with_opts(GainInquiry, opts)
+        self.query(GainInquiry)
     }
 
-    fn gain_limit(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<u8, Error>> {
+    fn gain_limit(&self) -> M::Fut<'_, Result<u8, Error>> {
         use crate::command::inquiry_structs::GainLimitInquiry;
-        self.query_with_opts(GainLimitInquiry, opts)
+        self.query(GainLimitInquiry)
     }
 
-    fn white_balance_mode(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<WhiteBalanceMode, Error>> {
+    fn white_balance_mode(&self) -> M::Fut<'_, Result<WhiteBalanceMode, Error>> {
         use crate::command::inquiry_structs::WhiteBalanceModeInquiry;
-        self.query_with_opts(WhiteBalanceModeInquiry, opts)
+        self.query(WhiteBalanceModeInquiry)
     }
 
-    fn red_gain(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<i8, Error>> {
+    fn red_gain(&self) -> M::Fut<'_, Result<i8, Error>> {
         use crate::command::inquiry_structs::RedGainInquiry;
-        self.query_with_opts(RedGainInquiry, opts)
+        self.query(RedGainInquiry)
     }
 
-    fn blue_gain(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<i8, Error>> {
+    fn blue_gain(&self) -> M::Fut<'_, Result<i8, Error>> {
         use crate::command::inquiry_structs::BlueGainInquiry;
-        self.query_with_opts(BlueGainInquiry, opts)
+        self.query(BlueGainInquiry)
     }
 
-    fn red_tuning(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<u8, Error>> {
+    fn red_tuning(&self) -> M::Fut<'_, Result<u8, Error>> {
         use crate::command::inquiry_structs::RedTuningInquiry;
-        self.query_with_opts(RedTuningInquiry, opts)
+        self.query(RedTuningInquiry)
     }
 
-    fn blue_tuning(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<u8, Error>> {
+    fn blue_tuning(&self) -> M::Fut<'_, Result<u8, Error>> {
         use crate::command::inquiry_structs::BlueTuningInquiry;
-        self.query_with_opts(BlueTuningInquiry, opts)
+        self.query(BlueTuningInquiry)
     }
 
-    fn color_temperature(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<u16, Error>> {
+    fn color_temperature(&self) -> M::Fut<'_, Result<u16, Error>> {
         use crate::command::inquiry_structs::ColorTemperatureInquiry;
-        self.query_with_opts(ColorTemperatureInquiry, opts)
+        self.query(ColorTemperatureInquiry)
     }
 
-    fn gamma(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<u8, Error>> {
+    fn gamma(&self) -> M::Fut<'_, Result<u8, Error>> {
         use crate::command::inquiry_structs::GammaInquiry;
-        self.query_with_opts(GammaInquiry, opts)
+        self.query(GammaInquiry)
     }
 
-    fn brightness(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<u16, Error>> {
+    fn brightness(&self) -> M::Fut<'_, Result<u16, Error>> {
         use crate::command::inquiry_structs::BrightnessInquiry;
-        self.query_with_opts(BrightnessInquiry, opts)
+        self.query(BrightnessInquiry)
     }
 
-    fn sharpness_mode(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<SharpnessMode, Error>> {
+    fn sharpness_mode(&self) -> M::Fut<'_, Result<SharpnessMode, Error>> {
         use crate::command::inquiry_structs::SharpnessModeInquiry;
-        self.query_with_opts(SharpnessModeInquiry, opts)
+        self.query(SharpnessModeInquiry)
     }
 
-    fn saturation(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<u8, Error>> {
+    fn saturation(&self) -> M::Fut<'_, Result<u8, Error>> {
         use crate::command::inquiry_structs::SaturationInquiry;
-        self.query_with_opts(SaturationInquiry, opts)
+        self.query(SaturationInquiry)
     }
 
-    fn hue(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<u8, Error>> {
+    fn hue(&self) -> M::Fut<'_, Result<u8, Error>> {
         use crate::command::inquiry_structs::HueInquiry;
-        self.query_with_opts(HueInquiry, opts)
+        self.query(HueInquiry)
     }
 
-    fn black_white(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<bool, Error>> {
+    fn black_white(&self) -> M::Fut<'_, Result<bool, Error>> {
         use crate::command::inquiry_structs::BlackWhiteInquiry;
-        self.query_with_opts(BlackWhiteInquiry, opts)
+        self.query(BlackWhiteInquiry)
     }
 
-    fn resolution(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<u8, Error>> {
+    fn resolution(&self) -> M::Fut<'_, Result<u8, Error>> {
         use crate::command::inquiry_structs::ResolutionInquiry;
-        self.query_with_opts(ResolutionInquiry, opts)
+        self.query(ResolutionInquiry)
     }
 
-    fn picture_effect(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<u8, Error>> {
+    fn picture_effect(&self) -> M::Fut<'_, Result<u8, Error>> {
         use crate::command::inquiry_structs::PictureEffectInquiry;
-        self.query_with_opts(PictureEffectInquiry, opts)
+        self.query(PictureEffectInquiry)
     }
 
-    fn nd_filter_position(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<u8, Error>> {
+    fn nd_filter_position(&self) -> M::Fut<'_, Result<u8, Error>> {
         use crate::command::inquiry_structs::NdFilterInquiry;
-        self.query_with_opts(NdFilterInquiry, opts)
+        self.query(NdFilterInquiry)
     }
 
-    fn version(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<crate::command::typed::VersionInfo, Error>> {
+    fn version(&self) -> M::Fut<'_, Result<crate::command::typed::VersionInfo, Error>> {
         use crate::command::inquiry_structs::VersionInquiry;
-        self.query_with_opts(VersionInquiry, opts)
+        self.query(VersionInquiry)
     }
 
-    fn backlight_enabled(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<bool, Error>> {
+    fn backlight_enabled(&self) -> M::Fut<'_, Result<bool, Error>> {
         use crate::command::inquiry_structs::BacklightInquiry;
-        self.query_with_opts(BacklightInquiry, opts)
+        self.query(BacklightInquiry)
     }
 
-    fn image_flip(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<crate::command::FlipState, Error>> {
+    fn image_flip(&self) -> M::Fut<'_, Result<crate::command::FlipState, Error>> {
         use crate::command::inquiry_structs::ImageFlipInquiry;
-        self.query_with_opts(ImageFlipInquiry, opts)
+        self.query(ImageFlipInquiry)
     }
 
-    fn focus_mode(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<FocusMode, Error>> {
+    fn focus_mode(&self) -> M::Fut<'_, Result<FocusMode, Error>> {
         use crate::command::inquiry_structs::FocusModeInquiry;
-        self.query_with_opts(FocusModeInquiry, opts)
+        self.query(FocusModeInquiry)
     }
 
-    fn menu_status(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<bool, Error>> {
+    fn menu_status(&self) -> M::Fut<'_, Result<bool, Error>> {
         use crate::command::inquiry_structs::MenuOpenCloseInquiry;
-        self.query_with_opts(MenuOpenCloseInquiry, opts)
+        self.query(MenuOpenCloseInquiry)
     }
 
     fn tally_light_status(
         &self,
-        opts: crate::CommandOptions<'_>,
     ) -> M::Fut<'_, Result<crate::command::typed::TallyStatusState, Error>> {
         use crate::command::inquiry_structs::TallyStatusInquiry;
-        self.query_with_opts(TallyStatusInquiry, opts)
+        self.query(TallyStatusInquiry)
     }
 
-    fn night_day_mode(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<bool, Error>> {
+    fn night_day_mode(&self) -> M::Fut<'_, Result<bool, Error>> {
         use crate::command::inquiry_structs::NightDayModeInquiry;
-        self.query_with_opts(NightDayModeInquiry, opts)
+        self.query(NightDayModeInquiry)
     }
 
-    fn flip_mode(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<crate::command::FlipState, Error>> {
+    fn flip_mode(&self) -> M::Fut<'_, Result<crate::command::FlipState, Error>> {
         use crate::command::inquiry_structs::FlipStateInquiry;
-        self.query_with_opts(FlipStateInquiry, opts)
+        self.query(FlipStateInquiry)
     }
 
-    fn standby_enabled(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<bool, Error>> {
+    fn standby_enabled(&self) -> M::Fut<'_, Result<bool, Error>> {
         use crate::command::inquiry_structs::StandbyInquiry;
-        self.query_with_opts(StandbyInquiry, opts)
+        self.query(StandbyInquiry)
     }
 
-    fn iris_control(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<bool, Error>> {
+    fn iris_control(&self) -> M::Fut<'_, Result<bool, Error>> {
         use crate::command::inquiry_structs::IrisControlInquiry;
-        self.query_with_opts(IrisControlInquiry, opts)
+        self.query(IrisControlInquiry)
     }
 
-    fn defog_level(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<u8, Error>> {
+    fn defog_level(&self) -> M::Fut<'_, Result<u8, Error>> {
         use crate::command::inquiry_structs::DefogLevelInquiry;
-        self.query_with_opts(DefogLevelInquiry, opts)
+        self.query(DefogLevelInquiry)
     }
 
-    fn digital_ptz_enabled(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<bool, Error>> {
+    fn digital_ptz_enabled(&self) -> M::Fut<'_, Result<bool, Error>> {
         use crate::command::inquiry_structs::DigitalPtzInquiry;
-        self.query_with_opts(DigitalPtzInquiry, opts)
+        self.query(DigitalPtzInquiry)
     }
 
-    fn exposure_compensation_position(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<u16, Error>> {
+    fn exposure_compensation_position(&self) -> M::Fut<'_, Result<u16, Error>> {
         use crate::command::inquiry_structs::ExposureCompensationPositionInquiry;
-        self.query_with_opts(ExposureCompensationPositionInquiry, opts)
+        self.query(ExposureCompensationPositionInquiry)
     }
 
-    fn auto_trace_enabled(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<bool, Error>> {
+    fn auto_trace_enabled(&self) -> M::Fut<'_, Result<bool, Error>> {
         use crate::command::inquiry_structs::AutoTraceInquiry;
-        self.query_with_opts(AutoTraceInquiry, opts)
+        self.query(AutoTraceInquiry)
     }
 
-    fn focus_unlock(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<bool, Error>> {
+    fn focus_unlock(&self) -> M::Fut<'_, Result<bool, Error>> {
         use crate::command::inquiry_structs::FocusUnlockInquiry;
-        self.query_with_opts(FocusUnlockInquiry, opts)
+        self.query(FocusUnlockInquiry)
     }
 
-    fn noise_reduction_level(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<u8, Error>> {
+    fn noise_reduction_level(&self) -> M::Fut<'_, Result<u8, Error>> {
         use crate::command::inquiry_structs::NrLevelInquiry;
-        self.query_with_opts(NrLevelInquiry, opts)
+        self.query(NrLevelInquiry)
     }
 
-    fn noise_reduction_2d(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<u8, Error>> {
+    fn noise_reduction_2d(&self) -> M::Fut<'_, Result<u8, Error>> {
         use crate::command::inquiry_structs::NoiseReduction2DInquiry;
-        self.query_with_opts(NoiseReduction2DInquiry, opts)
+        self.query(NoiseReduction2DInquiry)
     }
 
-    fn noise_reduction_3d(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<u8, Error>> {
+    fn noise_reduction_3d(&self) -> M::Fut<'_, Result<u8, Error>> {
         use crate::command::inquiry_structs::NoiseReduction3DInquiry;
-        self.query_with_opts(NoiseReduction3DInquiry, opts)
+        self.query(NoiseReduction3DInquiry)
     }
 
-    fn broadcast_domain(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<u8, Error>> {
+    fn broadcast_domain(&self) -> M::Fut<'_, Result<u8, Error>> {
         use crate::command::inquiry_structs::BroadcastDomainInquiry;
-        self.query_with_opts(BroadcastDomainInquiry, opts)
+        self.query(BroadcastDomainInquiry)
     }
 
     fn noise_reduction_mode(
         &self,
-        opts: crate::CommandOptions<'_>,
     ) -> M::Fut<'_, Result<crate::command::NoiseReductionMode, Error>> {
         use crate::command::inquiry_structs::NrModeInquiry;
-        self.query_with_opts(NrModeInquiry, opts)
+        self.query(NrModeInquiry)
     }
 
-    fn black_white_mode(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<crate::command::BlackWhiteMode, Error>> {
+    fn black_white_mode(&self) -> M::Fut<'_, Result<crate::command::BlackWhiteMode, Error>> {
         use crate::command::inquiry_structs::BlackWhiteModeInquiry;
-        self.query_with_opts(BlackWhiteModeInquiry, opts)
+        self.query(BlackWhiteModeInquiry)
     }
 
-    fn usb_audio_enabled(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<bool, Error>> {
+    fn usb_audio_enabled(&self) -> M::Fut<'_, Result<bool, Error>> {
         use crate::command::inquiry_structs::UsbAudioInquiry;
-        self.query_with_opts(UsbAudioInquiry, opts)
+        self.query(UsbAudioInquiry)
     }
 
-    fn two_tone_mode_enabled(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<bool, Error>> {
+    fn two_tone_mode_enabled(&self) -> M::Fut<'_, Result<bool, Error>> {
         use crate::command::inquiry_structs::TwoToneModeInquiry;
-        self.query_with_opts(TwoToneModeInquiry, opts)
+        self.query(TwoToneModeInquiry)
     }
 
-    fn nd_filter_preset(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<u8, Error>> {
+    fn nd_filter_preset(&self) -> M::Fut<'_, Result<u8, Error>> {
         use crate::command::inquiry_structs::NdFilterPresetInquiry;
-        self.query_with_opts(NdFilterPresetInquiry, opts)
+        self.query(NdFilterPresetInquiry)
     }
 
-    fn digital_mode_enabled(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<bool, Error>> {
+    fn digital_mode_enabled(&self) -> M::Fut<'_, Result<bool, Error>> {
         use crate::command::inquiry_structs::DigitalInquiry;
-        self.query_with_opts(DigitalInquiry, opts)
+        self.query(DigitalInquiry)
     }
 
-    fn tally_auto_adjust_enabled(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<bool, Error>> {
+    fn tally_auto_adjust_enabled(&self) -> M::Fut<'_, Result<bool, Error>> {
         use crate::command::inquiry_structs::TallyAutoAdjustInquiry;
-        self.query_with_opts(TallyAutoAdjustInquiry, opts)
+        self.query(TallyAutoAdjustInquiry)
     }
 
-    fn motion_sync_mode(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<MotionSyncMode, Error>> {
+    fn motion_sync_mode(&self) -> M::Fut<'_, Result<MotionSyncMode, Error>> {
         use crate::command::inquiry_structs::MotionSyncModeInquiry;
-        self.query_with_opts(MotionSyncModeInquiry, opts)
+        self.query(MotionSyncModeInquiry)
     }
 }
 
@@ -1147,11 +933,8 @@ where
 {
     type Mode = M;
 
-    fn pan_tilt_position(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<crate::camera::PanTiltPosition, Error>> {
+    fn pan_tilt_position(&self) -> M::Fut<'_, Result<crate::camera::PanTiltPosition, Error>> {
         use crate::command::inquiry_structs::PanTiltPositionInquiry;
-        self.query_with_opts(PanTiltPositionInquiry, opts)
+        self.query(PanTiltPositionInquiry)
     }
 }

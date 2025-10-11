@@ -74,10 +74,7 @@ pub trait ColorControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn one_push_trigger(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn one_push_trigger(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set color temperature.
     ///
@@ -92,7 +89,6 @@ pub trait ColorControl {
     fn set_color_temperature(
         &self,
         temp: ColorTemp,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Reset color temperature to default value.
@@ -102,10 +98,7 @@ pub trait ColorControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn reset_color_temperature(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn reset_color_temperature(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Increase color temperature (makes image cooler/bluer).
     ///
@@ -114,10 +107,7 @@ pub trait ColorControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn increase_color_temperature(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn increase_color_temperature(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Decrease color temperature (makes image warmer/redder).
     ///
@@ -126,10 +116,7 @@ pub trait ColorControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn decrease_color_temperature(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn decrease_color_temperature(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set red gain.
     ///
@@ -141,11 +128,7 @@ pub trait ColorControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn set_red_gain(
-        &self,
-        gain: RedChannel,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn set_red_gain(&self, gain: RedChannel) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Control red gain (set, reset, increase or decrease).
     ///
@@ -160,7 +143,6 @@ pub trait ColorControl {
     fn control_red_gain(
         &self,
         command: RedGain,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set blue gain.
@@ -173,11 +155,7 @@ pub trait ColorControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn set_blue_gain(
-        &self,
-        gain: BlueChannel,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn set_blue_gain(&self, gain: BlueChannel) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Control blue gain (set, reset, increase or decrease).
     ///
@@ -192,7 +170,6 @@ pub trait ColorControl {
     fn control_blue_gain(
         &self,
         command: BlueGain,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set red tuning.
@@ -205,11 +182,8 @@ pub trait ColorControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn set_red_tuning(
-        &self,
-        tuning: RedTuning,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn set_red_tuning(&self, tuning: RedTuning)
+        -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set blue tuning.
     ///
@@ -224,7 +198,6 @@ pub trait ColorControl {
     fn set_blue_tuning(
         &self,
         tuning: BlueTuning,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
@@ -238,84 +211,47 @@ where
 {
     type Mode = M;
 
-    fn one_push_trigger(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
-        self.execute_with_opts(OnePushTriggerCommand, opts)
+    fn one_push_trigger(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(OnePushTriggerCommand)
     }
 
-    fn set_color_temperature(
-        &self,
-        temp: ColorTemp,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
-        self.execute_with_opts(ColorTemperature::SetTemperature(temp), opts)
+    fn set_color_temperature(&self, temp: ColorTemp) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(ColorTemperature::SetTemperature(temp))
     }
 
-    fn reset_color_temperature(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
-        self.execute_with_opts(ColorTemperature::Reset, opts)
+    fn reset_color_temperature(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(ColorTemperature::Reset)
     }
 
-    fn increase_color_temperature(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
-        self.execute_with_opts(ColorTemperature::Up, opts)
+    fn increase_color_temperature(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(ColorTemperature::Up)
     }
 
-    fn decrease_color_temperature(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
-        self.execute_with_opts(ColorTemperature::Down, opts)
+    fn decrease_color_temperature(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(ColorTemperature::Down)
     }
 
-    fn set_red_gain(
-        &self,
-        gain: RedChannel,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
-        self.execute_with_opts(RedGain::SetValue(gain), opts)
+    fn set_red_gain(&self, gain: RedChannel) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(RedGain::SetValue(gain))
     }
 
-    fn control_red_gain(
-        &self,
-        command: RedGain,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
-        self.execute_with_opts(command, opts)
+    fn control_red_gain(&self, command: RedGain) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(command)
     }
 
-    fn set_blue_gain(
-        &self,
-        gain: BlueChannel,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
-        self.execute_with_opts(BlueGain::SetValue(gain), opts)
+    fn set_blue_gain(&self, gain: BlueChannel) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(BlueGain::SetValue(gain))
     }
 
-    fn control_blue_gain(
-        &self,
-        command: BlueGain,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
-        self.execute_with_opts(command, opts)
+    fn control_blue_gain(&self, command: BlueGain) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(command)
     }
 
-    fn set_red_tuning(
-        &self,
-        tuning: RedTuning,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
-        self.execute_with_opts(RedTuningCommand::new(tuning), opts)
+    fn set_red_tuning(&self, tuning: RedTuning) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(RedTuningCommand::new(tuning))
     }
 
-    fn set_blue_tuning(
-        &self,
-        tuning: BlueTuning,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
-        self.execute_with_opts(BlueTuningCommand::new(tuning), opts)
+    fn set_blue_tuning(&self, tuning: BlueTuning) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(BlueTuningCommand::new(tuning))
     }
 }

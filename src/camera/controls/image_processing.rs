@@ -77,10 +77,7 @@ pub trait ImageProcessingControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn enable_flip(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn enable_flip(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Disable image flip.
     ///
@@ -88,10 +85,7 @@ pub trait ImageProcessingControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn disable_flip(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn disable_flip(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Enable horizontal flip (mirror).
     ///
@@ -100,10 +94,7 @@ pub trait ImageProcessingControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn enable_horizontal_flip(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn enable_horizontal_flip(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Disable horizontal flip (mirror).
     ///
@@ -111,10 +102,7 @@ pub trait ImageProcessingControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn disable_horizontal_flip(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn disable_horizontal_flip(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set contrast level.
     ///
@@ -130,7 +118,6 @@ pub trait ImageProcessingControl {
     fn set_contrast(
         &self,
         level: ContrastLevel,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set sharpness level.
@@ -147,7 +134,6 @@ pub trait ImageProcessingControl {
     fn set_sharpness(
         &self,
         level: SharpnessLevel,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set sharpness mode (auto or manual).
@@ -162,7 +148,6 @@ pub trait ImageProcessingControl {
     fn set_sharpness_mode(
         &self,
         mode: crate::command::SharpnessMode,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Reset sharpness to default.
@@ -171,10 +156,7 @@ pub trait ImageProcessingControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn reset_sharpness(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn reset_sharpness(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Increase sharpness by one step.
     ///
@@ -182,10 +164,7 @@ pub trait ImageProcessingControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn increase_sharpness(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn increase_sharpness(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Decrease sharpness by one step.
     ///
@@ -193,10 +172,7 @@ pub trait ImageProcessingControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn decrease_sharpness(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn decrease_sharpness(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set saturation level.
     ///
@@ -211,7 +187,6 @@ pub trait ImageProcessingControl {
     fn set_saturation(
         &self,
         level: SaturationLevel,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set hue level.
@@ -224,11 +199,7 @@ pub trait ImageProcessingControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn set_hue(
-        &self,
-        level: HueLevel,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn set_hue(&self, level: HueLevel) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set noise reduction 2D level.
     ///
@@ -244,7 +215,6 @@ pub trait ImageProcessingControl {
     fn set_noise_reduction_2d(
         &self,
         level: NoiseReduction2DLevel,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Disable noise reduction 2D.
@@ -254,10 +224,7 @@ pub trait ImageProcessingControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn disable_noise_reduction_2d(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn disable_noise_reduction_2d(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set noise reduction 3D level.
     ///
@@ -273,7 +240,6 @@ pub trait ImageProcessingControl {
     fn set_noise_reduction_3d(
         &self,
         level: NoiseReduction3DLevel,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Disable noise reduction 3D.
@@ -283,10 +249,7 @@ pub trait ImageProcessingControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn disable_noise_reduction_3d(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn disable_noise_reduction_3d(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set image flip mode (combined horizontal and vertical).
     ///
@@ -301,7 +264,6 @@ pub trait ImageProcessingControl {
     fn set_image_flip(
         &self,
         mode: ImageFlipMode,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set luminance (brightness) level.
@@ -318,7 +280,6 @@ pub trait ImageProcessingControl {
     fn set_luminance(
         &self,
         level: LuminanceLevel,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Enable image freeze.
@@ -328,10 +289,7 @@ pub trait ImageProcessingControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn enable_freeze(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn enable_freeze(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Disable image freeze.
     ///
@@ -339,10 +297,7 @@ pub trait ImageProcessingControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn disable_freeze(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn disable_freeze(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Enable black and white mode.
     ///
@@ -352,10 +307,7 @@ pub trait ImageProcessingControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn enable_black_white(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn enable_black_white(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Disable black and white mode.
     ///
@@ -363,10 +315,7 @@ pub trait ImageProcessingControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn disable_black_white(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn disable_black_white(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set picture effect mode.
     ///
@@ -386,7 +335,6 @@ pub trait ImageProcessingControl {
     fn set_picture_effect(
         &self,
         mode: PictureEffectMode,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
@@ -400,54 +348,40 @@ where
 {
     type Mode = M;
 
-    fn enable_flip(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+    fn enable_flip(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::flip::ImageFlip {
             flip: crate::command::flip::Flip::On,
         };
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn disable_flip(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+    fn disable_flip(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::flip::ImageFlip {
             flip: crate::command::flip::Flip::Off,
         };
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn enable_horizontal_flip(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn enable_horizontal_flip(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::flip::HorizontalFlip { on: true };
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn disable_horizontal_flip(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn disable_horizontal_flip(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::flip::HorizontalFlip { on: false };
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn set_contrast(
-        &self,
-        level: ContrastLevel,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn set_contrast(&self, level: ContrastLevel) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::image::Contrast::new(level);
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn set_sharpness(
-        &self,
-        level: SharpnessLevel,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn set_sharpness(&self, level: SharpnessLevel) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::image::Sharpness::SetLevel {
             value: level.value(),
         };
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
     /// Set the sharpness mode.
@@ -458,133 +392,101 @@ where
     fn set_sharpness_mode(
         &self,
         _mode: crate::command::SharpnessMode,
-        _opts: crate::CommandOptions<'_>,
     ) -> M::Fut<'_, Result<(), Error>> {
         // SharpnessMode command not documented in VISCA protocol spec
         // This may be a proprietary extension - returning unsupported for now
         self.error(Error::NotSupported)
     }
 
-    fn reset_sharpness(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+    fn reset_sharpness(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::image::Sharpness::Reset;
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn increase_sharpness(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+    fn increase_sharpness(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::image::Sharpness::Up;
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn decrease_sharpness(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+    fn decrease_sharpness(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::image::Sharpness::Down;
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn set_saturation(
-        &self,
-        level: SaturationLevel,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn set_saturation(&self, level: SaturationLevel) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::color::SaturationCommand::new(level);
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn set_hue(
-        &self,
-        level: HueLevel,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn set_hue(&self, level: HueLevel) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::color::HueCommand::new(level);
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
     fn set_noise_reduction_2d(
         &self,
         level: NoiseReduction2DLevel,
-        opts: crate::CommandOptions<'_>,
     ) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::image::NoiseReduction2D::with_level(level);
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn disable_noise_reduction_2d(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn disable_noise_reduction_2d(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::image::NoiseReduction2D::off();
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
     fn set_noise_reduction_3d(
         &self,
         level: NoiseReduction3DLevel,
-        opts: crate::CommandOptions<'_>,
     ) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::image::NoiseReduction3D::with_level(level);
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn disable_noise_reduction_3d(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn disable_noise_reduction_3d(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::image::NoiseReduction3D::off();
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn set_image_flip(
-        &self,
-        mode: ImageFlipMode,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn set_image_flip(&self, mode: ImageFlipMode) -> M::Fut<'_, Result<(), Error>> {
         // Use the combined flip command (PtzOptics A4 opcode)
         // This is more efficient than sending separate vertical and horizontal commands
         let cmd = crate::command::image::ImageFlipCombinedCommand::new(mode);
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn set_luminance(
-        &self,
-        level: LuminanceLevel,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn set_luminance(&self, level: LuminanceLevel) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::image::Luminance::new(level);
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn enable_freeze(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+    fn enable_freeze(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::flip::ImageFreeze { on: true };
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn disable_freeze(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+    fn disable_freeze(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::flip::ImageFreeze { on: false };
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn enable_black_white(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+    fn enable_black_white(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::image::PictureEffectCommand {
             mode: PictureEffectMode::BlackAndWhite,
         };
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn disable_black_white(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn disable_black_white(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::image::PictureEffectCommand {
             mode: PictureEffectMode::Off,
         };
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn set_picture_effect(
-        &self,
-        mode: PictureEffectMode,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn set_picture_effect(&self, mode: PictureEffectMode) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::image::PictureEffectCommand { mode };
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 }

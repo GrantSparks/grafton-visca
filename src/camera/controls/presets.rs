@@ -84,7 +84,6 @@ pub trait PresetsControl {
     fn preset_recall(
         &self,
         preset: PresetNumber,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set current position as a preset.
@@ -99,11 +98,7 @@ pub trait PresetsControl {
     /// # Errors
     /// Returns an error if the preset number is invalid or the command
     /// fails to send or receive a response.
-    fn preset_set(
-        &self,
-        preset: PresetNumber,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn preset_set(&self, preset: PresetNumber) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Reset/clear a preset.
     ///
@@ -119,7 +114,6 @@ pub trait PresetsControl {
     fn preset_reset(
         &self,
         preset: PresetNumber,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
@@ -133,39 +127,27 @@ where
 {
     type Mode = M;
 
-    fn preset_recall(
-        &self,
-        preset: PresetNumber,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn preset_recall(&self, preset: PresetNumber) -> M::Fut<'_, Result<(), Error>> {
         let cmd = PresetCommand {
             action: PresetAction::Recall,
             preset_number: preset,
         };
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn preset_set(
-        &self,
-        preset: PresetNumber,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn preset_set(&self, preset: PresetNumber) -> M::Fut<'_, Result<(), Error>> {
         let cmd = PresetCommand {
             action: PresetAction::Set,
             preset_number: preset,
         };
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn preset_reset(
-        &self,
-        preset: PresetNumber,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn preset_reset(&self, preset: PresetNumber) -> M::Fut<'_, Result<(), Error>> {
         let cmd = PresetCommand {
             action: PresetAction::Reset,
             preset_number: preset,
         };
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 }

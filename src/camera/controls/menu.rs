@@ -66,11 +66,7 @@ pub trait MenuControl {
     ///
     /// # Errors
     /// Returns an error if the command fails or the camera doesn't support menu control.
-    fn set_menu_display(
-        &self,
-        display: bool,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn set_menu_display(&self, display: bool) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Navigate the menu cursor.
     ///
@@ -85,7 +81,6 @@ pub trait MenuControl {
     fn menu_navigate(
         &self,
         direction: MenuDirection,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Perform a menu action (select or cancel).
@@ -99,11 +94,7 @@ pub trait MenuControl {
     ///
     /// # Errors
     /// Returns an error if the command fails or the camera doesn't support menu control.
-    fn menu_action(
-        &self,
-        action: MenuAction,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn menu_action(&self, action: MenuAction) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
 /// Direct menu control methods for cameras that support advanced menu control.
@@ -140,7 +131,6 @@ pub trait DirectMenuControl: MenuControl {
         &self,
         control1: u8,
         control2: u8,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Toggle menu open/close.
@@ -151,10 +141,7 @@ pub trait DirectMenuControl: MenuControl {
     ///
     /// # Errors
     /// Returns an error if the command fails or the camera doesn't support direct menu control.
-    fn toggle_menu(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn toggle_menu(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
 // Single unified implementation for MenuControl
@@ -167,31 +154,19 @@ where
 {
     type Mode = M;
 
-    fn set_menu_display(
-        &self,
-        display: bool,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn set_menu_display(&self, display: bool) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::menu::SetMenuDisplay;
-        self.execute_with_opts(SetMenuDisplay::new(display), opts)
+        self.execute(SetMenuDisplay::new(display))
     }
 
-    fn menu_navigate(
-        &self,
-        direction: MenuDirection,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn menu_navigate(&self, direction: MenuDirection) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::menu::MenuNavigate;
-        self.execute_with_opts(MenuNavigate::new(direction), opts)
+        self.execute(MenuNavigate::new(direction))
     }
 
-    fn menu_action(
-        &self,
-        action: MenuAction,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn menu_action(&self, action: MenuAction) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::menu::PerformMenuAction;
-        self.execute_with_opts(PerformMenuAction::new(action), opts)
+        self.execute(PerformMenuAction::new(action))
     }
 }
 
@@ -203,18 +178,13 @@ where
     Self: ViscaClient<M>,
     Exec: crate::executor::Executor,
 {
-    fn direct_menu_control(
-        &self,
-        control1: u8,
-        control2: u8,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn direct_menu_control(&self, control1: u8, control2: u8) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::menu::DirectMenuControl;
-        self.execute_with_opts(DirectMenuControl::new(control1, control2), opts)
+        self.execute(DirectMenuControl::new(control1, control2))
     }
 
-    fn toggle_menu(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+    fn toggle_menu(&self) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::menu::DirectMenuControl;
-        self.execute_with_opts(DirectMenuControl::open_close(), opts)
+        self.execute(DirectMenuControl::open_close())
     }
 }

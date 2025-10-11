@@ -256,14 +256,12 @@ fn test_async_trait_method_signatures() {
 
         fn power_on(
             &self,
-            _opts: grafton_visca::CommandOptions<'_>,
         ) -> <Self::Mode as grafton_visca::mode::Mode>::Fut<'_, Result<(), Error>> {
             Box::pin(async { Ok(()) })
         }
 
         fn power_off(
             &self,
-            _opts: grafton_visca::CommandOptions<'_>,
         ) -> <Self::Mode as grafton_visca::mode::Mode>::Fut<'_, Result<(), Error>> {
             Box::pin(async { Ok(()) })
         }
@@ -278,12 +276,8 @@ fn test_async_trait_method_signatures() {
     {
     }
 
-    assert_future_type::<_, Result<(), Error>>(
-        control.power_on(grafton_visca::CommandOptions::default()),
-    );
-    assert_future_type::<_, Result<(), Error>>(
-        control.power_off(grafton_visca::CommandOptions::default()),
-    );
+    assert_future_type::<_, Result<(), Error>>(control.power_on());
+    assert_future_type::<_, Result<(), Error>>(control.power_off());
 }
 
 /// Test that the transport module structure remains stable.

@@ -6,12 +6,7 @@
 
 use core::marker::PhantomData;
 
-use crate::{
-    camera::ViscaClient,
-    command_options::{CancellationToken, CommandOptions},
-    mode::Mode,
-    Error,
-};
+use crate::{camera::ViscaClient, mode::Mode, Error};
 
 /// Motion control operations for PTZ cameras.
 ///
@@ -23,10 +18,10 @@ use crate::{
 /// ## Stop all motion
 /// ```ignore
 /// // Blocking
-/// camera.stop_all_motion(CommandOptions::default())?;
+/// camera.stop_all_motion()?;
 ///
 /// // Async
-/// camera.stop_all_motion(CommandOptions::default()).await?;
+/// camera.stop_all_motion().await?;
 /// ```
 pub trait MotionControl {
     /// The mode type for this camera (Async or Blocking).
@@ -38,23 +33,15 @@ pub trait MotionControl {
     /// Currently, it only stops pan/tilt motion. Full implementation will stop
     /// all motion types when mode-aware combinators are available.
     ///
-    /// # Arguments
-    /// * `opts` - Command options for timeout and cancellation
-    ///
     /// # Errors
     /// Returns an error if any of the stop commands fail.
     ///
     /// # Example
     /// ```ignore
-    /// // Stop all motion with a timeout
-    /// camera.stop_all_motion(
-    ///     CommandOptions::default().with_timeout_ms(500)
-    /// )?; // or .await? for async
+    /// // Stop all motion
+    /// camera.stop_all_motion()?; // or .await? for async
     /// ```
-    fn stop_all_motion<'a, C: CancellationToken + 'a>(
-        &self,
-        opts: impl Into<CommandOptions<'a, C>>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn stop_all_motion(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
 /// RAII guard for camera motion that automatically stops motion when dropped.
@@ -197,15 +184,14 @@ where
 
         self.should_stop = false; // Prevent double-stop in Drop
 
-        let opts = CommandOptions::default();
         match self.motion_type {
-            MotionType::PanTilt => self.camera.pan_tilt_stop(opts),
-            MotionType::Zoom => self.camera.zoom_stop(opts),
-            MotionType::Focus => self.camera.focus_stop(opts),
+            MotionType::PanTilt => self.camera.pan_tilt_stop(),
+            MotionType::Zoom => self.camera.zoom_stop(),
+            MotionType::Focus => self.camera.focus_stop(),
             MotionType::All => {
                 // For All, we just stop pan/tilt for now
                 // A full implementation would chain all stops
-                self.camera.pan_tilt_stop(opts)
+                self.camera.pan_tilt_stop()
             }
         }
     }
@@ -248,13 +234,8 @@ where
 {
     type Mode = M;
 
-    fn stop_all_motion<'a, C: CancellationToken + 'a>(
-        &self,
-        opts: impl Into<CommandOptions<'a, C>>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn stop_all_motion(&self) -> M::Fut<'_, Result<(), Error>> {
         use crate::camera::controls::pan_tilt::PanTiltControl;
-
-        let _opts = opts.into();
 
         // Currently, we only stop pan/tilt
         // Full implementation requires mode-aware combinators to chain operations
@@ -263,13 +244,7 @@ where
         // 2. zoom_stop()
         // 3. focus_stop()
         // And aggregate any errors
-
-        // Note: We use CommandOptions::default() here because the control methods
-        // currently only support the default NoCancel cancellation token type.
-        // When multi-operation support is added, we'll need to either:
-        // 1. Make all control methods generic over CancellationToken, or
-        // 2. Convert the provided opts to CommandOptions<NoCancel>
-        self.pan_tilt_stop(CommandOptions::default())
+        self.pan_tilt_stop()
     }
 }
 

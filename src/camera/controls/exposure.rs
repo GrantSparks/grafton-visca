@@ -63,7 +63,6 @@ pub trait ExposureControl {
     fn set_exposure_mode(
         &self,
         mode: crate::command::exposure::ExposureMode,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set auto exposure mode.
@@ -73,10 +72,7 @@ pub trait ExposureControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn exposure_auto(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn exposure_auto(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set manual exposure mode.
     ///
@@ -85,10 +81,7 @@ pub trait ExposureControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn exposure_manual(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn exposure_manual(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set shutter priority exposure mode.
     ///
@@ -97,10 +90,7 @@ pub trait ExposureControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn exposure_shutter_priority(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn exposure_shutter_priority(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set iris priority exposure mode.
     ///
@@ -109,10 +99,7 @@ pub trait ExposureControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn exposure_iris_priority(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn exposure_iris_priority(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set brightness priority exposure mode.
     ///
@@ -121,10 +108,7 @@ pub trait ExposureControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn exposure_bright_mode(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn exposure_bright_mode(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set iris level.
     ///
@@ -140,7 +124,6 @@ pub trait ExposureControl {
     fn set_iris(
         &self,
         level: crate::types::IrisLevel,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Reset iris to default.
@@ -149,10 +132,7 @@ pub trait ExposureControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn reset_iris(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn reset_iris(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Increase iris (open aperture).
     ///
@@ -160,10 +140,7 @@ pub trait ExposureControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn increase_iris(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn increase_iris(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Decrease iris (close aperture).
     ///
@@ -171,10 +148,7 @@ pub trait ExposureControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn decrease_iris(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn decrease_iris(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set brightness level.
     ///
@@ -188,7 +162,6 @@ pub trait ExposureControl {
     fn set_brightness(
         &self,
         level: crate::types::BrightnessLevel,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Reset brightness to default.
@@ -197,10 +170,7 @@ pub trait ExposureControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn reset_brightness(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn reset_brightness(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Increase brightness.
     ///
@@ -208,10 +178,7 @@ pub trait ExposureControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn increase_brightness(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn increase_brightness(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Decrease brightness.
     ///
@@ -219,10 +186,7 @@ pub trait ExposureControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn decrease_brightness(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn decrease_brightness(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set backlight compensation.
     ///
@@ -234,11 +198,7 @@ pub trait ExposureControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn set_backlight(
-        &self,
-        enabled: bool,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn set_backlight(&self, enabled: bool) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set gain value.
     ///
@@ -253,7 +213,6 @@ pub trait ExposureControl {
     fn set_gain(
         &self,
         gain: crate::types::GainLevel,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Reset gain to default.
@@ -262,10 +221,7 @@ pub trait ExposureControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn reset_gain(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn reset_gain(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Increase gain by one step.
     ///
@@ -274,10 +230,7 @@ pub trait ExposureControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn increase_gain(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn increase_gain(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Decrease gain by one step.
     ///
@@ -286,10 +239,7 @@ pub trait ExposureControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn decrease_gain(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn decrease_gain(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set gain limit.
     ///
@@ -304,7 +254,6 @@ pub trait ExposureControl {
     fn set_gain_limit(
         &self,
         limit: crate::types::GainLimit,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set dynamic range level.
@@ -320,7 +269,6 @@ pub trait ExposureControl {
     fn set_dynamic_range(
         &self,
         level: crate::types::DynamicRangeLevel,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set color temperature.
@@ -336,7 +284,6 @@ pub trait ExposureControl {
     fn set_color_temperature(
         &self,
         temp: crate::types::ColorTemp,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set shutter speed.
@@ -352,7 +299,6 @@ pub trait ExposureControl {
     fn set_shutter_speed(
         &self,
         speed: crate::types::ShutterSpeed,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Reset shutter speed to default.
@@ -361,10 +307,7 @@ pub trait ExposureControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn reset_shutter_speed(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn reset_shutter_speed(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Increase shutter speed (faster).
     ///
@@ -373,10 +316,7 @@ pub trait ExposureControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn increase_shutter_speed(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn increase_shutter_speed(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Decrease shutter speed (slower).
     ///
@@ -385,10 +325,7 @@ pub trait ExposureControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn decrease_shutter_speed(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn decrease_shutter_speed(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Enable spotlight mode (Sony models).
     ///
@@ -397,10 +334,7 @@ pub trait ExposureControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn enable_spotlight(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn enable_spotlight(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Disable spotlight mode (Sony models).
     ///
@@ -408,10 +342,7 @@ pub trait ExposureControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn disable_spotlight(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn disable_spotlight(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Enable auto slow shutter mode.
     ///
@@ -420,10 +351,7 @@ pub trait ExposureControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn enable_auto_slow_shutter(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn enable_auto_slow_shutter(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Disable auto slow shutter mode.
     ///
@@ -432,10 +360,7 @@ pub trait ExposureControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn disable_auto_slow_shutter(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn disable_auto_slow_shutter(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set brightness using direct mode.
     ///
@@ -450,7 +375,6 @@ pub trait ExposureControl {
     fn set_brightness_direct(
         &self,
         level: crate::types::BrightnessLevel,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
@@ -467,144 +391,110 @@ where
     fn set_exposure_mode(
         &self,
         mode: crate::command::exposure::ExposureMode,
-        opts: crate::CommandOptions<'_>,
     ) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::ExposureCommand { mode };
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn exposure_auto(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
-        self.set_exposure_mode(crate::command::exposure::ExposureMode::Auto, opts)
+    fn exposure_auto(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.set_exposure_mode(crate::command::exposure::ExposureMode::Auto)
     }
 
-    fn exposure_manual(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
-        self.set_exposure_mode(crate::command::exposure::ExposureMode::Manual, opts)
+    fn exposure_manual(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.set_exposure_mode(crate::command::exposure::ExposureMode::Manual)
     }
 
-    fn exposure_shutter_priority(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
-        self.set_exposure_mode(crate::command::exposure::ExposureMode::Shutter, opts)
+    fn exposure_shutter_priority(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.set_exposure_mode(crate::command::exposure::ExposureMode::Shutter)
     }
 
-    fn exposure_iris_priority(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
-        self.set_exposure_mode(crate::command::exposure::ExposureMode::Iris, opts)
+    fn exposure_iris_priority(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.set_exposure_mode(crate::command::exposure::ExposureMode::Iris)
     }
 
-    fn exposure_bright_mode(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
-        self.set_exposure_mode(crate::command::exposure::ExposureMode::Bright, opts)
+    fn exposure_bright_mode(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.set_exposure_mode(crate::command::exposure::ExposureMode::Bright)
     }
 
-    fn set_iris(
-        &self,
-        level: crate::types::IrisLevel,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn set_iris(&self, level: crate::types::IrisLevel) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::Iris::SetAperture(level);
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn reset_iris(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+    fn reset_iris(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::Iris::Reset;
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn increase_iris(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+    fn increase_iris(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::Iris::Up;
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn decrease_iris(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+    fn decrease_iris(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::Iris::Down;
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
     fn set_brightness(
         &self,
         level: crate::types::BrightnessLevel,
-        opts: crate::CommandOptions<'_>,
     ) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::Brightness::SetLevel(level);
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn reset_brightness(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+    fn reset_brightness(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::Brightness::Reset;
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn increase_brightness(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn increase_brightness(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::Brightness::Up;
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn decrease_brightness(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn decrease_brightness(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::Brightness::Down;
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn set_backlight(
-        &self,
-        enabled: bool,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn set_backlight(&self, enabled: bool) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::image::BacklightCommand::new(enabled);
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn set_gain(
-        &self,
-        gain: crate::types::GainLevel,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn set_gain(&self, gain: crate::types::GainLevel) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::gain::Gain::SetValue(gain);
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn reset_gain(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+    fn reset_gain(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::gain::Gain::Reset;
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn increase_gain(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+    fn increase_gain(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::gain::Gain::Up;
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn decrease_gain(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+    fn decrease_gain(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::gain::Gain::Down;
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn set_gain_limit(
-        &self,
-        limit: crate::types::GainLimit,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn set_gain_limit(&self, limit: crate::types::GainLimit) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::gain::GainLimitCommand { limit };
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
     fn set_dynamic_range(
         &self,
         level: crate::types::DynamicRangeLevel,
-        opts: crate::CommandOptions<'_>,
     ) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::DynamicRange { level };
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
     /// Set the color temperature.
@@ -615,7 +505,6 @@ where
     fn set_color_temperature(
         &self,
         _temp: crate::types::ColorTemp,
-        _opts: crate::CommandOptions<'_>,
     ) -> M::Fut<'_, Result<(), Error>> {
         // TODO: This requires sending two commands sequentially
         // For now, return unsupported
@@ -625,69 +514,52 @@ where
     fn set_shutter_speed(
         &self,
         speed: crate::types::ShutterSpeed,
-        opts: crate::CommandOptions<'_>,
     ) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::Shutter::SetSpeed(speed);
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn reset_shutter_speed(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn reset_shutter_speed(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::Shutter::Reset;
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn increase_shutter_speed(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn increase_shutter_speed(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::Shutter::Up;
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn decrease_shutter_speed(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn decrease_shutter_speed(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::Shutter::Down;
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn enable_spotlight(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+    fn enable_spotlight(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::SpotlightOn::new();
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn disable_spotlight(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+    fn disable_spotlight(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::SpotlightOff::new();
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn enable_auto_slow_shutter(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn enable_auto_slow_shutter(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::AutoSlowShutterOn::new();
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn disable_auto_slow_shutter(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn disable_auto_slow_shutter(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::AutoSlowShutterOff::new();
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
     fn set_brightness_direct(
         &self,
         level: crate::types::BrightnessLevel,
-        opts: crate::CommandOptions<'_>,
     ) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::Brightness::Direct(level);
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 }
 
@@ -717,10 +589,7 @@ pub trait ExposureCompensationControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn enable_exposure_compensation(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn enable_exposure_compensation(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Disable exposure compensation.
     ///
@@ -728,10 +597,7 @@ pub trait ExposureCompensationControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn disable_exposure_compensation(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn disable_exposure_compensation(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Reset exposure compensation to default.
     ///
@@ -739,10 +605,7 @@ pub trait ExposureCompensationControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn reset_exposure_compensation(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn reset_exposure_compensation(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Increase exposure compensation by one step.
     ///
@@ -750,10 +613,7 @@ pub trait ExposureCompensationControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn increase_exposure_compensation(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn increase_exposure_compensation(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Decrease exposure compensation by one step.
     ///
@@ -761,10 +621,7 @@ pub trait ExposureCompensationControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn decrease_exposure_compensation(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn decrease_exposure_compensation(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set exposure compensation level (-7 to +7).
     ///
@@ -779,7 +636,6 @@ pub trait ExposureCompensationControl {
     fn set_exposure_compensation_level(
         &self,
         level: i8,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
@@ -793,55 +649,36 @@ where
 {
     type Mode = M;
 
-    fn enable_exposure_compensation(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn enable_exposure_compensation(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::ExposureCompensation::On;
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn disable_exposure_compensation(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn disable_exposure_compensation(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::ExposureCompensation::Off;
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn reset_exposure_compensation(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn reset_exposure_compensation(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::ExposureCompensation::Reset;
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn increase_exposure_compensation(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn increase_exposure_compensation(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::ExposureCompensation::Up;
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn decrease_exposure_compensation(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn decrease_exposure_compensation(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::ExposureCompensation::Down;
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn set_exposure_compensation_level(
-        &self,
-        level: i8,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn set_exposure_compensation_level(&self, level: i8) -> M::Fut<'_, Result<(), Error>> {
         match crate::types::ExposureCompensationLevel::try_from(level) {
             Ok(comp_level) => {
                 let cmd = crate::command::exposure::ExposureCompensation::SetLevel(comp_level);
-                self.execute_with_opts(cmd, opts)
+                self.execute(cmd)
             }
             Err(e) => self.error(e),
         }

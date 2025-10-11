@@ -60,10 +60,7 @@ pub trait StreamingControl {
     ///
     /// # Errors
     /// Returns an error if the command fails or multicast streaming is not supported.
-    fn enable_multicast(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn enable_multicast(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Disable multicast streaming for NDI cameras.
     ///
@@ -72,10 +69,7 @@ pub trait StreamingControl {
     ///
     /// # Errors
     /// Returns an error if the command fails or multicast streaming is not supported.
-    fn disable_multicast(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn disable_multicast(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set the NDI streaming quality.
     ///
@@ -91,7 +85,6 @@ pub trait StreamingControl {
     fn set_ndi_quality(
         &self,
         quality: NdiQuality,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
@@ -105,22 +98,18 @@ where
 {
     type Mode = M;
 
-    fn enable_multicast(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+    fn enable_multicast(&self) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::streaming::MulticastStreaming;
-        self.execute_with_opts(MulticastStreaming::On, opts)
+        self.execute(MulticastStreaming::On)
     }
 
-    fn disable_multicast(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+    fn disable_multicast(&self) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::streaming::MulticastStreaming;
-        self.execute_with_opts(MulticastStreaming::Off, opts)
+        self.execute(MulticastStreaming::Off)
     }
 
-    fn set_ndi_quality(
-        &self,
-        quality: NdiQuality,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn set_ndi_quality(&self, quality: NdiQuality) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::streaming::SetNdiQuality;
-        self.execute_with_opts(SetNdiQuality::new(quality), opts)
+        self.execute(SetNdiQuality::new(quality))
     }
 }

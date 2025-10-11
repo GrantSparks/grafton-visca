@@ -48,7 +48,7 @@ mod timeout_behavior_tests {
 
         // Verify camera still works after timeouts
         camera
-            .power_off(grafton_visca::CommandOptions::default())
+            .power_off()
             .await
             .expect("Power off should succeed after timeouts");
     }
@@ -114,9 +114,7 @@ mod timeout_behavior_tests {
             .expect("Camera creation should succeed");
 
         // Try to send a command - should fail due to transport error
-        let result = camera
-            .power_off(grafton_visca::CommandOptions::default())
-            .await;
+        let result = camera.power_off().await;
         assert!(
             result.is_err(),
             "Command should fail due to transport error"
@@ -159,7 +157,7 @@ mod timeout_behavior_tests {
 
         // Power off should work even with timeout interspersed
         camera
-            .power_off(grafton_visca::CommandOptions::default())
+            .power_off()
             .await
             .expect("Power off should succeed after idle period");
     }
@@ -197,7 +195,7 @@ mod timeout_behavior_tests {
 
         // Command should eventually succeed despite many timeouts
         camera
-            .power_off(grafton_visca::CommandOptions::default())
+            .power_off()
             .await
             .expect("Power off should succeed after many timeouts");
     }
@@ -252,10 +250,7 @@ mod deterministic_tests {
                 .expect("Failed to create camera");
 
             // Power off should work despite timeouts
-            camera
-                .power_off(grafton_visca::CommandOptions::default())
-                .await
-                .expect("Power off should succeed");
+            camera.power_off().await.expect("Power off should succeed");
         });
     }
 
@@ -288,18 +283,12 @@ mod deterministic_tests {
                 .expect("Failed to create camera");
 
             // Multiple operations should work with timeouts interspersed
-            camera
-                .power_off(grafton_visca::CommandOptions::default())
-                .await
-                .expect("First command should work");
+            camera.power_off().await.expect("First command should work");
 
             // Advance time to let timeout occur
             executor.sleep(Duration::from_millis(10)).await;
 
-            camera
-                .power_on(grafton_visca::CommandOptions::default())
-                .await
-                .expect("Second command should work");
+            camera.power_on().await.expect("Second command should work");
         });
     }
 }

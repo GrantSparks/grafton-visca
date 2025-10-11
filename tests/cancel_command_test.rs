@@ -129,7 +129,6 @@ fn test_cancel_socket_directly() {
                     PanTiltDirection::UpRight,
                     5.try_into().unwrap(),
                     5.try_into().unwrap(),
-                    grafton_visca::CommandOptions::default(),
                 )
                 .await;
         });

@@ -60,10 +60,7 @@ pub trait PanTiltControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn pan_tilt_stop(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn pan_tilt_stop(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Move to the home position (pan=0°, tilt=0°).
     ///
@@ -71,10 +68,7 @@ pub trait PanTiltControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn pan_tilt_home(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn pan_tilt_home(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Move to an absolute pan/tilt position in degrees.
     ///
@@ -90,7 +84,6 @@ pub trait PanTiltControl {
         pan: impl Into<Degrees>,
         tilt: impl Into<Degrees>,
         speed: SpeedLevel,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Move relative to the current position in degrees.
@@ -107,7 +100,6 @@ pub trait PanTiltControl {
         pan: impl Into<Degrees>,
         tilt: impl Into<Degrees>,
         speed: SpeedLevel,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Start continuous movement in a specific direction.
@@ -126,7 +118,6 @@ pub trait PanTiltControl {
         direction: PanTiltDirection,
         pan_speed: PanSpeed,
         tilt_speed: TiltSpeed,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Reset pan/tilt mechanism to factory defaults.
@@ -135,10 +126,7 @@ pub trait PanTiltControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn pan_tilt_reset(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn pan_tilt_reset(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set a pan/tilt movement limit for a specific corner.
     ///
@@ -157,7 +145,6 @@ pub trait PanTiltControl {
         corner: PanTiltLimitCorner,
         pan: PanPosition,
         tilt: TiltPosition,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Clear a pan/tilt movement limit for a specific corner.
@@ -170,7 +157,6 @@ pub trait PanTiltControl {
     fn pan_tilt_limit_clear(
         &self,
         corner: PanTiltLimitCorner,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
@@ -184,19 +170,19 @@ where
 {
     type Mode = M;
 
-    fn pan_tilt_stop(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+    fn pan_tilt_stop(&self) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::pan_tilt::PanTilt;
         let cmd = PanTilt::Move {
             direction: PanTiltDirection::Stop,
             pan_speed: PanSpeed::from(SpeedLevel::Medium),
             tilt_speed: TiltSpeed::from(SpeedLevel::Medium),
         };
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn pan_tilt_home(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+    fn pan_tilt_home(&self) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::pan_tilt::PanTilt;
-        self.execute_with_opts(PanTilt::Home, opts)
+        self.execute(PanTilt::Home)
     }
 
     fn pan_tilt_absolute(
@@ -204,7 +190,6 @@ where
         pan: impl Into<Degrees>,
         tilt: impl Into<Degrees>,
         speed: SpeedLevel,
-        opts: crate::CommandOptions<'_>,
     ) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::pan_tilt::PanTilt;
 
@@ -234,7 +219,7 @@ where
             pan_speed,
             tilt_speed,
         };
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
     fn pan_tilt_relative(
@@ -242,7 +227,6 @@ where
         pan: impl Into<Degrees>,
         tilt: impl Into<Degrees>,
         speed: SpeedLevel,
-        opts: crate::CommandOptions<'_>,
     ) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::pan_tilt::PanTilt;
 
@@ -273,7 +257,7 @@ where
             pan_speed,
             tilt_speed,
         };
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
     fn pan_tilt_move(
@@ -281,7 +265,6 @@ where
         direction: PanTiltDirection,
         pan_speed: PanSpeed,
         tilt_speed: TiltSpeed,
-        opts: crate::CommandOptions<'_>,
     ) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::pan_tilt::PanTilt;
         let cmd = PanTilt::Move {
@@ -289,12 +272,12 @@ where
             pan_speed,
             tilt_speed,
         };
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn pan_tilt_reset(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+    fn pan_tilt_reset(&self) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::pan_tilt::PanTilt;
-        self.execute_with_opts(PanTilt::Reset, opts)
+        self.execute(PanTilt::Reset)
     }
 
     fn pan_tilt_limit_set(
@@ -302,7 +285,6 @@ where
         corner: PanTiltLimitCorner,
         pan: PanPosition,
         tilt: TiltPosition,
-        opts: crate::CommandOptions<'_>,
     ) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::pan_tilt::PanTilt;
 
@@ -314,16 +296,12 @@ where
             pan_u16,
             tilt_u16,
         };
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn pan_tilt_limit_clear(
-        &self,
-        corner: PanTiltLimitCorner,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn pan_tilt_limit_clear(&self, corner: PanTiltLimitCorner) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::pan_tilt::PanTilt;
         let cmd = PanTilt::LimitClear { corner };
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 }

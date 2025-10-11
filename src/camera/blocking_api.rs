@@ -248,7 +248,7 @@ macro_rules! impl_blocking_methods {
         $(
             $(#[$meta])*
             pub fn $name(&self $(, $arg: $ty)*) -> Result<$ret_ok, Error> {
-                self.inner.$name($($arg ,)* crate::CommandOptions::default()).block()
+                self.inner.$name($($arg),*).block()
             }
         )+
     };

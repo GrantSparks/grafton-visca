@@ -66,10 +66,7 @@ pub trait FocusControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn focus_auto(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn focus_auto(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set manual focus mode.
     ///
@@ -78,10 +75,7 @@ pub trait FocusControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn focus_manual(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn focus_manual(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Focus near at specified speed.
     ///
@@ -93,11 +87,7 @@ pub trait FocusControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn focus_near(
-        &self,
-        speed: SpeedLevel,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn focus_near(&self, speed: SpeedLevel) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Focus far at specified speed.
     ///
@@ -109,11 +99,7 @@ pub trait FocusControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn focus_far(
-        &self,
-        speed: SpeedLevel,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn focus_far(&self, speed: SpeedLevel) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Stop focus movement.
     ///
@@ -121,10 +107,7 @@ pub trait FocusControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn focus_stop(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn focus_stop(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Trigger one-push auto focus.
     ///
@@ -133,10 +116,7 @@ pub trait FocusControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn focus_one_push(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn focus_one_push(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set focus to a specific position.
     ///
@@ -151,7 +131,6 @@ pub trait FocusControl {
     fn set_focus(
         &self,
         position: FocusPosition,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set focus to infinity.
@@ -161,10 +140,7 @@ pub trait FocusControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn focus_infinity(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn focus_infinity(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Enable focus lock.
     ///
@@ -173,10 +149,7 @@ pub trait FocusControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn enable_focus_lock(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn enable_focus_lock(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Disable focus lock.
     ///
@@ -185,10 +158,7 @@ pub trait FocusControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn disable_focus_lock(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn disable_focus_lock(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Press Push AF button.
     ///
@@ -197,10 +167,7 @@ pub trait FocusControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn push_af_press(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn push_af_press(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Release Push AF button.
     ///
@@ -209,10 +176,7 @@ pub trait FocusControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn push_af_release(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn push_af_release(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set the focus zone.
     ///
@@ -224,11 +188,7 @@ pub trait FocusControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn set_focus_zone(
-        &self,
-        zone: FocusZone,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn set_focus_zone(&self, zone: FocusZone) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set auto focus sensitivity.
     ///
@@ -243,7 +203,6 @@ pub trait FocusControl {
     fn set_auto_focus_sensitivity(
         &self,
         sensitivity: AutoFocusSensitivity,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set the focus near limit.
@@ -260,7 +219,6 @@ pub trait FocusControl {
     fn set_focus_near_limit(
         &self,
         position: FocusPosition,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
@@ -274,19 +232,15 @@ where
 {
     type Mode = M;
 
-    fn focus_auto(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
-        self.execute_with_opts(Focus::Auto, opts)
+    fn focus_auto(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(Focus::Auto)
     }
 
-    fn focus_manual(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
-        self.execute_with_opts(Focus::Manual, opts)
+    fn focus_manual(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(Focus::Manual)
     }
 
-    fn focus_near(
-        &self,
-        speed: SpeedLevel,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn focus_near(&self, speed: SpeedLevel) -> M::Fut<'_, Result<(), Error>> {
         let focus_speed_val = speed.to_focus_speed();
         let cmd = if focus_speed_val == 0 {
             Focus::Near
@@ -296,14 +250,10 @@ where
                 Err(e) => return self.error(e),
             }
         };
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn focus_far(
-        &self,
-        speed: SpeedLevel,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn focus_far(&self, speed: SpeedLevel) -> M::Fut<'_, Result<(), Error>> {
         let focus_speed_val = speed.to_focus_speed();
         let cmd = if focus_speed_val == 0 {
             Focus::Far
@@ -313,66 +263,53 @@ where
                 Err(e) => return self.error(e),
             }
         };
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn focus_stop(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
-        self.execute_with_opts(Focus::Stop, opts)
+    fn focus_stop(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(Focus::Stop)
     }
 
-    fn focus_one_push(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
-        self.execute_with_opts(Focus::OnePushTrigger, opts)
+    fn focus_one_push(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(Focus::OnePushTrigger)
     }
 
-    fn set_focus(
-        &self,
-        position: FocusPosition,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
-        self.execute_with_opts(Focus::Position(position), opts)
+    fn set_focus(&self, position: FocusPosition) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(Focus::Position(position))
     }
 
-    fn focus_infinity(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
-        self.execute_with_opts(Focus::Infinity, opts)
+    fn focus_infinity(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(Focus::Infinity)
     }
 
-    fn enable_focus_lock(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
-        self.execute_with_opts(FocusLock::On, opts)
+    fn enable_focus_lock(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(FocusLock::On)
     }
 
-    fn disable_focus_lock(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
-        self.execute_with_opts(FocusLock::Off, opts)
+    fn disable_focus_lock(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(FocusLock::Off)
     }
 
-    fn push_af_press(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
-        self.execute_with_opts(PushAF::Press, opts)
+    fn push_af_press(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(PushAF::Press)
     }
 
-    fn push_af_release(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
-        self.execute_with_opts(PushAF::Release, opts)
+    fn push_af_release(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(PushAF::Release)
     }
 
-    fn set_focus_zone(
-        &self,
-        zone: FocusZone,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
-        self.execute_with_opts(FocusZoneCommand { zone }, opts)
+    fn set_focus_zone(&self, zone: FocusZone) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(FocusZoneCommand { zone })
     }
 
     fn set_auto_focus_sensitivity(
         &self,
         sensitivity: AutoFocusSensitivity,
-        opts: crate::CommandOptions<'_>,
     ) -> M::Fut<'_, Result<(), Error>> {
-        self.execute_with_opts(AutoFocusSensitivityCommand { sensitivity }, opts)
+        self.execute(AutoFocusSensitivityCommand { sensitivity })
     }
 
-    fn set_focus_near_limit(
-        &self,
-        position: FocusPosition,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
-        self.execute_with_opts(FocusNearLimitCommand { position }, opts)
+    fn set_focus_near_limit(&self, position: FocusPosition) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(FocusNearLimitCommand { position })
     }
 }

@@ -119,36 +119,24 @@ Types added:
 - `ProbeReport` - Health check results with RTT and transport status
 - `Diagnostics` trait - Methods for `probe()`, `ping()`, and `measure_latency()`
 
-#### Runtime-Agnostic CommandOptions
-First-class timeout and cancellation support without runtime-specific dependencies:
+#### Command Cancellation
+Built-in support for canceling in-flight commands without application-level wrappers:
 
 ```rust
-use grafton_visca::{CommandOptions, CancellationToken};
-use core::time::Duration;
+use grafton_visca::ViscaSocket;
 
-// Old (0.7.1): Application-level timeout wrappers
-tokio::time::timeout(Duration::from_millis(250), camera.zoom_tele(None)).await??;
+// Start a command and get its ID for later cancellation
+let (command_id, future) = camera.start_command_with_id(&zoom_cmd).await?;
 
-// New (0.8.0): Built-in timeout support
-camera.zoom_tele(None, CommandOptions::default().with_timeout_ms(250)).await?;
+// Cancel by command ID
+camera.cancel(command_id).await?;
+// The future will resolve with Err(Error::CommandCanceled)
 
-// Cancellation support (runtime-agnostic)
-struct MyToken;
-impl CancellationToken for MyToken {
-    fn cancelled<'a>(&'a self) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
-        // Runtime-specific implementation
-    }
-}
-
-let token = MyToken;
-let opts = CommandOptions::default()
-    .with_timeout(Duration::from_secs(5))
-    .with_cancel(&token);
-
-camera.pan_tilt_absolute(Degrees(45.0), Degrees(0.0), SpeedLevel::Fast, opts).await?;
+// Or cancel all commands on a specific socket
+camera.cancel_socket(ViscaSocket::S1).await?;
 ```
 
-**Note**: While `CommandOptions` is designed and the types are in place, integration into all camera control methods is still in progress. Some methods may not yet accept `CommandOptions` parameters.
+This provides first-class cancellation support for long-running operations like preset recalls or movements, enabling responsive UIs and timeout handling without runtime-specific wrappers.
 
 #### Connection Timeout Enforcement (#417)
 Async connectors now properly enforce `connect_timeout` and use non-blocking DNS resolution:
@@ -225,8 +213,8 @@ Most user-facing APIs remain unchanged. The primary additions are new modules:
 use grafton_visca::{
     inquiry_conversions::{Normalized, PanTiltPositionRaw, PanTiltPositionDeg, ZoomDomain},
     diagnostics::{Diagnostics, ProbeReport},
-    CommandOptions, CancellationToken, NoCancel,
     types::Coarse,
+    ViscaSocket,
 };
 ```
 
@@ -403,7 +391,7 @@ match error.kind() {
 
 5. **Remove f32 casts** when constructing `Degrees` and similar types
 
-6. **Add `CommandOptions` parameters** (when fully integrated) for timeout/cancellation support
+6. **Use built-in cancellation** via `start_command_with_id()` and `cancel()` for long-running operations
 
 ### 📚 Technical Improvements
 
@@ -418,9 +406,9 @@ match error.kind() {
 
 Version 0.8.0 represents a major API evolution before 1.0. The focus has shifted from architectural changes to stability, robustness, and ergonomics. The runtime-agnostic foundation is complete, serialization support is in place, and the API surface is clean and minimal. Upcoming releases will focus on:
 
-- Completing `CommandOptions` integration across all control methods
 - Profile auto-detection and capability discovery
 - Optional normalized zoom helpers for all camera control methods
+- Enhanced timeout support via builder patterns
 - Documentation and migration guide refinements
 - Stability and bug fixes toward 1.0
 

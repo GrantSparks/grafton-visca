@@ -80,7 +80,6 @@ pub trait NdFilterControl {
     fn set_nd_filter_mode(
         &self,
         mode: CommandNdFilterMode,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set ND filter value directly (for variable mode).
@@ -93,11 +92,7 @@ pub trait NdFilterControl {
     ///
     /// # Errors
     /// Returns an error if the value is out of range or the command fails.
-    fn set_nd_filter_value(
-        &self,
-        value: u16,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn set_nd_filter_value(&self, value: u16) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set ND filter by stop value (2.0 to 7.0 stops).
     ///
@@ -114,11 +109,7 @@ pub trait NdFilterControl {
     ///
     /// # Errors
     /// Returns an error if the stops value is out of range or the command fails.
-    fn set_nd_filter_stops(
-        &self,
-        stops: f32,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn set_nd_filter_stops(&self, stops: f32) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Step ND filter up or down.
     ///
@@ -133,7 +124,6 @@ pub trait NdFilterControl {
     fn step_nd_filter(
         &self,
         direction: NdFilterStep,
-        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Enable or disable auto ND.
@@ -147,11 +137,7 @@ pub trait NdFilterControl {
     ///
     /// # Errors
     /// Returns an error if the command fails or auto ND is not supported.
-    fn set_auto_nd(
-        &self,
-        enabled: bool,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn set_auto_nd(&self, enabled: bool) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Get current ND filter setting.
     ///
@@ -160,10 +146,7 @@ pub trait NdFilterControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or ND filters are not supported.
-    fn nd_filter(
-        &self,
-        opts: crate::CommandOptions<'_>,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn nd_filter(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
 }
 
 // Single unified implementation for all Camera types!
@@ -176,22 +159,14 @@ where
 {
     type Mode = M;
 
-    fn set_nd_filter_mode(
-        &self,
-        mode: CommandNdFilterMode,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn set_nd_filter_mode(&self, mode: CommandNdFilterMode) -> M::Fut<'_, Result<(), Error>> {
         let cmd = NdFilterModeCommand::new(mode);
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn set_nd_filter_value(
-        &self,
-        value: u16,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn set_nd_filter_value(&self, value: u16) -> M::Fut<'_, Result<(), Error>> {
         match NdFilterValue::new(value) {
-            Ok(cmd) => self.execute_with_opts(cmd, opts),
+            Ok(cmd) => self.execute(cmd),
             Err(_) => self.error(Error::InvalidParameter {
                 parameter: "value",
                 value: value.to_string().into(),
@@ -200,13 +175,9 @@ where
         }
     }
 
-    fn set_nd_filter_stops(
-        &self,
-        stops: f32,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn set_nd_filter_stops(&self, stops: f32) -> M::Fut<'_, Result<(), Error>> {
         match NdFilterValue::from_stops(stops) {
-            Ok(cmd) => self.execute_with_opts(cmd, opts),
+            Ok(cmd) => self.execute(cmd),
             Err(_) => self.error(Error::InvalidParameter {
                 parameter: "stops",
                 value: stops.to_string().into(),
@@ -215,25 +186,17 @@ where
         }
     }
 
-    fn step_nd_filter(
-        &self,
-        direction: NdFilterStep,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn step_nd_filter(&self, direction: NdFilterStep) -> M::Fut<'_, Result<(), Error>> {
         let cmd = NdFilterStepCommand::new(direction);
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn set_auto_nd(
-        &self,
-        enabled: bool,
-        opts: crate::CommandOptions<'_>,
-    ) -> M::Fut<'_, Result<(), Error>> {
+    fn set_auto_nd(&self, enabled: bool) -> M::Fut<'_, Result<(), Error>> {
         let cmd = AutoNdCommand::new(enabled);
-        self.execute_with_opts(cmd, opts)
+        self.execute(cmd)
     }
 
-    fn nd_filter(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<u8, Error>> {
-        self.query_with_opts(NdFilterInquiry, opts)
+    fn nd_filter(&self) -> M::Fut<'_, Result<u8, Error>> {
+        self.query(NdFilterInquiry)
     }
 }

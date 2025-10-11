@@ -642,7 +642,6 @@
 //! ```
 
 // Module declarations
-mod command_options;
 mod error;
 pub(crate) mod macros;
 
@@ -738,7 +737,6 @@ pub use crate::{
         system::{MotionSyncMode, MotionSyncPreset},
         white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode},
     },
-    command_options::{CancellationToken, CommandOptions, NoCancel, NoOpts},
     error::{Error, ErrorKind, Result},
     inquiry_conversions::{
         zoom_from_normalized, Normalized, PanTiltPositionDeg, PanTiltPositionRaw, ZoomDomain,
