@@ -40,8 +40,15 @@ fn main() -> Result<(), Error> {
     match camera.zoom_position() {
         Ok(zoom_pos) => {
             let raw_value = zoom_pos.value();
-            let zoom_percentage = (raw_value as f32 / 0x4000 as f32) * 100.0;
-            println!("  Zoom: 0x{raw_value:04X} ({zoom_percentage:.1}%)");
+
+            // Use ZoomPositionExt for domain-aware normalization
+            use grafton_visca::{inquiry_conversions::ZoomDomain, ZoomPositionExt};
+            let optical = zoom_pos.normalize(ZoomDomain::Optical);
+            let full = zoom_pos.normalize(ZoomDomain::OpticalPlusDigital);
+
+            println!("  Zoom: 0x{raw_value:04X}");
+            println!("    → Optical zoom: {:.1}%", optical.0 * 100.0);
+            println!("    → Full range: {:.1}%", full.0 * 100.0);
         }
         Err(e) => println!("  Zoom inquiry failed: {e}"),
     }

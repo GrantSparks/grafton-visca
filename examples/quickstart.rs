@@ -20,16 +20,16 @@
 //! ```
 
 #[cfg(not(feature = "mode-async"))]
-use std::{env, thread::sleep, time::Duration};
-
-#[cfg(not(feature = "mode-async"))]
 use grafton_visca::{
     camera::{profiles::PtzOpticsG2, Connect},
     command::{pan_tilt::PanTiltDirection, preset::PresetNumber},
-    types::{PanSpeed, SpeedLevel, TiltSpeed},
+    types::{Coarse, PanSpeed, SpeedLevel, TiltSpeed},
     units::{Degrees, Normalized},
     Error,
 };
+
+#[cfg(not(feature = "mode-async"))]
+use std::{env, thread::sleep, time::Duration};
 
 #[cfg(not(feature = "mode-async"))]
 fn main() -> Result<(), Error> {
@@ -75,23 +75,28 @@ fn main() -> Result<(), Error> {
     camera.await_zoom_idle(Duration::from_secs(2))?;
     println!("✓ Zoom complete");
 
-    println!("Testing pan/tilt...");
-    println!("  Panning right briefly...");
+    println!("Testing pan/tilt with Coarse speed mapping (0.8.0)...");
+
+    println!("  Panning right briefly with Medium speed...");
     camera.pan_tilt_move(
         PanTiltDirection::Right,
-        PanSpeed::new(10)?,
-        TiltSpeed::new(0)?,
+        PanSpeed::from_coarse(Coarse::Medium), // Maps to canonical medium pan speed
+        TiltSpeed::from_coarse(Coarse::Slowest),
     )?;
     sleep(Duration::from_millis(100));
     camera.pan_tilt_stop()?;
     sleep(Duration::from_secs(1));
 
-    println!("  Tilting up briefly...");
-    camera.pan_tilt_move(PanTiltDirection::Up, PanSpeed::new(0)?, TiltSpeed::new(10)?)?;
+    println!("  Tilting up briefly with Fast speed...");
+    camera.pan_tilt_move(
+        PanTiltDirection::Up,
+        PanSpeed::from_coarse(Coarse::Slowest),
+        TiltSpeed::from_coarse(Coarse::Fast), // Maps to canonical fast tilt speed
+    )?;
     sleep(Duration::from_millis(100));
     camera.pan_tilt_stop()?;
     sleep(Duration::from_secs(1));
-    println!("✓ Pan/tilt complete");
+    println!("✓ Pan/tilt complete (using Coarse speed levels)");
     println!();
 
     println!("═══ Advanced Positioning ═══");
@@ -210,7 +215,6 @@ fn main() -> Result<(), Error> {
     println!("✓ Camera at home position");
 
     println!();
-    // Explicit cleanup (optional - will auto-close on drop)
     camera.close()?;
 
     println!("✨ Demo complete!");
@@ -223,8 +227,13 @@ fn main() -> Result<(), Error> {
     println!("  ✓ Image adjustments (flip)");
     println!("  ✓ Preset management (save, recall, clear)");
     println!();
+    println!("0.8.0 New features demonstrated:");
+    println!("  ✓ Coarse speed mapping (intuitive speed levels)");
+    println!("  ✓ Direct f64 usage with Degrees (no casts needed)");
+    println!();
     println!("Next steps:");
     println!("  - Try quickstart_async for the async version");
+    println!("  - Try inquiry_quickstart for inquiry_conversions demo");
     println!("  - Check other examples for specific features");
 
     Ok(())

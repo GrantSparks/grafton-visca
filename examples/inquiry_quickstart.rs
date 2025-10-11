@@ -58,7 +58,14 @@ fn main() -> grafton_visca::Result<()> {
         Ok(pos) => {
             println!("Pan: {:?}", pos.pan);
             println!("Tilt: {:?}", pos.tilt);
-            // Note: Conversion to degrees depends on camera profile
+
+            use grafton_visca::inquiry_conversions::PanTiltPositionRaw;
+            let raw = PanTiltPositionRaw::new(pos.pan, pos.tilt);
+            let degrees = raw.as_degrees();
+            println!(
+                "  → Pan: {:.1}°, Tilt: {:.1}°",
+                degrees.pan.0, degrees.tilt.0
+            );
         }
         Err(e) => println!("Pan/Tilt: Failed - {e}"),
     }
@@ -66,8 +73,15 @@ fn main() -> grafton_visca::Result<()> {
     match camera.zoom_position() {
         Ok(zoom) => {
             println!("Zoom: {:?}", zoom);
-            // Note: The inner value is not publicly accessible,
-            // but the Debug format shows the hex value
+
+            use grafton_visca::{inquiry_conversions::ZoomDomain, ZoomPositionExt};
+            let optical = zoom.normalize(ZoomDomain::Optical);
+            let full = zoom.normalize(ZoomDomain::OpticalPlusDigital);
+            println!(
+                "  → Optical: {:.1}%, Full range: {:.1}%",
+                optical.0 * 100.0,
+                full.0 * 100.0
+            );
         }
         Err(e) => println!("Zoom: Failed - {e}"),
     }
@@ -152,11 +166,12 @@ fn main() -> grafton_visca::Result<()> {
 #[cfg(feature = "runtime-tokio")]
 #[tokio::main]
 async fn main() -> grafton_visca::Result<()> {
+    use tokio::time::Instant;
+
     use grafton_visca::{
         camera::profiles::GenericVisca, runtime::TokioRuntime,
         runtime_adapters::tokio::TcpTransport as Tcp, CameraBuilder,
     };
-    use tokio::time::Instant;
 
     tracing_subscriber::fmt::init();
 
@@ -169,19 +184,13 @@ async fn main() -> grafton_visca::Result<()> {
     let transport = Tcp::connect(&camera_addr).await?;
     let runtime = TokioRuntime::from_current()?;
     let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<GenericVisca, _>(transport) // Use GenericVisca for broadest compatibility
-        // For specific cameras, you can use:
-        // .open_async::<PtzOpticsG2, _>(transport) // PTZOptics cameras
-        // .open_async::<SonyEviD70, _>(transport) // Sony EVI-D70
+        .open_async::<GenericVisca, _>(transport)
         .await?;
 
     println!("\n⚡ Executing all inquiries concurrently...\n");
 
     let start = Instant::now();
 
-    // Execute all inquiries concurrently using tokio::join!
-    // This is much faster than sequential queries
-    // Get accessor references for repeated use
     let power_acc = camera.power();
     let system_acc = camera.system();
     let image_acc = camera.image();
@@ -253,9 +262,26 @@ async fn main() -> grafton_visca::Result<()> {
     if let Ok(pos) = pan_tilt {
         println!("Pan: {:?}", pos.pan);
         println!("Tilt: {:?}", pos.tilt);
+
+        use grafton_visca::inquiry_conversions::PanTiltPositionRaw;
+        let raw = PanTiltPositionRaw::new(pos.pan, pos.tilt);
+        let degrees = raw.as_degrees();
+        println!(
+            "  → Pan: {:.1}°, Tilt: {:.1}°",
+            degrees.pan.0, degrees.tilt.0
+        );
     }
     if let Ok(z) = zoom {
         println!("Zoom: {z:?}");
+
+        use grafton_visca::{inquiry_conversions::ZoomDomain, ZoomPositionExt};
+        let optical = z.normalize(ZoomDomain::Optical);
+        let full = z.normalize(ZoomDomain::OpticalPlusDigital);
+        println!(
+            "  → Optical: {:.1}%, Full range: {:.1}%",
+            optical.0 * 100.0,
+            full.0 * 100.0
+        );
     }
 
     println!("\n--- Focus ---");

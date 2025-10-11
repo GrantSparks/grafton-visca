@@ -6,7 +6,6 @@
 ./examples-advanced/type_safe_commands.rs|004ce28a74e307709e4661b6fb44d543
 ./examples/concurrent_control.rs|94626b2053b80bb1a9b6a514b72fd0e8
 ./examples/preset_demo.rs|02494fc1337aa7833a955d8737769a7c
-./examples/inquiry_quickstart.rs|32db0bf89ab7c6a65e5dd7cde787274c
 ./examples/runtime_demo.rs|9448e86ff62996bf357d2f155d82d34a
 ./examples/serial_async_demo.rs|e5eca7c26e3439be94f41b3c11e621a2
 ./grafton-visca-macros/src/lib.rs|c9d23a857298b97df36455b3424a8058
@@ -230,9 +229,7 @@
 ./src/camera/accessors.rs|39a06fae9c3b48da73ce1015bc708dc6
 ./src/capabilities/discovery.rs|dc87d462a08cd285a588d2625d7e4abf
 ./src/units.rs|baa82fc91c4416a72c9bf0d2906339d4
-./examples/typed_inquiry_demo.rs|177044e6e544f1253f16bcd08fd5da57
 ./src/camera/camera_impl.rs|846d556e26db87bad44cea8de6ffd95f
-./examples/quickstart.rs|2550ff7519e5c573ffae37880798ee56
 ./tests/camera_command_tests.rs|4002a7390f1eea32d6b51318f6202c2b
 ./tests/wrapper_api_test.rs|ddceb77c7a3046acfc7df589e38ec243
 ./tests/send_futures_compile_test.rs|0b424b516c2eeb6b3710185087e2a379
@@ -245,3 +242,6 @@
 ./src/transport/async_std/connectors.rs|aec5429edc32b330375e894d2bb275c2
 ./src/transport/async_io.rs|62c8e6baeeac425ede88386436d19b4d
 ./src/transport/smol/connectors.rs|56d8e4b30921552b82266e58cc9aa286
+./examples/typed_inquiry_demo.rs|7f4bc4711c6183c9bbbcd11341d488f7
+./examples/quickstart.rs|a08b6ad3e6d44ba85dedf5df9bfa197c
+./examples/inquiry_quickstart.rs|070bde053276e9b218d2cf0be1e0ba06
