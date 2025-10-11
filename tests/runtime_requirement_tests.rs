@@ -34,11 +34,15 @@ async fn test_operations_work_with_default_runtime() {
     tokio::time::advance(std::time::Duration::from_millis(100)).await;
 
     // Simple operations should work with explicit runtime
-    let result = camera.zoom_stop().await;
+    let result = camera
+        .zoom_stop(grafton_visca::CommandOptions::default())
+        .await;
     assert!(result.is_ok(), "zoom_stop failed: {:?}", result);
 
     // Pan/tilt operations should work with default runtime
-    let result = camera.pan_tilt_stop().await;
+    let result = camera
+        .pan_tilt_stop(grafton_visca::CommandOptions::default())
+        .await;
     assert!(result.is_ok(), "pan_tilt_stop failed: {:?}", result);
 
     // Socket manager cleanup is now handled automatically by Drop
@@ -63,7 +67,9 @@ async fn test_operations_succeed_with_explicit_runtime() {
         .unwrap();
 
     // Operations should succeed with proper responses
-    let result = camera.zoom_stop().await;
+    let result = camera
+        .zoom_stop(grafton_visca::CommandOptions::default())
+        .await;
     assert!(
         result.is_ok(),
         "zoom_stop failed with error: {:?}",
@@ -110,10 +116,14 @@ async fn test_movement_detection_works_with_default_runtime() {
         .unwrap();
 
     // Simple operations should work with explicit runtime
-    let result = camera.zoom_stop().await;
+    let result = camera
+        .zoom_stop(grafton_visca::CommandOptions::default())
+        .await;
     assert!(result.is_ok(), "zoom_stop failed: {:?}", result);
 
-    let result = camera.pan_tilt_stop().await;
+    let result = camera
+        .pan_tilt_stop(grafton_visca::CommandOptions::default())
+        .await;
     assert!(result.is_ok(), "pan_tilt_stop failed: {:?}", result);
 
     // Socket manager cleanup is now handled automatically by Drop
@@ -141,10 +151,14 @@ async fn test_power_operations_work_with_default_runtime() {
         .unwrap();
 
     // Just test that basic operations work, not power operations which have long delays
-    let result = camera.zoom_stop().await;
+    let result = camera
+        .zoom_stop(grafton_visca::CommandOptions::default())
+        .await;
     assert!(result.is_ok(), "zoom_stop failed: {:?}", result);
 
-    let result = camera.focus_stop().await;
+    let result = camera
+        .focus_stop(grafton_visca::CommandOptions::default())
+        .await;
     assert!(result.is_ok(), "focus_stop failed: {:?}", result);
 
     // Socket manager cleanup is now handled automatically by Drop

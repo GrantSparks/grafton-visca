@@ -56,7 +56,9 @@ async fn test_command_timeout_completes_deterministically() {
     .expect("Failed to create camera");
 
     // Send a command that will timeout
-    let result = camera.zoom_stop().await;
+    let result = camera
+        .zoom_stop(grafton_visca::CommandOptions::default())
+        .await;
 
     // Verify we got a timeout error
     assert!(result.is_err(), "Command should have timed out");
@@ -109,8 +111,8 @@ async fn test_multiple_timeouts_no_starvation() {
 
     // Send multiple commands that will timeout
     // Create both futures - they will both be submitted when awaited
-    let result1_future = camera.zoom_stop();
-    let result2_future = camera.zoom_tele(None);
+    let result1_future = camera.zoom_stop(grafton_visca::CommandOptions::default());
+    let result2_future = camera.zoom_tele(None, grafton_visca::CommandOptions::default());
 
     // Use join to run them concurrently
     let (result1, result2) = futures_lite::future::zip(result1_future, result2_future).await;
@@ -158,7 +160,7 @@ async fn test_shutdown_with_pending_timeouts() {
     // Start a command that would timeout after 5 seconds
     // Drop the future immediately to avoid borrowing issues
     {
-        let _future = camera.zoom_stop();
+        let _future = camera.zoom_stop(grafton_visca::CommandOptions::default());
         // Give it a moment to start processing
         tokio::time::sleep(Duration::from_millis(10)).await;
         // Future is dropped here

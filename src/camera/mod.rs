@@ -72,10 +72,35 @@ where
     where
         C: crate::command::ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static;
 
+    /// Execute a command with options (timeout, cancellation).
+    fn execute_with_opts<C>(
+        &self,
+        command: C,
+        opts: crate::CommandOptions<'_>,
+    ) -> M::Fut<'_, Result<(), crate::Error>>
+    where
+        C: crate::command::ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static;
+
     /// Query with a typed command and parse the response.
     fn query<C>(
         &self,
         command: C,
+    ) -> M::Fut<'_, Result<<C as crate::command::typed::ResponseParser>::Response, crate::Error>>
+    where
+        C: crate::command::typed::ResponseParser
+            + crate::command::ViscaCommand
+            + Send
+            + Sync
+            + Clone
+            + std::fmt::Debug
+            + 'static,
+        <C as crate::command::typed::ResponseParser>::Response: Send + 'static;
+
+    /// Query with options (timeout, cancellation).
+    fn query_with_opts<C>(
+        &self,
+        command: C,
+        opts: crate::CommandOptions<'_>,
     ) -> M::Fut<'_, Result<<C as crate::command::typed::ResponseParser>::Response, crate::Error>>
     where
         C: crate::command::typed::ResponseParser
@@ -120,6 +145,22 @@ where
         })
     }
 
+    fn execute_with_opts<C>(
+        &self,
+        command: C,
+        opts: crate::CommandOptions<'_>,
+    ) -> <crate::mode::Async as crate::mode::Mode>::Fut<'_, Result<(), crate::Error>>
+    where
+        C: crate::command::ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
+    {
+        // For async mode, timeout handling is delegated to the runtime's timeout configuration
+        // The per-command timeout in CommandOptions is not yet supported in async mode
+        // due to Rust lifetime limitations with HRTB (see rust-lang/rust#100013)
+        // TODO: Implement proper timeout handling once HRTB limitations are resolved
+        let _opts = opts;
+        self.execute(command)
+    }
+
     fn query<C>(
         &self,
         command: C,
@@ -138,6 +179,32 @@ where
         <C as crate::command::typed::ResponseParser>::Response: Send + 'static,
     {
         self.send_command_typed(&command)
+    }
+
+    fn query_with_opts<C>(
+        &self,
+        command: C,
+        opts: crate::CommandOptions<'_>,
+    ) -> <crate::mode::Async as crate::mode::Mode>::Fut<
+        '_,
+        Result<<C as crate::command::typed::ResponseParser>::Response, crate::Error>,
+    >
+    where
+        C: crate::command::typed::ResponseParser
+            + crate::command::ViscaCommand
+            + Send
+            + Sync
+            + Clone
+            + std::fmt::Debug
+            + 'static,
+        <C as crate::command::typed::ResponseParser>::Response: Send + 'static,
+    {
+        // For async mode, timeout handling is delegated to the runtime's timeout configuration
+        // The per-command timeout in CommandOptions is not yet supported in async mode
+        // due to Rust lifetime limitations with HRTB (see rust-lang/rust#100013)
+        // TODO: Implement proper timeout handling once HRTB limitations are resolved
+        let _opts = opts;
+        self.query(command)
     }
 
     fn error<T>(
@@ -180,6 +247,21 @@ where
         })
     }
 
+    fn execute_with_opts<C>(
+        &self,
+        command: C,
+        opts: crate::CommandOptions<'_>,
+    ) -> <crate::mode::Blocking as crate::mode::Mode>::Fut<'_, Result<(), crate::Error>>
+    where
+        C: crate::command::ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
+    {
+        // In blocking mode, timeouts are handled by transport-level timeouts
+        // For now, just delegate to execute
+        // TODO: Implement proper timeout handling in blocking mode
+        let _opts = opts;
+        self.execute(command)
+    }
+
     fn query<C>(
         &self,
         command: C,
@@ -201,6 +283,31 @@ where
         // so we need to extract the value from it using .block()
         use crate::mode::BlockingFutureExt;
         std::future::ready(self.send_command_typed(&command).block())
+    }
+
+    fn query_with_opts<C>(
+        &self,
+        command: C,
+        opts: crate::CommandOptions<'_>,
+    ) -> <crate::mode::Blocking as crate::mode::Mode>::Fut<
+        '_,
+        Result<<C as crate::command::typed::ResponseParser>::Response, crate::Error>,
+    >
+    where
+        C: crate::command::typed::ResponseParser
+            + crate::command::ViscaCommand
+            + Send
+            + Sync
+            + Clone
+            + std::fmt::Debug
+            + 'static,
+        <C as crate::command::typed::ResponseParser>::Response: Send + 'static,
+    {
+        // In blocking mode, timeouts are handled by transport-level timeouts
+        // For now, just delegate to query
+        // TODO: Implement proper timeout handling in blocking mode
+        let _opts = opts;
+        self.query(command)
     }
 
     fn error<T>(

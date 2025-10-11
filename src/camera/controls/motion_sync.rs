@@ -77,6 +77,7 @@ pub trait MotionSyncControl {
     fn set_motion_sync_mode(
         &self,
         mode: MotionSyncMode,
+        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Sets the motion sync speed.
@@ -94,6 +95,7 @@ pub trait MotionSyncControl {
     fn set_motion_sync_speed(
         &self,
         speed: MotionSyncSpeed,
+        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Sets the motion sync speed using a preset value.
@@ -109,6 +111,7 @@ pub trait MotionSyncControl {
     fn set_motion_sync_preset_speed(
         &self,
         speed: MotionSyncPreset,
+        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Gets the current motion sync mode.
@@ -117,7 +120,10 @@ pub trait MotionSyncControl {
     ///
     /// # Errors
     /// Returns an error if the camera doesn't support motion sync or the inquiry fails.
-    fn motion_sync_mode(&self) -> <Self::Mode as Mode>::Fut<'_, Result<MotionSyncMode, Error>>;
+    fn motion_sync_mode(
+        &self,
+        opts: crate::CommandOptions<'_>,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<MotionSyncMode, Error>>;
 
     /// Gets the current motion sync speed.
     ///
@@ -126,7 +132,10 @@ pub trait MotionSyncControl {
     ///
     /// # Errors
     /// Returns an error if the camera doesn't support motion sync or the inquiry fails.
-    fn motion_sync_speed(&self) -> <Self::Mode as Mode>::Fut<'_, Result<MotionSyncPreset, Error>>;
+    fn motion_sync_speed(
+        &self,
+        opts: crate::CommandOptions<'_>,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<MotionSyncPreset, Error>>;
 }
 
 // Single unified implementation for all Camera types!
@@ -139,19 +148,27 @@ where
 {
     type Mode = M;
 
-    fn set_motion_sync_mode(&self, mode: MotionSyncMode) -> M::Fut<'_, Result<(), Error>> {
+    fn set_motion_sync_mode(
+        &self,
+        mode: MotionSyncMode,
+        opts: crate::CommandOptions<'_>,
+    ) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::motion_sync::SetMotionSyncMode;
         let cmd = SetMotionSyncMode::new(mode);
-        self.execute(cmd)
+        self.execute_with_opts(cmd, opts)
     }
 
-    fn set_motion_sync_speed(&self, speed: MotionSyncSpeed) -> M::Fut<'_, Result<(), Error>> {
+    fn set_motion_sync_speed(
+        &self,
+        speed: MotionSyncSpeed,
+        opts: crate::CommandOptions<'_>,
+    ) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::motion_sync::SetMotionSyncPreset;
         // MotionSyncSpeed is already validated to be in range 1-24
         // SetMotionSyncPreset::new() validates the same range, so this should never fail
         // But we handle the error properly to satisfy clippy
         match SetMotionSyncPreset::new(speed.value()) {
-            Ok(cmd) => self.execute(cmd),
+            Ok(cmd) => self.execute_with_opts(cmd, opts),
             Err(e) => self.error(e),
         }
     }
@@ -159,19 +176,26 @@ where
     fn set_motion_sync_preset_speed(
         &self,
         speed: MotionSyncPreset,
+        opts: crate::CommandOptions<'_>,
     ) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::motion_sync::SetMotionSyncPreset;
         let cmd = SetMotionSyncPreset::from_preset(speed);
-        self.execute(cmd)
+        self.execute_with_opts(cmd, opts)
     }
 
-    fn motion_sync_mode(&self) -> M::Fut<'_, Result<MotionSyncMode, Error>> {
+    fn motion_sync_mode(
+        &self,
+        opts: crate::CommandOptions<'_>,
+    ) -> M::Fut<'_, Result<MotionSyncMode, Error>> {
         use crate::command::inquiry_structs::MotionSyncModeInquiry;
-        self.query(MotionSyncModeInquiry)
+        self.query_with_opts(MotionSyncModeInquiry, opts)
     }
 
-    fn motion_sync_speed(&self) -> M::Fut<'_, Result<MotionSyncPreset, Error>> {
+    fn motion_sync_speed(
+        &self,
+        opts: crate::CommandOptions<'_>,
+    ) -> M::Fut<'_, Result<MotionSyncPreset, Error>> {
         use crate::command::inquiry_structs::MotionSyncPresetInquiry;
-        self.query(MotionSyncPresetInquiry)
+        self.query_with_opts(MotionSyncPresetInquiry, opts)
     }
 }

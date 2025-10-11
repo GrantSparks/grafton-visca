@@ -75,7 +75,9 @@ mod tokio_tests {
             .unwrap();
 
         // Test zoom commands (deterministic timing with virtual clock)
-        let result = camera.zoom_tele(None).await;
+        let result = camera
+            .zoom_tele(None, grafton_visca::CommandOptions::default())
+            .await;
         assert!(result.is_ok(), "Zoom in command should succeed: {result:?}");
 
         // Check that command was sent
@@ -86,7 +88,9 @@ mod tokio_tests {
         );
 
         // Test another simple operation
-        let result = camera.zoom_wide(None).await;
+        let result = camera
+            .zoom_wide(None, grafton_visca::CommandOptions::default())
+            .await;
         assert!(result.is_ok(), "Zoom out should succeed: {result:?}");
 
         // Verify multiple commands were sent
@@ -109,8 +113,12 @@ mod tokio_tests {
 
         // Send commands sequentially with deterministic timing
         // This tests that socket manager can queue and handle multiple commands
-        let r1 = camera.zoom_tele(None).await;
-        let r2 = camera.zoom_wide(None).await;
+        let r1 = camera
+            .zoom_tele(None, grafton_visca::CommandOptions::default())
+            .await;
+        let r2 = camera
+            .zoom_wide(None, grafton_visca::CommandOptions::default())
+            .await;
 
         // Verify both commands succeeded
         assert!(r1.is_ok(), "First command should succeed: {r1:?}");
@@ -134,7 +142,9 @@ mod tokio_tests {
             .unwrap();
 
         // First command should trigger lazy initialization of socket manager
-        let result = camera.power_off().await;
+        let result = camera
+            .power_off(grafton_visca::CommandOptions::default())
+            .await;
         assert!(
             result.is_ok(),
             "First command should succeed with lazily initialized socket manager, got: {result:?}"
@@ -148,7 +158,9 @@ mod tokio_tests {
         );
 
         // Subsequent commands should also work
-        let result2 = camera.power_on().await;
+        let result2 = camera
+            .power_on(grafton_visca::CommandOptions::default())
+            .await;
         assert!(
             result2.is_ok(),
             "Subsequent commands should also succeed, got: {result2:?}"
@@ -177,7 +189,9 @@ mod tokio_tests {
 
         if let Ok(camera) = camera_result {
             // If camera creation succeeded (unlikely with no responses), test command timeout
-            let result = camera.power_on().await;
+            let result = camera
+                .power_on(grafton_visca::CommandOptions::default())
+                .await;
             assert!(result.is_err(), "Command should timeout without responses");
         } else {
             // Camera creation failed due to timeout, which is also a valid timeout test

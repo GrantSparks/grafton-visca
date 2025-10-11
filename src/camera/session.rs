@@ -737,12 +737,35 @@ where
         self.camera.execute(command)
     }
 
+    fn execute_with_opts<C>(
+        &self,
+        command: C,
+        opts: crate::CommandOptions<'_>,
+    ) -> M::Fut<'_, Result<(), Error>>
+    where
+        C: ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
+    {
+        self.camera.execute_with_opts(command, opts)
+    }
+
     fn query<C>(&self, command: C) -> M::Fut<'_, Result<<C as ResponseParser>::Response, Error>>
     where
         C: ResponseParser + ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
         <C as ResponseParser>::Response: Send + 'static,
     {
         self.camera.query(command)
+    }
+
+    fn query_with_opts<C>(
+        &self,
+        command: C,
+        opts: crate::CommandOptions<'_>,
+    ) -> M::Fut<'_, Result<<C as ResponseParser>::Response, Error>>
+    where
+        C: ResponseParser + ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
+        <C as ResponseParser>::Response: Send + 'static,
+    {
+        self.camera.query_with_opts(command, opts)
     }
 
     fn error<T>(&self, error: Error) -> M::Fut<'_, Result<T, Error>>

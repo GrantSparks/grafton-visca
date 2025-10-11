@@ -48,7 +48,10 @@ pub trait ZoomControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn zoom_stop(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn zoom_stop(
+        &self,
+        opts: crate::CommandOptions<'_>,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Start zooming in (telephoto direction) with optional speed control.
     ///
@@ -74,6 +77,7 @@ pub trait ZoomControl {
     fn zoom_tele(
         &self,
         speed: Option<ZoomSpeed>,
+        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Start zooming out (wide angle direction) with optional speed control.
@@ -100,6 +104,7 @@ pub trait ZoomControl {
     fn zoom_wide(
         &self,
         speed: Option<ZoomSpeed>,
+        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set zoom to an absolute normalized position.
@@ -112,6 +117,7 @@ pub trait ZoomControl {
     fn zoom_absolute(
         &self,
         position: Normalized,
+        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set zoom to a specific raw position value.
@@ -124,6 +130,7 @@ pub trait ZoomControl {
     fn set_zoom_position(
         &self,
         position: crate::types::ZoomPosition,
+        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set digital zoom on or off.
@@ -132,7 +139,11 @@ pub trait ZoomControl {
     ///
     /// # Arguments
     /// * `enabled` - true to enable digital zoom, false to disable
-    fn set_digital_zoom(&self, enabled: bool) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn set_digital_zoom(
+        &self,
+        enabled: bool,
+        opts: crate::CommandOptions<'_>,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set zoom to an absolute normalized position with domain awareness.
     ///
@@ -169,6 +180,7 @@ pub trait ZoomControl {
         &self,
         position: crate::Normalized,
         domain: crate::ZoomDomain,
+        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
@@ -182,31 +194,43 @@ where
 {
     type Mode = M;
 
-    fn zoom_stop(&self) -> M::Fut<'_, Result<(), Error>> {
+    fn zoom_stop(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::zoom::Zoom;
-        self.execute(Zoom::Stop)
+        self.execute_with_opts(Zoom::Stop, opts)
     }
 
-    fn zoom_tele(&self, speed: Option<ZoomSpeed>) -> M::Fut<'_, Result<(), Error>> {
+    fn zoom_tele(
+        &self,
+        speed: Option<ZoomSpeed>,
+        opts: crate::CommandOptions<'_>,
+    ) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::zoom::Zoom;
         match speed {
-            None => self.execute(Zoom::TeleStd),
-            Some(s) => self.execute(Zoom::TeleVariable(s)),
+            None => self.execute_with_opts(Zoom::TeleStd, opts),
+            Some(s) => self.execute_with_opts(Zoom::TeleVariable(s), opts),
         }
     }
 
-    fn zoom_wide(&self, speed: Option<ZoomSpeed>) -> M::Fut<'_, Result<(), Error>> {
+    fn zoom_wide(
+        &self,
+        speed: Option<ZoomSpeed>,
+        opts: crate::CommandOptions<'_>,
+    ) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::zoom::Zoom;
         match speed {
-            None => self.execute(Zoom::WideStd),
-            Some(s) => self.execute(Zoom::WideVariable(s)),
+            None => self.execute_with_opts(Zoom::WideStd, opts),
+            Some(s) => self.execute_with_opts(Zoom::WideVariable(s), opts),
         }
     }
 
-    fn zoom_absolute(&self, position: Normalized) -> M::Fut<'_, Result<(), Error>> {
+    fn zoom_absolute(
+        &self,
+        position: Normalized,
+        opts: crate::CommandOptions<'_>,
+    ) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::zoom::Zoom;
         match crate::types::ZoomPosition::try_from(*position.value()) {
-            Ok(zoom_pos) => self.execute(Zoom::Position(zoom_pos)),
+            Ok(zoom_pos) => self.execute_with_opts(Zoom::Position(zoom_pos), opts),
             Err(e) => self.error(e),
         }
     }
@@ -214,20 +238,26 @@ where
     fn set_zoom_position(
         &self,
         position: crate::types::ZoomPosition,
+        opts: crate::CommandOptions<'_>,
     ) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::zoom::Zoom;
-        self.execute(Zoom::Position(position))
+        self.execute_with_opts(Zoom::Position(position), opts)
     }
 
-    fn set_digital_zoom(&self, enabled: bool) -> M::Fut<'_, Result<(), Error>> {
+    fn set_digital_zoom(
+        &self,
+        enabled: bool,
+        opts: crate::CommandOptions<'_>,
+    ) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::zoom::DigitalZoom;
-        self.execute(DigitalZoom::new(enabled))
+        self.execute_with_opts(DigitalZoom::new(enabled), opts)
     }
 
     fn zoom_absolute_normalized(
         &self,
         position: crate::Normalized,
         domain: crate::ZoomDomain,
+        opts: crate::CommandOptions<'_>,
     ) -> M::Fut<'_, Result<(), Error>> {
         use crate::{command::zoom::Zoom, ZoomPositionExt};
 
@@ -240,7 +270,7 @@ where
 
         // Convert normalized position to zoom position based on domain
         match crate::types::ZoomPosition::from_normalized(position, domain) {
-            Ok(zoom_pos) => self.execute(Zoom::Position(zoom_pos)),
+            Ok(zoom_pos) => self.execute_with_opts(Zoom::Position(zoom_pos), opts),
             Err(e) => self.error(e),
         }
     }

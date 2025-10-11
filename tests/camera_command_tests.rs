@@ -31,7 +31,9 @@ mod blocking_tests {
 
         let camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport.clone()).unwrap();
 
-        let result = camera.power_on().block();
+        let result = camera
+            .power_on(grafton_visca::CommandOptions::default())
+            .block();
         assert!(
             result.is_ok(),
             "Power on command should succeed: {result:?}"
@@ -51,7 +53,9 @@ mod blocking_tests {
 
         let camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport.clone()).unwrap();
 
-        let result = camera.pan_tilt_home().block();
+        let result = camera
+            .pan_tilt_home(grafton_visca::CommandOptions::default())
+            .block();
         assert!(result.is_ok(), "Home command should succeed: {result:?}");
 
         let history = transport.sent();
@@ -72,13 +76,19 @@ mod blocking_tests {
 
         let camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport.clone()).unwrap();
 
-        let stop_result = camera.zoom_stop().block();
+        let stop_result = camera
+            .zoom_stop(grafton_visca::CommandOptions::default())
+            .block();
         assert!(stop_result.is_ok(), "zoom_stop failed: {stop_result:?}");
 
-        let in_result = camera.zoom_tele(None).block();
+        let in_result = camera
+            .zoom_tele(None, grafton_visca::CommandOptions::default())
+            .block();
         assert!(in_result.is_ok(), "zoom_in failed: {in_result:?}");
 
-        let out_result = camera.zoom_wide(None).block();
+        let out_result = camera
+            .zoom_wide(None, grafton_visca::CommandOptions::default())
+            .block();
         assert!(out_result.is_ok(), "zoom_out failed: {out_result:?}");
 
         let history = transport.sent();
@@ -97,7 +107,9 @@ mod blocking_tests {
 
         let camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport).unwrap();
 
-        let result = camera.zoom_tele(None).block();
+        let result = camera
+            .zoom_tele(None, grafton_visca::CommandOptions::default())
+            .block();
         assert!(result.is_ok(), "zoom_in failed: {result:?}");
     }
 
@@ -117,8 +129,14 @@ mod blocking_tests {
         let camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport).unwrap();
 
         let preset_id = PresetNumber::new(5).unwrap();
-        assert!(camera.preset_set(preset_id).block().is_ok());
-        assert!(camera.preset_recall(preset_id).block().is_ok());
+        assert!(camera
+            .preset_set(preset_id, grafton_visca::CommandOptions::default())
+            .block()
+            .is_ok());
+        assert!(camera
+            .preset_recall(preset_id, grafton_visca::CommandOptions::default())
+            .block()
+            .is_ok());
     }
 
     #[test]
@@ -127,7 +145,9 @@ mod blocking_tests {
 
         let camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport).unwrap();
 
-        let result = camera.power_on().block();
+        let result = camera
+            .power_on(grafton_visca::CommandOptions::default())
+            .block();
         assert!(result.is_err(), "Should get an error");
 
         match result {
@@ -142,7 +162,9 @@ mod blocking_tests {
 
         let camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport).unwrap();
 
-        let result = camera.pan_tilt_home().block();
+        let result = camera
+            .pan_tilt_home(grafton_visca::CommandOptions::default())
+            .block();
         assert!(result.is_err(), "Should timeout");
 
         match result {
@@ -161,9 +183,18 @@ mod blocking_tests {
 
         let camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport.clone()).unwrap();
 
-        assert!(camera.pan_tilt_home().block().is_ok());
-        assert!(camera.zoom_stop().block().is_ok());
-        assert!(camera.power_off().block().is_ok());
+        assert!(camera
+            .pan_tilt_home(grafton_visca::CommandOptions::default())
+            .block()
+            .is_ok());
+        assert!(camera
+            .zoom_stop(grafton_visca::CommandOptions::default())
+            .block()
+            .is_ok());
+        assert!(camera
+            .power_off(grafton_visca::CommandOptions::default())
+            .block()
+            .is_ok());
 
         let history = transport.sent();
         assert_eq!(history.len(), 3);
@@ -181,7 +212,10 @@ mod blocking_tests {
 
         let camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport.clone()).unwrap();
 
-        camera.power_on().block().unwrap();
+        camera
+            .power_on(grafton_visca::CommandOptions::default())
+            .block()
+            .unwrap();
 
         let history = transport.sent();
         assert_eq!(history.len(), 1);
@@ -197,8 +231,14 @@ mod blocking_tests {
 
         let camera: Camera<PtzOpticsG2, _> = Camera::new_blocking(transport.clone()).unwrap();
 
-        assert!(camera.power_on().block().is_ok());
-        assert!(camera.pan_tilt_home().block().is_ok());
+        assert!(camera
+            .power_on(grafton_visca::CommandOptions::default())
+            .block()
+            .is_ok());
+        assert!(camera
+            .pan_tilt_home(grafton_visca::CommandOptions::default())
+            .block()
+            .is_ok());
 
         let history = transport.sent();
         assert_eq!(history.len(), 2);

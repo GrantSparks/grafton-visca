@@ -45,7 +45,9 @@ async fn test_ack_race_with_immediate_response() {
 
     // Send a command - this should trigger the immediate ACK and completion
     // The key test is that the ACK is matched even though it arrives immediately
-    let result = camera.zoom_stop().await;
+    let result = camera
+        .zoom_stop(grafton_visca::CommandOptions::default())
+        .await;
 
     // The command should complete successfully without timing out or logging warnings
     assert!(result.is_ok(), "Command failed: {:?}", result);
@@ -74,7 +76,9 @@ async fn test_rollback_on_send_failure() {
         .unwrap();
 
     // Send a command - this should fail with timeout after retries
-    let result = camera.zoom_stop().await;
+    let result = camera
+        .zoom_stop(grafton_visca::CommandOptions::default())
+        .await;
 
     // The command should fail with timeout (recv failures trigger retries)
     assert!(result.is_err(), "Command should have failed");
@@ -104,7 +108,9 @@ async fn test_normal_operation_still_works() {
         .unwrap();
 
     // Send command
-    let result = camera.zoom_stop().await;
+    let result = camera
+        .zoom_stop(grafton_visca::CommandOptions::default())
+        .await;
 
     // Should complete successfully
     assert!(result.is_ok(), "Normal operation failed: {:?}", result);
@@ -139,8 +145,12 @@ async fn test_multiple_immediate_acks_preserve_order() {
         .unwrap();
 
     // Send multiple commands - both should handle immediate ACKs correctly
-    let result1 = camera.zoom_stop().await;
-    let result2 = camera.pan_tilt_stop().await;
+    let result1 = camera
+        .zoom_stop(grafton_visca::CommandOptions::default())
+        .await;
+    let result2 = camera
+        .pan_tilt_stop(grafton_visca::CommandOptions::default())
+        .await;
 
     // Both commands should complete successfully
     assert!(result1.is_ok(), "First command failed: {:?}", result1);

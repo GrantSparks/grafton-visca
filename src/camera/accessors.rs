@@ -27,7 +27,7 @@ use crate::{
     capabilities::Profile,
     executor::Executor,
     mode::Mode,
-    Error,
+    CommandOptions, Error,
 };
 
 /// Access to power-related controls and inquiries.
@@ -56,7 +56,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.power_state()
+        self.camera.power_state(CommandOptions::default())
     }
 
     /// Turn the camera on.
@@ -64,7 +64,7 @@ where
     where
         Camera<M, P, Tr, Exec>: PowerControl<Mode = M>,
     {
-        self.camera.power_on()
+        self.camera.power_on(CommandOptions::default())
     }
 
     /// Turn the camera off (standby).
@@ -72,7 +72,7 @@ where
     where
         Camera<M, P, Tr, Exec>: PowerControl<Mode = M>,
     {
-        self.camera.power_off()
+        self.camera.power_off(CommandOptions::default())
     }
 
     /// Set power state (true = on, false = off).
@@ -81,9 +81,9 @@ where
         Camera<M, P, Tr, Exec>: PowerControl<Mode = M>,
     {
         if on {
-            self.camera.power_on()
+            self.camera.power_on(CommandOptions::default())
         } else {
-            self.camera.power_off()
+            self.camera.power_off(CommandOptions::default())
         }
     }
 }
@@ -114,7 +114,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.zoom_position()
+        self.camera.zoom_position(CommandOptions::default())
     }
 
     /// Zoom to telephoto (zoom in).
@@ -122,7 +122,7 @@ where
     where
         Camera<M, P, Tr, Exec>: ZoomControl<Mode = M>,
     {
-        self.camera.zoom_tele(None)
+        self.camera.zoom_tele(None, CommandOptions::default())
     }
 
     /// Zoom to wide (zoom out).
@@ -130,7 +130,7 @@ where
     where
         Camera<M, P, Tr, Exec>: ZoomControl<Mode = M>,
     {
-        self.camera.zoom_wide(None)
+        self.camera.zoom_wide(None, CommandOptions::default())
     }
 
     /// Stop zoom movement.
@@ -138,7 +138,7 @@ where
     where
         Camera<M, P, Tr, Exec>: ZoomControl<Mode = M>,
     {
-        self.camera.zoom_stop()
+        self.camera.zoom_stop(CommandOptions::default())
     }
 
     /// Set zoom position directly.
@@ -149,7 +149,8 @@ where
     where
         Camera<M, P, Tr, Exec>: ZoomControl<Mode = M>,
     {
-        self.camera.set_zoom_position(position.into())
+        self.camera
+            .set_zoom_position(position.into(), CommandOptions::default())
     }
 
     /// Zoom to telephoto (zoom in) with variable speed.
@@ -160,7 +161,8 @@ where
         Camera<M, P, Tr, Exec>: ZoomControl<Mode = M>,
         S: Into<crate::ZoomSpeed>,
     {
-        self.camera.zoom_tele(Some(speed.into()))
+        self.camera
+            .zoom_tele(Some(speed.into()), CommandOptions::default())
     }
 
     /// Zoom to wide (zoom out) with variable speed.
@@ -171,7 +173,8 @@ where
         Camera<M, P, Tr, Exec>: ZoomControl<Mode = M>,
         S: Into<crate::ZoomSpeed>,
     {
-        self.camera.zoom_wide(Some(speed.into()))
+        self.camera
+            .zoom_wide(Some(speed.into()), CommandOptions::default())
     }
 
     /// Set zoom to absolute position (0.0 = wide, 1.0 = full tele).
@@ -179,7 +182,8 @@ where
     where
         Camera<M, P, Tr, Exec>: ZoomControl<Mode = M>,
     {
-        self.camera.zoom_absolute(position)
+        self.camera
+            .zoom_absolute(position, CommandOptions::default())
     }
 }
 
@@ -209,7 +213,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.version()
+        self.camera.version(CommandOptions::default())
     }
 
     /// Clear interface (reset communication).
@@ -217,7 +221,7 @@ where
     where
         Camera<M, P, Tr, Exec>: SystemControl<Mode = M>,
     {
-        self.camera.interface_clear()
+        self.camera.interface_clear(CommandOptions::default())
     }
 
     /// Cancel command on specific socket.
@@ -225,7 +229,8 @@ where
     where
         Camera<M, P, Tr, Exec>: SystemControl<Mode = M>,
     {
-        self.camera.cancel_command(socket)
+        self.camera
+            .cancel_command(socket, CommandOptions::default())
     }
 }
 
@@ -255,7 +260,7 @@ where
     where
         Camera<M, P, Tr, Exec>: PanTiltInquiryControl<Mode = M>,
     {
-        self.camera.pan_tilt_position()
+        self.camera.pan_tilt_position(CommandOptions::default())
     }
 
     /// Move in a specific direction.
@@ -270,8 +275,12 @@ where
     where
         Camera<M, P, Tr, Exec>: PanTiltControl<Mode = M>,
     {
-        self.camera
-            .pan_tilt_move(direction.into(), pan_speed, tilt_speed)
+        self.camera.pan_tilt_move(
+            direction.into(),
+            pan_speed,
+            tilt_speed,
+            CommandOptions::default(),
+        )
     }
 
     /// Move up.
@@ -327,7 +336,7 @@ where
     where
         Camera<M, P, Tr, Exec>: PanTiltControl<Mode = M>,
     {
-        self.camera.pan_tilt_stop()
+        self.camera.pan_tilt_stop(CommandOptions::default())
     }
 
     /// Move to home position.
@@ -335,7 +344,7 @@ where
     where
         Camera<M, P, Tr, Exec>: PanTiltControl<Mode = M>,
     {
-        self.camera.pan_tilt_home()
+        self.camera.pan_tilt_home(CommandOptions::default())
     }
 
     /// Move to absolute position.
@@ -348,7 +357,8 @@ where
     where
         Camera<M, P, Tr, Exec>: PanTiltControl<Mode = M>,
     {
-        self.camera.pan_tilt_absolute(pan, tilt, speed)
+        self.camera
+            .pan_tilt_absolute(pan, tilt, speed, CommandOptions::default())
     }
 
     /// Move relative to current position.
@@ -361,7 +371,8 @@ where
     where
         Camera<M, P, Tr, Exec>: PanTiltControl<Mode = M>,
     {
-        self.camera.pan_tilt_relative(pan, tilt, speed)
+        self.camera
+            .pan_tilt_relative(pan, tilt, speed, CommandOptions::default())
     }
 }
 
@@ -391,7 +402,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.focus_position()
+        self.camera.focus_position(CommandOptions::default())
     }
 
     /// Get the current focus mode.
@@ -399,7 +410,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.focus_mode()
+        self.camera.focus_mode(CommandOptions::default())
     }
 
     /// Set to auto focus mode.
@@ -407,7 +418,7 @@ where
     where
         Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
     {
-        self.camera.focus_auto()
+        self.camera.focus_auto(CommandOptions::default())
     }
 
     /// Set to manual focus mode.
@@ -415,7 +426,7 @@ where
     where
         Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
     {
-        self.camera.focus_manual()
+        self.camera.focus_manual(CommandOptions::default())
     }
 
     /// Focus near.
@@ -423,7 +434,7 @@ where
     where
         Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
     {
-        self.camera.focus_near(speed)
+        self.camera.focus_near(speed, CommandOptions::default())
     }
 
     /// Focus far.
@@ -431,7 +442,7 @@ where
     where
         Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
     {
-        self.camera.focus_far(speed)
+        self.camera.focus_far(speed, CommandOptions::default())
     }
 
     /// Stop focus movement.
@@ -439,7 +450,7 @@ where
     where
         Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
     {
-        self.camera.focus_stop()
+        self.camera.focus_stop(CommandOptions::default())
     }
 
     /// Set focus position directly.
@@ -450,7 +461,7 @@ where
     where
         Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
     {
-        self.camera.set_focus(position)
+        self.camera.set_focus(position, CommandOptions::default())
     }
 
     /// Get focus near limit.
@@ -458,7 +469,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.focus_near_limit()
+        self.camera.focus_near_limit(CommandOptions::default())
     }
 
     /// Get focus zone.
@@ -466,7 +477,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.focus_zone()
+        self.camera.focus_zone(CommandOptions::default())
     }
 
     /// Enable focus lock to prevent changes.
@@ -474,7 +485,7 @@ where
     where
         Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
     {
-        self.camera.enable_focus_lock()
+        self.camera.enable_focus_lock(CommandOptions::default())
     }
 
     /// Disable focus lock.
@@ -482,7 +493,7 @@ where
     where
         Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
     {
-        self.camera.disable_focus_lock()
+        self.camera.disable_focus_lock(CommandOptions::default())
     }
 
     /// Press Push AF button (temporary auto focus).
@@ -490,7 +501,7 @@ where
     where
         Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
     {
-        self.camera.push_af_press()
+        self.camera.push_af_press(CommandOptions::default())
     }
 
     /// Release Push AF button.
@@ -498,7 +509,7 @@ where
     where
         Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
     {
-        self.camera.push_af_release()
+        self.camera.push_af_release(CommandOptions::default())
     }
 
     /// Set the focus zone.
@@ -506,7 +517,7 @@ where
     where
         Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
     {
-        self.camera.set_focus_zone(zone)
+        self.camera.set_focus_zone(zone, CommandOptions::default())
     }
 
     /// Set auto focus sensitivity.
@@ -517,7 +528,8 @@ where
     where
         Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
     {
-        self.camera.set_auto_focus_sensitivity(sensitivity)
+        self.camera
+            .set_auto_focus_sensitivity(sensitivity, CommandOptions::default())
     }
 
     /// Set the focus near limit.
@@ -528,7 +540,8 @@ where
     where
         Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
     {
-        self.camera.set_focus_near_limit(position)
+        self.camera
+            .set_focus_near_limit(position, CommandOptions::default())
     }
 
     /// Trigger one-push auto focus.
@@ -538,7 +551,7 @@ where
     where
         Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
     {
-        self.camera.focus_one_push()
+        self.camera.focus_one_push(CommandOptions::default())
     }
 }
 
@@ -568,7 +581,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.exposure_mode()
+        self.camera.exposure_mode(CommandOptions::default())
     }
 
     /// Get exposure compensation value.
@@ -576,7 +589,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.exposure_compensation()
+        self.camera.exposure_compensation(CommandOptions::default())
     }
 
     /// Check if exposure compensation is enabled.
@@ -584,7 +597,8 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.exposure_compensation_enabled()
+        self.camera
+            .exposure_compensation_enabled(CommandOptions::default())
     }
 
     /// Get exposure compensation position.
@@ -592,7 +606,8 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.exposure_compensation_position()
+        self.camera
+            .exposure_compensation_position(CommandOptions::default())
     }
 
     /// Get iris value.
@@ -600,7 +615,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.iris()
+        self.camera.iris(CommandOptions::default())
     }
 
     /// Get shutter speed.
@@ -608,7 +623,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.shutter()
+        self.camera.shutter(CommandOptions::default())
     }
 
     /// Get gain value.
@@ -616,7 +631,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.gain()
+        self.camera.gain(CommandOptions::default())
     }
 
     /// Get gain limit.
@@ -624,7 +639,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.gain_limit()
+        self.camera.gain_limit(CommandOptions::default())
     }
 
     /// Set to auto exposure mode.
@@ -632,7 +647,7 @@ where
     where
         Camera<M, P, Tr, Exec>: ExposureControl<Mode = M>,
     {
-        self.camera.exposure_auto()
+        self.camera.exposure_auto(CommandOptions::default())
     }
 
     /// Set to manual exposure mode.
@@ -640,7 +655,7 @@ where
     where
         Camera<M, P, Tr, Exec>: ExposureControl<Mode = M>,
     {
-        self.camera.exposure_manual()
+        self.camera.exposure_manual(CommandOptions::default())
     }
 
     /// Set to shutter priority mode.
@@ -648,7 +663,8 @@ where
     where
         Camera<M, P, Tr, Exec>: ExposureControl<Mode = M>,
     {
-        self.camera.exposure_shutter_priority()
+        self.camera
+            .exposure_shutter_priority(CommandOptions::default())
     }
 
     /// Set to iris priority mode.
@@ -656,7 +672,8 @@ where
     where
         Camera<M, P, Tr, Exec>: ExposureControl<Mode = M>,
     {
-        self.camera.exposure_iris_priority()
+        self.camera
+            .exposure_iris_priority(CommandOptions::default())
     }
 }
 
@@ -686,7 +703,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.white_balance_mode()
+        self.camera.white_balance_mode(CommandOptions::default())
     }
 
     /// Get red gain.
@@ -694,7 +711,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.red_gain()
+        self.camera.red_gain(CommandOptions::default())
     }
 
     /// Get blue gain.
@@ -702,7 +719,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.blue_gain()
+        self.camera.blue_gain(CommandOptions::default())
     }
 
     /// Get red tuning.
@@ -710,7 +727,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.red_tuning()
+        self.camera.red_tuning(CommandOptions::default())
     }
 
     /// Get blue tuning.
@@ -718,7 +735,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.blue_tuning()
+        self.camera.blue_tuning(CommandOptions::default())
     }
 
     /// Get color temperature.
@@ -726,7 +743,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.color_temperature()
+        self.camera.color_temperature(CommandOptions::default())
     }
 
     /// Set to auto white balance.
@@ -734,7 +751,7 @@ where
     where
         Camera<M, P, Tr, Exec>: WhiteBalanceControl<Mode = M>,
     {
-        self.camera.white_balance_auto()
+        self.camera.white_balance_auto(CommandOptions::default())
     }
 
     /// Set to indoor white balance.
@@ -742,7 +759,7 @@ where
     where
         Camera<M, P, Tr, Exec>: WhiteBalanceControl<Mode = M>,
     {
-        self.camera.white_balance_indoor()
+        self.camera.white_balance_indoor(CommandOptions::default())
     }
 
     /// Set to outdoor white balance.
@@ -750,7 +767,7 @@ where
     where
         Camera<M, P, Tr, Exec>: WhiteBalanceControl<Mode = M>,
     {
-        self.camera.white_balance_outdoor()
+        self.camera.white_balance_outdoor(CommandOptions::default())
     }
 
     /// Set to manual white balance.
@@ -758,7 +775,7 @@ where
     where
         Camera<M, P, Tr, Exec>: WhiteBalanceControl<Mode = M>,
     {
-        self.camera.white_balance_manual()
+        self.camera.white_balance_manual(CommandOptions::default())
     }
 
     /// Trigger one-push white balance.
@@ -766,7 +783,7 @@ where
     where
         Camera<M, P, Tr, Exec>: ColorControl<Mode = M>,
     {
-        self.camera.one_push_trigger()
+        self.camera.one_push_trigger(CommandOptions::default())
     }
 }
 
@@ -796,7 +813,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.brightness()
+        self.camera.brightness(CommandOptions::default())
     }
 
     /// Get saturation level.
@@ -804,7 +821,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.saturation()
+        self.camera.saturation(CommandOptions::default())
     }
 
     /// Get hue setting.
@@ -812,7 +829,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.hue()
+        self.camera.hue(CommandOptions::default())
     }
 
     /// Get gamma level.
@@ -820,7 +837,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.gamma()
+        self.camera.gamma(CommandOptions::default())
     }
 
     /// Get sharpness mode.
@@ -828,7 +845,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.sharpness_mode()
+        self.camera.sharpness_mode(CommandOptions::default())
     }
 
     /// Check if black and white mode is enabled.
@@ -836,7 +853,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.black_white()
+        self.camera.black_white(CommandOptions::default())
     }
 
     /// Get black and white mode setting.
@@ -844,7 +861,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.black_white_mode()
+        self.camera.black_white_mode(CommandOptions::default())
     }
 
     /// Get image flip settings.
@@ -852,7 +869,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.image_flip()
+        self.camera.image_flip(CommandOptions::default())
     }
 
     /// Get flip mode (combined horizontal/vertical).
@@ -860,7 +877,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.flip_mode()
+        self.camera.flip_mode(CommandOptions::default())
     }
 
     /// Get resolution mode.
@@ -868,7 +885,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.resolution()
+        self.camera.resolution(CommandOptions::default())
     }
 
     /// Get picture effect mode.
@@ -876,7 +893,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.picture_effect()
+        self.camera.picture_effect(CommandOptions::default())
     }
 
     /// Check if backlight compensation is enabled.
@@ -884,7 +901,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.backlight_enabled()
+        self.camera.backlight_enabled(CommandOptions::default())
     }
 
     /// Get defog level.
@@ -892,7 +909,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.defog_level()
+        self.camera.defog_level(CommandOptions::default())
     }
 
     /// Get noise reduction level.
@@ -900,7 +917,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.noise_reduction_level()
+        self.camera.noise_reduction_level(CommandOptions::default())
     }
 
     /// Get noise reduction 2D level.
@@ -908,7 +925,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.noise_reduction_2d()
+        self.camera.noise_reduction_2d(CommandOptions::default())
     }
 
     /// Get noise reduction 3D level.
@@ -916,7 +933,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.noise_reduction_3d()
+        self.camera.noise_reduction_3d(CommandOptions::default())
     }
 
     /// Get noise reduction mode.
@@ -926,7 +943,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.noise_reduction_mode()
+        self.camera.noise_reduction_mode(CommandOptions::default())
     }
 
     // Image processing control methods
@@ -938,7 +955,7 @@ where
             crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
     {
         use crate::camera::controls::image_processing::ImageProcessingControl;
-        self.camera.enable_flip()
+        self.camera.enable_flip(CommandOptions::default())
     }
 
     /// Disable image flip.
@@ -948,7 +965,7 @@ where
             crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
     {
         use crate::camera::controls::image_processing::ImageProcessingControl;
-        self.camera.disable_flip()
+        self.camera.disable_flip(CommandOptions::default())
     }
 
     /// Enable horizontal flip (mirror).
@@ -958,7 +975,8 @@ where
             crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
     {
         use crate::camera::controls::image_processing::ImageProcessingControl;
-        self.camera.enable_horizontal_flip()
+        self.camera
+            .enable_horizontal_flip(CommandOptions::default())
     }
 
     /// Disable horizontal flip (mirror).
@@ -968,7 +986,8 @@ where
             crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
     {
         use crate::camera::controls::image_processing::ImageProcessingControl;
-        self.camera.disable_horizontal_flip()
+        self.camera
+            .disable_horizontal_flip(CommandOptions::default())
     }
 
     /// Set image flip mode (combined horizontal and vertical).
@@ -981,7 +1000,7 @@ where
             crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
     {
         use crate::camera::controls::image_processing::ImageProcessingControl;
-        self.camera.set_image_flip(mode)
+        self.camera.set_image_flip(mode, CommandOptions::default())
     }
 
     /// Set contrast level.
@@ -991,7 +1010,7 @@ where
             crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
     {
         use crate::camera::controls::image_processing::ImageProcessingControl;
-        self.camera.set_contrast(level)
+        self.camera.set_contrast(level, CommandOptions::default())
     }
 
     /// Set sharpness level.
@@ -1004,7 +1023,7 @@ where
             crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
     {
         use crate::camera::controls::image_processing::ImageProcessingControl;
-        self.camera.set_sharpness(level)
+        self.camera.set_sharpness(level, CommandOptions::default())
     }
 
     /// Set saturation level.
@@ -1017,7 +1036,7 @@ where
             crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
     {
         use crate::camera::controls::image_processing::ImageProcessingControl;
-        self.camera.set_saturation(level)
+        self.camera.set_saturation(level, CommandOptions::default())
     }
 
     /// Set hue level.
@@ -1027,7 +1046,7 @@ where
             crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
     {
         use crate::camera::controls::image_processing::ImageProcessingControl;
-        self.camera.set_hue(level)
+        self.camera.set_hue(level, CommandOptions::default())
     }
 
     /// Set luminance (brightness) level.
@@ -1040,7 +1059,7 @@ where
             crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
     {
         use crate::camera::controls::image_processing::ImageProcessingControl;
-        self.camera.set_luminance(level)
+        self.camera.set_luminance(level, CommandOptions::default())
     }
 
     /// Enable image freeze.
@@ -1050,7 +1069,7 @@ where
             crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
     {
         use crate::camera::controls::image_processing::ImageProcessingControl;
-        self.camera.enable_freeze()
+        self.camera.enable_freeze(CommandOptions::default())
     }
 
     /// Disable image freeze.
@@ -1060,7 +1079,7 @@ where
             crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
     {
         use crate::camera::controls::image_processing::ImageProcessingControl;
-        self.camera.disable_freeze()
+        self.camera.disable_freeze(CommandOptions::default())
     }
 
     /// Enable black and white mode.
@@ -1070,7 +1089,7 @@ where
             crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
     {
         use crate::camera::controls::image_processing::ImageProcessingControl;
-        self.camera.enable_black_white()
+        self.camera.enable_black_white(CommandOptions::default())
     }
 
     /// Disable black and white mode.
@@ -1080,7 +1099,7 @@ where
             crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
     {
         use crate::camera::controls::image_processing::ImageProcessingControl;
-        self.camera.disable_black_white()
+        self.camera.disable_black_white(CommandOptions::default())
     }
 
     /// Set picture effect mode.
@@ -1093,7 +1112,8 @@ where
             crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
     {
         use crate::camera::controls::image_processing::ImageProcessingControl;
-        self.camera.set_picture_effect(mode)
+        self.camera
+            .set_picture_effect(mode, CommandOptions::default())
     }
 
     /// Set noise reduction 2D level.
@@ -1106,7 +1126,8 @@ where
             crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
     {
         use crate::camera::controls::image_processing::ImageProcessingControl;
-        self.camera.set_noise_reduction_2d(level)
+        self.camera
+            .set_noise_reduction_2d(level, CommandOptions::default())
     }
 
     /// Disable noise reduction 2D.
@@ -1116,7 +1137,8 @@ where
             crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
     {
         use crate::camera::controls::image_processing::ImageProcessingControl;
-        self.camera.disable_noise_reduction_2d()
+        self.camera
+            .disable_noise_reduction_2d(CommandOptions::default())
     }
 
     /// Set noise reduction 3D level.
@@ -1129,7 +1151,8 @@ where
             crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
     {
         use crate::camera::controls::image_processing::ImageProcessingControl;
-        self.camera.set_noise_reduction_3d(level)
+        self.camera
+            .set_noise_reduction_3d(level, CommandOptions::default())
     }
 
     /// Disable noise reduction 3D.
@@ -1139,7 +1162,8 @@ where
             crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
     {
         use crate::camera::controls::image_processing::ImageProcessingControl;
-        self.camera.disable_noise_reduction_3d()
+        self.camera
+            .disable_noise_reduction_3d(CommandOptions::default())
     }
 }
 
@@ -1171,7 +1195,9 @@ where
     {
         use crate::command::preset::PresetNumber;
         match PresetNumber::new(preset) {
-            Ok(preset_number) => self.camera.preset_recall(preset_number),
+            Ok(preset_number) => self
+                .camera
+                .preset_recall(preset_number, CommandOptions::default()),
             Err(_) => self.camera.error(Error::InvalidParameter {
                 parameter: "preset",
                 value: preset.to_string().into(),
@@ -1187,7 +1213,9 @@ where
     {
         use crate::command::preset::PresetNumber;
         match PresetNumber::new(preset) {
-            Ok(preset_number) => self.camera.preset_set(preset_number),
+            Ok(preset_number) => self
+                .camera
+                .preset_set(preset_number, CommandOptions::default()),
             Err(_) => self.camera.error(Error::InvalidParameter {
                 parameter: "preset",
                 value: preset.to_string().into(),
@@ -1203,7 +1231,9 @@ where
     {
         use crate::command::preset::PresetNumber;
         match PresetNumber::new(preset) {
-            Ok(preset_number) => self.camera.preset_reset(preset_number),
+            Ok(preset_number) => self
+                .camera
+                .preset_reset(preset_number, CommandOptions::default()),
             Err(_) => self.camera.error(Error::InvalidParameter {
                 parameter: "preset",
                 value: preset.to_string().into(),
@@ -1239,7 +1269,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.tally_light_status()
+        self.camera.tally_light_status(CommandOptions::default())
     }
 
     /// Check if tally auto adjust is enabled.
@@ -1247,7 +1277,8 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.tally_auto_adjust_enabled()
+        self.camera
+            .tally_auto_adjust_enabled(CommandOptions::default())
     }
 
     /// Turn on red tally light.
@@ -1255,7 +1286,7 @@ where
     where
         Camera<M, P, Tr, Exec>: TallyControl<Mode = M>,
     {
-        self.camera.tally_red_on()
+        self.camera.tally_red_on(CommandOptions::default())
     }
 
     /// Turn off red tally light.
@@ -1263,7 +1294,7 @@ where
     where
         Camera<M, P, Tr, Exec>: TallyControl<Mode = M>,
     {
-        self.camera.tally_red_off()
+        self.camera.tally_red_off(CommandOptions::default())
     }
 
     /// Turn on green tally light.
@@ -1271,7 +1302,7 @@ where
     where
         Camera<M, P, Tr, Exec>: TallyControl<Mode = M>,
     {
-        self.camera.tally_green_on()
+        self.camera.tally_green_on(CommandOptions::default())
     }
 
     /// Turn off green tally light.
@@ -1279,7 +1310,7 @@ where
     where
         Camera<M, P, Tr, Exec>: TallyControl<Mode = M>,
     {
-        self.camera.tally_green_off()
+        self.camera.tally_green_off(CommandOptions::default())
     }
 }
 
@@ -1310,7 +1341,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.nd_filter_position()
+        self.camera.nd_filter_position(CommandOptions::default())
     }
 
     /// Get the ND filter preset setting.
@@ -1318,7 +1349,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.nd_filter_preset()
+        self.camera.nd_filter_preset(CommandOptions::default())
     }
 
     /// Set the ND filter mode.
@@ -1326,7 +1357,8 @@ where
     where
         Camera<M, P, Tr, Exec>: NdFilterControl<Mode = M>,
     {
-        self.camera.set_nd_filter_mode(mode)
+        self.camera
+            .set_nd_filter_mode(mode, CommandOptions::default())
     }
 }
 
@@ -1357,7 +1389,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.motion_sync_mode()
+        self.camera.motion_sync_mode(CommandOptions::default())
     }
 }
 
@@ -1387,7 +1419,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.menu_status()
+        self.camera.menu_status(CommandOptions::default())
     }
 
     /// Open the menu.
@@ -1395,7 +1427,8 @@ where
     where
         Camera<M, P, Tr, Exec>: MenuControl<Mode = M>,
     {
-        self.camera.set_menu_display(true)
+        self.camera
+            .set_menu_display(true, CommandOptions::default())
     }
 
     /// Close the menu.
@@ -1403,7 +1436,8 @@ where
     where
         Camera<M, P, Tr, Exec>: MenuControl<Mode = M>,
     {
-        self.camera.set_menu_display(false)
+        self.camera
+            .set_menu_display(false, CommandOptions::default())
     }
 
     /// Navigate up in the menu.
@@ -1412,7 +1446,8 @@ where
         Camera<M, P, Tr, Exec>: MenuControl<Mode = M>,
     {
         use crate::command::MenuDirection;
-        self.camera.menu_navigate(MenuDirection::Up)
+        self.camera
+            .menu_navigate(MenuDirection::Up, CommandOptions::default())
     }
 
     /// Navigate down in the menu.
@@ -1421,7 +1456,8 @@ where
         Camera<M, P, Tr, Exec>: MenuControl<Mode = M>,
     {
         use crate::command::MenuDirection;
-        self.camera.menu_navigate(MenuDirection::Down)
+        self.camera
+            .menu_navigate(MenuDirection::Down, CommandOptions::default())
     }
 
     /// Navigate left in the menu.
@@ -1430,7 +1466,8 @@ where
         Camera<M, P, Tr, Exec>: MenuControl<Mode = M>,
     {
         use crate::command::MenuDirection;
-        self.camera.menu_navigate(MenuDirection::Left)
+        self.camera
+            .menu_navigate(MenuDirection::Left, CommandOptions::default())
     }
 
     /// Navigate right in the menu.
@@ -1439,7 +1476,8 @@ where
         Camera<M, P, Tr, Exec>: MenuControl<Mode = M>,
     {
         use crate::command::MenuDirection;
-        self.camera.menu_navigate(MenuDirection::Right)
+        self.camera
+            .menu_navigate(MenuDirection::Right, CommandOptions::default())
     }
 
     /// Confirm menu selection.
@@ -1448,7 +1486,8 @@ where
         Camera<M, P, Tr, Exec>: MenuControl<Mode = M>,
     {
         use crate::command::MenuAction;
-        self.camera.menu_action(MenuAction::Select)
+        self.camera
+            .menu_action(MenuAction::Select, CommandOptions::default())
     }
 
     /// Return from current menu level.
@@ -1457,7 +1496,8 @@ where
         Camera<M, P, Tr, Exec>: MenuControl<Mode = M>,
     {
         use crate::command::MenuAction;
-        self.camera.menu_action(MenuAction::Cancel)
+        self.camera
+            .menu_action(MenuAction::Cancel, CommandOptions::default())
     }
 }
 
@@ -1488,7 +1528,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.night_day_mode()
+        self.camera.night_day_mode(CommandOptions::default())
     }
 
     /// Check if standby mode is enabled.
@@ -1496,7 +1536,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.standby_enabled()
+        self.camera.standby_enabled(CommandOptions::default())
     }
 
     /// Check iris control status.
@@ -1504,7 +1544,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.iris_control()
+        self.camera.iris_control(CommandOptions::default())
     }
 
     /// Check if digital PTZ is enabled.
@@ -1512,7 +1552,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.digital_ptz_enabled()
+        self.camera.digital_ptz_enabled(CommandOptions::default())
     }
 
     /// Check if auto trace is enabled.
@@ -1520,7 +1560,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.auto_trace_enabled()
+        self.camera.auto_trace_enabled(CommandOptions::default())
     }
 
     /// Get focus unlock state.
@@ -1528,7 +1568,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.focus_unlock()
+        self.camera.focus_unlock(CommandOptions::default())
     }
 
     /// Get broadcast domain setting.
@@ -1536,7 +1576,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.broadcast_domain()
+        self.camera.broadcast_domain(CommandOptions::default())
     }
 
     /// Check if USB audio is enabled.
@@ -1544,7 +1584,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.usb_audio_enabled()
+        self.camera.usb_audio_enabled(CommandOptions::default())
     }
 
     /// Check if two tone mode is enabled.
@@ -1552,7 +1592,7 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.two_tone_mode_enabled()
+        self.camera.two_tone_mode_enabled(CommandOptions::default())
     }
 
     /// Check if digital mode is enabled.
@@ -1560,6 +1600,6 @@ where
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
-        self.camera.digital_mode_enabled()
+        self.camera.digital_mode_enabled(CommandOptions::default())
     }
 }

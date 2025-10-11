@@ -80,6 +80,7 @@ pub trait VariableSpeedControl {
     fn set_variable_speed_mode(
         &self,
         mode: VariableSpeedMode,
+        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
@@ -93,9 +94,13 @@ where
 {
     type Mode = M;
 
-    fn set_variable_speed_mode(&self, mode: VariableSpeedMode) -> M::Fut<'_, Result<(), Error>> {
+    fn set_variable_speed_mode(
+        &self,
+        mode: VariableSpeedMode,
+        opts: crate::CommandOptions<'_>,
+    ) -> M::Fut<'_, Result<(), Error>> {
         let cmd = SetVariableSpeedMode::new(mode);
-        self.execute(cmd)
+        self.execute_with_opts(cmd, opts)
     }
 }
 

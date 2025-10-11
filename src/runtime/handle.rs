@@ -320,6 +320,13 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
             .map_err(Error::to_public_error)
     }
 
+    /// Get a reference to the executor.
+    ///
+    /// This allows access to the executor for runtime-agnostic operations like sleep and timeout.
+    pub fn executor(&self) -> &Arc<E> {
+        &self.inner.executor
+    }
+
     /// Sleep for a specified duration.
     ///
     /// This is a runtime-agnostic sleep that delegates to the injected executor.

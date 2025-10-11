@@ -193,7 +193,7 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         println!("   Attempt {attempt}/{max_attempts}: Power on");
 
         let start = Instant::now();
-        match camera.power().on() {
+        match camera.power().on(grafton_visca::CommandOptions::default()) {
             Ok(_) => {
                 let elapsed = start.elapsed();
                 println!("   ✓ Power on succeeded in {elapsed:?}");
@@ -248,24 +248,25 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         PanTiltDirection::Right,
         PanSpeed::new(10)?,
         TiltSpeed::new(0)?,
+        grafton_visca::CommandOptions::default(),
     ) {
         Ok(_) => {
             println!("   ✓ Started movement");
 
             // Try another command immediately (might get CameraBusy)
-            match camera.zoom().tele() {
+            match camera.zoom().tele(grafton_visca::CommandOptions::default()) {
                 Ok(_) => println!("   ✓ Zoom command accepted"),
                 Err(Error::CameraBusy) => {
                     println!("   ⚠️  Camera busy (expected during movement)");
                     println!("   💡 Wait for movement to complete or stop it first");
 
                     // Stop movement and wait for it to complete
-                    camera.pan_tilt().stop()?;
+                    camera.pan_tilt().stop(grafton_visca::CommandOptions::default())?;
                     camera.await_pan_tilt_idle(Duration::from_secs(5))?;
                     println!("   ✓ Movement stopped");
 
                     // Retry zoom
-                    match camera.zoom().tele() {
+                    match camera.zoom().tele(grafton_visca::CommandOptions::default()) {
                         Ok(_) => println!("   ✓ Zoom succeeded after stopping movement"),
                         Err(e) => println!("   ✗ Zoom still failed: {e}"),
                     }
@@ -354,7 +355,7 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         println!("   Attempt {attempt}/{max_attempts}: Power on");
 
         let start = Instant::now();
-        match camera.power().on().await {
+        match camera.power().on(grafton_visca::CommandOptions::default()).await {
             Ok(_) => {
                 let elapsed = start.elapsed();
                 println!("   ✓ Power on succeeded in {elapsed:?}");
@@ -400,6 +401,7 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
             PanTiltDirection::Right,
             PanSpeed::new(10)?,
             TiltSpeed::new(0)?,
+            grafton_visca::CommandOptions::default(),
         )
         .await
     {
@@ -407,18 +409,18 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
             println!("   ✓ Started continuous movement");
 
             // Immediately try another command
-            match camera.zoom().tele().await {
+            match camera.zoom().tele(grafton_visca::CommandOptions::default()).await {
                 Ok(_) => println!("   ✓ Zoom command accepted"),
                 Err(Error::CameraBusy) => {
                     println!("   ⚠️  Camera busy (expected)");
                     println!("   💡 Solution: Stop movement first or wait");
 
                     // Stop movement and retry
-                    camera.pan_tilt().stop().await?;
+                    camera.pan_tilt().stop(grafton_visca::CommandOptions::default()).await?;
                     println!("   ✓ Movement stopped");
 
                     // Retry zoom
-                    match camera.zoom().tele().await {
+                    match camera.zoom().tele(grafton_visca::CommandOptions::default()).await {
                         Ok(_) => println!("   ✓ Zoom succeeded after stopping movement"),
                         Err(e) => println!("   ✗ Zoom still failed: {e}"),
                     }

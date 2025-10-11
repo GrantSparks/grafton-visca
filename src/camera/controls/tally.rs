@@ -75,7 +75,10 @@ pub trait TallyControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn tally_red_on(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn tally_red_on(
+        &self,
+        opts: crate::CommandOptions<'_>,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Turn red tally light off.
     ///
@@ -83,7 +86,10 @@ pub trait TallyControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn tally_red_off(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn tally_red_off(
+        &self,
+        opts: crate::CommandOptions<'_>,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set tally brightness to low.
     ///
@@ -92,7 +98,10 @@ pub trait TallyControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn tally_bright_lo(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn tally_bright_lo(
+        &self,
+        opts: crate::CommandOptions<'_>,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set tally brightness to high.
     ///
@@ -101,7 +110,10 @@ pub trait TallyControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn tally_bright_hi(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn tally_bright_hi(
+        &self,
+        opts: crate::CommandOptions<'_>,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Turn green tally light on.
     ///
@@ -110,7 +122,10 @@ pub trait TallyControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn tally_green_on(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn tally_green_on(
+        &self,
+        opts: crate::CommandOptions<'_>,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Turn green tally light off.
     ///
@@ -118,7 +133,10 @@ pub trait TallyControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn tally_green_off(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn tally_green_off(
+        &self,
+        opts: crate::CommandOptions<'_>,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Flash tally light.
     ///
@@ -127,7 +145,10 @@ pub trait TallyControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn tally_flash(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn tally_flash(
+        &self,
+        opts: crate::CommandOptions<'_>,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Turn tally light on.
     ///
@@ -136,7 +157,10 @@ pub trait TallyControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn tally_on(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn tally_on(
+        &self,
+        opts: crate::CommandOptions<'_>,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Turn tally light off.
     ///
@@ -144,7 +168,10 @@ pub trait TallyControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
-    fn tally_off(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn tally_off(
+        &self,
+        opts: crate::CommandOptions<'_>,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Get tally light status (red and green states).
     ///
@@ -158,6 +185,7 @@ pub trait TallyControl {
     /// Returns an error if the inquiry fails or times out.
     fn tally_status(
         &self,
+        opts: crate::CommandOptions<'_>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::typed::TallyStatusState, Error>>;
 
     /// Query green tally light state (FR7 specific).
@@ -176,7 +204,10 @@ pub trait TallyControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails, times out, or is not supported.
-    fn green_tally_status(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
+    fn green_tally_status(
+        &self,
+        opts: crate::CommandOptions<'_>,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
 
     /// Check if tally auto adjust is enabled.
     ///
@@ -190,7 +221,10 @@ pub trait TallyControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn tally_auto_adjust_enabled(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
+    fn tally_auto_adjust_enabled(
+        &self,
+        opts: crate::CommandOptions<'_>,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
 }
 
 // Single unified implementation for all Camera types!
@@ -203,51 +237,60 @@ where
 {
     type Mode = M;
 
-    fn tally_red_on(&self) -> M::Fut<'_, Result<(), Error>> {
-        self.execute(TallyRedOn::new())
+    fn tally_red_on(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+        self.execute_with_opts(TallyRedOn::new(), opts)
     }
 
-    fn tally_red_off(&self) -> M::Fut<'_, Result<(), Error>> {
-        self.execute(TallyRedOff::new())
+    fn tally_red_off(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+        self.execute_with_opts(TallyRedOff::new(), opts)
     }
 
-    fn tally_bright_lo(&self) -> M::Fut<'_, Result<(), Error>> {
-        self.execute(TallyBrightLo::new())
+    fn tally_bright_lo(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+        self.execute_with_opts(TallyBrightLo::new(), opts)
     }
 
-    fn tally_bright_hi(&self) -> M::Fut<'_, Result<(), Error>> {
-        self.execute(TallyBrightHi::new())
+    fn tally_bright_hi(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+        self.execute_with_opts(TallyBrightHi::new(), opts)
     }
 
-    fn tally_green_on(&self) -> M::Fut<'_, Result<(), Error>> {
-        self.execute(TallyGreenOn::new())
+    fn tally_green_on(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+        self.execute_with_opts(TallyGreenOn::new(), opts)
     }
 
-    fn tally_green_off(&self) -> M::Fut<'_, Result<(), Error>> {
-        self.execute(TallyGreenOff::new())
+    fn tally_green_off(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+        self.execute_with_opts(TallyGreenOff::new(), opts)
     }
 
-    fn tally_flash(&self) -> M::Fut<'_, Result<(), Error>> {
-        self.execute(TallyFlash::new())
+    fn tally_flash(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+        self.execute_with_opts(TallyFlash::new(), opts)
     }
 
-    fn tally_on(&self) -> M::Fut<'_, Result<(), Error>> {
-        self.execute(TallyOn::new())
+    fn tally_on(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+        self.execute_with_opts(TallyOn::new(), opts)
     }
 
-    fn tally_off(&self) -> M::Fut<'_, Result<(), Error>> {
-        self.execute(TallyOff::new())
+    fn tally_off(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
+        self.execute_with_opts(TallyOff::new(), opts)
     }
 
-    fn tally_status(&self) -> M::Fut<'_, Result<crate::command::typed::TallyStatusState, Error>> {
-        self.query(TallyStatusInquiry)
+    fn tally_status(
+        &self,
+        opts: crate::CommandOptions<'_>,
+    ) -> M::Fut<'_, Result<crate::command::typed::TallyStatusState, Error>> {
+        self.query_with_opts(TallyStatusInquiry, opts)
     }
 
-    fn green_tally_status(&self) -> M::Fut<'_, Result<bool, Error>> {
-        self.query(TallyGreenInquiry)
+    fn green_tally_status(
+        &self,
+        opts: crate::CommandOptions<'_>,
+    ) -> M::Fut<'_, Result<bool, Error>> {
+        self.query_with_opts(TallyGreenInquiry, opts)
     }
 
-    fn tally_auto_adjust_enabled(&self) -> M::Fut<'_, Result<bool, Error>> {
-        self.query(TallyAutoAdjustInquiry)
+    fn tally_auto_adjust_enabled(
+        &self,
+        opts: crate::CommandOptions<'_>,
+    ) -> M::Fut<'_, Result<bool, Error>> {
+        self.query_with_opts(TallyAutoAdjustInquiry, opts)
     }
 }

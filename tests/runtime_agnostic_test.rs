@@ -98,7 +98,9 @@ mod async_tests {
             .expect("Failed to create camera");
 
         // Try to power on - should succeed with configured executor
-        let result = camera.power_on().await;
+        let result = camera
+            .power_on(grafton_visca::CommandOptions::default())
+            .await;
 
         // With explicit executor configuration, this should work
         assert!(result.is_ok(), "Power on failed: {:?}", result);

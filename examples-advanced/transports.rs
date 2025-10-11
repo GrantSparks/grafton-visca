@@ -55,7 +55,9 @@ fn main() -> Result<(), Error> {
 
     // Test TCP connection with a simple command
     println!("Testing TCP transport with zoom command...");
-    tcp_camera.zoom_absolute(Normalized(0.3)).block()?;
+    tcp_camera
+        .zoom_absolute(Normalized(0.3), grafton_visca::CommandOptions::default())
+        .block()?;
     tcp_camera.await_zoom_idle(Duration::from_secs(5))?;
     println!("✓ Command sent successfully via TCP");
     println!();
@@ -70,7 +72,9 @@ fn main() -> Result<(), Error> {
 
             // Test connection
             println!("Testing custom port connection...");
-            camera.pan_tilt_home().block()?;
+            camera
+                .pan_tilt_home(grafton_visca::CommandOptions::default())
+                .block()?;
             println!("✓ Command sent successfully via custom port");
         }
         Err(e) => {
@@ -97,13 +101,20 @@ fn main() -> Result<(), Error> {
             // Test UDP connection
             println!("Testing UDP transport with pan/tilt command...");
             camera
-                .pan_tilt_absolute(Degrees(45.0), Degrees(0.0), SpeedLevel::Medium)
+                .pan_tilt_absolute(
+                    Degrees(45.0),
+                    Degrees(0.0),
+                    SpeedLevel::Medium,
+                    grafton_visca::CommandOptions::default(),
+                )
                 .block()?;
             camera.await_pan_tilt_idle(Duration::from_secs(5))?;
             println!("✓ Command sent successfully via UDP");
 
             // Return to home
-            camera.pan_tilt_home().block()?;
+            camera
+                .pan_tilt_home(grafton_visca::CommandOptions::default())
+                .block()?;
             camera.await_pan_tilt_idle(Duration::from_secs(5))?;
         }
         Err(e) => {
@@ -164,7 +175,10 @@ fn main() -> Result<(), Error> {
     let tcp_start = Instant::now();
     for i in 0..10 {
         tcp_camera
-            .zoom_absolute(Normalized((i as f32) * 0.1))
+            .zoom_absolute(
+                Normalized((i as f32) * 0.1),
+                grafton_visca::CommandOptions::default(),
+            )
             .block()?;
         thread::sleep(Duration::from_millis(100));
     }
@@ -172,7 +186,9 @@ fn main() -> Result<(), Error> {
     println!("✓ TCP: 10 commands in {:.2}s", tcp_elapsed.as_secs_f32());
 
     // Reset zoom
-    tcp_camera.zoom_absolute(Normalized(0.0)).block()?;
+    tcp_camera
+        .zoom_absolute(Normalized(0.0), grafton_visca::CommandOptions::default())
+        .block()?;
 
     // If UDP is available, compare performance
     if let Ok(udp_camera) =
@@ -183,7 +199,10 @@ fn main() -> Result<(), Error> {
         let udp_start = Instant::now();
         for i in 0..10 {
             udp_camera
-                .zoom_absolute(Normalized((i as f32) * 0.1))
+                .zoom_absolute(
+                    Normalized((i as f32) * 0.1),
+                    grafton_visca::CommandOptions::default(),
+                )
                 .block()?;
             thread::sleep(Duration::from_millis(100));
         }
@@ -191,7 +210,9 @@ fn main() -> Result<(), Error> {
         println!("✓ UDP: 10 commands in {:.2}s", udp_elapsed.as_secs_f32());
 
         // Reset zoom
-        udp_camera.zoom_absolute(Normalized(0.0)).block()?;
+        udp_camera
+            .zoom_absolute(Normalized(0.0), grafton_visca::CommandOptions::default())
+            .block()?;
 
         if udp_elapsed < tcp_elapsed {
             println!();

@@ -197,14 +197,15 @@ where
 
         self.should_stop = false; // Prevent double-stop in Drop
 
+        let opts = CommandOptions::default();
         match self.motion_type {
-            MotionType::PanTilt => self.camera.pan_tilt_stop(),
-            MotionType::Zoom => self.camera.zoom_stop(),
-            MotionType::Focus => self.camera.focus_stop(),
+            MotionType::PanTilt => self.camera.pan_tilt_stop(opts),
+            MotionType::Zoom => self.camera.zoom_stop(opts),
+            MotionType::Focus => self.camera.focus_stop(opts),
             MotionType::All => {
                 // For All, we just stop pan/tilt for now
                 // A full implementation would chain all stops
-                self.camera.pan_tilt_stop()
+                self.camera.pan_tilt_stop(opts)
             }
         }
     }
@@ -253,9 +254,7 @@ where
     ) -> M::Fut<'_, Result<(), Error>> {
         use crate::camera::controls::pan_tilt::PanTiltControl;
 
-        // For now, we don't use the opts parameter as the existing API doesn't support it yet
-        // This will be updated when CommandOptions are fully integrated throughout the codebase
-        let _ = opts.into();
+        let _opts = opts.into();
 
         // Currently, we only stop pan/tilt
         // Full implementation requires mode-aware combinators to chain operations
@@ -265,7 +264,12 @@ where
         // 3. focus_stop()
         // And aggregate any errors
 
-        self.pan_tilt_stop()
+        // Note: We use CommandOptions::default() here because the control methods
+        // currently only support the default NoCancel cancellation token type.
+        // When multi-operation support is added, we'll need to either:
+        // 1. Make all control methods generic over CancellationToken, or
+        // 2. Convert the provided opts to CommandOptions<NoCancel>
+        self.pan_tilt_stop(CommandOptions::default())
     }
 }
 

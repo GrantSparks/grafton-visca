@@ -111,23 +111,43 @@ macro_rules! impl_diagnostics {
                 '_,
                 Result<$crate::diagnostics::ProbeReport, $crate::error::Error>,
             > {
+                use std::time::Instant;
+                use $crate::camera::controls::inquiry::InquiryControl;
                 use $crate::mode::Mode;
 
-                Self::Mode::ready(Ok({
-                    // For now, return a simple successful probe with a dummy RTT
-                    // In a real implementation, we'd perform an actual inquiry
-                    let rtt = std::time::Duration::from_millis(10);
-                    $crate::diagnostics::ProbeReport::new(Some(rtt), true)
-                }))
+                // Perform a real inquiry and measure RTT
+                Self::Mode::from_future(async move {
+                    let start = Instant::now();
+
+                    // Use power_state inquiry as it's lightweight and universally supported
+                    match InquiryControl::power_state(self).await {
+                        Ok(_) => {
+                            let rtt = start.elapsed();
+                            Ok($crate::diagnostics::ProbeReport::new(Some(rtt), true))
+                        }
+                        Err(e) => {
+                            // Transport failed - return unsuccessful probe
+                            let rtt = start.elapsed();
+                            Ok($crate::diagnostics::ProbeReport::new(Some(rtt), false))
+                        }
+                    }
+                })
             }
 
             fn ping(
                 &self,
             ) -> <Self::Mode as $crate::mode::Mode>::Fut<'_, Result<bool, $crate::error::Error>>
             {
+                use $crate::camera::controls::inquiry::InquiryControl;
                 use $crate::mode::Mode;
 
-                Self::Mode::ready(Ok(true))
+                // Ping is just a simple check - return true if inquiry succeeds
+                Self::Mode::from_future(async move {
+                    match InquiryControl::power_state(self).await {
+                        Ok(_) => Ok(true),
+                        Err(_) => Ok(false),
+                    }
+                })
             }
 
             fn measure_latency(
@@ -137,13 +157,34 @@ macro_rules! impl_diagnostics {
                 '_,
                 Result<std::time::Duration, $crate::error::Error>,
             > {
-                use std::time::Duration;
+                use std::time::{Duration, Instant};
+                use $crate::camera::controls::inquiry::InquiryControl;
                 use $crate::mode::Mode;
 
                 let samples = if samples == 0 { 1 } else { samples };
 
-                // Simple implementation - return a dummy value for now
-                Self::Mode::ready(Ok(Duration::from_millis(10)))
+                // Perform multiple measurements and average them
+                Self::Mode::from_future(async move {
+                    let mut total_duration = Duration::ZERO;
+                    let mut successful_samples = 0;
+
+                    for _ in 0..samples {
+                        let start = Instant::now();
+                        if InquiryControl::power_state(self).await.is_ok() {
+                            total_duration += start.elapsed();
+                            successful_samples += 1;
+                        }
+                    }
+
+                    if successful_samples == 0 {
+                        Err($crate::error::Error::Io(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "No successful latency measurements",
+                        )))
+                    } else {
+                        Ok(total_duration / successful_samples as u32)
+                    }
+                })
             }
         }
     };

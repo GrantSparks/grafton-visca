@@ -55,7 +55,10 @@ pub trait PowerControl {
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
     /// Note that if the camera is already powered on, this may still succeed.
-    fn power_on(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn power_on(
+        &self,
+        opts: crate::CommandOptions<'_>,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Power off the camera.
     ///
@@ -70,7 +73,10 @@ pub trait PowerControl {
     /// # Errors
     /// Returns an error if the command fails to send. The response may not be
     /// received if the camera powers off immediately.
-    fn power_off(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn power_off(
+        &self,
+        opts: crate::CommandOptions<'_>,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
 impl<M, P, Tr, Exec> PowerControl for crate::camera::Camera<M, P, Tr, Exec>
@@ -82,13 +88,13 @@ where
 {
     type Mode = M;
 
-    fn power_on(&self) -> M::Fut<'_, Result<(), Error>> {
+    fn power_on(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::power::PowerOn;
-        self.execute(PowerOn::new())
+        self.execute_with_opts(PowerOn::new(), opts)
     }
 
-    fn power_off(&self) -> M::Fut<'_, Result<(), Error>> {
+    fn power_off(&self, opts: crate::CommandOptions<'_>) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::power::PowerStandby;
-        self.execute(PowerStandby::new())
+        self.execute_with_opts(PowerStandby::new(), opts)
     }
 }
