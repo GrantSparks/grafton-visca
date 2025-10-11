@@ -653,24 +653,6 @@ where
     }
 }
 
-/// Wrapper for local tasks (async_executor treats all tasks the same)
-#[derive(Debug)]
-pub struct DetLocalJoin<T>(async_executor::Task<T>);
-
-impl<T> Future for DetLocalJoin<T>
-where
-    T: 'static,
-{
-    type Output = Result<T, crate::executor::ExecError>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match Pin::new(&mut self.0).poll(cx) {
-            Poll::Ready(v) => Poll::Ready(Ok(v)),
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
-
 /// Detachment handle for DeterministicExecutor tasks.
 ///
 /// This handle ensures that when it is dropped, the underlying task is explicitly
@@ -760,11 +742,6 @@ impl Executor for DeterministicExecutor {
     where
         T: Send + 'static;
 
-    type LocalJoin<T>
-        = DetLocalJoin<T>
-    where
-        T: 'static;
-
     type Detach = DetachmentHandle;
 
     fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
@@ -796,15 +773,6 @@ impl Executor for DeterministicExecutor {
         let detach_handle = DetachmentHandle::new(task);
 
         (DetJoin(join_task), detach_handle)
-    }
-
-    fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        // DeterministicExecutor runs tasks on a single-threaded executor in tests
-        DetLocalJoin(self.executor.spawn(fut))
     }
 
     fn block_on<F: Future>(&self, fut: F) -> F::Output {

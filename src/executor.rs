@@ -46,11 +46,6 @@ pub trait Executor: Clone + Send + Sync + 'static {
     where
         T: Send + 'static;
 
-    /// The join handle type for locally spawned (non-Send) tasks.
-    type LocalJoin<T>: Future<Output = Result<T, ExecError>> + 'static
-    where
-        T: 'static;
-
     /// Type indicating whether tasks require explicit detachment.
     ///
     /// Set to `()` if dropping the join handle detaches the task (e.g., Tokio),
@@ -80,16 +75,6 @@ pub trait Executor: Clone + Send + Sync + 'static {
     {
         self.spawn_with_detach(fut).0
     }
-
-    /// Spawn a future on the current thread (local task).
-    ///
-    /// This has the same bounds as `spawn` by default in most executors,
-    /// but provides a dedicated API surface for runtimes that support
-    /// truly local (non-Send) tasks.
-    fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static;
 
     /// Block on a future until it completes.
     ///
@@ -167,11 +152,6 @@ where
     where
         T: Send + 'static;
 
-    type LocalJoin<T>
-        = <E as Executor>::LocalJoin<T>
-    where
-        T: 'static;
-
     type Detach = <E as Executor>::Detach;
 
     fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
@@ -180,14 +160,6 @@ where
         F::Output: Send + 'static,
     {
         (**self).spawn_with_detach(fut)
-    }
-
-    fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        (**self).spawn_local(fut)
     }
 
     fn block_on<F: Future>(&self, fut: F) -> F::Output {
@@ -281,42 +253,11 @@ mod tokio_impl {
         }
     }
 
-    // Wrapper for local tasks (still requires Send in tokio)
-    #[derive(Debug)]
-    pub struct TokioLocalJoin<T>(tokio::task::JoinHandle<T>);
-
-    impl<T> Future for TokioLocalJoin<T>
-    where
-        T: 'static,
-    {
-        type Output = Result<T, ExecError>;
-
-        fn poll(
-            mut self: Pin<&mut Self>,
-            cx: &mut std::task::Context<'_>,
-        ) -> std::task::Poll<Self::Output> {
-            // SAFETY: tokio requires Send even for local tasks
-            let join_handle = Pin::new(&mut self.0);
-            match join_handle.poll(cx) {
-                std::task::Poll::Ready(Ok(value)) => std::task::Poll::Ready(Ok(value)),
-                std::task::Poll::Ready(Err(e)) => {
-                    std::task::Poll::Ready(Err(ExecError::JoinFailed(e.to_string())))
-                }
-                std::task::Poll::Pending => std::task::Poll::Pending,
-            }
-        }
-    }
-
     impl Executor for TokioExecutor {
         type Join<T>
             = TokioJoin<T>
         where
             T: Send + 'static;
-
-        type LocalJoin<T>
-            = TokioLocalJoin<T>
-        where
-            T: 'static;
 
         type Detach = ();
 
@@ -326,14 +267,6 @@ mod tokio_impl {
             F::Output: Send + 'static,
         {
             (TokioJoin(self.handle.spawn(fut)), ())
-        }
-
-        fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
-        where
-            F: Future + Send + 'static,
-            F::Output: Send + 'static,
-        {
-            TokioLocalJoin(self.handle.spawn(fut))
         }
 
         fn block_on<F: Future>(&self, fut: F) -> F::Output {
@@ -440,39 +373,11 @@ mod async_std_impl {
         }
     }
 
-    // Wrapper for local tasks (still requires Send in async-std)
-    #[derive(Debug)]
-    pub struct AsyncStdLocalJoin<T>(async_std::task::JoinHandle<T>);
-
-    impl<T> Future for AsyncStdLocalJoin<T>
-    where
-        T: 'static,
-    {
-        type Output = Result<T, ExecError>;
-
-        fn poll(
-            mut self: Pin<&mut Self>,
-            cx: &mut std::task::Context<'_>,
-        ) -> std::task::Poll<Self::Output> {
-            // SAFETY: async-std requires Send even for local tasks
-            let join_handle = Pin::new(&mut self.0);
-            match join_handle.poll(cx) {
-                std::task::Poll::Ready(value) => std::task::Poll::Ready(Ok(value)),
-                std::task::Poll::Pending => std::task::Poll::Pending,
-            }
-        }
-    }
-
     impl Executor for AsyncStdExecutor {
         type Join<T>
             = AsyncStdJoin<T>
         where
             T: Send + 'static;
-
-        type LocalJoin<T>
-            = AsyncStdLocalJoin<T>
-        where
-            T: 'static;
 
         type Detach = ();
 
@@ -482,14 +387,6 @@ mod async_std_impl {
             F::Output: Send + 'static,
         {
             (AsyncStdJoin(async_std::task::spawn(fut)), ())
-        }
-
-        fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
-        where
-            F: Future + Send + 'static,
-            F::Output: Send + 'static,
-        {
-            AsyncStdLocalJoin(async_std::task::spawn(fut))
         }
 
         fn block_on<F: Future>(&self, fut: F) -> F::Output {
@@ -592,44 +489,11 @@ mod smol_impl {
         }
     }
 
-    // Wrapper for local tasks (still uses flume channel)
-    #[derive(Debug)]
-    pub struct SmolLocalJoin<T>(flume::Receiver<T>);
-
-    impl<T> Future for SmolLocalJoin<T>
-    where
-        T: 'static,
-    {
-        type Output = Result<T, ExecError>;
-
-        fn poll(
-            self: Pin<&mut Self>,
-            cx: &mut std::task::Context<'_>,
-        ) -> std::task::Poll<Self::Output> {
-            // SAFETY: smol requires Send even for local tasks
-            let this = self.get_mut();
-            let fut = this.0.recv_async();
-            futures_lite::pin!(fut);
-            match fut.poll(cx) {
-                std::task::Poll::Ready(Ok(v)) => std::task::Poll::Ready(Ok(v)),
-                std::task::Poll::Ready(Err(e)) => {
-                    std::task::Poll::Ready(Err(ExecError::JoinFailed(e.to_string())))
-                }
-                std::task::Poll::Pending => std::task::Poll::Pending,
-            }
-        }
-    }
-
     impl Executor for SmolExecutor {
         type Join<T>
             = SmolJoin<T>
         where
             T: Send + 'static;
-
-        type LocalJoin<T>
-            = SmolLocalJoin<T>
-        where
-            T: 'static;
 
         type Detach = ();
 
@@ -644,19 +508,6 @@ mod smol_impl {
             })
             .detach();
             (SmolJoin(rx), ())
-        }
-
-        fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
-        where
-            F: Future + Send + 'static,
-            F::Output: Send + 'static,
-        {
-            let (tx, rx) = flume::bounded(1);
-            smol::spawn(async move {
-                let _ = tx.send_async(fut.await).await;
-            })
-            .detach();
-            SmolLocalJoin(rx)
         }
 
         fn block_on<F: Future>(&self, fut: F) -> F::Output {

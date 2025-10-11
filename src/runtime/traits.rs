@@ -215,11 +215,6 @@ mod tokio_impl {
         where
             T: Send + 'static;
 
-        type LocalJoin<T>
-            = <TokioExecutor as Executor>::LocalJoin<T>
-        where
-            T: 'static;
-
         type Detach = <TokioExecutor as Executor>::Detach;
 
         fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
@@ -228,14 +223,6 @@ mod tokio_impl {
             F::Output: Send + 'static,
         {
             self.executor.spawn_with_detach(fut)
-        }
-
-        fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
-        where
-            F: Future + Send + 'static,
-            F::Output: Send + 'static,
-        {
-            self.executor.spawn_local(fut)
         }
 
         fn block_on<F: Future>(&self, fut: F) -> F::Output {
@@ -372,11 +359,6 @@ mod async_std_impl {
         where
             T: Send + 'static;
 
-        type LocalJoin<T>
-            = <AsyncStdExecutor as Executor>::LocalJoin<T>
-        where
-            T: 'static;
-
         type Detach = <AsyncStdExecutor as Executor>::Detach;
 
         fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
@@ -385,14 +367,6 @@ mod async_std_impl {
             F::Output: Send + 'static,
         {
             self.executor.spawn_with_detach(fut)
-        }
-
-        fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
-        where
-            F: Future + Send + 'static,
-            F::Output: Send + 'static,
-        {
-            self.executor.spawn_local(fut)
         }
 
         fn block_on<F: Future>(&self, fut: F) -> F::Output {
@@ -515,11 +489,6 @@ mod smol_impl {
         where
             T: Send + 'static;
 
-        type LocalJoin<T>
-            = <SmolExecutor as Executor>::LocalJoin<T>
-        where
-            T: 'static;
-
         type Detach = <SmolExecutor as Executor>::Detach;
 
         fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
@@ -528,14 +497,6 @@ mod smol_impl {
             F::Output: Send + 'static,
         {
             self.executor.spawn_with_detach(fut)
-        }
-
-        fn spawn_local<F>(&self, fut: F) -> Self::LocalJoin<F::Output>
-        where
-            F: Future + Send + 'static,
-            F::Output: Send + 'static,
-        {
-            self.executor.spawn_local(fut)
         }
 
         fn block_on<F: Future>(&self, fut: F) -> F::Output {
