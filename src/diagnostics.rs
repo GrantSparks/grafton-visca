@@ -3,8 +3,9 @@
 //! This module provides tools to check camera connectivity, measure latency,
 //! and perform health checks on VISCA-compatible cameras.
 
-use crate::{error::Error, mode::Mode};
 use std::time::Duration;
+
+use crate::{error::Error, mode::Mode};
 
 /// Result of a camera probe operation.
 ///

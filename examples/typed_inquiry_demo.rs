@@ -9,17 +9,15 @@
 //! ```
 
 #[cfg(not(feature = "mode-async"))]
-use std::time::Duration;
-
-#[cfg(not(feature = "mode-async"))]
 use grafton_visca::{camera::Connect, profiles::GenericVisca, Error};
 
 #[cfg(not(feature = "mode-async"))]
+use std::time::Duration;
+
+#[cfg(not(feature = "mode-async"))]
 fn main() -> Result<(), Error> {
-    // Initialize logging
     let _ = tracing_subscriber::fmt::try_init();
 
-    // Connect using camera-first API
     let address = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.1.100".to_string());
     println!("Connecting to camera at {address}...");
 
@@ -27,7 +25,6 @@ fn main() -> Result<(), Error> {
 
     println!("\n=== High-Level API Inquiry Demo ===\n");
 
-    // Power status - using high-level accessor API
     println!("Checking power status...");
     match camera.power_state() {
         Ok(power_on) => {
@@ -37,10 +34,8 @@ fn main() -> Result<(), Error> {
         Err(e) => println!("  Power inquiry failed: {e}"),
     }
 
-    // Note: Pan/Tilt position inquiry would be available in async mode
-    // For this blocking example, we'll skip it
+    // NOTE: Pan/Tilt position inquiry would be available in async mode
 
-    // Zoom position - using high-level accessor API
     println!("\nChecking zoom position...");
     match camera.zoom_position() {
         Ok(zoom_pos) => {
@@ -51,18 +46,14 @@ fn main() -> Result<(), Error> {
         Err(e) => println!("  Zoom inquiry failed: {e}"),
     }
 
-    // Note: Focus and System inquiries would be available in async mode
-    // For this blocking example, we'll skip them
+    // NOTE: Focus and System inquiries would be available in async mode
 
-    // Demonstrate other high-level methods
     println!("\nDemonstrating control methods...");
 
-    // Try to zoom in slightly
     println!("Zooming in...");
     if let Err(e) = camera.zoom_tele(None) {
         println!("  Zoom command failed: {e}");
     } else {
-        // Wait a moment and stop
         std::thread::sleep(Duration::from_millis(500));
         let _ = camera.zoom_stop();
         println!("  Zoom completed");

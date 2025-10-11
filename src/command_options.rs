@@ -3,9 +3,7 @@
 //! This module provides a runtime-neutral approach to command timeouts and cancellation,
 //! allowing users to control operation behavior without tying to a specific async runtime.
 
-use core::future::Future;
-use core::pin::Pin;
-use core::time::Duration;
+use core::{future::Future, pin::Pin, time::Duration};
 
 /// Trait for runtime-agnostic cancellation tokens.
 ///

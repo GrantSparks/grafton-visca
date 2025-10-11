@@ -467,8 +467,9 @@ impl Capabilities {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7};
+
+    use super::*;
 
     #[test]
     fn test_capabilities_from_ptzoptics_g2() {

@@ -7,7 +7,6 @@ use crate::{capabilities::Profile, error::Error};
 
 #[cfg(any(feature = "mode-async", feature = "transport-serial"))]
 use crate::camera::config::CameraConfig;
-
 #[cfg(feature = "mode-async")]
 use crate::camera::CameraSession;
 

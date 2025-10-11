@@ -4,13 +4,14 @@
 //! camera motion, including a unified `stop_all_motion()` function and a
 //! `MotionGuard` that automatically stops motion when dropped.
 
+use core::marker::PhantomData;
+
 use crate::{
     camera::ViscaClient,
     command_options::{CancellationToken, CommandOptions},
     mode::Mode,
     Error,
 };
-use core::marker::PhantomData;
 
 /// Motion control operations for PTZ cameras.
 ///

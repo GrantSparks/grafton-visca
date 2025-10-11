@@ -56,8 +56,7 @@ mod tokio_tests {
         // Should succeed with proper power inquiry response
         assert!(
             result.is_ok(),
-            "Power inquiry should succeed, got: {:?}",
-            result
+            "Power inquiry should succeed, got: {result:?}"
         );
 
         // Verify command was sent
@@ -77,11 +76,7 @@ mod tokio_tests {
 
         // Test zoom commands (deterministic timing with virtual clock)
         let result = camera.zoom_tele(None).await;
-        assert!(
-            result.is_ok(),
-            "Zoom in command should succeed: {:?}",
-            result
-        );
+        assert!(result.is_ok(), "Zoom in command should succeed: {result:?}");
 
         // Check that command was sent
         let sent_commands = transport.sent();
@@ -92,7 +87,7 @@ mod tokio_tests {
 
         // Test another simple operation
         let result = camera.zoom_wide(None).await;
-        assert!(result.is_ok(), "Zoom out should succeed: {:?}", result);
+        assert!(result.is_ok(), "Zoom out should succeed: {result:?}");
 
         // Verify multiple commands were sent
         let final_commands = transport.sent();
@@ -118,8 +113,8 @@ mod tokio_tests {
         let r2 = camera.zoom_wide(None).await;
 
         // Verify both commands succeeded
-        assert!(r1.is_ok(), "First command should succeed: {:?}", r1);
-        assert!(r2.is_ok(), "Second command should succeed: {:?}", r2);
+        assert!(r1.is_ok(), "First command should succeed: {r1:?}");
+        assert!(r2.is_ok(), "Second command should succeed: {r2:?}");
 
         // Verify both commands were sent
         let sent_commands = transport.sent();
@@ -142,8 +137,7 @@ mod tokio_tests {
         let result = camera.power_off().await;
         assert!(
             result.is_ok(),
-            "First command should succeed with lazily initialized socket manager, got: {:?}",
-            result
+            "First command should succeed with lazily initialized socket manager, got: {result:?}"
         );
 
         // Verify that command was actually sent (socket manager is working)
@@ -157,8 +151,7 @@ mod tokio_tests {
         let result2 = camera.power_on().await;
         assert!(
             result2.is_ok(),
-            "Subsequent commands should also succeed, got: {:?}",
-            result2
+            "Subsequent commands should also succeed, got: {result2:?}"
         );
 
         // Verify multiple commands were sent
