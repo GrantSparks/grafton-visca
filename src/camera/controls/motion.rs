@@ -207,8 +207,6 @@ where
     Exec: crate::executor::Executor,
 {
     fn drop(&mut self) {
-        if !self.should_stop {}
-
         // Best-effort stop on drop - we can't handle errors in Drop
         // and we can't execute async operations
 

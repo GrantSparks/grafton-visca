@@ -7,11 +7,9 @@ fn test_preset_number_serialization() {
 
     let preset = PresetNumber::new(42).expect("Valid preset number");
 
-    // Test serialization
     let json = serde_json::to_string(&preset).expect("Serialization failed");
     assert_eq!(json, "42");
 
-    // Test deserialization
     let deserialized: PresetNumber = serde_json::from_str(&json).expect("Deserialization failed");
     assert_eq!(deserialized.value(), 42);
 }
@@ -23,11 +21,9 @@ fn test_normalized_serialization() {
 
     let normalized = Normalized::new(0.75_f32);
 
-    // Test serialization
     let json = serde_json::to_string(&normalized).expect("Serialization failed");
     assert_eq!(json, "0.75");
 
-    // Test deserialization
     let deserialized: Normalized<f32> =
         serde_json::from_str(&json).expect("Deserialization failed");
     assert_eq!(deserialized.value(), &0.75_f32);
@@ -40,11 +36,9 @@ fn test_degrees_serialization() {
 
     let degrees = Degrees::new(45.5_f32);
 
-    // Test serialization
     let json = serde_json::to_string(&degrees).expect("Serialization failed");
     assert_eq!(json, "45.5");
 
-    // Test deserialization
     let deserialized: Degrees<f32> = serde_json::from_str(&json).expect("Deserialization failed");
     assert_eq!(deserialized.value(), &45.5_f32);
 }

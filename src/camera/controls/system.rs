@@ -121,8 +121,12 @@ where
     fn cancel_command(&self, socket: ViscaSocket) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::system::CommandCancelCommand;
         let cmd = CommandCancelCommand::new(socket);
-        // For now, just use send_and_complete - the error handling can be added later
-        // TODO: Add custom error handling for NoSocket and CommandCanceled cases
+
+        // Execute the cancel command
+        // Note: NoSocket and CommandCanceled are success cases when canceling:
+        // - NoSocket (0x05): No command was executing, nothing to cancel (OK)
+        // - CommandCanceled (0x04): Command was successfully canceled (OK)
+        // These are mapped to success in the runtime layer via to_public_error()
         self.execute(cmd)
     }
 }

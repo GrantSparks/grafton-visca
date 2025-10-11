@@ -271,16 +271,32 @@ pub trait ExposureControl {
         level: crate::types::DynamicRangeLevel,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
-    /// Set color temperature.
+    /// Set color temperature value.
     ///
-    /// Sets the color temperature for white balance adjustment.
-    /// **Note:** This operation is currently not supported.
+    /// Sets the specific color temperature value when white balance is in color temperature mode.
+    ///
+    /// **Important:** The camera's white balance mode must first be set to `ColorTemperature` mode
+    /// using [`WhiteBalanceControl::white_balance_color_temperature`] before calling this method.
+    ///
+    /// # Usage Pattern
+    ///
+    /// ```ignore
+    /// // 1. First, switch to color temperature mode
+    /// camera.white_balance_color_temperature()?;  // or .await? for async
+    ///
+    /// // 2. Then set the specific temperature value
+    /// let temp = ColorTemp::from_kelvin(5600)?;  // Daylight color temp
+    /// camera.set_color_temperature(temp)?;  // or .await? for async
+    /// ```
     ///
     /// # Parameters
-    /// - `temp`: The color temperature to set
+    /// - `temp`: The color temperature to set (2500K-8000K range)
     ///
     /// # Errors
-    /// Always returns `Error::NotSupported` as this feature is not yet implemented.
+    /// Returns an error if the command fails to send or receive a response, or if the
+    /// camera is not in color temperature white balance mode.
+    ///
+    /// [`WhiteBalanceControl::white_balance_color_temperature`]: crate::camera::controls::white_balance::WhiteBalanceControl::white_balance_color_temperature
     fn set_color_temperature(
         &self,
         temp: crate::types::ColorTemp,
@@ -497,18 +513,12 @@ where
         self.execute(cmd)
     }
 
-    /// Set the color temperature.
-    ///
-    /// **Note:** This operation is currently not supported and will always return
-    /// `Error::NotSupported`. Setting color temperature requires sending multiple
-    /// commands sequentially, which is not yet implemented.
     fn set_color_temperature(
         &self,
-        _temp: crate::types::ColorTemp,
+        temp: crate::types::ColorTemp,
     ) -> M::Fut<'_, Result<(), Error>> {
-        // TODO: This requires sending two commands sequentially
-        // For now, return unsupported
-        self.error(Error::NotSupported)
+        let cmd = crate::command::color::ColorTemperature::SetTemperature(temp);
+        self.execute(cmd)
     }
 
     fn set_shutter_speed(

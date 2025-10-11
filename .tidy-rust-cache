@@ -91,7 +91,6 @@
 ./src/macros/test_utils.rs|24ccc0f18952f2bcdad0e49e6cf07b44
 ./src/protocol/mod.rs|c0e42c33c750f9c5692d8dbd8f20e689
 ./src/macros/param.rs|a3a5d9205b78a603e0d6af4d24b04e6c
-./src/macros/public.rs|954cae696de5d6192f1de9a006704581
 ./src/macros/support.rs|3dfeaacfadea00768745d4e2fd3862c7
 ./src/protocol/sony.rs|7d02bd232c568ff6c2e81deb5dfb5065
 ./src/prelude.rs|f2e5435f94f4abb22169262f7a8dc436
@@ -107,7 +106,6 @@
 ./src/runtime/mod.rs|f873edf4a27c052b16c3402a12fc50fe
 ./src/runtime/blocking_runner.rs|f5a83e989e59efe6e64747f0031cf27d
 ./src/runtime_adapters.rs|779bfdf13752913c4b828d0af15e78fd
-./src/runtime/handle.rs|a07e3087dd3c6a33af2bd72cdb6f2238
 ./src/testing/mod.rs|5d559c2b94a24e49d82c6f1bc918f32a
 ./src/testing/testkit/executor_selection.rs|7272366be8ba1457f54465731bae6546
 ./src/testing/testkit/mod.rs|c0ebddaa7ea5507a56fd0122d7afdd9f
@@ -210,17 +208,12 @@
 ./src/capabilities/mod.rs|ab24d097da7260e7885f3f611add3955
 ./src/camera/mod.rs|32a97c01a217228eccf33d461233a192
 ./src/inquiry_conversions.rs|c7d8c597a95c71c87dad299331d85606
-./src/camera/blocking_api.rs|186c20f6b7c2dd091dd9161453099bb7
-./src/diagnostics.rs|1782c1d7774e239e506c8bac0d37caf7
-./src/camera/controls/motion.rs|f6f13b7728ab0f6e357c4c560557e762
 ./src/camera/controls/pan_tilt.rs|770bd56665c89518670feecd9208d5a1
-./src/command_options.rs|2929b590a722caa9eda9da11edf753bb
 ./src/command/zoom.rs|36a3539b01081622f47457952ea32f6a
 ./src/camera/controls/zoom.rs|06afbc4d6d007ebbfda1c0290ece3b70
 ./src/error.rs|89155734ff3479d9b9a1cdfc5f75d3be
 ./src/camera/accessors.rs|39a06fae9c3b48da73ce1015bc708dc6
 ./src/capabilities/discovery.rs|dc87d462a08cd285a588d2625d7e4abf
-./src/units.rs|baa82fc91c4416a72c9bf0d2906339d4
 ./src/camera/camera_impl.rs|846d556e26db87bad44cea8de6ffd95f
 ./tests/camera_command_tests.rs|4002a7390f1eea32d6b51318f6202c2b
 ./tests/wrapper_api_test.rs|ddceb77c7a3046acfc7df589e38ec243
@@ -229,7 +222,6 @@
 ./src/camera/convenience.rs|2c4179f5316e86f371b4ba3d639105cc
 ./tests/test_async_timeout_stalling.rs|211bdf74043f674c5ee0e3d8b6c29b29
 ./tests/socket_manager_public_api_test.rs|395f332959af15edd487698448228eff
-./src/lib.rs|93d83cd8c4a3b7ec2f3764e186ad3d63
 ./src/transport/tokio/connectors.rs|f2f3239a4848fcbca6e697b688938b31
 ./src/transport/async_std/connectors.rs|aec5429edc32b330375e894d2bb275c2
 ./src/transport/async_io.rs|62c8e6baeeac425ede88386436d19b4d
@@ -245,3 +237,11 @@
 ./src/command/response/decoders/pan_tilt.rs|22e4149aeba54a3c0ce9d60b8bb91007
 ./src/command/response/decoders/color.rs|a5ed2ceed6a900c6eff2322c17d566a6
 ./tests/inquiry_response_parsing_tests.rs|c068da1d53027a4f18a6c8fbf1eb0f91
+./src/macros/public.rs|5576ff1f31002fb1eaba76fa9948b8a2
+./tests/serialization_test.rs|d4b4b858818ffac28a7460b52881f3ec
+./src/units.rs|d81d736c45d2233374c5483d764991c3
+./src/diagnostics.rs|27d370bc017f8ca4ec210c394c0a9475
+./src/camera/blocking_api.rs|72b7f3348477ae059fa69ecb9dcd492b
+./src/camera/controls/motion.rs|e39e2eaad3ccb1aba400082fcb9e70c4
+./src/lib.rs|5d3ad6b03dd1d54e42dd080ab7b80893
+./src/runtime/handle.rs|65cca65c5725b164fbe9d0e5dc83e581

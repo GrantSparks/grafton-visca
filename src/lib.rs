@@ -1,8 +1,7 @@
 //! # grafton-visca
 //!
-//! Rust library for VISCA over IP protocol to control Ptz cameras.
+//! Rust library for VISCA over IP protocol to control PTZ cameras.
 
-// Lints configuration
 #![forbid(unsafe_code)]
 #![warn(
     clippy::all,
@@ -641,87 +640,6 @@
 //! }
 //! ```
 
-// Module declarations
-mod error;
-pub(crate) mod macros;
-
-#[cfg(feature = "mode-async")]
-pub(crate) mod executor;
-
-#[cfg(not(feature = "mode-async"))]
-pub(crate) mod executor {
-    /// Dummy Executor trait for non-async mode.
-    /// This allows the code to remain uniform regardless of feature flags.
-    pub trait Executor {}
-
-    /// Unit type implements Executor for blocking mode
-    impl Executor for () {}
-}
-
-/// Camera profile system for type-safe, model-specific control
-pub mod camera;
-
-/// Camera ID type for VISCA protocol addressing.
-pub mod camera_id;
-
-/// Capability traits for camera feature composition
-pub mod capabilities;
-
-/// Command definitions for VISCA protocol (advanced use only)
-///
-/// **⚠️ Advanced API**: This module contains low-level protocol implementation details.
-/// Most users should use the high-level camera accessor API instead:
-/// - `camera.power().on()` instead of manual command construction
-/// - `camera.zoom().position()` instead of response matching
-///
-/// This module remains public for extensibility but its direct use is discouraged.
-/// Consider it unstable and subject to breaking changes.
-pub mod command;
-
-/// Constants for VISCA protocol including default ports
-pub mod constants;
-
-/// Diagnostics and health check utilities
-pub mod diagnostics;
-
-pub mod mode;
-
-pub mod prelude;
-
-/// Protocol encoding and decoding utilities (internal use)
-///
-/// **⚠️ Internal API**: This module contains protocol-level utilities.
-/// Users should not need to interact with this module directly.
-pub mod protocol;
-
-/// VISCA runtime with flume-based scheduling
-pub mod runtime;
-
-/// Runtime-specific transport adapters
-#[cfg(feature = "mode-async")]
-pub mod runtime_adapters;
-
-/// Testing utilities (available with test-utils feature for deterministic testing)
-#[cfg(any(feature = "runtime-tokio", feature = "test-utils"))]
-pub mod testing;
-
-pub mod timeout;
-
-/// Transport layer for implementing custom transports
-pub mod transport;
-
-/// Type definitions and abstractions
-pub mod types;
-
-/// Semantic unit types for intuitive API usage
-pub mod units;
-
-/// Inquiry conversion utilities for raw to user-friendly values
-pub mod inquiry_conversions;
-
-/// Unified VISCA socket type
-pub mod visca_socket;
-
 pub use grafton_visca_macros::{ViscaEnum, ViscaInquiry, ViscaValue};
 
 pub use crate::{
@@ -790,6 +708,86 @@ pub use crate::camera::controls::{
     white_balance::WhiteBalanceControl,
     zoom::ZoomControl,
 };
+
+mod error;
+pub(crate) mod macros;
+
+#[cfg(feature = "mode-async")]
+pub(crate) mod executor;
+
+#[cfg(not(feature = "mode-async"))]
+pub(crate) mod executor {
+    /// Dummy Executor trait for non-async mode.
+    /// This allows the code to remain uniform regardless of feature flags.
+    pub trait Executor {}
+
+    /// Unit type implements Executor for blocking mode
+    impl Executor for () {}
+}
+
+/// Camera profile system for type-safe, model-specific control
+pub mod camera;
+
+/// Camera ID type for VISCA protocol addressing
+pub mod camera_id;
+
+/// Capability traits for camera feature composition
+pub mod capabilities;
+
+/// Command definitions for VISCA protocol (advanced use only)
+///
+/// **⚠️ Advanced API**: This module contains low-level protocol implementation details.
+/// Most users should use the high-level camera accessor API instead:
+/// - `camera.power().on()` instead of manual command construction
+/// - `camera.zoom().position()` instead of response matching
+///
+/// This module remains public for extensibility but its direct use is discouraged.
+/// Consider it unstable and subject to breaking changes.
+pub mod command;
+
+/// Constants for VISCA protocol including default ports
+pub mod constants;
+
+/// Diagnostics and health check utilities
+pub mod diagnostics;
+
+/// Inquiry conversion utilities for raw to user-friendly values
+pub mod inquiry_conversions;
+
+pub mod mode;
+
+pub mod prelude;
+
+/// Protocol encoding and decoding utilities (internal use)
+///
+/// **⚠️ Internal API**: This module contains protocol-level utilities.
+/// Users should not need to interact with this module directly.
+pub mod protocol;
+
+/// VISCA runtime with flume-based scheduling
+pub mod runtime;
+
+/// Runtime-specific transport adapters
+#[cfg(feature = "mode-async")]
+pub mod runtime_adapters;
+
+/// Testing utilities (available with test-utils feature for deterministic testing)
+#[cfg(any(feature = "runtime-tokio", feature = "test-utils"))]
+pub mod testing;
+
+pub mod timeout;
+
+/// Transport layer for implementing custom transports
+pub mod transport;
+
+/// Type definitions and abstractions
+pub mod types;
+
+/// Semantic unit types for intuitive API usage
+pub mod units;
+
+/// Unified VISCA socket type
+pub mod visca_socket;
 
 /// Camera profiles with compositional capabilities
 pub mod profiles {

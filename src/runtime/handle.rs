@@ -3,21 +3,31 @@
 use flume::{Receiver, Sender};
 use tracing::instrument;
 
-use std::sync::{
-    atomic::{AtomicBool, AtomicU32, Ordering},
-    Arc,
+use std::{
+    future::Future,
+    marker::PhantomData,
+    sync::{
+        atomic::{AtomicBool, AtomicU32, Ordering},
+        Arc,
+    },
+    time::Duration,
 };
 
 use crate::{
+    camera_id::CameraId,
     capabilities::Profile,
-    command::response::Response,
+    command::{encode::PreparedCommand, encode::ViscaCommand, response::Response},
     error::{Error, Result},
+    executor::Executor,
     runtime::{
         async_adapter::{CompletionEvent, MetricsSummary, TxItem},
         core::Priority,
         loop_task::{runtime_loop_with_config, RuntimeLoopConfig},
     },
-    transport::{buffer::BufferManager, envelope::Envelope, AsyncTransport, HasTransportConfig},
+    timeout::{CommandTimeout, TimeoutConfig},
+    transport::{
+        buffer::BufferManager, envelope::Envelope, AsyncTransport, HasTransportConfig, RetryConfig,
+    },
     ViscaSocket,
 };
 
@@ -30,13 +40,13 @@ use crate::{
 /// Note: This type is only available when the "async" feature is enabled,
 /// as it requires async runtime support for communication.
 #[derive(Debug)]
-pub struct RuntimeHandle<P: Profile, E: crate::executor::Executor> {
+pub struct RuntimeHandle<P: Profile, E: Executor> {
     /// Inner shared state wrapped in Arc for safe cloning.
     inner: Arc<RuntimeHandleInner<P, E>>,
 }
 
 #[derive(Debug)]
-struct RuntimeHandleInner<P: Profile, E: crate::executor::Executor> {
+struct RuntimeHandleInner<P: Profile, E: Executor> {
     /// Channel for submitting commands and inquiries.
     submit: Sender<TxItem>,
     /// Flag to track if runtime is shutdown.
@@ -52,10 +62,10 @@ struct RuntimeHandleInner<P: Profile, E: crate::executor::Executor> {
     /// The executor used for sleep and timeout operations.
     executor: Arc<E>,
     /// Profile marker (zero-sized type).
-    _profile: std::marker::PhantomData<P>,
+    _profile: PhantomData<P>,
 }
 
-impl<P: Profile, E: crate::executor::Executor> Clone for RuntimeHandle<P, E> {
+impl<P: Profile, E: Executor> Clone for RuntimeHandle<P, E> {
     fn clone(&self) -> Self {
         Self {
             inner: Arc::clone(&self.inner),
@@ -63,9 +73,7 @@ impl<P: Profile, E: crate::executor::Executor> Clone for RuntimeHandle<P, E> {
     }
 }
 
-impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
-    RuntimeHandle<P, E>
-{
+impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P, E> {
     /// Create a new camera runtime with the given transport.
     ///
     /// This spawns a background task to handle communication with the camera.
@@ -76,13 +84,7 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
     where
         for<'a> &'a T: HasTransportConfig,
     {
-        Self::new_with_config(
-            transport,
-            executor,
-            None,
-            crate::transport::RetryConfig::default(),
-        )
-        .await
+        Self::new_with_config(transport, executor, None, RetryConfig::default()).await
     }
 
     /// Create a new runtime handle with a transport and executor.
@@ -104,7 +106,7 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
     pub async fn new_with_timeout<T: AsyncTransport + Send + 'static>(
         transport: T,
         executor: Arc<E>,
-        timeout_config: crate::timeout::TimeoutConfig,
+        timeout_config: TimeoutConfig,
     ) -> Result<Self>
     where
         for<'a> &'a T: HasTransportConfig,
@@ -113,7 +115,7 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
             transport,
             executor,
             Some(timeout_config),
-            crate::transport::RetryConfig::default(),
+            RetryConfig::default(),
         )
         .await
     }
@@ -132,8 +134,8 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
     pub async fn new_with_config<T: AsyncTransport + Send + 'static>(
         transport: T,
         executor: Arc<E>,
-        timeout_config: Option<crate::timeout::TimeoutConfig>,
-        retry_config: crate::transport::RetryConfig,
+        timeout_config: Option<TimeoutConfig>,
+        retry_config: RetryConfig,
     ) -> Result<Self>
     where
         for<'a> &'a T: HasTransportConfig,
@@ -151,7 +153,6 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
         let envelope = P::Envelope::new(tcfg.addressing);
         let buffer_manager = BufferManager::new(tcfg.buffer_config);
 
-        // Use provided timeout config or default
         let timeout_config = timeout_config.unwrap_or_default();
 
         // Pre-bake a plain data config for the loop
@@ -163,7 +164,6 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
             write_timeout: tcfg.write_timeout,
         };
 
-        // Clone executor for the runtime task
         let task_executor = Arc::clone(&executor);
 
         // Use a helper function to avoid lifetime issues with HRTB
@@ -187,7 +187,7 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
                 completions_tx,
                 next_command_id: Arc::new(AtomicU32::new(1)),
                 executor,
-                _profile: std::marker::PhantomData,
+                _profile: PhantomData,
             }),
         })
     }
@@ -197,7 +197,6 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
     /// Note: This method requires the "runtime-tokio" feature as it uses tokio-specific async transports.
     #[cfg(feature = "runtime-tokio")]
     pub async fn new_tcp_raw(address: impl AsRef<str>, executor: Arc<E>) -> Result<Self> {
-        // Use native tokio TCP transport for raw VISCA
         let transport = crate::transport::tokio::tcp::Tcp::connect(address.as_ref()).await?;
         Self::new(transport, executor).await
     }
@@ -207,7 +206,6 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
     /// Note: This method requires the "runtime-tokio" feature as it uses tokio-specific async transports.
     #[cfg(feature = "runtime-tokio")]
     pub async fn new_udp_raw(address: impl AsRef<str>, executor: Arc<E>) -> Result<Self> {
-        // Use native tokio UDP transport for raw VISCA
         let transport = crate::transport::tokio::udp::Udp::connect(address.as_ref()).await?;
         Self::new(transport, executor).await
     }
@@ -241,7 +239,6 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
     /// # Returns
     /// Ok(()) if the cancel request was processed (regardless of whether command was found)
     pub async fn cancel(&self, command_id: u32) -> Result<()> {
-        // Use the new CancelById variant for targeted cancellation
         let cancel_item = TxItem::CancelById { id: command_id };
 
         self.inner
@@ -278,9 +275,7 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
 
     /// Shutdown the runtime.
     pub async fn shutdown(&self) {
-        // Set the shutdown flag
         self.inner.shutdown.store(true, Ordering::Relaxed);
-        // Send shutdown signal to runtime loop
         let _ = self.inner.shutdown_tx.send_async(()).await;
     }
 
@@ -330,7 +325,7 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
     /// Sleep for a specified duration.
     ///
     /// This is a runtime-agnostic sleep that delegates to the injected executor.
-    pub async fn sleep(&self, duration: std::time::Duration) {
+    pub async fn sleep(&self, duration: Duration) {
         self.inner.executor.sleep(duration).await
     }
 
@@ -338,9 +333,9 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
     /// doesn't complete within the specified duration.
     ///
     /// This delegates to the injected executor for consistent timeout behavior.
-    pub async fn timeout<F, T>(&self, duration: std::time::Duration, fut: F) -> Result<T>
+    pub async fn timeout<F, T>(&self, duration: Duration, fut: F) -> Result<T>
     where
-        F: std::future::Future<Output = T> + Send,
+        F: Future<Output = T> + Send,
         T: Send,
     {
         self.inner.executor.timeout(duration, fut).await
@@ -360,11 +355,11 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
     pub async fn send_command<C>(
         &self,
         cmd: &C,
-        camera_id: crate::camera_id::CameraId,
+        camera_id: CameraId,
         priority: Option<Priority>,
     ) -> Result<Response>
     where
-        C: crate::command::encode::ViscaCommand + Clone + std::fmt::Debug + 'static,
+        C: ViscaCommand + Clone + std::fmt::Debug + 'static,
     {
         let (_, response) = self.send_command_with_id(cmd, camera_id, priority).await?;
         response.await
@@ -384,27 +379,22 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
     pub async fn send_command_with_id<C>(
         &self,
         cmd: &C,
-        camera_id: crate::camera_id::CameraId,
+        camera_id: CameraId,
         priority: Option<Priority>,
-    ) -> Result<(u32, impl std::future::Future<Output = Result<Response>>)>
+    ) -> Result<(u32, impl Future<Output = Result<Response>>)>
     where
-        C: crate::command::encode::ViscaCommand + Clone + std::fmt::Debug + 'static,
+        C: ViscaCommand + Clone + std::fmt::Debug + 'static,
     {
-        // Create pre-encoded command
-        let prepared_command = Arc::new(
-            crate::command::encode::PreparedCommand::new(cmd.clone(), camera_id).map_err(|e| {
-                tracing::error!("Failed to prepare command: {:?}", e);
+        let prepared_command =
+            Arc::new(PreparedCommand::new(cmd.clone(), camera_id).map_err(|e| {
+                tracing::error!("Failed to prepare command: {e:?}");
                 e
-            })?,
-        );
+            })?);
 
-        // Generate command ID
         let command_id = self.inner.next_command_id.fetch_add(1, Ordering::Relaxed);
 
-        // Create response channel
         let (response_tx, response_rx) = flume::bounded(1);
 
-        // Create the TxItem
         let item = TxItem::Command {
             id: command_id,
             command: prepared_command,
@@ -414,10 +404,8 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
             response_tx,
         };
 
-        // Submit the command
         self.command(item).await?;
 
-        // Return command ID and future
         let future = async move {
             response_rx
                 .recv_async()
@@ -439,35 +427,21 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
     ///
     /// # Returns
     /// The response from the camera
-    pub async fn send_inquiry<I>(
-        &self,
-        inquiry: &I,
-        camera_id: crate::camera_id::CameraId,
-    ) -> Result<Response>
+    pub async fn send_inquiry<I>(&self, inquiry: &I, camera_id: CameraId) -> Result<Response>
     where
-        I: crate::command::encode::ViscaCommand
-            + crate::timeout::CommandTimeout
-            + Clone
-            + std::fmt::Debug
-            + 'static,
+        I: ViscaCommand + CommandTimeout + Clone + std::fmt::Debug + 'static,
     {
-        // Create pre-encoded command
-        let prepared_command = Arc::new(
-            crate::command::encode::PreparedCommand::new(inquiry.clone(), camera_id).map_err(
-                |e| {
-                    tracing::error!("Failed to prepare inquiry: {:?}", e);
-                    e
-                },
-            )?,
-        );
+        let prepared_command = Arc::new(PreparedCommand::new(inquiry.clone(), camera_id).map_err(
+            |e| {
+                tracing::error!("Failed to prepare inquiry: {e:?}");
+                e
+            },
+        )?);
 
-        // Generate inquiry ID
         let inquiry_id = self.inner.next_command_id.fetch_add(1, Ordering::Relaxed);
 
-        // Create response channel
         let (response_tx, response_rx) = flume::bounded(1);
 
-        // Create the TxItem
         let item = TxItem::Inquiry {
             id: inquiry_id,
             command: prepared_command,
@@ -477,10 +451,8 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
             response_tx,
         };
 
-        // Submit the inquiry (using command channel, not inquire)
         self.command(item).await?;
 
-        // Wait for response
         response_rx
             .recv_async()
             .await
@@ -491,7 +463,7 @@ impl<P: Profile + 'static, E: crate::executor::Executor + Send + Sync + 'static>
 
 // Helper function to spawn the runtime loop without trait bounds
 // This avoids lifetime issues with HRTB (Rust issue #100013)
-#[allow(clippy::too_many_arguments)] // This is an internal function with necessary parameters
+#[allow(clippy::too_many_arguments)]
 fn spawn_runtime_loop<P, T, E>(
     executor: Arc<E>,
     transport: T,
@@ -504,7 +476,7 @@ fn spawn_runtime_loop<P, T, E>(
 ) where
     P: Profile + 'static,
     T: AsyncTransport + Send + 'static,
-    E: crate::executor::Executor + Send + Sync + 'static,
+    E: Executor + Send + Sync + 'static,
 {
     executor.spawn_bg(async move {
         let _ = runtime_loop_with_config::<P, T, E>(
@@ -520,7 +492,7 @@ fn spawn_runtime_loop<P, T, E>(
     });
 }
 
-impl<P: Profile, E: crate::executor::Executor> Drop for RuntimeHandle<P, E> {
+impl<P: Profile, E: Executor> Drop for RuntimeHandle<P, E> {
     fn drop(&mut self) {
         // Only send shutdown signal if this is the last reference
         if Arc::strong_count(&self.inner) == 1 {
