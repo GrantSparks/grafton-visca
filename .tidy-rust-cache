@@ -125,9 +125,7 @@
 ./src/runtime/loop_task.rs|2111002fbf7805ae01e5e05cf6986e2b
 ./src/transport/address.rs|e7d584a0b164cb72ae4add78beab1a3a
 ./src/transport/async_std/tcp.rs|52809252e6b7ade2ba6be0eafb2d2e97
-./src/transport/async_std/connectors.rs|a5620d59701c995c6c56740e1d6f52be
 ./src/transport/async_serial.rs|31c829313c324929ef531608ee878e3f
-./src/transport/async_io.rs|e6927edfde1c7fea5e7a75305b1f2130
 ./src/transport/async_std/mod.rs|9b15a3c0b797bd5dedae92feed466488
 ./src/transport/async_transport.rs|a43322a3bfb6f39e4438ef1db76edcb2
 ./src/transport/async_std/udp.rs|67b298362da0b9c7b338dadb6ef1c454
@@ -147,11 +145,9 @@
 ./src/transport/serial/mod.rs|139276d1c4982d12924a1a6312daa006
 ./src/transport/envelope.rs|21532bf35cc011494aec20df5ddd45ed
 ./src/transport/serial/handshake.rs|8a7ab003e813e6d79eb58991331481ba
-./src/transport/smol/connectors.rs|bed18f94005dda833e112bce15d1f07c
 ./examples-advanced/builder_api.rs|b4ccff9d7467987c520ab95e97592072
 ./src/transport/retry.rs|0929d7a0839bc919ef7028a4254c5cc2
 ./src/transport/smol/udp.rs|08880c2497120d3b1615db536161f358
-./src/transport/tokio/connectors.rs|31dc62efe0b6957d1ee9abe8567e5c74
 ./src/transport/tokio/mod.rs|2d2eba8500460e4766e77290bbf158f3
 ./src/transport/tokio/tcp.rs|ee6b5d87fb043e6fe9d8323f1117bacc
 ./src/transport/tokio/udp.rs|2e97fbd3860eda3c4d74460abee252f1
@@ -245,3 +241,7 @@
 ./tests/test_async_timeout_stalling.rs|211bdf74043f674c5ee0e3d8b6c29b29
 ./tests/socket_manager_public_api_test.rs|395f332959af15edd487698448228eff
 ./src/lib.rs|93d83cd8c4a3b7ec2f3764e186ad3d63
+./src/transport/tokio/connectors.rs|f2f3239a4848fcbca6e697b688938b31
+./src/transport/async_std/connectors.rs|aec5429edc32b330375e894d2bb275c2
+./src/transport/async_io.rs|62c8e6baeeac425ede88386436d19b4d
+./src/transport/smol/connectors.rs|56d8e4b30921552b82266e58cc9aa286
