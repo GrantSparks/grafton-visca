@@ -296,6 +296,7 @@ speed_enum! {
     /// The variants range from `Slowest` (most precise) to `Fastest` (maximum speed).
     #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+    #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
     pub enum SpeedLevel {
         /// Slowest speed - most precise movements (pan: 1, tilt: 1, zoom: 0, focus: 0)
         Slowest => { pan: 1, tilt: 1, zoom: 0, focus: 0 },
@@ -1231,51 +1232,6 @@ impl FocusSpeed {
     #[inline]
     pub fn from_coarse(coarse: Coarse) -> Self {
         Self::from(coarse)
-    }
-}
-
-/// Direction for pan/tilt movement.
-///
-/// High-level type for specifying camera movement direction.
-/// This type is part of the public API and avoids exposing the low-level
-/// command module types to users.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub enum PanTiltDirection {
-    /// Move camera upward (tilt up).
-    Up,
-    /// Move camera downward (tilt down).
-    Down,
-    /// Move camera leftward (pan left).
-    Left,
-    /// Move camera rightward (pan right).
-    Right,
-    /// Move camera diagonally up and to the left.
-    UpLeft,
-    /// Move camera diagonally up and to the right.
-    UpRight,
-    /// Move camera diagonally down and to the left.
-    DownLeft,
-    /// Move camera diagonally down and to the right.
-    DownRight,
-    /// Stop all pan/tilt movement.
-    Stop,
-}
-
-impl From<PanTiltDirection> for crate::command::pan_tilt::PanTiltDirection {
-    fn from(dir: PanTiltDirection) -> Self {
-        match dir {
-            PanTiltDirection::Up => crate::command::pan_tilt::PanTiltDirection::Up,
-            PanTiltDirection::Down => crate::command::pan_tilt::PanTiltDirection::Down,
-            PanTiltDirection::Left => crate::command::pan_tilt::PanTiltDirection::Left,
-            PanTiltDirection::Right => crate::command::pan_tilt::PanTiltDirection::Right,
-            PanTiltDirection::UpLeft => crate::command::pan_tilt::PanTiltDirection::UpLeft,
-            PanTiltDirection::UpRight => crate::command::pan_tilt::PanTiltDirection::UpRight,
-            PanTiltDirection::DownLeft => crate::command::pan_tilt::PanTiltDirection::DownLeft,
-            PanTiltDirection::DownRight => crate::command::pan_tilt::PanTiltDirection::DownRight,
-            PanTiltDirection::Stop => crate::command::pan_tilt::PanTiltDirection::Stop,
-        }
     }
 }
 

@@ -260,18 +260,17 @@ where
 
     /// Move in a specific direction.
     ///
-    /// Accepts high-level `types::PanTiltDirection` for direction.
+    /// Accepts high-level `command::pan_tilt::PanTiltDirection` for direction.
     pub fn move_direction(
         &self,
-        direction: crate::types::PanTiltDirection,
+        direction: crate::command::pan_tilt::PanTiltDirection,
         pan_speed: crate::types::PanSpeed,
         tilt_speed: crate::types::TiltSpeed,
     ) -> M::Fut<'_, Result<(), Error>>
     where
         Camera<M, P, Tr, Exec>: PanTiltControl<Mode = M>,
     {
-        self.camera
-            .pan_tilt_move(direction.into(), pan_speed, tilt_speed)
+        self.camera.pan_tilt_move(direction, pan_speed, tilt_speed)
     }
 
     /// Move up.
@@ -283,7 +282,11 @@ where
     where
         Camera<M, P, Tr, Exec>: PanTiltControl<Mode = M>,
     {
-        self.move_direction(crate::types::PanTiltDirection::Up, pan_speed, tilt_speed)
+        self.move_direction(
+            crate::command::pan_tilt::PanTiltDirection::Up,
+            pan_speed,
+            tilt_speed,
+        )
     }
 
     /// Move down.
@@ -295,7 +298,11 @@ where
     where
         Camera<M, P, Tr, Exec>: PanTiltControl<Mode = M>,
     {
-        self.move_direction(crate::types::PanTiltDirection::Down, pan_speed, tilt_speed)
+        self.move_direction(
+            crate::command::pan_tilt::PanTiltDirection::Down,
+            pan_speed,
+            tilt_speed,
+        )
     }
 
     /// Move left.
@@ -307,7 +314,11 @@ where
     where
         Camera<M, P, Tr, Exec>: PanTiltControl<Mode = M>,
     {
-        self.move_direction(crate::types::PanTiltDirection::Left, pan_speed, tilt_speed)
+        self.move_direction(
+            crate::command::pan_tilt::PanTiltDirection::Left,
+            pan_speed,
+            tilt_speed,
+        )
     }
 
     /// Move right.
@@ -319,7 +330,11 @@ where
     where
         Camera<M, P, Tr, Exec>: PanTiltControl<Mode = M>,
     {
-        self.move_direction(crate::types::PanTiltDirection::Right, pan_speed, tilt_speed)
+        self.move_direction(
+            crate::command::pan_tilt::PanTiltDirection::Right,
+            pan_speed,
+            tilt_speed,
+        )
     }
 
     /// Stop pan/tilt movement.

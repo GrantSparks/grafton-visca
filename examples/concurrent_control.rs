@@ -36,9 +36,9 @@ use grafton_visca::{
     },
     mode::Async,
     runtime::TransportHandle,
-    types::{PanTiltDirection, SpeedLevel},
+    types::SpeedLevel,
     units::Normalized,
-    PresetNumber, Result, TokioRuntime,
+    PanTiltDirection, PresetNumber, Result, TokioRuntime,
 };
 
 #[cfg(feature = "runtime-tokio")]

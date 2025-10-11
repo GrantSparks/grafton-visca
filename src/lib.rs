@@ -71,7 +71,7 @@
 //! // Works with enums too
 //! let level = SpeedLevel::Medium;
 //! let json = serde_json::to_string(&level).unwrap();
-//! assert_eq!(json, "\"Medium\"");
+//! assert_eq!(json, "\"medium\"");
 //! # }
 //! ```
 //!
@@ -645,6 +645,7 @@ pub use grafton_visca_macros::{ViscaEnum, ViscaInquiry, ViscaValue};
 pub use crate::{
     camera::{Camera, CameraBuilder},
     camera_id::CameraId,
+    command::pan_tilt::PanTiltDirection,
     command::{
         exposure::ExposureMode,
         focus::{AutoFocusSensitivity, FocusMode},
@@ -660,7 +661,7 @@ pub use crate::{
         zoom_from_normalized, Normalized, PanTiltPositionDeg, PanTiltPositionRaw, ZoomDomain,
         ZoomPositionExt,
     },
-    types::{Coarse, FocusSpeed, MotionSyncSpeed, PanTiltDirection, SpeedLevel, ZoomSpeed},
+    types::{Coarse, FocusSpeed, MotionSyncSpeed, SpeedLevel, ZoomSpeed},
     visca_socket::ViscaSocket,
 };
 

@@ -11,7 +11,8 @@ use grafton_visca::{
         profiles::{G2PresetId, PtzOpticsG2},
     },
     runtime::TokioRuntime,
-    types::{PanSpeed, PanTiltDirection, TiltSpeed},
+    types::{PanSpeed, TiltSpeed},
+    PanTiltDirection,
 };
 #[cfg(not(feature = "mode-async"))]
 use grafton_visca::{
@@ -21,7 +22,8 @@ use grafton_visca::{
     },
     mode::Blocking,
     transport::{NetTransportBuilder, Transport},
-    types::{PanSpeed, PanTiltDirection, TiltSpeed},
+    types::{PanSpeed, TiltSpeed},
+    PanTiltDirection,
 };
 
 #[cfg(any(not(feature = "mode-async"), feature = "runtime-tokio"))]

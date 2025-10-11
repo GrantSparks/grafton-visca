@@ -66,6 +66,9 @@ impl PanTiltLimitCorner {
 ///
 /// Represents the 8 directional movements plus stop.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum PanTiltDirection {
     /// Move camera upward (tilt up) while maintaining pan position.
     Up,
