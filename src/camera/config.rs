@@ -10,6 +10,8 @@ use std::marker::PhantomData;
 
 /// Transport configuration options.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum TransportOptions {
     /// TCP connection with address.
     Tcp {

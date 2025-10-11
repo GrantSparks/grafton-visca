@@ -48,20 +48,79 @@ impl CommandCategory {
 
 /// Configuration for command timeouts.
 #[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde_with::serde_as)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct TimeoutConfig {
     /// Timeout for ACK responses from the camera (default 500ms)
+    #[cfg_attr(
+        feature = "serde",
+        serde_as(as = "serde_with::DurationMilliSeconds<u64>")
+    )]
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "u64", description = "Timeout in milliseconds")
+    )]
     pub ack_timeout: Duration,
     /// Timeout for quick commands (inquiry, power status)
+    #[cfg_attr(
+        feature = "serde",
+        serde_as(as = "serde_with::DurationMilliSeconds<u64>")
+    )]
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "u64", description = "Timeout in milliseconds")
+    )]
     pub quick_timeout: Duration,
     /// Timeout for movement commands (pan/tilt/zoom)
+    #[cfg_attr(
+        feature = "serde",
+        serde_as(as = "serde_with::DurationMilliSeconds<u64>")
+    )]
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "u64", description = "Timeout in milliseconds")
+    )]
     pub movement_timeout: Duration,
     /// Timeout for preset operations
+    #[cfg_attr(
+        feature = "serde",
+        serde_as(as = "serde_with::DurationMilliSeconds<u64>")
+    )]
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "u64", description = "Timeout in milliseconds")
+    )]
     pub preset_timeout: Duration,
     /// Timeout for long-running operations
+    #[cfg_attr(
+        feature = "serde",
+        serde_as(as = "serde_with::DurationMilliSeconds<u64>")
+    )]
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "u64", description = "Timeout in milliseconds")
+    )]
     pub long_timeout: Duration,
     /// Timeout for network commands (multicast, Ndi)
+    #[cfg_attr(
+        feature = "serde",
+        serde_as(as = "serde_with::DurationMilliSeconds<u64>")
+    )]
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "u64", description = "Timeout in milliseconds")
+    )]
     pub network_timeout: Duration,
     /// Default timeout for uncategorized commands
+    #[cfg_attr(
+        feature = "serde",
+        serde_as(as = "serde_with::DurationMilliSeconds<u64>")
+    )]
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "u64", description = "Timeout in milliseconds")
+    )]
     pub default_timeout: Duration,
 }
 

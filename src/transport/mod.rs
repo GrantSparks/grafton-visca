@@ -111,12 +111,31 @@ pub use builder::{NetTransportBuilder, Transport, TransportBuilderExt};
 /// Provides configurable retry logic for handling transient failures
 /// in VISCA communication across all transport types.
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde_with::serde_as)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RetryConfig {
     /// Maximum number of retry attempts.
     pub max_retries: u32,
     /// Base delay between retries (will be adjusted based on error type).
+    #[cfg_attr(
+        feature = "serde",
+        serde_as(as = "serde_with::DurationMilliSeconds<u64>")
+    )]
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "u64", description = "Base retry delay in milliseconds")
+    )]
     pub base_retry_delay: Duration,
     /// Maximum total time to spend retrying.
+    #[cfg_attr(
+        feature = "serde",
+        serde_as(as = "serde_with::DurationMilliSeconds<u64>")
+    )]
+    #[cfg_attr(
+        feature = "schemars",
+        schemars(with = "u64", description = "Maximum retry duration in milliseconds")
+    )]
     pub max_retry_duration: Duration,
     /// Whether to use exponential backoff.
     pub exponential_backoff: bool,
