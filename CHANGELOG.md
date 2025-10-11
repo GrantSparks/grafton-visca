@@ -7,61 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+## [0.8.0] - 2025-10-11
 
-#### MotionControl Trait Enhancement
-- Added `stop_all_motion()` method to `MotionControl` trait for convenient single-call motion stopping
-- Method calls `pan_tilt_stop()` internally with clear documentation
-- Available for all camera types through the control trait
+This release focuses on eliminating downstream boilerplate, completing runtime-agnostic modernization, enhancing protocol correctness, and improving the ergonomics of camera control. The library now provides feature-gated serialization, intuitive unit conversions, comprehensive diagnostic utilities, uniform transport handling, and spec-validated protocol fixes—all without forcing users into a specific async runtime.
 
-#### Diagnostics Trait Export
-- Exported `Diagnostics` trait in prelude for easier access
-- Users can now access `probe()`, `ping()`, and `measure_latency()` without explicit trait imports
-- Improves discoverability of diagnostic functionality
+### 🎯 Philosophy: Runtime-Agnostic Modernization & Protocol Correctness
 
-#### Inquiry Conversions Enhancement
-- Enhanced documentation and examples for `inquiry_conversions` module
-- `PanTiltPositionRaw::as_degrees()` provides accurate degree conversion from raw VISCA values
-- Proper handling of asymmetric pan/tilt ranges (Pan: -170° to +170°, Tilt: -30° to +90°)
-
-### Changed
-
-#### Dependency Updates
-- Upgraded `schemars` dependency from 0.8 to 1.0 for JSON schema generation
-- Ensures compatibility with latest ecosystem tools
-
-### Impact on Downstream Projects
-
-The serialization improvements in 0.8.0 combined with these enhancements enable significant boilerplate reduction in downstream projects:
-
-- **Wrapper type elimination**: visca-mcp eliminated ~139 lines of wrapper types by using grafton-visca types directly
-  - Removed `Normalized01` wrapper (~71 lines) - now uses `Normalized<f32>` directly
-  - Removed `PresetId` wrapper (~68 lines) - now uses `PresetNumber` directly
-- **Cleaner API**: No more manual serde implementations or bridge TryFrom implementations
-- **Type safety**: Maintained compile-time validation while reducing code
-
-Example migration:
-```rust
-// Before: Custom wrapper types
-pub struct Normalized01(f32);
-impl Serialize for Normalized01 { /* ... */ }
-impl Deserialize for Normalized01 { /* ... */ }
-// ~71 lines total
-
-// After: Direct usage with serde feature
-use grafton_visca::units::Normalized;
-// 1 line, full serialization support included
-```
-
-## 0.8.0
-
-This release completes a focus is on eliminating downstream boilerplate, providing first-class timeout and cancellation support, and unifying the API across all transport types.
-
-### 🎯 Philosophy: Runtime-Agnostic Modernization
-
-The central achievement is adding powerful ergonomic features that previously required custom downstream wrappers. The library now ships with feature-gated serialization, intuitive unit conversions, first-class timeout/cancellation support, diagnostic utilities, and uniform transport handling—all without forcing users into a specific async runtime.
+The central achievement is adding powerful ergonomic features that previously required custom downstream wrappers while ensuring strict VISCA specification compliance. The library now ships with feature-gated serialization, intuitive unit conversions, diagnostic utilities, uniform transport handling (including serial), enhanced error types, and spec-validated protocol corrections—all without forcing users into a specific async runtime.
 
 ### 🚀 Major Features & Improvements
+
+#### Protocol Correctness Fixes (#418)
+Spec-validated VISCA protocol corrections ensure accurate camera control and telemetry:
+
+- **Auto White Balance (AWB) Sensitivity inquiry fixed**: Corrected inverted mapping in inquiry decoder to match VISCA spec and command encoding (High=0x00, Normal=0x01, Low=0x02)
+- **Tally APIs normalized to baseline VISCA**: Red and green tally inquiries now follow baseline VISCA specification; vendor-specific extensions properly documented
+- **16-bit Zoom/PT position semantics codified**: ZoomPosition and PanTilt position types explicitly document 16-bit semantics per VISCA spec; profile-aware signed/unsigned coordinate handling maintained
+- **Transaction model clarified**: Documentation and tests confirm inquiries do not ACK, commands follow ACK/Completion model with two-socket management
+
+These fixes ensure accurate camera state reporting and proper protocol compliance across all VISCA-compatible cameras.
 
 #### Serialization & Schema Support
 All public value types now support optional serialization through feature-gated `serde` and `schemars` derives:
@@ -72,6 +36,8 @@ grafton-visca = { version = "0.8", features = ["serde", "schemars"] }
 ```
 
 With these features enabled, you can serialize/deserialize all value types directly and generate JSON schemas for API documentation, eliminating the need for downstream wrapper types.
+
+**Dependency Update**: Upgraded `schemars` from 0.8 to 1.0 for compatibility with latest ecosystem tools.
 
 #### Ergonomic Type Conversions
 - **From<f64> for numeric types**: `Degrees`, `Normalized`, and other numeric types accept `f64` directly, eliminating manual casts
@@ -141,6 +107,20 @@ let tilt_speed = TiltSpeed::from_coarse(Coarse::Slow);  // → 5
 
 `Coarse` is a type alias for `SpeedLevel` with five intuitive levels: Slowest, Slow, Medium, Fast, Fastest.
 
+#### Color Temperature Control
+Direct color temperature control for precise white balance adjustment:
+
+```rust
+// Set color temperature in Kelvin (2800K - 8000K range)
+camera.color_temperature_direct(5600)?;  // Daylight
+
+// Color temperature is now accessible via white balance inquiry
+let temp_k = camera.color_temperature()?;
+println!("Current color temperature: {}K", temp_k);
+```
+
+This provides fine-grained control over white balance beyond the standard presets (Indoor/Outdoor/OnePush), enabling precise color matching for professional workflows.
+
 #### Diagnostics & Health Checks
 New `diagnostics` module provides tools for camera health monitoring:
 
@@ -166,6 +146,20 @@ println!("Average RTT: {:?}", latency);
 Types added:
 - `ProbeReport` - Health check results with RTT and transport status
 - `Diagnostics` trait - Methods for `probe()`, `ping()`, and `measure_latency()`
+- **Prelude export**: `Diagnostics` trait now exported in prelude for easier access without explicit imports
+
+#### Motion Control Enhancements
+Convenient motion control improvements for better ergonomics:
+
+```rust
+// New stop_all_motion() method for single-call motion stopping
+camera.stop_all_motion()?;  // Internally calls pan_tilt_stop()
+
+// Available for all camera types through the MotionControl trait
+// Clear documentation and consistent API across control methods
+```
+
+This provides a more intuitive API for emergency stops and motion control without needing to know which specific motion axis to stop.
 
 #### Command Cancellation
 Built-in support for canceling in-flight commands without application-level wrappers:
@@ -230,8 +224,8 @@ pub enum TransportHandle<R: Runtime> {
 
 This enables downstream libraries to implement traits uniformly across all transport types without trait coherence conflicts.
 
-#### Enhanced Error Types
-Richer error information with retry hints:
+#### Enhanced Error Types (#414)
+Richer error information with retry hints and improved ergonomics:
 
 ```rust
 match camera.send_command(cmd).await {
@@ -248,7 +242,59 @@ match camera.send_command(cmd).await {
 }
 ```
 
-New `ErrorKind` variants and methods provide machine-actionable error classification for robust retry logic.
+**New capabilities:**
+- **Clone implementation**: `Error` type now implements `Clone`, enabling better error handling patterns in multi-threaded contexts
+- **ErrorKind** variants and methods provide machine-actionable error classification for robust retry logic
+- Improved error propagation and composition in complex control flows
+- Better compatibility with error handling libraries and patterns
+
+This makes error handling more flexible, especially when errors need to be stored, passed across threads, or used in retry logic.
+
+#### Cancel Command Error Handling Clarification
+Improved error handling and documentation for command cancellation:
+
+- **Clear error semantics**: Cancel command failures now properly distinguished from successful cancellations
+- **Documentation**: Clarified that cancel commands may receive error responses when no command is in progress
+- **Error handling patterns**: Examples show proper handling of "command not executable" errors for cancel operations
+
+This helps developers write more robust cancellation logic without false positives from expected error conditions.
+
+### 📊 Impact on Downstream Projects
+
+The serialization improvements in 0.8.0 enable significant boilerplate reduction in downstream projects:
+
+**Real-world example from visca-mcp:**
+- **Wrapper type elimination**: Eliminated ~139 lines of wrapper types by using grafton-visca types directly
+  - Removed `Normalized01` wrapper (~71 lines) - now uses `Normalized<f32>` directly with serde support
+  - Removed `PresetId` wrapper (~68 lines) - now uses `PresetNumber` directly with serde support
+- **Cleaner API**: No more manual serde implementations or bridge TryFrom implementations needed
+- **Type safety**: Maintained compile-time validation while reducing code complexity
+- **JSON schema generation**: Automatic schema generation for all parameter types via schemars feature
+
+**Migration example:**
+```rust
+// Before (0.7.1): Custom wrapper types required
+pub struct Normalized01(f32);
+impl Serialize for Normalized01 {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where S: Serializer {
+        // ~20 lines of validation and serialization
+    }
+}
+impl<'de> Deserialize<'de> for Normalized01 {
+    // ~25 lines of deserialization
+}
+impl TryFrom<Normalized01> for Normalized<f32> {
+    // ~15 lines of conversion
+}
+// Total: ~71 lines
+
+// After (0.8.0): Direct usage with serde feature
+use grafton_visca::units::Normalized;
+// 1 line - full serialization, validation, and schema support included
+```
+
+This demonstrates the library's maturity as a foundational component that reduces, rather than increases, downstream complexity.
 
 ### 📝 API Changes & Migration Guide
 
@@ -361,6 +407,89 @@ if report.is_healthy() {
 }
 ```
 
+#### Color Temperature Control (New Feature)
+
+```rust
+// Old (0.7.1): Limited to preset white balance modes
+camera.white_balance_indoor().await?;  // ~3200K
+camera.white_balance_outdoor().await?; // ~5600K
+
+// New (0.8.0): Direct Kelvin control for precise matching
+camera.color_temperature_direct(4500).await?;  // Exact 4500K
+camera.color_temperature_direct(6500).await?;  // D65 standard
+
+// Query current color temperature
+let temp_k = camera.color_temperature().await?;
+println!("Current: {}K", temp_k);  // e.g., "Current: 4500K"
+```
+
+#### Motion Control (New Feature)
+
+```rust
+// Old (0.7.1): Need to know which motion control to stop
+camera.pan_tilt_stop().await?;
+camera.zoom_stop().await?;
+camera.focus_stop().await?;
+
+// New (0.8.0): Single method for emergency stop
+camera.stop_all_motion().await?;  // Stops all motion
+
+// Still available for granular control
+camera.pan_tilt_stop().await?;  // Stop only pan/tilt
+```
+
+#### Diagnostics (New Feature)
+
+```rust
+// Old (0.7.1): Custom health check implementations
+async fn check_camera(camera: &Camera) -> bool {
+    timeout(Duration::from_millis(100), camera.inquiry().power_state())
+        .await
+        .is_ok()
+}
+
+// New (0.8.0): Built-in diagnostics
+use grafton_visca::diagnostics::Diagnostics;  // Now in prelude
+
+// Quick ping check
+if camera.ping().await? {
+    println!("Camera online");
+}
+
+// Detailed health report
+let report = camera.probe().await?;
+if report.is_healthy() {
+    println!("Camera healthy, RTT: {:?}", report.rtt);
+}
+
+// Measure average latency
+let latency = camera.measure_latency(5).await?;
+println!("Avg RTT: {:?}", latency);
+```
+
+#### Protocol Fixes Migration
+
+```rust
+// AWB Sensitivity Inquiry (Fixed in 0.8.0)
+// Old (0.7.1): Returned inverted values
+let sensitivity = camera.auto_wb_sensitivity().await?;
+// High was reported as Low, Low as High ❌
+
+// New (0.8.0): Returns correct values per VISCA spec
+let sensitivity = camera.auto_wb_sensitivity().await?;
+// High correctly reports as High, Low as Low ✓
+assert_eq!(sensitivity, AutoWhiteBalanceSensitivity::High);
+
+// Tally APIs (Normalized in 0.8.0)
+// Old (0.7.1): Mixed baseline and vendor-specific APIs
+camera.tally_status().await?;  // Vendor-specific ❌
+
+// New (0.8.0): Baseline VISCA only in main API
+camera.tally_red().await?;     // Baseline VISCA ✓
+camera.tally_green().await?;   // FR7 extension ✓
+// Vendor extensions available via feature flags/profiles
+```
+
 #### Serialization (New Feature)
 
 ```rust
@@ -383,6 +512,32 @@ let schema = schemars::schema_for!(PanSpeed);
 ```
 
 ### 🔄 Breaking Changes
+
+#### Protocol Correctness Fixes (Behavioral)
+These fixes correct protocol violations and may change observed behavior:
+
+1. **AWB Sensitivity Inquiry**: Returns correct VISCA-spec values
+   ```rust
+   // Old (0.7.1): Inverted mapping
+   let sens = camera.auto_wb_sensitivity()?;
+   // High=0x00 was decoded as Low ❌
+
+   // New (0.8.0): Correct mapping
+   let sens = camera.auto_wb_sensitivity()?;
+   // High=0x00 correctly decoded as High ✓
+   ```
+   **Impact**: If you were compensating for the inverted values in your code, remove the compensation.
+
+2. **Tally API Normalization**: Vendor-specific inquiry removed from baseline API
+   ```rust
+   // Old (0.7.1): Non-standard inquiry available
+   camera.tally_status()?;  // PTZOptics-specific
+
+   // New (0.8.0): Baseline VISCA only
+   camera.tally_red()?;     // Standard VISCA
+   camera.tally_green()?;   // FR7 extension
+   ```
+   **Impact**: If using `tally_status()`, migrate to `tally_red()` and `tally_green()` for portable code.
 
 #### Transport Handle (Minor)
 If you were pattern matching on `TransportHandle`, add the new `Serial` variant:
@@ -422,6 +577,15 @@ match error.kind() {
 }
 ```
 
+#### Import Organization (Minor)
+Module imports have been reorganized for consistency:
+
+```rust
+// Some internal module structures changed
+// Public API exports remain stable
+// If using deep imports, verify import paths
+```
+
 ### 🎓 Migration Strategy
 
 **To adopt new features:**
@@ -431,24 +595,47 @@ match error.kind() {
    grafton-visca = { version = "0.8", features = ["serde", "schemars"] }
    ```
 
-2. **Replace custom conversion code** with built-in helpers from `inquiry_conversions`
+2. **Update protocol-dependent code**:
+   - Verify AWB sensitivity inquiry handling (fix removes value inversion)
+   - Replace `tally_status()` with `tally_red()` and `tally_green()` for VISCA compliance
+   - Review any code that pattern matches on `TransportHandle`
 
-3. **Replace custom speed mapping** with `Coarse` and `from_coarse()` methods
+3. **Adopt new convenience features**:
+   - Replace custom conversion code with built-in helpers from `inquiry_conversions`
+   - Replace custom speed mapping with `Coarse` and `from_coarse()` methods
+   - Replace custom health checks with the `Diagnostics` trait (now in prelude)
+   - Use `stop_all_motion()` for emergency stops instead of multiple stop calls
 
-4. **Replace custom health checks** with the `Diagnostics` trait
+4. **Improve code ergonomics**:
+   - Remove f32 casts when constructing `Degrees` and similar types (now accepts f64 directly)
+   - Use `color_temperature_direct()` for precise white balance control
+   - Leverage `Error::clone()` in multi-threaded error handling
 
-5. **Remove f32 casts** when constructing `Degrees` and similar types
+5. **Enable serial transport** (if needed):
+   ```toml
+   # Blocking mode
+   grafton-visca = { version = "0.8", features = ["transport-serial"] }
+
+   # Async with Tokio
+   grafton-visca = { version = "0.8", features = ["transport-serial-tokio"] }
+   ```
 
 6. **Use built-in cancellation** via `start_command_with_id()` and `cancel()` for long-running operations
 
 ### 📚 Technical Improvements
 
-- **Runtime-neutral design**: All new features work across tokio, async-std, and smol
+- **Runtime-agnostic modernization complete** (#416): Full async runtime support for tokio, async-std, and smol with runtime-neutral abstractions
+- **Protocol correctness validated** (#418): All protocol implementations verified against VISCA specification with comprehensive test coverage
+- **Uniform transport architecture** (#415): Serial transport integrated into `TransportHandle` for consistent trait implementations across all transport types
+- **Connection timeout enforcement** (#417): Async connectors properly enforce `connect_timeout` with non-blocking DNS resolution across all runtimes
 - **Zero-cost abstractions**: Type-safe wrappers with no runtime overhead
 - **Consistent validation**: All types expose MIN/MAX constants and validated constructors
 - **Non-exhaustive enums**: Future-proof API with `#[non_exhaustive]` on key enums
-- **Comprehensive testing**: Golden vectors for conversions, domain normalization, and edge cases
-- **Improved documentation**: All new types include examples and usage notes
+- **Enhanced error ergonomics**: `Error` type now implements `Clone` for better composability (#414)
+- **Comprehensive testing**: Golden vectors for conversions, domain normalization, protocol correctness, and edge cases
+- **Improved documentation**: All new types include examples and usage notes; examples updated to demonstrate 0.8.0 features
+- **Import organization**: Standardized import structure and removed extraneous whitespace for consistency
+- **Dependency updates**: Upgraded schemars to 1.0 for ecosystem compatibility
 
 ### 🔮 Future Direction
 
