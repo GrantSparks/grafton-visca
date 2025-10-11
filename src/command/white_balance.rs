@@ -104,7 +104,6 @@ impl AWBSensitivityCommand {
 #[allow(clippy::panic)]
 mod tests {
     use super::*;
-
     use crate::{
         command::{bytes::VISCA_TERMINATOR, encode::ViscaCommand},
         macros::test_utils::visca_test,

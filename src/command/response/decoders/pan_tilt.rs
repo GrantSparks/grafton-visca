@@ -19,6 +19,7 @@
 //! camera-native coordinates to logical signed i16 values based on the profile.
 
 use super::super::payload::{Nibbles, Payload};
+
 use crate::{
     capabilities::{PanTilt, Profile},
     command::{
