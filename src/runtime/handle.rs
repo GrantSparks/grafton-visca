@@ -16,7 +16,7 @@ use std::{
 use crate::{
     camera_id::CameraId,
     capabilities::Profile,
-    command::{encode::PreparedCommand, encode::ViscaCommand, response::Response},
+    command::{encode::EncodedCommand, encode::ViscaCommand, response::Response},
     error::{Error, Result},
     executor::Executor,
     runtime::{
@@ -386,7 +386,7 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
         C: ViscaCommand + Clone + std::fmt::Debug + 'static,
     {
         let prepared_command =
-            Arc::new(PreparedCommand::new(cmd.clone(), camera_id).map_err(|e| {
+            Arc::new(EncodedCommand::new(cmd.clone(), camera_id).map_err(|e| {
                 tracing::error!("Failed to prepare command: {e:?}");
                 e
             })?);
@@ -431,7 +431,7 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
     where
         I: ViscaCommand + CommandTimeout + Clone + std::fmt::Debug + 'static,
     {
-        let prepared_command = Arc::new(PreparedCommand::new(inquiry.clone(), camera_id).map_err(
+        let prepared_command = Arc::new(EncodedCommand::new(inquiry.clone(), camera_id).map_err(
             |e| {
                 tracing::error!("Failed to prepare inquiry: {e:?}");
                 e

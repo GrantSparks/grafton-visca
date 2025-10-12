@@ -75,6 +75,10 @@ pub async fn runtime_loop_with_config<
     // Allocate a single reusable buffer for receiving data
     let mut read_buf = vec![0u8; config.buffer_manager.config().recv_buffer_size];
 
+    // Allocate a single reusable buffer for sending data (zero allocation per send)
+    let mut send_buf =
+        bytes::BytesMut::with_capacity(config.buffer_manager.config().send_buffer_size);
+
     debug!("VISCA runtime started");
 
     // Default idle sleep duration when no deadlines are pending
@@ -104,14 +108,14 @@ pub async fn runtime_loop_with_config<
 
                     // Try to send immediately if possible
                     if let Some(cmd) = adapter.next_item_to_send() {
-                        // Use the shared driver for sending
+                        // Use the shared driver for sending with reusable buffer
                         if let Err(e) = send_one(
                             &mut transport,
                             &executor,
                             &mut adapter,
                             cmd,
                             &config.envelope,
-                            &config.buffer_manager,
+                            &mut send_buf,
                             config.write_timeout,
                         )
                         .await
@@ -130,16 +134,23 @@ pub async fn runtime_loop_with_config<
                     });
 
                     let cancel_cmd = CommandCancelCommand::new(socket);
-                    let cancel_bytes = cancel_cmd.to_bytes(camera_id).map_err(|e| {
-                        error!("Failed to encode cancel command: {e}");
-                        e
-                    })?;
+
+                    // Encode cancel command into a temporary buffer
+                    let mut temp_buf = [0u8; CommandCancelCommand::MAX_SIZE];
+                    let len = cancel_cmd
+                        .write_into(camera_id, &mut temp_buf)
+                        .map_err(|e| {
+                            error!("Failed to encode cancel command: {e}");
+                            e
+                        })?;
+
+                    // Frame into reusable send buffer (zero allocation)
                     let kind = CommandKind::Command;
-                    let framed =
-                        config
-                            .envelope
-                            .frame_bytes(&cancel_bytes, kind, &config.buffer_manager);
-                    if let Err(e) = transport.send(&framed).await {
+                    config
+                        .envelope
+                        .frame_into(&temp_buf[..len], kind, &mut send_buf);
+
+                    if let Err(e) = transport.send(&send_buf[..]).await {
                         debug!("Failed to send cancel for socket {socket:?}: {e}");
                     } else {
                         debug!("Sent cancel for socket {socket:?} with camera_id {camera_id:?}");
@@ -155,17 +166,23 @@ pub async fn runtime_loop_with_config<
                         });
 
                         let cancel_cmd = CommandCancelCommand::new(socket);
-                        let cancel_bytes = cancel_cmd.to_bytes(camera_id).map_err(|e| {
-                            error!("Failed to encode cancel command: {e}");
-                            e
-                        })?;
+
+                        // Encode cancel command into a temporary buffer
+                        let mut temp_buf = [0u8; CommandCancelCommand::MAX_SIZE];
+                        let len = cancel_cmd
+                            .write_into(camera_id, &mut temp_buf)
+                            .map_err(|e| {
+                                error!("Failed to encode cancel command: {e}");
+                                e
+                            })?;
+
+                        // Frame into reusable send buffer (zero allocation)
                         let kind = CommandKind::Command;
-                        let framed = config.envelope.frame_bytes(
-                            &cancel_bytes,
-                            kind,
-                            &config.buffer_manager,
-                        );
-                        if let Err(e) = transport.send(&framed).await {
+                        config
+                            .envelope
+                            .frame_into(&temp_buf[..len], kind, &mut send_buf);
+
+                        if let Err(e) = transport.send(&send_buf[..]).await {
                             debug!("Failed to send cancel for command {id}: {e}");
                         } else {
                             debug!("Sent cancel for command {id} on socket {socket:?} with camera_id {camera_id:?}");
@@ -294,7 +311,7 @@ pub async fn runtime_loop_with_config<
                         &mut adapter,
                         cmd,
                         &config.envelope,
-                        &config.buffer_manager,
+                        &mut send_buf,
                         config.write_timeout,
                     )
                     .await
@@ -325,18 +342,24 @@ pub async fn runtime_loop_with_config<
                                 });
 
                             let cancel_cmd = CommandCancelCommand::new(socket);
-                            let cancel_bytes = cancel_cmd.to_bytes(camera_id).map_err(|e| {
-                                error!("Failed to encode queued cancel command: {e}");
-                                e
-                            })?;
 
+                            // Encode cancel command into a temporary buffer
+                            let mut temp_buf = [0u8; CommandCancelCommand::MAX_SIZE];
+                            let len =
+                                cancel_cmd
+                                    .write_into(camera_id, &mut temp_buf)
+                                    .map_err(|e| {
+                                        error!("Failed to encode queued cancel command: {e}");
+                                        e
+                                    })?;
+
+                            // Frame into reusable send buffer (zero allocation)
                             let kind = CommandKind::Command;
-                            let framed = config.envelope.frame_bytes(
-                                &cancel_bytes,
-                                kind,
-                                &config.buffer_manager,
-                            );
-                            if let Err(e) = transport.send(&framed).await {
+                            config
+                                .envelope
+                                .frame_into(&temp_buf[..len], kind, &mut send_buf);
+
+                            if let Err(e) = transport.send(&send_buf[..]).await {
                                 debug!("Failed to send queued cancel for command {id}: {e}");
                             } else {
                                 debug!("Sent queued cancel for command {id} on socket {socket:?} with camera_id {camera_id:?}");
@@ -400,7 +423,7 @@ pub async fn runtime_loop_with_config<
                 &mut adapter,
                 pending_cmd,
                 &config.envelope,
-                &config.buffer_manager,
+                &mut send_buf,
                 config.write_timeout,
             )
             .await
@@ -419,7 +442,7 @@ pub async fn runtime_loop_with_config<
                 &mut adapter,
                 cmd,
                 &config.envelope,
-                &config.buffer_manager,
+                &mut send_buf,
                 config.write_timeout,
             )
             .await

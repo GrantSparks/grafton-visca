@@ -111,7 +111,7 @@ impl<P: Profile> BlockingRunner<P> {
         let cmd_id = self.next_id.fetch_add(1, Ordering::SeqCst);
 
         let prepared_cmd = std::sync::Arc::new(
-            crate::command::encode::PreparedCommand::new(command.clone(), camera_id).map_err(
+            crate::command::encode::EncodedCommand::new(command.clone(), camera_id).map_err(
                 |e| {
                     tracing::error!("Failed to prepare command: {e:?}");
                     e
@@ -153,6 +153,10 @@ impl<P: Profile> BlockingRunner<P> {
     ) -> Result<Response> {
         let mut read_buf = vec![0u8; self.buffer_manager.config().recv_buffer_size];
 
+        // Allocate a single reusable buffer for sending data (zero allocation per send)
+        let mut send_buf =
+            bytes::BytesMut::with_capacity(self.buffer_manager.config().send_buffer_size);
+
         loop {
             let now = Instant::now();
 
@@ -181,7 +185,7 @@ impl<P: Profile> BlockingRunner<P> {
                     &mut scheduler,
                     pending_cmd,
                     &self.envelope,
-                    &self.buffer_manager,
+                    &mut send_buf,
                     write_timeout,
                 ) {
                     debug!("Send operation failed: {e:?}");
@@ -215,7 +219,7 @@ impl<P: Profile> BlockingRunner<P> {
                     &mut scheduler,
                     pending_cmd,
                     &self.envelope,
-                    &self.buffer_manager,
+                    &mut send_buf,
                     write_timeout,
                 ) {
                     debug!("Send retry operation failed: {e:?}");
@@ -469,7 +473,7 @@ mod tests {
             bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
         };
         let prepared_cmd = std::sync::Arc::new(
-            crate::command::encode::PreparedCommand::new(test_cmd, camera_id).unwrap(),
+            crate::command::encode::EncodedCommand::new(test_cmd, camera_id).unwrap(),
         );
 
         let cmd = PendingCommand {

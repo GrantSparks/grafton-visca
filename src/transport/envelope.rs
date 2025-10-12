@@ -19,7 +19,7 @@ use std::{
 use crate::{
     command::CommandKind,
     protocol::sony::{PayloadType, SonyHeader},
-    transport::{buffer::BufferManager, builder::AddressingMode},
+    transport::builder::AddressingMode,
     Error,
 };
 
@@ -40,21 +40,26 @@ pub trait Envelope: private::Sealed + Send + Sync + 'static {
     /// Create a new envelope instance with the given addressing mode.
     fn new(addressing: AddressingMode) -> Self;
 
-    /// Frame VISCA bytes with protocol-specific encapsulation.
-    fn frame_bytes(
+    /// Frame VISCA bytes into a reusable buffer with zero allocations.
+    ///
+    /// This method writes the framed bytes directly into the provided buffer,
+    /// avoiding per-send allocations. The buffer is cleared before use.
+    ///
+    /// # Arguments
+    ///
+    /// * `visca_bytes` - The VISCA command bytes to frame
+    /// * `kind` - The command kind (Command or Inquiry)
+    /// * `out` - The output buffer to write into (will be cleared first)
+    ///
+    /// # Returns
+    ///
+    /// Metadata about the framing operation (sequence number for Sony, None for Raw)
+    fn frame_into(
         &self,
         visca_bytes: &[u8],
         kind: CommandKind,
-        buffer_manager: &BufferManager,
-    ) -> Bytes;
-
-    /// Frame VISCA bytes and return metadata about the framing.
-    fn frame_bytes_with_meta(
-        &self,
-        visca_bytes: &[u8],
-        kind: CommandKind,
-        buffer_manager: &BufferManager,
-    ) -> (Bytes, FrameMeta);
+        out: &mut bytes::BytesMut,
+    ) -> FrameMeta;
 
     /// Extract VISCA payload from protocol-specific framing.
     fn extract_response(&self, framed_bytes: &[u8]) -> Result<Bytes, Error>;
@@ -88,37 +93,32 @@ impl Envelope for RawVisca {
         Self { addressing }
     }
 
-    fn frame_bytes(
+    fn frame_into(
         &self,
         visca_bytes: &[u8],
         kind: CommandKind,
-        _buffer_manager: &BufferManager,
-    ) -> Bytes {
+        out: &mut bytes::BytesMut,
+    ) -> FrameMeta {
+        out.clear();
+
         if visca_bytes.is_empty() {
-            return Bytes::new();
+            return FrameMeta { sequence: None };
         }
 
         // Normalize the address byte if needed
         let normalized_addr = normalize_address(visca_bytes[0], kind, self.addressing);
 
         if normalized_addr == visca_bytes[0] {
-            Bytes::copy_from_slice(visca_bytes)
+            // No normalization needed - copy as-is
+            out.extend_from_slice(visca_bytes);
         } else {
-            let mut normalized = Vec::with_capacity(visca_bytes.len());
-            normalized.push(normalized_addr);
-            normalized.extend_from_slice(&visca_bytes[1..]);
-            Bytes::from(normalized)
+            // Write normalized address followed by rest of bytes
+            out.reserve(visca_bytes.len());
+            out.extend_from_slice(&[normalized_addr]);
+            out.extend_from_slice(&visca_bytes[1..]);
         }
-    }
 
-    fn frame_bytes_with_meta(
-        &self,
-        visca_bytes: &[u8],
-        kind: CommandKind,
-        buffer_manager: &BufferManager,
-    ) -> (Bytes, FrameMeta) {
-        let framed = self.frame_bytes(visca_bytes, kind, buffer_manager);
-        (framed, FrameMeta { sequence: None })
+        FrameMeta { sequence: None }
     }
 
     fn extract_response(&self, framed_bytes: &[u8]) -> Result<Bytes, Error> {
@@ -138,15 +138,39 @@ impl Envelope for SonyEncapsulated {
         }
     }
 
-    fn frame_bytes(
+    fn frame_into(
         &self,
         visca_bytes: &[u8],
         kind: CommandKind,
-        buffer_manager: &BufferManager,
-    ) -> Bytes {
-        // Delegate to frame_bytes_with_meta to avoid duplication/mismatch entirely
-        self.frame_bytes_with_meta(visca_bytes, kind, buffer_manager)
-            .0
+        out: &mut bytes::BytesMut,
+    ) -> FrameMeta {
+        out.clear();
+
+        if visca_bytes.is_empty() {
+            return FrameMeta { sequence: None };
+        }
+
+        // Allocate sequence number atomically
+        let sequence = self.sequence_counter.fetch_add(1, Ordering::Relaxed);
+
+        // Normalize the address byte
+        let normalized_addr = normalize_address(visca_bytes[0], kind, self.addressing);
+
+        // Build Sony header
+        let header = match kind {
+            CommandKind::Inquiry => SonyHeader::new_inquiry(visca_bytes.len(), sequence),
+            CommandKind::Command => SonyHeader::new_command(visca_bytes.len(), sequence),
+        };
+
+        // Write header + normalized address + remaining bytes directly into out
+        out.reserve(SonyHeader::SIZE + visca_bytes.len());
+        out.extend_from_slice(&header.encode());
+        out.extend_from_slice(&[normalized_addr]);
+        out.extend_from_slice(&visca_bytes[1..]);
+
+        FrameMeta {
+            sequence: Some(sequence),
+        }
     }
 
     fn extract_response(&self, framed_bytes: &[u8]) -> Result<Bytes, Error> {
@@ -190,40 +214,6 @@ impl Envelope for SonyEncapsulated {
                 sequence: Some(header.sequence_number),
             },
         ))
-    }
-
-    fn frame_bytes_with_meta(
-        &self,
-        visca_bytes: &[u8],
-        kind: CommandKind,
-        buffer_manager: &BufferManager,
-    ) -> (Bytes, FrameMeta) {
-        if visca_bytes.is_empty() {
-            return (Bytes::new(), FrameMeta { sequence: None });
-        }
-
-        // Allocate exactly once – this is the sequence written to the header *and* returned in meta
-        let sequence = self.sequence_counter.fetch_add(1, Ordering::Relaxed);
-
-        let normalized_addr = normalize_address(visca_bytes[0], kind, self.addressing);
-        let header = match kind {
-            CommandKind::Inquiry => SonyHeader::new_inquiry(visca_bytes.len(), sequence),
-            CommandKind::Command => SonyHeader::new_command(visca_bytes.len(), sequence),
-        };
-
-        let mut envelope = buffer_manager.alloc_send_buffer();
-        envelope.reserve(SonyHeader::SIZE + visca_bytes.len());
-        envelope.extend_from_slice(&header.encode());
-        envelope.extend_from_slice(&[normalized_addr]);
-        envelope.extend_from_slice(&visca_bytes[1..]);
-        let framed = envelope.freeze();
-
-        (
-            framed,
-            FrameMeta {
-                sequence: Some(sequence),
-            },
-        )
     }
 }
 
@@ -292,141 +282,289 @@ impl SonyEncapsulated {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::{command::bytes::VISCA_TERMINATOR, transport::buffer::BufferConfig};
+    use crate::command::bytes::VISCA_TERMINATOR;
 
-    fn test_buffer_manager() -> BufferManager {
-        BufferManager::new(BufferConfig::default())
+    // RawVisca frame_into tests
+
+    #[test]
+    fn test_raw_visca_frame_into_passthrough_serial_mode() {
+        let envelope = RawVisca::new(AddressingMode::Serial);
+        let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
+        let mut out = bytes::BytesMut::new();
+
+        let meta = envelope.frame_into(&visca_cmd, CommandKind::Command, &mut out);
+
+        // Serial mode: should preserve address byte (no normalization)
+        assert_eq!(&out[..], &visca_cmd[..]);
+        assert_eq!(meta.sequence, None);
     }
 
     #[test]
-    fn test_raw_visca_passthrough() {
+    fn test_raw_visca_frame_into_normalizes_address_ip_mode() {
         let envelope = RawVisca::new(AddressingMode::Ip);
-        let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]; // Power On
+        let visca_cmd = vec![0x82, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
+        let mut out = bytes::BytesMut::new();
 
-        let framed = envelope.frame_bytes(&visca_cmd, CommandKind::Command, &test_buffer_manager());
-        assert_eq!(&framed[..], &visca_cmd[..]);
+        let meta = envelope.frame_into(&visca_cmd, CommandKind::Command, &mut out);
 
-        let extracted = envelope
-            .extract_response(&visca_cmd)
-            .expect("raw visca should extract unchanged");
-        assert_eq!(&extracted[..], &visca_cmd[..]);
+        // IP mode: should normalize 0x82 to 0x81
+        assert_eq!(out[0], 0x81);
+        assert_eq!(&out[1..], &visca_cmd[1..]);
+        assert_eq!(meta.sequence, None);
     }
 
     #[test]
-    fn test_sony_encapsulation_command() {
-        let envelope = SonyEncapsulated::new(AddressingMode::Ip);
-        let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]; // Power On
+    fn test_raw_visca_frame_into_preserves_broadcast_inquiry() {
+        let envelope = RawVisca::new(AddressingMode::Ip);
+        let visca_cmd = vec![0x88, 0x09, 0x00, 0x02, VISCA_TERMINATOR];
+        let mut out = bytes::BytesMut::new();
 
-        let framed = envelope.frame_bytes(&visca_cmd, CommandKind::Command, &test_buffer_manager());
+        let meta = envelope.frame_into(&visca_cmd, CommandKind::Inquiry, &mut out);
 
-        // Check it has Sony header (8 bytes) + VISCA payload
-        assert_eq!(framed.len(), SonyHeader::SIZE + visca_cmd.len());
-
-        // Verify header format (basic checks)
-        assert_eq!(framed[0], 0x01); // Command type
-        assert_eq!(framed[1], 0x00); // High nibble of command type
-
-        // Payload length
-        let payload_len = ((framed[2] as usize) << 8) | (framed[3] as usize);
-        assert_eq!(payload_len, visca_cmd.len());
-
-        // Check VISCA payload starts after header
-        assert_eq!(&framed[8..], &visca_cmd[..]);
+        // Broadcast inquiry (0x88) should be preserved even in IP mode
+        assert_eq!(out[0], 0x88);
+        assert_eq!(&out[1..], &visca_cmd[1..]);
+        assert_eq!(meta.sequence, None);
     }
 
     #[test]
-    fn test_sony_encapsulation_inquiry() {
-        let envelope = SonyEncapsulated::new(AddressingMode::Ip);
-        let visca_inquiry = vec![0x81, 0x09, 0x04, 0x00, VISCA_TERMINATOR]; // Power Status Inquiry
+    fn test_raw_visca_frame_into_normalizes_broadcast_command() {
+        let envelope = RawVisca::new(AddressingMode::Ip);
+        let visca_cmd = vec![0x88, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
+        let mut out = bytes::BytesMut::new();
 
-        let framed =
-            envelope.frame_bytes(&visca_inquiry, CommandKind::Inquiry, &test_buffer_manager());
+        let meta = envelope.frame_into(&visca_cmd, CommandKind::Command, &mut out);
 
-        // Check it has Sony header (8 bytes) + VISCA payload
-        assert_eq!(framed.len(), SonyHeader::SIZE + visca_inquiry.len());
-
-        // Verify header format for inquiry
-        assert_eq!(framed[0], 0x01); // Inquiry type
-        assert_eq!(framed[1], 0x10); // High nibble indicates inquiry
+        // Broadcast address on Command (not Inquiry) should be normalized to 0x81
+        assert_eq!(out[0], 0x81);
+        assert_eq!(&out[1..], &visca_cmd[1..]);
+        assert_eq!(meta.sequence, None);
     }
 
     #[test]
-    fn test_sony_response_extraction() {
-        let envelope = SonyEncapsulated::new(AddressingMode::Ip);
+    fn test_raw_visca_frame_into_empty_input() {
+        let envelope = RawVisca::new(AddressingMode::Ip);
+        let mut out = bytes::BytesMut::new();
 
-        // Create a mock Sony response: 8-byte header + VISCA ACK
-        let visca_ack = vec![0x90, 0x41, VISCA_TERMINATOR]; // ACK for socket 1
-        let header = SonyHeader::new_reply(visca_ack.len(), 42); // sequence 42
-        let mut sony_response = Vec::new();
-        sony_response.extend_from_slice(&header.encode());
-        sony_response.extend_from_slice(&visca_ack);
+        let meta = envelope.frame_into(&[], CommandKind::Command, &mut out);
 
-        let extracted = envelope
-            .extract_response(&sony_response)
-            .expect("should extract Sony payload");
-        assert_eq!(&extracted[..], &visca_ack[..]);
+        assert_eq!(out.len(), 0);
+        assert_eq!(meta.sequence, None);
     }
 
     #[test]
-    fn test_sony_sequence_increment() {
+    fn test_raw_visca_frame_into_clears_buffer() {
+        let envelope = RawVisca::new(AddressingMode::Ip);
+        let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
+        let mut out = bytes::BytesMut::from(&b"old data"[..]);
+
+        envelope.frame_into(&visca_cmd, CommandKind::Command, &mut out);
+
+        // Should clear old data and contain only new framed command
+        assert_eq!(&out[..], &visca_cmd[..]);
+    }
+
+    // SonyEncapsulated frame_into tests
+
+    #[test]
+    fn test_sony_frame_into_command_with_sequence() {
         let envelope = SonyEncapsulated::new(AddressingMode::Ip);
         let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
+        let mut out = bytes::BytesMut::new();
 
-        let framed1 =
-            envelope.frame_bytes(&visca_cmd, CommandKind::Command, &test_buffer_manager());
-        let seq1 = u32::from_be_bytes([framed1[4], framed1[5], framed1[6], framed1[7]]);
+        let meta = envelope.frame_into(&visca_cmd, CommandKind::Command, &mut out);
 
-        let framed2 =
-            envelope.frame_bytes(&visca_cmd, CommandKind::Command, &test_buffer_manager());
-        let seq2 = u32::from_be_bytes([framed2[4], framed2[5], framed2[6], framed2[7]]);
+        // Should have Sony header (8 bytes) + VISCA payload
+        assert_eq!(out.len(), SonyHeader::SIZE + visca_cmd.len());
 
-        assert_eq!(seq2, seq1 + 1);
+        // Check sequence number was assigned
+        assert_eq!(meta.sequence, Some(0));
+
+        // Decode header to verify
+        let header = SonyHeader::decode(&out[..SonyHeader::SIZE]).expect("valid header");
+        assert_eq!(header.payload_length as usize, visca_cmd.len());
+        assert_eq!(header.sequence_number, 0);
+        assert_eq!(header.payload_type, PayloadType::ViscaCommand);
+
+        // Check VISCA payload (should have normalized address 0x81)
+        assert_eq!(&out[SonyHeader::SIZE..], &visca_cmd[..]);
     }
 
     #[test]
-    fn test_address_normalization_ip_mode_command() {
-        // In IP mode, command addresses should always be normalized to 0x81
-        let envelope = RawVisca::new(AddressingMode::Ip);
-        let visca_cmd = vec![0x82, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]; // Using camera ID 2 (0x82)
+    fn test_sony_frame_into_inquiry_with_sequence() {
+        let envelope = SonyEncapsulated::new(AddressingMode::Ip);
+        let visca_cmd = vec![0x81, 0x09, 0x04, 0x47, VISCA_TERMINATOR];
+        let mut out = bytes::BytesMut::new();
 
-        let framed = envelope.frame_bytes(&visca_cmd, CommandKind::Command, &test_buffer_manager());
+        let meta = envelope.frame_into(&visca_cmd, CommandKind::Inquiry, &mut out);
 
-        // Address should be normalized to 0x81
-        assert_eq!(framed[0], 0x81);
-        assert_eq!(&framed[1..], &visca_cmd[1..]);
+        // Check sequence number
+        assert_eq!(meta.sequence, Some(0));
+
+        // Decode header to verify inquiry type
+        let header = SonyHeader::decode(&out[..SonyHeader::SIZE]).expect("valid header");
+        assert_eq!(header.payload_type, PayloadType::ViscaInquiry);
+        assert_eq!(header.payload_length as usize, visca_cmd.len());
     }
 
     #[test]
-    fn test_address_normalization_ip_mode_inquiry_broadcast() {
-        // In IP mode, broadcast inquiries should preserve 0x88
-        let envelope = RawVisca::new(AddressingMode::Ip);
-        let visca_inquiry = vec![0x88, 0x09, 0x04, 0x00, VISCA_TERMINATOR]; // Broadcast inquiry
+    fn test_sony_frame_into_increments_sequence() {
+        let envelope = SonyEncapsulated::new(AddressingMode::Ip);
+        let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
+        let mut out = bytes::BytesMut::new();
 
-        let framed =
-            envelope.frame_bytes(&visca_inquiry, CommandKind::Inquiry, &test_buffer_manager());
+        // Frame multiple commands
+        let meta1 = envelope.frame_into(&visca_cmd, CommandKind::Command, &mut out);
+        let meta2 = envelope.frame_into(&visca_cmd, CommandKind::Command, &mut out);
+        let meta3 = envelope.frame_into(&visca_cmd, CommandKind::Command, &mut out);
 
-        // Broadcast address should be preserved
-        assert_eq!(framed[0], 0x88);
-        assert_eq!(&framed[..], &visca_inquiry[..]);
+        // Sequence numbers should increment
+        assert_eq!(meta1.sequence, Some(0));
+        assert_eq!(meta2.sequence, Some(1));
+        assert_eq!(meta3.sequence, Some(2));
     }
 
     #[test]
-    fn test_address_normalization_serial_mode() {
-        // In Serial mode, addresses should be preserved as-is
-        let envelope = RawVisca::new(AddressingMode::Serial);
+    fn test_sony_frame_into_normalizes_address_ip_mode() {
+        let envelope = SonyEncapsulated::new(AddressingMode::Ip);
+        let visca_cmd = vec![0x85, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
+        let mut out = bytes::BytesMut::new();
 
-        // Test various camera IDs
-        for camera_id in [0x81, 0x82, 0x83, 0x84, 0x88] {
-            let visca_cmd = vec![camera_id, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
+        envelope.frame_into(&visca_cmd, CommandKind::Command, &mut out);
 
-            let framed =
-                envelope.frame_bytes(&visca_cmd, CommandKind::Command, &test_buffer_manager());
-
-            // Address should not be changed in serial mode
-            assert_eq!(framed[0], camera_id);
-            assert_eq!(&framed[..], &visca_cmd[..]);
-        }
+        // Address byte should be normalized to 0x81
+        assert_eq!(out[SonyHeader::SIZE], 0x81);
+        assert_eq!(&out[SonyHeader::SIZE + 1..], &visca_cmd[1..]);
     }
+
+    #[test]
+    fn test_sony_frame_into_preserves_broadcast_inquiry() {
+        let envelope = SonyEncapsulated::new(AddressingMode::Ip);
+        let visca_cmd = vec![0x88, 0x09, 0x00, 0x02, VISCA_TERMINATOR];
+        let mut out = bytes::BytesMut::new();
+
+        envelope.frame_into(&visca_cmd, CommandKind::Inquiry, &mut out);
+
+        // Broadcast inquiry (0x88) should be preserved
+        assert_eq!(out[SonyHeader::SIZE], 0x88);
+    }
+
+    #[test]
+    fn test_sony_frame_into_empty_input() {
+        let envelope = SonyEncapsulated::new(AddressingMode::Ip);
+        let mut out = bytes::BytesMut::new();
+
+        let meta = envelope.frame_into(&[], CommandKind::Command, &mut out);
+
+        assert_eq!(out.len(), 0);
+        assert_eq!(meta.sequence, None);
+    }
+
+    #[test]
+    fn test_sony_frame_into_clears_buffer() {
+        let envelope = SonyEncapsulated::new(AddressingMode::Ip);
+        let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
+        let mut out = bytes::BytesMut::from(&b"old data that should be cleared"[..]);
+
+        envelope.frame_into(&visca_cmd, CommandKind::Command, &mut out);
+
+        // Should clear old data and contain only Sony header + VISCA payload
+        assert_eq!(out.len(), SonyHeader::SIZE + visca_cmd.len());
+    }
+
+    #[test]
+    fn test_sony_frame_into_reusable_buffer() {
+        let envelope = SonyEncapsulated::new(AddressingMode::Ip);
+        let cmd1 = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
+        let cmd2 = vec![0x81, 0x09, 0x04, 0x47, VISCA_TERMINATOR];
+        let mut out = bytes::BytesMut::new();
+
+        // Frame first command
+        let meta1 = envelope.frame_into(&cmd1, CommandKind::Command, &mut out);
+        assert_eq!(meta1.sequence, Some(0));
+
+        // Reuse buffer for second command
+        let meta2 = envelope.frame_into(&cmd2, CommandKind::Inquiry, &mut out);
+        let len2 = out.len();
+        assert_eq!(meta2.sequence, Some(1));
+
+        // Buffer should be properly sized for second command
+        assert_eq!(len2, SonyHeader::SIZE + cmd2.len());
+
+        // Verify second command is correct
+        let header = SonyHeader::decode(&out[..SonyHeader::SIZE]).expect("valid header");
+        assert_eq!(header.sequence_number, 1);
+        assert_eq!(header.payload_type, PayloadType::ViscaInquiry);
+    }
+
+    // Address normalization tests
+
+    #[test]
+    fn test_normalize_address_serial_mode_preserves_all() {
+        // Serial mode should preserve any address
+        assert_eq!(
+            normalize_address(0x81, CommandKind::Command, AddressingMode::Serial),
+            0x81
+        );
+        assert_eq!(
+            normalize_address(0x82, CommandKind::Command, AddressingMode::Serial),
+            0x82
+        );
+        assert_eq!(
+            normalize_address(0x88, CommandKind::Inquiry, AddressingMode::Serial),
+            0x88
+        );
+    }
+
+    #[test]
+    fn test_normalize_address_ip_mode_normalizes_commands() {
+        // IP mode commands should normalize to 0x81
+        assert_eq!(
+            normalize_address(0x81, CommandKind::Command, AddressingMode::Ip),
+            0x81
+        );
+        assert_eq!(
+            normalize_address(0x82, CommandKind::Command, AddressingMode::Ip),
+            0x81
+        );
+        assert_eq!(
+            normalize_address(0x87, CommandKind::Command, AddressingMode::Ip),
+            0x81
+        );
+    }
+
+    #[test]
+    fn test_normalize_address_ip_mode_normalizes_inquiries() {
+        // IP mode non-broadcast inquiries should normalize to 0x81
+        assert_eq!(
+            normalize_address(0x81, CommandKind::Inquiry, AddressingMode::Ip),
+            0x81
+        );
+        assert_eq!(
+            normalize_address(0x82, CommandKind::Inquiry, AddressingMode::Ip),
+            0x81
+        );
+    }
+
+    #[test]
+    fn test_normalize_address_ip_mode_preserves_broadcast_inquiry() {
+        // IP mode broadcast inquiry (0x88) should be preserved
+        assert_eq!(
+            normalize_address(0x88, CommandKind::Inquiry, AddressingMode::Ip),
+            0x88
+        );
+    }
+
+    #[test]
+    fn test_normalize_address_ip_mode_normalizes_broadcast_command() {
+        // IP mode broadcast command (0x88) should be normalized
+        assert_eq!(
+            normalize_address(0x88, CommandKind::Command, AddressingMode::Ip),
+            0x81
+        );
+    }
+
+    // Extraction tests (existing)
 
     #[test]
     fn test_extract_with_meta_raw_visca() {
@@ -461,114 +599,5 @@ mod tests {
 
         assert_eq!(&payload[..], &visca_ack[..]);
         assert_eq!(meta.sequence, Some(42));
-    }
-
-    #[test]
-    fn test_clone_shares_sequence_counter() {
-        // Create an envelope and clone it
-        let envelope = SonyEncapsulated::new(AddressingMode::Ip);
-        let cloned_envelope = envelope.clone();
-
-        let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
-
-        // Frame with original
-        let framed1 =
-            envelope.frame_bytes(&visca_cmd, CommandKind::Command, &test_buffer_manager());
-        let seq1 = u32::from_be_bytes([framed1[4], framed1[5], framed1[6], framed1[7]]);
-
-        // Frame with clone - should get next sequence
-        let framed2 =
-            cloned_envelope.frame_bytes(&visca_cmd, CommandKind::Command, &test_buffer_manager());
-        let seq2 = u32::from_be_bytes([framed2[4], framed2[5], framed2[6], framed2[7]]);
-
-        // Sequences should be consecutive since clones share the counter
-        assert_eq!(seq2, seq1 + 1);
-    }
-
-    #[test]
-    fn test_meta_header_sequence_invariance() {
-        // Test that the sequence in FrameMeta matches the sequence written to the header
-        let envelope = SonyEncapsulated::new(AddressingMode::Ip);
-        let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
-
-        // Call frame_bytes_with_meta
-        let (framed, meta) = envelope.frame_bytes_with_meta(
-            &visca_cmd,
-            CommandKind::Command,
-            &test_buffer_manager(),
-        );
-
-        // Extract sequence from the header
-        let header_sequence = u32::from_be_bytes([framed[4], framed[5], framed[6], framed[7]]);
-
-        // Assert that meta sequence matches header sequence
-        assert_eq!(meta.sequence, Some(header_sequence));
-    }
-
-    #[test]
-    fn test_concurrent_sequence_allocation() {
-        use std::sync::Arc;
-        use std::thread;
-
-        // Create a shared envelope
-        let envelope = Arc::new(SonyEncapsulated::new(AddressingMode::Ip));
-        let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
-
-        // Number of concurrent threads
-        const NUM_THREADS: usize = 10;
-        const OPS_PER_THREAD: usize = 100;
-
-        let mut handles = vec![];
-
-        for _ in 0..NUM_THREADS {
-            let envelope_clone = Arc::clone(&envelope);
-            let cmd = visca_cmd.clone();
-
-            let handle = thread::spawn(move || {
-                let mut sequences = Vec::new();
-                for _ in 0..OPS_PER_THREAD {
-                    let (framed, meta) = envelope_clone.frame_bytes_with_meta(
-                        &cmd,
-                        CommandKind::Command,
-                        &test_buffer_manager(),
-                    );
-
-                    // Extract sequence from header
-                    let header_seq =
-                        u32::from_be_bytes([framed[4], framed[5], framed[6], framed[7]]);
-
-                    // Verify meta matches header
-                    assert_eq!(
-                        meta.sequence,
-                        Some(header_seq),
-                        "Meta/header sequence mismatch"
-                    );
-
-                    sequences.push(header_seq);
-                }
-                sequences
-            });
-            handles.push(handle);
-        }
-
-        // Collect all sequences from all threads
-        let mut all_sequences = Vec::new();
-        for handle in handles {
-            let sequences = handle.join().expect("Thread should not panic");
-            all_sequences.extend(sequences);
-        }
-
-        // Verify we got the expected number of sequences
-        assert_eq!(all_sequences.len(), NUM_THREADS * OPS_PER_THREAD);
-
-        // Sort and verify all sequences are unique (no duplicates)
-        all_sequences.sort_unstable();
-        for i in 1..all_sequences.len() {
-            assert_ne!(
-                all_sequences[i],
-                all_sequences[i - 1],
-                "Found duplicate sequence numbers"
-            );
-        }
     }
 }

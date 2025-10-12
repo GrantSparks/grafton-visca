@@ -32,7 +32,7 @@ pub(crate) enum TxItem {
         /// Unique identifier for this command.
         id: u32,
         /// The pre-encoded command to send.
-        command: Arc<crate::command::encode::PreparedCommand>,
+        command: Arc<crate::command::encode::EncodedCommand>,
         /// Priority level for scheduling.
         priority: Priority,
         /// Category for timeout calculation.
@@ -47,7 +47,7 @@ pub(crate) enum TxItem {
         /// Unique identifier for this inquiry.
         id: u32,
         /// The pre-encoded command to send.
-        command: Arc<crate::command::encode::PreparedCommand>,
+        command: Arc<crate::command::encode::EncodedCommand>,
         /// Category for timeout calculation.
         category: CommandCategory,
         /// Camera ID used to encode the inquiry.

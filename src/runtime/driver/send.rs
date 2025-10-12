@@ -7,11 +7,8 @@ use tracing::{debug, error};
 
 use super::SchedulerLike;
 use crate::{
-    command::CommandKind,
-    runtime::core::PendingCommand,
-    transport::{buffer::BufferManager, envelope::Envelope},
-    visca_socket::ViscaSocket,
-    Result,
+    command::CommandKind, runtime::core::PendingCommand, transport::envelope::Envelope,
+    visca_socket::ViscaSocket, Result,
 };
 
 /// RAII guard for automatic rollback of send operations on failure.
@@ -82,7 +79,7 @@ pub(crate) async fn send_one<T, Ex, S, Env>(
     scheduler: &mut S,
     cmd: PendingCommand,
     envelope: &Env,
-    buffer_manager: &BufferManager,
+    send_buf: &mut bytes::BytesMut,
     write_timeout: core::time::Duration,
 ) -> Result<()>
 where
@@ -91,9 +88,8 @@ where
     S: SchedulerLike,
     Env: Envelope,
 {
-    // Frame the command using the bytes path
-    let (framed, meta) =
-        envelope.frame_bytes_with_meta(&cmd.command.payload, cmd.kind, buffer_manager);
+    // Frame the command directly into the reusable send buffer (zero allocation)
+    let meta = envelope.frame_into(cmd.command.as_slice(), cmd.kind, send_buf);
 
     // Create guard for tracking rollback state
     let mut guard = SendGuard::new(cmd.id);
@@ -113,10 +109,13 @@ where
     let send_result = {
         use futures_lite::future;
 
-        future::race(async { transport.send(&framed).await.map(|_| ()) }, async {
-            executor.sleep(write_timeout).await;
-            Err(crate::Error::Timeout)
-        })
+        future::race(
+            async { transport.send(&send_buf[..]).await.map(|_| ()) },
+            async {
+                executor.sleep(write_timeout).await;
+                Err(crate::Error::Timeout)
+            },
+        )
         .await
     };
 
@@ -177,7 +176,7 @@ pub(crate) fn send_one<T, S, Env>(
     scheduler: &mut S,
     cmd: PendingCommand,
     envelope: &Env,
-    buffer_manager: &BufferManager,
+    send_buf: &mut bytes::BytesMut,
     _write_timeout: core::time::Duration,
 ) -> Result<()>
 where
@@ -185,9 +184,8 @@ where
     S: SchedulerLike,
     Env: Envelope,
 {
-    // Frame the command using the bytes path
-    let (framed, meta) =
-        envelope.frame_bytes_with_meta(&cmd.command.payload, cmd.kind, buffer_manager);
+    // Frame the command directly into the reusable send buffer (zero allocation)
+    let meta = envelope.frame_into(cmd.command.as_slice(), cmd.kind, send_buf);
 
     // Create guard for tracking rollback state
     let mut guard = SendGuard::new(cmd.id);
@@ -205,7 +203,7 @@ where
 
     // Try to send the command with timeout
     // In blocking mode, we use the transport directly
-    let send_result = transport.send_with_kind(&framed, cmd.kind);
+    let send_result = transport.send_with_kind(&send_buf[..], cmd.kind);
 
     match send_result {
         Ok(()) => {

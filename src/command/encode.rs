@@ -5,6 +5,7 @@
 //! encoding support.
 
 use bytes::Bytes;
+use smallvec::SmallVec;
 
 use super::response::InquiryKind;
 use crate::{
@@ -264,24 +265,33 @@ pub trait ViscaCommand: Send + Sync {
     }
 }
 
-/// Pre-encoded command that stores the VISCA bytes and metadata.
+/// Inline buffer size for encoded commands - 24 bytes covers most commands without heap allocation.
 ///
-/// This struct replaces the dynamic `EncodableCommand` in the hot path,
-/// enabling zero-cost sends by preparing commands once at submission time
-/// rather than re-encoding on each send/retry.
+/// Maximum VISCA command size is 15 bytes, so 24 bytes provides headroom for common cases.
+pub const INLINE_COMMAND_SIZE: usize = 24;
+
+/// Pre-encoded command that stores the VISCA bytes inline for zero-allocation sends.
+///
+/// This struct replaces `PreparedCommand` and uses `SmallVec` to store command bytes
+/// inline on the stack for common command sizes, eliminating heap allocations in the
+/// hot send path.
+///
+/// Renamed from `PreparedCommand` to `EncodedCommand` to reflect the breaking change
+/// in storage representation.
 ///
 /// # Example
 /// ```ignore
 /// // Internal type - not part of public API
 /// let cmd = MyCommand { value: 42 };
-/// let prepared = PreparedCommand::new(cmd, CameraId::CAMERA_1)?;
-/// // Now prepared.payload contains the encoded VISCA bytes
-/// // and can be sent multiple times without re-encoding
+/// let encoded = EncodedCommand::new(cmd, CameraId::CAMERA_1)?;
+/// // Now encoded.payload contains the inline VISCA bytes
+/// // and can be sent multiple times without heap allocation
 /// ```
 #[derive(Debug, Clone)]
-pub struct PreparedCommand {
-    /// The encoded VISCA bytes including camera address and 0xFF terminator.
-    pub payload: Bytes,
+pub struct EncodedCommand {
+    /// The encoded VISCA bytes stored inline for zero-allocation.
+    /// Uses SmallVec with inline capacity of 24 bytes (covers most commands).
+    pub(crate) payload: SmallVec<[u8; INLINE_COMMAND_SIZE]>,
     /// The command kind (Command or Inquiry).
     pub kind: CommandKind,
     /// The timeout category for this command.
@@ -290,10 +300,11 @@ pub struct PreparedCommand {
     pub response_type: Option<InquiryKind>,
 }
 
-impl PreparedCommand {
-    /// Create a new PreparedCommand from a ViscaCommand implementation.
+impl EncodedCommand {
+    /// Create a new EncodedCommand from a ViscaCommand implementation.
     ///
-    /// This encodes the command once and stores the bytes for repeated use.
+    /// This encodes the command once using `write_into` and stores the bytes
+    /// inline for repeated zero-allocation sends.
     ///
     /// # Arguments
     ///
@@ -307,8 +318,21 @@ impl PreparedCommand {
         cmd: C,
         camera_id: CameraId,
     ) -> Result<Self, Error> {
-        // Encode the command to bytes
-        let payload = cmd.to_bytes(camera_id)?;
+        // Allocate inline buffer sized for the command
+        let size = cmd.encoded_size();
+        let mut payload = SmallVec::with_capacity(size);
+
+        // Resize to provide mutable slice for write_into
+        payload.resize(size, 0);
+
+        // Encode directly into the inline buffer
+        let len = cmd.write_into(camera_id, &mut payload)?;
+
+        // Validate command structure
+        check_command_structure(&payload, len)?;
+
+        // Truncate to actual size
+        payload.truncate(len);
 
         // Extract metadata from the command
         let kind = cmd.command_kind();
@@ -321,6 +345,14 @@ impl PreparedCommand {
             category,
             response_type,
         })
+    }
+
+    /// Get the encoded command bytes as a slice.
+    ///
+    /// This provides zero-copy access to the inline buffer for framing operations.
+    #[inline]
+    pub fn as_slice(&self) -> &[u8] {
+        &self.payload
     }
 }
 

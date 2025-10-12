@@ -151,7 +151,7 @@ pub struct RetryCommand {
     /// Command ID.
     pub id: u32,
     /// The pre-encoded command to retry.
-    pub command: std::sync::Arc<crate::command::encode::PreparedCommand>,
+    pub command: std::sync::Arc<crate::command::encode::EncodedCommand>,
     /// Command priority.
     pub priority: Priority,
     /// Command category.
@@ -242,7 +242,7 @@ pub struct PendingCommand {
     /// Unique identifier for this command.
     pub id: u32,
     /// The pre-encoded command to send.
-    pub command: std::sync::Arc<crate::command::encode::PreparedCommand>,
+    pub command: std::sync::Arc<crate::command::encode::EncodedCommand>,
     /// Priority level for scheduling.
     pub priority: Priority,
     /// Category for timeout calculation.
@@ -506,7 +506,7 @@ pub struct SchedulerCore {
     pending_ack: HashMap<
         u32,
         (
-            std::sync::Arc<crate::command::encode::PreparedCommand>,
+            std::sync::Arc<crate::command::encode::EncodedCommand>,
             Priority,
             CommandCategory,
             Instant,
@@ -520,7 +520,7 @@ pub struct SchedulerCore {
     command_metadata: HashMap<
         u32,
         (
-            std::sync::Arc<crate::command::encode::PreparedCommand>,
+            std::sync::Arc<crate::command::encode::EncodedCommand>,
             Priority,
             CommandCategory,
             crate::camera_id::CameraId,
@@ -685,7 +685,7 @@ impl SchedulerCore {
     pub fn register_pending_ack(
         &mut self,
         id: u32,
-        command: std::sync::Arc<crate::command::encode::PreparedCommand>,
+        command: std::sync::Arc<crate::command::encode::EncodedCommand>,
         priority: Priority,
         category: CommandCategory,
         camera_id: crate::camera_id::CameraId,
@@ -1625,7 +1625,7 @@ impl SchedulerCore {
     pub fn start_inquiry(
         &mut self,
         id: u32,
-        command: std::sync::Arc<crate::command::encode::PreparedCommand>,
+        command: std::sync::Arc<crate::command::encode::EncodedCommand>,
         priority: Priority,
         category: CommandCategory,
         camera_id: crate::camera_id::CameraId,
@@ -1820,10 +1820,10 @@ impl SchedulerCore {
 mod tests {
     use super::*;
     use crate::command::bytes::VISCA_TERMINATOR;
-    use crate::command::encode::PreparedCommand;
+    use crate::command::encode::EncodedCommand;
     use crate::transport::RetryConfig;
     use crate::CameraId;
-    use bytes::Bytes;
+    use smallvec::SmallVec;
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -1878,9 +1878,9 @@ mod tests {
         response_type: Option<InquiryKind>,
         category: CommandCategory,
         camera_id: CameraId,
-    ) -> Arc<PreparedCommand> {
+    ) -> Arc<EncodedCommand> {
         let command = match category {
-            CommandCategory::Quick => PreparedCommand::new(
+            CommandCategory::Quick => EncodedCommand::new(
                 TestCommandQuick {
                     bytes,
                     response_type,
@@ -1888,7 +1888,7 @@ mod tests {
                 camera_id,
             )
             .unwrap(),
-            CommandCategory::Movement => PreparedCommand::new(
+            CommandCategory::Movement => EncodedCommand::new(
                 TestCommandMovement {
                     bytes,
                     response_type,
@@ -1898,7 +1898,7 @@ mod tests {
             .unwrap(),
             _ => {
                 // Default to Quick for other categories in tests
-                PreparedCommand::new(
+                EncodedCommand::new(
                     TestCommandQuick {
                         bytes,
                         response_type,
@@ -2039,7 +2039,7 @@ mod tests {
             }
         }
 
-        let inquiry_cmd = Arc::new(PreparedCommand::new(TestInquiry, camera_id).unwrap());
+        let inquiry_cmd = Arc::new(EncodedCommand::new(TestInquiry, camera_id).unwrap());
 
         // Helper to create test commands
         #[derive(Clone)]
@@ -2093,8 +2093,8 @@ mod tests {
         }
 
         // Start two commands to occupy both sockets
-        let cmd1 = Arc::new(PreparedCommand::new(TestCmd1, camera_id).unwrap());
-        let cmd2 = Arc::new(PreparedCommand::new(TestCmd2, camera_id).unwrap());
+        let cmd1 = Arc::new(EncodedCommand::new(TestCmd1, camera_id).unwrap());
+        let cmd2 = Arc::new(EncodedCommand::new(TestCmd2, camera_id).unwrap());
 
         // Register first command on socket 1
         core.register_pending_ack(
@@ -2191,7 +2191,7 @@ mod tests {
         let priority = Priority::Normal;
         let category = CommandCategory::Quick;
         let camera_id = CameraId::CAMERA_1;
-        let command = Arc::new(PreparedCommand::new(TestInquiryCmd, camera_id).unwrap());
+        let command = Arc::new(EncodedCommand::new(TestInquiryCmd, camera_id).unwrap());
 
         // Start an inquiry
         core.start_inquiry(
@@ -2308,9 +2308,9 @@ mod tests {
             }
         }
 
-        let cmd1 = Arc::new(PreparedCommand::new(TestInquiry1, camera_id).unwrap());
-        let cmd2 = Arc::new(PreparedCommand::new(TestInquiry2, camera_id).unwrap());
-        let cmd3 = Arc::new(PreparedCommand::new(TestInquiry3, camera_id).unwrap());
+        let cmd1 = Arc::new(EncodedCommand::new(TestInquiry1, camera_id).unwrap());
+        let cmd2 = Arc::new(EncodedCommand::new(TestInquiry2, camera_id).unwrap());
+        let cmd3 = Arc::new(EncodedCommand::new(TestInquiry3, camera_id).unwrap());
 
         core.start_inquiry(
             1,
@@ -2420,8 +2420,8 @@ mod tests {
             }
         }
 
-        let cmd1 = Arc::new(PreparedCommand::new(TestCmd1, camera_id).unwrap());
-        let cmd2 = Arc::new(PreparedCommand::new(TestCmd2, camera_id).unwrap());
+        let cmd1 = Arc::new(EncodedCommand::new(TestCmd1, camera_id).unwrap());
+        let cmd2 = Arc::new(EncodedCommand::new(TestCmd2, camera_id).unwrap());
 
         core.register_pending_ack(
             1,
@@ -3553,7 +3553,7 @@ mod tests {
             }
         }
 
-        let test_command = Arc::new(PreparedCommand::new(TestCommand, CameraId::CAMERA_1).unwrap());
+        let test_command = Arc::new(EncodedCommand::new(TestCommand, CameraId::CAMERA_1).unwrap());
         let cmd_id = 1;
 
         // Register as Command explicitly
@@ -3612,7 +3612,7 @@ mod tests {
             }
         }
 
-        let test_inquiry = Arc::new(PreparedCommand::new(TestInquiry, CameraId::CAMERA_1).unwrap());
+        let test_inquiry = Arc::new(EncodedCommand::new(TestInquiry, CameraId::CAMERA_1).unwrap());
         let inquiry_id = 2;
 
         // Start as inquiry
@@ -3655,20 +3655,20 @@ mod tests {
         let now = Instant::now();
 
         // Create two commands and one inquiry
-        let command1 = Arc::new(PreparedCommand {
-            payload: Bytes::from(vec![0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]),
+        let command1 = Arc::new(EncodedCommand {
+            payload: SmallVec::from_slice(&[0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]),
             kind: CommandKind::Command,
             category: CommandCategory::Movement,
             response_type: None,
         });
-        let command2 = Arc::new(PreparedCommand {
-            payload: Bytes::from(vec![0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]),
+        let command2 = Arc::new(EncodedCommand {
+            payload: SmallVec::from_slice(&[0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]),
             kind: CommandKind::Command,
             category: CommandCategory::Movement,
             response_type: None,
         });
-        let inquiry = Arc::new(PreparedCommand {
-            payload: Bytes::from(vec![0x01, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
+        let inquiry = Arc::new(EncodedCommand {
+            payload: SmallVec::from_slice(&[0x01, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
             kind: CommandKind::Inquiry,
             category: CommandCategory::Quick,
             response_type: Some(InquiryKind::ZoomPosition),
@@ -3789,8 +3789,8 @@ mod tests {
         core.set_max_inquiries_inflight(2); // Set a low limit for testing
         let now = Instant::now();
 
-        let inquiry = Arc::new(PreparedCommand {
-            payload: Bytes::from(vec![0x01, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
+        let inquiry = Arc::new(EncodedCommand {
+            payload: SmallVec::from_slice(&[0x01, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
             kind: CommandKind::Inquiry,
             category: CommandCategory::Quick,
             response_type: Some(InquiryKind::ZoomPosition),
@@ -3858,14 +3858,14 @@ mod tests {
         let mut core = SchedulerCore::new(TimeoutConfig::default());
         let now = Instant::now();
 
-        let command = Arc::new(PreparedCommand {
-            payload: Bytes::from(vec![0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]),
+        let command = Arc::new(EncodedCommand {
+            payload: SmallVec::from_slice(&[0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]),
             kind: CommandKind::Command,
             category: CommandCategory::Movement,
             response_type: None,
         });
-        let inquiry = Arc::new(PreparedCommand {
-            payload: Bytes::from(vec![0x01, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
+        let inquiry = Arc::new(EncodedCommand {
+            payload: SmallVec::from_slice(&[0x01, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
             kind: CommandKind::Inquiry,
             category: CommandCategory::Quick,
             response_type: Some(InquiryKind::ZoomPosition),
@@ -3942,14 +3942,14 @@ mod tests {
 
         // Create two pending ACK commands; the second one is the most recent
         let camera_id = CameraId::CAMERA_1;
-        let cmd1 = Arc::new(PreparedCommand {
-            payload: Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]),
+        let cmd1 = Arc::new(EncodedCommand {
+            payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]),
             kind: CommandKind::Command,
             category: CommandCategory::Movement,
             response_type: None,
         });
-        let cmd2 = Arc::new(PreparedCommand {
-            payload: Bytes::from(vec![0x81, 0x01, 0x04, 0x10, 0x05, VISCA_TERMINATOR]), // One Push Trigger
+        let cmd2 = Arc::new(EncodedCommand {
+            payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x10, 0x05, VISCA_TERMINATOR]), // One Push Trigger
             kind: CommandKind::Command,
             category: CommandCategory::Quick,
             response_type: None,
@@ -4005,8 +4005,8 @@ mod tests {
         let camera_id = CameraId::CAMERA_1;
 
         // Start an inquiry (front of FIFO)
-        let inq = Arc::new(PreparedCommand {
-            payload: Bytes::from(vec![0x81, 0x09, 0x04, 0x35, VISCA_TERMINATOR]), // WB Mode Inquiry
+        let inq = Arc::new(EncodedCommand {
+            payload: SmallVec::from_slice(&[0x81, 0x09, 0x04, 0x35, VISCA_TERMINATOR]), // WB Mode Inquiry
             kind: CommandKind::Inquiry,
             category: CommandCategory::Quick,
             response_type: Some(InquiryKind::Power), // any kind
@@ -4022,8 +4022,8 @@ mod tests {
         );
 
         // Also have a pending ACK command in the background
-        let cmd = Arc::new(PreparedCommand {
-            payload: Bytes::from(vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]),
+        let cmd = Arc::new(EncodedCommand {
+            payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]),
             kind: CommandKind::Command,
             category: CommandCategory::Movement,
             response_type: None,

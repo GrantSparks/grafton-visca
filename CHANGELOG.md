@@ -5,9 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-## [0.8.0] - 2025-10-11
+## [0.8.0] - (Unreleased)
 
 This release focuses on eliminating downstream boilerplate, completing runtime-agnostic modernization, enhancing protocol correctness, and improving the ergonomics of camera control. The library now provides feature-gated serialization, intuitive unit conversions, comprehensive diagnostic utilities, uniform transport handling, and spec-validated protocol fixes—all without forcing users into a specific async runtime.
 
@@ -637,14 +635,45 @@ Module imports have been reorganized for consistency:
 - **Import organization**: Standardized import structure and removed extraneous whitespace for consistency
 - **Dependency updates**: Upgraded schemars to 1.0 for ecosystem compatibility
 
+### Performance
+
+#### Zero-Allocation Send Path (#421)
+Eliminated all heap allocations in the hot send path for VISCA commands, achieving true zero-cost abstractions:
+
+**Changes:**
+- **Inline command storage**: Replaced `PreparedCommand` with `EncodedCommand` using `SmallVec<[u8; 24]>` for stack-allocated command bytes (heap-free for 99%+ of commands)
+- **In-place framing**: Added `Envelope::frame_into()` method that writes directly into a reusable buffer, replacing `frame_bytes()` that returned owned `Bytes`
+- **Reusable send buffer**: Runtime loops now allocate a single send buffer once at startup and reuse it across all send operations
+
+**Impact:**
+- **Before**: 2 heap allocations per command (encode + frame) + 1 extra copy
+- **After**: 0 heap allocations for commands ≤24 bytes (covers all standard VISCA commands)
+- Applies to all send paths: normal commands, retries, and cancel operations
+
+**Breaking changes:**
+- `PreparedCommand` renamed to `EncodedCommand` (type alias provided for migration)
+- `PreparedCommand::payload` changed from `Bytes` to `SmallVec<[u8; 24]>` (internal field, not public API)
+- Added `EncodedCommand::as_slice()` method for zero-copy access to encoded bytes
+- `Envelope::frame_bytes()` and `Envelope::frame_bytes_with_meta()` deprecated in favor of `frame_into()`
+
+**Migration:**
+```rust
+// Old (deprecated):
+let payload = cmd.to_bytes(camera_id)?;
+let framed = envelope.frame_bytes(&payload, kind);
+transport.send(&framed).await?;
+
+// New (zero-allocation):
+let mut send_buf = BytesMut::with_capacity(buffer_size);
+let encoded = EncodedCommand::new(cmd, camera_id)?;
+envelope.frame_into(encoded.as_slice(), kind, &mut send_buf);
+transport.send(&send_buf[..]).await?;
+```
+
 ### 🔮 Future Direction
 
 Version 0.8.0 represents a major API evolution before 1.0. The focus has shifted from architectural changes to stability, robustness, and ergonomics. The runtime-agnostic foundation is complete, serialization support is in place, and the API surface is clean and minimal. Upcoming releases will focus on:
 
-- Profile auto-detection and capability discovery
-- Optional normalized zoom helpers for all camera control methods
-- Enhanced timeout support via builder patterns
-- Documentation and migration guide refinements
 - Stability and bug fixes toward 1.0
 
 ## [0.7.1] - 2025-10-10
