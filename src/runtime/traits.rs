@@ -171,13 +171,13 @@ impl<R: Runtime> HasTransportConfig for TransportHandle<R> {
 // Tokio runtime implementation
 #[cfg(feature = "runtime-tokio")]
 mod tokio_impl {
-    use std::future::Future;
-
     use super::*;
     use crate::{
         executor::TokioExecutor,
         runtime_adapters::tokio::{TcpTransport, UdpTransport},
     };
+
+    use std::future::Future;
 
     /// Tokio runtime implementation.
     ///
@@ -320,13 +320,13 @@ pub use tokio_impl::TokioRuntime;
 // async-std runtime implementation
 #[cfg(feature = "runtime-async-std")]
 mod async_std_impl {
-    use std::future::Future;
-
     use super::*;
     use crate::{
         executor::AsyncStdExecutor,
         runtime_adapters::async_std::{TcpTransport, UdpTransport},
     };
+
+    use std::future::Future;
 
     /// async-std runtime implementation.
     ///
@@ -450,13 +450,13 @@ pub use async_std_impl::AsyncStdRuntime;
 // smol runtime implementation
 #[cfg(feature = "runtime-smol")]
 mod smol_impl {
-    use std::future::Future;
-
     use super::*;
     use crate::{
         executor::SmolExecutor,
         runtime_adapters::smol::{TcpTransport, UdpTransport},
     };
+
+    use std::future::Future;
 
     /// smol runtime implementation.
     ///

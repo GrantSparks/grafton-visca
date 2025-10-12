@@ -145,17 +145,14 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
         let (completions_tx, completions_rx) = flume::unbounded();
         let (shutdown_tx, shutdown_rx) = flume::unbounded();
 
-        // Extract config before creating the runtime config
         // This is done before spawn to avoid lifetime issues
         let tcfg = *(&transport).transport_config();
 
-        // Create envelope and buffer manager for the runtime using transport's config
         let envelope = P::Envelope::new(tcfg.addressing);
         let buffer_manager = BufferManager::new(tcfg.buffer_config);
 
         let timeout_config = timeout_config.unwrap_or_default();
 
-        // Pre-bake a plain data config for the loop
         let config = RuntimeLoopConfig {
             envelope,
             buffer_manager,

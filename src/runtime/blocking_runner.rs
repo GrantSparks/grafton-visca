@@ -4,8 +4,10 @@
 //! scheduler core to manage Sony sequence tracking, ACK/completion routing, and
 //! retry logic without any async dependencies.
 
+use bytes::BytesMut;
 use tracing::{debug, trace, warn};
 
+use core::marker::PhantomData;
 use std::{
     sync::atomic::{AtomicU32, Ordering},
     time::{Duration, Instant},
@@ -54,7 +56,7 @@ pub struct BlockingRunner<P: Profile> {
     /// Command ID generator.
     next_id: AtomicU32,
     /// Profile type marker.
-    _profile: core::marker::PhantomData<P>,
+    _profile: PhantomData<P>,
 }
 
 impl<P: Profile> BlockingRunner<P> {
@@ -96,7 +98,7 @@ impl<P: Profile> BlockingRunner<P> {
             buffer_manager: BufferManager::new(buffer_config),
             framer: ProtocolFramer::new_with_config(buffer_config),
             next_id: AtomicU32::new(1),
-            _profile: core::marker::PhantomData,
+            _profile: PhantomData,
         }
     }
 
@@ -153,9 +155,7 @@ impl<P: Profile> BlockingRunner<P> {
     ) -> Result<Response> {
         let mut read_buf = vec![0u8; self.buffer_manager.config().recv_buffer_size];
 
-        // Allocate a single reusable buffer for sending data (zero allocation per send)
-        let mut send_buf =
-            bytes::BytesMut::with_capacity(self.buffer_manager.config().send_buffer_size);
+        let mut send_buf = BytesMut::with_capacity(self.buffer_manager.config().send_buffer_size);
 
         loop {
             let now = Instant::now();
@@ -394,7 +394,6 @@ impl<P: Profile> BlockingRunner<P> {
                 Err(Error::Timeout) => {}
                 Err(e) => {
                     warn!("Transport receive error: {e}");
-                    // Generate network error event
                     let actions = self
                         .core
                         .process_event(SchedulerEvent::NetworkError(e), now);
@@ -424,7 +423,6 @@ mod tests {
         let timeout_config = TimeoutConfig::default();
         let runner = BlockingRunner::<PtzOpticsG2>::new(timeout_config);
 
-        // Verify the runner was created successfully
         assert!(runner.core.can_send_command());
     }
 
@@ -433,7 +431,6 @@ mod tests {
         let timeout_config = TimeoutConfig::default();
         let runner = BlockingRunner::<PtzOpticsG2>::new(timeout_config);
 
-        // Verify the runner was created (protocol is determined by Profile type)
         assert!(runner.core.can_send_command());
     }
 
@@ -444,7 +441,6 @@ mod tests {
         let timeout_config = TimeoutConfig::default();
         let mut runner = BlockingRunner::<PtzOpticsG2>::new(timeout_config);
 
-        // Create a test command helper struct
         #[derive(Debug, Clone)]
         struct TestCmd {
             bytes: Vec<u8>,
@@ -466,8 +462,6 @@ mod tests {
             }
         }
 
-        // Create a pending command
-        // Use a valid camera ID - 1 is always valid
         let camera_id = CameraId::CAMERA_1;
         let test_cmd = TestCmd {
             bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
@@ -486,10 +480,8 @@ mod tests {
             kind: prepared_cmd.kind,
         };
 
-        // Queue the command
         runner.core.queue_command(cmd);
 
-        // Verify it can be retrieved
         let next = runner.core.next_item_to_send();
         assert!(next.is_some(), "should have command");
         if let Some(cmd) = next {

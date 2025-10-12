@@ -3,6 +3,10 @@
 //! This example demonstrates error handling patterns with the Camera API,
 //! including retry logic and error classification.
 
+#[cfg(any(not(feature = "mode-async"), feature = "runtime-tokio"))]
+use std::time::Instant;
+use std::{borrow::Cow, time::Duration};
+
 use grafton_visca::Error;
 #[cfg(feature = "runtime-tokio")]
 use grafton_visca::{
@@ -25,10 +29,6 @@ use grafton_visca::{
     types::{PanSpeed, TiltSpeed},
     PanTiltDirection,
 };
-
-#[cfg(any(not(feature = "mode-async"), feature = "runtime-tokio"))]
-use std::time::Instant;
-use std::{borrow::Cow, time::Duration};
 
 #[cfg(all(feature = "mode-async", not(feature = "runtime-tokio")))]
 fn main() {
@@ -161,13 +161,11 @@ fn demonstrate_error_classification() {
 fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("   Attempting to connect to camera at {camera_addr}...");
 
-    // Try to create transport using Transport builder API (no async runtime needed)
     let transport = match Transport::tcp()
         .address(camera_addr)
         .connect_timeout(Duration::from_secs(5))
         .open()
     {
-        // .open() for pure blocking transport
         Ok(t) => {
             println!("   ✓ Transport created successfully");
             t
@@ -181,11 +179,9 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
 
     let mut camera = Camera::<Blocking, PtzOpticsG2, _>::new_blocking(transport)?;
 
-    // Demonstrate retry pattern
     println!("\n3. Retry Pattern Implementation:");
     println!("   Implementing exponential backoff for camera operations\n");
 
-    // Example: Retry power on with exponential backoff
     let max_attempts = 3;
     let mut attempt = 0;
     let mut backoff = Duration::from_millis(100);
@@ -236,16 +232,11 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         return Ok(());
     }
 
-    // Wait for camera initialization
     std::thread::sleep(Duration::from_secs(2));
 
-    // Demonstrate handling specific errors
     println!("\n4. Handling Specific Error Scenarios:");
-
-    // Scenario 1: Camera busy during movement
     println!("\n   a) Handling CameraBusy during movement:");
 
-    // Start a movement
     match camera.pan_tilt().move_direction(
         PanTiltDirection::Right,
         PanSpeed::new(10)?,
@@ -254,19 +245,16 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         Ok(_) => {
             println!("   ✓ Started movement");
 
-            // Try another command immediately (might get CameraBusy)
             match camera.zoom().tele() {
                 Ok(_) => println!("   ✓ Zoom command accepted"),
                 Err(Error::CameraBusy) => {
                     println!("   ⚠️  Camera busy (expected during movement)");
                     println!("   💡 Wait for movement to complete or stop it first");
 
-                    // Stop movement and wait for it to complete
                     camera.pan_tilt().stop()?;
                     camera.await_pan_tilt_idle(Duration::from_secs(5))?;
                     println!("   ✓ Movement stopped");
 
-                    // Retry zoom
                     match camera.zoom().tele() {
                         Ok(_) => println!("   ✓ Zoom succeeded after stopping movement"),
                         Err(e) => println!("   ✗ Zoom still failed: {e}"),
@@ -278,10 +266,8 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         Err(e) => println!("   ✗ Failed to start movement: {e}"),
     }
 
-    // Scenario 2: Invalid preset
     println!("\n   b) Handling invalid preset:");
 
-    // Try to recall a preset that might not exist
     match G2PresetId::new(99) {
         Ok(preset_id) => match camera.presets().recall(u8::from(preset_id)) {
             Ok(_) => println!("   ✓ Preset 99 recalled successfully"),
@@ -297,12 +283,10 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         }
     }
 
-    // Scenario 3: Feature not supported
     println!("\n   c) Handling unsupported features:");
     println!("   💡 Some cameras don't support all VISCA features");
     println!("   💡 Use capability queries to check support");
 
-    // Show camera capabilities (profile-based, not from camera)
     println!("   ✓ Camera capabilities (from profile):");
     println!("     Model: PTZOptics G2");
     println!("     Pan range: -170 to +170 degrees");
@@ -317,10 +301,8 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
 async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("   Attempting to connect to camera at {camera_addr}...");
 
-    // Create runtime for type-safe pairing
     let runtime = TokioRuntime::from_current()?;
 
-    // Try to create transport directly using the runtime's Tcp module
     use grafton_visca::runtime_adapters::tokio::TcpTransport as Tcp;
     let transport = match Tcp::connect(camera_addr).await {
         Ok(t) => {
@@ -334,7 +316,6 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         }
     };
 
-    // Use the new session-centric API
     let session = CameraBuilder::with_executor(runtime)
         .from_transport(transport)
         .profile::<PtzOpticsG2>()
@@ -342,11 +323,9 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         .await?;
     let camera = session;
 
-    // Demonstrate retry pattern
     println!("\n3. Retry Pattern Implementation:");
     println!("   Implementing exponential backoff for camera operations\n");
 
-    // Example: Retry power on with exponential backoff
     let max_attempts = 3;
     let mut attempt = 0;
     let mut backoff = Duration::from_millis(100);
@@ -391,11 +370,9 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         Err(e) => println!("   ✗ Power on failed after {attempt} attempts: {e}"),
     }
 
-    // Scenario 1: Camera busy handling
     println!("\n4. Common Error Scenarios:");
     println!("   a) Camera busy while moving:");
 
-    // Start a movement
     match camera
         .pan_tilt()
         .move_direction(
@@ -408,18 +385,15 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         Ok(_) => {
             println!("   ✓ Started continuous movement");
 
-            // Immediately try another command
             match camera.zoom().tele().await {
                 Ok(_) => println!("   ✓ Zoom command accepted"),
                 Err(Error::CameraBusy) => {
                     println!("   ⚠️  Camera busy (expected)");
                     println!("   💡 Solution: Stop movement first or wait");
 
-                    // Stop movement and retry
                     camera.pan_tilt().stop().await?;
                     println!("   ✓ Movement stopped");
 
-                    // Retry zoom
                     match camera.zoom().tele().await {
                         Ok(_) => println!("   ✓ Zoom succeeded after stopping movement"),
                         Err(e) => println!("   ✗ Zoom still failed: {e}"),
@@ -431,10 +405,8 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         Err(e) => println!("   ✗ Failed to start movement: {e}"),
     }
 
-    // Scenario 2: Invalid preset
     println!("\n   b) Handling invalid preset:");
 
-    // Try to recall a preset that might not exist
     match G2PresetId::new(99) {
         Ok(preset_id) => match camera.presets().recall(u8::from(preset_id)).await {
             Ok(_) => println!("   ✓ Preset 99 recalled successfully"),
@@ -450,12 +422,10 @@ async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
         }
     }
 
-    // Scenario 3: Feature not supported
     println!("\n   c) Handling unsupported features:");
     println!("   💡 Some cameras don't support all VISCA features");
     println!("   💡 Use capability queries to check support");
 
-    // Show camera capabilities (profile-based, not from camera)
     println!("   ✓ Camera capabilities (from profile):");
     println!("     Model: PTZOptics G2");
     println!("     Pan range: -170 to +170 degrees");

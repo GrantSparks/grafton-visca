@@ -7,10 +7,11 @@
 use bytes::Bytes;
 use smallvec::SmallVec;
 
-use super::response::InquiryKind;
 use crate::{
     camera_id::CameraId, constants::CameraVariant, error::Error, timeout::CommandCategory,
 };
+
+use super::response::InquiryKind;
 
 /// Command kind classification for VISCA protocol.
 ///

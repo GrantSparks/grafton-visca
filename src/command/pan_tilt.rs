@@ -114,8 +114,8 @@ impl PanTiltDirection {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::command::bytes::VISCA_TERMINATOR;
-    use crate::macros::test_utils::visca_test;
+
+    use crate::{command::bytes::VISCA_TERMINATOR, macros::test_utils::visca_test};
 
     visca_test!(
         PanTilt,

@@ -669,12 +669,11 @@ pub use grafton_visca_macros::{ViscaEnum, ViscaInquiry, ViscaValue};
 pub use crate::{
     camera::{Camera, CameraBuilder},
     camera_id::CameraId,
-    command::pan_tilt::PanTiltDirection,
     command::{
         exposure::ExposureMode,
         focus::{AutoFocusSensitivity, FocusMode},
         nd_filter::NdFilterMode,
-        pan_tilt::PanTiltLimitCorner,
+        pan_tilt::{PanTiltDirection, PanTiltLimitCorner},
         preset::PresetNumber,
         resolution::{PictureEffectMode, ResolutionMode},
         system::{MotionSyncMode, MotionSyncPreset},

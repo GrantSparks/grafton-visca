@@ -156,7 +156,6 @@ impl Future for SleepFuture {
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let me = self.get_mut();
 
-        // Fast path: already expired => remove our entry (if registered) and complete
         {
             let mut inner = me.clock.lock().expect("VirtualClock mutex poisoned");
             if inner.now >= me.deadline {
@@ -184,7 +183,6 @@ impl Future for SleepFuture {
             if let Some(entry) = inner.sleepers.iter_mut().find(|s| s.id == id) {
                 entry.waker = Some(cx.waker().clone());
             } else {
-                // Our entry disappeared (e.g., fired); re-register to be safe.
                 let id = inner.next_id;
                 inner.next_id += 1;
                 inner.sleepers.push(SleepEntry {
@@ -260,7 +258,6 @@ impl DeterministicExecutor {
     {
         let (tx, rx) = flume::bounded::<T>(1);
 
-        // Run the user future inside the executor and send its output back
         self.executor
             .spawn(async move {
                 let out = fut.await;
@@ -278,7 +275,6 @@ impl DeterministicExecutor {
         let mut spins = 0usize;
 
         loop {
-            // Trace iteration start if RUNTIME_TRACE is set
             if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
                 eprintln!(
                     "[DeterministicExecutor] Loop iteration - time: {:?}, has_deadlines: {}",
@@ -287,17 +283,14 @@ impl DeterministicExecutor {
                 );
             }
 
-            // Drain up to READY_BUDGET_PER_EPOCH ready tasks.
             let mut ran = 0usize;
             for _ in 0..READY_BUDGET_PER_EPOCH {
-                // try_tick() should return true if it ran at least one task this call.
                 if self.executor.try_tick() {
                     ran += 1;
                 } else {
                     break;
                 }
                 if let Ok(out) = rx.try_recv() {
-                    // User future completed - drain remaining tasks before returning
                     if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
                         eprintln!("[DeterministicExecutor] User future completed, draining background tasks");
                     }
@@ -306,9 +299,7 @@ impl DeterministicExecutor {
                 }
             }
 
-            // Completion check (in case fut finished while we were ticking)
             if let Ok(out) = rx.try_recv() {
-                // User future completed - drain remaining tasks before returning
                 if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
                     eprintln!(
                         "[DeterministicExecutor] User future completed, draining background tasks"
@@ -319,7 +310,6 @@ impl DeterministicExecutor {
             }
 
             if ran == 0 {
-                // No ready work -> advance time deterministically.
                 if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
                     eprintln!(
                         "[DeterministicExecutor] No ready tasks, checking for time advancement"
@@ -333,24 +323,17 @@ impl DeterministicExecutor {
                     spins = 0;
                     continue;
                 }
-            } else {
-                // There is always ready work; don't starve timers forever.
-                if self.has_pending_deadlines() {
-                    busy_epochs += 1;
-                    if busy_epochs >= BUSY_EPOCHS_BEFORE_TIME_BUMP {
-                        // Deterministically jump to the next deadline even under load.
-                        if self.advance_to_next_deadline() {
-                            busy_epochs = 0;
-                            spins = 0;
-                            continue;
-                        }
-                    }
-                } else {
+            } else if self.has_pending_deadlines() {
+                busy_epochs += 1;
+                if busy_epochs >= BUSY_EPOCHS_BEFORE_TIME_BUMP && self.advance_to_next_deadline() {
                     busy_epochs = 0;
+                    spins = 0;
+                    continue;
                 }
+            } else {
+                busy_epochs = 0;
             }
 
-            // Progress guard (debug‑only panic is fine under test-utils)
             spins += 1;
             if spins >= NO_PROGRESS_PANIC {
                 panic!(
@@ -360,13 +343,9 @@ impl DeterministicExecutor {
                 );
             }
 
-            // Tick once more to ensure any woken tasks get a chance to run
-            // This is crucial for handling the case where we just advanced time
-            // and woke up a timer, but haven't run the woken task yet
             if self.executor.try_tick() {
-                spins = 0; // Reset progress counter if we made progress
+                spins = 0;
                 if let Ok(out) = rx.try_recv() {
-                    // User future completed - drain remaining tasks before returning
                     if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
                         eprintln!("[DeterministicExecutor] User future completed, draining background tasks");
                     }
@@ -375,7 +354,6 @@ impl DeterministicExecutor {
                 }
             }
 
-            // Be polite to the host thread without affecting determinism of task order.
             std::thread::yield_now();
         }
     }
@@ -449,7 +427,7 @@ impl DeterministicExecutor {
 
             iterations += 1;
             if iterations >= MAX_ITERATIONS {
-                panic!("run_until_idle: exceeded maximum iterations ({MAX_ITERATIONS}), possible infinite loop");
+                panic!("run_until_idle: exceeded maximum iterations ({MAX_ITERATIONS})");
             }
         }
 
@@ -470,7 +448,6 @@ impl DeterministicExecutor {
             if next_deadline > inner.now {
                 inner.now = next_deadline;
 
-                // Wake up any sleepers that are now due
                 let mut i = 0;
                 while i < inner.sleepers.len() {
                     if inner.sleepers[i].at <= inner.now {
@@ -512,7 +489,7 @@ impl DeterministicExecutor {
 
             iterations += 1;
             if iterations >= MAX_ITERATIONS {
-                panic!("drive_until_idle: exceeded maximum iterations ({MAX_ITERATIONS}), possible infinite loop");
+                panic!("drive_until_idle: exceeded maximum iterations ({MAX_ITERATIONS})");
             }
         }
     }
@@ -525,27 +502,23 @@ impl DeterministicExecutor {
         let mut iterations = 0;
 
         loop {
-            // Run any ready tasks
             let made_progress = self.executor.try_tick();
 
-            // Fire any due timers
             let timers_fired = self.fire_due_timers();
 
-            // Advance to next deadline if there are pending timers
             let time_advanced = if self.has_pending_deadlines() {
                 self.advance_to_next_deadline()
             } else {
                 false
             };
 
-            // If no progress was made, we're stalled
             if !made_progress && !timers_fired && !time_advanced {
                 break;
             }
 
             iterations += 1;
             if iterations >= MAX_ITERATIONS {
-                panic!("drive_until_stalled: exceeded maximum iterations ({MAX_ITERATIONS}), possible infinite loop");
+                panic!("drive_until_stalled: exceeded maximum iterations ({MAX_ITERATIONS})");
             }
         }
     }
@@ -565,13 +538,10 @@ impl DeterministicExecutor {
         }
 
         loop {
-            // 1) Drive any ready tasks
             let has_tasks = self.executor.try_tick();
 
-            // 2) Drain timers that are already due (<= now)
             let fired = self.fire_due_timers();
 
-            // 3) See if anything remains
             let has_deadlines = self.has_pending_deadlines();
 
             if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
@@ -581,7 +551,6 @@ impl DeterministicExecutor {
                 );
             }
 
-            // If no tasks, no fired timers, and no deadlines, we're done
             if !has_tasks && !fired && !has_deadlines {
                 if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
                     eprintln!("[DeterministicExecutor] Quiescent - no tasks or deadlines");
@@ -589,7 +558,6 @@ impl DeterministicExecutor {
                 break;
             }
 
-            // 4) If there are future deadlines, jump to the next one
             if has_deadlines && self.advance_to_next_deadline() {
                 if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
                     eprintln!(
@@ -606,7 +574,6 @@ impl DeterministicExecutor {
                 continue;
             }
 
-            // Guard against infinite spin
             spins += 1;
             if spins > MAX_SPINS {
                 if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
@@ -679,8 +646,6 @@ impl DetachmentHandle {
 
 impl Drop for DetachmentHandle {
     fn drop(&mut self) {
-        // Take the detach function and call it
-        // We need to replace it with a no-op to satisfy the type system
         let detach_fn = std::mem::replace(&mut self.detach_fn, Box::new(|| {}));
         detach_fn();
     }
@@ -749,19 +714,13 @@ impl Executor for DeterministicExecutor {
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        // We need to spawn the future twice: once for the join handle and once for detachment
-        // This is necessary because async_executor::Task doesn't implement Clone
-        // To avoid running the future twice, we use a channel to share the result
         let (result_tx, result_rx) = flume::bounded(1);
 
-        // Spawn the actual task
         let task = self.executor.spawn(async move {
             let result = fut.await;
             let _ = result_tx.send_async(result).await;
-            // Return a dummy value for the detachment task
         });
 
-        // Create a wrapper task for the join handle that reads from the channel
         let join_task = self.executor.spawn(async move {
             result_rx
                 .recv_async()
@@ -769,17 +728,12 @@ impl Executor for DeterministicExecutor {
                 .expect("Result channel closed unexpectedly")
         });
 
-        // Create detachment handle that holds the actual task
         let detach_handle = DetachmentHandle::new(task);
 
         (DetJoin(join_task), detach_handle)
     }
 
     fn block_on<F: Future>(&self, fut: F) -> F::Output {
-        // For DeterministicExecutor, we use the simpler approach of just running
-        // the future on the executor. This works well for tests that don't rely
-        // on timeout behavior. For tests that need actual timeout behavior,
-        // use real runtime executors instead (see issue #394).
         use futures_lite::future;
         future::block_on(self.executor.run(fut))
     }
@@ -801,7 +755,6 @@ impl Executor for DeterministicExecutor {
         F: Future<Output = T> + Send + 'a,
         T: Send + 'a,
     {
-        // Clone the clock outside the async block to avoid capturing &self
         let clock = self.clock.clone();
         async move {
             let timeout_future = TimeoutFuture {
@@ -853,17 +806,14 @@ where
     type Output = Result<T, Error>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // Poll the main future first
         if let Poll::Ready(value) = self.future.as_mut().poll(cx) {
             return Poll::Ready(Ok(value));
         }
 
-        // Poll the sleep future to check for timeout
         if let Poll::Ready(()) = Pin::new(&mut self.sleep).poll(cx) {
             return Poll::Ready(Err(Error::Timeout));
         }
 
-        // Neither future is ready, so we're still pending
         Poll::Pending
     }
 }
@@ -874,7 +824,6 @@ impl ExecutorExt for DeterministicExecutor {
     where
         F: Future<Output = ()> + Send + 'static,
     {
-        // async-executor Task must be detached to survive dropped handles
         self.executor.spawn(fut).detach();
     }
 
@@ -891,14 +840,12 @@ impl ExecutorExt for DeterministicExecutor {
     }
 }
 
-// Implement ExecutorExt for TokioExecutor
 #[cfg(all(feature = "runtime-tokio", any(test, feature = "test-utils")))]
 impl ExecutorExt for TokioExecutor {
     fn spawn_detached<F>(&self, fut: F)
     where
         F: Future<Output = ()> + Send + 'static,
     {
-        // tokio::spawn returns a JoinHandle, but dropping it makes it fire-and-forget
         drop(self.spawn(fut));
     }
 
@@ -915,7 +862,6 @@ impl ExecutorExt for TokioExecutor {
     }
 }
 
-// Generic implementation for Arc<T> where T implements ExecutorExt
 #[cfg(any(test, feature = "test-utils"))]
 impl<T> ExecutorExt for Arc<T>
 where
@@ -953,9 +899,6 @@ pub trait DeterministicExecutorExt {
 }
 
 impl DeterministicExecutorExt for Arc<DeterministicExecutor> {
-    /// Run a future while continuously driving all background tasks on this executor.
-    ///
-    /// This is a convenience method that delegates to the inner executor's `block_on_bg`.
     fn block_on_bg<F, T>(&self, fut: F) -> T
     where
         F: Future<Output = T> + Send + 'static,
@@ -964,16 +907,10 @@ impl DeterministicExecutorExt for Arc<DeterministicExecutor> {
         self.as_ref().block_on_bg(fut)
     }
 
-    /// Drive the executor until all tasks are idle.
-    ///
-    /// This is a convenience method that delegates to the inner executor's `drive_until_idle`.
     fn drive_until_idle(&self) {
         self.as_ref().drive_until_idle()
     }
 
-    /// Drive the executor until all tasks are complete, including advancing time.
-    ///
-    /// This is a convenience method that delegates to the inner executor's `drive_until_stalled`.
     fn drive_until_stalled(&self) {
         self.as_ref().drive_until_stalled()
     }
@@ -1017,14 +954,10 @@ mod tests {
         let flag = Arc::new(AtomicBool::new(false));
         let flag2 = flag.clone();
 
-        // Use ExecutorExt::spawn_bg to properly spawn background task
-        // Use fully-qualified path for ExecutorExt to avoid ambiguity
-
         ExecutorExt::spawn_detached(&executor, async move {
             flag2.store(true, Ordering::SeqCst);
         });
 
-        // Drive executor until idle
         executor.drive_until_idle();
         assert!(flag.load(Ordering::SeqCst), "Spawned task should have run");
     }
@@ -1036,21 +969,17 @@ mod tests {
         let flag2 = flag.clone();
         let executor2 = executor.clone();
 
-        // Use ExecutorExt::spawn_bg to properly spawn background task
-
         ExecutorExt::spawn_detached(&executor, async move {
             executor2.sleep(Duration::from_millis(50)).await;
             flag2.store(true, Ordering::SeqCst);
         });
 
-        // Nothing should happen yet
         executor.drive_until_idle();
         assert!(
             !flag.load(Ordering::SeqCst),
             "Sleep should not complete without time advancement"
         );
 
-        // Advance time and drive again
         clock.advance(Duration::from_millis(50));
         executor.drive_until_idle();
         assert!(
@@ -1064,7 +993,6 @@ mod tests {
         let (executor, clock) = DeterministicExecutor::new();
         let counter = Arc::new(AtomicUsize::new(0));
 
-        // Spawn tasks with different sleep durations
         for i in 1..=3 {
             let counter_clone = counter.clone();
             let executor_clone = executor.clone();
@@ -1078,21 +1006,17 @@ mod tests {
             });
         }
 
-        // Drive initially - nothing should happen
         executor.drive_until_idle();
         assert_eq!(counter.load(Ordering::SeqCst), 0);
 
-        // Advance to 10ms - first task should complete
         clock.advance(Duration::from_millis(10));
         executor.drive_until_idle();
         assert_eq!(counter.load(Ordering::SeqCst), 1);
 
-        // Advance to 20ms total - second task should complete
         clock.advance(Duration::from_millis(10));
         executor.drive_until_idle();
         assert_eq!(counter.load(Ordering::SeqCst), 2);
 
-        // Advance to 30ms total - third task should complete
         clock.advance(Duration::from_millis(10));
         executor.drive_until_idle();
         assert_eq!(counter.load(Ordering::SeqCst), 3);
@@ -1103,7 +1027,6 @@ mod tests {
         let (executor, _clock) = DeterministicExecutor::new();
         let executor_clone = executor.clone();
 
-        // This should complete because block_on_bg drives the executor
         let result = executor.block_on_bg(async move {
             executor_clone.sleep(Duration::from_millis(100)).await;
             42
@@ -1121,18 +1044,14 @@ mod tests {
         let flag = Arc::new(AtomicBool::new(false));
         let flag2 = flag.clone();
 
-        // Spawn a task
-
         ExecutorExt::spawn_detached(&executor, async move {
             flag2.store(true, Ordering::SeqCst);
         });
 
-        // Run until idle - should run the task
         let progressed = executor.run_until_idle();
         assert!(progressed, "Should have made progress");
         assert!(flag.load(Ordering::SeqCst), "Task should have run");
 
-        // Run again - should not progress (already idle)
         let progressed = executor.run_until_idle();
         assert!(!progressed, "Should not have made progress when idle");
     }
@@ -1146,29 +1065,23 @@ mod tests {
 
         let initial_time = clock.now();
 
-        // Spawn a task with a sleep
-
         ExecutorExt::spawn_detached(&executor, async move {
             executor2.sleep(Duration::from_millis(100)).await;
             flag2.store(true, Ordering::SeqCst);
         });
 
-        // Run until idle - task should be waiting on sleep
         executor.run_until_idle();
         assert!(!flag.load(Ordering::SeqCst), "Task should still be waiting");
 
-        // Advance to next deadline
         let advanced = executor.advance_to_next_deadline();
         assert!(advanced, "Should have advanced time");
 
-        // Verify that time actually advanced by 100ms
         assert_eq!(
             clock.now(),
             initial_time + Duration::from_millis(100),
             "Time should have advanced exactly to the sleep deadline"
         );
 
-        // Run until idle again - task should complete
         executor.run_until_idle();
         assert!(flag.load(Ordering::SeqCst), "Task should have completed");
     }
@@ -1178,7 +1091,6 @@ mod tests {
         let (executor, _clock) = DeterministicExecutor::new();
         let counter = Arc::new(AtomicUsize::new(0));
 
-        // Spawn multiple tasks with different sleep durations
         for i in 1..=3 {
             let counter_clone = counter.clone();
             let executor_clone = executor.clone();
@@ -1189,7 +1101,6 @@ mod tests {
             });
         }
 
-        // Drive until stalled - should complete all tasks
         executor.drive_until_stalled();
         assert_eq!(
             counter.load(Ordering::SeqCst),
@@ -1200,39 +1111,31 @@ mod tests {
 
     #[test]
     fn test_spawn_bg_runs() {
-        // Test that spawn_bg properly detaches the task and it runs
         let (executor, _clock) = DeterministicExecutor::new();
         let flag = Arc::new(AtomicBool::new(false));
         let flag_clone = flag.clone();
 
-        // Use spawn_bg directly from the Executor trait
         executor.spawn_bg(async move {
             flag_clone.store(true, Ordering::SeqCst);
         });
 
-        // Drive the executor to run the background task
         executor.drive_until_idle();
 
-        // The task should have run
         assert!(flag.load(Ordering::SeqCst), "spawn_bg task should have run");
     }
 
     #[test]
     fn test_spawn_bg_with_arc() {
-        // Test that Arc<DeterministicExecutor> also correctly implements spawn_bg
         let (executor, _clock) = DeterministicExecutor::new();
         let flag = Arc::new(AtomicBool::new(false));
         let flag_clone = flag.clone();
 
-        // Use spawn_bg on Arc<DeterministicExecutor>
         <Arc<DeterministicExecutor> as Executor>::spawn_bg(&executor, async move {
             flag_clone.store(true, Ordering::SeqCst);
         });
 
-        // Drive the executor to run the background task
         executor.drive_until_idle();
 
-        // The task should have run
         assert!(
             flag.load(Ordering::SeqCst),
             "spawn_bg task on Arc should have run"
@@ -1245,10 +1148,8 @@ mod tests {
 
         let (executor, clock) = DeterministicExecutor::new();
 
-        // Test that when a sleep loses a race, it's cleaned up
         let exec = executor.clone();
         executor.block_on_bg(async move {
-            // Create a race between a sleep and an immediate value
             let winner = future::race(
                 async {
                     exec.sleep(Duration::from_millis(100)).await;
@@ -1261,8 +1162,6 @@ mod tests {
             assert_eq!(winner, "immediate", "Immediate value should win");
         });
 
-        // After the future completes, there should be no pending deadlines
-        // because the losing sleep should have been dropped and cleaned up
         assert!(
             !clock.has_pending_deadlines(),
             "Sleep future should have been cleaned up when it lost the race"
@@ -1277,20 +1176,16 @@ mod tests {
 
         let exec = executor.clone();
         executor.block_on_bg(async move {
-            // Start multiple sleeps in a race
             let _winner = future::race(
                 future::race(
                     exec.sleep(Duration::from_millis(50)),
                     exec.sleep(Duration::from_millis(100)),
                 ),
-                async {
-                    // Immediate completion
-                },
+                async {},
             )
             .await;
         });
 
-        // All sleeps should be cleaned up
         assert!(
             !clock.has_pending_deadlines(),
             "All sleep futures should have been cleaned up"
@@ -1298,14 +1193,12 @@ mod tests {
     }
 }
 
-// Add ExecutorExt implementations for AsyncStdExecutor and SmolExecutor
 #[cfg(all(feature = "mode-async", feature = "runtime-async-std"))]
 impl ExecutorExt for crate::executor::AsyncStdExecutor {
     fn spawn_detached<F>(&self, fut: F)
     where
         F: Future<Output = ()> + Send + 'static,
     {
-        // async-std::task::spawn returns a JoinHandle, but dropping it makes it fire-and-forget
         drop(self.spawn(fut));
     }
 
