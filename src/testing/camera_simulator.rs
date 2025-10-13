@@ -140,7 +140,7 @@ impl Default for CameraState {
             exposure_compensation: 0,
             exposure_compensation_enabled: false,
             iris_position: 0x0000,
-            shutter_speed: 0x00,
+            shutter_speed: 0x01, // Valid shutter speed (0x01-0x11)
             brightness: 0x07,
             gain_level: 0x00,
             gain_limit: 0x07,

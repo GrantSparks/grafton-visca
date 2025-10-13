@@ -82,12 +82,14 @@ pub trait InquiryControl {
 
     /// Get the current focus position.
     ///
-    /// Returns the current focus position as a numeric value.
+    /// Returns the current focus position as a typed value.
     /// Higher values typically indicate focus on more distant objects.
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn focus_position(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u16, Error>>;
+    fn focus_position(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::FocusPosition, Error>>;
 
     /// Get the focus near limit position.
     ///
@@ -96,7 +98,9 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn focus_near_limit(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u16, Error>>;
+    fn focus_near_limit(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::FocusPosition, Error>>;
 
     /// Get the current focus zone.
     ///
@@ -121,7 +125,9 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn exposure_compensation(&self) -> <Self::Mode as Mode>::Fut<'_, Result<i8, Error>>;
+    fn exposure_compensation(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::ExposureCompensationLevel, Error>>;
 
     /// Check if exposure compensation is enabled.
     ///
@@ -142,16 +148,16 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn iris(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn iris(&self) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::IrisLevel, Error>>;
 
     /// Get the current shutter speed.
     ///
-    /// Returns the current shutter speed setting as a numeric value.
+    /// Returns the current shutter speed setting as a typed value.
     /// The exact interpretation depends on the camera model.
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn shutter(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u16, Error>>;
+    fn shutter(&self) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::ShutterSpeed, Error>>;
 
     /// Get the current gain value.
     ///
@@ -160,7 +166,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn gain(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn gain(&self) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::GainLevel, Error>>;
 
     /// Get the gain limit value.
     ///
@@ -169,7 +175,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn gain_limit(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn gain_limit(&self) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::GainLimit, Error>>;
 
     /// Get the white balance mode.
     ///
@@ -186,7 +192,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn red_gain(&self) -> <Self::Mode as Mode>::Fut<'_, Result<i8, Error>>;
+    fn red_gain(&self) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::RedChannel, Error>>;
 
     /// Get the current blue gain.
     ///
@@ -195,25 +201,26 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn blue_gain(&self) -> <Self::Mode as Mode>::Fut<'_, Result<i8, Error>>;
+    fn blue_gain(&self) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::BlueChannel, Error>>;
 
     /// Get the red tuning value.
     ///
-    /// Returns the red color channel tuning adjustment.
+    /// Returns the red color channel tuning offset (-10 to +10).
     /// Provides finer control than gain adjustment.
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn red_tuning(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn red_tuning(&self) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::RedTuning, Error>>;
 
     /// Get the blue tuning value.
     ///
-    /// Returns the blue color channel tuning adjustment.
+    /// Returns the blue color channel tuning offset (-10 to +10).
     /// Provides finer control than gain adjustment.
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn blue_tuning(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn blue_tuning(&self)
+        -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::BlueTuning, Error>>;
 
     /// Get the current color temperature in Kelvin.
     ///
@@ -222,7 +229,9 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn color_temperature(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u16, Error>>;
+    fn color_temperature(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::ColorTemp, Error>>;
 
     /// Get the gamma level.
     ///
@@ -231,7 +240,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn gamma(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn gamma(&self) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::GammaLevel, Error>>;
 
     /// Get the brightness level.
     ///
@@ -240,7 +249,9 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn brightness(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u16, Error>>;
+    fn brightness(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::BrightnessLevel, Error>>;
 
     /// Get the sharpness mode.
     ///
@@ -257,7 +268,9 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn saturation(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn saturation(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::SaturationLevel, Error>>;
 
     /// Get the hue setting.
     ///
@@ -266,7 +279,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn hue(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn hue(&self) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::HueLevel, Error>>;
 
     /// Check if black and white mode is enabled.
     ///
@@ -481,7 +494,9 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn noise_reduction_level(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn noise_reduction_level(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::NoiseReductionLevel, Error>>;
 
     /// Get the noise reduction 2D level.
     ///
@@ -490,7 +505,9 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn noise_reduction_2d(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn noise_reduction_2d(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::NoiseReduction2DLevel, Error>>;
 
     /// Get the noise reduction 3D level.
     ///
@@ -499,7 +516,9 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn noise_reduction_3d(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn noise_reduction_3d(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::NoiseReduction3DLevel, Error>>;
 
     /// Get the broadcast domain setting.
     ///
@@ -658,12 +677,12 @@ where
         self.query(ZoomPositionInquiry)
     }
 
-    fn focus_position(&self) -> M::Fut<'_, Result<u16, Error>> {
+    fn focus_position(&self) -> M::Fut<'_, Result<crate::types::FocusPosition, Error>> {
         use crate::command::inquiry_structs::FocusPositionInquiry;
         self.query(FocusPositionInquiry)
     }
 
-    fn focus_near_limit(&self) -> M::Fut<'_, Result<u16, Error>> {
+    fn focus_near_limit(&self) -> M::Fut<'_, Result<crate::types::FocusPosition, Error>> {
         use crate::command::inquiry_structs::FocusNearLimitInquiry;
         self.query(FocusNearLimitInquiry)
     }
@@ -678,7 +697,9 @@ where
         self.query(ExposureModeInquiry)
     }
 
-    fn exposure_compensation(&self) -> M::Fut<'_, Result<i8, Error>> {
+    fn exposure_compensation(
+        &self,
+    ) -> M::Fut<'_, Result<crate::types::ExposureCompensationLevel, Error>> {
         use crate::command::inquiry_structs::ExposureCompensationInquiry;
         self.query(ExposureCompensationInquiry)
     }
@@ -688,22 +709,22 @@ where
         self.query(ExposureCompensationModeInquiry)
     }
 
-    fn iris(&self) -> M::Fut<'_, Result<u8, Error>> {
+    fn iris(&self) -> M::Fut<'_, Result<crate::types::IrisLevel, Error>> {
         use crate::command::inquiry_structs::IrisInquiry;
         self.query(IrisInquiry)
     }
 
-    fn shutter(&self) -> M::Fut<'_, Result<u16, Error>> {
+    fn shutter(&self) -> M::Fut<'_, Result<crate::types::ShutterSpeed, Error>> {
         use crate::command::inquiry_structs::ShutterInquiry;
         self.query(ShutterInquiry)
     }
 
-    fn gain(&self) -> M::Fut<'_, Result<u8, Error>> {
+    fn gain(&self) -> M::Fut<'_, Result<crate::types::GainLevel, Error>> {
         use crate::command::inquiry_structs::GainInquiry;
         self.query(GainInquiry)
     }
 
-    fn gain_limit(&self) -> M::Fut<'_, Result<u8, Error>> {
+    fn gain_limit(&self) -> M::Fut<'_, Result<crate::types::GainLimit, Error>> {
         use crate::command::inquiry_structs::GainLimitInquiry;
         self.query(GainLimitInquiry)
     }
@@ -713,37 +734,37 @@ where
         self.query(WhiteBalanceModeInquiry)
     }
 
-    fn red_gain(&self) -> M::Fut<'_, Result<i8, Error>> {
+    fn red_gain(&self) -> M::Fut<'_, Result<crate::types::RedChannel, Error>> {
         use crate::command::inquiry_structs::RedGainInquiry;
         self.query(RedGainInquiry)
     }
 
-    fn blue_gain(&self) -> M::Fut<'_, Result<i8, Error>> {
+    fn blue_gain(&self) -> M::Fut<'_, Result<crate::types::BlueChannel, Error>> {
         use crate::command::inquiry_structs::BlueGainInquiry;
         self.query(BlueGainInquiry)
     }
 
-    fn red_tuning(&self) -> M::Fut<'_, Result<u8, Error>> {
+    fn red_tuning(&self) -> M::Fut<'_, Result<crate::types::RedTuning, Error>> {
         use crate::command::inquiry_structs::RedTuningInquiry;
         self.query(RedTuningInquiry)
     }
 
-    fn blue_tuning(&self) -> M::Fut<'_, Result<u8, Error>> {
+    fn blue_tuning(&self) -> M::Fut<'_, Result<crate::types::BlueTuning, Error>> {
         use crate::command::inquiry_structs::BlueTuningInquiry;
         self.query(BlueTuningInquiry)
     }
 
-    fn color_temperature(&self) -> M::Fut<'_, Result<u16, Error>> {
+    fn color_temperature(&self) -> M::Fut<'_, Result<crate::types::ColorTemp, Error>> {
         use crate::command::inquiry_structs::ColorTemperatureInquiry;
         self.query(ColorTemperatureInquiry)
     }
 
-    fn gamma(&self) -> M::Fut<'_, Result<u8, Error>> {
+    fn gamma(&self) -> M::Fut<'_, Result<crate::types::GammaLevel, Error>> {
         use crate::command::inquiry_structs::GammaInquiry;
         self.query(GammaInquiry)
     }
 
-    fn brightness(&self) -> M::Fut<'_, Result<u16, Error>> {
+    fn brightness(&self) -> M::Fut<'_, Result<crate::types::BrightnessLevel, Error>> {
         use crate::command::inquiry_structs::BrightnessInquiry;
         self.query(BrightnessInquiry)
     }
@@ -753,12 +774,12 @@ where
         self.query(SharpnessModeInquiry)
     }
 
-    fn saturation(&self) -> M::Fut<'_, Result<u8, Error>> {
+    fn saturation(&self) -> M::Fut<'_, Result<crate::types::SaturationLevel, Error>> {
         use crate::command::inquiry_structs::SaturationInquiry;
         self.query(SaturationInquiry)
     }
 
-    fn hue(&self) -> M::Fut<'_, Result<u8, Error>> {
+    fn hue(&self) -> M::Fut<'_, Result<crate::types::HueLevel, Error>> {
         use crate::command::inquiry_structs::HueInquiry;
         self.query(HueInquiry)
     }
@@ -860,17 +881,19 @@ where
         self.query(FocusUnlockInquiry)
     }
 
-    fn noise_reduction_level(&self) -> M::Fut<'_, Result<u8, Error>> {
+    fn noise_reduction_level(
+        &self,
+    ) -> M::Fut<'_, Result<crate::types::NoiseReductionLevel, Error>> {
         use crate::command::inquiry_structs::NrLevelInquiry;
         self.query(NrLevelInquiry)
     }
 
-    fn noise_reduction_2d(&self) -> M::Fut<'_, Result<u8, Error>> {
+    fn noise_reduction_2d(&self) -> M::Fut<'_, Result<crate::types::NoiseReduction2DLevel, Error>> {
         use crate::command::inquiry_structs::NoiseReduction2DInquiry;
         self.query(NoiseReduction2DInquiry)
     }
 
-    fn noise_reduction_3d(&self) -> M::Fut<'_, Result<u8, Error>> {
+    fn noise_reduction_3d(&self) -> M::Fut<'_, Result<crate::types::NoiseReduction3DLevel, Error>> {
         use crate::command::inquiry_structs::NoiseReduction3DInquiry;
         self.query(NoiseReduction3DInquiry)
     }

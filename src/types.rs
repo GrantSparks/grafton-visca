@@ -42,6 +42,13 @@ pub struct NoiseReduction2DLevel(u8);
 #[visca_value(min = "1", max = "8", display_prefix = "3D NR Level")]
 pub struct NoiseReduction3DLevel(u8);
 
+/// Generic noise reduction level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[visca_value(min = "0", max = "5", display_prefix = "NR Level")]
+pub struct NoiseReductionLevel(u8);
+
 /// Trait for types that can be converted into VISCA iris level values.
 ///
 /// This trait provides a unified conversion interface for different iris-related types
@@ -810,6 +817,13 @@ impl SharpnessLevel {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[visca_value(min = "0x00", max = "0x0E", display_prefix = "Hue")]
 pub struct HueLevel(u8);
+
+/// Gamma curve level for gamma control.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[visca_value(min = "0", max = "4", display_prefix = "Gamma")]
+pub struct GammaLevel(u8);
 
 /// Red tuning value for fine white balance adjustment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]

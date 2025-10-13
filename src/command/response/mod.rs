@@ -342,7 +342,10 @@ pub fn parse_red_tuning(data: &[u8]) -> Result<InquiryData, Error> {
     if data.is_empty() {
         return Err(Error::InvalidResponseLength);
     }
-    Ok(InquiryData::RedTuning { level: data[0] })
+    // Convert from wire format (0-20) to semantic value (-10 to +10)
+    #[allow(clippy::cast_possible_wrap)]
+    let level = data[0] as i8 - 10;
+    Ok(InquiryData::RedTuning { level })
 }
 
 /// Parse blue tuning level
@@ -350,7 +353,10 @@ pub fn parse_blue_tuning(data: &[u8]) -> Result<InquiryData, Error> {
     if data.is_empty() {
         return Err(Error::InvalidResponseLength);
     }
-    Ok(InquiryData::BlueTuning { level: data[0] })
+    // Convert from wire format (0-20) to semantic value (-10 to +10)
+    #[allow(clippy::cast_possible_wrap)]
+    let level = data[0] as i8 - 10;
+    Ok(InquiryData::BlueTuning { level })
 }
 
 /// Parse gamma curve setting

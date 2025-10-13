@@ -105,13 +105,13 @@ impl crate::command::encode::ViscaCommand for ExposureCompensationInquiry {
 }
 
 impl crate::command::typed::ResponseParser for ExposureCompensationInquiry {
-    type Response = i8;
+    type Response = crate::types::ExposureCompensationLevel;
 
     fn from_response(resp: crate::command::Response) -> Result<Self::Response, crate::Error> {
         match resp {
             crate::command::Response::Inquiry(
                 crate::command::InquiryData::ExposureCompensation { value },
-            ) => Ok(value),
+            ) => crate::types::ExposureCompensationLevel::new(value),
             crate::command::Response::Error(e) => Err(e),
             _ => Err(crate::Error::UnexpectedResponseType),
         }
@@ -171,13 +171,13 @@ impl crate::command::encode::ViscaCommand for ShutterInquiry {
 }
 
 impl crate::command::typed::ResponseParser for ShutterInquiry {
-    type Response = u16;
+    type Response = crate::types::ShutterSpeed;
 
     fn from_response(resp: crate::command::Response) -> Result<Self::Response, crate::Error> {
         match resp {
             crate::command::Response::Inquiry(crate::command::InquiryData::Shutter {
                 position,
-            }) => Ok(position),
+            }) => crate::types::ShutterSpeed::new(position),
             crate::command::Response::Error(e) => Err(e),
             _ => Err(crate::Error::UnexpectedResponseType),
         }
@@ -239,13 +239,13 @@ impl crate::command::encode::ViscaCommand for ColorTemperatureInquiry {
 }
 
 impl crate::command::typed::ResponseParser for ColorTemperatureInquiry {
-    type Response = u16;
+    type Response = crate::types::ColorTemp;
 
     fn from_response(resp: crate::command::Response) -> Result<Self::Response, crate::Error> {
         match resp {
             crate::command::Response::Inquiry(crate::command::InquiryData::ColorTemperature {
                 temperature,
-            }) => Ok(temperature),
+            }) => crate::types::ColorTemp::new(temperature),
             crate::command::Response::Error(e) => Err(e),
             _ => Err(crate::Error::UnexpectedResponseType),
         }
@@ -659,26 +659,94 @@ impl crate::command::typed::ResponseParser for ExposureCompensationPositionInqui
 }
 
 /// Inquiry command to get the red channel tuning level.
-#[derive(ViscaInquiry, Debug, Copy, Clone)]
-#[visca(
-    opcode = 0x43,
-    response = "RedTuning",
-    parser = "custom",
-    parse_with = "parse_red_tuning",
-    bytes_const = "RED_TUNING"
-)]
+/// Note: This inquiry is handled with manual implementation due to i8 return type.
+#[derive(Debug, Copy, Clone)]
 pub struct RedTuningInquiry;
 
+// Manual implementation for RedTuningInquiry to use i8 response type
+impl crate::command::encode::ViscaCommand for RedTuningInquiry {
+    type Response = crate::command::InquiryData;
+    const MAX_SIZE: usize = 7;
+    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
+        crate::timeout::CommandCategory::Quick;
+
+    fn write_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, crate::error::Error> {
+        use crate::command::bytes::ConstCommandBuilder;
+
+        let builder = ConstCommandBuilder::<7>::new()
+            .append(crate::command::bytes::constants::inquiry::RED_TUNING)
+            .with_camera_id(camera_id)
+            .terminate();
+        builder.build_into(buffer)
+    }
+
+    fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
+        Some(crate::command::response::InquiryKind::RedTuning)
+    }
+}
+
+impl crate::command::typed::ResponseParser for RedTuningInquiry {
+    type Response = crate::types::RedTuning;
+
+    fn from_response(resp: crate::command::Response) -> Result<Self::Response, crate::Error> {
+        match resp {
+            crate::command::Response::Inquiry(crate::command::InquiryData::RedTuning { level }) => {
+                crate::types::RedTuning::new(level)
+            }
+            crate::command::Response::Error(e) => Err(e),
+            _ => Err(crate::Error::UnexpectedResponseType),
+        }
+    }
+}
+
 /// Inquiry command to get the blue channel tuning level.
-#[derive(ViscaInquiry, Debug, Copy, Clone)]
-#[visca(
-    opcode = 0x44,
-    response = "BlueTuning",
-    parser = "custom",
-    parse_with = "parse_blue_tuning",
-    bytes_const = "BLUE_TUNING"
-)]
+/// Note: This inquiry is handled with manual implementation due to i8 return type.
+#[derive(Debug, Copy, Clone)]
 pub struct BlueTuningInquiry;
+
+// Manual implementation for BlueTuningInquiry to use i8 response type
+impl crate::command::encode::ViscaCommand for BlueTuningInquiry {
+    type Response = crate::command::InquiryData;
+    const MAX_SIZE: usize = 7;
+    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
+        crate::timeout::CommandCategory::Quick;
+
+    fn write_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, crate::error::Error> {
+        use crate::command::bytes::ConstCommandBuilder;
+
+        let builder = ConstCommandBuilder::<7>::new()
+            .append(crate::command::bytes::constants::inquiry::BLUE_TUNING)
+            .with_camera_id(camera_id)
+            .terminate();
+        builder.build_into(buffer)
+    }
+
+    fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
+        Some(crate::command::response::InquiryKind::BlueTuning)
+    }
+}
+
+impl crate::command::typed::ResponseParser for BlueTuningInquiry {
+    type Response = crate::types::BlueTuning;
+
+    fn from_response(resp: crate::command::Response) -> Result<Self::Response, crate::Error> {
+        match resp {
+            crate::command::Response::Inquiry(crate::command::InquiryData::BlueTuning {
+                level,
+            }) => crate::types::BlueTuning::new(level),
+            crate::command::Response::Error(e) => Err(e),
+            _ => Err(crate::Error::UnexpectedResponseType),
+        }
+    }
+}
 
 /// Inquiry command to get the current gamma curve setting.
 #[derive(ViscaInquiry, Debug, Copy, Clone)]

@@ -932,10 +932,10 @@ where
         fn zoom_position() -> crate::types::ZoomPosition;
 
         /// Get focus position.
-        fn focus_position() -> u16;
+        fn focus_position() -> crate::types::FocusPosition;
 
         /// Get focus near limit.
-        fn focus_near_limit() -> u16;
+        fn focus_near_limit() -> crate::types::FocusPosition;
 
         /// Get focus zone.
         fn focus_zone() -> crate::command::focus::FocusZone;
@@ -944,55 +944,55 @@ where
         fn exposure_mode() -> crate::command::exposure::ExposureMode;
 
         /// Get exposure compensation.
-        fn exposure_compensation() -> i8;
+        fn exposure_compensation() -> crate::types::ExposureCompensationLevel;
 
         /// Get exposure compensation enabled status.
         fn exposure_compensation_enabled() -> bool;
 
         /// Get iris value.
-        fn iris() -> u8;
+        fn iris() -> crate::types::IrisLevel;
 
         /// Get shutter value.
-        fn shutter() -> u16;
+        fn shutter() -> crate::types::ShutterSpeed;
 
         /// Get gain value.
-        fn gain() -> u8;
+        fn gain() -> crate::types::GainLevel;
 
         /// Get gain limit.
-        fn gain_limit() -> u8;
+        fn gain_limit() -> crate::types::GainLimit;
 
         /// Get white balance mode.
         fn white_balance_mode() -> crate::command::white_balance::WhiteBalanceMode;
 
         /// Get red gain.
-        fn red_gain() -> i8;
+        fn red_gain() -> crate::types::RedChannel;
 
         /// Get blue gain.
-        fn blue_gain() -> i8;
+        fn blue_gain() -> crate::types::BlueChannel;
 
         /// Get red tuning.
-        fn red_tuning() -> u8;
+        fn red_tuning() -> crate::types::RedTuning;
 
         /// Get blue tuning.
-        fn blue_tuning() -> u8;
+        fn blue_tuning() -> crate::types::BlueTuning;
 
         /// Get color temperature.
-        fn color_temperature() -> u16;
+        fn color_temperature() -> crate::types::ColorTemp;
 
         /// Get gamma value.
-        fn gamma() -> u8;
+        fn gamma() -> crate::types::GammaLevel;
 
         /// Get brightness.
-        fn brightness() -> u16;
+        fn brightness() -> crate::types::BrightnessLevel;
 
         /// Get sharpness mode.
         fn sharpness_mode() -> crate::command::SharpnessMode;
 
         /// Get saturation.
-        fn saturation() -> u8;
+        fn saturation() -> crate::types::SaturationLevel;
 
         /// Get hue.
-        fn hue() -> u8;
+        fn hue() -> crate::types::HueLevel;
 
         /// Get black and white mode.
         fn black_white() -> bool;
@@ -1052,13 +1052,13 @@ where
         fn focus_unlock() -> bool;
 
         /// Get noise reduction level.
-        fn noise_reduction_level() -> u8;
+        fn noise_reduction_level() -> crate::types::NoiseReductionLevel;
 
         /// Get 2D noise reduction level.
-        fn noise_reduction_2d() -> u8;
+        fn noise_reduction_2d() -> crate::types::NoiseReduction2DLevel;
 
         /// Get 3D noise reduction level.
-        fn noise_reduction_3d() -> u8;
+        fn noise_reduction_3d() -> crate::types::NoiseReduction3DLevel;
 
         /// Get broadcast domain.
         fn broadcast_domain() -> u8;

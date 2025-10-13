@@ -67,17 +67,19 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            Some(Ok(Response::Inquiry(InquiryData::RedTuning {
-                level: payload.as_slice()[0],
-            })))
+            // Convert from wire format (0-20) to semantic value (-10 to +10)
+            #[allow(clippy::cast_possible_wrap)]
+            let level = payload.as_slice()[0] as i8 - 10;
+            Some(Ok(Response::Inquiry(InquiryData::RedTuning { level })))
         }
         InquiryKind::BlueTuning => {
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            Some(Ok(Response::Inquiry(InquiryData::BlueTuning {
-                level: payload.as_slice()[0],
-            })))
+            // Convert from wire format (0-20) to semantic value (-10 to +10)
+            #[allow(clippy::cast_possible_wrap)]
+            let level = payload.as_slice()[0] as i8 - 10;
+            Some(Ok(Response::Inquiry(InquiryData::BlueTuning { level })))
         }
         InquiryKind::AutoWhiteBalanceSensitivity => {
             if payload.len() != 1 {

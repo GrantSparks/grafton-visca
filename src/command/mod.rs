@@ -185,14 +185,14 @@ pub enum InquiryData {
         /// Color temperature in Kelvin.
         temperature: u16,
     },
-    /// Red channel tuning inquiry response.
+    /// Red channel gain inquiry response.
     RedChannel {
-        /// Red channel adjustment value (-10 to +10).
+        /// Red channel gain offset (-10 to +10).
         gain: i8,
     },
-    /// Blue channel tuning inquiry response.
+    /// Blue channel gain inquiry response.
     BlueChannel {
-        /// Blue channel adjustment value (-10 to +10).
+        /// Blue channel gain offset (-10 to +10).
         gain: i8,
     },
 
@@ -326,13 +326,13 @@ pub enum InquiryData {
     },
     /// Red channel tuning inquiry response.
     RedTuning {
-        /// Red channel tuning level.
-        level: u8,
+        /// Red channel tuning level (-10 to +10).
+        level: i8,
     },
     /// Blue channel tuning inquiry response.
     BlueTuning {
-        /// Blue channel tuning level.
-        level: u8,
+        /// Blue channel tuning level (-10 to +10).
+        level: i8,
     },
     /// Gamma curve inquiry response.
     Gamma {

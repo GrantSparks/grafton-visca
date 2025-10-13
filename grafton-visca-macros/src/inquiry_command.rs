@@ -418,13 +418,13 @@ fn generate_typed_impl(
         ("FocusNearLimit", Some("position"), _) => {
             quote! {
                 impl #crate_path::command::typed::ResponseParser for #struct_name {
-                    type Response = u16;
+                    type Response = #crate_path::types::FocusPosition;
 
                     fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
                             #crate_path::command::Response::Inquiry(
                                 #crate_path::command::InquiryData::FocusNearLimit { position }
-                            ) => Ok(position),
+                            ) => #crate_path::types::FocusPosition::new(position),
                             #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
@@ -435,13 +435,13 @@ fn generate_typed_impl(
         ("FocusPosition", Some("position"), _) => {
             quote! {
                 impl #crate_path::command::typed::ResponseParser for #struct_name {
-                    type Response = u16;
+                    type Response = #crate_path::types::FocusPosition;
 
                     fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
                             #crate_path::command::Response::Inquiry(
                                 #crate_path::command::InquiryData::FocusPosition { position }
-                            ) => Ok(position),
+                            ) => #crate_path::types::FocusPosition::new(position),
                             #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
@@ -673,13 +673,13 @@ fn generate_typed_impl(
         ("GainLimit", Some("byte"), _) => {
             quote! {
                 impl #crate_path::command::typed::ResponseParser for #struct_name {
-                    type Response = u8;
+                    type Response = #crate_path::types::GainLimit;
 
                     fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
                             #crate_path::command::Response::Inquiry(
                                 #crate_path::command::InquiryData::GainLimit { limit }
-                            ) => Ok(limit),
+                            ) => #crate_path::types::GainLimit::new(limit),
                             #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
@@ -735,11 +735,11 @@ fn generate_typed_impl(
         ("NoiseReduction2D", Some("byte"), _) => {
             quote! {
                 impl #crate_path::command::typed::ResponseParser for #struct_name {
-                    type Response = u8;
+                    type Response = #crate_path::types::NoiseReduction2DLevel;
 
                     fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::NoiseReduction2D { level }) => Ok(level),
+                            #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::NoiseReduction2D { level }) => #crate_path::types::NoiseReduction2DLevel::new(level),
                             #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
@@ -750,11 +750,11 @@ fn generate_typed_impl(
         ("NoiseReduction3D", Some("byte"), _) => {
             quote! {
                 impl #crate_path::command::typed::ResponseParser for #struct_name {
-                    type Response = u8;
+                    type Response = #crate_path::types::NoiseReduction3DLevel;
 
                     fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::NoiseReduction3D { level }) => Ok(level),
+                            #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::NoiseReduction3D { level }) => #crate_path::types::NoiseReduction3DLevel::new(level),
                             #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
@@ -765,11 +765,11 @@ fn generate_typed_impl(
         ("Gamma", _, _) => {
             quote! {
                 impl #crate_path::command::typed::ResponseParser for #struct_name {
-                    type Response = u8;
+                    type Response = #crate_path::types::GammaLevel;
 
                     fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
-                            #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::Gamma { value }) => Ok(value),
+                            #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::Gamma { value }) => #crate_path::types::GammaLevel::new(value),
                             #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
@@ -958,10 +958,10 @@ fn generate_typed_impl(
             quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = u16; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::Bright{ position })=>Ok(position), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("Brightness", _, _) => {
-            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = u16; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::Brightness{ position })=>Ok(position), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = #crate_path::types::BrightnessLevel; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::Brightness{ position })=>#crate_path::types::BrightnessLevel::new(position), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("Iris", _, _) => {
-            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = u8; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::Iris{ position })=>Ok(position), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = #crate_path::types::IrisLevel; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::Iris{ position })=>#crate_path::types::IrisLevel::new(position), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("Shutter", _, _) => {
             quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = u16; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::Shutter{ position })=>Ok(position), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
@@ -970,19 +970,19 @@ fn generate_typed_impl(
             quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = u16; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::ColorTemperature{ temperature })=>Ok(temperature), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("RedChannel", _, _) => {
-            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = i8; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::RedChannel{ gain })=>Ok(gain), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = #crate_path::types::RedChannel; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::RedChannel{ gain })=>#crate_path::types::RedChannel::new(gain as u8), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("BlueChannel", _, _) => {
-            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = i8; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::BlueChannel{ gain })=>Ok(gain), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = #crate_path::types::BlueChannel; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::BlueChannel{ gain })=>#crate_path::types::BlueChannel::new(gain as u8), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("Saturation", _, _) => {
-            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = u8; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::Saturation{ level })=>Ok(level), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = #crate_path::types::SaturationLevel; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::Saturation{ level })=>#crate_path::types::SaturationLevel::new(level), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("Hue", _, _) => {
-            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = u8; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::Hue{ hue })=>Ok(hue), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = #crate_path::types::HueLevel; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::Hue{ hue })=>#crate_path::types::HueLevel::new(hue), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("Gain", _, _) => {
-            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = u8; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::GainLevel{ gain })=>Ok(gain), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = #crate_path::types::GainLevel; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::GainLevel{ gain })=>#crate_path::types::GainLevel::new(gain), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("SharpnessMode", _, _) => {
             quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = #crate_path::command::SharpnessMode; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::SharpnessMode{ mode })=>Ok(mode), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
@@ -1000,7 +1000,7 @@ fn generate_typed_impl(
             quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = #crate_path::command::typed::FlipState; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::FlipState{ horizontal, vertical })=>Ok(#crate_path::command::typed::FlipState{ horizontal, vertical }), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("NoiseReductionLevel", Some("byte"), _) => {
-            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = u8; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::NoiseReductionLevel(val))=>Ok(val), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = #crate_path::types::NoiseReductionLevel; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::NoiseReductionLevel(val))=>#crate_path::types::NoiseReductionLevel::new(val), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("NoiseReductionMode", Some("mode"), Some("NoiseReductionMode")) => {
             quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = #crate_path::command::NoiseReductionMode; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::NoiseReductionMode{ mode })=>Ok(mode), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }

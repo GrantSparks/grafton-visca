@@ -15,6 +15,15 @@ The central achievement is adding powerful ergonomic features that previously re
 
 ### 🚀 Major Features & Improvements
 
+#### Inquiry Type Safety Enhancements
+Enhanced type safety for inquiry responses, preventing type confusion and ensuring correct value interpretation:
+
+- **Red/Blue tuning inquiry type fixes**: Fixed type mismatches for `red_tuning()` and `blue_tuning()` inquiries from `u8` to `i8` to correctly represent -10 to +10 offset range. Updated all inquiry trait signatures, response decoders, blocking API, and accessor methods.
+- **New type wrappers for image control**: Added `GammaLevel` (0-4 range) and `NoiseReductionLevel` (0-5 range) type wrappers to complement existing typed inquiry responses.
+- **Consistent type safety across inquiries**: All tuning-related inquiry methods now return properly typed values that match the VISCA protocol semantics (gain offsets vs absolute values).
+
+These improvements ensure that inquiry responses are type-safe throughout the API, eliminating potential bugs from incorrect type assumptions and providing better compile-time validation.
+
 #### Protocol Correctness Fixes (#418)
 Spec-validated VISCA protocol corrections ensure accurate camera control and telemetry:
 

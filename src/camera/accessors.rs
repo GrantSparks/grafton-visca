@@ -402,7 +402,7 @@ where
     }
 
     /// Get the current focus position.
-    pub fn position(&self) -> M::Fut<'_, Result<u16, Error>>
+    pub fn position(&self) -> M::Fut<'_, Result<crate::types::FocusPosition, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
@@ -469,7 +469,7 @@ where
     }
 
     /// Get focus near limit.
-    pub fn near_limit(&self) -> M::Fut<'_, Result<u16, Error>>
+    pub fn near_limit(&self) -> M::Fut<'_, Result<crate::types::FocusPosition, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
@@ -587,7 +587,7 @@ where
     }
 
     /// Get exposure compensation value.
-    pub fn compensation(&self) -> M::Fut<'_, Result<i8, Error>>
+    pub fn compensation(&self) -> M::Fut<'_, Result<crate::types::ExposureCompensationLevel, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
@@ -611,7 +611,7 @@ where
     }
 
     /// Get iris value.
-    pub fn iris(&self) -> M::Fut<'_, Result<u8, Error>>
+    pub fn iris(&self) -> M::Fut<'_, Result<crate::types::IrisLevel, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
@@ -619,7 +619,7 @@ where
     }
 
     /// Get shutter speed.
-    pub fn shutter(&self) -> M::Fut<'_, Result<u16, Error>>
+    pub fn shutter(&self) -> M::Fut<'_, Result<crate::types::ShutterSpeed, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
@@ -627,7 +627,7 @@ where
     }
 
     /// Get gain value.
-    pub fn gain(&self) -> M::Fut<'_, Result<u8, Error>>
+    pub fn gain(&self) -> M::Fut<'_, Result<crate::types::GainLevel, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
@@ -635,7 +635,7 @@ where
     }
 
     /// Get gain limit.
-    pub fn gain_limit(&self) -> M::Fut<'_, Result<u8, Error>>
+    pub fn gain_limit(&self) -> M::Fut<'_, Result<crate::types::GainLimit, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
@@ -705,7 +705,7 @@ where
     }
 
     /// Get red gain.
-    pub fn red_gain(&self) -> M::Fut<'_, Result<i8, Error>>
+    pub fn red_gain(&self) -> M::Fut<'_, Result<crate::types::RedChannel, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
@@ -713,7 +713,7 @@ where
     }
 
     /// Get blue gain.
-    pub fn blue_gain(&self) -> M::Fut<'_, Result<i8, Error>>
+    pub fn blue_gain(&self) -> M::Fut<'_, Result<crate::types::BlueChannel, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
@@ -721,7 +721,7 @@ where
     }
 
     /// Get red tuning.
-    pub fn red_tuning(&self) -> M::Fut<'_, Result<u8, Error>>
+    pub fn red_tuning(&self) -> M::Fut<'_, Result<crate::types::RedTuning, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
@@ -729,7 +729,7 @@ where
     }
 
     /// Get blue tuning.
-    pub fn blue_tuning(&self) -> M::Fut<'_, Result<u8, Error>>
+    pub fn blue_tuning(&self) -> M::Fut<'_, Result<crate::types::BlueTuning, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
@@ -737,7 +737,7 @@ where
     }
 
     /// Get color temperature.
-    pub fn color_temperature(&self) -> M::Fut<'_, Result<u16, Error>>
+    pub fn color_temperature(&self) -> M::Fut<'_, Result<crate::types::ColorTemp, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
@@ -807,7 +807,7 @@ where
     }
 
     /// Get brightness level.
-    pub fn brightness(&self) -> M::Fut<'_, Result<u16, Error>>
+    pub fn brightness(&self) -> M::Fut<'_, Result<crate::types::BrightnessLevel, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
@@ -815,7 +815,7 @@ where
     }
 
     /// Get saturation level.
-    pub fn saturation(&self) -> M::Fut<'_, Result<u8, Error>>
+    pub fn saturation(&self) -> M::Fut<'_, Result<crate::types::SaturationLevel, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
@@ -823,7 +823,7 @@ where
     }
 
     /// Get hue setting.
-    pub fn hue(&self) -> M::Fut<'_, Result<u8, Error>>
+    pub fn hue(&self) -> M::Fut<'_, Result<crate::types::HueLevel, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
@@ -831,7 +831,7 @@ where
     }
 
     /// Get gamma level.
-    pub fn gamma(&self) -> M::Fut<'_, Result<u8, Error>>
+    pub fn gamma(&self) -> M::Fut<'_, Result<crate::types::GammaLevel, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
@@ -911,7 +911,9 @@ where
     }
 
     /// Get noise reduction level.
-    pub fn noise_reduction_level(&self) -> M::Fut<'_, Result<u8, Error>>
+    pub fn noise_reduction_level(
+        &self,
+    ) -> M::Fut<'_, Result<crate::types::NoiseReductionLevel, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
@@ -919,7 +921,9 @@ where
     }
 
     /// Get noise reduction 2D level.
-    pub fn noise_reduction_2d(&self) -> M::Fut<'_, Result<u8, Error>>
+    pub fn noise_reduction_2d(
+        &self,
+    ) -> M::Fut<'_, Result<crate::types::NoiseReduction2DLevel, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
@@ -927,7 +931,9 @@ where
     }
 
     /// Get noise reduction 3D level.
-    pub fn noise_reduction_3d(&self) -> M::Fut<'_, Result<u8, Error>>
+    pub fn noise_reduction_3d(
+        &self,
+    ) -> M::Fut<'_, Result<crate::types::NoiseReduction3DLevel, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {

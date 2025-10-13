@@ -82,7 +82,7 @@ async fn test_position_inquiries_integration() {
         .expect("focus inquiry should succeed");
     assert_eq!(
         focus_pos,
-        0x1000, // Default focus position
+        grafton_visca::types::FocusPosition::new(0x1000).unwrap(), // Default focus position
         "Focus should be at default position"
     );
 
@@ -92,7 +92,11 @@ async fn test_position_inquiries_integration() {
         .near_limit()
         .await
         .expect("focus near limit inquiry should succeed");
-    assert_eq!(near_limit, 0x1000, "Focus near limit should be at default");
+    assert_eq!(
+        near_limit,
+        grafton_visca::types::FocusPosition::new(0x1000).unwrap(),
+        "Focus near limit should be at default"
+    );
 }
 
 /// Test exposure-related inquiries
@@ -120,7 +124,11 @@ async fn test_exposure_inquiries_integration() {
         .compensation()
         .await
         .expect("exposure compensation inquiry should succeed");
-    assert_eq!(comp, 0, "Exposure compensation should be 0");
+    assert_eq!(
+        comp,
+        grafton_visca::types::ExposureCompensationLevel::new(0).unwrap(),
+        "Exposure compensation should be 0"
+    );
 
     // Test exposure compensation mode inquiry
     let comp_enabled = camera
@@ -136,7 +144,11 @@ async fn test_exposure_inquiries_integration() {
         .iris()
         .await
         .expect("iris inquiry should succeed");
-    assert_eq!(iris, 0x0000, "Iris should be at minimum");
+    assert_eq!(
+        iris,
+        grafton_visca::types::IrisLevel::new(0x0000).unwrap(),
+        "Iris should be at minimum"
+    );
 
     // Test shutter inquiry
     let shutter = camera
@@ -144,7 +156,13 @@ async fn test_exposure_inquiries_integration() {
         .shutter()
         .await
         .expect("shutter inquiry should succeed");
-    assert_eq!(shutter, 0x00, "Shutter should be at default");
+    // ShutterSpeed has strict validation - valid values are 0x01-0x11
+    // The simulator now returns 0x01 as default
+    assert_eq!(
+        shutter,
+        grafton_visca::types::ShutterSpeed::new(0x01).unwrap(),
+        "Shutter should be at default (0x01)"
+    );
 
     // Test brightness inquiry
     let brightness = camera
@@ -152,7 +170,11 @@ async fn test_exposure_inquiries_integration() {
         .brightness()
         .await
         .expect("brightness inquiry should succeed");
-    assert_eq!(brightness, 0x07, "Brightness should be at default");
+    assert_eq!(
+        brightness,
+        grafton_visca::types::BrightnessLevel::new(0x07).unwrap(),
+        "Brightness should be at default"
+    );
 
     // Test gain inquiry
     let gain = camera
@@ -160,7 +182,11 @@ async fn test_exposure_inquiries_integration() {
         .gain()
         .await
         .expect("gain inquiry should succeed");
-    assert_eq!(gain, 0x00, "Gain should be at minimum");
+    assert_eq!(
+        gain,
+        grafton_visca::types::GainLevel::new(0x00).unwrap(),
+        "Gain should be at minimum"
+    );
 
     // Test gain limit inquiry
     let gain_limit = camera
@@ -168,7 +194,11 @@ async fn test_exposure_inquiries_integration() {
         .gain_limit()
         .await
         .expect("gain limit inquiry should succeed");
-    assert_eq!(gain_limit, 0x07, "Gain limit should be at default");
+    assert_eq!(
+        gain_limit,
+        grafton_visca::types::GainLimit::new(0x07).unwrap(),
+        "Gain limit should be at default"
+    );
 
     // Test backlight inquiry
     let backlight = camera
@@ -209,7 +239,11 @@ async fn test_white_balance_color_inquiries_integration() {
         .expect("color temperature inquiry should succeed");
     // Color temperature is returned as the VISCA value (0-55 scale)
     // Value 3 corresponds to 2800K (2500 + 3*100)
-    assert_eq!(color_temp, 3, "Color temperature should be 3 (2800K)");
+    assert_eq!(
+        color_temp,
+        grafton_visca::types::ColorTemp::new(3).unwrap(),
+        "Color temperature should be 3 (2800K)"
+    );
 }
 
 /// Test image adjustment inquiries
@@ -231,7 +265,11 @@ async fn test_image_adjustment_inquiries_integration() {
         .saturation()
         .await
         .expect("saturation inquiry should succeed");
-    assert_eq!(saturation, 0x07, "Saturation should be at default");
+    assert_eq!(
+        saturation,
+        grafton_visca::types::SaturationLevel::new(0x07).unwrap(),
+        "Saturation should be at default"
+    );
 
     // Test hue inquiry
     let hue = camera
@@ -239,7 +277,11 @@ async fn test_image_adjustment_inquiries_integration() {
         .hue()
         .await
         .expect("hue inquiry should succeed");
-    assert_eq!(hue, 0x07, "Hue should be at default");
+    assert_eq!(
+        hue,
+        grafton_visca::types::HueLevel::new(0x07).unwrap(),
+        "Hue should be at default"
+    );
 
     // Test image flip inquiry
     let flip_status = camera
@@ -267,7 +309,11 @@ async fn test_noise_reduction_inquiries_integration() {
         .noise_reduction_2d()
         .await
         .expect("noise reduction 2D inquiry should succeed");
-    assert_eq!(nr_2d, 0x01, "Noise reduction 2D should be at level 1");
+    assert_eq!(
+        nr_2d,
+        grafton_visca::types::NoiseReduction2DLevel::new(0x01).unwrap(),
+        "Noise reduction 2D should be at level 1"
+    );
 
     // Test noise reduction 3D inquiry
     let nr_3d = camera
@@ -275,7 +321,11 @@ async fn test_noise_reduction_inquiries_integration() {
         .noise_reduction_3d()
         .await
         .expect("noise reduction 3D inquiry should succeed");
-    assert_eq!(nr_3d, 0x01, "Noise reduction 3D should be at level 1");
+    assert_eq!(
+        nr_3d,
+        grafton_visca::types::NoiseReduction3DLevel::new(0x01).unwrap(),
+        "Noise reduction 3D should be at level 1"
+    );
 }
 
 /// Test focus mode inquiries
@@ -382,7 +432,11 @@ async fn test_sequential_inquiries() {
         .compensation()
         .await
         .expect("exposure compensation inquiry should succeed");
-    assert_eq!(comp, 0, "Exposure compensation should be 0");
+    assert_eq!(
+        comp,
+        grafton_visca::types::ExposureCompensationLevel::new(0).unwrap(),
+        "Exposure compensation should be 0"
+    );
 }
 
 /// Test inquiry timeout behavior
