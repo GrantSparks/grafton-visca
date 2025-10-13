@@ -8,7 +8,6 @@
 ./examples/serial_async_demo.rs|e5eca7c26e3439be94f41b3c11e621a2
 ./grafton-visca-macros/src/lib.rs|c9d23a857298b97df36455b3424a8058
 ./grafton-visca-macros/src/forward_control.rs|21dad668c32aefb9177011bd11ef3489
-./grafton-visca-macros/src/inquiry_command.rs|2cfa5ec328dcad66ee10743ba40742df
 ./grafton-visca-macros/src/parser_templates.rs|4ebfc77a9241bc229b6e2abbb8751518
 ./grafton-visca-macros/src/value_macros.rs|577cf688729d17206febe8a3da4970ff
 ./src/camera/capabilities.rs|7f0c2eaee6d0b9426ad81287e5c3fb36
@@ -18,7 +17,6 @@
 ./src/camera/controls/image_processing.rs|0407143d0eafae78e3f3abbaa176a53c
 ./grafton-visca-macros/src/visca_enum.rs|8ab567a9d2740931da89b344ca6b5844
 ./src/camera/controls/nd_filter.rs|bd81cfa86eb11a456db2abd76c4c326a
-./src/camera/controls/inquiry.rs|758d0e1a03506250d5169611a0ab172c
 ./src/camera/controls/streaming.rs|69854a6be10b4e97b65d41caea7d5e62
 ./src/camera/controls/motion_sync.rs|08df588acf01b6424aa84bb0138f6e2b
 ./src/camera/controls/menu.rs|3c5a16e123d60bac213c8cd333fc1c0f
@@ -55,7 +53,6 @@
 ./src/command/menu.rs|b0ec28018197376fd8f1bfb5e2e512e9
 ./src/command/gain.rs|3849ae29393928aa70ba310b24a635be
 ./src/command/inquiry_types.rs|30ca96c27384820a2d2d129abad07481
-./src/command/mod.rs|90dc800e189a7417e6ff22ee174d5fc5
 ./src/command/resolution.rs|7aba062a67c7046ed488ca2c83c40cb2
 ./src/command/nd_filter.rs|e7e3c2587fbf558df017664abdb09866
 ./src/command/motion_sync.rs|d50c78fd466723e6f40a8c10729b5d53
@@ -71,7 +68,6 @@
 ./src/command/response/decoders/exposure.rs|a207d425379c3b87f2f3fbff02e9491a
 ./src/command/streaming.rs|51e7936e59a079a6636babaf81ddc31c
 ./src/command/response/types.rs|11d794f171031cdc9cbb63358ab0f13f
-./src/command/response/mod.rs|be4ff43417d5c831418059d6480359da
 ./src/command/response/payload.rs|22097f371dd8bc3d0de713456d5f06b6
 ./src/command/system.rs|b06867655d812737b96c665656b2d104
 ./src/command/tally.rs|3c5103834742d4e6a3dc0e4bbeb8de83
@@ -98,7 +94,6 @@
 ./src/testing/mod.rs|5d559c2b94a24e49d82c6f1bc918f32a
 ./src/testing/testkit/executor_selection.rs|7272366be8ba1457f54465731bae6546
 ./src/testing/testkit/mod.rs|c0ebddaa7ea5507a56fd0122d7afdd9f
-./src/testing/camera_simulator.rs|a460457dbc13cab049012cc01e147487
 ./src/testing/testkit/deterministic_executor_test.rs|686c3d13bfbc4b3dc1d3884bd888d3e8
 ./src/transport/address.rs|e7d584a0b164cb72ae4add78beab1a3a
 ./src/transport/async_std/tcp.rs|52809252e6b7ade2ba6be0eafb2d2e97
@@ -149,7 +144,6 @@
 ./tests/deterministic_executor_test.rs|268fa7ddc20b997a7f8c94940608c901
 ./tests/error_consistency_test.rs|50a9efd5b0c1eff05e2d741b98bdf664
 ./tests/inquiry_golden_tests_simple.rs|04adc9d4fc543379d6c2d45198bcecb0
-./tests/inquiry_integration_tests.rs|d9f82ca1b1f077672733429315934093
 ./tests/feature_detection_tests.rs|1a4817b86760bbafce4fc8a27053a52b
 ./tests/inquiry_simulator_test.rs|9574d1b75db1b0af46d1db8c8a0bb0ca
 ./tests/issue_376_profile_aware_blocking_test.rs|4db02f89237ecf618e892c9e8a434324
@@ -184,7 +178,6 @@
 ./examples/quickstart_async.rs|5e1a54a4cba616b0b14cc0fffe2db1ca
 ./tests/priority_busy_cascade_test.rs|ae9b20628902d3c900dae7631e7a82c1
 ./src/transport/blocking/tests/framing_tests.rs|54d0d55d2db00b977b8398ae0c582ae3
-./src/testing/testkit/deterministic_executor.rs|481a7f28d7a1a623abfa548f4ae0bf6a
 ./src/camera/controls/mod.rs|c628ab5fd9441f67600c7f0aa3775e78
 ./src/capabilities/mod.rs|ab24d097da7260e7885f3f611add3955
 ./src/camera/mod.rs|32a97c01a217228eccf33d461233a192
@@ -210,17 +203,14 @@
 ./examples/inquiry_quickstart.rs|070bde053276e9b218d2cf0be1e0ba06
 ./src/command/inquiry.rs|fb7e2af6582a61aea82caa3727bfb17a
 ./src/command/response/decoders/zoom.rs|eae46a3fdf1533e3d8493e963a0e8467
-./src/command/inquiry_structs.rs|980d7acbe05767511a75b298b409646d
 ./src/command/bytes/constants.rs|eff30a9d63759eb4f0c762383b572735
 ./src/command/white_balance.rs|0980572c253a52fc921c412517b984ca
 ./src/command/response/decoders/pan_tilt.rs|22e4149aeba54a3c0ce9d60b8bb91007
-./src/command/response/decoders/color.rs|a5ed2ceed6a900c6eff2322c17d566a6
 ./tests/inquiry_response_parsing_tests.rs|c068da1d53027a4f18a6c8fbf1eb0f91
 ./src/macros/public.rs|5576ff1f31002fb1eaba76fa9948b8a2
 ./tests/serialization_test.rs|d4b4b858818ffac28a7460b52881f3ec
 ./src/units.rs|d81d736c45d2233374c5483d764991c3
 ./src/diagnostics.rs|27d370bc017f8ca4ec210c394c0a9475
-./src/camera/blocking_api.rs|72b7f3348477ae059fa69ecb9dcd492b
 ./src/camera/controls/motion.rs|e39e2eaad3ccb1aba400082fcb9e70c4
 ./src/camera/controls/exposure.rs|799acd0edee7f6593353955d5f35b539
 ./src/transport/mod.rs|c6e1a9575fc6006dfa05ce002b88db8b
@@ -230,9 +220,7 @@
 ./examples/runtime_agnostic.rs|f32f5f0cd1f201cf08fc32894be18937
 ./src/command/encode.rs|2ea18f9c307acd32f72dc37b3c1daa1b
 ./src/runtime/loop_task.rs|9c42704cc42b2e24ea1e79bfcb7c78d3
-./src/types.rs|b86c5f013756cd7e8df9830016c46bec
 ./src/command/pan_tilt.rs|3abf61c164ccccc104073b45b269dc2e
-./src/camera/accessors.rs|87a02ddea8335ff4259c9fa5068b2b4d
 ./src/runtime/driver/send.rs|2571bd22f97fd8755ccc408bee65c81e
 ./src/runtime/async_adapter.rs|26661a6dc6e6ca8f51a128f9b346e023
 ./src/camera/profiles.rs|d6b0484bcc4a2929908d5a63aec81d15
@@ -244,4 +232,16 @@
 ./src/runtime/traits.rs|73452865e0ccdcf518131dd44d41f3b6
 ./src/runtime/core.rs|cfc408e6d3922a44aad372f67b4ae923
 ./src/runtime/blocking_runner.rs|78894ada1c113f60b68d8914e1d4853a
-./examples-advanced/error_handling.rs|d63926f6c6063929d3b2d7f059451524
+./src/command/inquiry_structs.rs|a50b54125b256dd62396e18c11935fc5
+./src/types.rs|37937cd054bda5ddc13f60118f86939c
+./src/camera/blocking_api.rs|0b596f8defc68890be63f7687681c2cf
+./src/camera/accessors.rs|e078542f8cf71998b907abfa25c254ad
+./src/camera/controls/inquiry.rs|be78947f03f9a54eee828cc48af547cd
+./tests/inquiry_integration_tests.rs|0ce8970dfc535bae425a256cde02c59c
+./src/command/response/decoders/color.rs|a999b146ca82e71ae52ff0287de24123
+./grafton-visca-macros/src/inquiry_command.rs|7a207b2f7bb0e502813b8307623df416
+./src/command/mod.rs|b8d5730a6815ad1b0ef2da460271bf33
+./src/testing/camera_simulator.rs|a3fe4dab400ac63910126697130b20fe
+./src/testing/testkit/deterministic_executor.rs|b9f125d8143edc7894903c425aef1f96
+./src/command/response/mod.rs|7595cc671c133f95a4a2ff4d8ea1164a
+./examples-advanced/error_handling.rs|30cad7ff40a244eef286c4620258e64b

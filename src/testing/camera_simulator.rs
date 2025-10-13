@@ -11,9 +11,10 @@ use tokio::{
 };
 
 use std::{
-    collections::HashMap,
+    collections::{hash_map::DefaultHasher, HashMap},
+    hash::{Hash, Hasher},
     sync::Arc,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 use crate::{
@@ -657,10 +658,6 @@ impl ViscaCameraSimulator {
             return false;
         }
 
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        use std::time::SystemTime;
-
         let mut hasher = DefaultHasher::new();
         SystemTime::now().hash(&mut hasher);
         let hash = hasher.finish();
@@ -674,10 +671,6 @@ impl ViscaCameraSimulator {
         if self.inner.config.network_jitter_ms == 0 {
             return Duration::from_millis(0);
         }
-
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        use std::time::SystemTime;
 
         let mut hasher = DefaultHasher::new();
         SystemTime::now().hash(&mut hasher);

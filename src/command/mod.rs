@@ -40,23 +40,18 @@ pub use self::{
     color::*,
     encode::{CommandKind, ViscaCommand},
     exposure::*,
-    // flip::*,
     focus::*,
     image::*,
-    // inquiry::*,
     inquiry_types::{FlipState, IrisControl, NightDayMode, TallyStatus, Version},
     menu::*,
-    // motion_sync::*,
     nd_filter::*,
     pan_tilt::*,
     power::*,
     preset::*,
     response::{InquiryKind, Response},
     system::{MotionSyncMode, MotionSyncPreset},
-    // tally::*,
     variable_speed::*,
     white_balance::*,
-    // zoom::*,
 };
 
 /// Response data from VISCA inquiry commands.
