@@ -68,11 +68,13 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
                     tilt,
                 })))
             } else {
-                tracing::error!(
-                    "PanTiltPosition: Invalid response length. Expected 8 or 4 bytes, got {len}. Payload: {payload:02X?}",
+                // Return None to indicate this decoder doesn't handle this payload
+                // This prevents wrong inquiry matching when 1-byte responses arrive
+                tracing::debug!(
+                    "PanTiltPosition: Payload length {len} doesn't match pan/tilt format (expected 8 or 4 bytes)",
                     len = payload.len()
                 );
-                Some(Err(Error::InvalidResponseLength))
+                None
             }
         }
         _ => None,
@@ -132,11 +134,13 @@ pub(crate) fn decode_for<P: Profile + PanTilt>(
                     tilt,
                 })))
             } else {
-                tracing::error!(
-                    "PanTiltPosition: Invalid response length. Expected 8 or 4 bytes, got {len}. Payload: {payload:02X?}",
+                // Return None to indicate this decoder doesn't handle this payload
+                // This prevents wrong inquiry matching when 1-byte responses arrive
+                tracing::debug!(
+                    "PanTiltPosition: Payload length {len} doesn't match pan/tilt format (expected 8 or 4 bytes)",
                     len = payload.len()
                 );
-                Some(Err(Error::InvalidResponseLength))
+                None
             }
         }
         _ => None,
