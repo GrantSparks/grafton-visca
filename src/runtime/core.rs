@@ -632,9 +632,11 @@ impl SchedulerCore {
             );
         }
 
-        debug!(
+        trace!(
             "Commands in flight: {} pending ACK + {} allocated = {}/2",
-            pending_count, allocated_count, total_in_flight
+            pending_count,
+            allocated_count,
+            total_in_flight
         );
 
         // Debug assertion to check invariants
