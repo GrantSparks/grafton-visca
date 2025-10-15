@@ -3,7 +3,7 @@
 //! This module provides the unified send logic that works across both
 //! async and blocking modes, eliminating code duplication.
 
-use tracing::{debug, error};
+use tracing::{debug, error, trace};
 
 use super::SchedulerLike;
 use crate::{
@@ -98,11 +98,11 @@ where
     // For commands, register as pending ACK
     if cmd.kind == CommandKind::Inquiry {
         scheduler.start_inquiry(&cmd);
-        debug!("Started tracking inquiry {}", cmd.id);
+        trace!("Started tracking inquiry {}", cmd.id);
     } else {
         scheduler.register_pending_ack(&cmd);
         guard.ack_registered = true;
-        debug!("Registered pending ACK for command {}", cmd.id);
+        trace!("Registered pending ACK for command {}", cmd.id);
     }
 
     // Try to send the command with timeout using race
@@ -121,7 +121,7 @@ where
 
     match send_result {
         Ok(()) => {
-            debug!(
+            trace!(
                 "Successfully sent {} {}",
                 if cmd.kind == CommandKind::Inquiry {
                     "inquiry"
@@ -134,7 +134,7 @@ where
             // Register Sony sequence if present
             if let Some(seq) = meta.sequence {
                 scheduler.register_sequence(cmd.id, seq);
-                debug!("Registered Sony sequence {} for command {}", seq, cmd.id);
+                trace!("Registered Sony sequence {} for command {}", seq, cmd.id);
             }
 
             // Mark as committed to prevent rollback
@@ -194,11 +194,11 @@ where
     // For commands, register as pending ACK
     if cmd.kind == CommandKind::Inquiry {
         scheduler.start_inquiry(&cmd);
-        debug!("Started tracking inquiry {}", cmd.id);
+        trace!("Started tracking inquiry {}", cmd.id);
     } else {
         scheduler.register_pending_ack(&cmd);
         guard.ack_registered = true;
-        debug!("Registered pending ACK for command {}", cmd.id);
+        trace!("Registered pending ACK for command {}", cmd.id);
     }
 
     // Try to send the command with timeout
@@ -207,7 +207,7 @@ where
 
     match send_result {
         Ok(()) => {
-            debug!(
+            trace!(
                 "Successfully sent {} {}",
                 if cmd.kind == CommandKind::Inquiry {
                     "inquiry"
@@ -220,7 +220,7 @@ where
             // Register Sony sequence if present
             if let Some(seq) = meta.sequence {
                 scheduler.register_sequence(cmd.id, seq);
-                debug!("Registered Sony sequence {} for command {}", seq, cmd.id);
+                trace!("Registered Sony sequence {} for command {}", seq, cmd.id);
             }
 
             // Mark as committed to prevent rollback

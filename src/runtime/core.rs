@@ -709,14 +709,15 @@ impl SchedulerCore {
             .insert(id, (command.clone(), priority, category, now, camera_id));
         self.command_metadata
             .insert(id, (command, priority, category, camera_id, kind));
-        debug!("Registered command {id} as pending ACK");
+        trace!("Registered command {id} as pending ACK");
     }
 
     /// Register a Sony sequence number for a command.
     pub fn register_sequence(&mut self, cmd_id: u32, sequence: u32) {
-        debug!(
+        trace!(
             "Registering Sony sequence {} for command {}",
-            sequence, cmd_id
+            sequence,
+            cmd_id
         );
 
         // Check for duplicate sequence
@@ -739,12 +740,14 @@ impl SchedulerCore {
                 if let Some(evicted) = seq_list.push(sequence) {
                     // Remove the evicted sequence from seq_to_cmd
                     self.seq_to_cmd.remove(&evicted);
-                    debug!(
+                    trace!(
                         "Added retry sequence {} to command {}, evicted old sequence {}",
-                        sequence, cmd_id, evicted
+                        sequence,
+                        cmd_id,
+                        evicted
                     );
                 } else {
-                    debug!("Added retry sequence {sequence} to command {cmd_id}");
+                    trace!("Added retry sequence {sequence} to command {cmd_id}");
                 }
             }
             None => {
@@ -755,17 +758,21 @@ impl SchedulerCore {
 
         // Also register the lower 16 bits for legacy compatibility
         let seq16 = (sequence & 0xFFFF) as u16;
-        debug!(
+        trace!(
             "Also registering 16-bit sequence {} (from {}) for command {}",
-            seq16, sequence, cmd_id
+            seq16,
+            sequence,
+            cmd_id
         );
 
         // Check for 16-bit collision
         if let Some(existing_cmd) = self.seq16_to_cmd.get(&seq16) {
             if *existing_cmd != cmd_id {
-                debug!(
+                trace!(
                     "16-bit sequence {} collision: mapped to command {} but also needed for {}",
-                    seq16, existing_cmd, cmd_id
+                    seq16,
+                    existing_cmd,
+                    cmd_id
                 );
             }
         }
@@ -780,14 +787,17 @@ impl SchedulerCore {
                 if let Some(evicted) = seq16_list.push(seq16) {
                     // Remove the evicted 16-bit sequence from seq16_to_cmd
                     self.seq16_to_cmd.remove(&evicted);
-                    debug!(
+                    trace!(
                         "Added retry 16-bit sequence {} to command {}, evicted old sequence {}",
-                        seq16, cmd_id, evicted
+                        seq16,
+                        cmd_id,
+                        evicted
                     );
                 } else {
-                    debug!(
+                    trace!(
                         "Added retry 16-bit sequence {} to command {}",
-                        seq16, cmd_id
+                        seq16,
+                        cmd_id
                     );
                 }
             }
@@ -815,15 +825,17 @@ impl SchedulerCore {
             if self.command_metadata.contains_key(&cmd_id)
                 || self.inquiries_inflight.contains_key(&cmd_id)
             {
-                debug!(
+                trace!(
                     "Found exact 32-bit sequence match for {}: command {}",
-                    sequence, cmd_id
+                    sequence,
+                    cmd_id
                 );
                 return Some(cmd_id);
             } else {
-                debug!(
+                trace!(
                     "Ignoring stale 32-bit sequence {} for completed command {}",
-                    sequence, cmd_id
+                    sequence,
+                    cmd_id
                 );
             }
         }
@@ -852,9 +864,11 @@ impl SchedulerCore {
                     .collect();
 
                 if active_commands_with_seq16.len() == 1 {
-                    debug!(
+                    trace!(
                         "Found unique 16-bit sequence match for {} (seq16 {}): command {}",
-                        sequence, seq16, cmd_id
+                        sequence,
+                        seq16,
+                        cmd_id
                     );
                     return Some(cmd_id);
                 } else if active_commands_with_seq16.len() > 1 {
@@ -866,15 +880,18 @@ impl SchedulerCore {
                         active_commands_with_seq16
                     );
                 } else {
-                    debug!(
+                    trace!(
                         "16-bit sequence {} (from {}) found in mapping but no active commands",
-                        seq16, sequence
+                        seq16,
+                        sequence
                     );
                 }
             } else {
-                debug!(
+                trace!(
                     "Ignoring stale 16-bit sequence {} (from {}) for completed command {}",
-                    seq16, sequence, cmd_id
+                    seq16,
+                    sequence,
+                    cmd_id
                 );
             }
         }
@@ -903,9 +920,11 @@ impl SchedulerCore {
             }
         }
 
-        debug!(
+        trace!(
             "Cleaned up {} Sony sequence(s) and {} 16-bit sequence(s) for command {}",
-            count32, count16, cmd_id
+            count32,
+            count16,
+            cmd_id
         );
     }
 
@@ -1004,7 +1023,7 @@ impl SchedulerCore {
         match event {
             SchedulerEvent::Ack { socket, cmd_id } => {
                 if let Some(cmd_id) = self.handle_ack_with_id(socket, cmd_id, now) {
-                    debug!("Command {cmd_id} assigned to socket {socket:?}");
+                    trace!("Command {cmd_id} assigned to socket {socket:?}");
                 }
             }
             SchedulerEvent::Completion {
@@ -1083,7 +1102,7 @@ impl SchedulerCore {
                         camera_id,
                         response,
                     });
-                    debug!("Inquiry {cmd_id} completed with response");
+                    trace!("Inquiry {cmd_id} completed with response");
                 }
             }
             SchedulerEvent::Error {
@@ -1622,9 +1641,10 @@ impl SchedulerCore {
                 (bytes, priority, category, camera_id, CommandKind::Command),
             );
 
-            debug!(
+            trace!(
                 "Assigned command {} to {:?} per camera ACK",
-                target_id, assigned_socket
+                target_id,
+                assigned_socket
             );
             Some(target_id)
         } else {
@@ -1655,7 +1675,7 @@ impl SchedulerCore {
         // Add to order queue for raw VISCA correlation
         self.inquiries_order.push_back(id);
 
-        debug!("Started inquiry {id} (no socket allocation)");
+        trace!("Started inquiry {id} (no socket allocation)");
     }
 
     /// Check if a command is pending (either awaiting ACK or has a socket).
@@ -1675,7 +1695,7 @@ impl SchedulerCore {
         let state = &mut self.sockets[idx];
 
         if let Some(cmd_id) = state.command_id {
-            debug!("Freeing {socket:?} from command {cmd_id}");
+            trace!("Freeing {socket:?} from command {cmd_id}");
         }
 
         state.free = true;
