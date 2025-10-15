@@ -265,10 +265,7 @@ where
         let zoom_pos = crate::types::ZoomPosition::try_from(*position.value())?;
         let cmd = Zoom::Position(zoom_pos);
 
-        // Send command and get ID
         let (id, _response_fut) = self.send_command_with_id(&cmd).await?;
-
-        // Return InFlight handle
         Ok(crate::camera::inflight::InFlight::new(id, self))
     }
 }

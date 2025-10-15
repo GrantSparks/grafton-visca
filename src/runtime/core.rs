@@ -709,7 +709,7 @@ impl SchedulerCore {
             .insert(id, (command.clone(), priority, category, now, camera_id));
         self.command_metadata
             .insert(id, (command, priority, category, camera_id, kind));
-        debug!("Registered command {} as pending ACK", id);
+        debug!("Registered command {id} as pending ACK");
     }
 
     /// Register a Sony sequence number for a command.
@@ -744,7 +744,7 @@ impl SchedulerCore {
                         sequence, cmd_id, evicted
                     );
                 } else {
-                    debug!("Added retry sequence {} to command {}", sequence, cmd_id);
+                    debug!("Added retry sequence {sequence} to command {cmd_id}");
                 }
             }
             None => {
@@ -1004,7 +1004,7 @@ impl SchedulerCore {
         match event {
             SchedulerEvent::Ack { socket, cmd_id } => {
                 if let Some(cmd_id) = self.handle_ack_with_id(socket, cmd_id, now) {
-                    debug!("Command {} assigned to socket {:?}", cmd_id, socket);
+                    debug!("Command {cmd_id} assigned to socket {socket:?}");
                 }
             }
             SchedulerEvent::Completion {
@@ -1083,7 +1083,7 @@ impl SchedulerCore {
                         camera_id,
                         response,
                     });
-                    debug!("Inquiry {} completed with response", cmd_id);
+                    debug!("Inquiry {cmd_id} completed with response");
                 }
             }
             SchedulerEvent::Error {
@@ -1223,7 +1223,7 @@ impl SchedulerCore {
         for (&cmd_id, &(started_at, category)) in &self.inquiries_inflight {
             let timeout = self.timeout_config.get_timeout(category);
             if now.duration_since(started_at) > timeout {
-                warn!("Inquiry {} timed out after {:?}", cmd_id, timeout);
+                warn!("Inquiry {cmd_id} timed out after {timeout:?}");
                 timed_out_inquiries.push(cmd_id);
             }
         }
@@ -1547,7 +1547,7 @@ impl SchedulerCore {
             if self.pending_ack.contains_key(&id) {
                 Some(id)
             } else {
-                debug!("ACK with sequence {} not found in pending commands", id);
+                debug!("ACK with sequence {id} not found in pending commands");
                 None
             }
         } else {
@@ -1628,7 +1628,7 @@ impl SchedulerCore {
             );
             Some(target_id)
         } else {
-            warn!("Failed to remove command {} from pending ACK", target_id);
+            warn!("Failed to remove command {target_id} from pending ACK");
             None
         }
     }
@@ -1655,7 +1655,7 @@ impl SchedulerCore {
         // Add to order queue for raw VISCA correlation
         self.inquiries_order.push_back(id);
 
-        debug!("Started inquiry {} (no socket allocation)", id);
+        debug!("Started inquiry {id} (no socket allocation)");
     }
 
     /// Check if a command is pending (either awaiting ACK or has a socket).
@@ -1675,7 +1675,7 @@ impl SchedulerCore {
         let state = &mut self.sockets[idx];
 
         if let Some(cmd_id) = state.command_id {
-            debug!("Freeing {:?} from command {}", socket, cmd_id);
+            debug!("Freeing {socket:?} from command {cmd_id}");
         }
 
         state.free = true;

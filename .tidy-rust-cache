@@ -13,14 +13,12 @@
 ./src/camera/capabilities.rs|7f0c2eaee6d0b9426ad81287e5c3fb36
 ./src/camera/controls/color.rs|7b8e2bf787ea83a17b19830f67ccbdec
 ./src/camera/builder.rs|12caae15d7c92d069f1966374c7f4237
-./src/camera/controls/focus.rs|1ecf560499fb3a9778db04773e57371c
 ./src/camera/controls/image_processing.rs|0407143d0eafae78e3f3abbaa176a53c
 ./grafton-visca-macros/src/visca_enum.rs|8ab567a9d2740931da89b344ca6b5844
 ./src/camera/controls/nd_filter.rs|bd81cfa86eb11a456db2abd76c4c326a
 ./src/camera/controls/streaming.rs|69854a6be10b4e97b65d41caea7d5e62
 ./src/camera/controls/motion_sync.rs|08df588acf01b6424aa84bb0138f6e2b
 ./src/camera/controls/menu.rs|3c5a16e123d60bac213c8cd333fc1c0f
-./src/camera/controls/presets.rs|338b75a3c7b655a564b88654bf06685d
 ./src/camera/controls/power.rs|35b8c1d27bbb534ad8f7e52f5ffdf5b7
 ./src/camera/controls/tally.rs|1a96ffac86fb024237af0c9d02f746ac
 ./src/camera/controls/white_balance.rs|23c528bd4a6ca0f34fe40a19f248cffc
@@ -180,11 +178,8 @@
 ./src/transport/blocking/tests/framing_tests.rs|54d0d55d2db00b977b8398ae0c582ae3
 ./src/camera/controls/mod.rs|c628ab5fd9441f67600c7f0aa3775e78
 ./src/capabilities/mod.rs|ab24d097da7260e7885f3f611add3955
-./src/camera/mod.rs|32a97c01a217228eccf33d461233a192
 ./src/inquiry_conversions.rs|c7d8c597a95c71c87dad299331d85606
-./src/camera/controls/pan_tilt.rs|770bd56665c89518670feecd9208d5a1
 ./src/command/zoom.rs|36a3539b01081622f47457952ea32f6a
-./src/camera/controls/zoom.rs|06afbc4d6d007ebbfda1c0290ece3b70
 ./src/error.rs|89155734ff3479d9b9a1cdfc5f75d3be
 ./src/capabilities/discovery.rs|dc87d462a08cd285a588d2625d7e4abf
 ./src/camera/camera_impl.rs|846d556e26db87bad44cea8de6ffd95f
@@ -205,7 +200,6 @@
 ./src/command/response/decoders/zoom.rs|eae46a3fdf1533e3d8493e963a0e8467
 ./src/command/bytes/constants.rs|eff30a9d63759eb4f0c762383b572735
 ./src/command/white_balance.rs|0980572c253a52fc921c412517b984ca
-./src/command/response/decoders/pan_tilt.rs|22e4149aeba54a3c0ce9d60b8bb91007
 ./tests/inquiry_response_parsing_tests.rs|c068da1d53027a4f18a6c8fbf1eb0f91
 ./src/macros/public.rs|5576ff1f31002fb1eaba76fa9948b8a2
 ./tests/serialization_test.rs|d4b4b858818ffac28a7460b52881f3ec
@@ -230,7 +224,6 @@
 ./examples/concurrent_control.rs|e8d194d603ea525e77afde7f624a30d9
 ./src/executor.rs|ed5802d59854b4f03037ed2566470702
 ./src/runtime/traits.rs|73452865e0ccdcf518131dd44d41f3b6
-./src/runtime/core.rs|cfc408e6d3922a44aad372f67b4ae923
 ./src/runtime/blocking_runner.rs|78894ada1c113f60b68d8914e1d4853a
 ./src/command/inquiry_structs.rs|a50b54125b256dd62396e18c11935fc5
 ./src/types.rs|37937cd054bda5ddc13f60118f86939c
@@ -245,3 +238,11 @@
 ./src/testing/testkit/deterministic_executor.rs|b9f125d8143edc7894903c425aef1f96
 ./src/command/response/mod.rs|7595cc671c133f95a4a2ff4d8ea1164a
 ./examples-advanced/error_handling.rs|30cad7ff40a244eef286c4620258e64b
+./src/camera/mod.rs|eafcebc036c53c3a6682bb46b966850f
+./src/camera/controls/presets.rs|72d4b0b988052cce0501139073d1f882
+./src/camera/controls/pan_tilt.rs|4c4e53ce45856ce68cf01dd1b98e9e9e
+./src/camera/inflight.rs|2aae650f76fd995cc49df10e62d885eb
+./src/command/response/decoders/pan_tilt.rs|165f7fef728c807e5a6b0a8844bdc4d6
+./src/camera/controls/focus.rs|9ea87c3aae329e193da9d1b05e78e654
+./src/camera/controls/zoom.rs|1b20642b700d66ca16c6dc1e3408d470
+./src/runtime/core.rs|b3b1191f0f3a64b46583dcdbd83bfa13

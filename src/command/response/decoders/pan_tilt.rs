@@ -18,12 +18,13 @@
 //! these differences. The `decode_for<P: Profile>()` function automatically converts
 //! camera-native coordinates to logical signed i16 values based on the profile.
 
-use super::super::payload::{Nibbles, Payload};
-
 use crate::{
     capabilities::{PanTilt, Profile},
     command::{
-        response::types::{InquiryKind, Response},
+        response::{
+            payload::{Nibbles, Payload},
+            types::{InquiryKind, Response},
+        },
         InquiryData,
     },
     error::Error,
