@@ -195,71 +195,7 @@ match group {
 }
 ```
 
-##### 2. Trait Object Compatibility (`dyn-api` Feature)
-First-class trait object support for runtime polymorphism:
-
-```rust
-use grafton_visca::dynapi::{CameraControl, open_tcp_dynamic};
-use grafton_visca::camera::profiles::ProfileId;
-use std::sync::Arc;
-
-// Enable in Cargo.toml:
-// grafton-visca = { version = "0.8", features = ["dyn-api", "mode-async", "runtime-tokio"] }
-
-// Open camera with runtime profile selection
-let camera: Arc<dyn CameraControl> =
-    open_tcp_dynamic(ProfileId::PtzOpticsG2, "192.168.1.50:5678", runtime).await?;
-
-// Use polymorphically
-camera.power_on().await?;
-
-// Capability-based API
-if let Some(pan_tilt) = camera.as_pan_tilt() {
-    pan_tilt.pan_tilt_home().await?;
-}
-
-if let Some(zoom) = camera.as_zoom() {
-    zoom.zoom_absolute(Normalized(0.5)).await?;
-}
-```
-
-**What's New:**
-- `CameraControl` trait for runtime polymorphism
-- 9 capability traits: `PanTiltControl`, `ZoomControl`, `FocusControl`, `PowerControl`, `ExposureControl`, `WhiteBalanceControl`, `ImageControl`, `NdFilterControl`, `PresetControl`
-- `open_tcp_dynamic()` and `open_udp_dynamic()` constructors
-- Object-safe trait methods with `BoxFuture` return types
-- Capability discovery via `as_*` methods
-
-**Migration:**
-```rust
-// Old (0.7.x): Custom wrapper trait (430 methods, 2132 lines)
-pub trait CameraOps: Send + Sync {
-    fn power_on(&self) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>;
-    fn power_off(&self) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>;
-    fn zoom_in(&self) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>;
-    // ... 427 more methods
-}
-
-impl<P, Tr, Exec> CameraOps for CameraSession<Async, P, Tr, Exec> {
-    fn power_on(&self) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
-        Box::pin(async move { PowerControl::power_on(self.camera()).await })
-    }
-    // ... 429 more method implementations
-}
-
-pub type Camera = Arc<dyn CameraOps>;
-
-// New (0.8.0): Built-in trait objects
-use grafton_visca::dynapi::{CameraControl, open_tcp_dynamic};
-
-let camera: Arc<dyn CameraControl> =
-    open_tcp_dynamic(ProfileId::PtzOpticsG2, addr, runtime).await?;
-
-// Use directly - no wrapper trait needed
-camera.power_on().await?;
-```
-
-##### 3. Command Construction Ergonomics
+##### 2. Command Construction Ergonomics
 Comprehensive trait methods eliminate manual command construction:
 
 ```rust
@@ -323,7 +259,7 @@ camera.enable_freeze().await?;
 camera.set_tally_red(enabled).await?;
 ```
 
-##### 4. Enhanced Position Normalization
+##### 3. Enhanced Position Normalization
 Convenient methods on value types for common conversions:
 
 ```rust
@@ -374,7 +310,7 @@ let pos = camera.pan_tilt_position().await?;
 let (pan_deg, tilt_deg) = pos.as_degrees();  // Direct tuple
 ```
 
-##### 5. Extended InFlight Operation Coverage
+##### 4. Extended InFlight Operation Coverage
 `_op` variants now available for all long-running operations:
 
 ```rust
@@ -432,9 +368,7 @@ let handle = camera.preset_recall_op(preset).await?;
 handle.await_completion(Duration::from_secs(60)).await?;
 ```
 
-**Note:** `_op` variants are async-only and not available in dynapi trait objects (due to generic type parameters preventing object safety). For fine-grained timeout control with trait objects, use the generic API directly.
-
-##### 6. Inquiry Availability Documentation
+##### 5. Inquiry Availability Documentation
 Clear documentation of write-only operations:
 
 ```rust
@@ -486,7 +420,7 @@ fn wb_get_awb_sensitivity(&self) -> Result<AutoWhiteBalanceSensitivity, Error> {
 // No unexpected runtime errors from missing inquiries
 ```
 
-##### 7. Profile Capabilities Metadata
+##### 6. Profile Capabilities Metadata
 Rich metadata for runtime introspection and validation:
 
 ```rust
@@ -543,7 +477,7 @@ if pan > PtzOpticsG2::PAN_RANGE.end {
 }
 ```
 
-##### 8. Error Context Enhancement
+##### 7. Error Context Enhancement
 Composable error context while preserving retry intelligence:
 
 ```rust
@@ -599,7 +533,6 @@ camera.power_on()
 
 **Benefits Summary:**
 - **Profile Dispatch**: Eliminates ~218 lines of boilerplate
-- **Trait Objects**: Eliminates ~430 lines of wrapper traits
 - **Command Ergonomics**: Reduces command construction by ~50%
 - **Type Serialization**: Eliminates ~150 lines of type wrappers (covered in Serialization section)
 - **Position Conversions**: Simpler, more discoverable API
@@ -608,7 +541,7 @@ camera.power_on()
 - **Capabilities Metadata**: Better validation and introspection
 - **Error Context**: Richer error messages without losing retry metadata
 
-**Total Impact**: ~600+ lines of downstream boilerplate eliminated across all improvements.
+**Total Impact**: ~400+ lines of downstream boilerplate eliminated across all improvements.
 
 #### Diagnostics & Health Checks
 New `diagnostics` module provides tools for camera health monitoring:
