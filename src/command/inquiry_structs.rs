@@ -5,8 +5,6 @@
 
 use grafton_visca_macros::ViscaInquiry;
 
-// Power and System Inquiries
-
 /// Inquiry command to get the current power state of the camera.
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
@@ -26,8 +24,6 @@ pub struct PowerInquiry;
     bytes_const = "VERSION"
 )]
 pub struct VersionInquiry;
-
-// Position Inquiries
 
 /// Inquiry command to get the current pan/tilt position.
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
@@ -60,8 +56,6 @@ pub struct ZoomPositionInquiry;
 )]
 pub struct FocusPositionInquiry;
 
-// Exposure Inquiries
-
 /// Inquiry command to get the current exposure mode setting.
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
@@ -74,11 +68,11 @@ pub struct FocusPositionInquiry;
 pub struct ExposureModeInquiry;
 
 /// Inquiry command to get the current exposure compensation value.
-/// Note: This inquiry is handled directly in the exposure decoder module.
+///
+/// NOTE: This inquiry is handled directly in the exposure decoder module.
 #[derive(Debug, Copy, Clone)]
 pub struct ExposureCompensationInquiry;
 
-// Manual implementation for ExposureCompensationInquiry to avoid deprecated parser
 impl crate::command::encode::ViscaCommand for ExposureCompensationInquiry {
     type Response = crate::command::InquiryData;
     const MAX_SIZE: usize = 7;
@@ -140,11 +134,11 @@ pub struct ExposureCompensationModeInquiry;
 pub struct IrisInquiry;
 
 /// Inquiry command to get the current shutter speed setting.
-/// Note: This inquiry is handled directly in the exposure decoder module.
+///
+/// NOTE: This inquiry is handled directly in the exposure decoder module.
 #[derive(Debug, Copy, Clone)]
 pub struct ShutterInquiry;
 
-// Manual implementation for ShutterInquiry to avoid deprecated parser
 impl crate::command::encode::ViscaCommand for ShutterInquiry {
     type Response = crate::command::InquiryData;
     const MAX_SIZE: usize = 7;
@@ -194,8 +188,6 @@ impl crate::command::typed::ResponseParser for ShutterInquiry {
 )]
 pub struct BrightnessInquiry;
 
-// White Balance and Color Inquiries
-
 /// Inquiry command to get the current white balance mode.
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
@@ -208,11 +200,11 @@ pub struct BrightnessInquiry;
 pub struct WhiteBalanceModeInquiry;
 
 /// Inquiry command to get the current color temperature value.
-/// Note: This inquiry is handled directly in the color decoder module.
+///
+/// NOTE: This inquiry is handled directly in the color decoder module.
 #[derive(Debug, Copy, Clone)]
 pub struct ColorTemperatureInquiry;
 
-// Manual implementation for ColorTemperatureInquiry to avoid deprecated parser
 impl crate::command::encode::ViscaCommand for ColorTemperatureInquiry {
     type Response = crate::command::InquiryData;
     const MAX_SIZE: usize = 7;
@@ -278,12 +270,6 @@ pub struct RedGainInquiry;
 )]
 pub struct BlueGainInquiry;
 
-// Image Adjustment Inquiries
-
-// NOTE: The following inquiry commands are not documented in the VISCA protocol specifications
-// and may not work with actual cameras. They appear to be based on direct command opcodes
-// rather than actual inquiry opcodes. Commenting out until proper documentation is found.
-
 /// Inquiry command to get the current sharpness mode on/off status.
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
@@ -317,8 +303,6 @@ pub struct SaturationInquiry;
 )]
 pub struct HueInquiry;
 
-// Gain Inquiries
-
 /// Inquiry command to get the current gain value.
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
@@ -339,8 +323,6 @@ pub struct GainInquiry;
     bytes_const = "GAIN_LIMIT"
 )]
 pub struct GainLimitInquiry;
-
-// Image Processing Inquiries
 
 /// Inquiry command to get the backlight compensation mode.
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
@@ -402,8 +384,6 @@ pub struct NoiseReduction3DInquiry;
 )]
 pub struct DynamicRangeInquiry;
 
-// Focus Inquiries
-
 /// Inquiry command to get the current focus zone selection.
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
@@ -447,8 +427,6 @@ pub struct FocusNearLimitInquiry;
 )]
 pub struct FocusModeInquiry;
 
-// System State Inquiries
-
 /// Inquiry command to get the menu open/close status.
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
@@ -459,9 +437,6 @@ pub struct FocusModeInquiry;
     bytes_const = "MENU_OPEN_CLOSE"
 )]
 pub struct MenuOpenCloseInquiry;
-
-// NOTE: AutoFocus inquiry is not documented in VISCA specs
-// and has been disabled until proper documentation is found.
 
 /// Inquiry command to get combined tally light status (red and green).
 ///
@@ -477,8 +452,6 @@ pub struct MenuOpenCloseInquiry;
     bytes_const = "TALLY_STATUS"
 )]
 pub struct TallyStatusInquiry;
-
-// The TallyGreenInquiry is manually implemented below due to its special format
 
 /// Inquiry command to get the current video resolution mode.
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
@@ -600,8 +573,6 @@ pub struct DefogLevelInquiry;
 )]
 pub struct DigitalPtzInquiry;
 
-// Additional Inquiries
-
 /// Inquiry command to get the auto white balance sensitivity setting.
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
@@ -614,11 +585,11 @@ pub struct DigitalPtzInquiry;
 pub struct AutoWhiteBalanceSensitivityInquiry;
 
 /// Inquiry command to get the exposure compensation position.
-/// Note: This inquiry is handled directly in the exposure decoder module.
+///
+/// NOTE: This inquiry is handled directly in the exposure decoder module.
 #[derive(Debug, Copy, Clone)]
 pub struct ExposureCompensationPositionInquiry;
 
-// Manual implementation for ExposureCompensationPositionInquiry to avoid deprecated parser
 impl crate::command::encode::ViscaCommand for ExposureCompensationPositionInquiry {
     type Response = crate::command::InquiryData;
     const MAX_SIZE: usize = 7;
@@ -659,11 +630,11 @@ impl crate::command::typed::ResponseParser for ExposureCompensationPositionInqui
 }
 
 /// Inquiry command to get the red channel tuning level.
-/// Note: This inquiry is handled with manual implementation due to i8 return type.
+///
+/// NOTE: This inquiry is handled with manual implementation due to i8 return type.
 #[derive(Debug, Copy, Clone)]
 pub struct RedTuningInquiry;
 
-// Manual implementation for RedTuningInquiry to use i8 response type
 impl crate::command::encode::ViscaCommand for RedTuningInquiry {
     type Response = crate::command::InquiryData;
     const MAX_SIZE: usize = 7;
@@ -704,11 +675,11 @@ impl crate::command::typed::ResponseParser for RedTuningInquiry {
 }
 
 /// Inquiry command to get the blue channel tuning level.
-/// Note: This inquiry is handled with manual implementation due to i8 return type.
+///
+/// NOTE: This inquiry is handled with manual implementation due to i8 return type.
 #[derive(Debug, Copy, Clone)]
 pub struct BlueTuningInquiry;
 
-// Manual implementation for BlueTuningInquiry to use i8 response type
 impl crate::command::encode::ViscaCommand for BlueTuningInquiry {
     type Response = crate::command::InquiryData;
     const MAX_SIZE: usize = 7;
@@ -813,8 +784,6 @@ pub struct NrLevelInquiry;
 )]
 pub struct BroadcastDomainInquiry;
 
-// System and Image Processing Inquiries
-
 /// Inquiry command to get the motion sync mode setting.
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
@@ -871,8 +840,6 @@ pub struct NrSpeedInquiry;
 )]
 pub struct BlackWhiteModeInquiry;
 
-// Additional System Inquiries
-
 /// Inquiry command to get the USB audio state.
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
@@ -922,6 +889,102 @@ pub struct DigitalInquiry;
     bytes_const = "TALLY_AUTO_ADJUST"
 )]
 pub struct TallyAutoAdjustInquiry;
+
+/// Inquiry command to get the red tally light status (baseline VISCA).
+/// Returns 0x02 for On, 0x03 for Off.
+///
+/// NOTE: This uses a special extended inquiry format (0x7E 0x01 0x0A 0x00)
+/// instead of the standard inquiry format, which is why it cannot use
+/// the ViscaInquiry derive macro.
+#[derive(Debug, Copy, Clone)]
+pub struct TallyRedInquiry;
+
+impl crate::command::encode::ViscaCommand for TallyRedInquiry {
+    type Response = crate::command::InquiryData;
+    const MAX_SIZE: usize = 8;
+    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
+        crate::timeout::CommandCategory::Quick;
+
+    fn write_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, crate::error::Error> {
+        use crate::command::bytes::ConstCommandBuilder;
+
+        let builder = ConstCommandBuilder::<8>::new()
+            .append(crate::command::bytes::constants::inquiry::TALLY_RED)
+            .with_camera_id(camera_id)
+            .terminate();
+        builder.build_into(buffer)
+    }
+
+    fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
+        Some(crate::command::response::InquiryKind::TallyRed)
+    }
+}
+
+impl crate::command::typed::ResponseParser for TallyRedInquiry {
+    type Response = bool;
+
+    fn from_response(resp: crate::command::Response) -> Result<Self::Response, crate::Error> {
+        match resp {
+            crate::command::Response::Inquiry(crate::command::InquiryData::TallyRed { on }) => {
+                Ok(on)
+            }
+            crate::command::Response::Error(e) => Err(e),
+            _ => Err(crate::Error::UnexpectedResponseType),
+        }
+    }
+}
+
+/// Inquiry command to get the green tally light status (Sony FR7 specific).
+/// Returns 0x02 for On, 0x03 for Off.
+///
+/// NOTE: This uses a special extended inquiry format (0x7E 0x04 0x1A 0x00)
+/// instead of the standard inquiry format, which is why it cannot use
+/// the ViscaInquiry derive macro.
+#[derive(Debug, Copy, Clone)]
+pub struct TallyGreenInquiry;
+
+impl crate::command::encode::ViscaCommand for TallyGreenInquiry {
+    type Response = crate::command::InquiryData;
+    const MAX_SIZE: usize = 7;
+    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
+        crate::timeout::CommandCategory::Quick;
+
+    fn write_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, crate::error::Error> {
+        use crate::command::bytes::ConstCommandBuilder;
+
+        let builder = ConstCommandBuilder::<7>::new()
+            .append(crate::command::bytes::constants::inquiry::TALLY_GREEN)
+            .with_camera_id(camera_id)
+            .terminate();
+        builder.build_into(buffer)
+    }
+
+    fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
+        Some(crate::command::response::InquiryKind::TallyGreen)
+    }
+}
+
+impl crate::command::typed::ResponseParser for TallyGreenInquiry {
+    type Response = bool;
+
+    fn from_response(resp: crate::command::Response) -> Result<Self::Response, crate::Error> {
+        match resp {
+            crate::command::Response::Inquiry(crate::command::InquiryData::TallyGreen { on }) => {
+                Ok(on)
+            }
+            crate::command::Response::Error(e) => Err(e),
+            _ => Err(crate::Error::UnexpectedResponseType),
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -1127,104 +1190,4 @@ mod tests {
         BlackWhiteModeInquiry,
         constants::inquiry::BLACK_WHITE_MODE
     );
-}
-
-// Manual implementations for tally inquiries due to special format
-
-/// Inquiry command to get the red tally light status (baseline VISCA).
-/// Returns 0x02 for On, 0x03 for Off.
-///
-/// Note: This uses a special extended inquiry format (0x7E 0x01 0x0A 0x00)
-/// instead of the standard inquiry format, which is why it cannot use
-/// the ViscaInquiry derive macro.
-#[derive(Debug, Copy, Clone)]
-pub struct TallyRedInquiry;
-
-impl crate::command::encode::ViscaCommand for TallyRedInquiry {
-    type Response = crate::command::InquiryData;
-    const MAX_SIZE: usize = 8;
-    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
-        crate::timeout::CommandCategory::Quick;
-
-    fn write_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, crate::error::Error> {
-        use crate::command::bytes::ConstCommandBuilder;
-
-        // Special format for red tally inquiry
-        let builder = ConstCommandBuilder::<8>::new()
-            .append(crate::command::bytes::constants::inquiry::TALLY_RED)
-            .with_camera_id(camera_id)
-            .terminate();
-        builder.build_into(buffer)
-    }
-
-    fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
-        Some(crate::command::response::InquiryKind::TallyRed)
-    }
-}
-
-impl crate::command::typed::ResponseParser for TallyRedInquiry {
-    type Response = bool;
-
-    fn from_response(resp: crate::command::Response) -> Result<Self::Response, crate::Error> {
-        match resp {
-            crate::command::Response::Inquiry(crate::command::InquiryData::TallyRed { on }) => {
-                Ok(on)
-            }
-            crate::command::Response::Error(e) => Err(e),
-            _ => Err(crate::Error::UnexpectedResponseType),
-        }
-    }
-}
-
-/// Inquiry command to get the green tally light status (Sony FR7 specific).
-/// Returns 0x02 for On, 0x03 for Off.
-///
-/// Note: This uses a special extended inquiry format (0x7E 0x04 0x1A 0x00)
-/// instead of the standard inquiry format, which is why it cannot use
-/// the ViscaInquiry derive macro.
-#[derive(Debug, Copy, Clone)]
-pub struct TallyGreenInquiry;
-
-impl crate::command::encode::ViscaCommand for TallyGreenInquiry {
-    type Response = crate::command::InquiryData;
-    const MAX_SIZE: usize = 7;
-    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
-        crate::timeout::CommandCategory::Quick;
-
-    fn write_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, crate::error::Error> {
-        use crate::command::bytes::ConstCommandBuilder;
-
-        // Special format for green tally inquiry
-        let builder = ConstCommandBuilder::<7>::new()
-            .append(crate::command::bytes::constants::inquiry::TALLY_GREEN)
-            .with_camera_id(camera_id)
-            .terminate();
-        builder.build_into(buffer)
-    }
-
-    fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
-        Some(crate::command::response::InquiryKind::TallyGreen)
-    }
-}
-
-impl crate::command::typed::ResponseParser for TallyGreenInquiry {
-    type Response = bool;
-
-    fn from_response(resp: crate::command::Response) -> Result<Self::Response, crate::Error> {
-        match resp {
-            crate::command::Response::Inquiry(crate::command::InquiryData::TallyGreen { on }) => {
-                Ok(on)
-            }
-            crate::command::Response::Error(e) => Err(e),
-            _ => Err(crate::Error::UnexpectedResponseType),
-        }
-    }
 }

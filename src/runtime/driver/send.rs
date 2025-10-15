@@ -49,22 +49,22 @@ impl SendGuard {
             // Rollback on failure
             if let Some(socket) = self.reserved_socket {
                 debug!(
-                    "SendGuard: Rolling back inquiry {} socket reservation",
-                    self.id
+                    "SendGuard: Rolling back inquiry {id} socket reservation",
+                    id = self.id
                 );
                 scheduler.free_socket(socket);
             }
             if self.ack_registered {
                 debug!(
-                    "SendGuard: Rolling back command {} ACK registration",
-                    self.id
+                    "SendGuard: Rolling back command {id} ACK registration",
+                    id = self.id
                 );
                 scheduler.unregister_pending_ack(self.id);
             }
             // Fail immediately for send failure (no retry per documented semantics)
             debug!(
-                "SendGuard: Failing command {} after send failure (no retry)",
-                self.id
+                "SendGuard: Failing command {id} after send failure (no retry)",
+                id = self.id
             );
             scheduler.fail_after_send_error(self.id);
         }
@@ -98,11 +98,11 @@ where
     // For commands, register as pending ACK
     if cmd.kind == CommandKind::Inquiry {
         scheduler.start_inquiry(&cmd);
-        trace!("Started tracking inquiry {}", cmd.id);
+        trace!("Started tracking inquiry {id}", id = cmd.id);
     } else {
         scheduler.register_pending_ack(&cmd);
         guard.ack_registered = true;
-        trace!("Registered pending ACK for command {}", cmd.id);
+        trace!("Registered pending ACK for command {id}", id = cmd.id);
     }
 
     // Try to send the command with timeout using race
@@ -122,19 +122,23 @@ where
     match send_result {
         Ok(()) => {
             trace!(
-                "Successfully sent {} {}",
-                if cmd.kind == CommandKind::Inquiry {
+                "Successfully sent {kind} {id}",
+                kind = if cmd.kind == CommandKind::Inquiry {
                     "inquiry"
                 } else {
                     "command"
                 },
-                cmd.id
+                id = cmd.id
             );
 
             // Register Sony sequence if present
             if let Some(seq) = meta.sequence {
                 scheduler.register_sequence(cmd.id, seq);
-                trace!("Registered Sony sequence {} for command {}", seq, cmd.id);
+                trace!(
+                    "Registered Sony sequence {seq} for command {id}",
+                    seq = seq,
+                    id = cmd.id
+                );
             }
 
             // Mark as committed to prevent rollback
@@ -149,15 +153,15 @@ where
             };
 
             error!(
-                "Send {} for {} {}: {:?}",
-                error_type,
-                if cmd.kind == CommandKind::Inquiry {
+                "Send {error_type} for {kind} {id}: {error:?}",
+                error_type = error_type,
+                kind = if cmd.kind == CommandKind::Inquiry {
                     "inquiry"
                 } else {
                     "command"
                 },
-                cmd.id,
-                e
+                id = cmd.id,
+                error = e
             );
 
             // Rollback will happen automatically when guard is dropped
@@ -194,11 +198,11 @@ where
     // For commands, register as pending ACK
     if cmd.kind == CommandKind::Inquiry {
         scheduler.start_inquiry(&cmd);
-        trace!("Started tracking inquiry {}", cmd.id);
+        trace!("Started tracking inquiry {id}", id = cmd.id);
     } else {
         scheduler.register_pending_ack(&cmd);
         guard.ack_registered = true;
-        trace!("Registered pending ACK for command {}", cmd.id);
+        trace!("Registered pending ACK for command {id}", id = cmd.id);
     }
 
     // Try to send the command with timeout
@@ -208,19 +212,23 @@ where
     match send_result {
         Ok(()) => {
             trace!(
-                "Successfully sent {} {}",
-                if cmd.kind == CommandKind::Inquiry {
+                "Successfully sent {kind} {id}",
+                kind = if cmd.kind == CommandKind::Inquiry {
                     "inquiry"
                 } else {
                     "command"
                 },
-                cmd.id
+                id = cmd.id
             );
 
             // Register Sony sequence if present
             if let Some(seq) = meta.sequence {
                 scheduler.register_sequence(cmd.id, seq);
-                trace!("Registered Sony sequence {} for command {}", seq, cmd.id);
+                trace!(
+                    "Registered Sony sequence {seq} for command {id}",
+                    seq = seq,
+                    id = cmd.id
+                );
             }
 
             // Mark as committed to prevent rollback
@@ -235,15 +243,15 @@ where
             };
 
             error!(
-                "Send {} for {} {}: {:?}",
-                error_type,
-                if cmd.kind == CommandKind::Inquiry {
+                "Send {error_type} for {kind} {id}: {error:?}",
+                error_type = error_type,
+                kind = if cmd.kind == CommandKind::Inquiry {
                     "inquiry"
                 } else {
                     "command"
                 },
-                cmd.id,
-                e
+                id = cmd.id,
+                error = e
             );
 
             // Rollback will happen automatically when guard is dropped

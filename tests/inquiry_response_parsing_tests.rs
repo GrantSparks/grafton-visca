@@ -3,11 +3,13 @@
 //! This module tests the parsing of VISCA inquiry responses using
 //! real-world response patterns from PTZ cameras.
 
-use grafton_visca::command::{
-    response::{InquiryKind, Response},
-    InquiryData,
+use grafton_visca::{
+    command::{
+        response::{InquiryKind, Response},
+        InquiryData,
+    },
+    ResolutionMode,
 };
-use grafton_visca::ResolutionMode;
 
 #[test]
 fn test_parse_power_inquiry_responses() {

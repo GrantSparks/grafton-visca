@@ -452,10 +452,9 @@ pub enum InquiryData {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        camera_id::CameraId,
-        command::{bytes::VISCA_TERMINATOR, encode::ViscaCommand},
-    };
+    use crate::camera_id::CameraId;
+    use crate::command::bytes::VISCA_TERMINATOR;
+    use crate::command::encode::ViscaCommand;
 
     /// Helper to encode a command and verify it has a terminator
     #[allow(clippy::expect_used, clippy::unwrap_used)]
