@@ -313,3 +313,29 @@ where
         self.execute(FocusNearLimitCommand { position })
     }
 }
+
+// Separate implementation for async-mode _op methods on async Camera
+#[cfg(feature = "mode-async")]
+impl<P, Tr, Exec> crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
+where
+    P: crate::capabilities::Profile + Default,
+    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
+    Exec: crate::executor::Executor,
+{
+    /// Set focus to a specific position and return an operation handle.
+    pub async fn set_focus_op(
+        &self,
+        position: FocusPosition,
+    ) -> Result<crate::camera::inflight::InFlight<'_, crate::camera::inflight::Focus, Self>, Error>
+    {
+        use crate::command::focus::Focus;
+
+        let cmd = Focus::Position(position);
+
+        // Send command and get ID
+        let (id, _response_fut) = self.send_command_with_id(&cmd).await?;
+
+        // Return InFlight handle
+        Ok(crate::camera::inflight::InFlight::new(id, self))
+    }
+}

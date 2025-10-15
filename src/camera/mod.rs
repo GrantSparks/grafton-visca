@@ -19,6 +19,7 @@ pub mod capabilities;
 pub mod config;
 pub mod controls;
 pub mod convenience;
+pub mod inflight;
 pub mod movement;
 pub mod profiles;
 pub mod session;

@@ -305,3 +305,89 @@ where
         self.execute(cmd)
     }
 }
+
+// Separate implementation for async-mode _op methods on async Camera
+#[cfg(feature = "mode-async")]
+impl<P, Tr, Exec> crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
+where
+    P: crate::capabilities::Profile + crate::capabilities::PanTilt + Default,
+    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
+    Exec: crate::executor::Executor,
+{
+    /// Move to an absolute pan/tilt position and return an operation handle.
+    pub async fn pan_tilt_absolute_op(
+        &self,
+        pan: impl Into<Degrees>,
+        tilt: impl Into<Degrees>,
+        speed: SpeedLevel,
+    ) -> Result<crate::camera::inflight::InFlight<'_, crate::camera::inflight::PanTilt, Self>, Error>
+    {
+        use crate::command::pan_tilt::PanTilt;
+
+        // Convert inputs to Degrees
+        let pan_deg = pan.into();
+        let tilt_deg = tilt.into();
+
+        // Convert Degrees to Position and SpeedLevel to individual speeds
+        let pan_pos = PanPosition::from_degrees(pan_deg.0)?;
+        let tilt_pos = TiltPosition::from_degrees(tilt_deg.0)?;
+
+        // Convert logical positions to camera coordinates using profile's coordinate system
+        let (pan_u16, tilt_u16) =
+            P::COORDINATE_SYSTEM.to_camera_coords(pan_pos.value(), tilt_pos.value());
+
+        let pan_speed = PanSpeed::from(speed);
+        let tilt_speed = TiltSpeed::from(speed);
+        let cmd = PanTilt::AbsolutePositionRaw {
+            pan_u16,
+            tilt_u16,
+            pan_speed,
+            tilt_speed,
+        };
+
+        // Send command and get ID
+        let (id, _response_fut) = self.send_command_with_id(&cmd).await?;
+
+        // Return InFlight handle
+        Ok(crate::camera::inflight::InFlight::new(id, self))
+    }
+
+    /// Move relative to the current position and return an operation handle.
+    pub async fn pan_tilt_relative_op(
+        &self,
+        pan: impl Into<Degrees>,
+        tilt: impl Into<Degrees>,
+        speed: SpeedLevel,
+    ) -> Result<crate::camera::inflight::InFlight<'_, crate::camera::inflight::PanTilt, Self>, Error>
+    {
+        use crate::command::pan_tilt::PanTilt;
+
+        // Convert inputs to Degrees
+        let pan_deg = pan.into();
+        let tilt_deg = tilt.into();
+
+        // Convert Degrees to Position and SpeedLevel to individual speeds
+        let pan_pos = PanPosition::from_degrees(pan_deg.0)?;
+        let tilt_pos = TiltPosition::from_degrees(tilt_deg.0)?;
+
+        // For relative positioning, we still need to convert to camera coordinates
+        // The relative offset is also subject to the coordinate system
+        let (pan_u16, tilt_u16) =
+            P::COORDINATE_SYSTEM.to_camera_coords(pan_pos.value(), tilt_pos.value());
+
+        let pan_speed = PanSpeed::from(speed);
+        let tilt_speed = TiltSpeed::from(speed);
+        let cmd = PanTilt::RelativePositionRaw {
+            pan_u16,
+            tilt_u16,
+            pan_speed,
+            tilt_speed,
+        };
+
+        // Send command and get ID
+        let (id, _response_fut) = self.send_command_with_id(&cmd).await?;
+
+        // Return InFlight handle
+        Ok(crate::camera::inflight::InFlight::new(id, self))
+    }
+}

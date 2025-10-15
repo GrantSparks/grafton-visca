@@ -151,3 +151,30 @@ where
         self.execute(cmd)
     }
 }
+
+// Separate implementation for async-mode _op methods on async Camera
+#[cfg(feature = "mode-async")]
+impl<P, Tr, Exec> crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
+where
+    P: crate::capabilities::Profile + Default,
+    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
+    Exec: crate::executor::Executor,
+{
+    /// Recall a preset position and return an operation handle.
+    pub async fn preset_recall_op(
+        &self,
+        preset: PresetNumber,
+    ) -> Result<crate::camera::inflight::InFlight<'_, crate::camera::inflight::Preset, Self>, Error>
+    {
+        let cmd = PresetCommand {
+            action: PresetAction::Recall,
+            preset_number: preset,
+        };
+
+        // Send command and get ID
+        let (id, _response_fut) = self.send_command_with_id(&cmd).await?;
+
+        // Return InFlight handle
+        Ok(crate::camera::inflight::InFlight::new(id, self))
+    }
+}

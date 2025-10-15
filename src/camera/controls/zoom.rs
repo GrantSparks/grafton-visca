@@ -245,3 +245,30 @@ where
         }
     }
 }
+
+// Separate implementation for async-mode _op methods on async Camera
+#[cfg(feature = "mode-async")]
+impl<P, Tr, Exec> crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
+where
+    P: crate::capabilities::Profile + Default + crate::capabilities::zoom::Zoom,
+    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
+    Exec: crate::executor::Executor,
+{
+    /// Set zoom to an absolute normalized position and return an operation handle.
+    pub async fn zoom_absolute_op(
+        &self,
+        position: Normalized,
+    ) -> Result<crate::camera::inflight::InFlight<'_, crate::camera::inflight::Zoom, Self>, Error>
+    {
+        use crate::command::zoom::Zoom;
+
+        let zoom_pos = crate::types::ZoomPosition::try_from(*position.value())?;
+        let cmd = Zoom::Position(zoom_pos);
+
+        // Send command and get ID
+        let (id, _response_fut) = self.send_command_with_id(&cmd).await?;
+
+        // Return InFlight handle
+        Ok(crate::camera::inflight::InFlight::new(id, self))
+    }
+}
