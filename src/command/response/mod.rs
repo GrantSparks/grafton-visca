@@ -237,7 +237,9 @@ pub fn parse_nd_filter(data: &[u8]) -> Result<InquiryData, Error> {
     if data.is_empty() {
         return Err(Error::InvalidResponseLength);
     }
-    Ok(InquiryData::NdFilter { position: data[0] })
+    Ok(InquiryData::NdFilter {
+        position: crate::command::resolution::NdFilterPosition::from_byte(data[0]),
+    })
 }
 
 /// Parse picture effect mode
@@ -245,7 +247,9 @@ pub fn parse_picture_effect(data: &[u8]) -> Result<InquiryData, Error> {
     if data.is_empty() {
         return Err(Error::InvalidResponseLength);
     }
-    Ok(InquiryData::PictureEffect { effect: data[0] })
+    Ok(InquiryData::PictureEffect {
+        effect: crate::command::resolution::PictureEffectMode::from_byte(data[0]),
+    })
 }
 
 /// Parse iris control mode
@@ -314,7 +318,12 @@ pub fn parse_defog_level(data: &[u8]) -> Result<InquiryData, Error> {
     if data.is_empty() {
         return Err(Error::InvalidResponseLength);
     }
-    Ok(InquiryData::DefogLevel { level: data[0] })
+    let level = crate::types::DefogLevel::new(data[0]).map_err(|_| Error::InvalidParameter {
+        parameter: "defog_level",
+        value: Cow::Owned(data[0].to_string()),
+        reason: Cow::Borrowed("value out of range (0-5)"),
+    })?;
+    Ok(InquiryData::DefogLevel { level })
 }
 
 /// Parse auto white balance sensitivity

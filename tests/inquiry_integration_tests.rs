@@ -10,6 +10,7 @@ use grafton_visca::{
     command::{exposure::ExposureMode, focus::FocusMode, white_balance::WhiteBalanceMode},
     runtime::TokioRuntime,
     testing::camera_simulator::{SimulatorBuilder, ViscaCameraSimulator},
+    ResolutionMode,
 };
 use tokio::join;
 
@@ -365,10 +366,10 @@ async fn test_resolution_inquiry_integration() {
         .resolution()
         .await
         .expect("resolution inquiry should succeed");
-    // The simulator returns a u8 value now
+    // The simulator returns a ResolutionMode value now
     assert_eq!(
         resolution,
-        0x00, // The simulator returns 0 for resolution
+        ResolutionMode::Unknown(0x00), // The simulator returns 0 for resolution
         "Resolution inquiry should succeed"
     );
 }

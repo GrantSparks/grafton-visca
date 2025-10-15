@@ -155,6 +155,40 @@ Types added:
 - `Diagnostics` trait - Methods for `probe()`, `ping()`, and `measure_latency()`
 - **Prelude export**: `Diagnostics` trait now exported in prelude for easier access without explicit imports
 
+#### Typed Operation Handles for Long-Running Commands
+New `InFlight<C>` handles provide type-safe lifecycle management for camera operations:
+
+```rust
+use std::time::Duration;
+
+// Start operation and get typed handle
+let handle = camera.pan_tilt_absolute_op(
+    Degrees(45.0),
+    Degrees(15.0),
+    SpeedLevel::Fast
+).await?;
+
+// Wait for completion (automatically selects correct waiter)
+handle.await_completion(Duration::from_secs(5)).await?;
+
+// Or cancel the operation (socket-safe, ID-based)
+handle.cancel().await?;
+```
+
+**Key features:**
+- **Socket-safe cancellation**: Cancel commands by ID without tracking sockets manually
+- **Type-directed completion waits**: Compile-time selection of correct waiter (`await_pan_tilt_idle`, `await_zoom_idle`, etc.)
+- **Zero-cost abstraction**: Uses ZST markers with no runtime overhead
+- **Available `_op` variants**:
+  - `pan_tilt_absolute_op()` / `pan_tilt_relative_op()` → `InFlight<PanTilt>`
+  - `zoom_absolute_op()` → `InFlight<Zoom>`
+  - `set_focus_op()` → `InFlight<Focus>`
+  - `preset_recall_op()` → `InFlight<Preset>`
+
+This eliminates common correctness pitfalls when managing long-running operations and removes the need for downstream wrappers to track command IDs and socket mappings.
+
+**Note**: Available in async mode only (`#[cfg(feature = "mode-async")]`). Fire-and-forget methods remain unchanged for simple use cases.
+
 #### Motion Control Enhancements
 Convenient motion control improvements for better ergonomics:
 
@@ -430,6 +464,31 @@ let temp_k = camera.color_temperature().await?;
 println!("Current: {}K", temp_k);  // e.g., "Current: 4500K"
 ```
 
+#### Typed Operation Handles (New Feature)
+
+```rust
+// Old (0.7.1): Manual tracking of command IDs and sockets for cancellation
+let cmd_id = camera.send_command_with_id(&cmd).await?.0;
+// ... later, need to track which socket the command is on
+camera.cancel_socket(ViscaSocket::S1).await?;
+
+// New (0.8.0): Type-safe operation handles (async mode only)
+let handle = camera.pan_tilt_absolute_op(
+    Degrees(45.0),
+    Degrees(15.0),
+    SpeedLevel::Fast
+).await?;
+
+// Socket-safe cancellation (runtime resolves socket automatically)
+handle.cancel().await?;
+
+// Type-directed completion wait
+handle.await_completion(Duration::from_secs(5)).await?;
+
+// Available for: pan_tilt_absolute_op, pan_tilt_relative_op,
+// zoom_absolute_op, set_focus_op, preset_recall_op
+```
+
 #### Motion Control (New Feature)
 
 ```rust
@@ -612,6 +671,7 @@ Module imports have been reorganized for consistency:
    - Replace custom speed mapping with `Coarse` and `from_coarse()` methods
    - Replace custom health checks with the `Diagnostics` trait (now in prelude)
    - Use `stop_all_motion()` for emergency stops instead of multiple stop calls
+   - Use `_op` variants for type-safe operation lifecycle management (async mode only)
 
 4. **Improve code ergonomics**:
    - Remove f32 casts when constructing `Degrees` and similar types (now accepts f64 directly)
@@ -632,10 +692,11 @@ Module imports have been reorganized for consistency:
 ### 📚 Technical Improvements
 
 - **Runtime-agnostic modernization complete** (#416): Full async runtime support for tokio, async-std, and smol with runtime-neutral abstractions
+- **Typed operation handles** (#425): Zero-cost `InFlight<C>` handles for socket-safe cancellation and type-directed completion waits
 - **Protocol correctness validated** (#418): All protocol implementations verified against VISCA specification with comprehensive test coverage
 - **Uniform transport architecture** (#415): Serial transport integrated into `TransportHandle` for consistent trait implementations across all transport types
 - **Connection timeout enforcement** (#417): Async connectors properly enforce `connect_timeout` with non-blocking DNS resolution across all runtimes
-- **Zero-cost abstractions**: Type-safe wrappers with no runtime overhead
+- **Zero-cost abstractions**: Type-safe wrappers with no runtime overhead; ZST markers for operation categories
 - **Consistent validation**: All types expose MIN/MAX constants and validated constructors
 - **Non-exhaustive enums**: Future-proof API with `#[non_exhaustive]` on key enums
 - **Enhanced error ergonomics**: `Error` type now implements `Clone` for better composability (#414)

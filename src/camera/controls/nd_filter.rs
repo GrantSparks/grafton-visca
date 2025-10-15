@@ -146,7 +146,9 @@ pub trait NdFilterControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or ND filters are not supported.
-    fn nd_filter(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn nd_filter(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::resolution::NdFilterPosition, Error>>;
 }
 
 // Single unified implementation for all Camera types!
@@ -196,7 +198,7 @@ where
         self.execute(cmd)
     }
 
-    fn nd_filter(&self) -> M::Fut<'_, Result<u8, Error>> {
+    fn nd_filter(&self) -> M::Fut<'_, Result<crate::command::resolution::NdFilterPosition, Error>> {
         self.query(NdFilterInquiry)
     }
 }

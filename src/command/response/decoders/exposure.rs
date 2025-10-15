@@ -55,7 +55,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         },
         InquiryKind::ExposureCompensationPosition => match Nibbles::<4>::try_from(payload) {
             Ok(nibbles) => {
-                let position = nibbles.u16_quad(0);
+                let position = crate::types::ExposureCompensationPosition::new(nibbles.u16_quad(0));
                 Some(Ok(Response::Inquiry(
                     InquiryData::ExposureCompensationPosition { position },
                 )))

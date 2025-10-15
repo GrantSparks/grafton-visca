@@ -76,7 +76,49 @@ pub fn generate_direct_byte_parser(
         }
         "NdFilterPreset" => {
             quote! {
-                Ok(#crate_path::command::InquiryData::#response_variant { preset: data[0] })
+                {
+                    let preset = #crate_path::types::NdFilterPreset::new(data[0])
+                        .map_err(|_| #crate_path::Error::InvalidParameter {
+                            parameter: "nd_filter_preset",
+                            value: ::std::borrow::Cow::Owned(data[0].to_string()),
+                            reason: ::std::borrow::Cow::Borrowed("value out of range (0-3)"),
+                        })?;
+                    Ok(#crate_path::command::InquiryData::#response_variant { preset })
+                }
+            }
+        }
+        "DefogLevel" => {
+            quote! {
+                {
+                    let level = #crate_path::types::DefogLevel::new(data[0])
+                        .map_err(|_| #crate_path::Error::InvalidParameter {
+                            parameter: "defog_level",
+                            value: ::std::borrow::Cow::Owned(data[0].to_string()),
+                            reason: ::std::borrow::Cow::Borrowed("value out of range (0-5)"),
+                        })?;
+                    Ok(#crate_path::command::InquiryData::#response_variant { level })
+                }
+            }
+        }
+        "BroadcastDomain" => {
+            quote! {
+                {
+                    let domain = #crate_path::types::BroadcastDomain::new(data[0])
+                        .map_err(|_| #crate_path::Error::InvalidParameter {
+                            parameter: "broadcast_domain",
+                            value: ::std::borrow::Cow::Owned(data[0].to_string()),
+                            reason: ::std::borrow::Cow::Borrowed("value out of range (0-3)"),
+                        })?;
+                    Ok(#crate_path::command::InquiryData::#response_variant(domain))
+                }
+            }
+        }
+        "Resolution" => {
+            quote! {
+                {
+                    let mode = #crate_path::command::resolution::ResolutionMode::from_byte(data[0]);
+                    Ok(#crate_path::command::InquiryData::#response_variant(mode))
+                }
             }
         }
         _ => {

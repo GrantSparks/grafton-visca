@@ -7,6 +7,7 @@ use grafton_visca::command::{
     response::{InquiryKind, Response},
     InquiryData,
 };
+use grafton_visca::ResolutionMode;
 
 #[test]
 fn test_parse_power_inquiry_responses() {
@@ -277,7 +278,7 @@ fn test_parse_resolution_inquiry() {
 
     match result.unwrap() {
         Response::Inquiry(InquiryData::Resolution(code)) => {
-            assert_eq!(code, 0x01, "Resolution code mismatch");
+            assert_eq!(code, ResolutionMode::FullHD60, "Resolution code mismatch");
         }
         _ => panic!("Unexpected response type"),
     }

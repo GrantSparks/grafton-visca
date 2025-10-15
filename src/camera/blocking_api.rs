@@ -911,7 +911,7 @@ where
         fn set_auto_nd(enabled: bool) -> ();
 
         /// Get ND filter value.
-        fn nd_filter() -> u8;
+        fn nd_filter() -> crate::command::resolution::NdFilterPosition;
     }
 }
 
@@ -998,13 +998,13 @@ where
         fn black_white() -> bool;
 
         /// Get resolution.
-        fn resolution() -> u8;
+        fn resolution() -> crate::command::resolution::ResolutionMode;
 
         /// Get picture effect.
-        fn picture_effect() -> u8;
+        fn picture_effect() -> crate::command::resolution::PictureEffectMode;
 
         /// Get ND filter position.
-        fn nd_filter_position() -> u8;
+        fn nd_filter_position() -> crate::command::resolution::NdFilterPosition;
 
         /// Get camera version information.
         fn version() -> crate::command::typed::VersionInfo;
@@ -1037,13 +1037,13 @@ where
         fn iris_control() -> bool;
 
         /// Get defog level.
-        fn defog_level() -> u8;
+        fn defog_level() -> crate::types::DefogLevel;
 
         /// Get digital PTZ enabled status.
         fn digital_ptz_enabled() -> bool;
 
         /// Get exposure compensation position.
-        fn exposure_compensation_position() -> u16;
+        fn exposure_compensation_position() -> crate::types::ExposureCompensationPosition;
 
         /// Get auto trace enabled status.
         fn auto_trace_enabled() -> bool;
@@ -1061,7 +1061,7 @@ where
         fn noise_reduction_3d() -> crate::types::NoiseReduction3DLevel;
 
         /// Get broadcast domain.
-        fn broadcast_domain() -> u8;
+        fn broadcast_domain() -> crate::types::BroadcastDomain;
 
         /// Get noise reduction mode.
         fn noise_reduction_mode() -> crate::command::NoiseReductionMode;
@@ -1076,7 +1076,7 @@ where
         fn two_tone_mode_enabled() -> bool;
 
         /// Get ND filter preset.
-        fn nd_filter_preset() -> u8;
+        fn nd_filter_preset() -> crate::types::NdFilterPreset;
 
         /// Get digital mode enabled status.
         fn digital_mode_enabled() -> bool;

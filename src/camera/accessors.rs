@@ -603,7 +603,9 @@ where
     }
 
     /// Get exposure compensation position.
-    pub fn compensation_position(&self) -> M::Fut<'_, Result<u16, Error>>
+    pub fn compensation_position(
+        &self,
+    ) -> M::Fut<'_, Result<crate::types::ExposureCompensationPosition, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
@@ -879,7 +881,9 @@ where
     }
 
     /// Get resolution mode.
-    pub fn resolution(&self) -> M::Fut<'_, Result<u8, Error>>
+    pub fn resolution(
+        &self,
+    ) -> M::Fut<'_, Result<crate::command::resolution::ResolutionMode, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
@@ -887,7 +891,9 @@ where
     }
 
     /// Get picture effect mode.
-    pub fn picture_effect(&self) -> M::Fut<'_, Result<u8, Error>>
+    pub fn picture_effect(
+        &self,
+    ) -> M::Fut<'_, Result<crate::command::resolution::PictureEffectMode, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
@@ -903,7 +909,7 @@ where
     }
 
     /// Get defog level.
-    pub fn defog_level(&self) -> M::Fut<'_, Result<u8, Error>>
+    pub fn defog_level(&self) -> M::Fut<'_, Result<crate::types::DefogLevel, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
@@ -1327,7 +1333,9 @@ where
     }
 
     /// Get the current ND filter position.
-    pub fn position(&self) -> M::Fut<'_, Result<u8, Error>>
+    pub fn position(
+        &self,
+    ) -> M::Fut<'_, Result<crate::command::resolution::NdFilterPosition, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
@@ -1335,7 +1343,7 @@ where
     }
 
     /// Get the ND filter preset setting.
-    pub fn preset(&self) -> M::Fut<'_, Result<u8, Error>>
+    pub fn preset(&self) -> M::Fut<'_, Result<crate::types::NdFilterPreset, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
@@ -1553,7 +1561,7 @@ where
     }
 
     /// Get broadcast domain setting.
-    pub fn broadcast_domain(&self) -> M::Fut<'_, Result<u8, Error>>
+    pub fn broadcast_domain(&self) -> M::Fut<'_, Result<crate::types::BroadcastDomain, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {

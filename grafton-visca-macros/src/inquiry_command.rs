@@ -705,7 +705,7 @@ fn generate_typed_impl(
         ("Resolution", Some("byte"), _) => {
             quote! {
                 impl #crate_path::command::typed::ResponseParser for #struct_name {
-                    type Response = u8;
+                    type Response = #crate_path::command::resolution::ResolutionMode;
 
                     fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
@@ -720,7 +720,7 @@ fn generate_typed_impl(
         ("BroadcastDomain", Some("byte"), _) => {
             quote! {
                 impl #crate_path::command::typed::ResponseParser for #struct_name {
-                    type Response = u8;
+                    type Response = #crate_path::types::BroadcastDomain;
 
                     fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
@@ -810,7 +810,7 @@ fn generate_typed_impl(
         ("DefogLevel", _, _) => {
             quote! {
                 impl #crate_path::command::typed::ResponseParser for #struct_name {
-                    type Response = u8;
+                    type Response = #crate_path::types::DefogLevel;
 
                     fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
@@ -825,7 +825,7 @@ fn generate_typed_impl(
         ("ExposureCompensationPosition", _, _) => {
             quote! {
                 impl #crate_path::command::typed::ResponseParser for #struct_name {
-                    type Response = u16;
+                    type Response = #crate_path::types::ExposureCompensationPosition;
 
                     fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
                         match resp {
@@ -1036,13 +1036,13 @@ fn generate_typed_impl(
             quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = bool; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::NightDayMode{ is_night })=>Ok(is_night), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("NdFilterPreset", _, _) => {
-            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = u8; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::NdFilterPreset{ preset })=>Ok(preset), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = #crate_path::types::NdFilterPreset; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::NdFilterPreset{ preset })=>Ok(preset), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("NdFilter", _, _) => {
-            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = u8; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::NdFilter{ position })=>Ok(position), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = #crate_path::command::resolution::NdFilterPosition; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::NdFilter{ position })=>Ok(position), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("PictureEffect", _, _) => {
-            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = u8; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::PictureEffect{ effect })=>Ok(effect), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
+            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = #crate_path::command::resolution::PictureEffectMode; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::PictureEffect{ effect })=>Ok(effect), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         _ => quote! {},
     }

@@ -65,7 +65,8 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            let effect = payload.as_slice()[0];
+            let effect =
+                crate::command::resolution::PictureEffectMode::from_byte(payload.as_slice()[0]);
             Some(Ok(Response::Inquiry(InquiryData::PictureEffect { effect })))
         }
         InquiryKind::BlackWhite => {
@@ -165,7 +166,8 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            let position = payload.as_slice()[0];
+            let position =
+                crate::command::resolution::NdFilterPosition::from_byte(payload.as_slice()[0]);
             Some(Ok(Response::Inquiry(InquiryData::NdFilter { position })))
         }
         InquiryKind::Gamma => {

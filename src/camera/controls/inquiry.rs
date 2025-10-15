@@ -299,12 +299,14 @@ pub trait InquiryControl {
 
     /// Get the current video resolution mode.
     ///
-    /// Returns the current video resolution setting as a numeric value.
-    /// The interpretation depends on the camera model.
+    /// Returns the current video resolution setting.
+    /// Common modes include 1080p60, 1080p30, 720p60, etc.
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn resolution(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn resolution(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::resolution::ResolutionMode, Error>>;
 
     /// Get the current picture effect mode.
     ///
@@ -312,7 +314,9 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn picture_effect(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn picture_effect(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::resolution::PictureEffectMode, Error>>;
 
     /// Get the current ND filter position.
     ///
@@ -321,7 +325,9 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails, times out, or is not supported.
-    fn nd_filter_position(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn nd_filter_position(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::resolution::NdFilterPosition, Error>>;
 
     /// Get the camera version information.
     ///
@@ -441,7 +447,8 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn defog_level(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn defog_level(&self)
+        -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::DefogLevel, Error>>;
 
     /// Get the digital PTZ mode status.
     ///
@@ -459,11 +466,14 @@ pub trait InquiryControl {
     /// Get the exposure compensation position.
     ///
     /// Returns the detailed position value for exposure compensation
-    /// rather than just the level.
+    /// rather than just the level. This provides higher resolution
+    /// than `exposure_compensation()`.
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn exposure_compensation_position(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u16, Error>>;
+    fn exposure_compensation_position(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::ExposureCompensationPosition, Error>>;
 
     /// Get the auto trace mode status.
     ///
@@ -530,7 +540,9 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn broadcast_domain(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn broadcast_domain(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::BroadcastDomain, Error>>;
 
     /// Get the noise reduction mode setting.
     ///
@@ -587,7 +599,9 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn nd_filter_preset(&self) -> <Self::Mode as Mode>::Fut<'_, Result<u8, Error>>;
+    fn nd_filter_preset(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::NdFilterPreset, Error>>;
 
     /// Get the digital mode state.
     ///
@@ -792,17 +806,21 @@ where
         self.query(BlackWhiteInquiry)
     }
 
-    fn resolution(&self) -> M::Fut<'_, Result<u8, Error>> {
+    fn resolution(&self) -> M::Fut<'_, Result<crate::command::resolution::ResolutionMode, Error>> {
         use crate::command::inquiry_structs::ResolutionInquiry;
         self.query(ResolutionInquiry)
     }
 
-    fn picture_effect(&self) -> M::Fut<'_, Result<u8, Error>> {
+    fn picture_effect(
+        &self,
+    ) -> M::Fut<'_, Result<crate::command::resolution::PictureEffectMode, Error>> {
         use crate::command::inquiry_structs::PictureEffectInquiry;
         self.query(PictureEffectInquiry)
     }
 
-    fn nd_filter_position(&self) -> M::Fut<'_, Result<u8, Error>> {
+    fn nd_filter_position(
+        &self,
+    ) -> M::Fut<'_, Result<crate::command::resolution::NdFilterPosition, Error>> {
         use crate::command::inquiry_structs::NdFilterInquiry;
         self.query(NdFilterInquiry)
     }
@@ -859,7 +877,7 @@ where
         self.query(IrisControlInquiry)
     }
 
-    fn defog_level(&self) -> M::Fut<'_, Result<u8, Error>> {
+    fn defog_level(&self) -> M::Fut<'_, Result<crate::types::DefogLevel, Error>> {
         use crate::command::inquiry_structs::DefogLevelInquiry;
         self.query(DefogLevelInquiry)
     }
@@ -869,7 +887,9 @@ where
         self.query(DigitalPtzInquiry)
     }
 
-    fn exposure_compensation_position(&self) -> M::Fut<'_, Result<u16, Error>> {
+    fn exposure_compensation_position(
+        &self,
+    ) -> M::Fut<'_, Result<crate::types::ExposureCompensationPosition, Error>> {
         use crate::command::inquiry_structs::ExposureCompensationPositionInquiry;
         self.query(ExposureCompensationPositionInquiry)
     }
@@ -901,7 +921,7 @@ where
         self.query(NoiseReduction3DInquiry)
     }
 
-    fn broadcast_domain(&self) -> M::Fut<'_, Result<u8, Error>> {
+    fn broadcast_domain(&self) -> M::Fut<'_, Result<crate::types::BroadcastDomain, Error>> {
         use crate::command::inquiry_structs::BroadcastDomainInquiry;
         self.query(BroadcastDomainInquiry)
     }
@@ -928,7 +948,7 @@ where
         self.query(TwoToneModeInquiry)
     }
 
-    fn nd_filter_preset(&self) -> M::Fut<'_, Result<u8, Error>> {
+    fn nd_filter_preset(&self) -> M::Fut<'_, Result<crate::types::NdFilterPreset, Error>> {
         use crate::command::inquiry_structs::NdFilterPresetInquiry;
         self.query(NdFilterPresetInquiry)
     }

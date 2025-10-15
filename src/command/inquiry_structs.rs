@@ -645,7 +645,7 @@ impl crate::command::encode::ViscaCommand for ExposureCompensationPositionInquir
 }
 
 impl crate::command::typed::ResponseParser for ExposureCompensationPositionInquiry {
-    type Response = u16;
+    type Response = crate::types::ExposureCompensationPosition;
 
     fn from_response(resp: crate::command::Response) -> Result<Self::Response, crate::Error> {
         match resp {

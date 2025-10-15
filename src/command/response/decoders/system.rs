@@ -34,7 +34,8 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
-            let resolution_mode = payload.as_slice()[0];
+            let resolution_mode =
+                crate::command::resolution::ResolutionMode::from_byte(payload.as_slice()[0]);
             Some(Ok(Response::Inquiry(InquiryData::Resolution(
                 resolution_mode,
             ))))
@@ -155,8 +156,18 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             if payload.len() != 1 {
                 return Some(Err(Error::InvalidResponseLength));
             }
+            let preset = match crate::types::NdFilterPreset::new(payload.as_slice()[0]) {
+                Ok(p) => p,
+                Err(_) => {
+                    return Some(Err(Error::InvalidParameter {
+                        parameter: "nd_filter_preset",
+                        value: Cow::Owned(payload.as_slice()[0].to_string()),
+                        reason: Cow::Borrowed("value out of range (0-3)"),
+                    }))
+                }
+            };
             Some(Ok(Response::Inquiry(InquiryData::NdFilterPreset {
-                preset: payload.as_slice()[0],
+                preset,
             })))
         }
         _ => None,

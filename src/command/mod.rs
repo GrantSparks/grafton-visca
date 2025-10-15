@@ -262,8 +262,8 @@ pub enum InquiryData {
         green_on: bool,
     },
     /// Video resolution inquiry response.
-    /// The value represents the resolution mode (camera-specific encoding).
-    Resolution(u8),
+    /// Common modes include 1080p60, 1080p30, 720p60, etc.
+    Resolution(resolution::ResolutionMode),
     /// Night/Day mode inquiry response.
     NightDayMode {
         /// Whether the camera is in night mode.
@@ -271,13 +271,13 @@ pub enum InquiryData {
     },
     /// ND filter position inquiry response.
     NdFilter {
-        /// Current ND filter position (0x00=Clear, 0x01=1/4, 0x02=1/8, etc.).
-        position: u8,
+        /// Current ND filter position (Clear, 1/4, 1/8, 1/16, etc.).
+        position: resolution::NdFilterPosition,
     },
     /// Picture effect mode inquiry response.
     PictureEffect {
-        /// Current picture effect (0x00=Off, 0x01=Negative, 0x02=B&W, etc.).
-        effect: u8,
+        /// Current picture effect (Off, Negative, Black & White, Sepia, etc.).
+        effect: resolution::PictureEffectMode,
     },
     /// Standby mode inquiry response.
     Standby {
@@ -301,8 +301,8 @@ pub enum InquiryData {
     },
     /// Defog level inquiry response.
     DefogLevel {
-        /// Current defog strength level (0-8).
-        level: u8,
+        /// Current defog strength level (0-5).
+        level: crate::types::DefogLevel,
     },
     /// Digital Ptz mode inquiry response.
     DigitalPtz {
@@ -316,8 +316,8 @@ pub enum InquiryData {
     },
     /// Exposure compensation position inquiry response.
     ExposureCompensationPosition {
-        /// Exposure compensation position value.
-        position: u16,
+        /// Exposure compensation position value (high-resolution EV adjustment).
+        position: crate::types::ExposureCompensationPosition,
     },
     /// Red channel tuning inquiry response.
     RedTuning {
@@ -352,7 +352,7 @@ pub enum InquiryData {
     /// Noise reduction level inquiry response.
     NoiseReductionLevel(u8),
     /// Broadcast domain inquiry response.
-    BroadcastDomain(u8),
+    BroadcastDomain(crate::types::BroadcastDomain),
     /// Motion sync mode inquiry response.
     MotionSyncMode {
         /// Current motion sync mode setting.
@@ -391,7 +391,7 @@ pub enum InquiryData {
     /// ND filter preset inquiry response.
     NdFilterPreset {
         /// Current ND filter preset number.
-        preset: u8,
+        preset: crate::types::NdFilterPreset,
     },
     /// Digital mode inquiry response.
     Digital {

@@ -1286,6 +1286,68 @@ impl From<crate::MotionSyncPreset> for MotionSyncSpeed {
     }
 }
 
+/// Defog processing level for improving visibility in foggy or hazy conditions.
+///
+/// Valid range: 0 to 5 (0x00 to 0x05)
+/// Higher values apply stronger defog processing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[visca_value(min = "0x00", max = "0x05", display_prefix = "Defog Level")]
+pub struct DefogLevel(u8);
+
+/// Exposure compensation position value (high-resolution EV adjustment).
+///
+/// This is a higher-resolution representation of exposure compensation
+/// compared to ExposureCompensationLevel. The actual range and mapping
+/// to EV values depends on the camera model.
+///
+/// Valid range: Typically 0 to 0x0E (0 to 14)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct ExposureCompensationPosition(u16);
+
+impl ExposureCompensationPosition {
+    /// Creates a new exposure compensation position value.
+    ///
+    /// # Arguments
+    /// * `value` - The raw position value from the camera
+    pub const fn new(value: u16) -> Self {
+        Self(value)
+    }
+
+    /// Gets the raw position value.
+    pub const fn value(self) -> u16 {
+        self.0
+    }
+}
+
+/// Broadcast domain setting affecting video output standards.
+///
+/// This setting may affect video timing, color space, and other
+/// broadcast-related parameters. The specific meaning depends on
+/// the camera model.
+///
+/// Valid range: Typically 0 to 3
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[visca_value(min = "0x00", max = "0x03", display_prefix = "Broadcast Domain")]
+pub struct BroadcastDomain(u8);
+
+/// ND filter preset selection for cameras with multiple ND filter configurations.
+///
+/// This allows switching between different saved ND filter settings
+/// on cameras that support preset ND configurations.
+///
+/// Valid range: Typically 0 to 3
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[visca_value(min = "0x00", max = "0x03", display_prefix = "ND Filter Preset")]
+pub struct NdFilterPreset(u8);
+
 #[cfg(test)]
 mod tests {
     use super::*;
