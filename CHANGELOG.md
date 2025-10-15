@@ -128,6 +128,488 @@ println!("Current color temperature: {}K", temp_k);
 
 This provides fine-grained control over white balance beyond the standard presets (Indoor/Outdoor/OnePush), enabling precise color matching for professional workflows.
 
+#### API Ergonomics & Runtime Polymorphism (#427)
+Comprehensive API improvements to eliminate downstream boilerplate, delivering on the promise to reduce downstream code by ~600 lines while improving type safety, ergonomics, and API discoverability. These improvements directly address pain points discovered during real-world integration in downstream projects.
+
+##### 1. Profile Dispatch & Runtime Polymorphism
+Runtime profile selection without boilerplate dispatch logic:
+
+```rust
+use grafton_visca::camera::profiles::{ProfileId, ProfileGroup};
+
+// Get profile group for runtime dispatch
+let profile = ProfileId::PtzOpticsG2;
+let group = profile.profile_group();  // → ProfileGroup::PtzOpticsG2
+
+match group {
+    ProfileGroup::GenericVisca => { /* ... */ }
+    ProfileGroup::PtzOpticsG2 => { /* ... */ }
+    ProfileGroup::SonyProfessional => { /* ... */ }
+}
+```
+
+**What's New:**
+- `ProfileId` enum with all camera models (PtzOpticsG2, SonyFr7, GenericVisca, etc.)
+- `ProfileGroup` enum categorizing profiles into three groups
+- `ProfileId::profile_group()` method for runtime dispatch
+- Single source of truth for profile groupings
+
+**Migration:**
+```rust
+// Old (0.7.x): Custom profile dispatch (218 lines of boilerplate)
+pub trait ProfileGroup: Profile + Default + Send + Sync + 'static {
+    fn matches(profile: ProfileId) -> bool;
+}
+
+impl ProfileGroup for GenericVisca {
+    fn matches(profile: ProfileId) -> bool {
+        matches!(profile, ProfileId::SonyFr7 | ProfileId::GenericVisca | ...)
+    }
+}
+
+pub async fn dispatch_udp(profile: ProfileId, addr: &str, runtime: TokioRuntime)
+    -> Result<Camera, Error>
+{
+    if GenericVisca::matches(profile) {
+        let cam = Connect::open_udp_async::<GenericVisca, _>(addr, runtime).await?;
+        Ok(Arc::new(cam))
+    } else if PtzOpticsG2::matches(profile) {
+        // ... repeat for each profile
+    }
+}
+
+// New (0.8.0): Built-in profile dispatch
+use grafton_visca::camera::profiles::ProfileGroup;
+
+let group = profile.profile_group();
+match group {
+    ProfileGroup::GenericVisca => {
+        Connect::open_udp_async::<GenericVisca, _>(addr, runtime).await?
+    }
+    ProfileGroup::PtzOpticsG2 => {
+        Connect::open_udp_async::<PtzOpticsG2, _>(addr, runtime).await?
+    }
+    ProfileGroup::SonyProfessional => {
+        Connect::open_udp_async::<SonyFR7, _>(addr, runtime).await?
+    }
+}
+```
+
+##### 2. Trait Object Compatibility (`dyn-api` Feature)
+First-class trait object support for runtime polymorphism:
+
+```rust
+use grafton_visca::dynapi::{CameraControl, open_tcp_dynamic};
+use grafton_visca::camera::profiles::ProfileId;
+use std::sync::Arc;
+
+// Enable in Cargo.toml:
+// grafton-visca = { version = "0.8", features = ["dyn-api", "mode-async", "runtime-tokio"] }
+
+// Open camera with runtime profile selection
+let camera: Arc<dyn CameraControl> =
+    open_tcp_dynamic(ProfileId::PtzOpticsG2, "192.168.1.50:5678", runtime).await?;
+
+// Use polymorphically
+camera.power_on().await?;
+
+// Capability-based API
+if let Some(pan_tilt) = camera.as_pan_tilt() {
+    pan_tilt.pan_tilt_home().await?;
+}
+
+if let Some(zoom) = camera.as_zoom() {
+    zoom.zoom_absolute(Normalized(0.5)).await?;
+}
+```
+
+**What's New:**
+- `CameraControl` trait for runtime polymorphism
+- 9 capability traits: `PanTiltControl`, `ZoomControl`, `FocusControl`, `PowerControl`, `ExposureControl`, `WhiteBalanceControl`, `ImageControl`, `NdFilterControl`, `PresetControl`
+- `open_tcp_dynamic()` and `open_udp_dynamic()` constructors
+- Object-safe trait methods with `BoxFuture` return types
+- Capability discovery via `as_*` methods
+
+**Migration:**
+```rust
+// Old (0.7.x): Custom wrapper trait (430 methods, 2132 lines)
+pub trait CameraOps: Send + Sync {
+    fn power_on(&self) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>;
+    fn power_off(&self) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>;
+    fn zoom_in(&self) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>;
+    // ... 427 more methods
+}
+
+impl<P, Tr, Exec> CameraOps for CameraSession<Async, P, Tr, Exec> {
+    fn power_on(&self) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
+        Box::pin(async move { PowerControl::power_on(self.camera()).await })
+    }
+    // ... 429 more method implementations
+}
+
+pub type Camera = Arc<dyn CameraOps>;
+
+// New (0.8.0): Built-in trait objects
+use grafton_visca::dynapi::{CameraControl, open_tcp_dynamic};
+
+let camera: Arc<dyn CameraControl> =
+    open_tcp_dynamic(ProfileId::PtzOpticsG2, addr, runtime).await?;
+
+// Use directly - no wrapper trait needed
+camera.power_on().await?;
+```
+
+##### 3. Command Construction Ergonomics
+Comprehensive trait methods eliminate manual command construction:
+
+```rust
+// Image processing operations
+camera.set_image_flip(ImageFlipMode::Both).await?;
+camera.enable_freeze().await?;
+camera.disable_freeze().await?;
+camera.set_contrast(ContrastLevel::new(5)?).await?;
+camera.set_sharpness(SharpnessLevel::new(7)?).await?;
+camera.set_luminance(LuminanceLevel::new(10)?).await?;
+camera.set_saturation(SaturationLevel::new(8)?).await?;
+camera.set_noise_reduction_2d(NoiseReduction2DLevel::new(3)?).await?;
+camera.set_noise_reduction_3d(NoiseReduction3DLevel::new(2)?).await?;
+camera.set_picture_effect(PictureEffectMode::Negative).await?;
+
+// Color control operations
+camera.set_color_temperature(5600).await?;
+camera.set_red_gain(GainLevel::new(5)?).await?;
+camera.set_blue_gain(GainLevel::new(6)?).await?;
+
+// White balance operations
+camera.set_white_balance_mode(WhiteBalanceMode::Auto).await?;
+camera.set_awb_sensitivity(AutoWhiteBalanceSensitivity::High).await?;
+camera.white_balance_one_push().await?;
+
+// ND filter operations
+camera.set_nd_filter_mode(NdFilterMode::Clear).await?;
+
+// Tally light operations
+camera.set_tally_red(true).await?;
+camera.set_tally_green(false).await?;
+```
+
+**What's New:**
+- 26+ new trait methods across control domains
+- Consistent API across 22 control traits
+- Mode-generic implementation (works for blocking and async)
+- All commonly-used commands now have dedicated trait methods
+
+**Migration:**
+```rust
+// Old (0.7.x): Manual command construction (26+ instances)
+use grafton_visca::command::image::ImageFlipCombinedCommand;
+let cmd = ImageFlipCombinedCommand::new(mode);
+camera.execute(cmd).await?;
+
+use grafton_visca::command::flip::ImageFreeze;
+let cmd = ImageFreeze { on: enabled };
+camera.execute(cmd).await?;
+
+use grafton_visca::command::tally::{TallyRedOn, TallyRedOff};
+if enabled {
+    camera.execute(TallyRedOn::new()).await?
+} else {
+    camera.execute(TallyRedOff::new()).await?
+}
+
+// New (0.8.0): Direct trait methods
+camera.set_image_flip(mode).await?;
+camera.enable_freeze().await?;
+camera.set_tally_red(enabled).await?;
+```
+
+##### 4. Enhanced Position Normalization
+Convenient methods on value types for common conversions:
+
+```rust
+use grafton_visca::types::ZoomPosition;
+
+// Zoom position normalization (built-in methods on the type)
+let zoom_pos = camera.zoom_position().await?;
+
+// Get normalized position in optical zoom range [0.0, 1.0]
+let optical = zoom_pos.normalized_optical();  // Direct method!
+
+// Get normalized position in combined range [0.0, 1.0]
+let combined = zoom_pos.normalized_combined();  // Direct method!
+
+// Get raw value
+let raw = zoom_pos.value();
+
+// Pan/tilt position conversions
+let pt_pos = camera.pan_tilt_position().await?;
+let (pan_deg, tilt_deg) = pt_pos.as_degrees();  // Direct conversion!
+let (pan_raw, tilt_raw) = pt_pos.raw_values();
+```
+
+**What's New:**
+- `normalized_optical()` and `normalized_combined()` methods on `ZoomPosition`
+- `as_degrees()` method on `PanTiltPosition`
+- `raw_values()` methods for direct access
+- Extension traits available for advanced use cases
+
+**Migration:**
+```rust
+// Old (0.7.x): Extension traits and intermediate types
+use grafton_visca::inquiry_conversions::{ZoomDomain, ZoomPositionExt, PanTiltPositionRaw};
+
+let pos = camera.zoom_position().await?;
+let normalized = pos.normalize(ZoomDomain::Optical).0.into();  // Returns Normalized<f32>
+
+let pos = camera.pan_tilt_position().await?;
+let raw = PanTiltPositionRaw::from(pos);
+let deg = raw.as_degrees();
+let (pan_deg, tilt_deg) = (deg.pan.0.into(), deg.tilt.0.into());
+
+// New (0.8.0): Direct methods on types
+let pos = camera.zoom_position().await?;
+let normalized = pos.normalized_optical();  // Direct f64
+
+let pos = camera.pan_tilt_position().await?;
+let (pan_deg, tilt_deg) = pos.as_degrees();  // Direct tuple
+```
+
+##### 5. Extended InFlight Operation Coverage
+`_op` variants now available for all long-running operations:
+
+```rust
+use std::time::Duration;
+
+// All major long-running operations now have _op variants:
+
+// Pan/tilt operations
+let handle = camera.pan_tilt_home_op().await?;
+handle.await_completion(Duration::from_secs(30)).await?;
+
+let handle = camera.pan_tilt_reset_op().await?;
+handle.await_completion(Duration::from_secs(30)).await?;
+
+let handle = camera.pan_tilt_absolute_op(pan, tilt, speed).await?;
+handle.await_completion(Duration::from_secs(20)).await?;
+
+// Preset operations
+let handle = camera.preset_recall_op(PresetNumber::new(1)?).await?;
+handle.await_completion(Duration::from_secs(60)).await?;
+
+// Zoom operations
+let handle = camera.zoom_absolute_op(position).await?;
+handle.await_completion(Duration::from_secs(10)).await?;
+
+// Focus operations
+let handle = camera.set_focus_op(position).await?;
+handle.await_completion(Duration::from_secs(5)).await?;
+```
+
+**What's New:**
+- `pan_tilt_home_op()` - Returns `InFlight<PanTilt>`
+- `pan_tilt_reset_op()` - Returns `InFlight<PanTilt>`
+- `preset_recall_op()` - Returns `InFlight<Preset>`
+- Plus existing: `pan_tilt_absolute_op()`, `zoom_absolute_op()`, `set_focus_op()`
+
+**Migration:**
+```rust
+// Old (0.7.x): Manual timeout wrapping
+tokio::time::timeout(
+    Duration::from_secs(30),
+    camera.pan_tilt_home()
+).await??;
+
+tokio::time::timeout(
+    Duration::from_secs(60),
+    camera.preset_recall(preset)
+).await??;
+
+// New (0.8.0): Typed InFlight handles
+let handle = camera.pan_tilt_home_op().await?;
+handle.await_completion(Duration::from_secs(30)).await?;
+
+let handle = camera.preset_recall_op(preset).await?;
+handle.await_completion(Duration::from_secs(60)).await?;
+```
+
+**Note:** `_op` variants are async-only and not available in dynapi trait objects (due to generic type parameters preventing object safety). For fine-grained timeout control with trait objects, use the generic API directly.
+
+##### 6. Inquiry Availability Documentation
+Clear documentation of write-only operations:
+
+```rust
+// Write-only operations are now clearly documented with **Note:** sections
+
+/// Set contrast level.
+///
+/// **Note:** Contrast is write-only on most cameras. There is no corresponding
+/// inquiry command to read back the current contrast level.
+fn set_contrast(&self, level: ContrastLevel) -> Result<(), Error>;
+
+/// Set sharpness level.
+///
+/// **Note:** The sharpness level itself is write-only on most cameras. While you can
+/// query the sharpness mode (auto/manual) via [`InquiryControl::sharpness_mode`],
+/// there is no inquiry to read back the specific sharpness level value.
+fn set_sharpness(&self, level: SharpnessLevel) -> Result<(), Error>;
+
+/// Set luminance (brightness) level.
+///
+/// **Note:** Luminance is write-only on most cameras. There is no corresponding
+/// inquiry command to read back the current luminance level.
+fn set_luminance(&self, level: LuminanceLevel) -> Result<(), Error>;
+
+/// Set auto white balance sensitivity.
+///
+/// **Note:** AWB sensitivity is write-only. There is no corresponding inquiry
+/// command to read back the current sensitivity setting.
+fn set_awb_sensitivity(&self, sensitivity: AutoWhiteBalanceSensitivity) -> Result<(), Error>;
+```
+
+**What's New:**
+- Consistent `**Note:**` documentation for all write-only operations
+- Explains VISCA protocol limitations
+- Suggests alternatives when available
+- Prevents users from expecting unavailable inquiries
+
+**Migration:**
+```rust
+// Old (0.7.x): Unclear inquiry availability, runtime errors
+fn wb_get_awb_sensitivity(&self) -> Result<AutoWhiteBalanceSensitivity, Error> {
+    Err(Error::FeatureNotSupported {
+        feature: "AWB sensitivity inquiry"
+    })
+}
+
+// New (0.8.0): Clear compile-time documentation
+// Users know upfront that these are write-only operations
+// No unexpected runtime errors from missing inquiries
+```
+
+##### 7. Profile Capabilities Metadata
+Rich metadata for runtime introspection and validation:
+
+```rust
+use grafton_visca::capabilities::{ProfileMetadata, PanTilt, Zoom, Exposure};
+use grafton_visca::camera::profiles::PtzOpticsG2;
+
+// Profile metadata constants
+assert_eq!(PtzOpticsG2::MODEL_NAME, "PtzOptics G2");
+assert_eq!(PtzOpticsG2::DEFAULT_TCP_PORT, 5678);
+assert_eq!(PtzOpticsG2::DEFAULT_UDP_PORT, 1259);
+assert_eq!(PtzOpticsG2::ACK_TIMEOUT, Duration::from_millis(100));
+assert_eq!(PtzOpticsG2::COMPLETION_TIMEOUT, Duration::from_millis(5000));
+
+// Pan/tilt capabilities
+assert_eq!(PtzOpticsG2::PAN_RANGE, -2448..2449);
+assert_eq!(PtzOpticsG2::TILT_RANGE, -432..1297);
+assert_eq!(PtzOpticsG2::MAX_PAN_SPEED, 24);
+assert_eq!(PtzOpticsG2::MAX_TILT_SPEED, 20);
+
+// Zoom capabilities
+assert_eq!(PtzOpticsG2::OPTICAL_ZOOM_MAX, 0x4000);
+assert_eq!(PtzOpticsG2::DIGITAL_ZOOM_MAX, Some(0x7000));
+
+// Exposure capabilities
+assert_eq!(PtzOpticsG2::IRIS_RANGE, 0x00..0x1D);
+assert_eq!(PtzOpticsG2::GAIN_RANGE, 0..9);
+assert_eq!(PtzOpticsG2::SUPPORTS_AUTO_EXPOSURE, true);
+assert_eq!(PtzOpticsG2::SUPPORTS_BACKLIGHT_COMP, true);
+assert_eq!(PtzOpticsG2::SUPPORTS_WDR, true);
+
+// Compile-time capability markers
+fn requires_nd_filter<P: NdFilter>(camera: &Camera<P>) {
+    // Only profiles with ND filter support can call this
+}
+```
+
+**What's New:**
+- `ProfileMetadata` trait with rich constants
+- Capability traits: `PanTilt`, `Zoom`, `Focus`, `Exposure`, `WhiteBalance`, `ImageProcessing`, `Presets`, `Power`, `MotionSync`, `NdFilter`
+- Marker traits for compile-time checking: `HasAutoExposure`, `HasBacklightCompensation`, `HasWDR`, `HasAutoFocus`, `HasOnePushFocus`, etc.
+- Parameter limits as const values (ranges, speed limits, conversion factors)
+
+**Migration:**
+```rust
+// Old (0.7.x): Hard-coded limits in application code
+const PTZ_OPTICS_PAN_MAX: i16 = 2448;
+const PTZ_OPTICS_TILT_MAX: i16 = 1296;
+
+// New (0.8.0): Use profile constants
+use grafton_visca::camera::profiles::PtzOpticsG2;
+
+if pan > PtzOpticsG2::PAN_RANGE.end {
+    return Err(Error::OutOfRange { /* ... */ });
+}
+```
+
+##### 8. Error Context Enhancement
+Composable error context while preserving retry intelligence:
+
+```rust
+use grafton_visca::Error;
+
+// Add context to errors
+camera.power_on()
+    .await
+    .context("Failed to power on camera for preset recall")?;
+
+// Retry intelligence preserved
+match camera.send_command(cmd).await {
+    Err(e) => {
+        println!("Error: {}", e);  // Includes context
+        println!("Retryable: {}", e.is_retryable());  // Still works!
+        if let Some(delay) = e.suggested_retry_delay() {
+            sleep(delay).await;
+            // retry...
+        }
+    }
+    Ok(_) => {}
+}
+
+// WithContext error variant
+match error {
+    Error::WithContext { context, source } => {
+        println!("Context: {}", context);
+        println!("Source: {}", source);
+        // Retry intelligence delegated to source error
+    }
+    _ => {}
+}
+```
+
+**What's New:**
+- `with_context()` method on `Error` type
+- `context()` method for Display types
+- `WithContext` error variant that preserves inner error
+- Retry intelligence (`is_retryable()`, `suggested_retry_delay()`) preserved through context chain
+
+**Migration:**
+```rust
+// Old (0.7.x): Lost error context in complex flows
+camera.power_on().await?;  // Generic error message
+
+// New (0.8.0): Rich error context
+camera.power_on()
+    .await
+    .context("Failed to power on camera for preset recall")?;
+
+// Error message: "Failed to power on camera for preset recall: CommandTimeout"
+```
+
+**Benefits Summary:**
+- **Profile Dispatch**: Eliminates ~218 lines of boilerplate
+- **Trait Objects**: Eliminates ~430 lines of wrapper traits
+- **Command Ergonomics**: Reduces command construction by ~50%
+- **Type Serialization**: Eliminates ~150 lines of type wrappers (covered in Serialization section)
+- **Position Conversions**: Simpler, more discoverable API
+- **InFlight Coverage**: Consistent async operation handling
+- **Documentation**: Clear API contracts prevent surprises
+- **Capabilities Metadata**: Better validation and introspection
+- **Error Context**: Richer error messages without losing retry metadata
+
+**Total Impact**: ~600+ lines of downstream boilerplate eliminated across all improvements.
+
 #### Diagnostics & Health Checks
 New `diagnostics` module provides tools for camera health monitoring:
 

@@ -277,7 +277,7 @@ fn test_luminance_inquiry() {
 #[test]
 fn test_resolution_inquiry() {
     // Test resolution inquiry response parsing
-    let payload = vec![0x90, 0x50, 0x01, 0xFF]; // 1080p60
+    let payload = vec![0x90, 0x50, 0x00, 0xFF]; // 1080p60 (0x00 = FullHD60)
 
     let result = Response::parse_with_type(&payload, &InquiryKind::Resolution);
     assert!(

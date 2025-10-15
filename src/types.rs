@@ -552,6 +552,53 @@ impl ZoomPosition {
         crate::constants::validate_zoom_position(value, model)?;
         Self::new(value)
     }
+
+    /// Get normalized position in optical zoom range [0.0, 1.0].
+    ///
+    /// Normalizes the zoom position against the optical zoom range (0x0000-0x4000).
+    /// This is useful for representing zoom position as a percentage of optical zoom.
+    ///
+    /// # Returns
+    /// - `0.0` = wide end (0x0000)
+    /// - `1.0` = optical telephoto end (0x4000)
+    /// - Values > 1.0 = digital zoom (if position is beyond optical range)
+    ///
+    /// # Examples
+    /// ```
+    /// # use grafton_visca::types::ZoomPosition;
+    /// let pos = ZoomPosition::new(0x2000).unwrap(); // Midpoint of optical zoom
+    /// assert_eq!(pos.normalized_optical(), 0.5);
+    ///
+    /// let pos = ZoomPosition::MAX_OPTICAL;
+    /// assert_eq!(pos.normalized_optical(), 1.0);
+    /// ```
+    #[must_use]
+    pub fn normalized_optical(&self) -> f64 {
+        f64::from(self.value()) / f64::from(Self::MAX_OPTICAL.value())
+    }
+
+    /// Get normalized position in combined optical + digital zoom range [0.0, 1.0].
+    ///
+    /// Normalizes the zoom position against the full zoom range including digital zoom
+    /// (0x0000-0x7000). This is useful when working with cameras that support digital zoom.
+    ///
+    /// # Returns
+    /// - `0.0` = wide end (0x0000)
+    /// - `1.0` = maximum digital zoom (0x7000)
+    ///
+    /// # Examples
+    /// ```
+    /// # use grafton_visca::types::ZoomPosition;
+    /// let pos = ZoomPosition::MAX_OPTICAL; // 0x4000
+    /// assert!((pos.normalized_combined() - 0.571).abs() < 0.01);
+    ///
+    /// let pos = ZoomPosition::MAX_DIGITAL;
+    /// assert_eq!(pos.normalized_combined(), 1.0);
+    /// ```
+    #[must_use]
+    pub fn normalized_combined(&self) -> f64 {
+        f64::from(self.value()) / f64::from(Self::MAX_DIGITAL.value())
+    }
 }
 
 /// Focus position value for direct focus control.

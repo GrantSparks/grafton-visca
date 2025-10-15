@@ -415,6 +415,16 @@ pub enum Error {
     /// This is a consolidated error that covers various channel closure scenarios.
     #[error("Transport channel has been closed")]
     TransportChannelClosed,
+
+    /// Error with additional context information.
+    /// Wraps another error while preserving its retry intelligence and adding human-readable context.
+    #[error("{context}: {source}")]
+    WithContext {
+        /// Human-readable context describing what operation failed.
+        context: Cow<'static, str>,
+        /// The underlying error that occurred.
+        source: Box<Error>,
+    },
 }
 
 impl Error {
@@ -447,6 +457,7 @@ impl Error {
             | Self::ParameterOutOfRange { .. }
             | Self::SyntaxError => ErrorKind::InvalidParameter,
             Self::CameraBusy | Self::CameraMoving { .. } => ErrorKind::Busy,
+            Self::WithContext { source, .. } => source.kind(),
             _ => ErrorKind::Other,
         }
     }
@@ -515,10 +526,15 @@ impl Error {
     /// ```
     #[must_use]
     pub fn is_retryable(&self) -> bool {
-        matches!(
-            self.kind(),
-            ErrorKind::Timeout | ErrorKind::BufferFull | ErrorKind::Busy
-        ) || matches!(self, Self::CommandPending | Self::CameraMoving { .. })
+        match self {
+            Self::WithContext { source, .. } => source.is_retryable(),
+            _ => {
+                matches!(
+                    self.kind(),
+                    ErrorKind::Timeout | ErrorKind::BufferFull | ErrorKind::Busy
+                ) || matches!(self, Self::CommandPending | Self::CameraMoving { .. })
+            }
+        }
     }
 
     /// Get a suggested retry delay for retryable errors.
@@ -548,7 +564,7 @@ impl Error {
     /// }
     /// ```
     #[must_use]
-    pub const fn suggested_retry_delay(&self) -> Option<Duration> {
+    pub fn suggested_retry_delay(&self) -> Option<Duration> {
         match self {
             Self::CameraBusy => Some(Duration::from_millis(100)),
             Self::CommandPending => Some(Duration::from_millis(50)),
@@ -557,8 +573,68 @@ impl Error {
             Self::CommandBufferFull => Some(Duration::from_millis(200)),
             Self::Timeout => Some(Duration::from_secs(2)),
             Self::MaxRetriesExceeded => None,
+            Self::WithContext { source, .. } => source.suggested_retry_delay(),
             _ => None,
         }
+    }
+
+    /// Add operation context to this error.
+    ///
+    /// Wraps the error with additional context information while preserving
+    /// retry intelligence (e.g., `is_retryable()`, `suggested_retry_delay()`).
+    ///
+    /// This is useful for providing more detailed error messages that explain
+    /// what operation was being performed when the error occurred.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use grafton_visca::Error;
+    ///
+    /// let error = Error::CameraBusy;
+    /// let contextual_error = error.with_context("Failed to recall preset 5");
+    ///
+    /// // Original error properties are preserved
+    /// assert!(contextual_error.is_retryable());
+    /// assert!(contextual_error.suggested_retry_delay().is_some());
+    ///
+    /// // But the error message now includes context
+    /// assert_eq!(
+    ///     contextual_error.to_string(),
+    ///     "Failed to recall preset 5: Camera is busy executing another command"
+    /// );
+    /// ```
+    #[must_use]
+    pub fn with_context(self, context: impl Into<Cow<'static, str>>) -> Self {
+        Self::WithContext {
+            context: context.into(),
+            source: Box::new(self),
+        }
+    }
+
+    /// Add operation context to this error using a `Display` type.
+    ///
+    /// Similar to [`Error::with_context`], but accepts any type that implements `Display`.
+    ///
+    /// This is useful for providing formatted context messages.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use grafton_visca::Error;
+    ///
+    /// let preset_id = 5;
+    /// let error = Error::CameraBusy;
+    /// let contextual_error = error.context(format!("Failed to recall preset {}", preset_id));
+    ///
+    /// assert_eq!(
+    ///     contextual_error.to_string(),
+    ///     "Failed to recall preset 5: Camera is busy executing another command"
+    /// );
+    /// ```
+    #[must_use]
+    pub fn context<D: std::fmt::Display>(self, context: D) -> Self {
+        self.with_context(context.to_string())
     }
 }
 
@@ -833,5 +909,117 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn test_with_context_preserves_retry_intelligence() {
+        // Test that with_context preserves is_retryable
+        let error = Error::CameraBusy;
+        let contextual = error.with_context("Failed to power on camera");
+        assert!(contextual.is_retryable());
+        assert_eq!(
+            contextual.suggested_retry_delay(),
+            Some(Duration::from_millis(100))
+        );
+
+        // Test with non-retryable error
+        let error = Error::SyntaxError;
+        let contextual = error.with_context("Failed to send command");
+        assert!(!contextual.is_retryable());
+        assert_eq!(contextual.suggested_retry_delay(), None);
+    }
+
+    #[test]
+    fn test_with_context_message_format() {
+        let error = Error::CameraBusy;
+        let contextual = error.with_context("Failed to recall preset 5");
+        assert_eq!(
+            contextual.to_string(),
+            "Failed to recall preset 5: Camera is busy executing another command"
+        );
+    }
+
+    #[test]
+    fn test_context_method() {
+        let preset_id = 5;
+        let error = Error::CameraBusy;
+        let contextual = error.context(format!("Failed to recall preset {}", preset_id));
+        assert_eq!(
+            contextual.to_string(),
+            "Failed to recall preset 5: Camera is busy executing another command"
+        );
+    }
+
+    #[test]
+    fn test_with_context_preserves_error_kind() {
+        let error = Error::CameraBusy;
+        let contextual = error.with_context("Operation failed");
+        assert_eq!(contextual.kind(), ErrorKind::Busy);
+
+        let error = Error::Timeout;
+        let contextual = error.with_context("Operation timed out");
+        assert_eq!(contextual.kind(), ErrorKind::Timeout);
+
+        let error = Error::CommandBufferFull;
+        let contextual = error.with_context("Buffer full");
+        assert_eq!(contextual.kind(), ErrorKind::BufferFull);
+    }
+
+    #[test]
+    fn test_nested_context() {
+        // Test that context can be added to already-contextualized errors
+        let error = Error::CameraBusy;
+        let contextual1 = error.with_context("Inner context");
+        let contextual2 = contextual1.with_context("Outer context");
+
+        // Should preserve retry intelligence through multiple layers
+        assert!(contextual2.is_retryable());
+        assert_eq!(
+            contextual2.suggested_retry_delay(),
+            Some(Duration::from_millis(100))
+        );
+
+        // Message format
+        assert_eq!(
+            contextual2.to_string(),
+            "Outer context: Inner context: Camera is busy executing another command"
+        );
+    }
+
+    #[test]
+    fn test_with_context_all_retryable_types() {
+        // Test all retryable error types preserve their retry metadata
+        let retryable_errors = vec![
+            (Error::CameraBusy, Duration::from_millis(100)),
+            (
+                Error::CameraMoving { pan: 0, tilt: 0 },
+                Duration::from_millis(500),
+            ),
+            (
+                Error::CommandTimeout {
+                    duration: Duration::from_secs(1),
+                    command: Cow::Borrowed("test"),
+                },
+                Duration::from_secs(1),
+            ),
+            (Error::CommandBufferFull, Duration::from_millis(200)),
+            (Error::CommandPending, Duration::from_millis(50)),
+            (Error::Timeout, Duration::from_secs(2)),
+        ];
+
+        for (error, expected_delay) in retryable_errors {
+            let contextual = error.with_context("Test operation");
+            assert!(
+                contextual.is_retryable(),
+                "Context should preserve retryable: {}",
+                contextual
+            );
+            assert_eq!(
+                contextual.suggested_retry_delay(),
+                Some(expected_delay),
+                "Context should preserve retry delay: {}",
+                contextual
+            );
+        }
     }
 }

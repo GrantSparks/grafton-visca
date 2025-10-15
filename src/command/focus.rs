@@ -24,6 +24,9 @@ use crate::{
 
 /// Focus mode setting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum FocusMode {
     /// Automatic focus mode.
     Auto = 0x02,
@@ -33,6 +36,9 @@ pub enum FocusMode {
 
 /// Focus range setting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum FocusRange {
     /// Normal focus range.
     Normal = 0x00,
@@ -202,6 +208,9 @@ impl ViscaCommand for Focus {
 ///
 /// Determines which area of the image the camera uses for auto focus.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum FocusZone {
     /// Focus on the top area of the image.
     Top = 0x00,
@@ -240,6 +249,9 @@ impl FocusZoneCommand {
 ///
 /// Controls how responsive the auto focus system is to changes in the scene.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum AutoFocusSensitivity {
     /// Low sensitivity - slower focus response, more stable in changing scenes.
     Low = 0x00,
@@ -309,6 +321,9 @@ impl FocusNearLimitCommand {
 ///
 /// **Vendor-Specific**: This command is specific to PtzOptics cameras.
 #[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum FocusLock {
     /// Enable focus lock
     On,
@@ -368,6 +383,9 @@ impl ViscaCommand for FocusLock {
 ///
 /// **Vendor-Specific**: This command is specific to Sony FR7 cameras.
 #[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum PushAF {
     /// Press Push AF button (activate temporary auto focus)
     Press,

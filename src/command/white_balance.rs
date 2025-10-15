@@ -19,6 +19,9 @@ use crate::visca_command;
 /// Controls how the camera adjusts color temperature to ensure
 /// white objects appear white under different lighting conditions.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum WhiteBalanceMode {
     /// Automatic white balance adjustment.
     Auto = 0x00,
@@ -31,6 +34,7 @@ pub enum WhiteBalanceMode {
     /// Auto tracking white balance.
     ///
     /// **Vendor-Specific**: This mode is specific to Sony FR7 cameras.
+    #[cfg_attr(feature = "serde", serde(rename = "atw"))]
     ATW = 0x04,
     /// Manual white balance control.
     Manual = 0x05,
@@ -50,6 +54,9 @@ pub enum WhiteBalanceMode {
 ///
 /// Both commands and inquiry responses use the same byte values.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum AutoWhiteBalanceSensitivity {
     /// High sensitivity - faster adjustments to changing conditions.
     High = 0x00,

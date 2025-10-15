@@ -25,6 +25,9 @@ use crate::{
 
 /// ND filter mode for Sony FR7.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum NdFilterMode {
     /// Preset mode - ND is set to discrete levels (user-defined presets).
     Preset,

@@ -27,6 +27,63 @@ pub struct PanTiltPosition {
     pub tilt: i16,
 }
 
+impl PanTiltPosition {
+    /// Creates a new pan/tilt position.
+    pub const fn new(pan: i16, tilt: i16) -> Self {
+        Self { pan, tilt }
+    }
+
+    /// Get position in degrees.
+    ///
+    /// Converts the raw VISCA pan/tilt values to degrees using standard conversion:
+    /// - Pan: -170° to +170° (mapped from -2448 to +2448)
+    /// - Tilt: -30° to +90° (mapped from -432 to +1296)
+    ///
+    /// # Returns
+    /// A tuple of (pan_degrees, tilt_degrees) as f64 values.
+    ///
+    /// # Examples
+    /// ```
+    /// # use grafton_visca::camera::PanTiltPosition;
+    /// let pos = PanTiltPosition::new(1224, 648);
+    /// let (pan_deg, tilt_deg) = pos.as_degrees();
+    /// // pan_deg ≈ 85.0, tilt_deg ≈ 45.0
+    /// ```
+    #[must_use]
+    pub fn as_degrees(&self) -> (f64, f64) {
+        use crate::types::{PanPosition, TiltPosition};
+
+        let pan_pos = PanPosition::new(self.pan).unwrap_or(PanPosition::CENTER);
+        let tilt_pos = TiltPosition::new(self.tilt).unwrap_or(TiltPosition::CENTER);
+
+        (
+            f64::from(pan_pos.to_degrees()),
+            f64::from(tilt_pos.to_degrees()),
+        )
+    }
+
+    /// Get raw position values.
+    ///
+    /// Returns the underlying VISCA raw values for pan and tilt.
+    /// This is useful when you need the raw protocol values.
+    ///
+    /// # Returns
+    /// A tuple of (pan, tilt) as i16 values.
+    ///
+    /// # Examples
+    /// ```
+    /// # use grafton_visca::camera::PanTiltPosition;
+    /// let pos = PanTiltPosition::new(100, -50);
+    /// let (pan, tilt) = pos.raw_values();
+    /// assert_eq!(pan, 100);
+    /// assert_eq!(tilt, -50);
+    /// ```
+    #[must_use]
+    pub const fn raw_values(&self) -> (i16, i16) {
+        (self.pan, self.tilt)
+    }
+}
+
 /// Configuration for movement detection.
 ///
 /// This configuration is used for both event-driven detection (using VISCA

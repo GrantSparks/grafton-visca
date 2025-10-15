@@ -366,10 +366,10 @@ async fn test_resolution_inquiry_integration() {
         .resolution()
         .await
         .expect("resolution inquiry should succeed");
-    // The simulator returns a ResolutionMode value now
+    // The simulator returns 0x00 which maps to FullHD60
     assert_eq!(
         resolution,
-        ResolutionMode::Unknown(0x00), // The simulator returns 0 for resolution
+        ResolutionMode::FullHD60, // 0x00 = 1080p60
         "Resolution inquiry should succeed"
     );
 }

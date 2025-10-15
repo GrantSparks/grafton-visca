@@ -110,6 +110,10 @@ pub trait ImageProcessingControl {
     /// Higher values increase contrast (more dramatic differences),
     /// lower values decrease contrast (flatter appearance).
     ///
+    /// **Note:** Contrast is write-only on most cameras. There is no corresponding
+    /// inquiry command to read back the current contrast level. The camera will accept
+    /// and apply the setting, but you cannot query the current value.
+    ///
     /// # Parameters
     /// - `level`: The contrast level to set
     ///
@@ -125,6 +129,10 @@ pub trait ImageProcessingControl {
     /// Controls edge enhancement to make the image appear sharper or softer.
     /// Higher values increase sharpness (more edge enhancement),
     /// lower values decrease sharpness (softer appearance).
+    ///
+    /// **Note:** The sharpness level itself is write-only on most cameras. While you can
+    /// query the sharpness mode (auto/manual) via [`InquiryControl::sharpness_mode`],
+    /// there is no inquiry to read back the specific sharpness level value.
     ///
     /// # Parameters
     /// - `level`: The sharpness level to set
@@ -271,6 +279,10 @@ pub trait ImageProcessingControl {
     /// Adjusts the overall brightness of the image output without
     /// affecting exposure settings. This is different from exposure
     /// brightness as it's applied in post-processing.
+    ///
+    /// **Note:** Luminance is write-only on most cameras. There is no corresponding
+    /// inquiry command to read back the current luminance level. The camera will accept
+    /// and apply the setting, but you cannot query the current value.
     ///
     /// # Parameters
     /// - `level`: The luminance level to set

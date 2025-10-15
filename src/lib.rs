@@ -775,6 +775,19 @@ pub mod constants;
 /// Diagnostics and health check utilities
 pub mod diagnostics;
 
+/// Dynamic API for runtime polymorphism (feature: dyn-api)
+///
+/// Provides trait object compatibility for VISCA camera operations, enabling
+/// runtime polymorphism without large wrapper traits. This is useful for:
+///
+/// - Building APIs that accept any camera type at runtime
+/// - Storing heterogeneous collections of cameras
+/// - Implementing plugin systems or dynamic camera selection
+///
+/// **Feature gate**: Only available with the `dyn-api` feature enabled.
+#[cfg(feature = "dyn-api")]
+pub mod dynapi;
+
 /// Inquiry conversion utilities for raw to user-friendly values
 pub mod inquiry_conversions;
 
@@ -816,7 +829,7 @@ pub mod visca_socket;
 /// Camera profiles with compositional capabilities
 pub mod profiles {
     pub use crate::camera::profiles::{
-        GenericVisca, NearusBRC300, ProfileId, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
-        SonyBRCH900, SonyEVIH100, SonyFR7,
+        GenericVisca, NearusBRC300, ProfileGroup, ProfileId, PtzOptics30X, PtzOpticsG2,
+        PtzOpticsG3, SonyBRC300, SonyBRCH900, SonyEVIH100, SonyFR7,
     };
 }

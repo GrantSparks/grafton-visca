@@ -17,6 +17,9 @@ use crate::{
 
 /// Camera exposure control modes.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum ExposureMode {
     /// Automatic exposure control - camera adjusts all exposure parameters automatically
     Auto = 0x00,

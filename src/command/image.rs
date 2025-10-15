@@ -17,6 +17,9 @@ use grafton_visca_macros::ViscaEnum;
 
 /// Sharpness control modes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum SharpnessMode {
     /// Automatic sharpness adjustment based on scene content.
     Auto = 0x02,
@@ -26,6 +29,9 @@ pub enum SharpnessMode {
 
 /// Noise reduction modes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum NoiseReductionMode {
     /// Noise reduction disabled.
     Off = 0x02,
@@ -35,6 +41,9 @@ pub enum NoiseReductionMode {
 
 /// Noise reduction speed settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum NoiseReductionSpeed {
     /// Slow noise reduction processing.
     Slow = 0x00,
@@ -46,6 +55,9 @@ pub enum NoiseReductionSpeed {
 
 /// Black and white mode settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum BlackWhiteMode {
     /// Color mode (normal operation).
     Color = 0x02,
@@ -257,6 +269,9 @@ impl NoiseReduction3D {
 /// Allows flipping the image horizontally, vertically, or both.
 /// Useful for when cameras are mounted upside down or need mirror effects.
 #[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum ImageFlipMode {
     /// No image flipping.
     Off,

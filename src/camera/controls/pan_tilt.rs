@@ -390,4 +390,64 @@ where
         // Return InFlight handle
         Ok(crate::camera::inflight::InFlight::new(id, self))
     }
+
+    /// Move to the home position and return an operation handle.
+    ///
+    /// This is the `_op` variant that returns an InFlight handle for fine-grained
+    /// control over timeouts and cancellation. The movement speed is determined
+    /// by the camera's default settings.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use std::time::Duration;
+    ///
+    /// let handle = camera.pan_tilt_home_op().await?;
+    /// handle.await_completion(Duration::from_secs(30)).await?;
+    /// ```
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send.
+    pub async fn pan_tilt_home_op(
+        &self,
+    ) -> Result<crate::camera::inflight::InFlight<'_, crate::camera::inflight::PanTilt, Self>, Error>
+    {
+        use crate::command::pan_tilt::PanTilt;
+
+        // Send command and get ID
+        let (id, _response_fut) = self.send_command_with_id(&PanTilt::Home).await?;
+
+        // Return InFlight handle
+        Ok(crate::camera::inflight::InFlight::new(id, self))
+    }
+
+    /// Reset pan/tilt mechanism and return an operation handle.
+    ///
+    /// This is the `_op` variant that returns an InFlight handle for fine-grained
+    /// control over timeouts and cancellation. This recalibrates the pan/tilt motors
+    /// and may take several seconds to complete.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use std::time::Duration;
+    ///
+    /// let handle = camera.pan_tilt_reset_op().await?;
+    /// handle.await_completion(Duration::from_secs(30)).await?;
+    /// ```
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send.
+    pub async fn pan_tilt_reset_op(
+        &self,
+    ) -> Result<crate::camera::inflight::InFlight<'_, crate::camera::inflight::PanTilt, Self>, Error>
+    {
+        use crate::command::pan_tilt::PanTilt;
+
+        // Send command and get ID
+        let (id, _response_fut) = self.send_command_with_id(&PanTilt::Reset).await?;
+
+        // Return InFlight handle
+        Ok(crate::camera::inflight::InFlight::new(id, self))
+    }
 }

@@ -8,6 +8,9 @@
 /// Note: These mappings are based on common PtzOptics camera patterns.
 /// Actual mappings may vary by camera model and firmware version.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum ResolutionMode {
     /// 1920x1080 @ 60fps
     FullHD60,
@@ -95,6 +98,9 @@ impl ResolutionMode {
 ///
 /// These effects modify the camera's video output for artistic or functional purposes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum PictureEffectMode {
     /// Normal operation (no effect).
     Off,

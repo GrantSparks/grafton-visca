@@ -146,6 +146,10 @@ pub trait WhiteBalanceControl {
     /// in lighting conditions. Higher sensitivity means faster adaptation
     /// but may cause color instability. (PtzOptics specific feature)
     ///
+    /// **Note:** AWB sensitivity is write-only. There is no corresponding inquiry
+    /// command to read back the current sensitivity level. The camera will accept
+    /// and apply the setting, but you cannot query the current value.
+    ///
     /// # Parameters
     /// - `sensitivity`: The AWB sensitivity level to set
     ///

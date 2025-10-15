@@ -943,6 +943,59 @@ pub enum G2Gain {
     Gain24dB = 8,
 }
 
+/// Profile group for runtime polymorphism and profile dispatch.
+///
+/// Groups camera profiles by their protocol compatibility and behavioral characteristics.
+/// This enables runtime profile selection without requiring separate implementations
+/// for each profile variant.
+///
+/// # Example
+///
+/// ```
+/// use grafton_visca::camera::profiles::{ProfileId, ProfileGroup};
+///
+/// let profile = ProfileId::SonyFr7;
+/// let group = profile.profile_group();
+/// assert_eq!(group, ProfileGroup::SonyProfessional);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
+pub enum ProfileGroup {
+    /// Generic VISCA-compatible cameras with basic features.
+    ///
+    /// Includes: GenericVisca, Sony BRC-300, Sony EVI-H100, Nearus BRC-300
+    ///
+    /// Characteristics:
+    /// - Raw VISCA protocol (no encapsulation)
+    /// - Basic feature set
+    /// - Conservative timeouts and capabilities
+    GenericVisca,
+
+    /// PtzOptics camera series (G2, G3, 30X).
+    ///
+    /// Includes: PtzOptics G2, PtzOptics G3, PtzOptics 30X
+    ///
+    /// Characteristics:
+    /// - Raw VISCA protocol
+    /// - Extended feature set
+    /// - Motion sync support
+    /// - Similar pan/tilt ranges and capabilities
+    PtzOpticsG2,
+
+    /// Sony professional cameras with advanced features.
+    ///
+    /// Includes: Sony FR7, Sony BRC-H900
+    ///
+    /// Characteristics:
+    /// - Sony encapsulated protocol
+    /// - Professional feature set
+    /// - Variable ND filters (FR7)
+    /// - Higher preset counts
+    SonyProfessional,
+}
+
 /// Serializable camera profile identifier.
 ///
 /// This enum provides a serializable way to identify camera profiles for use in
@@ -1117,6 +1170,54 @@ impl ProfileId {
         matches!(self, ProfileId::SonyFr7 | ProfileId::SonyBrcH900)
     }
 
+    /// Returns the profile group for this camera profile.
+    ///
+    /// Profile groups categorize cameras by their protocol compatibility and
+    /// behavioral characteristics. This enables runtime profile selection and
+    /// dynamic dispatch without requiring separate implementations for each
+    /// profile variant.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use grafton_visca::camera::profiles::{ProfileId, ProfileGroup};
+    ///
+    /// // PtzOptics cameras share the same group
+    /// assert_eq!(ProfileId::PtzOpticsG2.profile_group(), ProfileGroup::PtzOpticsG2);
+    /// assert_eq!(ProfileId::PtzOpticsG3.profile_group(), ProfileGroup::PtzOpticsG2);
+    /// assert_eq!(ProfileId::PtzOptics30X.profile_group(), ProfileGroup::PtzOpticsG2);
+    ///
+    /// // Sony professional cameras share a group
+    /// assert_eq!(ProfileId::SonyFr7.profile_group(), ProfileGroup::SonyProfessional);
+    /// assert_eq!(ProfileId::SonyBrcH900.profile_group(), ProfileGroup::SonyProfessional);
+    ///
+    /// // Generic VISCA and simpler Sony cameras
+    /// assert_eq!(ProfileId::GenericVisca.profile_group(), ProfileGroup::GenericVisca);
+    /// assert_eq!(ProfileId::SonyBrc300.profile_group(), ProfileGroup::GenericVisca);
+    /// assert_eq!(ProfileId::SonyEviH100.profile_group(), ProfileGroup::GenericVisca);
+    /// assert_eq!(ProfileId::NearusBrc300.profile_group(), ProfileGroup::GenericVisca);
+    /// ```
+    ///
+    /// # Use Cases
+    ///
+    /// This method is particularly useful for:
+    /// - Runtime profile selection in configuration-driven systems
+    /// - Dynamic dispatch based on profile characteristics
+    /// - Reducing boilerplate in profile-agnostic code
+    /// - Enabling trait object creation with appropriate profile types
+    pub const fn profile_group(&self) -> ProfileGroup {
+        match self {
+            ProfileId::PtzOpticsG2 | ProfileId::PtzOpticsG3 | ProfileId::PtzOptics30X => {
+                ProfileGroup::PtzOpticsG2
+            }
+            ProfileId::SonyFr7 | ProfileId::SonyBrcH900 => ProfileGroup::SonyProfessional,
+            ProfileId::GenericVisca
+            | ProfileId::SonyBrc300
+            | ProfileId::SonyEviH100
+            | ProfileId::NearusBrc300 => ProfileGroup::GenericVisca,
+        }
+    }
+
     /// Returns all available profile IDs.
     ///
     /// # Example
@@ -1140,6 +1241,233 @@ impl ProfileId {
             ProfileId::NearusBrc300,
             ProfileId::GenericVisca,
         ]
+    }
+
+    /// Returns whether this profile supports TCP transport.
+    ///
+    /// All camera profiles support TCP connectivity.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use grafton_visca::camera::profiles::ProfileId;
+    ///
+    /// assert!(ProfileId::PtzOpticsG2.supports_tcp());
+    /// assert!(ProfileId::SonyFr7.supports_tcp());
+    /// ```
+    pub const fn supports_tcp(&self) -> bool {
+        true // All profiles support TCP
+    }
+
+    /// Returns whether this profile supports UDP transport.
+    ///
+    /// All camera profiles support UDP connectivity.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use grafton_visca::camera::profiles::ProfileId;
+    ///
+    /// assert!(ProfileId::PtzOpticsG2.supports_udp());
+    /// assert!(ProfileId::SonyFr7.supports_udp());
+    /// ```
+    pub const fn supports_udp(&self) -> bool {
+        true // All profiles support UDP
+    }
+
+    /// Returns whether this profile supports serial (RS-232/RS-422) transport.
+    ///
+    /// All camera profiles support serial connectivity.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use grafton_visca::camera::profiles::ProfileId;
+    ///
+    /// assert!(ProfileId::PtzOpticsG2.supports_serial());
+    /// assert!(ProfileId::SonyFr7.supports_serial());
+    /// ```
+    pub const fn supports_serial(&self) -> bool {
+        true // All profiles support serial
+    }
+
+    /// Returns a vendor identifier for this profile.
+    ///
+    /// Useful for grouping profiles by manufacturer in UIs or documentation.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use grafton_visca::camera::profiles::ProfileId;
+    ///
+    /// assert_eq!(ProfileId::PtzOpticsG2.vendor(), "PtzOptics");
+    /// assert_eq!(ProfileId::SonyFr7.vendor(), "Sony");
+    /// assert_eq!(ProfileId::GenericVisca.vendor(), "Generic");
+    /// ```
+    pub const fn vendor(&self) -> &'static str {
+        match self {
+            ProfileId::PtzOpticsG2 | ProfileId::PtzOpticsG3 | ProfileId::PtzOptics30X => {
+                "PtzOptics"
+            }
+            ProfileId::SonyFr7
+            | ProfileId::SonyBrcH900
+            | ProfileId::SonyEviH100
+            | ProfileId::SonyBrc300 => "Sony",
+            ProfileId::NearusBrc300 => "Nearus",
+            ProfileId::GenericVisca => "Generic",
+        }
+    }
+
+    /// Returns a brief description of this profile's capabilities.
+    ///
+    /// Provides a human-readable summary of the camera's feature set.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use grafton_visca::camera::profiles::ProfileId;
+    ///
+    /// let desc = ProfileId::SonyFr7.description();
+    /// assert!(desc.contains("Professional"));
+    /// ```
+    pub const fn description(&self) -> &'static str {
+        match self {
+            ProfileId::PtzOpticsG2 => {
+                "20x optical zoom PTZ camera with digital zoom and 90 presets"
+            }
+            ProfileId::PtzOpticsG3 => {
+                "Latest generation PTZ camera with enhanced features and 255 presets"
+            }
+            ProfileId::PtzOptics30X => {
+                "High-end 30x optical zoom PTZ camera with extended zoom range"
+            }
+            ProfileId::SonyFr7 => {
+                "Professional cinema camera with variable ND filter and full feature set"
+            }
+            ProfileId::SonyBrcH900 => {
+                "Professional PTZ camera with advanced image processing and 100 presets"
+            }
+            ProfileId::SonyEviH100 => "Compact HD PTZ camera with basic feature set",
+            ProfileId::SonyBrc300 => "Legacy PTZ camera with unsigned coordinate system",
+            ProfileId::NearusBrc300 => "Rebranded Sony BRC-300 with image processing features",
+            ProfileId::GenericVisca => "Conservative profile for unknown VISCA-compatible cameras",
+        }
+    }
+}
+
+impl ProfileGroup {
+    /// Returns all profile IDs that belong to this group.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use grafton_visca::camera::profiles::{ProfileId, ProfileGroup};
+    ///
+    /// let ptzoptics_profiles = ProfileGroup::PtzOpticsG2.profiles();
+    /// assert_eq!(ptzoptics_profiles.len(), 3);
+    /// assert!(ptzoptics_profiles.contains(&ProfileId::PtzOpticsG2));
+    /// assert!(ptzoptics_profiles.contains(&ProfileId::PtzOpticsG3));
+    /// assert!(ptzoptics_profiles.contains(&ProfileId::PtzOptics30X));
+    /// ```
+    pub const fn profiles(&self) -> &'static [ProfileId] {
+        match self {
+            ProfileGroup::GenericVisca => &[
+                ProfileId::GenericVisca,
+                ProfileId::SonyBrc300,
+                ProfileId::SonyEviH100,
+                ProfileId::NearusBrc300,
+            ],
+            ProfileGroup::PtzOpticsG2 => &[
+                ProfileId::PtzOpticsG2,
+                ProfileId::PtzOpticsG3,
+                ProfileId::PtzOptics30X,
+            ],
+            ProfileGroup::SonyProfessional => &[ProfileId::SonyFr7, ProfileId::SonyBrcH900],
+        }
+    }
+
+    /// Returns a human-readable display name for this profile group.
+    pub const fn display_name(&self) -> &'static str {
+        match self {
+            ProfileGroup::GenericVisca => "Generic VISCA",
+            ProfileGroup::PtzOpticsG2 => "PtzOptics Series",
+            ProfileGroup::SonyProfessional => "Sony Professional",
+        }
+    }
+
+    /// Returns whether this profile group uses Sony encapsulation protocol.
+    ///
+    /// Sony Professional cameras use Sony-encapsulated VISCA protocol,
+    /// while other groups use raw VISCA protocol.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use grafton_visca::camera::profiles::ProfileGroup;
+    ///
+    /// assert!(!ProfileGroup::GenericVisca.uses_sony_encapsulation());
+    /// assert!(!ProfileGroup::PtzOpticsG2.uses_sony_encapsulation());
+    /// assert!(ProfileGroup::SonyProfessional.uses_sony_encapsulation());
+    /// ```
+    pub const fn uses_sony_encapsulation(&self) -> bool {
+        matches!(self, ProfileGroup::SonyProfessional)
+    }
+
+    /// Returns whether this profile group supports TCP transport.
+    ///
+    /// All camera profiles support TCP connectivity.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use grafton_visca::camera::profiles::ProfileGroup;
+    ///
+    /// assert!(ProfileGroup::GenericVisca.supports_tcp());
+    /// assert!(ProfileGroup::PtzOpticsG2.supports_tcp());
+    /// assert!(ProfileGroup::SonyProfessional.supports_tcp());
+    /// ```
+    pub const fn supports_tcp(&self) -> bool {
+        true // All profiles support TCP
+    }
+
+    /// Returns whether this profile group supports UDP transport.
+    ///
+    /// All camera profiles support UDP connectivity.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use grafton_visca::camera::profiles::ProfileGroup;
+    ///
+    /// assert!(ProfileGroup::GenericVisca.supports_udp());
+    /// assert!(ProfileGroup::PtzOpticsG2.supports_udp());
+    /// assert!(ProfileGroup::SonyProfessional.supports_udp());
+    /// ```
+    pub const fn supports_udp(&self) -> bool {
+        true // All profiles support UDP
+    }
+
+    /// Returns whether this profile group supports serial (RS-232/RS-422) transport.
+    ///
+    /// All camera profiles support serial connectivity.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use grafton_visca::camera::profiles::ProfileGroup;
+    ///
+    /// assert!(ProfileGroup::GenericVisca.supports_serial());
+    /// assert!(ProfileGroup::PtzOpticsG2.supports_serial());
+    /// assert!(ProfileGroup::SonyProfessional.supports_serial());
+    /// ```
+    pub const fn supports_serial(&self) -> bool {
+        true // All profiles support serial
+    }
+}
+
+impl fmt::Display for ProfileGroup {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.display_name())
     }
 }
 
@@ -1197,5 +1525,171 @@ mod tests {
     fn test_profile_metadata() {
         assert_eq!(PtzOpticsG2::MODEL_NAME, "PtzOptics G2");
         assert_eq!(SonyFR7::MODEL_NAME, "Sony FR7");
+    }
+
+    #[test]
+    fn test_profile_groups() {
+        // Test PtzOptics group
+        assert_eq!(
+            ProfileId::PtzOpticsG2.profile_group(),
+            ProfileGroup::PtzOpticsG2
+        );
+        assert_eq!(
+            ProfileId::PtzOpticsG3.profile_group(),
+            ProfileGroup::PtzOpticsG2
+        );
+        assert_eq!(
+            ProfileId::PtzOptics30X.profile_group(),
+            ProfileGroup::PtzOpticsG2
+        );
+
+        // Test Sony Professional group
+        assert_eq!(
+            ProfileId::SonyFr7.profile_group(),
+            ProfileGroup::SonyProfessional
+        );
+        assert_eq!(
+            ProfileId::SonyBrcH900.profile_group(),
+            ProfileGroup::SonyProfessional
+        );
+
+        // Test Generic VISCA group
+        assert_eq!(
+            ProfileId::GenericVisca.profile_group(),
+            ProfileGroup::GenericVisca
+        );
+        assert_eq!(
+            ProfileId::SonyBrc300.profile_group(),
+            ProfileGroup::GenericVisca
+        );
+        assert_eq!(
+            ProfileId::SonyEviH100.profile_group(),
+            ProfileGroup::GenericVisca
+        );
+        assert_eq!(
+            ProfileId::NearusBrc300.profile_group(),
+            ProfileGroup::GenericVisca
+        );
+    }
+
+    #[test]
+    fn test_profile_group_profiles() {
+        // Test that all profiles are accounted for
+        let generic_profiles = ProfileGroup::GenericVisca.profiles();
+        assert_eq!(generic_profiles.len(), 4);
+        assert!(generic_profiles.contains(&ProfileId::GenericVisca));
+        assert!(generic_profiles.contains(&ProfileId::SonyBrc300));
+        assert!(generic_profiles.contains(&ProfileId::SonyEviH100));
+        assert!(generic_profiles.contains(&ProfileId::NearusBrc300));
+
+        let ptzoptics_profiles = ProfileGroup::PtzOpticsG2.profiles();
+        assert_eq!(ptzoptics_profiles.len(), 3);
+        assert!(ptzoptics_profiles.contains(&ProfileId::PtzOpticsG2));
+        assert!(ptzoptics_profiles.contains(&ProfileId::PtzOpticsG3));
+        assert!(ptzoptics_profiles.contains(&ProfileId::PtzOptics30X));
+
+        let sony_pro_profiles = ProfileGroup::SonyProfessional.profiles();
+        assert_eq!(sony_pro_profiles.len(), 2);
+        assert!(sony_pro_profiles.contains(&ProfileId::SonyFr7));
+        assert!(sony_pro_profiles.contains(&ProfileId::SonyBrcH900));
+
+        // Verify bidirectional consistency
+        for profile in ProfileId::all() {
+            let group = profile.profile_group();
+            assert!(
+                group.profiles().contains(profile),
+                "Profile {:?} not found in its group {:?}",
+                profile,
+                group
+            );
+        }
+    }
+
+    #[test]
+    fn test_profile_group_display() {
+        assert_eq!(ProfileGroup::GenericVisca.display_name(), "Generic VISCA");
+        assert_eq!(ProfileGroup::PtzOpticsG2.display_name(), "PtzOptics Series");
+        assert_eq!(
+            ProfileGroup::SonyProfessional.display_name(),
+            "Sony Professional"
+        );
+
+        assert_eq!(format!("{}", ProfileGroup::GenericVisca), "Generic VISCA");
+        assert_eq!(format!("{}", ProfileGroup::PtzOpticsG2), "PtzOptics Series");
+    }
+
+    #[test]
+    fn test_profile_group_transport_support() {
+        // All profile groups support all transports
+        for group in &[
+            ProfileGroup::GenericVisca,
+            ProfileGroup::PtzOpticsG2,
+            ProfileGroup::SonyProfessional,
+        ] {
+            assert!(group.supports_tcp());
+            assert!(group.supports_udp());
+            assert!(group.supports_serial());
+        }
+    }
+
+    #[test]
+    fn test_profile_group_encapsulation() {
+        assert!(!ProfileGroup::GenericVisca.uses_sony_encapsulation());
+        assert!(!ProfileGroup::PtzOpticsG2.uses_sony_encapsulation());
+        assert!(ProfileGroup::SonyProfessional.uses_sony_encapsulation());
+    }
+
+    #[test]
+    fn test_profile_transport_support() {
+        // All profiles support all transports
+        for profile in ProfileId::all() {
+            assert!(profile.supports_tcp());
+            assert!(profile.supports_udp());
+            assert!(profile.supports_serial());
+        }
+    }
+
+    #[test]
+    fn test_profile_vendor() {
+        assert_eq!(ProfileId::PtzOpticsG2.vendor(), "PtzOptics");
+        assert_eq!(ProfileId::PtzOpticsG3.vendor(), "PtzOptics");
+        assert_eq!(ProfileId::PtzOptics30X.vendor(), "PtzOptics");
+
+        assert_eq!(ProfileId::SonyFr7.vendor(), "Sony");
+        assert_eq!(ProfileId::SonyBrcH900.vendor(), "Sony");
+        assert_eq!(ProfileId::SonyEviH100.vendor(), "Sony");
+        assert_eq!(ProfileId::SonyBrc300.vendor(), "Sony");
+
+        assert_eq!(ProfileId::NearusBrc300.vendor(), "Nearus");
+        assert_eq!(ProfileId::GenericVisca.vendor(), "Generic");
+    }
+
+    #[test]
+    fn test_profile_description() {
+        let desc = ProfileId::SonyFr7.description();
+        assert!(desc.contains("Professional"));
+        assert!(desc.contains("ND filter"));
+
+        let desc = ProfileId::PtzOpticsG2.description();
+        assert!(desc.contains("20x"));
+        assert!(desc.contains("90 presets"));
+
+        let desc = ProfileId::GenericVisca.description();
+        assert!(desc.contains("Conservative"));
+    }
+
+    #[test]
+    fn test_profile_encapsulation_consistency() {
+        // Verify profile and group encapsulation match
+        for profile in ProfileId::all() {
+            let group = profile.profile_group();
+            assert_eq!(
+                profile.uses_sony_encapsulation(),
+                group.uses_sony_encapsulation(),
+                "Profile {:?} and group {:?} encapsulation mismatch",
+                profile,
+                group
+            );
+        }
     }
 }

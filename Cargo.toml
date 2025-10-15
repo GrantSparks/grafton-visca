@@ -44,6 +44,9 @@ transport-serial-tokio = ["dep:tokio-serial", "runtime-tokio"]
 serde = ["dep:serde", "dep:serde_json", "dep:serde_with"]
 schemars = ["serde", "dep:schemars"]
 
+# Dynamic API features
+dyn-api = ["mode-async"]
+
 # Internal features
 test-utils = ["dep:async-executor", "dep:futures-lite"]
 DISABLED = []
