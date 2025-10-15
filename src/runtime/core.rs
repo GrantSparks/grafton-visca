@@ -7,6 +7,7 @@
 use tracing::{debug, trace, warn};
 
 use std::{
+    cell::Cell,
     cmp::Ordering as CmpOrdering,
     collections::{BinaryHeap, HashMap, VecDeque},
     time::{Duration, Instant},
@@ -501,6 +502,8 @@ pub struct SchedulerCore {
     timeout_config: TimeoutConfig,
     /// Retry configuration.
     retry_config: crate::transport::RetryConfig,
+    /// Tracks whether we've logged the idle state (zero commands in flight).
+    last_logged_idle: Cell<bool>,
     /// Commands that have been sent but not yet acknowledged.
     /// Maps command ID to (command, priority, category, sent_time, camera_id).
     pending_ack: HashMap<
@@ -574,6 +577,7 @@ impl SchedulerCore {
             sockets: Default::default(),
             timeout_config,
             retry_config,
+            last_logged_idle: Cell::new(false),
             pending_ack: HashMap::new(),
             retry_queue: BinaryHeap::new(),
             command_metadata: HashMap::new(),
@@ -632,12 +636,19 @@ impl SchedulerCore {
             );
         }
 
-        trace!(
-            "Commands in flight: {} pending ACK + {} allocated = {}/2",
-            pending_count,
-            allocated_count,
-            total_in_flight
-        );
+        // Log state transitions: always log once when going to idle, otherwise only when busy
+        if total_in_flight > 0 {
+            trace!(
+                "Commands in flight: {} pending ACK + {} allocated = {}/2",
+                pending_count,
+                allocated_count,
+                total_in_flight
+            );
+            self.last_logged_idle.set(false);
+        } else if !self.last_logged_idle.get() {
+            trace!("Commands in flight: 0 pending ACK + 0 allocated = 0/2");
+            self.last_logged_idle.set(true);
+        }
 
         // Debug assertion to check invariants
         #[cfg(debug_assertions)]
