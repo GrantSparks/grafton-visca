@@ -371,15 +371,18 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 }
 
                 // For Sony, try to use sequence to find command
-                let mut cmd_id = sequence.and_then(|seq| self.core.get_command_by_sequence(seq));
+                let cmd_id = sequence.and_then(|seq| self.core.get_command_by_sequence(seq));
 
-                // If no cmd_id and no socket, this could be an inquiry error
-                // Use resolve_inquiry_id to try to match it
+                // If no cmd_id and no socket, this is an inquiry error with no correlation info
+                // Don't use FIFO fallback - it's unreliable and causes decoder mismatches
                 if cmd_id.is_none() && basic.socket.is_none() {
-                    // For error responses, we can't use content-based matching on the error code,
-                    // but we can use FIFO from the inquiry queue
-                    use crate::command::response::payload::Payload;
-                    cmd_id = self.core.resolve_inquiry_id(Payload::new(&[]), sequence);
+                    warn!(
+                        "Inquiry error (code 0x{:02x}) with no correlation info - cannot match to specific inquiry. \
+                         This may indicate an unsupported property. Consider using property discovery.",
+                        code
+                    );
+                    // Early return - let the inquiry timeout mechanism handle retries
+                    return Ok(());
                 }
 
                 SchedulerEvent::Error {
