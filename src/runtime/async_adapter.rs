@@ -371,18 +371,12 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 }
 
                 // For Sony, try to use sequence to find command
-                let cmd_id = sequence.and_then(|seq| self.core.get_command_by_sequence(seq));
+                let mut cmd_id = sequence.and_then(|seq| self.core.get_command_by_sequence(seq));
 
-                // If no cmd_id and no socket, this is an inquiry error with no correlation info
-                // Don't use FIFO fallback - it's unreliable and causes decoder mismatches
+                // If no cmd_id and no socket, try to resolve inquiry via core (FIFO fallback)
                 if cmd_id.is_none() && basic.socket.is_none() {
-                    warn!(
-                        "Inquiry error (code 0x{:02x}) with no correlation info - cannot match to specific inquiry. \
-                         This may indicate an unsupported property. Consider using property discovery.",
-                        code
-                    );
-                    // Early return - let the inquiry timeout mechanism handle retries
-                    return Ok(());
+                    use crate::command::response::payload::Payload;
+                    cmd_id = self.core.resolve_inquiry_id(Payload::new(&[]), sequence);
                 }
 
                 SchedulerEvent::Error {
@@ -590,5 +584,90 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
         let (tx, rx) = flume::unbounded();
         self.completion_subscribers.push(tx);
         rx
+    }
+}
+
+#[cfg(all(test, feature = "test-utils"))]
+#[allow(clippy::unwrap_used, clippy::panic, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::{
+        camera::profiles::PtzOpticsG2,
+        command::{bytes::VISCA_TERMINATOR, encode::EncodedCommand, CommandKind},
+        testing::testkit::deterministic_executor::DeterministicExecutor,
+    };
+    use smallvec::SmallVec;
+    use std::sync::Arc;
+
+    /// Test that async adapter delegates unattributed errors to SchedulerCore for FIFO attribution.
+    ///
+    /// This test verifies the fix for issue #428: when an error frame arrives with no socket
+    /// and no sequence number (common for raw VISCA inquiry errors), the async adapter should
+    /// use SchedulerCore's resolve_inquiry_id method to attribute the error via FIFO fallback,
+    /// rather than dropping the error.
+    #[test]
+    fn test_async_error_without_socket_attributes_to_inflight_inquiry() {
+        // Create deterministic executor for testing
+        let (executor, _clock) = DeterministicExecutor::new();
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = RetryConfig::default();
+
+        let mut adapter =
+            AsyncAdapter::<PtzOpticsG2, _>::new(timeout_config, retry_config, executor.clone());
+
+        let camera_id = CameraId::CAMERA_1;
+
+        // Start an inquiry (front of FIFO queue)
+        let inq = Arc::new(EncodedCommand {
+            payload: SmallVec::from_slice(&[0x81, 0x09, 0x04, 0x35, VISCA_TERMINATOR]), // WB Mode Inquiry
+            kind: CommandKind::Inquiry,
+            category: CommandCategory::Quick,
+            response_type: Some(InquiryKind::Power),
+        });
+
+        // Simulate the inquiry being sent and tracked
+        adapter.core.start_inquiry(
+            42,
+            inq.clone(),
+            Priority::Normal,
+            CommandCategory::Quick,
+            camera_id,
+            CommandKind::Inquiry,
+            executor.now(),
+        );
+
+        // Create a response channel for this inquiry
+        let (response_tx, response_rx) = flume::unbounded();
+        adapter.response_channels.insert(42, response_tx);
+
+        // Simulate an inquiry-style error without socket or sequence: 90 60 EE FF
+        // This is the packet shape that was previously dropped by async_adapter
+        let error_payload = vec![0x90, 0x60, 0x41, VISCA_TERMINATOR]; // Error code 0x41
+
+        // Process the error response (no sequence number)
+        let result = executor.block_on(adapter.process_response(&error_payload, None));
+        assert!(result.is_ok(), "process_response should succeed");
+
+        // Verify the inquiry received the error (not a timeout)
+        let response_result = response_rx.try_recv();
+        assert!(
+            response_result.is_ok(),
+            "Inquiry should receive error immediately, not timeout"
+        );
+
+        match response_result.unwrap() {
+            Err(Error::CommandNotExecutable) => {
+                // Success! The error was properly attributed to the inquiry
+            }
+            other => panic!("Expected CommandNotExecutable error, got: {:?}", other),
+        }
+
+        // Verify metrics were updated
+        let metrics = adapter.metrics_summary();
+        assert_eq!(metrics.commands_failed, 1, "Should have 1 failed command");
+        assert_eq!(
+            metrics.protocol_errors, 1,
+            "Should have 1 protocol error tracked"
+        );
     }
 }
