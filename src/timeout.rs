@@ -38,10 +38,10 @@ impl CommandCategory {
         match self {
             Self::Quick => Duration::from_secs(5), // Increased from 2s for network delays
             Self::Movement => Duration::from_secs(30), // Increased from 10s for full-range movements
-            Self::Preset => Duration::from_secs(90),   // Increased from 60s for complex presets
+            Self::Preset => Duration::from_secs(60), // Reduced from 90s to prevent excessive waits
             Self::LongRunning => Duration::from_secs(300), // Keep at 5 minutes for discovery
-            Self::Network => Duration::from_secs(5),   // Increased from 2s for network operations
-            Self::Custom => Duration::from_secs(60),   // Increased from 30s as general fallback
+            Self::Network => Duration::from_secs(5), // Increased from 2s for network operations
+            Self::Custom => Duration::from_secs(60), // Increased from 30s as general fallback
         }
     }
 }
@@ -130,7 +130,7 @@ impl Default for TimeoutConfig {
             ack_timeout: Duration::from_millis(500), // Default ACK timeout as specified in epic
             quick_timeout: Duration::from_secs(5),   // Increased for network delays
             movement_timeout: Duration::from_secs(30), // Increased for full-range movements
-            preset_timeout: Duration::from_secs(90), // Increased for complex presets
+            preset_timeout: Duration::from_secs(60), // Reduced from 90s to prevent excessive waits
             long_timeout: Duration::from_secs(300),  // Keep at 5 minutes for discovery
             network_timeout: Duration::from_secs(5), // Increased for network operations
             default_timeout: Duration::from_secs(60), // Increased as general fallback
@@ -260,7 +260,7 @@ mod tests {
         );
         assert_eq!(
             CommandCategory::Preset.default_timeout(),
-            Duration::from_secs(90)
+            Duration::from_secs(60)
         );
         assert_eq!(
             CommandCategory::LongRunning.default_timeout(),
@@ -282,7 +282,7 @@ mod tests {
         assert_eq!(config.ack_timeout, Duration::from_millis(500));
         assert_eq!(config.quick_timeout, Duration::from_secs(5));
         assert_eq!(config.movement_timeout, Duration::from_secs(30));
-        assert_eq!(config.preset_timeout, Duration::from_secs(90));
+        assert_eq!(config.preset_timeout, Duration::from_secs(60));
         assert_eq!(config.long_timeout, Duration::from_secs(300));
         assert_eq!(config.network_timeout, Duration::from_secs(5));
         assert_eq!(config.default_timeout, Duration::from_secs(60));
@@ -314,7 +314,7 @@ mod tests {
         );
         assert_eq!(
             config.get_timeout(CommandCategory::Preset),
-            Duration::from_secs(90)
+            Duration::from_secs(60)
         );
         assert_eq!(
             config.get_timeout(CommandCategory::LongRunning),

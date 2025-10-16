@@ -543,7 +543,7 @@ impl Error {
     /// the operation, or `None` if the error is not retryable.
     ///
     /// The suggested delays are based on typical camera response times:
-    /// - `CameraBusy`: 100ms (camera is processing)
+    /// - `CameraBusy`: 200ms (camera is processing)
     /// - `CommandPending`: 50ms (command acknowledged, waiting for completion)
     /// - `CameraMoving`: 500ms (mechanical movement in progress)
     /// - `CommandTimeout`: 1s (previous timeout, try with longer duration)
@@ -558,7 +558,7 @@ impl Error {
     ///
     /// let error = Error::CameraBusy;
     /// if let Some(delay) = error.suggested_retry_delay() {
-    ///     assert_eq!(delay, Duration::from_millis(100));
+    ///     assert_eq!(delay, Duration::from_millis(200));
     ///     std::thread::sleep(delay);
     ///     // Retry the operation...
     /// }
@@ -566,7 +566,7 @@ impl Error {
     #[must_use]
     pub fn suggested_retry_delay(&self) -> Option<Duration> {
         match self {
-            Self::CameraBusy => Some(Duration::from_millis(100)),
+            Self::CameraBusy => Some(Duration::from_millis(200)),
             Self::CommandPending => Some(Duration::from_millis(50)),
             Self::CameraMoving { .. } => Some(Duration::from_millis(500)),
             Self::CommandTimeout { .. } => Some(Duration::from_secs(1)),
@@ -798,7 +798,7 @@ mod tests {
     fn test_suggested_retry_delay() {
         assert_eq!(
             Error::CameraBusy.suggested_retry_delay(),
-            Some(Duration::from_millis(100))
+            Some(Duration::from_millis(200))
         );
         assert_eq!(
             Error::CameraMoving { pan: 100, tilt: 50 }.suggested_retry_delay(),
@@ -919,7 +919,7 @@ mod tests {
         assert!(contextual.is_retryable());
         assert_eq!(
             contextual.suggested_retry_delay(),
-            Some(Duration::from_millis(100))
+            Some(Duration::from_millis(200))
         );
 
         // Test with non-retryable error
@@ -976,7 +976,7 @@ mod tests {
         assert!(contextual2.is_retryable());
         assert_eq!(
             contextual2.suggested_retry_delay(),
-            Some(Duration::from_millis(100))
+            Some(Duration::from_millis(200))
         );
 
         // Message format
@@ -990,7 +990,7 @@ mod tests {
     fn test_with_context_all_retryable_types() {
         // Test all retryable error types preserve their retry metadata
         let retryable_errors = vec![
-            (Error::CameraBusy, Duration::from_millis(100)),
+            (Error::CameraBusy, Duration::from_millis(200)),
             (
                 Error::CameraMoving { pan: 0, tilt: 0 },
                 Duration::from_millis(500),

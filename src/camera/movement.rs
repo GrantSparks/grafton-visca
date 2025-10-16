@@ -441,7 +441,7 @@ where
         };
 
         // Sleep briefly to allow state to change between samples
-        std::thread::sleep(Duration::from_millis(1));
+        std::thread::sleep(Duration::from_millis(5));
 
         // Get second reading
         let pos2_pt_response = self.send_command(&PanTiltPositionInquiry).block()?;
@@ -922,7 +922,7 @@ where
         };
 
         // Yield to scheduler
-        self.sleep(Duration::from_millis(1)).await;
+        self.sleep(Duration::from_millis(5)).await;
 
         // Get second reading
         let pos2_pt_response = self.send_command(&PanTiltPositionInquiry).await?;
