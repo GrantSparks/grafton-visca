@@ -81,6 +81,46 @@ Please:
 * **Type‑safe camera profiles:** Profiles compile in protocol envelope (Raw VISCA vs Sony encapsulation) and defaults (ports/behaviors). Accessors/controls are provided based on capabilities.&#x20;
 * **Transports:** TCP/UDP (blocking and async) plus serial (blocking and async‑Tokio). Serial adds VISCA I/F Clear and Address Set orchestration in the transport.&#x20;
 * **Ergonomics:** One‑line `Connect::open_*` helpers, a builder for advanced configuration, and a blocking wrapper with direct `Result` returns.&#x20;
+* **Modern conveniences (0.8.0+):** Optional serialization (serde/schemars), built-in inquiry conversions, canonical speed mapping, direct f64 usage, diagnostics module, and 26+ new convenience methods—eliminating hundreds of lines of downstream boilerplate.&#x20;
+* **Protocol correctness:** VISCA-spec validated protocol fixes, proper inquiry type safety (i8 for tuning offsets, typed wrappers for levels), and baseline VISCA API normalization.&#x20;
+* **Performance:** Zero-allocation send path (0 heap allocations for standard commands), type-safe operation handles for async cancellation, and efficient protocol framing.&#x20;
+
+---
+
+## What's New in 0.8.0
+
+Version 0.8.0 brings powerful ergonomic improvements and protocol correctness fixes while maintaining backward compatibility:
+
+### 🎯 Ergonomic Improvements
+- **Direct f64 usage**: No more manual casts! `Degrees(45.0)` instead of `Degrees(45.0 as f32)`
+- **Canonical speed mapping**: Built-in `Coarse` speed levels (Slowest → Fastest) with `from_coarse()` methods
+- **Built-in inquiry conversions**: Direct methods like `pos.as_degrees()` and `zoom.normalized_optical()`
+- **26+ new convenience methods**: Common operations like `set_image_flip()`, `set_contrast()`, etc.
+- **Profile dispatch helpers**: `ProfileId::profile_group()` eliminates ~218 lines of boilerplate
+- **Diagnostics module**: `ping()`, `probe()`, and `measure_latency()` for health checks
+
+### ✨ Optional Serialization Support
+```rust
+// Enable serde support for all types
+grafton-visca = { version = "0.8", features = ["serde", "schemars"] }
+
+// Now all types serialize directly - no wrapper code needed!
+let speed = PanSpeed::new(12)?;
+let json = serde_json::to_string(&speed)?;  // Works!
+```
+
+### 🐛 Protocol Correctness Fixes
+- **AWB sensitivity inquiry**: Fixed inverted mapping to match VISCA specification
+- **Tally APIs**: Normalized to baseline VISCA (use `tally_red()` / `tally_green()`)
+- **Inquiry type safety**: Red/blue tuning now correctly use `i8` (was `u8`)
+
+### 🚀 Performance & API Enhancements
+- **Zero-allocation send path**: 0 heap allocations for standard VISCA commands (was 2)
+- **Type-safe operation handles**: `InFlight<C>` for async cancellation and completion tracking
+- **Error context**: Add context to errors while preserving retry intelligence
+- **Enhanced types**: New `GammaLevel`, `NoiseReductionLevel` typed wrappers
+
+**Most users can upgrade with zero code changes.** See [CHANGELOG.md](CHANGELOG.md) for detailed migration guide and examples.
 
 ---
 
@@ -92,14 +132,21 @@ Please:
 
 ```toml
 [dependencies]
-grafton-visca = "0.7"
+grafton-visca = "0.8"
+```
+
+**With serialization support (new in 0.8.0):**
+
+```toml
+[dependencies]
+grafton-visca = { version = "0.8", features = ["serde", "schemars"] }
 ```
 
 **Async core + runtime (Tokio shown):**
 
 ```toml
 [dependencies]
-grafton-visca = { version = "0.7", features = ["mode-async", "runtime-tokio"] }
+grafton-visca = { version = "0.8", features = ["mode-async", "runtime-tokio"] }
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -107,24 +154,24 @@ tokio = { version = "1", features = ["full"] }
 
 ```toml
 # async-std
-grafton-visca = { version = "0.7", features = ["mode-async", "runtime-async-std"] }
+grafton-visca = { version = "0.8", features = ["mode-async", "runtime-async-std"] }
 async-std = { version = "1", features = ["attributes"] }
 
 # smol
-grafton-visca = { version = "0.7", features = ["mode-async", "runtime-smol"] }
+grafton-visca = { version = "0.8", features = ["mode-async", "runtime-smol"] }
 smol = "1"
 ```
 
 **Serial (blocking):**
 
 ```toml
-grafton-visca = { version = "0.7", features = ["transport-serial"] }
+grafton-visca = { version = "0.8", features = ["transport-serial"] }
 ```
 
 **Serial (async, Tokio):**
 
 ```toml
-grafton-visca = { version = "0.7", features = ["mode-async", "runtime-tokio", "transport-serial-tokio"] }
+grafton-visca = { version = "0.8", features = ["mode-async", "runtime-tokio", "transport-serial-tokio"] }
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -140,6 +187,8 @@ Feature names and defaults are defined in `Cargo.toml` (`default = []`, `mode-as
 | `runtime-smol`           |    No    | smol adapters/executor             |      No      | Implies `mode-async`.                          |
 | `transport-serial`       |    No    | **Blocking** serial transport      |      No      | RS‑232/422; I/F Clear & Address Set options.   |
 | `transport-serial-tokio` |    No    | **Async (Tokio)** serial transport |      No      | Requires `mode-async` + `runtime-tokio`.       |
+| `serde` _(new in 0.8)_   |    No    | Serde serialization for all types  |      No      | Enables `Serialize`/`Deserialize` derives.     |
+| `schemars` _(new in 0.8)_|    No    | JSON Schema generation             |      No      | Enables `JsonSchema` derives for API docs.     |
 | `test-utils`             |    No    | Internal test helpers              |      No      | Dev/test only.                                 |
 
 > **Canonical serial flags:** use `transport-serial` (blocking) or `transport-serial-tokio` (async). These exact names appear in `Cargo.toml`.&#x20;
@@ -155,15 +204,22 @@ The blocking API exposes a convenience wrapper that returns `Result` directly (n
 ```rust
 use grafton_visca::camera::Connect;
 use grafton_visca::profiles::PtzOpticsG2; // or GenericVisca
+use grafton_visca::units::Degrees;
+use grafton_visca::types::SpeedLevel;
 
 fn main() -> Result<(), grafton_visca::Error> {
     // port omitted -> profile default is used
-    let mut cam = Connect::open_udp_blocking::<PtzOpticsG2>("192.168.0.110")?;
-    // high-level blocking helpers:
+    let mut cam = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
+
+    // High-level blocking helpers with ergonomic types (0.8.0+)
     cam.power_on()?;
-    cam.zoom_tele_std()?;
+    cam.pan_tilt_absolute(Degrees(45.0), Degrees(15.0), SpeedLevel::Fast)?;  // Direct f64!
+
+    // Built-in inquiry conversions (0.8.0+)
     let pos = cam.pan_tilt_position()?;
-    println!("PT position: {:?}", pos);
+    let (pan_deg, tilt_deg) = pos.as_degrees();  // No manual conversion needed!
+    println!("PT position: {:.1}°, {:.1}°", pan_deg.0, tilt_deg.0);
+
     cam.close()?;
     Ok(())
 }
@@ -179,22 +235,30 @@ fn main() -> Result<(), grafton_visca::Error> {
 Enable `mode-async` and your runtime feature. Pass an executor to the async open helpers:
 
 ```rust
-use grafton_visca::camera::{Connect, CameraBuilder};
-use grafton_visca::profiles::GenericVisca;
-use grafton_visca::executor::TokioExecutor;
+use grafton_visca::camera::Connect;
+use grafton_visca::profiles::PtzOpticsG2;
+use grafton_visca::runtime::TokioRuntime;
+use grafton_visca::units::Degrees;
+use grafton_visca::types::SpeedLevel;
 
 #[tokio::main]
 async fn main() -> Result<(), grafton_visca::Error> {
-    // One-liner helper (TCP/UDP are available)
-    let exec = TokioExecutor::from_current()?; // runtime adapter
-    let cam = CameraBuilder::with_executor(exec)
-        .open_async::<GenericVisca, _>(grafton_visca::transport::tokio::Tcp::connect("192.168.0.110").await?)
-        .await?; // camera session
+    // One-liner async connection
+    let runtime = TokioRuntime::from_current()?;
+    let cam = Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
 
     // Accessors are mode-unified
-    cam.power().power_on().await?;
-    let pos = cam.pan_tilt().pan_tilt_position().await?;
-    println!("PT position: {:?}", pos);
+    cam.power().on().await?;
+    cam.pan_tilt_absolute(Degrees(45.0), Degrees(15.0), SpeedLevel::Fast).await?;
+
+    // Built-in inquiry conversions (0.8.0+)
+    let pos = cam.pan_tilt_position().await?;
+    let (pan_deg, tilt_deg) = pos.as_degrees();
+    println!("PT position: {:.1}°, {:.1}°", pan_deg.0, tilt_deg.0);
+
+    // NEW in 0.8.0: Type-safe operation handles
+    let handle = cam.pan_tilt_home_op().await?;
+    handle.await_completion(std::time::Duration::from_secs(5)).await?;
 
     cam.close().await?;
     Ok(())
@@ -414,7 +478,9 @@ cargo test --features "mode-async,runtime-tokio,transport-serial-tokio"
 
 ## Performance Notes
 
+* **Zero-allocation send path (0.8.0+)**: Standard VISCA commands (≤24 bytes) use stack-allocated buffers with `SmallVec`, eliminating all heap allocations in the hot path (2 allocations → 0).
 * **Send‑safe, zero‑cost futures** for async accessors over a single unified camera type.&#x20;
+* **Type-safe operation handles (0.8.0+)**: `InFlight<C>` provides zero-cost abstraction for async cancellation and completion tracking using ZST markers.
 * **Configurable buffering/retries** via transport config: connect/read/write timeouts, retry policy, and `tcp_nodelay`.
 * **Efficient framing/envelope**: Sony encapsulation sequence numbers are verified for uniqueness under concurrency.&#x20;
 
@@ -422,11 +488,12 @@ cargo test --features "mode-async,runtime-tokio,transport-serial-tokio"
 
 ## Troubleshooting / FAQ
 
-* **“It compiles but nothing happens on UDP!”** UDP is connectionless; lack of replies will surface as timeouts. Prefer TCP unless UDP is required.
-* **“Which port do I use?”** If you omit the port, helpers use the profile’s default (raw VISCA: TCP **5678** / UDP **1259**; Sony encapsulation: **52381**).&#x20;
-* **“Async example says no executor/runtime.”** Ensure you enabled `mode-async` and a `runtime-*` feature and pass the executor adapter to `open_*_async`.&#x20;
-* **“Serial doesn’t connect.”** Confirm port, permissions, and baud; async serial requires `mode-async + runtime-tokio + transport-serial-tokio`. The example prints targeted guidance.&#x20;
-* **“Camera busy / buffer full.”** Use a retry loop; errors include retryability and suggested delay (see scripted transport error injection for mapping).&#x20;
+* **"It compiles but nothing happens on UDP!"** UDP is connectionless; lack of replies will surface as timeouts. Prefer TCP unless UDP is required.
+* **"Which port do I use?"** If you omit the port, helpers use the profile's default (raw VISCA: TCP **5678** / UDP **1259**; Sony encapsulation: **52381**).&#x20;
+* **"Async example says no executor/runtime."** Ensure you enabled `mode-async` and a `runtime-*` feature and pass the executor adapter to `open_*_async`.&#x20;
+* **"Serial doesn't connect."** Confirm port, permissions, and baud; async serial requires `mode-async + runtime-tokio + transport-serial-tokio`. The example prints targeted guidance.&#x20;
+* **"Camera busy / buffer full."** Use a retry loop; errors include retryability and suggested delay (see scripted transport error injection for mapping).&#x20;
+* **"How can I check if the camera is online?" (0.8.0+)** Use the diagnostics module: `camera.ping().await?` for quick check, or `camera.probe().await?` for detailed health report with RTT measurements.&#x20;
 
 > **Safety:** PTZ motion physically moves hardware. Ensure clearances and a safe operating area before issuing movement commands.
 

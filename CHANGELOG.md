@@ -7,9 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.8.0] - (Unreleased)
 
-This release focuses on eliminating downstream boilerplate, completing runtime-agnostic modernization, enhancing protocol correctness, and improving the ergonomics of camera control. The library now provides feature-gated serialization, intuitive unit conversions, comprehensive diagnostic utilities, uniform transport handling, and spec-validated protocol fixes—all without forcing users into a specific async runtime.
+### 📋 What's New in 0.8.0 - Quick Overview
+
+**TL;DR**: This release adds powerful ergonomic features, fixes protocol compliance issues, and eliminates the need for downstream wrapper code—all while maintaining backward compatibility for most use cases. **Most users can upgrade with minimal to no code changes.**
+
+**Key Highlights:**
+- ✨ **Optional Serialization**: Add `features = ["serde", "schemars"]` to serialize all types (eliminates ~150 lines of wrapper code)
+- 🎯 **Better Ergonomics**: Direct f64 usage, built-in speed mapping, rich inquiry conversions, 26+ new convenience methods
+- 🐛 **Protocol Fixes**: Corrected AWB sensitivity inquiry (was inverted), normalized tally APIs to baseline VISCA
+- 🚀 **Performance**: Zero-allocation send path (2 allocations → 0 for standard commands)
+- 🔧 **API Enhancements**: Type-safe operation handles, profile dispatch helpers, error context with retry intelligence
+- 🛡️ **Type Safety**: Inquiry type fixes (red/blue tuning now correctly i8, new typed wrappers for gamma/noise reduction)
+
+### ⚡ Do I Need to Migrate?
+
+**Quick Decision Tree:**
+
+1. **Are you using `auto_wb_sensitivity()` inquiry or `tally_status()` methods?**
+   - → **YES**: Required changes (see Breaking Changes below)
+   - → **NO**: Continue to #2
+
+2. **Are you pattern-matching on `TransportHandle` or `ErrorKind`?**
+   - → **YES**: Minor changes needed (add wildcard patterns)
+   - → **NO**: Continue to #3
+
+3. **Do you want to use new features (serialization, diagnostics, better ergonomics)?**
+   - → **YES**: Opt-in via features and new APIs (see New Features below)
+   - → **NO**: **You're done! No migration needed.**
 
 ### 🎯 Philosophy: Runtime-Agnostic Modernization & Protocol Correctness
+
+This release focuses on eliminating downstream boilerplate, completing runtime-agnostic modernization, enhancing protocol correctness, and improving the ergonomics of camera control. The library now provides feature-gated serialization, intuitive unit conversions, comprehensive diagnostic utilities, uniform transport handling, and spec-validated protocol fixes—all without forcing users into a specific async runtime.
 
 The central achievement is adding powerful ergonomic features that previously required custom downstream wrappers while ensuring strict VISCA specification compliance. The library now ships with feature-gated serialization, intuitive unit conversions, diagnostic utilities, uniform transport handling (including serial), enhanced error types, and spec-validated protocol corrections—all without forcing users into a specific async runtime.
 
@@ -992,7 +1020,9 @@ assert_eq!(speed.value(), 15);
 let schema = schemars::schema_for!(PanSpeed);
 ```
 
-### 🔄 Breaking Changes
+### 🔥 Breaking Changes (Action Required)
+
+> **Note**: These are the ONLY breaking changes in 0.8.0. If you're not using these specific APIs, you can upgrade without any code changes.
 
 #### Protocol Correctness Fixes (Behavioral)
 These fixes correct protocol violations and may change observed behavior:
@@ -1067,7 +1097,282 @@ Module imports have been reorganized for consistency:
 // If using deep imports, verify import paths
 ```
 
-### 🎓 Migration Strategy
+### ✅ Quick Migration Checklist
+
+**Follow these steps to upgrade from 0.7.1 to 0.8.0:**
+
+#### Step 1: Update Dependencies (Required)
+```toml
+[dependencies]
+# Update version
+grafton-visca = "0.8"
+
+# Optional: Enable new serialization features
+grafton-visca = { version = "0.8", features = ["serde", "schemars"] }
+```
+
+#### Step 2: Fix Breaking Changes (If Applicable)
+
+**Only if you use AWB sensitivity inquiry:**
+```rust
+// Old (0.7.1): Values were inverted
+let sens = camera.auto_wb_sensitivity()?;
+// If you had compensation logic, REMOVE it
+
+// New (0.8.0): Values are correct
+let sens = camera.auto_wb_sensitivity()?;
+// Now works correctly without compensation
+```
+
+**Only if you use tally status methods:**
+```rust
+// Old (0.7.1): Vendor-specific
+camera.tally_status()?;
+
+// New (0.8.0): Baseline VISCA
+camera.tally_red()?;     // Standard
+camera.tally_green()?;   // FR7 extension
+```
+
+**Only if you pattern-match TransportHandle:**
+```rust
+// Add Serial variant to your match:
+match transport {
+    TransportHandle::Udp(t) => { /* ... */ }
+    TransportHandle::Tcp(t) => { /* ... */ }
+    #[cfg(feature = "transport-serial")]
+    TransportHandle::Serial(t) => { /* ... */ }  // ADD THIS
+}
+```
+
+**Only if you exhaustively match ErrorKind:**
+```rust
+// Add wildcard to your match:
+match error.kind() {
+    ErrorKind::Timeout => { /* ... */ }
+    _ => { /* ... */ }  // ADD THIS (ErrorKind is now #[non_exhaustive])
+}
+```
+
+#### Step 3: Test Your Application
+```bash
+# Run your tests
+cargo test
+
+# Run clippy to catch any issues
+cargo clippy
+```
+
+#### Step 4: Adopt New Features (Optional)
+
+**Enable serialization for your types:**
+```toml
+[dependencies]
+grafton-visca = { version = "0.8", features = ["serde"] }
+```
+
+**Use new convenience methods:**
+```rust
+// Direct f64 usage (no more casts!)
+camera.pan_tilt_absolute(Degrees(45.0), Degrees(15.0), SpeedLevel::Fast)?;
+
+// Coarse speed mapping
+let speed = ZoomSpeed::from_coarse(Coarse::Medium);
+
+// Direct inquiry conversions
+let pos = camera.pan_tilt_position()?;
+let (pan_deg, tilt_deg) = pos.as_degrees();  // Built-in conversion!
+
+// Diagnostics
+use grafton_visca::diagnostics::Diagnostics;
+let healthy = camera.ping().await?;
+```
+
+**Use profile dispatch (eliminates boilerplate):**
+```rust
+use grafton_visca::camera::profiles::ProfileGroup;
+
+// Old (0.7.1): ~218 lines of custom dispatch code
+// ...custom ProfileGroup trait and implementations...
+
+// New (0.8.0): Built-in!
+let group = profile_id.profile_group();
+match group {
+    ProfileGroup::GenericVisca => { /* ... */ }
+    ProfileGroup::PtzOpticsG2 => { /* ... */ }
+    ProfileGroup::SonyProfessional => { /* ... */ }
+}
+```
+
+### 🔍 Real-World Migration Examples
+
+These examples show actual code changes (or lack thereof) when migrating from 0.7.1 to 0.8.0:
+
+#### Example 1: Basic Camera Control (NO CHANGES NEEDED ✅)
+
+```rust
+// This code works in BOTH 0.7.1 and 0.8.0 without changes!
+
+use grafton_visca::{
+    camera::{profiles::PtzOpticsG2, Connect},
+    types::SpeedLevel,
+    units::{Degrees, Normalized},
+    Error,
+};
+
+fn main() -> Result<(), Error> {
+    let camera = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
+
+    camera.pan_tilt_home()?;
+    camera.zoom_absolute(Normalized(0.5))?;
+    camera.preset_recall(PresetNumber::new(1)?)?;
+
+    Ok(())
+}
+// ✅ Works in 0.7.1 and 0.8.0 identically
+```
+
+#### Example 2: Better Ergonomics in 0.8.0 (OPTIONAL IMPROVEMENTS 🎯)
+
+```rust
+// 0.7.1: Manual casting required
+camera.pan_tilt_absolute(
+    Degrees(45.0 as f32),  // 👈 Manual cast needed
+    Degrees(15.0 as f32),  // 👈 Manual cast needed
+    SpeedLevel::Fast
+)?;
+
+// 0.8.0: Direct f64 usage (still supports old code too!)
+camera.pan_tilt_absolute(
+    Degrees(45.0),  // ✨ No cast needed!
+    Degrees(15.0),  // ✨ No cast needed!
+    SpeedLevel::Fast
+)?;
+```
+
+```rust
+// 0.7.1: Custom speed mapping in your code
+let zoom_speed = match user_pref {
+    UserSpeed::Slow => ZoomSpeed::new(2)?,
+    UserSpeed::Medium => ZoomSpeed::new(4)?,
+    UserSpeed::Fast => ZoomSpeed::new(6)?,
+};
+
+// 0.8.0: Built-in canonical mapping
+let zoom_speed = ZoomSpeed::from_coarse(Coarse::Medium);  // → 4
+```
+
+#### Example 3: Inquiry with Conversions (NEW BUILT-IN HELPERS 🚀)
+
+```rust
+// 0.7.1: Manual conversion math
+let pos = camera.pan_tilt_position()?;
+let pan_degrees = (pos.pan as f32) * 170.0 / 2448.0;
+let tilt_degrees = /* complex asymmetric calculation */;
+
+// 0.8.0: Built-in conversion methods
+let pos = camera.pan_tilt_position()?;
+let (pan_deg, tilt_deg) = pos.as_degrees();  // ✨ Direct conversion!
+println!("Pan: {:.1}°, Tilt: {:.1}°", pan_deg.0, tilt_deg.0);
+```
+
+```rust
+// 0.7.1: Manual normalization with constants
+let zoom = camera.zoom_position()?;
+let normalized = (zoom.value() as f32) / 0x4000 as f32;
+
+// 0.8.0: Domain-aware normalization
+let zoom = camera.zoom_position()?;
+let optical_norm = zoom.normalized_optical();      // ✨ 0.0-1.0 in optical range
+let combined_norm = zoom.normalized_combined();    // ✨ 0.0-1.0 in full range
+```
+
+#### Example 4: Serialization (NEW OPTIONAL FEATURE ✨)
+
+```rust
+// 0.7.1: Had to create wrapper types for serialization
+#[derive(Serialize, Deserialize)]
+pub struct CameraPosition {
+    pan: f64,      // Custom wrapper
+    tilt: f64,     // Custom wrapper
+    zoom: f64,     // Custom wrapper
+}
+
+impl From<ViscaPosition> for CameraPosition {
+    fn from(pos: ViscaPosition) -> Self {
+        // ~50 lines of conversion code...
+    }
+}
+
+// 0.8.0: Direct serialization with serde feature
+use grafton_visca::types::{PanPosition, TiltPosition, ZoomPosition};
+
+#[derive(Serialize, Deserialize)]  // ✨ Works directly!
+pub struct CameraPosition {
+    pan: PanPosition,     // Serializes directly
+    tilt: TiltPosition,   // Serializes directly
+    zoom: ZoomPosition,   // Serializes directly
+}
+// No conversion code needed!
+```
+
+#### Example 5: Error Handling (IMPROVED IN 0.8.0 🛡️)
+
+```rust
+// 0.7.1: Basic error handling
+camera.power_on()?;  // Generic error message
+
+// 0.8.0: Rich error context (new feature)
+camera.power_on()
+    .context("Failed to power on camera for recording session")?;
+// Error: "Failed to power on camera for recording session: CommandTimeout"
+
+// Retry intelligence still preserved!
+match result {
+    Err(e) if e.is_retryable() => {
+        sleep(e.suggested_retry_delay());
+        retry()?;
+    }
+    _ => {}
+}
+```
+
+#### Example 6: Async Mode (ENHANCED IN 0.8.0 ⚡)
+
+```rust
+// 0.7.1: Basic async operations
+#[tokio::main]
+async fn main() -> Result<(), Error> {
+    use grafton_visca::runtime::TokioRuntime;
+
+    let runtime = TokioRuntime::from_current()?;
+    let camera = Connect::open_tcp_async::<PtzOpticsG2, _>(
+        "192.168.0.110",
+        runtime
+    ).await?;
+
+    camera.power().on().await?;
+    camera.zoom().tele().await?;
+
+    Ok(())
+}
+// ✅ Still works the same in 0.8.0!
+
+// 0.8.0: NEW - Typed operation handles for better control
+let handle = camera.pan_tilt_absolute_op(
+    Degrees(45.0),
+    Degrees(15.0),
+    SpeedLevel::Fast
+).await?;
+
+// Can cancel with type safety
+handle.cancel().await?;
+
+// Or wait for completion
+handle.await_completion(Duration::from_secs(5)).await?;
+```
+
+### 🎓 Detailed Migration Strategy
 
 **To adopt new features:**
 
