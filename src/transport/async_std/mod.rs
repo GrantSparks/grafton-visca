@@ -4,5 +4,15 @@
 //! All types in this module require the `runtime-async-std` feature to be enabled.
 
 pub(crate) mod connectors;
-pub mod tcp;
-pub mod udp;
+
+// Use the macro to generate TCP and UDP transport implementations
+use crate::declare_net_transport;
+
+declare_net_transport!(
+    runtime = "async_std",
+    tcp_stream = crate::transport::async_std::connectors::AsyncStdTcpStream,
+    udp_socket = async_std::net::UdpSocket,
+    tcp_connect = crate::transport::async_std::connectors::connect_tcp,
+    udp_connect = crate::transport::async_std::connectors::connect_udp,
+    tcp_split = clone
+);

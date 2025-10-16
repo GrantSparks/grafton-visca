@@ -5,5 +5,18 @@
 pub(crate) mod connectors;
 #[cfg(feature = "transport-serial-tokio")]
 pub mod serial;
-pub mod tcp;
-pub mod udp;
+
+// Use the macro to generate TCP and UDP transport implementations
+use crate::declare_net_transport;
+
+declare_net_transport!(
+    runtime = "tokio",
+    tcp_stream = crate::transport::tokio::connectors::TokioTcpStream,
+    udp_socket = tokio::net::UdpSocket,
+    tcp_connect = crate::transport::tokio::connectors::connect_tcp,
+    udp_connect = crate::transport::tokio::connectors::connect_udp,
+    tcp_split = owned {
+        reader: crate::transport::tokio::connectors::TokioBufferedReader<tokio::net::tcp::OwnedReadHalf>,
+        writer: crate::transport::tokio::connectors::TokioWriter<tokio::net::tcp::OwnedWriteHalf>
+    }
+);
