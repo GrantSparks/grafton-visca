@@ -659,9 +659,12 @@ impl TimeoutPolicy {
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod timeout_manager_tests {
+    use std::{
+        net::{TcpListener, TcpStream, UdpSocket},
+        thread,
+    };
+
     use super::*;
-    use std::net::{TcpListener, TcpStream, UdpSocket};
-    use std::thread;
 
     #[test]
     fn test_tcp_timeout_manager() {

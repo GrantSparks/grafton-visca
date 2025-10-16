@@ -13,8 +13,10 @@ use crate::{
     command::inquiry::{FocusPositionInquiry, PanTiltPositionInquiry, ZoomPositionInquiry},
     error::Error,
 };
+
 #[cfg(feature = "mode-async")]
 use crate::{executor::Executor, transport::AsyncTransport};
+
 #[cfg(not(feature = "mode-async"))]
 use crate::{mode::BlockingFutureExt, transport::BlockingTransport};
 
@@ -196,7 +198,6 @@ where
         // In blocking mode, we can't use event-driven detection with async channels
         // Users should use the async wait_for_movement method for event-driven detection
 
-        // Use state querying (works in both blocking and async modes)
         if config.debug {
             tracing::debug!("Using state-query movement detection");
         }
@@ -208,7 +209,6 @@ where
     fn wait_using_state_query(&mut self, config: &MovementConfig) -> Result<(), Error> {
         let start = Instant::now();
 
-        // Keep checking if camera is moving
         loop {
             if start.elapsed() > config.timeout {
                 if config.debug {
@@ -224,7 +224,6 @@ where
                 return Ok(());
             }
 
-            // Sleep briefly to avoid busy-waiting while polling state
             std::thread::sleep(Duration::from_millis(5));
         }
     }
@@ -238,7 +237,6 @@ where
             debug: false,
         };
 
-        // Keep checking until pan/tilt stops moving
         let start = Instant::now();
         if config.debug {
             tracing::debug!(
@@ -247,10 +245,8 @@ where
             );
         }
 
-        // Initial delay to let movement start
         std::thread::sleep(Duration::from_millis(100));
 
-        // Progressive polling intervals: start fast, then slow down
         let mut poll_interval = Duration::from_millis(100);
         let max_interval = Duration::from_millis(500);
 
@@ -259,7 +255,6 @@ where
                 return Err(Error::Timeout);
             }
 
-            // Check only pan/tilt movement
             let pos1_response = self.send_command(&PanTiltPositionInquiry).block()?;
             let (pos1_pan, pos1_tilt) = match pos1_response {
                 crate::command::Response::Inquiry(
@@ -272,7 +267,6 @@ where
                 }
             };
 
-            // Wait with progressive backoff
             std::thread::sleep(poll_interval);
 
             let pos2_response = self.send_command(&PanTiltPositionInquiry).block()?;
@@ -287,12 +281,10 @@ where
                 }
             };
 
-            // Check if position is stable (not moving)
             if (pos1_pan - pos2_pan).abs() <= 2 && (pos1_tilt - pos2_tilt).abs() <= 2 {
                 return Ok(());
             }
 
-            // Increase polling interval up to maximum
             if poll_interval < max_interval {
                 poll_interval = (poll_interval * 3 / 2).min(max_interval);
             }
@@ -308,7 +300,6 @@ where
             debug: false,
         };
 
-        // Keep checking until zoom stops moving
         let start = Instant::now();
         if config.debug {
             tracing::debug!(
@@ -321,7 +312,6 @@ where
                 return Err(Error::Timeout);
             }
 
-            // Check only zoom movement
             let pos1_response = self.send_command(&ZoomPositionInquiry).block()?;
             let pos1_zoom = match pos1_response {
                 crate::command::Response::Inquiry(crate::command::InquiryData::ZoomPosition {
@@ -340,7 +330,6 @@ where
                 _ => return Err(Error::ParseError("Expected ZoomPosition response".into())),
             };
 
-            // Check if position is stable (not moving)
             if (pos1_zoom as i32 - pos2_zoom as i32).abs() <= 10 {
                 return Ok(());
             }
@@ -356,7 +345,6 @@ where
             debug: false,
         };
 
-        // Keep checking until focus stops moving
         let start = Instant::now();
         if config.debug {
             tracing::debug!(
@@ -369,7 +357,6 @@ where
                 return Err(Error::Timeout);
             }
 
-            // Check only focus movement
             let pos1_response = self.send_command(&FocusPositionInquiry).block()?;
             let pos1_focus = match pos1_response {
                 crate::command::Response::Inquiry(crate::command::InquiryData::FocusPosition {
@@ -388,7 +375,6 @@ where
                 _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
             };
 
-            // Check if position is stable (not moving)
             if (pos1_focus as i32 - pos2_focus as i32).abs() <= 5 {
                 return Ok(());
             }
@@ -410,7 +396,6 @@ where
     ///
     /// This checks pan/tilt, zoom, and focus positions to detect movement.
     pub fn is_moving(&mut self) -> Result<bool, Error> {
-        // Get first reading using inquiry commands
         let pos1_pt_response = self.send_command(&PanTiltPositionInquiry).block()?;
         let (pos1_pan, pos1_tilt) = match pos1_pt_response {
             crate::command::Response::Inquiry(crate::command::InquiryData::PanTiltPosition {
@@ -440,10 +425,8 @@ where
             _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
         };
 
-        // Sleep briefly to allow state to change between samples
         std::thread::sleep(Duration::from_millis(5));
 
-        // Get second reading
         let pos2_pt_response = self.send_command(&PanTiltPositionInquiry).block()?;
         let (pos2_pan, pos2_tilt) = match pos2_pt_response {
             crate::command::Response::Inquiry(crate::command::InquiryData::PanTiltPosition {
@@ -473,7 +456,6 @@ where
             _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
         };
 
-        // Check for movement with reasonable tolerances
         let pt_moving = !positions_equal_within_tolerance(
             PanTiltPosition {
                 pan: pos1_pan,
@@ -483,11 +465,11 @@ where
                 pan: pos2_pan,
                 tilt: pos2_tilt,
             },
-            2, // 2 units tolerance for pan/tilt
+            2,
         );
 
-        let zoom_moving = (pos1_zoom as i32 - pos2_zoom as i32).abs() > 10; // 10 units tolerance for zoom
-        let focus_moving = (pos1_focus as i32 - pos2_focus as i32).abs() > 5; // 5 units tolerance for focus
+        let zoom_moving = (pos1_zoom as i32 - pos2_zoom as i32).abs() > 10;
+        let focus_moving = (pos1_focus as i32 - pos2_focus as i32).abs() > 5;
 
         Ok(pt_moving || zoom_moving || focus_moving)
     }
@@ -506,7 +488,6 @@ where
     /// providing instant response when movement finishes. For cameras without this
     /// support, it falls back to efficient state querying.
     pub async fn wait_for_movement_async(&self, config: &MovementConfig) -> Result<(), Error> {
-        // Check if camera supports operation complete messages
         if P::SUPPORTS_OPERATION_COMPLETE {
             if config.debug {
                 tracing::debug!(
@@ -514,8 +495,6 @@ where
                 );
             }
 
-            // Try to wait for completion message
-            // Respect MovementConfig timeout when waiting for completion
             match self.wait_for_movement_internal(config).await {
                 Ok(()) => {
                     if config.debug {
@@ -524,27 +503,21 @@ where
                     return Ok(());
                 }
                 Err(Error::NotSupported) => {
-                    // Transport doesn't support waiting for completion
                     if config.debug {
                         tracing::debug!("Transport doesn't support event-driven detection, falling back to state query");
                     }
                 }
                 Err(Error::Timeout) => {
-                    // No completion message within timeout
                     if config.debug {
                         tracing::debug!(
                             "No completion message received, falling back to state query"
                         );
                     }
                 }
-                Err(e) => {
-                    // Other error, propagate it
-                    return Err(e);
-                }
+                Err(e) => return Err(e),
             }
         }
 
-        // Fallback: Use state querying
         if config.debug {
             tracing::debug!("Using state-query movement detection");
         }
@@ -556,7 +529,6 @@ where
     async fn wait_using_state_query_async(&self, config: &MovementConfig) -> Result<(), Error> {
         let start = Instant::now();
 
-        // Keep checking if camera is moving
         loop {
             if start.elapsed() > config.timeout {
                 if config.debug {
@@ -572,8 +544,6 @@ where
                 return Ok(());
             }
 
-            // Yield to scheduler using a short sleep to avoid busy looping
-            // Keep cadence in line with blocking path (~5ms)
             self.sleep(Duration::from_millis(5)).await;
         }
     }
@@ -587,7 +557,6 @@ where
             debug: false,
         };
 
-        // Keep checking until pan/tilt stops moving
         let start = Instant::now();
         if config.debug {
             tracing::debug!(
@@ -596,10 +565,8 @@ where
             );
         }
 
-        // Initial delay to let movement start
         self.sleep(Duration::from_millis(100)).await;
 
-        // Progressive polling intervals: start fast, then slow down
         let mut poll_interval = Duration::from_millis(100);
         let max_interval = Duration::from_millis(500);
 
@@ -608,7 +575,6 @@ where
                 return Err(Error::Timeout);
             }
 
-            // Check only pan/tilt movement
             let pos1_response = self.send_command(&PanTiltPositionInquiry).await?;
             let (pos1_pan, pos1_tilt) = match pos1_response {
                 crate::command::Response::Inquiry(
@@ -621,7 +587,6 @@ where
                 }
             };
 
-            // Wait with progressive backoff
             self.sleep(poll_interval).await;
 
             let pos2_response = self.send_command(&PanTiltPositionInquiry).await?;
@@ -636,12 +601,10 @@ where
                 }
             };
 
-            // Check if position is stable (not moving)
             if (pos1_pan - pos2_pan).abs() <= 2 && (pos1_tilt - pos2_tilt).abs() <= 2 {
                 return Ok(());
             }
 
-            // Increase polling interval up to maximum
             if poll_interval < max_interval {
                 poll_interval = (poll_interval * 3 / 2).min(max_interval);
             }
@@ -657,7 +620,6 @@ where
             debug: false,
         };
 
-        // Keep checking until zoom stops moving
         let start = Instant::now();
         if config.debug {
             tracing::debug!(
@@ -670,7 +632,6 @@ where
                 return Err(Error::Timeout);
             }
 
-            // Check only zoom movement
             let pos1_response = self.send_command(&ZoomPositionInquiry).await?;
             let pos1_zoom = match pos1_response {
                 crate::command::Response::Inquiry(crate::command::InquiryData::ZoomPosition {
@@ -689,7 +650,6 @@ where
                 _ => return Err(Error::ParseError("Expected ZoomPosition response".into())),
             };
 
-            // Check if position is stable (not moving)
             if (pos1_zoom as i32 - pos2_zoom as i32).abs() <= 10 {
                 return Ok(());
             }
@@ -705,7 +665,6 @@ where
             debug: false,
         };
 
-        // Keep checking until focus stops moving
         let start = Instant::now();
         if config.debug {
             tracing::debug!(
@@ -718,7 +677,6 @@ where
                 return Err(Error::Timeout);
             }
 
-            // Check only focus movement
             let pos1_response = self.send_command(&FocusPositionInquiry).await?;
             let pos1_focus = match pos1_response {
                 crate::command::Response::Inquiry(crate::command::InquiryData::FocusPosition {
@@ -737,7 +695,6 @@ where
                 _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
             };
 
-            // Check if position is stable (not moving)
             if (pos1_focus as i32 - pos2_focus as i32).abs() <= 5 {
                 return Ok(());
             }
@@ -758,7 +715,6 @@ where
 
     /// Internal helper for movement detection that doesn't call public APIs.
     async fn wait_for_movement_internal(&self, config: &MovementConfig) -> Result<(), Error> {
-        // Check if camera supports operation complete messages
         if P::SUPPORTS_OPERATION_COMPLETE {
             if config.debug {
                 tracing::debug!(
@@ -766,11 +722,9 @@ where
                 );
             }
 
-            // Try to use event-driven approach
             match self.wait_for_movement_event_driven(config).await {
                 Ok(()) => return Ok(()),
                 Err(Error::NotSupported) => {
-                    // Fall through to polling approach
                     if config.debug {
                         tracing::debug!(
                             "Event-driven approach unavailable, falling back to polling"
@@ -781,22 +735,18 @@ where
             }
         }
 
-        // Fall back to state querying for all other cameras
         if config.debug {
             tracing::debug!("Using state-query movement detection (fallback mode)");
         }
 
         let start = Instant::now();
 
-        // Loop until timeout checking if camera has stopped moving
         while start.elapsed() < config.timeout {
-            // Check if we're still moving
             let moving = self.is_moving_async().await?;
             if !moving {
                 return Ok(());
             }
 
-            // Wait a bit before checking again
             self.sleep(Duration::from_millis(100)).await;
         }
 
@@ -807,7 +757,6 @@ where
     async fn wait_for_movement_event_driven(&self, config: &MovementConfig) -> Result<(), Error> {
         use crate::timeout::CommandCategory;
 
-        // Subscribe to completion events from the runtime
         let completion_rx = match self.runtime().subscribe_completions().await {
             Ok(rx) => rx,
             Err(_) => return Err(Error::NotSupported),
@@ -817,17 +766,13 @@ where
         let mut seen_movement_completion = false;
         let mut seen_preset_completion = false;
 
-        // Wait for completion events with timeout
         while start.elapsed() < config.timeout {
-            // Try to receive a completion event (non-blocking first)
             match completion_rx.try_recv() {
                 Ok(event) => {
-                    // Check if this is our camera
                     if event.camera_id != self.camera_id() {
                         continue;
                     }
 
-                    // Track completions by category
                     match event.category {
                         CommandCategory::Movement => {
                             seen_movement_completion = true;
@@ -844,12 +789,9 @@ where
                         _ => continue,
                     }
 
-                    // After receiving at least one relevant completion, confirm idle state
                     if seen_movement_completion || seen_preset_completion {
-                        // Give a small delay for any final settling
                         self.sleep(Duration::from_millis(50)).await;
 
-                        // Confirm the camera is actually idle
                         let is_moving = self.is_moving_async().await?;
                         if !is_moving {
                             if config.debug {
@@ -864,17 +806,12 @@ where
                     }
                 }
                 Err(flume::TryRecvError::Empty) => {
-                    // No events available right now, wait a bit
                     self.sleep(Duration::from_millis(50)).await;
                 }
-                Err(flume::TryRecvError::Disconnected) => {
-                    // Channel closed
-                    return Err(Error::NotSupported);
-                }
+                Err(flume::TryRecvError::Disconnected) => return Err(Error::NotSupported),
             }
         }
 
-        // If we saw at least one completion but never confirmed idle, that's still a timeout
         Err(Error::Timeout)
     }
 
@@ -891,7 +828,6 @@ where
 
     /// Check if the camera is currently moving (async version).
     pub async fn is_moving_async(&self) -> Result<bool, Error> {
-        // Get first reading using inquiry commands
         let pos1_pt_response = self.send_command(&PanTiltPositionInquiry).await?;
         let (pos1_pan, pos1_tilt) = match pos1_pt_response {
             crate::command::Response::Inquiry(crate::command::InquiryData::PanTiltPosition {
@@ -921,10 +857,8 @@ where
             _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
         };
 
-        // Yield to scheduler
         self.sleep(Duration::from_millis(5)).await;
 
-        // Get second reading
         let pos2_pt_response = self.send_command(&PanTiltPositionInquiry).await?;
         let (pos2_pan, pos2_tilt) = match pos2_pt_response {
             crate::command::Response::Inquiry(crate::command::InquiryData::PanTiltPosition {
@@ -954,7 +888,6 @@ where
             _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
         };
 
-        // Check for movement with reasonable tolerances
         let pt_moving = !positions_equal_within_tolerance(
             PanTiltPosition {
                 pan: pos1_pan,
@@ -964,11 +897,11 @@ where
                 pan: pos2_pan,
                 tilt: pos2_tilt,
             },
-            2, // 2 units tolerance for pan/tilt
+            2,
         );
 
-        let zoom_moving = (pos1_zoom as i32 - pos2_zoom as i32).abs() > 10; // 10 units tolerance for zoom
-        let focus_moving = (pos1_focus as i32 - pos2_focus as i32).abs() > 5; // 5 units tolerance for focus
+        let zoom_moving = (pos1_zoom as i32 - pos2_zoom as i32).abs() > 10;
+        let focus_moving = (pos1_focus as i32 - pos2_focus as i32).abs() > 5;
 
         Ok(pt_moving || zoom_moving || focus_moving)
     }

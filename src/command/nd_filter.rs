@@ -305,8 +305,8 @@ impl ViscaCommand for AutoNdCommand {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::command::bytes::VISCA_TERMINATOR;
-    use crate::macros::test_utils::visca_test;
+
+    use crate::{command::bytes::VISCA_TERMINATOR, macros::test_utils::visca_test};
 
     visca_test!(
         NdFilterMode,
@@ -358,7 +358,6 @@ mod tests {
 
     #[test]
     fn test_nd_filter_value_out_of_range() {
-        // Test out of range
         assert!(NdFilterValue::new(0x0015).is_err());
     }
 
@@ -376,7 +375,6 @@ mod tests {
             .expect("Failed to create NdFilterValue from valid stops");
         assert_eq!(cmd.value, 0x000A); // (4.5 - 2) * 4 = 10
 
-        // Test out of range
         assert!(NdFilterValue::from_stops(1.5).is_err());
         assert!(NdFilterValue::from_stops(8.0).is_err());
     }

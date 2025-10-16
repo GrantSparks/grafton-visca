@@ -5,6 +5,10 @@
 
 #![cfg(feature = "runtime-tokio")]
 
+use tokio::join;
+
+use std::time::Duration;
+
 use grafton_visca::{
     camera::{profiles::GenericVisca, CameraBuilder},
     command::{exposure::ExposureMode, focus::FocusMode, white_balance::WhiteBalanceMode},
@@ -12,9 +16,6 @@ use grafton_visca::{
     testing::camera_simulator::{SimulatorBuilder, ViscaCameraSimulator},
     ResolutionMode,
 };
-use tokio::join;
-
-use std::time::Duration;
 
 /// Test basic power inquiry through the full stack
 #[tokio::test(start_paused = true)]

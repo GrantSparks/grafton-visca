@@ -4,6 +4,8 @@
 //! including backlight compensation, noise reduction, image flip, picture effects,
 //! brightness (luminance), contrast, and sharpness adjustments.
 
+use grafton_visca_macros::ViscaEnum;
+
 use std::borrow::Cow;
 
 use crate::{
@@ -13,7 +15,6 @@ use crate::{
     types::{ContrastLevel, LuminanceLevel, NoiseReduction2DLevel, NoiseReduction3DLevel},
     visca_command,
 };
-use grafton_visca_macros::ViscaEnum;
 
 /// Sharpness control modes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
@@ -325,11 +326,11 @@ visca_command! {
 )]
 mod tests {
     use super::*;
-    use crate::command::bytes::VISCA_TERMINATOR;
-    use crate::command::encode::ViscaCommand;
-    use crate::macros::test_utils::visca_test;
-    use crate::timeout::CommandCategory;
-    use crate::timeout::CommandTimeout;
+    use crate::{
+        command::{bytes::VISCA_TERMINATOR, encode::ViscaCommand},
+        macros::test_utils::visca_test,
+        timeout::{CommandCategory, CommandTimeout},
+    };
 
     visca_test!(
         BacklightCommand,

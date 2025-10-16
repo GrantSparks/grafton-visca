@@ -4,7 +4,6 @@
 
 pub(crate) mod connectors;
 
-// Use the macro to generate TCP and UDP transport implementations
 use crate::declare_net_transport;
 
 declare_net_transport!(

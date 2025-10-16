@@ -176,7 +176,6 @@ pub enum Iris {
     SetAperture(IrisLevel),
 }
 
-// Manual implementation to add model validation
 impl ViscaCommand for Iris {
     type Response = ();
     const MAX_SIZE: usize = 9;
@@ -239,7 +238,6 @@ pub enum Shutter {
     SetSpeed(ShutterSpeed),
 }
 
-// Manual implementation to add model validation
 impl ViscaCommand for Shutter {
     type Response = ();
     const MAX_SIZE: usize = 9;
@@ -455,7 +453,6 @@ mod tests {
     use crate::macros::test_utils::visca_test;
     use crate::timeout::CommandTimeout;
 
-    // Test Auto mode
     visca_test!(
         ExposureCommand,
         test_exposure_mode_auto,
@@ -465,7 +462,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x39, 0x00, VISCA_TERMINATOR]
     );
 
-    // Test Manual mode
     visca_test!(
         ExposureCommand,
         test_exposure_mode_manual,
@@ -475,7 +471,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x39, 0x03, VISCA_TERMINATOR]
     );
 
-    // Test Shutter Priority mode
     visca_test!(
         ExposureCommand,
         test_exposure_mode_shutter,
@@ -485,7 +480,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x39, 0x0A, VISCA_TERMINATOR]
     );
 
-    // Test Iris Priority mode
     visca_test!(
         ExposureCommand,
         test_exposure_mode_iris,
@@ -495,7 +489,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x39, 0x0B, VISCA_TERMINATOR]
     );
 
-    // Test Brightness Priority mode
     visca_test!(
         ExposureCommand,
         test_exposure_mode_bright,
@@ -532,7 +525,6 @@ mod tests {
 
     #[test]
     fn test_exposure_compensation_level() {
-        // Test valid values
         for value in -7..=7 {
             let level = ExposureCompensationLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
@@ -542,12 +534,10 @@ mod tests {
             );
         }
 
-        // Test invalid values
         assert!(ExposureCompensationLevel::new(-8).is_err());
         assert!(ExposureCompensationLevel::new(8).is_err());
     }
 
-    // Test On command
     visca_test!(
         ExposureCompensation,
         test_exposure_compensation_on,
@@ -555,7 +545,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x3E, 0x02, VISCA_TERMINATOR]
     );
 
-    // Test Off command
     visca_test!(
         ExposureCompensation,
         test_exposure_compensation_off,
@@ -563,7 +552,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x3E, 0x03, VISCA_TERMINATOR]
     );
 
-    // Test Reset command
     visca_test!(
         ExposureCompensation,
         test_exposure_compensation_reset,
@@ -571,7 +559,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x0E, 0x00, VISCA_TERMINATOR]
     );
 
-    // Test Up command
     visca_test!(
         ExposureCompensation,
         test_exposure_compensation_up,
@@ -579,7 +566,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x0E, 0x02, VISCA_TERMINATOR]
     );
 
-    // Test Down command
     visca_test!(
         ExposureCompensation,
         test_exposure_compensation_down,
@@ -587,7 +573,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x0E, 0x03, VISCA_TERMINATOR]
     );
 
-    // Test SetLevel command with value -7
     visca_test!(
         ExposureCompensation,
         test_exposure_compensation_level_minus_7,
@@ -605,7 +590,6 @@ mod tests {
         ]
     );
 
-    // Test SetLevel command with value 0
     visca_test!(
         ExposureCompensation,
         test_exposure_compensation_level_0,
@@ -623,7 +607,6 @@ mod tests {
         ]
     );
 
-    // Test SetLevel command with value 7
     visca_test!(
         ExposureCompensation,
         test_exposure_compensation_level_plus_7,
@@ -643,7 +626,6 @@ mod tests {
 
     #[test]
     fn test_exposure_compensation_g2_validation() {
-        // Test valid G2 values
         for value in -7..=7 {
             let level = ExposureCompensationLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
@@ -651,7 +633,6 @@ mod tests {
             assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
         }
 
-        // Other command types should always be valid
         assert!(ExposureCompensation::On
             .validate_for_model(CameraVariant::PtzOpticsG2)
             .is_ok());
@@ -660,7 +641,6 @@ mod tests {
             .is_ok());
     }
 
-    // Test dynamic range level 0
     visca_test!(
         DynamicRange,
         test_dynamic_range_level_0,
@@ -678,7 +658,6 @@ mod tests {
         ]
     );
 
-    // Test dynamic range level 4
     visca_test!(
         DynamicRange,
         test_dynamic_range_level_4,
@@ -696,7 +675,6 @@ mod tests {
         ]
     );
 
-    // Test dynamic range level 8
     visca_test!(
         DynamicRange,
         test_dynamic_range_level_8,
@@ -716,7 +694,6 @@ mod tests {
 
     #[test]
     fn test_dynamic_range_g2_validation() {
-        // Test valid G2 values
         for value in 0..=8 {
             let level = DynamicRangeLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
@@ -725,7 +702,6 @@ mod tests {
         }
     }
 
-    // Test Reset command
     visca_test!(
         Iris,
         test_iris_reset,
@@ -733,7 +709,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x0B, 0x00, VISCA_TERMINATOR]
     );
 
-    // Test Up command
     visca_test!(
         Iris,
         test_iris_up,
@@ -741,7 +716,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x0B, 0x02, VISCA_TERMINATOR]
     );
 
-    // Test Down command
     visca_test!(
         Iris,
         test_iris_down,
@@ -749,7 +723,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x0B, 0x03, VISCA_TERMINATOR]
     );
 
-    // Test SetAperture command with value 0x00
     visca_test!(
         Iris,
         test_iris_set_aperture_00,
@@ -767,7 +740,6 @@ mod tests {
         ]
     );
 
-    // Test SetAperture command with value 0x05
     visca_test!(
         Iris,
         test_iris_set_aperture_05,
@@ -785,7 +757,6 @@ mod tests {
         ]
     );
 
-    // Test SetAperture command with value 0x0A
     visca_test!(
         Iris,
         test_iris_set_aperture_0a,
@@ -803,7 +774,6 @@ mod tests {
         ]
     );
 
-    // Test SetAperture command with value 0x0C
     visca_test!(
         Iris,
         test_iris_set_aperture_0c,
@@ -823,7 +793,6 @@ mod tests {
 
     #[test]
     fn test_iris_g2_validation() {
-        // Test valid G2 iris values
         for value in 0x00..=0x0C {
             let level =
                 IrisLevel::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
@@ -831,16 +800,11 @@ mod tests {
             assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
         }
 
-        // Test that non-G2 valid value still passes validation (G2 is more restrictive)
-        // The general IrisLevel accepts values up to 0x0C, which are all valid for G2
-
-        // Non-direct commands should always be valid
         assert!(Iris::Reset
             .validate_for_model(CameraVariant::PtzOpticsG2)
             .is_ok());
     }
 
-    // Test Reset command
     visca_test!(
         Shutter,
         test_shutter_reset,
@@ -848,7 +812,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x0A, 0x00, VISCA_TERMINATOR]
     );
 
-    // Test Up command
     visca_test!(
         Shutter,
         test_shutter_up,
@@ -856,7 +819,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x0A, 0x02, VISCA_TERMINATOR]
     );
 
-    // Test Down command
     visca_test!(
         Shutter,
         test_shutter_down,
@@ -864,7 +826,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x0A, 0x03, VISCA_TERMINATOR]
     );
 
-    // Test SetSpeed command with value 0x01
     visca_test!(
         Shutter,
         test_shutter_set_speed_01,
@@ -882,7 +843,6 @@ mod tests {
         ]
     );
 
-    // Test SetSpeed command with value 0x05
     visca_test!(
         Shutter,
         test_shutter_set_speed_05,
@@ -900,7 +860,6 @@ mod tests {
         ]
     );
 
-    // Test SetSpeed command with value 0x10
     visca_test!(
         Shutter,
         test_shutter_set_speed_10,
@@ -918,7 +877,6 @@ mod tests {
         ]
     );
 
-    // Test SetSpeed command with value 0x11
     visca_test!(
         Shutter,
         test_shutter_set_speed_11,
@@ -938,7 +896,6 @@ mod tests {
 
     #[test]
     fn test_shutter_g2_validation() {
-        // Test valid G2 shutter values
         for value in 0x01..=0x11 {
             let speed =
                 ShutterSpeed::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
@@ -946,16 +903,11 @@ mod tests {
             assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
         }
 
-        // Test that non-G2 valid value still passes validation (G2 is more restrictive)
-        // The general ShutterSpeed accepts values up to 0x11, which are all valid for G2
-
-        // Non-direct commands should always be valid
         assert!(Shutter::Reset
             .validate_for_model(CameraVariant::PtzOpticsG2)
             .is_ok());
     }
 
-    // Test Reset command
     visca_test!(
         Bright,
         test_bright_reset,
@@ -963,7 +915,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x0D, 0x00, VISCA_TERMINATOR]
     );
 
-    // Test Up command
     visca_test!(
         Bright,
         test_bright_up,
@@ -971,7 +922,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x0D, 0x02, VISCA_TERMINATOR]
     );
 
-    // Test Down command
     visca_test!(
         Bright,
         test_bright_down,
@@ -979,7 +929,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x0D, 0x03, VISCA_TERMINATOR]
     );
 
-    // Test SetLevel command with value 0x00
     visca_test!(
         Bright,
         test_bright_set_level_00,
@@ -997,7 +946,6 @@ mod tests {
         ]
     );
 
-    // Test SetLevel command with value 0x08
     visca_test!(
         Bright,
         test_bright_set_level_08,
@@ -1015,7 +963,6 @@ mod tests {
         ]
     );
 
-    // Test SetLevel command with value 0x10
     visca_test!(
         Bright,
         test_bright_set_level_10,
@@ -1033,7 +980,6 @@ mod tests {
         ]
     );
 
-    // Test SetLevel command with value 0x11
     visca_test!(
         Bright,
         test_bright_set_level_11,
@@ -1051,7 +997,6 @@ mod tests {
         ]
     );
 
-    // Test Direct command with value 0x00
     visca_test!(
         Bright,
         test_bright_direct_00,
@@ -1069,7 +1014,6 @@ mod tests {
         ]
     );
 
-    // Test Direct command with value 0x08
     visca_test!(
         Bright,
         test_bright_direct_08,
@@ -1087,7 +1031,6 @@ mod tests {
         ]
     );
 
-    // Test Direct command with value 0x10
     visca_test!(
         Bright,
         test_bright_direct_10,
@@ -1105,7 +1048,6 @@ mod tests {
         ]
     );
 
-    // Test Direct command with value 0x11
     visca_test!(
         Bright,
         test_bright_direct_11,
@@ -1125,7 +1067,6 @@ mod tests {
 
     #[test]
     fn test_bright_g2_validation() {
-        // Test valid G2 brightness values
         for value in 0x00..=0x11 {
             let level = BrightnessLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
@@ -1133,10 +1074,6 @@ mod tests {
             assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
         }
 
-        // Test that non-G2 valid value still passes validation (G2 is more restrictive)
-        // The general BrightnessLevel accepts values up to 0x11, which are all valid for G2
-
-        // Non-direct commands should always be valid
         assert!(Brightness::Reset
             .validate_for_model(CameraVariant::PtzOpticsG2)
             .is_ok());
@@ -1144,7 +1081,6 @@ mod tests {
 
     #[test]
     fn test_command_categories() {
-        // All exposure commands should be Quick category
         assert_eq!(
             ExposureCommand {
                 mode: ExposureMode::Auto
@@ -1171,7 +1107,6 @@ mod tests {
 
     #[test]
     fn test_response_types() {
-        // All exposure commands should return None for response_type
         assert!(ExposureCommand {
             mode: ExposureMode::Auto
         }
@@ -1188,7 +1123,6 @@ mod tests {
         assert!(Brightness::Reset.response_kind().is_none());
     }
 
-    // Test On command
     visca_test!(
         AutoSlowShutterOn,
         test_auto_slow_shutter_on,
@@ -1196,7 +1130,6 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x5A, 0x02, VISCA_TERMINATOR]
     );
 
-    // Test Off command
     visca_test!(
         AutoSlowShutterOff,
         test_auto_slow_shutter_off,

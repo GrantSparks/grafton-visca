@@ -201,7 +201,6 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 camera_id,
                 response_tx,
             } => {
-                // Store response channel
                 self.response_channels.insert(id, response_tx);
 
                 // Queue command in core
@@ -229,7 +228,6 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 response_type,
                 response_tx,
             } => {
-                // Store response channel
                 self.response_channels.insert(id, response_tx);
 
                 // Store response type in core if present
@@ -242,7 +240,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 let pending_cmd = PendingCommand {
                     id,
                     command,
-                    priority: Priority::Normal, // Inquiries use normal priority
+                    priority: Priority::Normal,
                     category,
                     camera_id,
                     submitted_at: now,
@@ -254,10 +252,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
 
                 id
             }
-            TxItem::Cancel { .. } | TxItem::CancelById { .. } => {
-                // Cancel operations are handled separately
-                0
-            }
+            TxItem::Cancel { .. } | TxItem::CancelById { .. } => 0,
         }
     }
 
@@ -339,10 +334,8 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
 
         let now = self.executor.now();
 
-        // Map to scheduler event
         let event = match basic.kind {
             BasicKind::Ack => {
-                // For Sony, try to use sequence to find command
                 let cmd_id = sequence.and_then(|seq| self.core.get_command_by_sequence(seq));
                 SchedulerEvent::Ack {
                     socket: basic.socket,
@@ -350,12 +343,8 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 }
             }
             BasicKind::Completion => {
-                // For Sony, try to use sequence to find command
                 let cmd_id = sequence.and_then(|seq| self.core.get_command_by_sequence(seq));
-
-                // Get the expected response type from core
                 let response_type = cmd_id.and_then(|id| self.core.get_inquiry_type(id));
-
                 let response = lift_inquiry_for::<P>(&basic, response_type)?;
                 SchedulerEvent::Completion {
                     socket: basic.socket,
@@ -364,13 +353,11 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 }
             }
             BasicKind::Error(code) => {
-                // Track error types
                 match code {
                     0x03 | 0x04 => self.metrics.busy_errors += 1,
                     _ => self.metrics.protocol_errors += 1,
                 }
 
-                // For Sony, try to use sequence to find command
                 let mut cmd_id = sequence.and_then(|seq| self.core.get_command_by_sequence(seq));
 
                 // If no cmd_id and no socket, try to resolve inquiry via core (FIFO fallback)
@@ -386,22 +373,12 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 }
             }
             BasicKind::DataReply => {
-                // Data replies are completions for inquiries
-                // Use the core's centralized resolution
                 let cmd_id = self.core.resolve_inquiry_id(basic.payload, sequence);
-
-                // Get the expected response type from core
                 let response_type = cmd_id.and_then(|id| self.core.get_inquiry_type(id));
-
                 let response = lift_inquiry_for::<P>(&basic, response_type)?;
-
-                // Use InquiryReply event for data replies
                 SchedulerEvent::InquiryReply { cmd_id, response }
             }
-            BasicKind::NetworkChange | BasicKind::Unknown => {
-                // Ignore these for now
-                return Ok(());
-            }
+            BasicKind::NetworkChange | BasicKind::Unknown => return Ok(()),
         };
 
         // Process event through core and handle actions
@@ -417,7 +394,6 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
     async fn handle_action(&mut self, action: SchedulerAction) -> Result<()> {
         match action {
             SchedulerAction::SendCommand { .. } => {
-                // This shouldn't happen from process_event
                 warn!("Unexpected SendCommand action from process_event");
             }
             SchedulerAction::CommandComplete {
@@ -427,8 +403,6 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 response,
             } => {
                 self.metrics.commands_completed += 1;
-
-                // Core handles all inquiry cleanup now
 
                 // Send response to the waiting command
                 if let Some(tx) = self.response_channels.remove(&id) {
@@ -451,8 +425,6 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
             SchedulerAction::CommandFailed { id, error } => {
                 self.metrics.commands_failed += 1;
 
-                // Core handles all inquiry cleanup now
-
                 if let Some(tx) = self.response_channels.remove(&id) {
                     let _ = tx.send_async(Err(error)).await;
                 }
@@ -472,7 +444,6 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 self.metrics.commands_retried += 1;
 
                 debug!("Scheduling retry for command {id} after {delay:?}");
-                // The retry will be picked up by get_ready_retries()
             }
         }
         Ok(())
@@ -481,9 +452,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
     /// Notify a waiting future that its command has timed out.
     #[inline]
     fn notify_timeout(&mut self, id: u32) {
-        // Remove first to avoid double-notify races
         if let Some(tx) = self.response_channels.remove(&id) {
-            // Complete the user's future deterministically
             let _ = tx.try_send(Err(Error::Timeout));
         }
     }
@@ -538,7 +507,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
             network_errors: self.metrics.network_errors,
             protocol_errors: self.metrics.protocol_errors,
             timeouts: self.metrics.timeouts,
-            pending_queue_depth: 0, // Can be obtained from core if needed
+            pending_queue_depth: 0,
             retry_queue_depth: self.core.retry_queue_depth(),
         }
     }
@@ -617,7 +586,6 @@ mod tests {
 
         let camera_id = CameraId::CAMERA_1;
 
-        // Start an inquiry (front of FIFO queue)
         let inq = Arc::new(EncodedCommand {
             payload: SmallVec::from_slice(&[0x81, 0x09, 0x04, 0x35, VISCA_TERMINATOR]), // WB Mode Inquiry
             kind: CommandKind::Inquiry,
@@ -625,7 +593,6 @@ mod tests {
             response_type: Some(InquiryKind::Power),
         });
 
-        // Simulate the inquiry being sent and tracked
         adapter.core.start_inquiry(
             42,
             inq.clone(),
@@ -636,19 +603,16 @@ mod tests {
             executor.now(),
         );
 
-        // Create a response channel for this inquiry
         let (response_tx, response_rx) = flume::unbounded();
         adapter.response_channels.insert(42, response_tx);
 
         // Simulate an inquiry-style error without socket or sequence: 90 60 EE FF
         // This is the packet shape that was previously dropped by async_adapter
-        let error_payload = vec![0x90, 0x60, 0x41, VISCA_TERMINATOR]; // Error code 0x41
+        let error_payload = vec![0x90, 0x60, 0x41, VISCA_TERMINATOR];
 
-        // Process the error response (no sequence number)
         let result = executor.block_on(adapter.process_response(&error_payload, None));
         assert!(result.is_ok(), "process_response should succeed");
 
-        // Verify the inquiry received the error (not a timeout)
         let response_result = response_rx.try_recv();
         assert!(
             response_result.is_ok(),
@@ -656,13 +620,10 @@ mod tests {
         );
 
         match response_result.unwrap() {
-            Err(Error::CommandNotExecutable) => {
-                // Success! The error was properly attributed to the inquiry
-            }
-            other => panic!("Expected CommandNotExecutable error, got: {:?}", other),
+            Err(Error::CommandNotExecutable) => {}
+            other => panic!("Expected CommandNotExecutable error, got: {other:?}"),
         }
 
-        // Verify metrics were updated
         let metrics = adapter.metrics_summary();
         assert_eq!(metrics.commands_failed, 1, "Should have 1 failed command");
         assert_eq!(

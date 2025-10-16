@@ -3,11 +3,13 @@
 //! This module provides comprehensive testing for inquiry command types
 //! using real-world response patterns (golden replies) from PTZ cameras.
 
-use grafton_visca::command::{
-    response::{InquiryKind, Response},
-    InquiryData,
+use grafton_visca::{
+    command::{
+        response::{InquiryKind, Response},
+        InquiryData,
+    },
+    ResolutionMode,
 };
-use grafton_visca::ResolutionMode;
 
 #[test]
 fn test_power_inquiry_on() {
