@@ -95,6 +95,13 @@ repos:
         args: ["--all-targets", "--no-default-features", "--features", "runtime-async-std,test-utils", "--", "-D", "warnings"]
         types: [rust]
         pass_filenames: false
+      - id: doc
+        name: doc
+        description: Check documentation builds without warnings
+        entry: bash -c 'RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps'
+        language: system
+        types: [rust]
+        pass_filenames: false
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
     hooks:

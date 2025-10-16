@@ -139,6 +139,8 @@ pub trait ImageProcessingControl {
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
+    ///
+    /// [`InquiryControl::sharpness_mode`]: crate::camera::controls::inquiry::InquiryControl::sharpness_mode
     fn set_sharpness(
         &self,
         level: SharpnessLevel,
