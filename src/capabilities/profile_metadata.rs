@@ -119,6 +119,12 @@ pub trait HasOnePushWhiteBalance {}
 /// Marker trait indicating support for auto exposure.
 pub trait HasAutoExposure {}
 
+/// Marker trait indicating support for tally light control.
+pub trait HasTally {}
+
+/// Marker trait indicating support for picture effect modes.
+pub trait HasPictureEffect {}
+
 // Specialized blanket implementations for each marker trait.
 // These automatically implement the marker trait for any type that implements
 // both ProfileMetadata and the corresponding capability trait.
@@ -135,6 +141,7 @@ impl<T: ProfileMetadata + crate::capabilities::MenuCapability> HasMenuControl fo
 impl<T: ProfileMetadata + crate::capabilities::MotionSync> HasMotionSync for T {}
 impl<T: ProfileMetadata + crate::capabilities::VariableSpeed> HasVariableSpeed for T {}
 impl<T: ProfileMetadata + crate::capabilities::NdFilter> HasNdFilter for T {}
+impl<T: ProfileMetadata + crate::capabilities::Tally> HasTally for T {}
 
 // Note: Unlike the capability marker traits (HasPanTilt, HasZoom, etc.) which have
 // blanket implementations, these specific feature marker traits must be manually

@@ -46,6 +46,9 @@ pub trait ImageProcessing {
     /// Whether camera supports luminance control.
     const SUPPORTS_LUMINANCE: bool = false;
 
+    /// Whether camera supports picture effect modes (negative, B&W, sepia, etc.).
+    const SUPPORTS_PICTURE_EFFECT: bool = false;
+
     /// Luminance range if supported.
     const LUMINANCE_RANGE: Option<Range<u8>> = None;
 }

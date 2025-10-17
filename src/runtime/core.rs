@@ -960,13 +960,34 @@ impl SchedulerCore {
         payload: crate::command::response::payload::Payload<'_>,
         sequence: Option<u32>,
     ) -> Option<u32> {
+        use tracing::{debug, trace};
+
+        // Format payload as hex for debugging (lazy evaluation)
+        let payload_hex = || {
+            payload
+                .as_slice()
+                .iter()
+                .map(|b| format!("{:02x}", b))
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+
         // First try sequence-based resolution if available
         if let Some(seq) = sequence {
             if let Some(cmd_id) = self.get_command_by_sequence(seq) {
                 // Verify it's an active inquiry
                 if self.inquiries_inflight.contains_key(&cmd_id) {
+                    trace!(cmd_id, sequence = seq, "Resolved inquiry via sequence");
                     return Some(cmd_id);
+                } else {
+                    // This is unusual - sequence maps to a command but it's not active
+                    debug!(
+                        sequence = seq,
+                        cmd_id, "Sequence maps to inactive inquiry - will try content matching"
+                    );
                 }
+            } else {
+                trace!(sequence = seq, "Sequence not found in mappings");
             }
         }
 
@@ -978,19 +999,28 @@ impl SchedulerCore {
             .filter_map(|&id| self.inquiry_response_types.get(&id).map(|ty| (id, *ty)))
             .collect();
 
+        trace!(
+            count = active_inquiries.len(),
+            payload = payload_hex(),
+            "Testing payload against active inquiries"
+        );
+
         // Try parsing the payload against each expected response type
-        let mut matches: Vec<u32> = active_inquiries
-            .iter()
-            .filter_map(|(id, response_type)| {
-                // Use the existing zero-allocation parser
-                // If parsing succeeds, this inquiry type matches the payload
-                if parse_inquiry_payload(payload.as_slice(), response_type).is_ok() {
-                    Some(*id)
-                } else {
-                    None
+        let mut matches: Vec<u32> = Vec::new();
+
+        for (id, response_type) in active_inquiries.iter() {
+            // Use the existing zero-allocation parser
+            // If parsing succeeds, this inquiry type matches the payload
+            match parse_inquiry_payload(payload.as_slice(), response_type) {
+                Ok(_) => {
+                    trace!(cmd_id = id, inquiry_type = ?response_type, "Matched");
+                    matches.push(*id);
                 }
-            })
-            .collect();
+                Err(_e) => {
+                    trace!(cmd_id = id, inquiry_type = ?response_type, "No match");
+                }
+            }
+        }
 
         // Remove duplicates (defensive, shouldn't happen with unique IDs)
         matches.dedup();
@@ -998,20 +1028,42 @@ impl SchedulerCore {
         match matches.len() {
             0 => {
                 // No match - fall back to FIFO as last resort
-                debug!("No inquiry match, falling back to FIFO");
-                self.inquiries_order.front().copied()
+                let fifo_front = self.inquiries_order.front().copied();
+
+                // Only log at DEBUG when FIFO fallback actually happens (indicates potential issue)
+                if fifo_front.is_some() {
+                    debug!(
+                        cmd_id = ?fifo_front,
+                        payload = payload_hex(),
+                        active_count = active_inquiries.len(),
+                        "Content matching failed, using FIFO fallback"
+                    );
+                } else if !active_inquiries.is_empty() {
+                    // This is unexpected - we have active inquiries but none matched and FIFO is empty
+                    debug!(
+                        payload = payload_hex(),
+                        active_count = active_inquiries.len(),
+                        "No inquiry match and FIFO empty - inquiry may be orphaned"
+                    );
+                }
+                fifo_front
             }
             1 => {
-                // Unique match found
+                // Unique match found - this is the expected path, only log at TRACE
+                trace!(cmd_id = matches[0], "Content match successful");
                 Some(matches[0])
             }
             _ => {
-                // Ambiguous - fall back to FIFO
+                // Ambiguous - multiple inquiries match the same payload type
+                // This is unusual and worth logging at DEBUG
+                let fifo_front = self.inquiries_order.front().copied();
                 debug!(
-                    "Ambiguous inquiry match ({} candidates), falling back to FIFO",
-                    matches.len()
+                    candidates = ?matches,
+                    fifo_fallback = ?fifo_front,
+                    payload = payload_hex(),
+                    "Ambiguous inquiry match - using FIFO to disambiguate"
                 );
-                self.inquiries_order.front().copied()
+                fifo_front
             }
         }
     }

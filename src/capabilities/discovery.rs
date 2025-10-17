@@ -192,6 +192,12 @@ pub struct Capabilities {
     /// Whether camera supports 3D noise reduction.
     pub has_3d_nr: bool,
 
+    /// Whether camera supports picture effect modes (negative, B&W, sepia, etc.).
+    pub has_picture_effect: bool,
+
+    /// Whether camera supports tally light control.
+    pub has_tally: bool,
+
     // Preset capabilities
     /// Whether camera supports preset positions.
     pub has_presets: bool,
@@ -375,6 +381,8 @@ impl Capabilities {
             has_noise_reduction: P::SUPPORTS_NOISE_REDUCTION,
             has_2d_nr: P::SUPPORTS_2D_NR,
             has_3d_nr: P::SUPPORTS_3D_NR,
+            has_picture_effect: P::SUPPORTS_PICTURE_EFFECT,
+            has_tally: P::SUPPORTS_TALLY,
 
             // Preset capabilities
             has_presets: true, // All cameras have presets

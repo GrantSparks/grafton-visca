@@ -13,6 +13,7 @@ pub mod nd_filter;
 pub mod pan_tilt;
 pub mod power;
 pub mod presets;
+pub mod tally;
 pub mod variable_speed;
 pub mod white_balance;
 pub mod zoom;
@@ -22,8 +23,9 @@ mod profile_metadata;
 pub use profile_metadata::{
     HasAutoExposure, HasAutoFocus, HasBacklightCompensation, HasColorTemperature, HasExposure,
     HasExposureCompensation, HasFocus, HasHue, HasImageProcessing, HasLuminance, HasMenuControl,
-    HasMotionSync, HasNdFilter, HasOnePushFocus, HasOnePushWhiteBalance, HasPanTilt, HasPower,
-    HasPresets, HasRGBGain, HasVariableSpeed, HasWDR, HasWhiteBalance, HasZoom, ProfileMetadata,
+    HasMotionSync, HasNdFilter, HasOnePushFocus, HasOnePushWhiteBalance, HasPanTilt,
+    HasPictureEffect, HasPower, HasPresets, HasRGBGain, HasTally, HasVariableSpeed, HasWDR,
+    HasWhiteBalance, HasZoom, ProfileMetadata,
 };
 
 // Re-export all capability traits
@@ -36,6 +38,7 @@ pub use nd_filter::{NdFilter, NdFilterMode};
 pub use pan_tilt::PanTilt;
 pub use power::Power;
 pub use presets::Presets;
+pub use tally::Tally;
 pub use variable_speed::VariableSpeed;
 pub use white_balance::WhiteBalance;
 pub use zoom::Zoom;
@@ -76,6 +79,7 @@ pub trait Profile:
     + Presets
     + Power
     + MenuCapability
+    + Tally
     + Sized
     + Send
     + Sync
@@ -95,6 +99,7 @@ impl<T> Profile for T where
         + Presets
         + Power
         + MenuCapability
+        + Tally
         + Sized
         + Send
         + Sync

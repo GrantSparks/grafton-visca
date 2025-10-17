@@ -332,6 +332,14 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
             actual: payload.to_vec(),
         })?;
 
+        // Log response classification at trace level
+        use tracing::trace;
+        trace!(
+            kind = ?basic.kind,
+            socket = ?basic.socket,
+            "Decoded VISCA response"
+        );
+
         let now = self.executor.now();
 
         let event = match basic.kind {
@@ -364,6 +372,28 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 if cmd_id.is_none() && basic.socket.is_none() {
                     use crate::command::response::payload::Payload;
                     cmd_id = self.core.resolve_inquiry_id(Payload::new(&[]), sequence);
+                }
+
+                // Log errors appropriately based on severity
+                // Syntax errors (0x02) and "Not Executable" (0x41) are notable issues
+                // that likely indicate configuration problems or unsupported commands
+                if code == 0x02 || code == 0x41 {
+                    let inquiry_type = cmd_id
+                        .and_then(|id| self.core.get_inquiry_type(id))
+                        .map(|ty| format!("{:?}", ty));
+
+                    let message = if code == 0x02 {
+                        "Syntax Error - command likely unsupported by camera"
+                    } else {
+                        "Command Not Executable in current state"
+                    };
+
+                    tracing::error!(
+                        cmd_id,
+                        inquiry_type,
+                        code = format!("0x{:02x}", code),
+                        message
+                    );
                 }
 
                 SchedulerEvent::Error {

@@ -155,6 +155,7 @@ impl ImageProcessing for PtzOpticsG2 {
     const SUPPORTS_NOISE_REDUCTION: bool = true;
     const SUPPORTS_2D_NR: bool = true;
     const SUPPORTS_3D_NR: bool = true;
+    const SUPPORTS_PICTURE_EFFECT: bool = false;
 }
 
 impl Presets for PtzOpticsG2 {
@@ -173,6 +174,7 @@ impl MotionSync for PtzOpticsG2 {
     const MAX_MOTION_SYNC_SPEED: u8 = 24;
 }
 impl MenuCapability for PtzOpticsG2 {}
+impl crate::capabilities::Tally for PtzOpticsG2 {}
 
 impl crate::capabilities::HasAutoExposure for PtzOpticsG2 {}
 impl crate::capabilities::HasBacklightCompensation for PtzOpticsG2 {}
@@ -269,6 +271,8 @@ impl Presets for GenericVisca {
     const SUPPORTS_PRESET_THUMBNAIL: bool = false;
 }
 
+impl crate::capabilities::Tally for GenericVisca {}
+
 impl crate::capabilities::HasAutoExposure for GenericVisca {}
 impl crate::capabilities::HasOnePushWhiteBalance for GenericVisca {}
 impl crate::capabilities::HasAutoFocus for GenericVisca {}
@@ -346,6 +350,7 @@ impl ImageProcessing for SonyFR7 {
     const SUPPORTS_NOISE_REDUCTION: bool = true;
     const SUPPORTS_2D_NR: bool = true;
     const SUPPORTS_3D_NR: bool = true;
+    const SUPPORTS_PICTURE_EFFECT: bool = true;
 }
 
 impl Presets for SonyFR7 {
@@ -384,6 +389,10 @@ impl crate::capabilities::HasAutoFocus for SonyFR7 {}
 impl crate::capabilities::HasOnePushFocus for SonyFR7 {}
 impl crate::capabilities::HasHue for SonyFR7 {}
 impl crate::capabilities::menu_control::HasDirectMenuControl for SonyFR7 {}
+impl crate::capabilities::Tally for SonyFR7 {
+    const SUPPORTS_TALLY: bool = true;
+}
+impl crate::capabilities::HasPictureEffect for SonyFR7 {}
 
 /// Sony BRC-H900 camera profile.
 ///
@@ -450,6 +459,7 @@ impl ImageProcessing for SonyBRCH900 {
     const SUPPORTS_NOISE_REDUCTION: bool = true;
     const SUPPORTS_2D_NR: bool = true;
     const SUPPORTS_3D_NR: bool = true;
+    const SUPPORTS_PICTURE_EFFECT: bool = true;
 }
 
 impl Presets for SonyBRCH900 {
@@ -463,6 +473,10 @@ impl Power for SonyBRCH900 {
     const SUPPORTS_STANDBY: bool = true;
 }
 impl MenuCapability for SonyBRCH900 {}
+impl crate::capabilities::Tally for SonyBRCH900 {
+    const SUPPORTS_TALLY: bool = true;
+}
+impl crate::capabilities::HasPictureEffect for SonyBRCH900 {}
 
 /// Sony EVI-H100 camera profile.
 ///
@@ -543,6 +557,7 @@ impl ImageProcessing for SonyEVIH100 {
 }
 
 impl MenuCapability for SonyEVIH100 {}
+impl crate::capabilities::Tally for SonyEVIH100 {}
 
 /// Sony BRC-300 camera profile.
 ///
@@ -624,6 +639,7 @@ impl ImageProcessing for SonyBRC300 {
 }
 
 impl MenuCapability for SonyBRC300 {}
+impl crate::capabilities::Tally for SonyBRC300 {}
 
 /// Nearus BRC-300 camera profile.
 ///
@@ -703,6 +719,7 @@ impl ImageProcessing for NearusBRC300 {
 }
 
 impl MenuCapability for NearusBRC300 {}
+impl crate::capabilities::Tally for NearusBRC300 {}
 
 /// PtzOptics G3 camera profile.
 ///
@@ -782,6 +799,7 @@ impl Power for PtzOpticsG3 {
     const SUPPORTS_STANDBY: bool = true;
 }
 impl MenuCapability for PtzOpticsG3 {}
+impl crate::capabilities::Tally for PtzOpticsG3 {}
 
 impl MotionSync for PtzOpticsG3 {
     const SUPPORTS_MOTION_SYNC: bool = true;
@@ -866,6 +884,7 @@ impl Power for PtzOptics30X {
     const SUPPORTS_STANDBY: bool = true;
 }
 impl MenuCapability for PtzOptics30X {}
+impl crate::capabilities::Tally for PtzOptics30X {}
 
 impl MotionSync for PtzOptics30X {
     const SUPPORTS_MOTION_SYNC: bool = true;
