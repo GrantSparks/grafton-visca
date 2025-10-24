@@ -10,15 +10,21 @@ use crate::{camera_id::CameraId, error::Error, timeout::TimeoutConfig};
 
 /// Transport configuration options.
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(tag = "type")
+)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum TransportOptions {
     /// TCP connection with address.
+    #[cfg_attr(feature = "serde", serde(rename = "TCP"))]
     Tcp {
         /// Host:port string (e.g., "192.168.0.110:5678")
         address: String,
     },
     /// UDP connection with address.
+    #[cfg_attr(feature = "serde", serde(rename = "UDP"))]
     Udp {
         /// Host:port string (e.g., "192.168.0.110:1259")
         address: String,
@@ -570,6 +576,53 @@ where
             _ => Err(Error::InvalidState(
                 "open_serial_blocking requires serial transport configuration".into(),
             )),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    #[cfg(feature = "serde")]
+    fn test_transport_options_serialization() {
+        use super::TransportOptions;
+
+        // Test TCP serialization
+        let tcp = TransportOptions::Tcp {
+            address: "192.168.0.110:5678".to_string(),
+        };
+        if let Ok(json) = serde_json::to_value(&tcp) {
+            assert_eq!(json["type"], "TCP");
+            assert_eq!(json["address"], "192.168.0.110:5678");
+            if let Ok(pretty) = serde_json::to_string_pretty(&tcp) {
+                println!("TCP: {pretty}");
+            }
+        }
+
+        // Test UDP serialization
+        let udp = TransportOptions::Udp {
+            address: "192.168.0.110:1259".to_string(),
+        };
+        if let Ok(json) = serde_json::to_value(&udp) {
+            assert_eq!(json["type"], "UDP");
+            assert_eq!(json["address"], "192.168.0.110:1259");
+            if let Ok(pretty) = serde_json::to_string_pretty(&udp) {
+                println!("UDP: {pretty}");
+            }
+        }
+
+        // Test Serial serialization
+        let serial = TransportOptions::Serial {
+            port: "/dev/ttyUSB0".to_string(),
+            baud_rate: 9600,
+        };
+        if let Ok(json) = serde_json::to_value(&serial) {
+            assert_eq!(json["type"], "Serial");
+            assert_eq!(json["port"], "/dev/ttyUSB0");
+            assert_eq!(json["baud_rate"], 9600);
+            if let Ok(pretty) = serde_json::to_string_pretty(&serial) {
+                println!("Serial: {pretty}");
+            }
         }
     }
 }
