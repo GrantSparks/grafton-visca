@@ -5,6 +5,61 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Breaking Changes
+
+#### Async Camera Timeout and Retry Configuration (#430)
+
+Async cameras now properly use configured `TimeoutConfig` and `RetryConfig` values instead of silently ignoring them. This aligns async camera behavior with blocking cameras, where configuration is the single source of truth for runtime behavior.
+
+**What Changed:**
+
+1. **`Camera::set_timeout_config()` removed for async mode**: This method previously updated only a local field without affecting the running async runtime. Now, timeout and retry configuration must be set at construction time.
+
+2. **New `Camera::new_async_with_config()` constructor**: Accepts explicit `TimeoutConfig` and `RetryConfig` parameters that are actually applied to the runtime.
+
+3. **`CameraConfig` now passes configs to runtime**: `CameraConfig.timeouts` and `CameraConfig.retries` are now correctly wired into the async runtime at construction time.
+
+4. **`CameraBuilder` gains `retry_config()` method**: Builder now allows setting both timeout and retry configuration for async cameras.
+
+**Migration Guide:**
+
+If you were calling `camera.set_timeout_config(...)` on async cameras:
+
+```rust
+// Before (0.8.x) - this didn't actually work!
+let mut camera = Camera::<Async, P, _, _>::new_async(transport, executor).await?;
+camera.set_timeout_config(custom_timeouts);
+
+// After - use constructor with config or CameraConfig/CameraBuilder
+let camera = Camera::<Async, P, _, _>::new_async_with_config(
+    transport,
+    executor,
+    custom_timeouts,
+    RetryConfig::default(),
+).await?;
+
+// Or use CameraConfig (recommended):
+let session = CameraConfig::<PtzOpticsG2>::new()
+    .timeouts(custom_timeouts)
+    .retries(custom_retries)
+    .open_async(runtime).await?;
+
+// Or use CameraBuilder:
+let camera = CameraBuilder::with_executor(executor)
+    .timeout_config(custom_timeouts)
+    .retry_config(custom_retries)
+    .open_async::<PtzOpticsG2, _>(transport)
+    .await?;
+```
+
+**Impact:**
+
+- Async cameras now actually respect user-configured timeouts and retries
+- Behavior is now consistent between blocking and async modes
+- Configuration is type-driven and validated at construction time
+
 ## [0.8.0] - 2025-10-16
 
 ### 📋 What's New in 0.8.0 - Quick Overview

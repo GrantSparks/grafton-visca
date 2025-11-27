@@ -98,16 +98,68 @@ where
     Exec: Executor + Send + Sync + 'static,
 {
     /// Create a new async camera instance using the profile's envelope type.
+    ///
+    /// This constructor uses default timeout and retry configurations.
+    /// For custom configurations, use [`new_async_with_config`](Self::new_async_with_config).
     pub async fn new_async(transport: Tr, executor: impl Into<Arc<Exec>>) -> Result<Self, Error> {
+        Self::new_async_with_config(
+            transport,
+            executor,
+            TimeoutConfig::default(),
+            crate::transport::RetryConfig::default(),
+        )
+        .await
+    }
+
+    /// Create a new async camera instance with explicit timeout and retry configuration.
+    ///
+    /// This constructor ensures that the provided configurations are used by the runtime,
+    /// making them the single source of truth for command timeouts and retry behavior.
+    ///
+    /// # Arguments
+    ///
+    /// * `transport` - The transport to use for communication
+    /// * `executor` - The async executor to spawn tasks on
+    /// * `timeout_config` - Configuration for command timeouts
+    /// * `retry_config` - Configuration for command retries
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use grafton_visca::{Camera, mode::Async, camera::profiles::PtzOpticsG2};
+    /// use grafton_visca::timeout::TimeoutConfig;
+    /// use grafton_visca::transport::RetryConfig;
+    ///
+    /// let timeout_config = TimeoutConfig::builder()
+    ///     .quick_timeout(Duration::from_secs(10))
+    ///     .build();
+    /// let retry_config = RetryConfig::default();
+    ///
+    /// let camera = Camera::<Async, PtzOpticsG2, _, _>::new_async_with_config(
+    ///     transport,
+    ///     executor,
+    ///     timeout_config,
+    ///     retry_config,
+    /// ).await?;
+    /// ```
+    pub async fn new_async_with_config(
+        transport: Tr,
+        executor: impl Into<Arc<Exec>>,
+        timeout_config: TimeoutConfig,
+        retry_config: crate::transport::RetryConfig,
+    ) -> Result<Self, Error> {
         let camera_id = CameraId::new(1)?;
-        let timeout_config = TimeoutConfig::default();
         let executor: Arc<Exec> = executor.into();
 
-        // Create RuntimeHandle with the transport and executor
+        // Create RuntimeHandle with the transport, executor, and explicit configs
         // The runtime handle uses the profile's envelope type
-        let runtime_handle =
-            crate::runtime::RuntimeHandle::new_with_timeout(transport, executor, timeout_config)
-                .await?;
+        let runtime_handle = crate::runtime::RuntimeHandle::new_with_config(
+            transport,
+            executor,
+            Some(timeout_config),
+            retry_config,
+        )
+        .await?;
 
         Ok(Self {
             camera_id,
@@ -182,13 +234,12 @@ where
     }
 
     /// Get the current timeout configuration.
+    ///
+    /// Note: For async cameras, timeout configuration is set at construction time
+    /// via [`Camera::new_async_with_config`] and cannot be changed after creation.
+    /// This ensures the runtime's timeout behavior matches the configuration.
     pub fn timeout_config(&self) -> &TimeoutConfig {
         &self.timeout_config
-    }
-
-    /// Set the timeout configuration.
-    pub fn set_timeout_config(&mut self, timeout_config: TimeoutConfig) {
-        self.timeout_config = timeout_config;
     }
 
     /// Get the camera's capabilities.

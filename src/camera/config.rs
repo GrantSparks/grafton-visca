@@ -307,20 +307,22 @@ where
         use crate::runtime::TransportHandle;
         use crate::transport::builder::TransportConfig;
 
+        // Create transport config with retry settings from camera config
+        let transport_config = TransportConfig {
+            retry_config: self.retries,
+            ..TransportConfig::default()
+        };
+
         // Create transport based on configuration
         let transport = match &self.transport {
             TransportOptions::Tcp { address } => {
                 // Parse address and create TCP transport using Runtime trait
-                let tcp = runtime
-                    .connect_tcp(address, TransportConfig::default())
-                    .await?;
+                let tcp = runtime.connect_tcp(address, transport_config).await?;
                 TransportHandle::Tcp(tcp)
             }
             TransportOptions::Udp { address } => {
                 // Parse address and create UDP transport using Runtime trait
-                let udp = runtime
-                    .connect_udp(address, TransportConfig::default())
-                    .await?;
+                let udp = runtime.connect_udp(address, transport_config).await?;
                 TransportHandle::Udp(udp)
             }
             TransportOptions::Serial { .. } => {
@@ -337,15 +339,18 @@ where
             }
         };
 
-        // Create camera using profile's envelope type
-        let mut camera = crate::camera::Camera::<crate::mode::Async, P, _, _>::new_async(
-            transport,
-            runtime.clone(),
-        )
-        .await?;
+        // Create camera using profile's envelope type with explicit timeout and retry configs
+        // This ensures the runtime uses the same configs as configured in CameraConfig
+        let mut camera =
+            crate::camera::Camera::<crate::mode::Async, P, _, _>::new_async_with_config(
+                transport,
+                runtime.clone(),
+                self.timeouts,
+                self.retries,
+            )
+            .await?;
 
-        // Apply configuration
-        camera.set_timeout_config(self.timeouts);
+        // Apply camera ID if different from profile default
         if self.camera_id.id() != P::DEFAULT_CAMERA_ID {
             camera.set_camera_id(self.camera_id);
         }
@@ -404,15 +409,18 @@ where
                 let serial = runtime.connect_serial(serial_config).await?;
                 let transport = TransportHandle::Serial(serial);
 
-                // Create camera using profile's envelope type
-                let mut camera = crate::camera::Camera::<crate::mode::Async, P, _, _>::new_async(
-                    transport,
-                    runtime.clone(),
-                )
-                .await?;
+                // Create camera using profile's envelope type with explicit timeout and retry configs
+                // This ensures the runtime uses the same configs as configured in CameraConfig
+                let mut camera =
+                    crate::camera::Camera::<crate::mode::Async, P, _, _>::new_async_with_config(
+                        transport,
+                        runtime.clone(),
+                        self.timeouts,
+                        self.retries,
+                    )
+                    .await?;
 
-                // Apply configuration
-                camera.set_timeout_config(self.timeouts);
+                // Apply camera ID if different from profile default
                 if self.camera_id.id() != P::DEFAULT_CAMERA_ID {
                     camera.set_camera_id(self.camera_id);
                 }

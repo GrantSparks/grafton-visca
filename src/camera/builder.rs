@@ -56,9 +56,15 @@ use crate::{camera_id::CameraId, capabilities::Profile, error::Error, timeout::T
 ///
 /// This builder ensures that async cameras are always created with a
 /// properly configured executor, preventing runtime mismatches.
+///
+/// For async cameras, timeout and retry configuration is set at construction time
+/// and cannot be changed after creation. This ensures the runtime's behavior
+/// matches the configured settings.
 pub struct CameraBuilder<E = ()> {
     camera_id: CameraId,
     timeout_config: TimeoutConfig,
+    #[cfg(feature = "mode-async")]
+    retry_config: crate::transport::RetryConfig,
     #[cfg(feature = "mode-async")]
     executor: Option<Arc<E>>,
     #[cfg(not(feature = "mode-async"))]
@@ -73,6 +79,7 @@ pub struct CameraBuilderWithAsyncTransport<E, T> {
     executor: Option<Arc<E>>,
     camera_id: CameraId,
     timeout_config: TimeoutConfig,
+    retry_config: crate::transport::RetryConfig,
 }
 
 #[cfg(feature = "mode-async")]
@@ -93,6 +100,7 @@ where
             executor: self.executor,
             camera_id: self.camera_id,
             timeout_config: self.timeout_config,
+            retry_config: self.retry_config,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -106,6 +114,7 @@ pub struct CameraBuilderWithAsyncTransportAndProfile<E, T, P> {
     executor: Option<Arc<E>>,
     camera_id: CameraId,
     timeout_config: TimeoutConfig,
+    retry_config: crate::transport::RetryConfig,
     _phantom: std::marker::PhantomData<P>,
 }
 
@@ -118,16 +127,22 @@ where
 {
     /// Open the async camera with the configured transport.
     ///
-    /// This method attaches the provided transport to create a camera instance.
+    /// This method attaches the provided transport to create a camera instance
+    /// with the configured timeout and retry settings.
     pub async fn open_async(self) -> Result<Camera<mode::Async, P, T, E>, Error> {
         let executor = self.executor.ok_or_else(|| {
             Error::InvalidState("No executor configured. Use CameraBuilder::with_executor() with a runtime like TokioRuntime::from_current()".into())
         })?;
 
-        // Create camera using the profile's envelope type
-        let mut camera = Camera::new_async(self.transport, executor).await?;
+        // Create camera using the profile's envelope type with explicit configs
+        let mut camera = Camera::new_async_with_config(
+            self.transport,
+            executor,
+            self.timeout_config,
+            self.retry_config,
+        )
+        .await?;
         camera.set_camera_id(self.camera_id);
-        camera.set_timeout_config(self.timeout_config);
         Ok(camera)
     }
 }
@@ -149,6 +164,8 @@ impl CameraBuilder<()> {
         Self {
             camera_id: CameraId::default(),
             timeout_config: TimeoutConfig::default(),
+            #[cfg(feature = "mode-async")]
+            retry_config: crate::transport::RetryConfig::default(),
             #[cfg(feature = "mode-async")]
             executor: None,
             #[cfg(not(feature = "mode-async"))]
@@ -176,6 +193,7 @@ where
         Self {
             camera_id: CameraId::default(),
             timeout_config: TimeoutConfig::default(),
+            retry_config: crate::transport::RetryConfig::default(),
             executor: Some(executor.into()),
         }
     }
@@ -187,8 +205,20 @@ where
     }
 
     /// Set the timeout configuration.
+    ///
+    /// This configuration will be applied to the runtime at construction time
+    /// and cannot be changed after the camera is created.
     pub fn timeout_config(mut self, config: TimeoutConfig) -> Self {
         self.timeout_config = config;
+        self
+    }
+
+    /// Set the retry configuration.
+    ///
+    /// This configuration will be applied to the runtime at construction time
+    /// and cannot be changed after the camera is created.
+    pub fn retry_config(mut self, config: crate::transport::RetryConfig) -> Self {
+        self.retry_config = config;
         self
     }
 
@@ -224,15 +254,17 @@ where
             executor: self.executor,
             camera_id: self.camera_id,
             timeout_config: self.timeout_config,
+            retry_config: self.retry_config,
         }
     }
 
-    /// Override the protocol style.
-    ///
     /// Open an async camera connection with the specified profile and transport.
     ///
     /// This method explicitly connects to the camera using the provided transport.
     /// The executor must have been set via `with_executor()`.
+    ///
+    /// The configured timeout and retry settings will be applied to the runtime
+    /// at construction time.
     pub async fn open_async<P, T>(self, transport: T) -> Result<Camera<mode::Async, P, T, E>, Error>
     where
         P: Profile + Default,
@@ -243,10 +275,15 @@ where
             Error::InvalidState("Executor not configured for async camera".into())
         })?;
 
-        // Create camera using the profile's envelope type
-        let mut camera = Camera::<mode::Async, P, T, E>::new_async(transport, executor).await?;
+        // Create camera using the profile's envelope type with explicit configs
+        let mut camera = Camera::<mode::Async, P, T, E>::new_async_with_config(
+            transport,
+            executor,
+            self.timeout_config,
+            self.retry_config,
+        )
+        .await?;
         camera.set_camera_id(self.camera_id);
-        camera.set_timeout_config(self.timeout_config);
 
         Ok(camera)
     }
