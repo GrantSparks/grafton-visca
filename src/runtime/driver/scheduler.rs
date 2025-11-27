@@ -36,11 +36,16 @@ pub trait SchedulerLike {
     /// This method handles send failures by immediately failing the command
     /// with a TransportError, without any retry attempts.
     ///
+    /// Returns the `SchedulerAction::CommandFailed` action so that callers can
+    /// propagate the error immediately to waiting clients (async via channel,
+    /// blocking via return value).
+    ///
     /// # Implementation Notes
     ///
-    /// - Async: calls adapter's fail_after_send_error
-    /// - Blocking: calls core's fail_after_send_error
-    fn fail_after_send_error(&mut self, id: u32);
+    /// - Async: calls adapter's fail_after_send_error, notifies waiting future
+    /// - Blocking: calls core's fail_after_send_error, returns action for caller
+    #[must_use = "The returned SchedulerAction must be handled to propagate the send failure"]
+    fn fail_after_send_error(&mut self, id: u32) -> Option<crate::runtime::core::SchedulerAction>;
 
     /// Register Sony sequence number for a command.
     ///
@@ -78,8 +83,15 @@ mod async_impl {
             self.unregister_pending_ack(id);
         }
 
-        fn fail_after_send_error(&mut self, id: u32) {
+        fn fail_after_send_error(
+            &mut self,
+            id: u32,
+        ) -> Option<crate::runtime::core::SchedulerAction> {
+            // AsyncAdapter handles the action internally by sending to response channel,
+            // so we call it for the side effect and return None to indicate no further
+            // action needed by the caller
             self.fail_after_send_error(id);
+            None
         }
 
         fn register_sequence(&mut self, id: u32, seq: u32) {
@@ -144,9 +156,12 @@ mod blocking_impl {
             self.core.unregister_pending_ack(id);
         }
 
-        fn fail_after_send_error(&mut self, id: u32) {
-            // Map to core method: fail immediately with transport error
-            self.core.fail_after_send_error(id);
+        fn fail_after_send_error(
+            &mut self,
+            id: u32,
+        ) -> Option<crate::runtime::core::SchedulerAction> {
+            // Return the action from core so caller can propagate it
+            self.core.fail_after_send_error(id)
         }
 
         fn register_sequence(&mut self, id: u32, seq: u32) {

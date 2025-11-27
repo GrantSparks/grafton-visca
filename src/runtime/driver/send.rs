@@ -7,9 +7,34 @@ use tracing::{debug, error, trace};
 
 use super::SchedulerLike;
 use crate::{
-    command::CommandKind, runtime::core::PendingCommand, transport::envelope::Envelope,
-    visca_socket::ViscaSocket, Result,
+    command::CommandKind,
+    runtime::core::{PendingCommand, SchedulerAction},
+    transport::envelope::Envelope,
+    visca_socket::ViscaSocket,
 };
+
+#[cfg(feature = "mode-async")]
+use crate::Result;
+
+/// Result of a blocking send operation.
+///
+/// This enum captures both the success/failure status and any scheduler action
+/// that needs to be propagated to the caller.
+#[cfg(not(feature = "mode-async"))]
+#[derive(Debug)]
+pub enum SendResult {
+    /// Send succeeded.
+    Ok,
+    /// Send failed. Contains the original error and the scheduler action
+    /// (typically `CommandFailed`) that should be checked by the caller
+    /// for immediate error propagation.
+    Err {
+        /// The transport error that caused the failure.
+        error: crate::Error,
+        /// The scheduler action to handle (typically `CommandFailed`).
+        action: Option<SchedulerAction>,
+    },
+}
 
 /// RAII guard for automatic rollback of send operations on failure.
 ///
@@ -43,8 +68,12 @@ impl SendGuard {
     /// Rollback the send operation on failure.
     ///
     /// This method automatically unregisters pending ACKs, frees reserved sockets,
-    /// and schedules retries according to the retry policy.
-    pub fn rollback<S: SchedulerLike>(self, scheduler: &mut S) {
+    /// and fails the command immediately with a transport error.
+    ///
+    /// Returns the `SchedulerAction::CommandFailed` action if a failure occurred,
+    /// allowing the caller to propagate the error to waiting clients.
+    #[must_use = "The returned action must be handled to propagate send failures to clients"]
+    pub fn rollback<S: SchedulerLike>(self, scheduler: &mut S) -> Option<SchedulerAction> {
         if !self.committed {
             // Rollback on failure
             if let Some(socket) = self.reserved_socket {
@@ -66,7 +95,9 @@ impl SendGuard {
                 "SendGuard: Failing command {id} after send failure (no retry)",
                 id = self.id
             );
-            scheduler.fail_after_send_error(self.id);
+            scheduler.fail_after_send_error(self.id)
+        } else {
+            None
         }
     }
 }
@@ -164,8 +195,9 @@ where
                 error = e
             );
 
-            // Rollback will happen automatically when guard is dropped
-            guard.rollback(scheduler);
+            // Rollback and discard the action - for async, the AsyncAdapter handles
+            // notification to the waiting future internally via response channels
+            let _action = guard.rollback(scheduler);
 
             // Return error to caller
             Err(e)
@@ -174,6 +206,10 @@ where
 }
 
 /// Blocking version of send_one for non-async builds.
+///
+/// Returns a `SendResult` that includes both the error (if any) and the
+/// scheduler action that must be checked by the caller for immediate
+/// error propagation to the target command.
 #[cfg(not(feature = "mode-async"))]
 pub(crate) fn send_one<T, S, Env>(
     transport: &mut T,
@@ -182,7 +218,7 @@ pub(crate) fn send_one<T, S, Env>(
     envelope: &Env,
     send_buf: &mut bytes::BytesMut,
     _write_timeout: core::time::Duration,
-) -> Result<()>
+) -> SendResult
 where
     T: crate::transport::BlockingTransport,
     S: SchedulerLike,
@@ -233,7 +269,7 @@ where
 
             // Mark as committed to prevent rollback
             guard.commit();
-            Ok(())
+            SendResult::Ok
         }
         Err(e) => {
             let error_type = if matches!(e, crate::Error::Timeout) {
@@ -254,11 +290,11 @@ where
                 error = e
             );
 
-            // Rollback will happen automatically when guard is dropped
-            guard.rollback(scheduler);
+            // Rollback and get the scheduler action for the caller to handle
+            let action = guard.rollback(scheduler);
 
-            // Return error to caller
-            Err(e)
+            // Return error with action for caller to check
+            SendResult::Err { error: e, action }
         }
     }
 }

@@ -27,7 +27,7 @@ use crate::{
     },
     runtime::{
         core::{PendingCommand, Priority, SchedulerAction, SchedulerCore, SchedulerEvent},
-        driver::{scheduler::BlockingScheduler, send_one},
+        driver::{scheduler::BlockingScheduler, send_one, SendResult},
     },
     timeout::{CommandCategory, TimeoutConfig},
     transport::{
@@ -180,7 +180,7 @@ impl<P: Profile> BlockingRunner<P> {
                     kind,
                 };
 
-                if let Err(e) = send_one(
+                match send_one(
                     transport,
                     &mut scheduler,
                     pending_cmd,
@@ -188,8 +188,17 @@ impl<P: Profile> BlockingRunner<P> {
                     &mut send_buf,
                     write_timeout,
                 ) {
-                    debug!("Send operation failed: {e:?}");
-                    continue;
+                    SendResult::Ok => {}
+                    SendResult::Err { error, action } => {
+                        debug!("Send operation failed: {error:?}");
+                        // Check if this failure is for our target command - if so, return immediately
+                        if let Some(SchedulerAction::CommandFailed { id, error }) = action {
+                            if id == target_cmd_id {
+                                return Err(error);
+                            }
+                        }
+                        continue;
+                    }
                 }
             }
 
@@ -214,7 +223,7 @@ impl<P: Profile> BlockingRunner<P> {
                     kind,
                 };
 
-                if let Err(e) = send_one(
+                match send_one(
                     transport,
                     &mut scheduler,
                     pending_cmd,
@@ -222,19 +231,29 @@ impl<P: Profile> BlockingRunner<P> {
                     &mut send_buf,
                     write_timeout,
                 ) {
-                    debug!("Send retry operation failed: {e:?}");
-                    continue;
+                    SendResult::Ok => {
+                        debug!(
+                            "Sent retry for {} {retry_id} (attempt {attempt})",
+                            if kind == CommandKind::Inquiry {
+                                "inquiry"
+                            } else {
+                                "command"
+                            },
+                            retry_id = retry.id,
+                            attempt = retry.attempt
+                        );
+                    }
+                    SendResult::Err { error, action } => {
+                        debug!("Send retry operation failed: {error:?}");
+                        // Check if this failure is for our target command - if so, return immediately
+                        if let Some(SchedulerAction::CommandFailed { id, error }) = action {
+                            if id == target_cmd_id {
+                                return Err(error);
+                            }
+                        }
+                        continue;
+                    }
                 }
-                debug!(
-                    "Sent retry for {} {retry_id} (attempt {attempt})",
-                    if kind == CommandKind::Inquiry {
-                        "inquiry"
-                    } else {
-                        "command"
-                    },
-                    retry_id = retry.id,
-                    attempt = retry.attempt
-                );
             }
 
             let timeout_actions = self.core.check_timeouts(now);
@@ -417,6 +436,7 @@ mod tests {
     use super::*;
     use crate::camera::profiles::PtzOpticsG2;
     use crate::command::encode::ViscaCommand;
+    use crate::transport::builder::TransportConfig;
 
     #[test]
     fn test_scheduler_core_creation() {
@@ -487,5 +507,109 @@ mod tests {
         if let Some(cmd) = next {
             assert_eq!(cmd.id, 1);
         }
+    }
+
+    /// Mock transport that fails on send for testing send failure propagation.
+    struct FailingSendTransport {
+        config: TransportConfig,
+    }
+
+    impl FailingSendTransport {
+        fn new() -> Self {
+            Self {
+                config: TransportConfig::default(),
+            }
+        }
+    }
+
+    impl BlockingTransport for FailingSendTransport {
+        fn send_with_kind(&mut self, _bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+            Err(Error::TransportError("Simulated send failure".into()))
+        }
+
+        fn recv_into(&mut self, _dst: &mut [u8]) -> Result<usize, Error> {
+            Ok(0)
+        }
+
+        fn recv_into_with_timeout(
+            &mut self,
+            _dst: &mut [u8],
+            _timeout: Duration,
+        ) -> Result<usize, Error> {
+            Err(Error::Timeout)
+        }
+    }
+
+    impl HasTransportConfig for FailingSendTransport {
+        fn transport_config(&self) -> &TransportConfig {
+            &self.config
+        }
+    }
+
+    /// Test that blocking send failures immediately return TransportError (not NoResponse/Timeout).
+    ///
+    /// This test verifies the fix for issue #433: when a transport send fails in blocking mode,
+    /// the error should be propagated immediately as TransportError("Send failed"), not deferred
+    /// to timeout handling which would produce NoResponse.
+    #[test]
+    fn test_blocking_send_failure_returns_transport_error_immediately() {
+        use crate::command::bytes::VISCA_TERMINATOR;
+
+        let timeout_config = TimeoutConfig::default();
+        let mut runner = BlockingRunner::<PtzOpticsG2>::new(timeout_config);
+
+        #[derive(Debug, Clone)]
+        struct TestCmd {
+            bytes: Vec<u8>,
+        }
+
+        impl ViscaCommand for TestCmd {
+            type Response = ();
+            const MAX_SIZE: usize = 6;
+            const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+
+            fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+                let len = self.bytes.len();
+                buffer[..len].copy_from_slice(&self.bytes);
+                Ok(len)
+            }
+
+            fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
+                None
+            }
+        }
+
+        let mut transport = FailingSendTransport::new();
+        let camera_id = CameraId::CAMERA_1;
+        let test_cmd = TestCmd {
+            bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
+        };
+
+        // Track start time to verify we return immediately (not after timeout)
+        let start = Instant::now();
+
+        let result =
+            runner.send_command(&mut transport, &test_cmd, camera_id, CommandCategory::Quick);
+
+        let elapsed = start.elapsed();
+
+        // Should return immediately with TransportError, not wait for timeout
+        assert!(
+            result.is_err(),
+            "Expected error from failing transport, got Ok"
+        );
+
+        let error = result.unwrap_err();
+        assert!(
+            matches!(&error, Error::TransportError(msg) if msg.contains("Send failed")),
+            "Expected TransportError('Send failed'), got: {error:?}"
+        );
+
+        // Verify the error was returned promptly (not after timeout)
+        // Default timeout is ~500ms, so if we're under 100ms we know it was immediate
+        assert!(
+            elapsed.as_millis() < 100,
+            "Error should be returned immediately, took {elapsed:?}"
+        );
     }
 }
