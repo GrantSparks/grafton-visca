@@ -5,9 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.0] - 2025-11-27
 
 ### Breaking Changes
+
+#### Generic Zoom and Focus API (#102)
+
+The zoom and focus APIs have been simplified by removing unit-specific method names in favor of generic methods that accept multiple input types via `TryInto` trait bounds.
+
+**What Changed:**
+
+- `zoom_absolute()` and `set_zoom_position()` → `set_zoom<T>()`
+- `set_focus()` updated to accept generic types via `TryInto<FocusPosition>`
+- `set_focus_near_limit()` updated to accept generic types
+- `set_zoom_op()` and `set_focus_op()` async operation methods updated similarly
+
+**Migration Guide:**
+
+```rust
+// Before (0.8.x)
+camera.zoom_absolute(ZoomPosition::new(0x4000)?)?;
+camera.set_zoom_position(0x4000)?;
+
+// After (0.9.0) - multiple ways to set zoom
+camera.set_zoom(Percentage(50.0))?;           // 50% of range
+camera.set_zoom(Normalized(0.5))?;            // Normalized 0.0-1.0
+camera.set_zoom(Magnification(10.0))?;        // 10x magnification
+camera.set_zoom(Raw(0x4000))?;                // Raw VISCA value
+camera.set_zoom(ZoomPosition::new(0x4000)?)?; // Explicit position
+
+// Focus works similarly
+camera.set_focus(Percentage(75.0))?;
+camera.set_focus(FocusPosition::new(0x1000)?)?;
+```
+
+**Impact:**
+
+- Cleaner, more intuitive API for setting zoom and focus
+- Single method supports multiple unit types
+- Compile-time type safety via `TryInto` bounds
 
 #### Async Camera Timeout and Retry Configuration (#430)
 
@@ -59,6 +95,50 @@ let camera = CameraBuilder::with_executor(executor)
 - Async cameras now actually respect user-configured timeouts and retries
 - Behavior is now consistent between blocking and async modes
 - Configuration is type-driven and validated at construction time
+
+### Added
+
+#### Capability Flags for Picture Effects and Tally Lights
+
+Fine-grained capability detection for picture effects and tally lights prevents cameras from advertising unsupported commands.
+
+**New Capabilities:**
+
+- `SUPPORTS_PICTURE_EFFECT` flag in `ImageProcessing` trait (default: false)
+- `Tally` capability trait with `SUPPORTS_TALLY` constant
+- `has_picture_effect` and `has_tally` fields in `Capabilities` discovery struct
+
+**Profile Updates:**
+
+- `PtzOpticsG2` explicitly sets both flags to `false`
+- Sony professional cameras (`FR7`, `BRC-H900`) enable both capabilities
+
+This prevents cameras from receiving syntax errors when the poller attempts to query `TallyStatus` or `PictureEffect` on cameras that don't support these commands.
+
+### Fixed
+
+#### TransportOptions Serde Representation
+
+Changed `TransportOptions` enum to use serde's internally-tagged representation for better compatibility with TypeScript/JavaScript frontends.
+
+**Before:**
+```json
+{"Tcp": {"address": "192.168.0.110:5678"}}
+```
+
+**After:**
+```json
+{"type": "TCP", "address": "192.168.0.110:5678"}
+```
+
+This matches common JSON API conventions and simplifies frontend integration.
+
+### Internal
+
+- Reduced inquiry matching verbosity: TRACE for detailed flow, DEBUG for interesting situations
+- Simplified error logging: only log syntax errors (0x02) at ERROR level, not executable errors (0x41)
+- Changed response decoding from DEBUG to TRACE level
+- Use lazy evaluation for expensive hex formatting
 
 ## [0.8.0] - 2025-10-16
 
