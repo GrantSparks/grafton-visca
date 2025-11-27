@@ -28,7 +28,7 @@ fn test_blocking_wrapper_api() {
         camera.zoom_stop()?;
         camera.zoom_tele(None)?;
         camera.zoom_wide(None)?;
-        camera.zoom_absolute(Normalized(0.5))?;
+        camera.set_zoom(Normalized(0.5))?;
         Ok(())
     }
 }

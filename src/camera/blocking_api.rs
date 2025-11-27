@@ -60,7 +60,7 @@ use crate::{
 ///     // Direct Result<T, Error> returns - no .block() needed!
 ///     camera.power_on()?;
 ///     camera.zoom_stop()?;
-///     camera.zoom_absolute(0.5.into())?;
+///     camera.set_zoom(Normalized(0.5))?;
 ///
 ///     Ok(())
 /// }
@@ -275,14 +275,51 @@ where
         /// When `speed` is `None`, uses standard zoom speed.
         fn zoom_wide(speed: Option<crate::ZoomSpeed>) -> ();
 
-        /// Set zoom to absolute position (0.0 = wide, 1.0 = full tele).
-        fn zoom_absolute(position: crate::units::Normalized) -> ();
-
-        /// Set zoom to a specific position value.
-        fn set_zoom_position(position: crate::types::ZoomPosition) -> ();
-
         /// Set digital zoom on or off.
         fn set_digital_zoom(enabled: bool) -> ();
+    }
+
+    /// Set zoom to an absolute position.
+    ///
+    /// This method accepts any type that can be converted to `ZoomPosition`, providing
+    /// a flexible API for setting zoom using different units:
+    ///
+    /// - `Percentage(50.0)` - Set zoom to 50% of range
+    /// - `Normalized(0.5)` - Set zoom to 0.5 (equivalent to 50%)
+    /// - `Magnification(10.0)` - Set zoom to 10x magnification
+    /// - `Raw(0x4000)` - Set zoom to raw VISCA value
+    /// - `ZoomPosition` - Set zoom to specific position directly
+    ///
+    /// # Arguments
+    /// * `position` - Target zoom position (accepts multiple types via `TryInto<ZoomPosition>`)
+    ///
+    /// # Examples
+    /// ```ignore
+    /// use grafton_visca::units::{Percentage, Magnification, Normalized, Raw};
+    ///
+    /// // Using percentage
+    /// camera.set_zoom(Percentage(50.0))?;
+    ///
+    /// // Using magnification
+    /// camera.set_zoom(Magnification(10.0))?;
+    ///
+    /// // Using normalized value
+    /// camera.set_zoom(Normalized(0.5))?;
+    ///
+    /// // Using raw value
+    /// camera.set_zoom(Raw(0x4000_u16))?;
+    /// ```
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - The conversion to `ZoomPosition` fails (e.g., value out of range)
+    /// - The command fails to send or receive a response
+    pub fn set_zoom<T>(&self, position: T) -> Result<(), Error>
+    where
+        T: TryInto<crate::types::ZoomPosition>,
+        T::Error: Into<Error>,
+    {
+        self.inner.set_zoom(position).block()
     }
 }
 

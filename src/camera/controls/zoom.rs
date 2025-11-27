@@ -9,7 +9,7 @@
 //! The implementation uses the Mode trait to provide both blocking and async APIs
 //! from a single unified codebase.
 
-use crate::{camera::ViscaClient, mode::Mode, types::ZoomSpeed, units::Normalized, Error};
+use crate::{camera::ViscaClient, mode::Mode, types::ZoomPosition, types::ZoomSpeed, Error};
 
 /// Zoom operations for PTZ cameras.
 ///
@@ -102,29 +102,45 @@ pub trait ZoomControl {
         speed: Option<ZoomSpeed>,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
-    /// Set zoom to an absolute normalized position.
+    /// Set zoom to an absolute position.
+    ///
+    /// This method accepts any type that can be converted to `ZoomPosition`, providing
+    /// a flexible API for setting zoom using different units:
+    ///
+    /// - `Percentage(50.0)` - Set zoom to 50% of range
+    /// - `Normalized(0.5)` - Set zoom to 0.5 (equivalent to 50%)
+    /// - `Magnification(10.0)` - Set zoom to 10x magnification
+    /// - `Raw(0x4000)` - Set zoom to raw VISCA value
+    /// - `ZoomPosition` - Set zoom to specific position directly
     ///
     /// # Arguments
-    /// * `position` - Normalized position (0.0 = wide, 1.0 = full telephoto)
+    /// * `position` - Target zoom position (accepts multiple types via `TryInto<ZoomPosition>`)
+    ///
+    /// # Examples
+    /// ```ignore
+    /// use grafton_visca::units::{Percentage, Magnification, Normalized, Raw};
+    ///
+    /// // Using percentage
+    /// camera.set_zoom(Percentage(50.0))?;
+    ///
+    /// // Using magnification
+    /// camera.set_zoom(Magnification(10.0))?;
+    ///
+    /// // Using normalized value
+    /// camera.set_zoom(Normalized(0.5))?;
+    ///
+    /// // Using raw value
+    /// camera.set_zoom(Raw(0x4000_u16))?;
+    /// ```
     ///
     /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn zoom_absolute(
-        &self,
-        position: Normalized,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
-    /// Set zoom to a specific raw position value.
-    ///
-    /// # Arguments
-    /// * `position` - Raw zoom position value (camera-specific range)
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn set_zoom_position(
-        &self,
-        position: crate::types::ZoomPosition,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    /// Returns an error if:
+    /// - The conversion to `ZoomPosition` fails (e.g., value out of range)
+    /// - The command fails to send or receive a response
+    fn set_zoom<T>(&self, position: T) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>
+    where
+        T: TryInto<ZoomPosition>,
+        T::Error: Into<Error>;
 
     /// Set digital zoom on or off.
     ///
@@ -203,20 +219,16 @@ where
         }
     }
 
-    fn zoom_absolute(&self, position: Normalized) -> M::Fut<'_, Result<(), Error>> {
+    fn set_zoom<T>(&self, position: T) -> M::Fut<'_, Result<(), Error>>
+    where
+        T: TryInto<ZoomPosition>,
+        T::Error: Into<Error>,
+    {
         use crate::command::zoom::Zoom;
-        match crate::types::ZoomPosition::try_from(*position.value()) {
+        match position.try_into() {
             Ok(zoom_pos) => self.execute(Zoom::Position(zoom_pos)),
-            Err(e) => self.error(e),
+            Err(e) => self.error(e.into()),
         }
-    }
-
-    fn set_zoom_position(
-        &self,
-        position: crate::types::ZoomPosition,
-    ) -> M::Fut<'_, Result<(), Error>> {
-        use crate::command::zoom::Zoom;
-        self.execute(Zoom::Position(position))
     }
 
     fn set_digital_zoom(&self, enabled: bool) -> M::Fut<'_, Result<(), Error>> {
@@ -239,7 +251,7 @@ where
         }
 
         // Convert normalized position to zoom position based on domain
-        match crate::types::ZoomPosition::from_normalized(position, domain) {
+        match ZoomPosition::from_normalized(position, domain) {
             Ok(zoom_pos) => self.execute(Zoom::Position(zoom_pos)),
             Err(e) => self.error(e),
         }
@@ -254,15 +266,44 @@ where
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
     Exec: crate::executor::Executor,
 {
-    /// Set zoom to an absolute normalized position and return an operation handle.
-    pub async fn zoom_absolute_op(
+    /// Set zoom to a position and return an operation handle.
+    ///
+    /// This method accepts any type that can be converted to `ZoomPosition`, providing
+    /// a flexible API for setting zoom using different units. Returns an `InFlight`
+    /// handle for fine-grained control over timeouts and cancellation.
+    ///
+    /// # Arguments
+    /// * `position` - Target zoom position (accepts multiple types via `TryInto<ZoomPosition>`)
+    ///
+    /// # Examples
+    /// ```ignore
+    /// use grafton_visca::units::{Percentage, Magnification};
+    /// use std::time::Duration;
+    ///
+    /// // Using percentage
+    /// let handle = camera.set_zoom_op(Percentage(50.0)).await?;
+    /// handle.await_completion(Duration::from_secs(5)).await?;
+    ///
+    /// // Using magnification
+    /// let handle = camera.set_zoom_op(Magnification(10.0)).await?;
+    /// handle.await_completion(Duration::from_secs(5)).await?;
+    /// ```
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - The conversion to `ZoomPosition` fails (e.g., value out of range)
+    /// - The command fails to send
+    pub async fn set_zoom_op<T>(
         &self,
-        position: Normalized,
+        position: T,
     ) -> Result<crate::camera::inflight::InFlight<'_, crate::camera::inflight::Zoom, Self>, Error>
+    where
+        T: TryInto<ZoomPosition>,
+        T::Error: Into<Error>,
     {
         use crate::command::zoom::Zoom;
 
-        let zoom_pos = crate::types::ZoomPosition::try_from(*position.value())?;
+        let zoom_pos = position.try_into().map_err(Into::into)?;
         let cmd = Zoom::Position(zoom_pos);
 
         let (id, _response_fut) = self.send_command_with_id(&cmd).await?;

@@ -113,7 +113,7 @@ fn main() -> Result<(), Error> {
     println!("✓ Relative movement complete");
 
     println!("Setting zoom to 50%...");
-    camera.zoom_absolute(Normalized(0.5))?;
+    camera.set_zoom(Normalized(0.5))?;
     sleep(Duration::from_secs(2));
     println!("✓ Zoom at 50%");
     println!();
@@ -175,19 +175,19 @@ fn main() -> Result<(), Error> {
     println!("Saving preset positions...");
 
     camera.pan_tilt_absolute(Degrees(0.0), Degrees(0.0), SpeedLevel::Medium)?;
-    camera.zoom_absolute(Normalized(0.0))?;
+    camera.set_zoom(Normalized(0.0))?;
     sleep(Duration::from_secs(3));
     camera.preset_set(PresetNumber::new(1)?)?;
     println!("  ✓ Preset 1 (Wide Overview) saved");
 
     camera.pan_tilt_absolute(Degrees(45.0), Degrees(-10.0), SpeedLevel::Medium)?;
-    camera.zoom_absolute(Normalized(0.3))?;
+    camera.set_zoom(Normalized(0.3))?;
     sleep(Duration::from_secs(3));
     camera.preset_set(PresetNumber::new(2)?)?;
     println!("  ✓ Preset 2 (Right View) saved");
 
     camera.pan_tilt_absolute(Degrees(-45.0), Degrees(-10.0), SpeedLevel::Medium)?;
-    camera.zoom_absolute(Normalized(0.3))?;
+    camera.set_zoom(Normalized(0.3))?;
     sleep(Duration::from_secs(3));
     camera.preset_set(PresetNumber::new(3)?)?;
     println!("  ✓ Preset 3 (Left View) saved");
@@ -210,7 +210,7 @@ fn main() -> Result<(), Error> {
 
     camera.pan_tilt_home()?;
     sleep(Duration::from_secs(3));
-    camera.zoom_absolute(Normalized(0.0))?;
+    camera.set_zoom(Normalized(0.0))?;
     sleep(Duration::from_secs(2));
     println!("✓ Camera at home position");
 

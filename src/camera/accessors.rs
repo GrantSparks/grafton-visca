@@ -142,14 +142,15 @@ where
     }
 
     /// Set zoom position directly.
-    pub fn set_position(
-        &self,
-        position: impl Into<crate::types::ZoomPosition>,
-    ) -> M::Fut<'_, Result<(), Error>>
+    ///
+    /// This method accepts any type that can be converted to `ZoomPosition`.
+    pub fn set_position<T>(&self, position: T) -> M::Fut<'_, Result<(), Error>>
     where
         Camera<M, P, Tr, Exec>: ZoomControl<Mode = M>,
+        T: TryInto<crate::types::ZoomPosition>,
+        T::Error: Into<Error>,
     {
-        self.camera.set_zoom_position(position.into())
+        self.camera.set_zoom(position)
     }
 
     /// Zoom to telephoto (zoom in) with variable speed.
@@ -174,12 +175,16 @@ where
         self.camera.zoom_wide(Some(speed.into()))
     }
 
-    /// Set zoom to absolute position (0.0 = wide, 1.0 = full tele).
-    pub fn absolute(&self, position: crate::units::Normalized) -> M::Fut<'_, Result<(), Error>>
+    /// Set zoom to absolute position.
+    ///
+    /// This method accepts any type that can be converted to `ZoomPosition`.
+    pub fn absolute<T>(&self, position: T) -> M::Fut<'_, Result<(), Error>>
     where
         Camera<M, P, Tr, Exec>: ZoomControl<Mode = M>,
+        T: TryInto<crate::types::ZoomPosition>,
+        T::Error: Into<Error>,
     {
-        self.camera.zoom_absolute(position)
+        self.camera.set_zoom(position)
     }
 }
 
@@ -458,12 +463,13 @@ where
     }
 
     /// Set focus position directly.
-    pub fn set_position(
-        &self,
-        position: crate::types::FocusPosition,
-    ) -> M::Fut<'_, Result<(), Error>>
+    ///
+    /// This method accepts any type that can be converted to `FocusPosition`.
+    pub fn set_position<T>(&self, position: T) -> M::Fut<'_, Result<(), Error>>
     where
         Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
+        T: TryInto<crate::types::FocusPosition>,
+        T::Error: Into<Error>,
     {
         self.camera.set_focus(position)
     }
@@ -536,12 +542,13 @@ where
     }
 
     /// Set the focus near limit.
-    pub fn set_near_limit(
-        &self,
-        position: crate::types::FocusPosition,
-    ) -> M::Fut<'_, Result<(), Error>>
+    ///
+    /// This method accepts any type that can be converted to `FocusPosition`.
+    pub fn set_near_limit<T>(&self, position: T) -> M::Fut<'_, Result<(), Error>>
     where
         Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
+        T: TryInto<crate::types::FocusPosition>,
+        T::Error: Into<Error>,
     {
         self.camera.set_focus_near_limit(position)
     }

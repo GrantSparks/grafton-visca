@@ -59,16 +59,14 @@ impl ZoomControl for MockCamera {
     ) -> <Self::Mode as grafton_visca::mode::Mode>::Fut<'_, Result<(), grafton_visca::Error>> {
         Box::pin(async { Ok(()) })
     }
-    fn zoom_absolute(
+    fn set_zoom<T>(
         &self,
-        _position: grafton_visca::units::Normalized,
-    ) -> <Self::Mode as grafton_visca::mode::Mode>::Fut<'_, Result<(), grafton_visca::Error>> {
-        Box::pin(async { Ok(()) })
-    }
-    fn set_zoom_position(
-        &self,
-        _pos: grafton_visca::types::ZoomPosition,
-    ) -> <Self::Mode as grafton_visca::mode::Mode>::Fut<'_, Result<(), grafton_visca::Error>> {
+        _position: T,
+    ) -> <Self::Mode as grafton_visca::mode::Mode>::Fut<'_, Result<(), grafton_visca::Error>>
+    where
+        T: TryInto<grafton_visca::types::ZoomPosition>,
+        T::Error: Into<grafton_visca::Error>,
+    {
         Box::pin(async { Ok(()) })
     }
     fn set_digital_zoom(
@@ -105,8 +103,11 @@ fn test_zoom_control_futures_are_send() {
     assert_send(camera.zoom_wide(None));
     assert_send(camera.zoom_tele(Some(grafton_visca::types::ZoomSpeed::new(1).unwrap())));
     assert_send(camera.zoom_wide(Some(grafton_visca::types::ZoomSpeed::new(1).unwrap())));
-    assert_send(camera.zoom_absolute(grafton_visca::units::Normalized::new(0.5)));
-    assert_send(camera.set_zoom_position(grafton_visca::types::ZoomPosition::new(0x4000).unwrap()));
+    // Test set_zoom with various input types
+    assert_send(camera.set_zoom(grafton_visca::units::Normalized::new(0.5)));
+    assert_send(camera.set_zoom(grafton_visca::types::ZoomPosition::new(0x4000).unwrap()));
+    assert_send(camera.set_zoom(grafton_visca::units::Percentage::new(50.0)));
+    assert_send(camera.set_zoom(grafton_visca::units::Magnification::new(10.0)));
 }
 
 /// Compile-time test that verifies trait object compatibility.

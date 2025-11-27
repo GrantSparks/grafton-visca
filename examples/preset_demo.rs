@@ -46,7 +46,7 @@ fn main() -> Result<(), Error> {
 
     println!("Moving to home position...");
     camera.pan_tilt_home()?;
-    camera.zoom_absolute(Normalized(0.0))?;
+    camera.set_zoom(Normalized(0.0))?;
     camera.await_idle(Duration::from_secs(10))?;
     println!("✓ At home position\n");
 
@@ -93,7 +93,7 @@ fn main() -> Result<(), Error> {
         );
 
         camera.pan_tilt_absolute(preset.pan, preset.tilt, SpeedLevel::Medium)?;
-        camera.zoom_absolute(preset.zoom)?;
+        camera.set_zoom(preset.zoom)?;
 
         camera.await_idle(Duration::from_secs(10))?;
         // Note: Position inquiry not implemented in this demo
@@ -108,7 +108,7 @@ fn main() -> Result<(), Error> {
     println!("═══ Testing Preset Recall ═══");
     println!("Moving to test position (60°, -15°)...");
     camera.pan_tilt_absolute(Degrees(60.0), Degrees(-15.0), SpeedLevel::Fast)?;
-    camera.zoom_absolute(Normalized(0.7))?;
+    camera.set_zoom(Normalized(0.7))?;
     camera.await_idle(Duration::from_secs(10))?;
 
     // Note: Position inquiry not implemented in this demo

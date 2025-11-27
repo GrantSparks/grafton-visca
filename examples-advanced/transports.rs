@@ -55,7 +55,7 @@ fn main() -> Result<(), Error> {
 
     // Test TCP connection with a simple command
     println!("Testing TCP transport with zoom command...");
-    tcp_camera.zoom_absolute(Normalized(0.3)).block()?;
+    tcp_camera.set_zoom(Normalized(0.3)).block()?;
     tcp_camera.await_zoom_idle(Duration::from_secs(5))?;
     println!("✓ Command sent successfully via TCP");
     println!();
@@ -163,16 +163,14 @@ fn main() -> Result<(), Error> {
 
     let tcp_start = Instant::now();
     for i in 0..10 {
-        tcp_camera
-            .zoom_absolute(Normalized((i as f32) * 0.1))
-            .block()?;
+        tcp_camera.set_zoom(Normalized((i as f32) * 0.1)).block()?;
         thread::sleep(Duration::from_millis(100));
     }
     let tcp_elapsed = tcp_start.elapsed();
     println!("✓ TCP: 10 commands in {:.2}s", tcp_elapsed.as_secs_f32());
 
     // Reset zoom
-    tcp_camera.zoom_absolute(Normalized(0.0)).block()?;
+    tcp_camera.set_zoom(Normalized(0.0)).block()?;
 
     // If UDP is available, compare performance
     if let Ok(udp_camera) =
@@ -182,16 +180,14 @@ fn main() -> Result<(), Error> {
 
         let udp_start = Instant::now();
         for i in 0..10 {
-            udp_camera
-                .zoom_absolute(Normalized((i as f32) * 0.1))
-                .block()?;
+            udp_camera.set_zoom(Normalized((i as f32) * 0.1)).block()?;
             thread::sleep(Duration::from_millis(100));
         }
         let udp_elapsed = udp_start.elapsed();
         println!("✓ UDP: 10 commands in {:.2}s", udp_elapsed.as_secs_f32());
 
         // Reset zoom
-        udp_camera.zoom_absolute(Normalized(0.0)).block()?;
+        udp_camera.set_zoom(Normalized(0.0)).block()?;
 
         if udp_elapsed < tcp_elapsed {
             println!();

@@ -123,15 +123,39 @@ pub trait FocusControl {
     /// Moves focus directly to the specified absolute position.
     /// The camera must be in manual focus mode for this to work.
     ///
-    /// # Parameters
-    /// - `position`: Target focus position
+    /// This method accepts any type that can be converted to `FocusPosition`, providing
+    /// a flexible API for setting focus using different units:
+    ///
+    /// - `Percentage(50.0)` - Set focus to 50% of range
+    /// - `Normalized(0.5)` - Set focus to 0.5 (equivalent to 50%)
+    /// - `Raw(0x8000)` - Set focus to raw VISCA value
+    /// - `FocusPosition` - Set focus to specific position directly
+    ///
+    /// # Arguments
+    /// * `position` - Target focus position (accepts multiple types via `TryInto<FocusPosition>`)
+    ///
+    /// # Examples
+    /// ```ignore
+    /// use grafton_visca::units::{Percentage, Normalized, Raw};
+    ///
+    /// // Using percentage
+    /// camera.set_focus(Percentage(50.0))?;
+    ///
+    /// // Using normalized value
+    /// camera.set_focus(Normalized(0.5))?;
+    ///
+    /// // Using raw value
+    /// camera.set_focus(Raw(0x8000_u16))?;
+    /// ```
     ///
     /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn set_focus(
-        &self,
-        position: FocusPosition,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    /// Returns an error if:
+    /// - The conversion to `FocusPosition` fails (e.g., value out of range)
+    /// - The command fails to send or receive a response
+    fn set_focus<T>(&self, position: T) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>
+    where
+        T: TryInto<FocusPosition>,
+        T::Error: Into<Error>;
 
     /// Set focus to infinity.
     ///
@@ -211,15 +235,22 @@ pub trait FocusControl {
     /// too close to the lens. This is useful to avoid focusing on dust or scratches
     /// on the lens surface.
     ///
+    /// This method accepts any type that can be converted to `FocusPosition`.
+    ///
     /// # Parameters
-    /// - `position`: The near limit focus position
+    /// - `position`: The near limit focus position (accepts multiple types via `TryInto<FocusPosition>`)
     ///
     /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn set_focus_near_limit(
+    /// Returns an error if:
+    /// - The conversion to `FocusPosition` fails (e.g., value out of range)
+    /// - The command fails to send or receive a response
+    fn set_focus_near_limit<T>(
         &self,
-        position: FocusPosition,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+        position: T,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>
+    where
+        T: TryInto<FocusPosition>,
+        T::Error: Into<Error>;
 }
 
 // Single unified implementation for all Camera types!
@@ -274,8 +305,15 @@ where
         self.execute(Focus::OnePushTrigger)
     }
 
-    fn set_focus(&self, position: FocusPosition) -> M::Fut<'_, Result<(), Error>> {
-        self.execute(Focus::Position(position))
+    fn set_focus<T>(&self, position: T) -> M::Fut<'_, Result<(), Error>>
+    where
+        T: TryInto<FocusPosition>,
+        T::Error: Into<Error>,
+    {
+        match position.try_into() {
+            Ok(focus_pos) => self.execute(Focus::Position(focus_pos)),
+            Err(e) => self.error(e.into()),
+        }
     }
 
     fn focus_infinity(&self) -> M::Fut<'_, Result<(), Error>> {
@@ -309,8 +347,17 @@ where
         self.execute(AutoFocusSensitivityCommand { sensitivity })
     }
 
-    fn set_focus_near_limit(&self, position: FocusPosition) -> M::Fut<'_, Result<(), Error>> {
-        self.execute(FocusNearLimitCommand { position })
+    fn set_focus_near_limit<T>(&self, position: T) -> M::Fut<'_, Result<(), Error>>
+    where
+        T: TryInto<FocusPosition>,
+        T::Error: Into<Error>,
+    {
+        match position.try_into() {
+            Ok(focus_pos) => self.execute(FocusNearLimitCommand {
+                position: focus_pos,
+            }),
+            Err(e) => self.error(e.into()),
+        }
     }
 }
 
@@ -323,14 +370,44 @@ where
     Exec: crate::executor::Executor,
 {
     /// Set focus to a specific position and return an operation handle.
-    pub async fn set_focus_op(
+    ///
+    /// This method accepts any type that can be converted to `FocusPosition`, providing
+    /// a flexible API for setting focus using different units. Returns an `InFlight`
+    /// handle for fine-grained control over timeouts and cancellation.
+    ///
+    /// # Arguments
+    /// * `position` - Target focus position (accepts multiple types via `TryInto<FocusPosition>`)
+    ///
+    /// # Examples
+    /// ```ignore
+    /// use grafton_visca::units::{Percentage, Normalized};
+    /// use std::time::Duration;
+    ///
+    /// // Using percentage
+    /// let handle = camera.set_focus_op(Percentage(50.0)).await?;
+    /// handle.await_completion(Duration::from_secs(5)).await?;
+    ///
+    /// // Using normalized value
+    /// let handle = camera.set_focus_op(Normalized(0.5)).await?;
+    /// handle.await_completion(Duration::from_secs(5)).await?;
+    /// ```
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - The conversion to `FocusPosition` fails (e.g., value out of range)
+    /// - The command fails to send
+    pub async fn set_focus_op<T>(
         &self,
-        position: FocusPosition,
+        position: T,
     ) -> Result<crate::camera::inflight::InFlight<'_, crate::camera::inflight::Focus, Self>, Error>
+    where
+        T: TryInto<FocusPosition>,
+        T::Error: Into<Error>,
     {
         use crate::command::focus::Focus;
 
-        let cmd = Focus::Position(position);
+        let focus_pos = position.try_into().map_err(Into::into)?;
+        let cmd = Focus::Position(focus_pos);
 
         // Send command and get ID
         let (id, _response_fut) = self.send_command_with_id(&cmd).await?;
