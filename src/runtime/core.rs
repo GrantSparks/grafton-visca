@@ -15,6 +15,7 @@ use std::{
 
 use crate::{
     command::{
+        encode::EncodedCommand,
         response::{parse_inquiry_payload, InquiryKind, Response},
         CommandKind,
     },
@@ -22,6 +23,24 @@ use crate::{
     visca_socket::ViscaSocket,
     Error,
 };
+
+/// Command metadata stored for potential retry.
+///
+/// Contains all information needed to retry a command:
+/// - `command`: The pre-encoded VISCA command bytes
+/// - `priority`: Scheduling priority level
+/// - `category`: Timeout category for calculating timeouts
+/// - `camera_id`: Target camera ID for encoding
+/// - `kind`: Whether this is a Command or Inquiry
+/// - `submitted_at`: When the command was first submitted (for duration-based retry limits)
+type CommandMetadata = (
+    std::sync::Arc<EncodedCommand>,
+    Priority,
+    CommandCategory,
+    crate::camera_id::CameraId,
+    CommandKind,
+    Instant,
+);
 
 /// Retry budget configuration for command categories.
 ///
@@ -152,7 +171,7 @@ pub struct RetryCommand {
     /// Command ID.
     pub id: u32,
     /// The pre-encoded command to retry.
-    pub command: std::sync::Arc<crate::command::encode::EncodedCommand>,
+    pub command: std::sync::Arc<EncodedCommand>,
     /// Command priority.
     pub priority: Priority,
     /// Command category.
@@ -243,7 +262,7 @@ pub struct PendingCommand {
     /// Unique identifier for this command.
     pub id: u32,
     /// The pre-encoded command to send.
-    pub command: std::sync::Arc<crate::command::encode::EncodedCommand>,
+    pub command: std::sync::Arc<EncodedCommand>,
     /// Priority level for scheduling.
     pub priority: Priority,
     /// Category for timeout calculation.
@@ -509,7 +528,7 @@ pub struct SchedulerCore {
     pending_ack: HashMap<
         u32,
         (
-            std::sync::Arc<crate::command::encode::EncodedCommand>,
+            std::sync::Arc<EncodedCommand>,
             Priority,
             CommandCategory,
             Instant,
@@ -520,16 +539,8 @@ pub struct SchedulerCore {
     /// Uses a min-heap ordered by retry_at for efficient deadline-driven scheduling.
     retry_queue: BinaryHeap<RetryKey>,
     /// Store command metadata for potential retry.
-    command_metadata: HashMap<
-        u32,
-        (
-            std::sync::Arc<crate::command::encode::EncodedCommand>,
-            Priority,
-            CommandCategory,
-            crate::camera_id::CameraId,
-            CommandKind,
-        ),
-    >,
+    /// See [`CommandMetadata`] for field documentation.
+    command_metadata: HashMap<u32, CommandMetadata>,
     /// Track retry attempts for commands (command_id -> attempt_count).
     retry_attempts: HashMap<u32, u32>,
     /// Track whether the retry was triggered by a transport error (command_id -> is_transport_error).
@@ -729,7 +740,7 @@ impl SchedulerCore {
     pub fn register_pending_ack(
         &mut self,
         id: u32,
-        command: std::sync::Arc<crate::command::encode::EncodedCommand>,
+        command: std::sync::Arc<EncodedCommand>,
         priority: Priority,
         category: CommandCategory,
         camera_id: crate::camera_id::CameraId,
@@ -738,8 +749,9 @@ impl SchedulerCore {
     ) {
         self.pending_ack
             .insert(id, (command.clone(), priority, category, now, camera_id));
+        // Use `now` as submitted_at since this is the first time the command is registered
         self.command_metadata
-            .insert(id, (command, priority, category, camera_id, kind));
+            .insert(id, (command, priority, category, camera_id, kind, now));
         trace!("Registered command {id} as pending ACK");
     }
 
@@ -1130,13 +1142,14 @@ impl SchedulerCore {
                     }
                     self.finish_sequence(cmd_id);
                     // Extract metadata before removing it
-                    let (category, camera_id) =
-                        if let Some((_, _, cat, cam_id, _)) = self.command_metadata.get(&cmd_id) {
-                            (*cat, *cam_id)
-                        } else {
-                            // Fallback for commands without metadata (shouldn't happen)
-                            (CommandCategory::Quick, crate::camera_id::CameraId::CAMERA_1)
-                        };
+                    let (category, camera_id) = if let Some((_, _, cat, cam_id, _, _)) =
+                        self.command_metadata.get(&cmd_id)
+                    {
+                        (*cat, *cam_id)
+                    } else {
+                        // Fallback for commands without metadata (shouldn't happen)
+                        (CommandCategory::Quick, crate::camera_id::CameraId::CAMERA_1)
+                    };
                     self.command_metadata.remove(&cmd_id);
                     self.retry_attempts.remove(&cmd_id);
                     self.retry_trigger_transport_error.remove(&cmd_id);
@@ -1167,13 +1180,14 @@ impl SchedulerCore {
                     // Clean up sequence mappings
                     self.finish_sequence(cmd_id);
                     // Extract metadata before removing it
-                    let (category, camera_id) =
-                        if let Some((_, _, cat, cam_id, _)) = self.command_metadata.get(&cmd_id) {
-                            (*cat, *cam_id)
-                        } else {
-                            // Fallback for inquiries without metadata
-                            (CommandCategory::Quick, crate::camera_id::CameraId::CAMERA_1)
-                        };
+                    let (category, camera_id) = if let Some((_, _, cat, cam_id, _, _)) =
+                        self.command_metadata.get(&cmd_id)
+                    {
+                        (*cat, *cam_id)
+                    } else {
+                        // Fallback for inquiries without metadata
+                        (CommandCategory::Quick, crate::camera_id::CameraId::CAMERA_1)
+                    };
                     // Remove metadata
                     self.command_metadata.remove(&cmd_id);
                     self.retry_attempts.remove(&cmd_id);
@@ -1236,7 +1250,7 @@ impl SchedulerCore {
                         self.inquiry_response_types.remove(&cmd_id);
                     }
 
-                    let should_retry = self.should_retry_command(cmd_id, &error);
+                    let should_retry = self.should_retry_command(cmd_id, &error, now);
 
                     if should_retry {
                         if let Some(retry_action) = self.queue_retry_for_command(cmd_id, now) {
@@ -1339,21 +1353,25 @@ impl SchedulerCore {
             let _should_remove_type = !self
                 .command_metadata
                 .get(&cmd_id)
-                .map(|(_, _, category, _, _)| {
+                .map(|(_, _, category, _, _, submitted_at)| {
                     let attempts = self.retry_attempts.get(&cmd_id).copied().unwrap_or(0);
                     let max_retries = self.retry_budget.for_category(*category);
-                    attempts < max_retries
+                    let within_duration =
+                        now.duration_since(*submitted_at) < self.retry_config.max_retry_duration;
+                    attempts < max_retries && within_duration
                 })
                 .unwrap_or(false);
 
-            // Check if we should retry
+            // Check if we should retry (budget and duration checks)
             let should_retry = self
                 .command_metadata
                 .get(&cmd_id)
-                .map(|(_, _, category, _, _)| {
+                .map(|(_, _, category, _, _, submitted_at)| {
                     let attempts = self.retry_attempts.get(&cmd_id).copied().unwrap_or(0);
                     let max_retries = self.retry_budget.for_category(*category);
-                    attempts < max_retries
+                    let within_duration =
+                        now.duration_since(*submitted_at) < self.retry_config.max_retry_duration;
+                    attempts < max_retries && within_duration
                 })
                 .unwrap_or(false);
 
@@ -1394,12 +1412,12 @@ impl SchedulerCore {
             if let Some((command, priority, category, _, camera_id)) =
                 self.pending_ack.remove(&cmd_id)
             {
-                // Get the kind from command_metadata
-                let kind = self
+                // Get the kind and submitted_at from command_metadata
+                let (kind, submitted_at) = self
                     .command_metadata
                     .get(&cmd_id)
-                    .map(|(_, _, _, _, k)| *k)
-                    .unwrap_or(CommandKind::Command); // Default to Command if not found
+                    .map(|(_, _, _, _, k, s)| (*k, *s))
+                    .unwrap_or((CommandKind::Command, now)); // Default to Command and now if not found
                 if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
                     eprintln!(
                         "[SchedulerCore] ACK timeout: cmd_id={}, removed from pending_ack (count={})",
@@ -1426,8 +1444,12 @@ impl SchedulerCore {
                 let attempts = self.retry_attempts.get(&cmd_id).copied().unwrap_or(0);
                 let max_retries = self.retry_budget.for_category(category);
 
-                // Determine if we will retry
-                let will_retry = attempts < max_retries;
+                // Check if within max_retry_duration
+                let within_duration =
+                    now.duration_since(submitted_at) < self.retry_config.max_retry_duration;
+
+                // Determine if we will retry (both budget and duration must allow it)
+                let will_retry = attempts < max_retries && within_duration;
 
                 // Always emit a timeout action to notify the adapter
                 actions.push(SchedulerAction::Timeout {
@@ -1457,10 +1479,17 @@ impl SchedulerCore {
                     // Update retry count
                     self.retry_attempts.insert(cmd_id, attempts + 1);
 
-                    // Ensure command metadata is preserved for retry
+                    // Ensure command metadata is preserved for retry (keep original submitted_at)
                     self.command_metadata.insert(
                         cmd_id,
-                        (command.clone(), priority, category, camera_id, kind),
+                        (
+                            command.clone(),
+                            priority,
+                            category,
+                            camera_id,
+                            kind,
+                            submitted_at,
+                        ),
                     );
 
                     // Calculate retry delay using RetryConfig to maintain consistency
@@ -1522,14 +1551,16 @@ impl SchedulerCore {
         for (socket, cmd_id) in timed_out {
             self.free_socket(socket);
 
-            // Check if we should retry
+            // Check if we should retry (budget and duration checks)
             let should_retry = self
                 .command_metadata
                 .get(&cmd_id)
-                .map(|(_, _, category, _, _)| {
+                .map(|(_, _, category, _, _, submitted_at)| {
                     let attempts = self.retry_attempts.get(&cmd_id).copied().unwrap_or(0);
                     let max_retries = self.retry_budget.for_category(*category);
-                    attempts < max_retries
+                    let within_duration =
+                        now.duration_since(*submitted_at) < self.retry_config.max_retry_duration;
+                    attempts < max_retries && within_duration
                 })
                 .unwrap_or(false);
 
@@ -1718,10 +1749,23 @@ impl SchedulerCore {
             state.started_at = Some(now);
             state.category = Some(category);
 
-            // Store metadata for potential retry
+            // Store metadata for potential retry, preserving original submitted_at
+            // If metadata already exists (from register_pending_ack), keep the original timestamp
+            let submitted_at = self
+                .command_metadata
+                .get(&target_id)
+                .map(|(_, _, _, _, _, s)| *s)
+                .unwrap_or(now);
             self.command_metadata.insert(
                 target_id,
-                (bytes, priority, category, camera_id, CommandKind::Command),
+                (
+                    bytes,
+                    priority,
+                    category,
+                    camera_id,
+                    CommandKind::Command,
+                    submitted_at,
+                ),
             );
 
             trace!(
@@ -1741,16 +1785,16 @@ impl SchedulerCore {
     pub fn start_inquiry(
         &mut self,
         id: u32,
-        command: std::sync::Arc<crate::command::encode::EncodedCommand>,
+        command: std::sync::Arc<EncodedCommand>,
         priority: Priority,
         category: CommandCategory,
         camera_id: crate::camera_id::CameraId,
         kind: CommandKind,
         now: Instant,
     ) {
-        // Store metadata for potential retry
+        // Store metadata for potential retry, using now as submitted_at
         self.command_metadata
-            .insert(id, (command, priority, category, camera_id, kind));
+            .insert(id, (command, priority, category, camera_id, kind, now));
 
         // Track the inquiry as in-flight
         self.inquiries_inflight.insert(id, (now, category));
@@ -1796,7 +1840,7 @@ impl SchedulerCore {
     pub fn camera_id_for_command(&self, id: u32) -> Option<crate::camera_id::CameraId> {
         self.command_metadata
             .get(&id)
-            .map(|(_, _, _, camera_id, _)| *camera_id)
+            .map(|(_, _, _, camera_id, _, _)| *camera_id)
     }
 
     pub(crate) fn find_socket_for_command(&self, cmd_id: u32) -> Option<ViscaSocket> {
@@ -1822,12 +1866,14 @@ impl SchedulerCore {
         (state.free, state.command_id, state.category)
     }
 
-    fn should_retry_command(&self, cmd_id: u32, error: &ViscaError) -> bool {
-        if let Some((_, _, category, _, _)) = self.command_metadata.get(&cmd_id) {
+    fn should_retry_command(&self, cmd_id: u32, error: &ViscaError, now: Instant) -> bool {
+        if let Some((_, _, category, _, _, submitted_at)) = self.command_metadata.get(&cmd_id) {
             if error.is_retryable(Some(*category)) {
                 let attempts = self.retry_attempts.get(&cmd_id).copied().unwrap_or(0);
                 let max_retries = self.retry_budget.for_category(*category);
-                attempts < max_retries
+                let within_duration =
+                    now.duration_since(*submitted_at) < self.retry_config.max_retry_duration;
+                attempts < max_retries && within_duration
             } else {
                 false
             }
@@ -1870,7 +1916,7 @@ impl SchedulerCore {
         cmd_id: u32,
         now: Instant,
     ) -> Option<SchedulerAction> {
-        if let Some((command, priority, category, camera_id, kind)) =
+        if let Some((command, priority, category, camera_id, kind, submitted_at)) =
             self.command_metadata.get(&cmd_id).cloned()
         {
             // Free the socket if allocated
@@ -1885,8 +1931,12 @@ impl SchedulerCore {
             // Check if we've exceeded max retries
             let max_retries = self.retry_budget.for_category(category);
 
-            if *attempt > max_retries {
-                // Command has exceeded retries
+            // Check if we've exceeded max_retry_duration
+            let elapsed = now.duration_since(submitted_at);
+            let exceeded_duration = elapsed >= self.retry_config.max_retry_duration;
+
+            if *attempt > max_retries || exceeded_duration {
+                // Command has exceeded retries or duration limit
                 self.finish_sequence(cmd_id);
                 self.command_metadata.remove(&cmd_id);
                 self.retry_attempts.remove(&cmd_id);
@@ -4287,5 +4337,418 @@ mod tests {
         }
         // Confirm the command is still pending
         assert!(core.is_command_pending(99));
+    }
+
+    // =========================================================================
+    // Tests for issue #434: max_retry_duration enforcement in SchedulerCore
+    // =========================================================================
+
+    // Helper to create a simple test command for duration tests
+    fn make_duration_test_cmd(category: CommandCategory) -> Arc<EncodedCommand> {
+        create_test_command(
+            vec![0x81, 0x01, 0x00, VISCA_TERMINATOR],
+            None,
+            category,
+            CameraId::CAMERA_1,
+        )
+    }
+
+    #[test]
+    fn test_max_retry_duration_ack_timeout() {
+        // Test that ACK timeout retries respect max_retry_duration
+        // Use short timeouts for testing
+        let timeout_config = TimeoutConfig::uniform(Duration::from_millis(50));
+        let retry_config = RetryConfig {
+            max_retries: 10, // High retry count to ensure duration is the limiting factor
+            base_retry_delay: Duration::from_millis(10),
+            max_retry_duration: Duration::from_millis(200), // Short duration for testing
+            exponential_backoff: false,
+        };
+        let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+
+        let cmd = make_duration_test_cmd(CommandCategory::Quick);
+        let start = Instant::now();
+
+        // Register a command
+        core.register_pending_ack(
+            1,
+            cmd,
+            Priority::Normal,
+            CommandCategory::Quick,
+            CameraId::CAMERA_1,
+            CommandKind::Command,
+            start,
+        );
+
+        // Simulate ACK timeout at t+60ms (ack_timeout=50ms + 10ms margin, within duration 200ms)
+        let actions = core.check_timeouts(start + Duration::from_millis(60));
+
+        // Should retry because we're within max_retry_duration (200ms)
+        assert!(
+            actions
+                .iter()
+                .any(|a| matches!(a, SchedulerAction::RetryCommand { id: 1, .. })),
+            "Expected retry within max_retry_duration"
+        );
+
+        // Re-register for next retry simulation with the original start time
+        let cmd = make_duration_test_cmd(CommandCategory::Quick);
+        core.register_pending_ack(
+            1,
+            cmd,
+            Priority::Normal,
+            CommandCategory::Quick,
+            CameraId::CAMERA_1,
+            CommandKind::Command,
+            start,
+        );
+
+        // Simulate ACK timeout at t+250ms (exceeds duration of 200ms)
+        let actions = core.check_timeouts(start + Duration::from_millis(250));
+
+        // Should NOT retry because max_retry_duration (200ms) exceeded
+        // Instead, should fail the command
+        let has_retry = actions
+            .iter()
+            .any(|a| matches!(a, SchedulerAction::RetryCommand { id: 1, .. }));
+        let has_timeout_no_retry = actions.iter().any(|a| {
+            matches!(
+                a,
+                SchedulerAction::Timeout {
+                    id: 1,
+                    will_retry: false,
+                    ..
+                }
+            )
+        });
+        let has_failed = actions
+            .iter()
+            .any(|a| matches!(a, SchedulerAction::CommandFailed { id: 1, .. }));
+
+        assert!(
+            !has_retry || has_timeout_no_retry || has_failed,
+            "Expected no retry or failure after max_retry_duration exceeded, got: {:?}",
+            actions
+        );
+    }
+
+    #[test]
+    fn test_max_retry_duration_inquiry_timeout() {
+        // Test that inquiry timeout retries respect max_retry_duration
+        // Use short timeouts for testing
+        let timeout_config = TimeoutConfig::uniform(Duration::from_millis(50));
+        let retry_config = RetryConfig {
+            max_retries: 10,
+            base_retry_delay: Duration::from_millis(10),
+            max_retry_duration: Duration::from_millis(200),
+            exponential_backoff: false,
+        };
+        let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+
+        let cmd = make_duration_test_cmd(CommandCategory::Quick);
+        let start = Instant::now();
+
+        // Start an inquiry
+        core.start_inquiry(
+            1,
+            cmd,
+            Priority::Normal,
+            CommandCategory::Quick,
+            CameraId::CAMERA_1,
+            CommandKind::Inquiry,
+            start,
+        );
+
+        // Check timeout at t+60ms (quick_timeout=50ms + 10ms margin, within duration 200ms)
+        let actions = core.check_timeouts(start + Duration::from_millis(60));
+
+        // Should have retry action within duration
+        let has_retry = actions
+            .iter()
+            .any(|a| matches!(a, SchedulerAction::RetryCommand { id: 1, .. }));
+        assert!(
+            has_retry,
+            "Expected retry within max_retry_duration for inquiry"
+        );
+    }
+
+    #[test]
+    fn test_max_retry_duration_queue_retry_for_command() {
+        // Test that queue_retry_for_command respects max_retry_duration
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = RetryConfig {
+            max_retries: 10,
+            base_retry_delay: Duration::from_millis(10),
+            max_retry_duration: Duration::from_millis(100),
+            exponential_backoff: false,
+        };
+        let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+
+        let cmd = make_duration_test_cmd(CommandCategory::Quick);
+        let start = Instant::now();
+
+        // Register a command
+        core.register_pending_ack(
+            1,
+            cmd,
+            Priority::Normal,
+            CommandCategory::Quick,
+            CameraId::CAMERA_1,
+            CommandKind::Command,
+            start,
+        );
+
+        // Queue retry within duration - should succeed
+        let action = core.queue_retry_for_command(1, start + Duration::from_millis(50));
+        assert!(
+            matches!(action, Some(SchedulerAction::RetryCommand { id: 1, .. })),
+            "Expected retry command within duration"
+        );
+
+        // Clear retry state for next test
+        core.retry_attempts.remove(&1);
+
+        // Queue retry after duration exceeded - should fail
+        let action = core.queue_retry_for_command(1, start + Duration::from_millis(150));
+        assert!(
+            matches!(
+                action,
+                Some(SchedulerAction::CommandFailed {
+                    id: 1,
+                    error: Error::Timeout
+                })
+            ),
+            "Expected failure after duration exceeded"
+        );
+    }
+
+    #[test]
+    fn test_max_retry_duration_should_retry_command() {
+        // Test that should_retry_command respects max_retry_duration
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = RetryConfig {
+            max_retries: 10,
+            base_retry_delay: Duration::from_millis(10),
+            max_retry_duration: Duration::from_millis(100),
+            exponential_backoff: false,
+        };
+        let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+
+        let cmd = make_duration_test_cmd(CommandCategory::Movement);
+        let start = Instant::now();
+
+        // Register a command
+        core.register_pending_ack(
+            1,
+            cmd,
+            Priority::Normal,
+            CommandCategory::Movement,
+            CameraId::CAMERA_1,
+            CommandKind::Command,
+            start,
+        );
+
+        // Create a retryable error (0x41 = CommandNotExecutable, retryable for Movement)
+        let error = ViscaError::from_byte(0x41);
+
+        // Should retry within duration
+        assert!(
+            core.should_retry_command(1, &error, start + Duration::from_millis(50)),
+            "Expected should_retry_command=true within duration"
+        );
+
+        // Should NOT retry after duration exceeded
+        assert!(
+            !core.should_retry_command(1, &error, start + Duration::from_millis(150)),
+            "Expected should_retry_command=false after duration exceeded"
+        );
+    }
+
+    #[test]
+    fn test_max_retry_duration_socket_timeout() {
+        // Test that socket timeout retries respect max_retry_duration
+        // Use short timeouts for testing
+        let timeout_config = TimeoutConfig::uniform(Duration::from_millis(50));
+        let retry_config = RetryConfig {
+            max_retries: 10,
+            base_retry_delay: Duration::from_millis(10),
+            max_retry_duration: Duration::from_millis(200),
+            exponential_backoff: false,
+        };
+        let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+
+        let cmd = make_duration_test_cmd(CommandCategory::Quick);
+        let start = Instant::now();
+
+        // Register and assign to socket
+        core.register_pending_ack(
+            1,
+            cmd.clone(),
+            Priority::Normal,
+            CommandCategory::Quick,
+            CameraId::CAMERA_1,
+            CommandKind::Command,
+            start,
+        );
+
+        // Simulate ACK received, assign to socket
+        core.handle_ack_with_id(Some(ViscaSocket::S1), Some(1), start);
+
+        // Check socket timeout at t+60ms (quick_timeout=50ms + 10ms margin, within duration 200ms)
+        let actions = core.check_timeouts(start + Duration::from_millis(60));
+
+        // Should have retry action
+        let has_retry = actions
+            .iter()
+            .any(|a| matches!(a, SchedulerAction::RetryCommand { id: 1, .. }));
+        assert!(
+            has_retry,
+            "Expected retry for socket timeout within duration"
+        );
+    }
+
+    #[test]
+    fn test_max_retry_duration_preserved_across_retries() {
+        // Test that submitted_at is preserved when metadata is re-inserted during retries
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = RetryConfig {
+            max_retries: 10,
+            base_retry_delay: Duration::from_millis(10),
+            max_retry_duration: Duration::from_millis(500),
+            exponential_backoff: false,
+        };
+        let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+
+        let cmd = make_duration_test_cmd(CommandCategory::Quick);
+        let start = Instant::now();
+
+        // Register initial command
+        core.register_pending_ack(
+            1,
+            cmd.clone(),
+            Priority::Normal,
+            CommandCategory::Quick,
+            CameraId::CAMERA_1,
+            CommandKind::Command,
+            start,
+        );
+
+        // Get the initial submitted_at
+        let initial_submitted_at = core.command_metadata.get(&1).map(|(_, _, _, _, _, s)| *s);
+        assert!(initial_submitted_at.is_some());
+
+        // Simulate ACK received and socket assignment
+        core.handle_ack_with_id(
+            Some(ViscaSocket::S1),
+            Some(1),
+            start + Duration::from_millis(50),
+        );
+
+        // Verify submitted_at is preserved after socket assignment
+        let after_ack_submitted_at = core.command_metadata.get(&1).map(|(_, _, _, _, _, s)| *s);
+        assert_eq!(
+            initial_submitted_at, after_ack_submitted_at,
+            "submitted_at should be preserved after ACK"
+        );
+
+        // Queue a retry
+        core.queue_retry_for_command(1, start + Duration::from_millis(100));
+
+        // The command should still be trackable with original submitted_at
+        // Note: After retry, the command may be in retry_queue not command_metadata
+        // But if it's still in command_metadata, the timestamp should match
+        if let Some((_, _, _, _, _, submitted_at)) = core.command_metadata.get(&1) {
+            assert_eq!(
+                *submitted_at,
+                initial_submitted_at.unwrap(),
+                "submitted_at should be preserved across retries"
+            );
+        }
+    }
+
+    #[test]
+    fn test_max_retry_duration_with_high_retry_budget() {
+        // Ensure that even with high retry budget, duration limit is enforced
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = RetryConfig {
+            max_retries: 100, // Very high retry count
+            base_retry_delay: Duration::from_millis(1),
+            max_retry_duration: Duration::from_millis(50), // Very short duration
+            exponential_backoff: false,
+        };
+        let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+
+        let cmd = make_duration_test_cmd(CommandCategory::Quick);
+        let start = Instant::now();
+
+        core.register_pending_ack(
+            1,
+            cmd,
+            Priority::Normal,
+            CommandCategory::Quick,
+            CameraId::CAMERA_1,
+            CommandKind::Command,
+            start,
+        );
+
+        // Even with 100 max_retries, should fail after 50ms duration
+        let action = core.queue_retry_for_command(1, start + Duration::from_millis(60));
+
+        assert!(
+            matches!(
+                action,
+                Some(SchedulerAction::CommandFailed {
+                    id: 1,
+                    error: Error::Timeout
+                })
+            ),
+            "Duration limit should override high retry budget"
+        );
+    }
+
+    #[test]
+    fn test_retry_config_should_retry_method_parity() {
+        // Verify that our implementation matches RetryConfig::should_retry semantics
+        let config = RetryConfig {
+            max_retries: 3,
+            base_retry_delay: Duration::from_millis(100),
+            max_retry_duration: Duration::from_millis(500),
+            exponential_backoff: true,
+        };
+
+        let start = Instant::now();
+
+        // Test RetryConfig::should_retry directly
+        assert!(config.should_retry(0, start), "Attempt 0 should retry");
+        assert!(config.should_retry(1, start), "Attempt 1 should retry");
+        assert!(config.should_retry(2, start), "Attempt 2 should retry");
+        assert!(
+            !config.should_retry(3, start),
+            "Attempt 3 should NOT retry (max reached)"
+        );
+
+        // Verify SchedulerCore enforces the same semantics
+        let timeout_config = TimeoutConfig::default();
+        let mut core = SchedulerCore::with_retry_config(timeout_config, config);
+
+        let cmd = make_duration_test_cmd(CommandCategory::Movement);
+        core.register_pending_ack(
+            1,
+            cmd,
+            Priority::Normal,
+            CommandCategory::Movement,
+            CameraId::CAMERA_1,
+            CommandKind::Command,
+            start,
+        );
+
+        let error = ViscaError::from_byte(0x41); // Retryable for Movement
+
+        // Note: SchedulerCore uses category-based budgets which differ from raw max_retries
+        // Movement category uses base max_retries (3), so behavior should align
+        assert!(
+            core.should_retry_command(1, &error, start),
+            "SchedulerCore should align with RetryConfig at start"
+        );
     }
 }
