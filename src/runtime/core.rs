@@ -677,20 +677,51 @@ impl SchedulerCore {
 
     /// Get the next item to send (inquiry or command).
     ///
-    /// Inquiries bypass the two-socket gate and are returned immediately if available
-    /// and under the inquiry limit. Commands are only returned if sockets are available.
+    /// Selects the highest-priority item across both queues, respecting capacity limits:
+    /// - Inquiries bypass socket allocation but respect max_inquiries_inflight
+    /// - Commands require socket capacity (2-socket limit)
+    ///
+    /// When priorities are equal, inquiries are preferred for backwards compatibility
+    /// (they're typically faster and don't hold sockets).
+    ///
+    /// # Priority-Aware Selection
+    ///
+    /// This method prevents command starvation by comparing priorities across queues.
+    /// A High-priority command will be selected over a Normal-priority inquiry,
+    /// ensuring user-initiated actions (preset save, etc.) aren't blocked by background
+    /// polling inquiries.
     pub fn next_item_to_send(&mut self) -> Option<PendingCommand> {
-        // First check for inquiries - they don't need socket allocation
-        if !self.inquiry_queue.is_empty() && self.can_send_inquiry() {
-            return self.inquiry_queue.pop();
-        }
+        // Check what's available in each queue
+        let inquiry_available = !self.inquiry_queue.is_empty() && self.can_send_inquiry();
+        let command_available = self.can_send_command() && !self.command_queue.is_empty();
 
-        // Then check for commands if we have socket capacity
-        if self.can_send_command() && !self.command_queue.is_empty() {
-            return self.command_queue.pop();
-        }
+        match (inquiry_available, command_available) {
+            (false, false) => None,
+            (true, false) => self.inquiry_queue.pop(),
+            (false, true) => self.command_queue.pop(),
+            (true, true) => {
+                // Both queues have items - compare priorities
+                // peek() is safe here because we already checked is_empty()
+                let inquiry_priority = self
+                    .inquiry_queue
+                    .peek()
+                    .map(|c| c.priority)
+                    .unwrap_or(Priority::Low);
+                let command_priority = self
+                    .command_queue
+                    .peek()
+                    .map(|c| c.priority)
+                    .unwrap_or(Priority::Low);
 
-        None
+                // If command has strictly higher priority, prefer it
+                // Otherwise (equal or lower), prefer inquiry for backwards compatibility
+                if command_priority > inquiry_priority {
+                    self.command_queue.pop()
+                } else {
+                    self.inquiry_queue.pop()
+                }
+            }
+        }
     }
 
     /// Register that a command was sent and is pending ACK.
@@ -3939,7 +3970,9 @@ mod tests {
 
     #[test]
     fn test_mixed_priority_queue_ordering() {
-        // Test that priority works correctly across both queues
+        // Test that priority-aware selection works correctly across both queues.
+        // Higher priority commands should preempt lower priority inquiries,
+        // preventing command starvation from background polling.
         let mut core = SchedulerCore::new(TimeoutConfig::default());
         let now = Instant::now();
 
@@ -3997,25 +4030,137 @@ mod tests {
             kind: CommandKind::Inquiry,
         });
 
-        // High priority inquiry should come first
+        // Critical priority command should come first (Critical > High > Normal > Low)
         let item1 = core.next_item_to_send().unwrap();
-        assert_eq!(item1.id, 2);
-        assert_eq!(item1.priority, Priority::High);
+        assert_eq!(item1.id, 3);
+        assert_eq!(item1.priority, Priority::Critical);
 
-        // Normal priority inquiry next (inquiries not gated by sockets)
+        // High priority inquiry second (preempts Normal priority inquiry)
         let item2 = core.next_item_to_send().unwrap();
-        assert_eq!(item2.id, 4);
-        assert_eq!(item2.priority, Priority::Normal);
+        assert_eq!(item2.id, 2);
+        assert_eq!(item2.priority, Priority::High);
 
-        // Critical priority command
+        // Normal priority inquiry (no higher priority items remaining)
         let item3 = core.next_item_to_send().unwrap();
-        assert_eq!(item3.id, 3);
-        assert_eq!(item3.priority, Priority::Critical);
+        assert_eq!(item3.id, 4);
+        assert_eq!(item3.priority, Priority::Normal);
 
         // Low priority command last
         let item4 = core.next_item_to_send().unwrap();
         assert_eq!(item4.id, 1);
         assert_eq!(item4.priority, Priority::Low);
+    }
+
+    #[test]
+    fn test_high_priority_command_not_starved_by_normal_inquiries() {
+        // Regression test for command starvation issue (GitHub issue #381):
+        // When background polling generates many Normal-priority inquiries,
+        // a High-priority command (like preset save) should not be blocked.
+        let mut core = SchedulerCore::new(TimeoutConfig::default());
+        let now = Instant::now();
+
+        let command = Arc::new(EncodedCommand {
+            payload: SmallVec::from_slice(&[0x01, 0x04, 0x3F, 0x01, 0x05, VISCA_TERMINATOR]),
+            kind: CommandKind::Command,
+            category: CommandCategory::Preset,
+            response_type: None,
+        });
+        let inquiry = Arc::new(EncodedCommand {
+            payload: SmallVec::from_slice(&[0x01, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
+            kind: CommandKind::Inquiry,
+            category: CommandCategory::Quick,
+            response_type: Some(InquiryKind::ZoomPosition),
+        });
+
+        // Simulate a burst of Normal-priority polling inquiries (typical background load)
+        for i in 1..=10 {
+            core.queue_command(PendingCommand {
+                id: i,
+                command: inquiry.clone(),
+                priority: Priority::Normal,
+                category: CommandCategory::Quick,
+                camera_id: CameraId::CAMERA_1,
+                submitted_at: now,
+                kind: CommandKind::Inquiry,
+            });
+        }
+
+        // High-priority preset save command arrives (user action)
+        core.queue_command(PendingCommand {
+            id: 100,
+            command: command.clone(),
+            priority: Priority::High,
+            category: CommandCategory::Preset,
+            camera_id: CameraId::CAMERA_1,
+            submitted_at: now,
+            kind: CommandKind::Command,
+        });
+
+        // The High-priority command should be returned BEFORE the Normal-priority inquiries
+        // This prevents command starvation from background polling
+        let item = core.next_item_to_send().unwrap();
+        assert_eq!(
+            item.id, 100,
+            "High-priority command should not be starved by Normal-priority inquiries"
+        );
+        assert_eq!(item.priority, Priority::High);
+        assert_eq!(item.kind, CommandKind::Command);
+
+        // Subsequent calls should return the Normal-priority inquiries
+        let item2 = core.next_item_to_send().unwrap();
+        assert_eq!(item2.priority, Priority::Normal);
+        assert_eq!(item2.kind, CommandKind::Inquiry);
+    }
+
+    #[test]
+    fn test_equal_priority_prefers_inquiry_for_backwards_compat() {
+        // When command and inquiry have equal priority, prefer inquiry for backwards
+        // compatibility (inquiries don't hold sockets and are typically faster).
+        let mut core = SchedulerCore::new(TimeoutConfig::default());
+        let now = Instant::now();
+
+        let command = Arc::new(EncodedCommand {
+            payload: SmallVec::from_slice(&[0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]),
+            kind: CommandKind::Command,
+            category: CommandCategory::Movement,
+            response_type: None,
+        });
+        let inquiry = Arc::new(EncodedCommand {
+            payload: SmallVec::from_slice(&[0x01, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
+            kind: CommandKind::Inquiry,
+            category: CommandCategory::Quick,
+            response_type: Some(InquiryKind::ZoomPosition),
+        });
+
+        // Queue command first, then inquiry (both Normal priority)
+        core.queue_command(PendingCommand {
+            id: 1,
+            command: command.clone(),
+            priority: Priority::Normal,
+            category: CommandCategory::Movement,
+            camera_id: CameraId::CAMERA_1,
+            submitted_at: now,
+            kind: CommandKind::Command,
+        });
+        core.queue_command(PendingCommand {
+            id: 2,
+            command: inquiry.clone(),
+            priority: Priority::Normal,
+            category: CommandCategory::Quick,
+            camera_id: CameraId::CAMERA_1,
+            submitted_at: now,
+            kind: CommandKind::Inquiry,
+        });
+
+        // Inquiry should be preferred at equal priority
+        let item = core.next_item_to_send().unwrap();
+        assert_eq!(item.id, 2, "Inquiry should be preferred at equal priority");
+        assert_eq!(item.kind, CommandKind::Inquiry);
+
+        // Then the command
+        let item2 = core.next_item_to_send().unwrap();
+        assert_eq!(item2.id, 1);
+        assert_eq!(item2.kind, CommandKind::Command);
     }
 
     #[test]

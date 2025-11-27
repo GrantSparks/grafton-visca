@@ -118,6 +118,11 @@ where
 ///
 /// # Returns
 /// The result of the operation, or the last error if all retries are exhausted
+///
+/// # Clock-Agnostic Design
+///
+/// This function uses `executor.now()` for all time measurements, ensuring
+/// compatibility with deterministic executors that use virtual time.
 #[cfg(feature = "mode-async")]
 pub async fn execute_with_retry_async<E, T, F, Fut>(
     executor: &E,
@@ -129,7 +134,7 @@ where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<T, Error>>,
 {
-    let start_time = Instant::now();
+    let start_time = executor.now();
     let mut attempts = 0;
 
     loop {
@@ -148,7 +153,9 @@ where
                     return Err(error);
                 }
 
-                if start_time.elapsed() >= config.max_retry_duration {
+                let now = executor.now();
+                let elapsed = now.saturating_duration_since(start_time);
+                if elapsed >= config.max_retry_duration {
                     return Err(error);
                 }
 
@@ -383,6 +390,12 @@ where
 ///
 /// # Returns
 /// The result of the operation, or the last error if all retries are exhausted
+///
+/// # Clock-Agnostic Design
+///
+/// This function uses `executor.now()` for creating deadlines and all time
+/// measurements, ensuring compatibility with deterministic executors that use
+/// virtual time.
 #[cfg(feature = "mode-async")]
 pub async fn execute_command_with_retry_async<E, C, T, F, Fut>(
     executor: &E,
@@ -398,7 +411,8 @@ where
     Fut: Future<Output = Result<T, Error>>,
 {
     let timeout_class = command.timeout_class();
-    let deadline = timeout_policy.deadline_for(timeout_class);
+    let now = executor.now();
+    let deadline = timeout_policy.deadline_for_at(now, timeout_class);
 
     execute_with_deadline_retry_async(executor, deadline, retry_config, operation).await
 }
@@ -416,6 +430,13 @@ where
 ///
 /// # Returns
 /// The result of the operation, or the last error if all retries are exhausted
+///
+/// # Clock-Agnostic Design
+///
+/// This function uses `executor.now()` for all time measurements and uses
+/// `deadline.is_expired_at()` / `deadline.remaining_at()` to check deadline
+/// status, ensuring compatibility with deterministic executors that use
+/// virtual time.
 #[cfg(feature = "mode-async")]
 pub async fn execute_with_deadline_retry_async<E, T, F, Fut>(
     executor: &E,
@@ -428,12 +449,13 @@ where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<T, Error>>,
 {
-    let start_time = Instant::now();
+    let start_time = executor.now();
     let mut attempts = 0;
 
     loop {
         // Check if we've exceeded the overall deadline
-        if deadline.is_expired() {
+        let now = executor.now();
+        if deadline.is_expired_at(now) {
             return Err(Error::Timeout);
         }
 
@@ -452,14 +474,15 @@ where
                     return Err(error);
                 }
 
-                if deadline.is_expired() || start_time.elapsed() >= retry_config.max_retry_duration
-                {
+                let now = executor.now();
+                let elapsed = now.saturating_duration_since(start_time);
+                if deadline.is_expired_at(now) || elapsed >= retry_config.max_retry_duration {
                     return Err(error);
                 }
 
                 let retry_delay =
                     retry_config.calculate_delay(retries_done, error.suggested_retry_delay());
-                let remaining_time = deadline.remaining();
+                let remaining_time = deadline.remaining_at(now);
                 let actual_delay = retry_delay.min(remaining_time);
 
                 if actual_delay.is_zero() {

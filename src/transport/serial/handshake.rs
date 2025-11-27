@@ -199,6 +199,11 @@ pub mod async_handshake {
     }
 
     /// Receive and parse Address Set response using executor-driven timeout.
+    ///
+    /// # Clock-Agnostic Design
+    ///
+    /// This function uses `exec.now()` for all time measurements, ensuring
+    /// compatibility with deterministic executors that use virtual time.
     async fn recv_address_set_response_async<E, S>(
         exec: &E,
         stream: &mut S,
@@ -211,10 +216,10 @@ pub mod async_handshake {
         // Use ProtocolFramer for robust frame handling
         let mut framer = ProtocolFramer::new_with_config(BufferConfig::for_serial());
         let mut response_buffer = BytesMut::with_capacity(128);
-        let start = std::time::Instant::now();
+        let start = exec.now();
 
-        // Simple timeout loop without nested executor timeouts
-        while start.elapsed() < timeout_duration {
+        // Simple timeout loop without nested executor timeouts - uses executor time
+        while exec.now().saturating_duration_since(start) < timeout_duration {
             let mut temp_buf = vec![0u8; 64];
             match stream.read(&mut temp_buf).await {
                 Ok(n) if n > 0 => {

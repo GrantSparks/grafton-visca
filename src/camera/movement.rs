@@ -5,7 +5,7 @@
 //! querying when needed. It includes utilities for position comparison,
 //! movement configuration, and both event-driven and state-based detection.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use super::Camera;
 use crate::{
@@ -16,6 +16,9 @@ use crate::{
 
 #[cfg(feature = "mode-async")]
 use crate::{executor::Executor, transport::AsyncTransport};
+
+#[cfg(not(feature = "mode-async"))]
+use std::time::Instant;
 
 #[cfg(not(feature = "mode-async"))]
 use crate::{mode::BlockingFutureExt, transport::BlockingTransport};
@@ -527,10 +530,16 @@ where
 
     /// Wait for movement using state querying (async fallback method).
     async fn wait_using_state_query_async(&self, config: &MovementConfig) -> Result<(), Error> {
-        let start = Instant::now();
+        let start = self.runtime().executor().now();
 
         loop {
-            if start.elapsed() > config.timeout {
+            if self
+                .runtime()
+                .executor()
+                .now()
+                .saturating_duration_since(start)
+                > config.timeout
+            {
                 if config.debug {
                     tracing::debug!("Movement detection timed out");
                 }
@@ -557,7 +566,7 @@ where
             debug: false,
         };
 
-        let start = Instant::now();
+        let start = self.runtime().executor().now();
         if config.debug {
             tracing::debug!(
                 "Waiting for pan/tilt movement to complete (timeout: {:?})",
@@ -571,7 +580,13 @@ where
         let max_interval = Duration::from_millis(500);
 
         loop {
-            if start.elapsed() > config.timeout {
+            if self
+                .runtime()
+                .executor()
+                .now()
+                .saturating_duration_since(start)
+                > config.timeout
+            {
                 return Err(Error::Timeout);
             }
 
@@ -620,7 +635,7 @@ where
             debug: false,
         };
 
-        let start = Instant::now();
+        let start = self.runtime().executor().now();
         if config.debug {
             tracing::debug!(
                 "Waiting for zoom movement to complete (timeout: {:?})",
@@ -628,7 +643,13 @@ where
             );
         }
         loop {
-            if start.elapsed() > config.timeout {
+            if self
+                .runtime()
+                .executor()
+                .now()
+                .saturating_duration_since(start)
+                > config.timeout
+            {
                 return Err(Error::Timeout);
             }
 
@@ -665,7 +686,7 @@ where
             debug: false,
         };
 
-        let start = Instant::now();
+        let start = self.runtime().executor().now();
         if config.debug {
             tracing::debug!(
                 "Waiting for focus movement to complete (timeout: {:?})",
@@ -673,7 +694,13 @@ where
             );
         }
         loop {
-            if start.elapsed() > config.timeout {
+            if self
+                .runtime()
+                .executor()
+                .now()
+                .saturating_duration_since(start)
+                > config.timeout
+            {
                 return Err(Error::Timeout);
             }
 
@@ -739,9 +766,15 @@ where
             tracing::debug!("Using state-query movement detection (fallback mode)");
         }
 
-        let start = Instant::now();
+        let start = self.runtime().executor().now();
 
-        while start.elapsed() < config.timeout {
+        while self
+            .runtime()
+            .executor()
+            .now()
+            .saturating_duration_since(start)
+            < config.timeout
+        {
             let moving = self.is_moving_async().await?;
             if !moving {
                 return Ok(());
@@ -762,11 +795,17 @@ where
             Err(_) => return Err(Error::NotSupported),
         };
 
-        let start = Instant::now();
+        let start = self.runtime().executor().now();
         let mut seen_movement_completion = false;
         let mut seen_preset_completion = false;
 
-        while start.elapsed() < config.timeout {
+        while self
+            .runtime()
+            .executor()
+            .now()
+            .saturating_duration_since(start)
+            < config.timeout
+        {
             match completion_rx.try_recv() {
                 Ok(event) => {
                     if event.camera_id != self.camera_id() {

@@ -556,6 +556,14 @@ where
 ///
 /// Provides a consistent way to calculate and check deadlines across
 /// different operation types in the library.
+///
+/// # Clock-Agnostic Design
+///
+/// This type supports both wall-clock and executor-driven time sources.
+/// In async code, prefer the `*_at` variants that accept an explicit `now`
+/// parameter to ensure compatibility with deterministic executors that use
+/// virtual time. The parameterless methods are provided for convenience in
+/// blocking code where wall-clock time is appropriate.
 #[derive(Debug, Clone, Copy)]
 pub struct Deadline {
     /// The point in time when the operation should timeout.
@@ -565,10 +573,31 @@ pub struct Deadline {
 }
 
 impl Deadline {
-    /// Create a new deadline from a timeout duration.
+    /// Create a new deadline from a timeout duration using wall-clock time.
+    ///
+    /// # Note
+    ///
+    /// This method uses `Instant::now()` internally. For async code that needs
+    /// to work with deterministic executors, prefer [`Deadline::from_timeout_at`].
     #[must_use]
     pub fn from_timeout(timeout: Duration) -> Self {
-        let deadline = Instant::now() + timeout;
+        Self::from_timeout_at(Instant::now(), timeout)
+    }
+
+    /// Create a new deadline from a timeout duration at a specific instant.
+    ///
+    /// This is the clock-agnostic constructor that should be used in async code.
+    /// The `now` parameter should come from `Executor::now()` to ensure
+    /// compatibility with deterministic executors.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let deadline = Deadline::from_timeout_at(executor.now(), Duration::from_secs(5));
+    /// ```
+    #[must_use]
+    pub fn from_timeout_at(now: Instant, timeout: Duration) -> Self {
+        let deadline = now + timeout;
         Self { deadline, timeout }
     }
 
@@ -578,22 +607,67 @@ impl Deadline {
         Self { deadline, timeout }
     }
 
-    /// Check if the deadline has been exceeded.
+    /// Check if the deadline has been exceeded using wall-clock time.
+    ///
+    /// # Note
+    ///
+    /// This method uses `Instant::now()` internally. For async code that needs
+    /// to work with deterministic executors, prefer [`Deadline::is_expired_at`].
     #[must_use]
     pub fn is_expired(&self) -> bool {
-        Instant::now() > self.deadline
+        self.is_expired_at(Instant::now())
     }
 
-    /// Get the remaining time until the deadline.
+    /// Check if the deadline has been exceeded at a specific instant.
+    ///
+    /// This is the clock-agnostic version that should be used in async code.
+    /// The `now` parameter should come from `Executor::now()` to ensure
+    /// compatibility with deterministic executors.
+    #[must_use]
+    pub fn is_expired_at(&self, now: Instant) -> bool {
+        now > self.deadline
+    }
+
+    /// Get the remaining time until the deadline using wall-clock time.
+    ///
+    /// # Note
+    ///
+    /// This method uses `Instant::now()` internally. For async code that needs
+    /// to work with deterministic executors, prefer [`Deadline::remaining_at`].
     #[must_use]
     pub fn remaining(&self) -> Duration {
-        self.deadline.saturating_duration_since(Instant::now())
+        self.remaining_at(Instant::now())
     }
 
-    /// Get the elapsed time since the deadline was created.
+    /// Get the remaining time until the deadline at a specific instant.
+    ///
+    /// This is the clock-agnostic version that should be used in async code.
+    /// The `now` parameter should come from `Executor::now()` to ensure
+    /// compatibility with deterministic executors.
+    #[must_use]
+    pub fn remaining_at(&self, now: Instant) -> Duration {
+        self.deadline.saturating_duration_since(now)
+    }
+
+    /// Get the elapsed time since the deadline was created using wall-clock time.
+    ///
+    /// # Note
+    ///
+    /// This method uses `Instant::now()` internally. For async code that needs
+    /// to work with deterministic executors, prefer [`Deadline::elapsed_at`].
     #[must_use]
     pub fn elapsed(&self) -> Duration {
-        self.timeout.saturating_sub(self.remaining())
+        self.elapsed_at(Instant::now())
+    }
+
+    /// Get the elapsed time since the deadline was created at a specific instant.
+    ///
+    /// This is the clock-agnostic version that should be used in async code.
+    /// The `now` parameter should come from `Executor::now()` to ensure
+    /// compatibility with deterministic executors.
+    #[must_use]
+    pub fn elapsed_at(&self, now: Instant) -> Duration {
+        self.timeout.saturating_sub(self.remaining_at(now))
     }
 }
 
@@ -626,6 +700,13 @@ where
 ///
 /// This provides a runtime-configurable way to adjust timeout behavior
 /// across different command categories.
+///
+/// # Clock-Agnostic Design
+///
+/// This type supports both wall-clock and executor-driven time sources.
+/// In async code, prefer [`TimeoutPolicy::deadline_for_at`] which accepts
+/// an explicit `now` parameter to ensure compatibility with deterministic
+/// executors that use virtual time.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct TimeoutPolicy {
     config: TimeoutConfig,
@@ -644,10 +725,31 @@ impl TimeoutPolicy {
         self.config.get_timeout(class)
     }
 
-    /// Create a deadline for a specific timeout class.
+    /// Create a deadline for a specific timeout class using wall-clock time.
+    ///
+    /// # Note
+    ///
+    /// This method uses `Instant::now()` internally. For async code that needs
+    /// to work with deterministic executors, prefer [`TimeoutPolicy::deadline_for_at`].
     #[must_use]
     pub fn deadline_for(&self, class: CommandCategory) -> Deadline {
         Deadline::from_timeout(self.get_timeout(class))
+    }
+
+    /// Create a deadline for a specific timeout class at a specific instant.
+    ///
+    /// This is the clock-agnostic version that should be used in async code.
+    /// The `now` parameter should come from `Executor::now()` to ensure
+    /// compatibility with deterministic executors.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let deadline = timeout_policy.deadline_for_at(executor.now(), CommandCategory::Quick);
+    /// ```
+    #[must_use]
+    pub fn deadline_for_at(&self, now: Instant, class: CommandCategory) -> Deadline {
+        Deadline::from_timeout_at(now, self.get_timeout(class))
     }
 
     /// Update the timeout configuration.

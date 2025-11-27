@@ -235,12 +235,15 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                     self.core.register_inquiry_type(id, rt);
                 }
 
-                // Queue inquiry in core (same as commands but with Quick priority)
+                // Queue inquiry in core with Low priority.
+                // Inquiries are typically used for polling/status checks, so they should
+                // not block user-initiated commands. This prevents command starvation when
+                // polling generates many inquiries that timeout/retry (GitHub issue #381).
                 let now = self.executor.now();
                 let pending_cmd = PendingCommand {
                     id,
                     command,
-                    priority: Priority::Normal,
+                    priority: Priority::Low,
                     category,
                     camera_id,
                     submitted_at: now,
@@ -444,7 +447,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                     let event = CompletionEvent {
                         camera_id,
                         category,
-                        when: Instant::now(),
+                        when: self.executor.now(),
                     };
 
                     // Remove any disconnected subscribers while broadcasting
